@@ -6,7 +6,7 @@ set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
 project(zig C)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
-set(ZIG_VERSION_MAJOR 1)
+set(ZIG_VERSION_MAJOR 0)
 set(ZIG_VERSION_MINOR 0)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
@@ -14,6 +14,11 @@ message("Configuring zig version ${ZIG_VERSION}")
 
 find_package(llvm)
 include_directories(${LLVM_INCLUDE_DIR})
+
+include_directories(
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_BINARY_DIR}
+)
 
 set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/main.c"
