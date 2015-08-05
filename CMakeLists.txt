@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 2.8)
 set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
     "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
 
-project(zig C)
+project(zig C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
 set(ZIG_VERSION_MAJOR 0)
@@ -21,7 +21,8 @@ include_directories(
 )
 
 set(ZIG_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/main.c"
+    "${CMAKE_SOURCE_DIR}/src/main.cpp"
+    "${CMAKE_SOURCE_DIR}/src/util.cpp"
 )
 
 set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")
@@ -30,10 +31,13 @@ configure_file (
     ${CONFIGURE_OUT_FILE}
 )
 
+# GTFO, -lstdc++ !!
+set(CMAKE_CXX_IMPLICIT_LINK_LIBRARIES "")
+set(CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES "")
+
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -Wno-unused-variable -Wno-unused-but-set-variable")
 
-set(EXE_CFLAGS "-std=c11 -Werror -Wall -Werror=strict-prototypes -Werror=old-style-definition -Werror=missing-prototypes")
-set(TEST_CFLAGS "-std=c99 -Werror -Wall")
+set(EXE_CFLAGS "-std=c++11 -Werror -Wall -Werror=strict-prototypes -Werror=old-style-definition -Werror=missing-prototypes")
 
 
 add_executable(zig ${ZIG_SOURCES})
