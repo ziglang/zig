@@ -1,0 +1,41 @@
+cmake_minimum_required(VERSION 2.8)
+
+set(CMAKE_BUILD_TYPE "Debug" CACHE STRING
+    "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel." FORCE)
+
+project(zig C)
+set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
+
+set(ZIG_VERSION_MAJOR 1)
+set(ZIG_VERSION_MINOR 0)
+set(ZIG_VERSION_PATCH 0)
+set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
+message("Configuring zig version ${ZIG_VERSION}")
+
+find_package(llvm)
+include_directories(${LLVM_INCLUDE_DIR})
+
+set(ZIG_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/main.c"
+)
+
+set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")
+configure_file (
+    "${CMAKE_SOURCE_DIR}/src/config.h.in"
+    ${CONFIGURE_OUT_FILE}
+)
+
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -Wno-unused-variable -Wno-unused-but-set-variable")
+
+set(EXE_CFLAGS "-std=c11 -Werror -Wall -Werror=strict-prototypes -Werror=old-style-definition -Werror=missing-prototypes")
+set(TEST_CFLAGS "-std=c99 -Werror -Wall")
+
+
+add_executable(zig ${ZIG_SOURCES})
+set_target_properties(zig PROPERTIES
+    LINKER_LANGUAGE C
+    COMPILE_FLAGS ${EXE_CFLAGS})
+target_link_libraries(zig LINK_PUBLIC
+    ${LLVM_LIBRARIES}
+)
+install(TARGETS zig DESTINATION bin)
