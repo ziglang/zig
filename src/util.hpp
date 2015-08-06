@@ -41,9 +41,6 @@ static inline T *reallocate_nonzero(T * old, size_t new_count) {
     return ptr;
 }
 
-char *zig_alloc_sprintf(int *len, const char *format, ...)
-    __attribute__ ((format (printf, 2, 3)));
-
 template <typename T, long n>
 constexpr long array_length(const T (&)[n]) {
     return n;

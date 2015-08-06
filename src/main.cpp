@@ -25,6 +25,7 @@ static int usage(char *arg0) {
     fprintf(stderr, "Usage: %s --output outfile code.zig\n"
         "Other options:\n"
         "--version      print version number and exit\n"
+        "-Ipath         add path to header include path\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -377,6 +378,8 @@ struct Preprocess {
     Buf *out_buf;
     Buf *in_buf;
     Token *token;
+    ZigList<char *> *include_paths;
+    Buf *cur_dir_path;
 };
 
 __attribute__ ((format (printf, 2, 3)))
@@ -395,8 +398,33 @@ enum IncludeState {
     IncludeStateQuote,
 };
 
-static void render_include(Preprocess *p, Buf *include_path, char unquote_char) {
-    fprintf(stderr, "render_include \"%s\" '%c'\n", buf_ptr(include_path), unquote_char);
+static Buf *find_include_file(Preprocess *p, char *dir_path, char *file_path) {
+    Buf *full_path = buf_sprintf("%s/%s", dir_path, file_path);
+
+    FILE *f = fopen(buf_ptr(full_path), "rb");
+    if (!f)
+        return nullptr;
+
+    return fetch_file(f);
+}
+
+static void render_include(Preprocess *p, Buf *target_path, char unquote_char) {
+    if (unquote_char == '"') {
+        Buf *file_contents = find_include_file(p, buf_ptr(p->cur_dir_path), buf_ptr(target_path));
+        if (file_contents) {
+            buf_append_buf(p->out_buf, file_contents);
+            return;
+        }
+    }
+    for (int i = 0; i < p->include_paths->length; i += 1) {
+        char *include_path = p->include_paths->at(i);
+        Buf *file_contents = find_include_file(p, include_path, buf_ptr(target_path));
+        if (file_contents) {
+            buf_append_buf(p->out_buf, file_contents);
+            return;
+        }
+    }
+    preprocess_error(p, "include path \"%s\" not found", buf_ptr(target_path));
 }
 
 static void parse_and_render_include(Preprocess *p, Buf *directive_buf, int pos) {
@@ -469,10 +497,14 @@ static void render_token(Preprocess *p) {
     }
 }
 
-static Buf *preprocess(Buf *in_buf, ZigList<Token> *tokens) {
+static Buf *preprocess(Buf *in_buf, ZigList<Token> *tokens,
+        ZigList<char *> *include_paths, Buf *cur_dir_path)
+{
     Preprocess p = {0};
     p.out_buf = buf_alloc();
     p.in_buf = in_buf;
+    p.include_paths = include_paths;
+    p.cur_dir_path = cur_dir_path;
     for (int i = 0; i < tokens->length; i += 1) {
         p.token = &tokens->at(i);
         render_token(&p);
@@ -480,10 +512,13 @@ static Buf *preprocess(Buf *in_buf, ZigList<Token> *tokens) {
     return p.out_buf;
 }
 
+char cur_dir[1024];
+
 int main(int argc, char **argv) {
     char *arg0 = argv[0];
     char *in_file = NULL;
     char *out_file = NULL;
+    ZigList<char *> include_paths = {0};
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
         if (arg[0] == '-' && arg[1] == '-') {
@@ -500,6 +535,8 @@ int main(int argc, char **argv) {
                     return usage(arg0);
                 }
             }
+        } else if (arg[0] == '-' && arg[1] == 'I') {
+            include_paths.append(arg + 2);
         } else if (!in_file) {
             in_file = arg;
         } else {
@@ -511,12 +548,18 @@ int main(int argc, char **argv) {
         return usage(arg0);
 
     FILE *in_f;
+    Buf *cur_dir_path;
     if (strcmp(in_file, "-") == 0) {
         in_f = stdin;
+        char *result = getcwd(cur_dir, sizeof(cur_dir));
+        if (!result)
+            zig_panic("unable to get current working directory: %s", strerror(errno));
+        cur_dir_path = buf_from_str(result);
     } else {
         in_f = fopen(in_file, "rb");
         if (!in_f)
             zig_panic("unable to open %s for reading: %s\n", in_file, strerror(errno));
+        cur_dir_path = buf_dirname(buf_from_str(in_file));
     }
 
     Buf *in_data = fetch_file(in_f);
@@ -528,7 +571,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "\nTokens:\n");
     print_tokens(in_data, tokens);
 
-    Buf *preprocessed_source = preprocess(in_data, tokens);
+    Buf *preprocessed_source = preprocess(in_data, tokens, &include_paths, cur_dir_path);
 
     fprintf(stderr, "\nPreprocessed source:\n%s\n", buf_ptr(preprocessed_source));
 
