@@ -8,6 +8,8 @@
 #include "config.h"
 #include "util.hpp"
 #include "list.hpp"
+#include "buffer.hpp"
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -19,25 +21,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-struct Buf {
-    int len;
-    char ptr[0];
-};
-
-static Buf *alloc_buf(int size) {
-    Buf *buf = (Buf *)allocate_nonzero<char>(sizeof(Buf) + size + 1);
-    buf->len = size;
-    buf->ptr[buf->len] = 0;
-    return buf;
-}
-
-/*
-static void fprint_buf(FILE *f, Buf *buf) {
-    if (fwrite(buf->ptr, 1, buf->len, f))
-        zig_panic("error writing: %s", strerror(errno));
-}
-*/
-
 static int usage(char *arg0) {
     fprintf(stderr, "Usage: %s --output outfile code.zig\n"
         "Other options:\n"
@@ -46,7 +29,7 @@ static int usage(char *arg0) {
     return EXIT_FAILURE;
 }
 
-static struct Buf *fetch_file(FILE *f) {
+static Buf *fetch_file(FILE *f) {
     int fd = fileno(f);
     struct stat st;
     if (fstat(fd, &st))
@@ -56,9 +39,9 @@ static struct Buf *fetch_file(FILE *f) {
         zig_panic("file too big");
     int size = (int)big_size;
 
-    Buf *buf = alloc_buf(size);
-    size_t amt_read = fread(buf->ptr, 1, buf->len, f);
-    if (amt_read != (size_t)buf->len)
+    Buf *buf = buf_alloc_fixed(size);
+    size_t amt_read = fread(buf_ptr(buf), 1, buf_len(buf), f);
+    if (amt_read != (size_t)buf_len(buf))
         zig_panic("error reading: %s", strerror(errno));
 
     return buf;
@@ -138,6 +121,12 @@ static struct Buf *fetch_file(FILE *f) {
     case 'Y': \
     case 'Z'
 
+#define SYMBOL_CHAR \
+    ALPHA: \
+    case DIGIT: \
+    case '_'
+
+
 enum TokenId {
     TokenIdDirective,
     TokenIdSymbol,
@@ -157,6 +146,8 @@ struct Token {
     TokenId id;
     int start_pos;
     int end_pos;
+    int start_line;
+    int start_column;
 };
 
 enum TokenizeState {
@@ -178,10 +169,21 @@ struct Tokenize {
 
 __attribute__ ((format (printf, 2, 3)))
 static void tokenize_error(Tokenize *t, const char *format, ...) {
+    int line;
+    int column;
+    if (t->cur_tok) {
+        line = t->cur_tok->start_line + 1;
+        column = t->cur_tok->start_column + 1;
+    } else {
+        line = t->line + 1;
+        column = t->column + 1;
+    }
+
     va_list ap;
     va_start(ap, format);
-    fprintf(stderr, "Error. Line %d, column %d: ", t->line + 1, t->column + 1);
+    fprintf(stderr, "Error: Line %d, column %d: ", line, column);
     vfprintf(stderr, format, ap);
+    fprintf(stderr, "\n");
     va_end(ap);
     exit(EXIT_FAILURE);
 }
@@ -190,6 +192,8 @@ static void begin_token(Tokenize *t, TokenId id) {
     assert(!t->cur_tok);
     t->tokens->add_one();
     Token *token = &t->tokens->last();
+    token->start_line = t->line;
+    token->start_column = t->column;
     token->id = id;
     token->start_pos = t->pos;
     t->cur_tok = token;
@@ -205,11 +209,24 @@ static void put_back(Tokenize *t, int count) {
     t->pos -= count;
 }
 
+static void end_directive(Tokenize *t) {
+    assert(t->cur_tok);
+    t->cur_tok->end_pos = t->pos;
+    t->cur_tok = nullptr;
+    t->state = TokenizeStateStart;
+}
+
+static void end_symbol(Tokenize *t) {
+    put_back(t, 1);
+    end_token(t);
+    t->state = TokenizeStateStart;
+}
+
 static ZigList<Token> *tokenize(Buf *buf) {
     Tokenize t = {0};
     t.tokens = allocate<ZigList<Token>>(1);
-    for (t.pos = 0; t.pos < buf->len; t.pos += 1) {
-        uint8_t c = buf->ptr[t.pos];
+    for (t.pos = 0; t.pos < buf_len(buf); t.pos += 1) {
+        uint8_t c = buf_ptr(buf)[t.pos];
         switch (t.state) {
             case TokenizeStateStart:
                 switch (c) {
@@ -232,7 +249,7 @@ static ZigList<Token> *tokenize(Buf *buf) {
                         end_token(&t);
                         break;
                     case ')':
-                        begin_token(&t, TokenIdLParen);
+                        begin_token(&t, TokenIdRParen);
                         end_token(&t);
                         break;
                     case ',':
@@ -269,22 +286,15 @@ static ZigList<Token> *tokenize(Buf *buf) {
                 break;
             case TokenizeStateDirective:
                 if (c == '\n') {
-                    assert(t.cur_tok);
-                    t.cur_tok->end_pos = t.pos;
-                    t.cur_tok = nullptr;
-                    t.state = TokenizeStateStart;
+                    end_directive(&t);
                 }
                 break;
             case TokenizeStateSymbol:
                 switch (c) {
-                    case ALPHA:
-                    case DIGIT:
-                    case '_':
+                    case SYMBOL_CHAR:
                         break;
                     default:
-                        put_back(&t, 1);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
+                        end_symbol(&t);
                         break;
                 }
                 break;
@@ -303,9 +313,7 @@ static ZigList<Token> *tokenize(Buf *buf) {
                     case DIGIT:
                         break;
                     default:
-                        put_back(&t, 1);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
+                        end_symbol(&t);
                         break;
                 }
                 break;
@@ -317,6 +325,24 @@ static ZigList<Token> *tokenize(Buf *buf) {
             t.column += 1;
         }
     }
+    // EOF
+    switch (t.state) {
+        case TokenizeStateStart:
+            break;
+        case TokenizeStateDirective:
+            end_directive(&t);
+            break;
+        case TokenizeStateSymbol:
+            end_symbol(&t);
+            break;
+        case TokenizeStateString:
+            tokenize_error(&t, "unterminated string");
+            break;
+        case TokenizeStateNumber:
+            end_symbol(&t);
+            break;
+    }
+    assert(!t.cur_tok);
     return t.tokens;
 }
 
@@ -342,9 +368,116 @@ static void print_tokens(Buf *buf, ZigList<Token> *tokens) {
     for (int i = 0; i < tokens->length; i += 1) {
         Token *token = &tokens->at(i);
         printf("%s ", token_name(token));
-        fwrite(buf->ptr + token->start_pos, 1, token->end_pos - token->start_pos, stdout);
+        fwrite(buf_ptr(buf) + token->start_pos, 1, token->end_pos - token->start_pos, stdout);
         printf("\n");
     }
+}
+
+struct Preprocess {
+    Buf *out_buf;
+    Buf *in_buf;
+    Token *token;
+};
+
+__attribute__ ((format (printf, 2, 3)))
+static void preprocess_error(Preprocess *p, const char *format, ...) {
+    va_list ap;
+    va_start(ap, format);
+    fprintf(stderr, "Error: Line %d, column %d: ", p->token->start_line + 1, p->token->start_column + 1);
+    vfprintf(stderr, format, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
+    exit(EXIT_FAILURE);
+}
+
+enum IncludeState {
+    IncludeStateStart,
+    IncludeStateQuote,
+};
+
+static void render_include(Preprocess *p, Buf *include_path, char unquote_char) {
+    fprintf(stderr, "render_include \"%s\" '%c'\n", buf_ptr(include_path), unquote_char);
+}
+
+static void parse_and_render_include(Preprocess *p, Buf *directive_buf, int pos) {
+    int state = IncludeStateStart;
+    char unquote_char;
+    int quote_start_pos;
+    for (; pos < buf_len(directive_buf); pos += 1) {
+        uint8_t c = buf_ptr(directive_buf)[pos];
+        switch (state) {
+            case IncludeStateStart:
+                switch (c) {
+                    case WHITESPACE:
+                        break;
+                    case '<':
+                    case '"':
+                        state = IncludeStateQuote;
+                        quote_start_pos = pos;
+                        unquote_char = (c == '<') ? '>' : '"';
+                        break;
+
+                }
+                break;
+            case IncludeStateQuote:
+                if (c == unquote_char) {
+                    Buf *include_path = buf_slice(directive_buf, quote_start_pos + 1, pos);
+                    render_include(p, include_path, unquote_char);
+                    return;
+                }
+                break;
+        }
+    }
+    preprocess_error(p, "include directive missing path");
+}
+
+static void render_directive(Preprocess *p, Buf *directive_buf) {
+    for (int pos = 1; pos < buf_len(directive_buf); pos += 1) {
+        uint8_t c = buf_ptr(directive_buf)[pos];
+        switch (c) {
+            case SYMBOL_CHAR:
+                break;
+            default:
+                pos -= 1;
+                Buf *directive_name = buf_from_mem(buf_ptr(directive_buf) + 1, pos);
+                if (strcmp(buf_ptr(directive_name), "include") == 0) {
+                    parse_and_render_include(p, directive_buf, pos);
+                } else {
+                    preprocess_error(p, "invalid directive: \"%s\"", buf_ptr(directive_name));
+                }
+                return;
+        }
+    }
+}
+
+static void render_token(Preprocess *p) {
+    Buf *token_buf = buf_slice(p->in_buf, p->token->start_pos, p->token->end_pos);
+    switch (p->token->id) {
+        case TokenIdDirective:
+            render_directive(p, token_buf);
+            break;
+        default:
+            buf_append_buf(p->out_buf, token_buf);
+            if (p->token->id == TokenIdSemicolon ||
+                p->token->id == TokenIdLBrace ||
+                p->token->id == TokenIdRBrace)
+            {
+                buf_append_str(p->out_buf, "\n", -1);
+            } else {
+                buf_append_str(p->out_buf, " ", -1);
+            }
+    }
+}
+
+static Buf *preprocess(Buf *in_buf, ZigList<Token> *tokens) {
+    Preprocess p = {0};
+    p.out_buf = buf_alloc();
+    p.in_buf = in_buf;
+    for (int i = 0; i < tokens->length; i += 1) {
+        p.token = &tokens->at(i);
+        render_token(&p);
+    }
+    return p.out_buf;
 }
 
 int main(int argc, char **argv) {
@@ -386,13 +519,18 @@ int main(int argc, char **argv) {
             zig_panic("unable to open %s for reading: %s\n", in_file, strerror(errno));
     }
 
-    struct Buf *in_data = fetch_file(in_f);
+    Buf *in_data = fetch_file(in_f);
 
-    fprintf(stderr, "%s\n", in_data->ptr);
+    fprintf(stderr, "Original source:\n%s\n", buf_ptr(in_data));
 
     ZigList<Token> *tokens = tokenize(in_data);
 
+    fprintf(stderr, "\nTokens:\n");
     print_tokens(in_data, tokens);
+
+    Buf *preprocessed_source = preprocess(in_data, tokens);
+
+    fprintf(stderr, "\nPreprocessed source:\n%s\n", buf_ptr(preprocessed_source));
 
 
     return EXIT_SUCCESS;

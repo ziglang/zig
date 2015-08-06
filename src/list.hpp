@@ -15,7 +15,7 @@
 template<typename T>
 struct ZigList {
     void deinit() {
-        deallocate(items);
+        free(items);
     }
     void append(T item) {
         ensure_capacity(length + 1);
