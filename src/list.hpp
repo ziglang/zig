@@ -5,24 +5,21 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#ifndef GROOVE_LIST_HPP
-#define GROOVE_LIST_HPP
+#ifndef ZIG_LIST_HPP
+#define ZIG_LIST_HPP
 
 #include "util.hpp"
 
 #include <assert.h>
 
 template<typename T>
-struct GrooveList {
+struct ZigList {
     void deinit() {
         deallocate(items);
     }
     void append(T item) {
-        int err = ensure_capacity(length + 1);
-        if (err)
-            return err;
+        ensure_capacity(length + 1);
         items[length++] = item;
-        return 0;
     }
     // remember that the pointer to this item is invalid after you
     // modify the length of the list
@@ -57,11 +54,8 @@ struct GrooveList {
 
     void resize(int new_length) {
         assert(new_length >= 0);
-        int err = ensure_capacity(new_length);
-        if (err)
-            return err;
+        ensure_capacity(new_length);
         length = new_length;
-        return 0;
     }
 
     void clear() {
@@ -76,7 +70,6 @@ struct GrooveList {
             items = reallocate_nonzero(items, better_capacity);
             capacity = better_capacity;
         }
-        return 0;
     }
 
     T * items;

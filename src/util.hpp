@@ -48,4 +48,19 @@ template <typename T, long n>
 constexpr long array_length(const T (&)[n]) {
     return n;
 }
+
+template <typename T>
+static inline T max(T a, T b) {
+    return (a >= b) ? a : b;
+}
+
+template <typename T>
+static inline T min(T a, T b) {
+    return (a <= b) ? a : b;
+}
+
+template<typename T>
+static inline T clamp(T min_value, T value, T max_value) {
+    return max(min(value, max_value), min_value);
+}
 #endif
