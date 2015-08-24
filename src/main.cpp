@@ -154,18 +154,29 @@ struct Token {
 enum TokenizeState {
     TokenizeStateStart,
     TokenizeStateDirective,
+    TokenizeStateDirectiveName,
+    TokenizeStateIncludeQuote,
+    TokenizeStateDirectiveEnd,
+    TokenizeStateInclude,
     TokenizeStateSymbol,
     TokenizeStateString,
     TokenizeStateNumber,
 };
 
 struct Tokenize {
+    Buf *buf;
     int pos;
     TokenizeState state;
     ZigList<Token> *tokens;
     int line;
     int column;
     Token *cur_tok;
+    Buf *directive_name;
+    Buf *cur_dir_path;
+    uint8_t unquote_char;
+    int quote_start_pos;
+    Buf *include_path;
+    ZigList<char *> *include_paths;
 };
 
 __attribute__ ((format (printf, 2, 3)))
@@ -210,11 +221,56 @@ static void put_back(Tokenize *t, int count) {
     t->pos -= count;
 }
 
+static void begin_directive(Tokenize *t) {
+    t->state = TokenizeStateDirective;
+    begin_token(t, TokenIdDirective);
+    assert(!t->directive_name);
+    t->directive_name = buf_alloc();
+}
+
+static bool find_and_include_file(Tokenize *t, char *dir_path, char *file_path) {
+    Buf *full_path = buf_sprintf("%s/%s", dir_path, file_path);
+
+    FILE *f = fopen(buf_ptr(full_path), "rb");
+    if (!f)
+        return false;
+
+    Buf *contents = fetch_file(f);
+
+    buf_splice_buf(t->buf, t->pos, t->pos, contents);
+
+    return true;
+}
+
+static void render_include(Tokenize *t, Buf *target_path, char unquote_char) {
+    if (unquote_char == '"') {
+        if (find_and_include_file(t, buf_ptr(t->cur_dir_path), buf_ptr(target_path)))
+            return;
+    }
+    for (int i = 0; i < t->include_paths->length; i += 1) {
+        char *include_path = t->include_paths->at(i);
+        if (find_and_include_file(t, include_path, buf_ptr(target_path)))
+            return;
+    }
+    tokenize_error(t, "include path \"%s\" not found", buf_ptr(target_path));
+}
+
 static void end_directive(Tokenize *t) {
-    assert(t->cur_tok);
-    t->cur_tok->end_pos = t->pos;
-    t->cur_tok = nullptr;
+    end_token(t);
+    if (t->include_path) {
+        render_include(t, t->include_path, t->unquote_char);
+        t->include_path = nullptr;
+    }
     t->state = TokenizeStateStart;
+}
+
+static void end_directive_name(Tokenize *t) {
+    if (buf_eql_str(t->directive_name, "include")) {
+        t->state = TokenizeStateInclude;
+        t->directive_name = nullptr;
+    } else {
+        tokenize_error(t, "invalid directive name: \"%s\"", buf_ptr(t->directive_name));
+    }
 }
 
 static void end_symbol(Tokenize *t) {
@@ -223,11 +279,14 @@ static void end_symbol(Tokenize *t) {
     t->state = TokenizeStateStart;
 }
 
-static ZigList<Token> *tokenize(Buf *buf) {
+static ZigList<Token> *tokenize(Buf *buf, ZigList<char *> *include_paths, Buf *cur_dir_path) {
     Tokenize t = {0};
     t.tokens = allocate<ZigList<Token>>(1);
-    for (t.pos = 0; t.pos < buf_len(buf); t.pos += 1) {
-        uint8_t c = buf_ptr(buf)[t.pos];
+    t.buf = buf;
+    t.cur_dir_path = cur_dir_path;
+    t.include_paths = include_paths;
+    for (t.pos = 0; t.pos < buf_len(t.buf); t.pos += 1) {
+        uint8_t c = buf_ptr(t.buf)[t.pos];
         switch (t.state) {
             case TokenizeStateStart:
                 switch (c) {
@@ -242,8 +301,11 @@ static ZigList<Token> *tokenize(Buf *buf) {
                         begin_token(&t, TokenIdNumberLiteral);
                         break;
                     case '#':
-                        t.state = TokenizeStateDirective;
-                        begin_token(&t, TokenIdDirective);
+                        begin_directive(&t);
+                        break;
+                    case '"':
+                        begin_token(&t, TokenIdStringLiteral);
+                        t.state = TokenizeStateString;
                         break;
                     case '(':
                         begin_token(&t, TokenIdLParen);
@@ -269,10 +331,6 @@ static ZigList<Token> *tokenize(Buf *buf) {
                         begin_token(&t, TokenIdRBrace);
                         end_token(&t);
                         break;
-                    case '"':
-                        begin_token(&t, TokenIdStringLiteral);
-                        t.state = TokenizeStateString;
-                        break;
                     case ';':
                         begin_token(&t, TokenIdSemicolon);
                         end_token(&t);
@@ -286,8 +344,70 @@ static ZigList<Token> *tokenize(Buf *buf) {
                 }
                 break;
             case TokenizeStateDirective:
-                if (c == '\n') {
-                    end_directive(&t);
+                switch (c) {
+                    case '\n':
+                        end_directive_name(&t);
+                        end_directive(&t);
+                        break;
+                    case ' ':
+                    case '\t':
+                    case '\f':
+                    case '\r':
+                    case 0xb:
+                        break;
+                    case SYMBOL_CHAR:
+                        t.state = TokenizeStateDirectiveName;
+                        buf_append_char(t.directive_name, c);
+                        break;
+                    default:
+                        tokenize_error(&t, "invalid directive character: '%c'", c);
+                        break;
+                }
+                break;
+            case TokenizeStateDirectiveName:
+                switch (c) {
+                    case WHITESPACE:
+                        end_directive_name(&t);
+                        break;
+                    case SYMBOL_CHAR:
+                        buf_append_char(t.directive_name, c);
+                        break;
+                    default:
+                        tokenize_error(&t, "invalid directive name character: '%c'", c);
+                        break;
+                }
+                break;
+            case TokenizeStateInclude:
+                switch (c) {
+                    case WHITESPACE:
+                        break;
+                    case '<':
+                    case '"':
+                        t.state = TokenizeStateIncludeQuote;
+                        t.quote_start_pos = t.pos;
+                        t.unquote_char = (c == '<') ? '>' : '"';
+                        break;
+                }
+                break;
+            case TokenizeStateIncludeQuote:
+                if (c == t.unquote_char) {
+                    t.include_path = buf_slice(t.buf, t.quote_start_pos + 1, t.pos);
+                    t.state = TokenizeStateDirectiveEnd;
+                }
+                break;
+            case TokenizeStateDirectiveEnd:
+                switch (c) {
+                    case '\n':
+                        end_directive(&t);
+                        break;
+                    case ' ':
+                    case '\t':
+                    case '\f':
+                    case '\r':
+                    case 0xb:
+                        break;
+                    default:
+                        tokenize_error(&t, "expected whitespace or newline: '%c'", c);
                 }
                 break;
             case TokenizeStateSymbol:
@@ -333,6 +453,13 @@ static ZigList<Token> *tokenize(Buf *buf) {
         case TokenizeStateDirective:
             end_directive(&t);
             break;
+        case TokenizeStateDirectiveName:
+            end_directive_name(&t);
+            end_directive(&t);
+            break;
+        case TokenizeStateInclude:
+            tokenize_error(&t, "missing include path");
+            break;
         case TokenizeStateSymbol:
             end_symbol(&t);
             break;
@@ -341,6 +468,12 @@ static ZigList<Token> *tokenize(Buf *buf) {
             break;
         case TokenizeStateNumber:
             end_symbol(&t);
+            break;
+        case TokenizeStateIncludeQuote:
+            tokenize_error(&t, "unterminated include path");
+            break;
+        case TokenizeStateDirectiveEnd:
+            end_directive(&t);
             break;
     }
     assert(!t.cur_tok);
@@ -372,144 +505,6 @@ static void print_tokens(Buf *buf, ZigList<Token> *tokens) {
         fwrite(buf_ptr(buf) + token->start_pos, 1, token->end_pos - token->start_pos, stdout);
         printf("\n");
     }
-}
-
-struct Preprocess {
-    Buf *out_buf;
-    Buf *in_buf;
-    Token *token;
-    ZigList<char *> *include_paths;
-    Buf *cur_dir_path;
-};
-
-__attribute__ ((format (printf, 2, 3)))
-static void preprocess_error(Preprocess *p, const char *format, ...) {
-    va_list ap;
-    va_start(ap, format);
-    fprintf(stderr, "Error: Line %d, column %d: ", p->token->start_line + 1, p->token->start_column + 1);
-    vfprintf(stderr, format, ap);
-    fprintf(stderr, "\n");
-    va_end(ap);
-    exit(EXIT_FAILURE);
-}
-
-enum IncludeState {
-    IncludeStateStart,
-    IncludeStateQuote,
-};
-
-static Buf *find_include_file(Preprocess *p, char *dir_path, char *file_path) {
-    Buf *full_path = buf_sprintf("%s/%s", dir_path, file_path);
-
-    FILE *f = fopen(buf_ptr(full_path), "rb");
-    if (!f)
-        return nullptr;
-
-    return fetch_file(f);
-}
-
-static void render_include(Preprocess *p, Buf *target_path, char unquote_char) {
-    if (unquote_char == '"') {
-        Buf *file_contents = find_include_file(p, buf_ptr(p->cur_dir_path), buf_ptr(target_path));
-        if (file_contents) {
-            buf_append_buf(p->out_buf, file_contents);
-            return;
-        }
-    }
-    for (int i = 0; i < p->include_paths->length; i += 1) {
-        char *include_path = p->include_paths->at(i);
-        Buf *file_contents = find_include_file(p, include_path, buf_ptr(target_path));
-        if (file_contents) {
-            buf_append_buf(p->out_buf, file_contents);
-            return;
-        }
-    }
-    preprocess_error(p, "include path \"%s\" not found", buf_ptr(target_path));
-}
-
-static void parse_and_render_include(Preprocess *p, Buf *directive_buf, int pos) {
-    int state = IncludeStateStart;
-    char unquote_char;
-    int quote_start_pos;
-    for (; pos < buf_len(directive_buf); pos += 1) {
-        uint8_t c = buf_ptr(directive_buf)[pos];
-        switch (state) {
-            case IncludeStateStart:
-                switch (c) {
-                    case WHITESPACE:
-                        break;
-                    case '<':
-                    case '"':
-                        state = IncludeStateQuote;
-                        quote_start_pos = pos;
-                        unquote_char = (c == '<') ? '>' : '"';
-                        break;
-
-                }
-                break;
-            case IncludeStateQuote:
-                if (c == unquote_char) {
-                    Buf *include_path = buf_slice(directive_buf, quote_start_pos + 1, pos);
-                    render_include(p, include_path, unquote_char);
-                    return;
-                }
-                break;
-        }
-    }
-    preprocess_error(p, "include directive missing path");
-}
-
-static void render_directive(Preprocess *p, Buf *directive_buf) {
-    for (int pos = 1; pos < buf_len(directive_buf); pos += 1) {
-        uint8_t c = buf_ptr(directive_buf)[pos];
-        switch (c) {
-            case SYMBOL_CHAR:
-                break;
-            default:
-                pos -= 1;
-                Buf *directive_name = buf_from_mem(buf_ptr(directive_buf) + 1, pos);
-                if (strcmp(buf_ptr(directive_name), "include") == 0) {
-                    parse_and_render_include(p, directive_buf, pos);
-                } else {
-                    preprocess_error(p, "invalid directive: \"%s\"", buf_ptr(directive_name));
-                }
-                return;
-        }
-    }
-}
-
-static void render_token(Preprocess *p) {
-    Buf *token_buf = buf_slice(p->in_buf, p->token->start_pos, p->token->end_pos);
-    switch (p->token->id) {
-        case TokenIdDirective:
-            render_directive(p, token_buf);
-            break;
-        default:
-            buf_append_buf(p->out_buf, token_buf);
-            if (p->token->id == TokenIdSemicolon ||
-                p->token->id == TokenIdLBrace ||
-                p->token->id == TokenIdRBrace)
-            {
-                buf_append_str(p->out_buf, "\n", -1);
-            } else {
-                buf_append_str(p->out_buf, " ", -1);
-            }
-    }
-}
-
-static Buf *preprocess(Buf *in_buf, ZigList<Token> *tokens,
-        ZigList<char *> *include_paths, Buf *cur_dir_path)
-{
-    Preprocess p = {0};
-    p.out_buf = buf_alloc();
-    p.in_buf = in_buf;
-    p.include_paths = include_paths;
-    p.cur_dir_path = cur_dir_path;
-    for (int i = 0; i < tokens->length; i += 1) {
-        p.token = &tokens->at(i);
-        render_token(&p);
-    }
-    return p.out_buf;
 }
 
 char cur_dir[1024];
@@ -566,14 +561,16 @@ int main(int argc, char **argv) {
 
     fprintf(stderr, "Original source:\n%s\n", buf_ptr(in_data));
 
-    ZigList<Token> *tokens = tokenize(in_data);
+    ZigList<Token> *tokens = tokenize(in_data, &include_paths, cur_dir_path);
 
     fprintf(stderr, "\nTokens:\n");
     print_tokens(in_data, tokens);
 
+    /*
     Buf *preprocessed_source = preprocess(in_data, tokens, &include_paths, cur_dir_path);
 
     fprintf(stderr, "\nPreprocessed source:\n%s\n", buf_ptr(preprocessed_source));
+    */
 
 
     return EXIT_SUCCESS;

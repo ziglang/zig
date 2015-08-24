@@ -73,18 +73,48 @@ static inline Buf *buf_slice(Buf *in_buf, int start, int end) {
     return out_buf;
 }
 
-static inline void buf_append_str(Buf *buf, const char *str, int str_len) {
-    if (str_len == -1)
-        str_len = strlen(str);
-
+static inline void buf_append_mem(Buf *buf, const char *mem, int mem_len) {
+    assert(mem_len >= 0);
     int old_len = buf_len(buf);
-    buf_resize(buf, old_len + str_len);
-    memcpy(buf_ptr(buf) + old_len, str, str_len);
+    buf_resize(buf, old_len + mem_len);
+    memcpy(buf_ptr(buf) + old_len, mem, mem_len);
     buf->list.at(buf_len(buf)) = 0;
 }
 
+static inline void buf_append_str(Buf *buf, const char *str) {
+    buf_append_mem(buf, str, strlen(str));
+}
+
 static inline void buf_append_buf(Buf *buf, Buf *append_buf) {
-    buf_append_str(buf, buf_ptr(append_buf), buf_len(append_buf));
+    buf_append_mem(buf, buf_ptr(append_buf), buf_len(append_buf));
+}
+
+static inline void buf_append_char(Buf *buf, uint8_t c) {
+    buf_append_mem(buf, (const char *)&c, 1);
+}
+
+static inline bool buf_eql_mem(Buf *buf, const char *mem, int mem_len) {
+    if (buf_len(buf) != mem_len)
+        return false;
+    return memcmp(buf_ptr(buf), mem, mem_len) == 0;
+}
+
+static inline bool buf_eql_str(Buf *buf, const char *str) {
+    return buf_eql_mem(buf, str, strlen(str));
+}
+
+static inline bool buf_eql_buf(Buf *buf, Buf *other) {
+    return buf_eql_mem(buf, buf_ptr(other), buf_len(other));
+}
+
+static inline void buf_splice_buf(Buf *buf, int start, int end, Buf *other) {
+    if (start != end)
+        zig_panic("TODO buf_splice_buf");
+
+    int old_buf_len = buf_len(buf);
+    buf_resize(buf, old_buf_len + buf_len(other));
+    memmove(buf_ptr(buf) + start + buf_len(other), buf_ptr(buf) + start, old_buf_len - start);
+    memcpy(buf_ptr(buf) + start, buf_ptr(other), buf_len(other));
 }
 
 // TODO this method needs work
