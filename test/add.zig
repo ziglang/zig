@@ -1,3 +1,3 @@
-int add(int a, int b) {
-    return a + b;
+pub fn add(a: int, b: int) -> int {
+    a + b
 }

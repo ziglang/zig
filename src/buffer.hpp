@@ -93,6 +93,9 @@ static inline void buf_append_char(Buf *buf, uint8_t c) {
     buf_append_mem(buf, (const char *)&c, 1);
 }
 
+void buf_appendf(Buf *buf, const char *format, ...)
+    __attribute__ ((format (printf, 2, 3)));
+
 static inline bool buf_eql_mem(Buf *buf, const char *mem, int mem_len) {
     if (buf_len(buf) != mem_len)
         return false;
