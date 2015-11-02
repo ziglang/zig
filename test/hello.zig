@@ -1,6 +1,6 @@
 
 
-fn main(argc: int, argv: *mut char) -> int {
+fn main(argc: isize, argv: *mut u8) -> isize {
     puts("Hello, world!\n");
     return 0;
 }

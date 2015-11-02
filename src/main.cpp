@@ -48,6 +48,14 @@ static Buf *fetch_file(FILE *f) {
     return buf;
 }
 
+static inline bool mem_eql_str(const char *mem, size_t mem_len, const char *str) {
+    size_t str_len = strlen(str);
+    if (str_len != mem_len)
+        return false;
+    return memcmp(mem, str, mem_len) == 0;
+}
+
+
 #define WHITESPACE \
     ' ': \
     case '\t': \
@@ -130,6 +138,10 @@ static Buf *fetch_file(FILE *f) {
 
 enum TokenId {
     TokenIdSymbol,
+    TokenIdKeywordFn,
+    TokenIdKeywordReturn,
+    TokenIdKeywordMut,
+    TokenIdKeywordConst,
     TokenIdLParen,
     TokenIdRParen,
     TokenIdComma,
@@ -208,6 +220,20 @@ static void begin_token(Tokenize *t, TokenId id) {
 static void end_token(Tokenize *t) {
     assert(t->cur_tok);
     t->cur_tok->end_pos = t->pos + 1;
+
+    char *token_mem = buf_ptr(t->buf) + t->cur_tok->start_pos;
+    int token_len = t->cur_tok->end_pos - t->cur_tok->start_pos;
+
+    if (mem_eql_str(token_mem, token_len, "fn")) {
+        t->cur_tok->id = TokenIdKeywordFn;
+    } else if (mem_eql_str(token_mem, token_len, "return")) {
+        t->cur_tok->id = TokenIdKeywordReturn;
+    } else if (mem_eql_str(token_mem, token_len, "mut")) {
+        t->cur_tok->id = TokenIdKeywordMut;
+    } else if (mem_eql_str(token_mem, token_len, "const")) {
+        t->cur_tok->id = TokenIdKeywordConst;
+    }
+
     t->cur_tok = nullptr;
 }
 
@@ -357,6 +383,10 @@ static ZigList<Token> *tokenize(Buf *buf, ZigList<char *> *include_paths, Buf *c
 static const char * token_name(Token *token) {
     switch (token->id) {
         case TokenIdSymbol: return "Symbol";
+        case TokenIdKeywordFn: return "Fn";
+        case TokenIdKeywordConst: return "Const";
+        case TokenIdKeywordMut: return "Mut";
+        case TokenIdKeywordReturn: return "Return";
         case TokenIdLParen: return "LParen";
         case TokenIdRParen: return "RParen";
         case TokenIdComma: return "Comma";
@@ -383,17 +413,86 @@ static void print_tokens(Buf *buf, ZigList<Token> *tokens) {
     }
 }
 
+struct AstNode;
+
 enum NodeType {
     NodeTypeRoot,
+    NodeTypeFnDecl,
+    NodeTypeParam,
+    NodeTypeType,
+    NodeTypeBlock,
 };
 
-struct AstNode {
-    enum NodeType type;
-    ZigList<AstNode *> children;
+struct AstNodeFnDecl {
+    Buf name;
+    ZigList<AstNode *> params;
+    AstNode *return_type;
+    AstNode *body;
+};
+
+struct AstNodeRoot {
+    ZigList<AstNode *> fn_decls;
+};
+
+enum AstNodeTypeType {
+    AstNodeTypeTypePrimitive,
+    AstNodeTypeTypePointer,
+};
+
+enum AstPrimitiveType {
+    AstPrimitiveTypeVoid,
+    AstPrimitiveTypeU8,
+    AstPrimitiveTypeI8,
+    AstPrimitiveTypeU16,
+    AstPrimitiveTypeI16,
+    AstPrimitiveTypeU32,
+    AstPrimitiveTypeI32,
+    AstPrimitiveTypeU64,
+    AstPrimitiveTypeI64,
+    AstPrimitiveTypeUSize,
+    AstPrimitiveTypeISize,
+    AstPrimitiveTypeF32,
+    AstPrimitiveTypeF64,
+};
+
+
+struct AstNodeType {
+    AstNodeTypeType type;
+    AstPrimitiveType primitive_type;
+    AstNode *pointer_type;
+    bool is_const;
+};
+
+struct AstNodeParam {
+    Buf name;
+    AstNode *type;
 };
 
 enum AstState {
     AstStateStart,
+    AstStateFn,
+    AstStateFnLParen,
+    AstStateFnParamName,
+    AstStateParamColon,
+    AstStateType,
+    AstStateTypeEnd,
+    AstStateFnParamComma,
+    AstStateFnDeclArrow,
+    AstStateFnDeclBlock,
+    AstStatePointerType,
+    AstStateBlock,
+};
+
+struct AstNode {
+    enum NodeType type;
+    AstNode *parent;
+    AstState prev_state;
+    union {
+        AstNodeRoot root;
+        AstNodeFnDecl fn_decl;
+        AstNodeType type;
+        AstNodeParam param;
+    } data;
 };
 
 struct BuildAst {
@@ -402,6 +501,7 @@ struct BuildAst {
     AstState state;
     int line;
     int column;
+    AstNode *cur_node;
 };
 
 __attribute__ ((format (printf, 2, 3)))
@@ -418,46 +518,326 @@ static void ast_error(BuildAst *b, const char *format, ...) {
     exit(EXIT_FAILURE);
 }
 
-static inline bool mem_eql_str(const char *mem, size_t mem_len, const char *str) {
-    size_t str_len = strlen(str);
-    if (str_len != mem_len)
-        return false;
-    return memcmp(mem, str, mem_len) == 0;
+static AstNode *ast_create_node(BuildAst *b, NodeType type) {
+    AstNode *child = allocate<AstNode>(1);
+    child->prev_state = b->state;
+    child->parent = b->cur_node;
+    child->type = type;
+    return child;
+}
+
+static void ast_make_node_current(BuildAst *b, AstNode *node) {
+    b->cur_node = node;
+}
+
+static void ast_up_stack(BuildAst *b) {
+    assert(b->cur_node->parent);
+    b->state = b->cur_node->prev_state;
+    b->cur_node = b->cur_node->parent;
 }
 
 
+static const char *node_type_str(NodeType node_type) {
+    switch (node_type) {
+        case NodeTypeRoot:      return "Root";
+        case NodeTypeFnDecl:    return "FnDecl";
+        case NodeTypeParam:     return "Param";
+        case NodeTypeType:      return "Type";
+        case NodeTypeBlock:     return "Block";
+    }
+    zig_panic("unreachable");
+}
+
+static void print_ast(AstNode *node, int indent) {
+    for (int i = 0; i < indent; i += 1) {
+        fprintf(stderr, " ");
+    }
+
+    switch (node->type) {
+        case NodeTypeRoot:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            for (int i = 0; i < node->data.root.fn_decls.length; i += 1) {
+                AstNode *child = node->data.root.fn_decls.at(i);
+                print_ast(child, indent + 2);
+            }
+            break;
+        case NodeTypeFnDecl:
+            {
+                Buf *name_buf = &node->data.fn_decl.name;
+                fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
+
+                for (int i = 0; i < node->data.fn_decl.params.length; i += 1) {
+                    AstNode *child = node->data.fn_decl.params.at(i);
+                    print_ast(child, indent + 2);
+                }
+
+                print_ast(node->data.fn_decl.return_type, indent + 2);
+
+                print_ast(node->data.fn_decl.body, indent + 2);
+
+                break;
+            }
+        case NodeTypeParam:
+            {
+                Buf *name_buf = &node->data.param.name;
+                fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
+
+                print_ast(node->data.param.type, indent + 2);
+                break;
+            }
+        case NodeTypeType:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            break;
+        case NodeTypeBlock:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            break;
+    }
+}
+
+static void ast_end_fn_param_list(BuildAst *b) {
+    b->state = AstStateFnDeclArrow;
+}
+
 static AstNode *build_ast(Buf *buf, ZigList<Token> *tokens) {
     BuildAst b = {0};
+    b.state = AstStateStart;
     b.buf = buf;
     b.root = allocate<AstNode>(1);
     b.root->type = NodeTypeRoot;
+    b.cur_node = b.root;
 
     for (int i = 0; i < tokens->length; i += 1) {
         Token *token = &tokens->at(i);
-        const char *token_str = buf_ptr(buf) + token->start_pos;
+        char *token_mem = buf_ptr(buf) + token->start_pos;
         int token_len = token->end_pos - token->start_pos;
         b.line = token->start_line;
         b.column = token->start_column;
         switch (b.state) {
             case AstStateStart:
-                if (mem_eql_str(token_str, token_len, "fn")) {
-                    zig_panic("TODO fn");
+                assert(b.cur_node->type == NodeTypeRoot);
+                if (token->id == TokenIdKeywordFn) {
+                    AstNode *child = ast_create_node(&b, NodeTypeFnDecl);
+                    b.cur_node->data.root.fn_decls.append(child);
+                    ast_make_node_current(&b, child);
+                    b.state = AstStateFn;
                 } else {
                     Buf msg = {0};
-                    buf_append_str(&msg, "unexpected symbol: '");
-                    buf_append_mem(&msg, token_str, token_len);
+                    buf_appendf(&msg, "unexpected %s: '", token_name(token));
+                    buf_append_mem(&msg, token_mem, token_len);
                     buf_append_str(&msg, "'");
                     ast_error(&b, "%s", buf_ptr(&msg));
+                    break;
+                }
+                break;
+            case AstStateFn:
+                if (token->id != TokenIdSymbol)
+                    ast_error(&b, "expected symbol");
+                buf_init_from_mem(&b.cur_node->data.fn_decl.name, token_mem, token_len);
+                b.state = AstStateFnLParen;
+                break;
+            case AstStateFnLParen:
+                if (token->id != TokenIdLParen)
+                    ast_error(&b, "expected '('");
+                b.state = AstStateFnParamName;
+                break;
+            case AstStateFnParamName:
+                switch (token->id) {
+                    case TokenIdSymbol:
+                        {
+                            b.state = AstStateFnParamComma;
+                            AstNode *child = ast_create_node(&b, NodeTypeParam);
+                            buf_init_from_mem(&child->data.param.name, token_mem, token_len);
+                            b.cur_node->data.fn_decl.params.append(child);
+                            ast_make_node_current(&b, child);
+                            b.state = AstStateParamColon;
+                            break;
+                        }
+                    case TokenIdRParen:
+                        ast_end_fn_param_list(&b);
+                        break;
+                    default:
+                        ast_error(&b, "expected parameter name");
+                        break;
+                }
+                break;
+            case AstStateParamColon:
+                {
+                    if (token->id != TokenIdColon)
+                        ast_error(&b, "expected ':'");
+                    assert(b.cur_node->type == NodeTypeParam);
+                    b.state = AstStateTypeEnd;
+                    AstNode *child = ast_create_node(&b, NodeTypeType);
+                    b.cur_node->data.param.type = child;
+                    ast_make_node_current(&b, child);
+                    b.state = AstStateType;
+                    break;
+                }
+            case AstStateType:
+                switch (token->id) {
+                    case TokenIdSymbol:
+                        assert(b.cur_node->type == NodeTypeType);
+                        if (mem_eql_str(token_mem, token_len, "u8")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeU8;
+                            ast_up_stack(&b);
+                        } else if (mem_eql_str(token_mem, token_len, "i8")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeI8;
+                            ast_up_stack(&b);
+                        } else if (mem_eql_str(token_mem, token_len, "u16")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeU16;
+                            ast_up_stack(&b);
+                        } else if (mem_eql_str(token_mem, token_len, "i16")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeI16;
+                            ast_up_stack(&b);
+                        } else if (mem_eql_str(token_mem, token_len, "u32")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeU32;
+                            ast_up_stack(&b);
+                        } else if (mem_eql_str(token_mem, token_len, "i32")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeI32;
+                            ast_up_stack(&b);
+                        } else if (mem_eql_str(token_mem, token_len, "u64")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeU64;
+                            ast_up_stack(&b);
+                        } else if (mem_eql_str(token_mem, token_len, "i64")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeI64;
+                            ast_up_stack(&b);
+                        } else if (mem_eql_str(token_mem, token_len, "usize")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeUSize;
+                            ast_up_stack(&b);
+                        } else if (mem_eql_str(token_mem, token_len, "isize")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeISize;
+                            ast_up_stack(&b);
+                        } else if (mem_eql_str(token_mem, token_len, "f32")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeF32;
+                            ast_up_stack(&b);
+                        } else if (mem_eql_str(token_mem, token_len, "f64")) {
+                            b.cur_node->data.type.type = AstNodeTypeTypePrimitive;
+                            b.cur_node->data.type.primitive_type = AstPrimitiveTypeF64;
+                            ast_up_stack(&b);
+                        } else {
+                            Buf msg = {0};
+                            buf_append_str(&msg, "invalid primitive type: '");
+                            buf_append_mem(&msg, token_mem, token_len);
+                            buf_append_str(&msg, "'");
+                            ast_error(&b, "%s", buf_ptr(&msg));
+                        }
+                        break;
+                    case TokenIdStar:
+                        b.cur_node->data.type.type = AstNodeTypeTypePointer;
+                        b.state = AstStatePointerType;
+                        break;
+                    default:
+                        ast_error(&b, "expected type name");
+                        break;
+                }
+                break;
+            case AstStatePointerType:
+                {
+                    if (token->id == TokenIdKeywordMut) {
+                        b.cur_node->data.type.is_const = false;
+                    } else if (token->id == TokenIdKeywordConst) {
+                        b.cur_node->data.type.is_const = true;
+                    } else {
+                        ast_error(&b, "expected 'mut' or 'const'");
+                    }
+                    b.state = AstStateTypeEnd;
+                    AstNode *child = ast_create_node(&b, NodeTypeType);
+                    b.cur_node->data.type.pointer_type = child;
+                    ast_make_node_current(&b, child);
+                    b.state = AstStateType;
+                    break;
+                }
+            case AstStateTypeEnd:
+                ast_up_stack(&b);
+                i -= 1;
+                continue;
+            case AstStateFnParamComma:
+                switch (token->id) {
+                    case TokenIdComma:
+                        b.state = AstStateFnParamName;
+                        break;
+                    case TokenIdRParen:
+                        ast_end_fn_param_list(&b);
+                        break;
+                    default:
+                        ast_error(&b, "expected ',' or ')'");
+                        break;
+
+                }
+                break;
+            case AstStateFnDeclArrow:
+                switch (token->id) {
+                    case TokenIdArrow:
+                        {
+                            assert(b.cur_node->type == NodeTypeFnDecl);
+                            b.state = AstStateFnDeclBlock;
+                            AstNode *child = ast_create_node(&b, NodeTypeType);
+                            b.cur_node->data.fn_decl.return_type = child;
+                            ast_make_node_current(&b, child);
+                            b.state = AstStateType;
+                            break;
+                        }
+                    case TokenIdLBrace:
+                        {
+                            AstNode *node = ast_create_node(&b, NodeTypeType);
+                            node->data.type.type = AstNodeTypeTypePrimitive;
+                            node->data.type.primitive_type = AstPrimitiveTypeVoid;
+                            b.cur_node->data.fn_decl.return_type = node;
+
+                            b.state = AstStateTypeEnd;
+                            AstNode *child = ast_create_node(&b, NodeTypeBlock);
+                            b.cur_node->data.fn_decl.body = child;
+                            ast_make_node_current(&b, child);
+                            b.state = AstStateBlock;
+                            break;
+                        }
+                    default:
+                        ast_error(&b, "expected '->' or '}'");
+                        break;
+                }
+                break;
+            case AstStateFnDeclBlock:
+                {
+                    if (token->id != TokenIdLBrace)
+                        ast_error(&b, "expected '{'");
+
+                    b.state = AstStateTypeEnd;
+                    AstNode *child = ast_create_node(&b, NodeTypeBlock);
+                    b.cur_node->data.fn_decl.body = child;
+                    ast_make_node_current(&b, child);
+                    b.state = AstStateBlock;
+                    break;
+                }
+            case AstStateBlock:
+                switch (token->id) {
+                    case TokenIdSymbol:
+                        zig_panic("TODO symbol");
+                        break;
+                    default:
+                        {
+                            Buf msg = {0};
+                            buf_appendf(&msg, "unexpected %s: '", token_name(token));
+                            buf_append_mem(&msg, token_mem, token_len);
+                            buf_append_str(&msg, "'");
+                            ast_error(&b, "%s", buf_ptr(&msg));
+                            break;
+                        }
                 }
                 break;
         }
     }
 
     return b.root;
-}
-
-static void print_ast(AstNode *node) {
-    zig_panic("TODO");
 }
 
 char cur_dir[1024];
@@ -502,12 +882,12 @@ int main(int argc, char **argv) {
         char *result = getcwd(cur_dir, sizeof(cur_dir));
         if (!result)
             zig_panic("unable to get current working directory: %s", strerror(errno));
-        cur_dir_path = buf_from_str(result);
+        cur_dir_path = buf_create_from_str(result);
     } else {
         in_f = fopen(in_file, "rb");
         if (!in_f)
             zig_panic("unable to open %s for reading: %s\n", in_file, strerror(errno));
-        cur_dir_path = buf_dirname(buf_from_str(in_file));
+        cur_dir_path = buf_dirname(buf_create_from_str(in_file));
     }
 
     Buf *in_data = fetch_file(in_f);
@@ -523,7 +903,7 @@ int main(int argc, char **argv) {
     print_tokens(in_data, tokens);
 
     AstNode *root = build_ast(in_data, tokens);
-    print_ast(root);
+    print_ast(root, 0);
 
 
     return EXIT_SUCCESS;

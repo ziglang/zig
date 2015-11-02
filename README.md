@@ -29,4 +29,9 @@ readable, safe, optimal, and concise code to solve any computing problem.
 ## Roadmap
 
  * Hello, world.
+   - Build AST
+   - Code Gen
+ * C style comments.
+ * Unit tests.
+ * Simple .so library
  * How should the Widget use case be solved? In Genesis I'm using C++ and inheritance.
