@@ -10,11 +10,97 @@
 #include "list.hpp"
 
 #include <stdio.h>
+#include <stdarg.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
 #include <limits.h>
+
+#define WHITESPACE \
+    ' ': \
+    case '\t': \
+    case '\n': \
+    case '\f': \
+    case '\r': \
+    case 0xb
+
+#define DIGIT \
+    '0': \
+    case '1': \
+    case '2': \
+    case '3': \
+    case '4': \
+    case '5': \
+    case '6': \
+    case '7': \
+    case '8': \
+    case '9'
+
+#define LOWER_ALPHA \
+    'a': \
+    case 'b': \
+    case 'c': \
+    case 'd': \
+    case 'e': \
+    case 'f': \
+    case 'g': \
+    case 'h': \
+    case 'i': \
+    case 'j': \
+    case 'k': \
+    case 'l': \
+    case 'm': \
+    case 'n': \
+    case 'o': \
+    case 'p': \
+    case 'q': \
+    case 'r': \
+    case 's': \
+    case 't': \
+    case 'u': \
+    case 'v': \
+    case 'w': \
+    case 'x': \
+    case 'y': \
+    case 'z'
+
+#define UPPER_ALPHA \
+    'A': \
+    case 'B': \
+    case 'C': \
+    case 'D': \
+    case 'E': \
+    case 'F': \
+    case 'G': \
+    case 'H': \
+    case 'I': \
+    case 'J': \
+    case 'K': \
+    case 'L': \
+    case 'M': \
+    case 'N': \
+    case 'O': \
+    case 'P': \
+    case 'Q': \
+    case 'R': \
+    case 'S': \
+    case 'T': \
+    case 'U': \
+    case 'V': \
+    case 'W': \
+    case 'X': \
+    case 'Y': \
+    case 'Z'
+
+#define ALPHA \
+    LOWER_ALPHA: \
+    case UPPER_ALPHA
+
+#define SYMBOL_CHAR \
+    ALPHA: \
+    case DIGIT: \
+    case '_'
 
 static Buf *fetch_file(FILE *f) {
     int fd = fileno(f);
@@ -47,7 +133,9 @@ struct Token {
 struct RuleNode;
 
 struct RuleTuple {
+    Buf name;
     ZigList<RuleNode *> children;
+    Buf body;
 };
 
 struct RuleMany {
@@ -64,10 +152,6 @@ struct RuleOr {
 
 struct RuleToken {
     Token *token;
-};
-
-struct RuleBlock {
-    Buf *body;
 };
 
 struct RuleList {
@@ -102,6 +186,7 @@ struct RuleNode {
     };
 };
 
+
 enum ParserStateType {
     ParserStateTypeError,
     ParserStateTypeOk,
@@ -121,11 +206,41 @@ struct ParserState {
     };
 };
 
+enum LexState {
+    LexStateStart,
+    LexStateRuleName,
+    LexStateWaitForColon,
+    LexStateTupleRule,
+    LexStateFnName,
+    LexStateTokenStart,
+    LexStateToken,
+    LexStateBody,
+    LexStateEndOrOr,
+};
+
+struct LexStack {
+    LexState state;
+};
+
 struct Gen {
+    ZigList<RuleNode *> rules;
     ParserState *cur_state;
     ZigList<ParserState *> transition_table;
     ZigList<Token *> tokens;
     RuleNode *root;
+
+    Buf *in_buf;
+    LexState lex_state;
+    int lex_line;
+    int lex_column;
+    RuleNode *lex_cur_rule;
+    int lex_cur_rule_begin;
+    int lex_fn_name_begin;
+    int lex_pos;
+    ZigList<LexStack> lex_stack;
+    int lex_token_name_begin;
+    int lex_body_begin;
+    int lex_body_end;
 };
 
 static ParserState *create_state(Gen *g, ParserStateType type) {
@@ -203,6 +318,252 @@ static Token *find_or_create_token(Gen *g, Buf *name) {
     return token;
 }
 
+__attribute__ ((format (printf, 2, 3)))
+static void lex_error(Gen *g, const char *format, ...) {
+    int line = g->lex_line + 1;
+    int column = g->lex_column + 1;
+
+    va_list ap;
+    va_start(ap, format);
+    fprintf(stderr, "Error: Line %d, column %d: ", line, column);
+    vfprintf(stderr, format, ap);
+    fprintf(stderr, "\n");
+    va_end(ap);
+    exit(EXIT_FAILURE);
+}
+
+static void lex_push_stack(Gen *g) {
+    g->lex_stack.append({g->lex_state});
+}
+
+static void lex_pop_stack(Gen *g) {
+    LexStack *entry = &g->lex_stack.last();
+    g->lex_state = entry->state;
+    g->lex_stack.pop();
+}
+
+
+static void begin_rule(Gen *g) {
+    assert(!g->lex_cur_rule);
+    g->lex_cur_rule = allocate<RuleNode>(1);
+    g->lex_cur_rule->type = RuleNodeTypeTuple;
+    g->lex_cur_rule_begin = g->lex_pos;
+
+    g->lex_state = LexStateEndOrOr;
+    lex_push_stack(g);
+}
+
+static void end_rule(Gen *g) {
+    assert(g->lex_cur_rule);
+    g->rules.append(g->lex_cur_rule);
+    g->lex_cur_rule = nullptr;
+}
+
+static void end_rule_name(Gen *g) {
+    assert(g->lex_cur_rule);
+    char *ptr = &buf_ptr(g->in_buf)[g->lex_cur_rule_begin];
+    int len = g->lex_pos - g->lex_cur_rule_begin;
+    buf_init_from_mem(&g->lex_cur_rule->tuple.name, ptr, len);
+}
+
+static void begin_fn_name(Gen *g) {
+    g->lex_fn_name_begin = g->lex_pos;
+    lex_push_stack(g);
+}
+
+static void end_fn_name(Gen *g) {
+    char *ptr = &buf_ptr(g->in_buf)[g->lex_fn_name_begin];
+    int len = g->lex_pos - g->lex_fn_name_begin;
+    if (mem_eql_str(ptr, len, "token")) {
+        g->lex_state = LexStateTokenStart;
+    } else {
+        lex_error(g, "invalid function name: '%s'", buf_ptr(buf_create_from_mem(ptr, len)));
+    }
+}
+
+static void begin_token_name(Gen *g) {
+    g->lex_token_name_begin = g->lex_pos;
+}
+
+static void end_token_name(Gen *g) {
+    char *ptr = &buf_ptr(g->in_buf)[g->lex_token_name_begin];
+    int len = g->lex_pos - g->lex_token_name_begin;
+    Buf token_name = {0};
+    buf_init_from_mem(&token_name, ptr, len);
+
+    Token *token = find_or_create_token(g, &token_name);
+    RuleNode *node = allocate<RuleNode>(1);
+    node->type = RuleNodeTypeToken;
+    node->token.token = token;
+
+    assert(g->lex_cur_rule->type == RuleNodeTypeTuple);
+    g->lex_cur_rule->tuple.children.append(node);
+
+    lex_pop_stack(g);
+}
+
+static void begin_tuple_body(Gen *g) {
+    assert(g->lex_cur_rule->type == RuleNodeTypeTuple);
+    g->lex_body_begin = g->lex_pos;
+}
+
+static void end_tuple_body(Gen *g) {
+    assert(g->lex_cur_rule->type == RuleNodeTypeTuple);
+    int end_pos = g->lex_pos + 1;
+    char *ptr = &buf_ptr(g->in_buf)[g->lex_body_begin];
+    int len = end_pos - g->lex_body_begin;
+    buf_init_from_mem(&g->lex_cur_rule->tuple.body, ptr, len);
+}
+
+static void initialize_rules(Gen *g) {
+    g->lex_state = LexStateStart;
+    for (g->lex_pos = 0; g->lex_pos < buf_len(g->in_buf); g->lex_pos += 1) {
+        uint8_t c = buf_ptr(g->in_buf)[g->lex_pos];
+        switch (g->lex_state) {
+            case LexStateStart:
+                switch (c) {
+                    case WHITESPACE:
+                        // ignore
+                        break;
+                    case UPPER_ALPHA:
+                        begin_rule(g);
+                        g->lex_state = LexStateRuleName;
+                        break;
+                    default:
+                        lex_error(g, "invalid char: '%c'", c);
+                }
+                break;
+            case LexStateRuleName:
+                switch (c) {
+                    case WHITESPACE:
+                        end_rule_name(g);
+                        g->lex_state = LexStateWaitForColon;
+                        break;
+                    case ':':
+                        end_rule_name(g);
+                        g->lex_state = LexStateTupleRule;
+                        break;
+                    case SYMBOL_CHAR:
+                        break;
+                    default:
+                        lex_error(g, "invalid char: '%c'", c);
+                }
+                break;
+            case LexStateWaitForColon:
+                switch (c) {
+                    case WHITESPACE:
+                        // ignore
+                        break;
+                    case ':':
+                        g->lex_state = LexStateTupleRule;
+                        break;
+                    default:
+                        lex_error(g, "invalid char: '%c'", c);
+                }
+                break;
+            case LexStateTupleRule:
+                switch (c) {
+                    case WHITESPACE:
+                        // ignore
+                        break;
+                    case LOWER_ALPHA:
+                        begin_fn_name(g);
+                        g->lex_state = LexStateFnName;
+                        break;
+                    case '{':
+                        begin_tuple_body(g);
+                        g->lex_state = LexStateBody;
+                        break;
+                    default:
+                        lex_error(g, "invalid char: '%c'", c);
+                }
+                break;
+            case LexStateFnName:
+                switch (c) {
+                    case LOWER_ALPHA:
+                        // ignore
+                        break;
+                    case '(':
+                        end_fn_name(g);
+                        break;
+                    default:
+                        lex_error(g, "expected '('");
+                }
+                break;
+            case LexStateTokenStart:
+                switch (c) {
+                    case WHITESPACE:
+                        // ignore
+                        break;
+                    case ALPHA:
+                        begin_token_name(g);
+                        g->lex_state = LexStateToken;
+                        break;
+                    default:
+                        lex_error(g, "invalid char '%c'", c);
+                }
+                break;
+            case LexStateToken:
+                switch (c) {
+                    case ALPHA:
+                        // ignore
+                        break;
+                    case ')':
+                        end_token_name(g);
+                        break;
+                    default:
+                        lex_error(g, "invalid char '%c'", c);
+                }
+                break;
+            case LexStateBody:
+                switch (c) {
+                    case '}':
+                        end_tuple_body(g);
+                        lex_pop_stack(g);
+                        break;
+                    default:
+                        // ignore
+                        break;
+                }
+                break;
+            case LexStateEndOrOr:
+                switch (c) {
+                    case WHITESPACE:
+                        // ignore
+                        break;
+                    case ';':
+                        end_rule(g);
+                        g->lex_state = LexStateStart;
+                        break;
+                    default:
+                        lex_error(g, "expected ';' or '|'");
+                }
+        }
+        if (c == '\n') {
+            g->lex_line += 1;
+            g->lex_column = 0;
+        } else {
+            g->lex_column += 1;
+        }
+    }
+    switch (g->lex_state) {
+        case LexStateStart:
+            // ok
+            break;
+        case LexStateEndOrOr:
+        case LexStateRuleName:
+        case LexStateWaitForColon:
+        case LexStateTupleRule:
+        case LexStateFnName:
+        case LexStateTokenStart:
+        case LexStateToken:
+        case LexStateBody:
+            lex_error(g, "unexpected EOF");
+            break;
+    }
+}
+
+
 int main(int argc, char **argv) {
     const char *in_filename = argv[1];
     const char *out_filename = argv[2];
@@ -227,46 +588,15 @@ int main(int argc, char **argv) {
     if (!in_f || !out_f)
         zig_panic("unable to open file(s)");
 
-    Buf *in_buf = fetch_file(in_f);
-
-    ZigList<RuleNode *> rules = {0};
     Gen g = {0};
 
-    //zig_panic("TODO initialize rules");
-    {
-        Token *star_token = find_or_create_token(&g, buf_create_from_str("Star"));
-        Token *lparen_token = find_or_create_token(&g, buf_create_from_str("LParen"));
-        Token *eof_token = find_or_create_token(&g, buf_create_from_str("Eof"));
+    g.in_buf = fetch_file(in_f);
+    initialize_rules(&g);
 
-        RuleNode *root = allocate<RuleNode>(1);
-        root->type = RuleNodeTypeTuple;
-
-        RuleNode *star_node = allocate<RuleNode>(1);
-        star_node->type = RuleNodeTypeToken;
-        star_node->token.token = star_token;
-        root->tuple.children.append(star_node);
-
-        RuleNode *lparen_node = allocate<RuleNode>(1);
-        lparen_node->type = RuleNodeTypeToken;
-        lparen_node->token.token = lparen_token;
-        root->tuple.children.append(lparen_node);
-
-        RuleNode *eof_node = allocate<RuleNode>(1);
-        eof_node->type = RuleNodeTypeToken;
-        eof_node->token.token = eof_token;
-        root->tuple.children.append(eof_node);
-
-        rules.append(root);
-    }
-
-    g.root = rules.at(0);
+    g.root = g.rules.at(0);
 
     g.cur_state = create_state(&g, ParserStateTypeOk);
     gen(&g, g.root);
-
-
-
-    (void)in_buf;
 
     fprintf(out_f, "/* This file is auto-generated by parsergen.cpp */\n");
     fprintf(out_f, "#include \"src/parser.hpp\"\n");
