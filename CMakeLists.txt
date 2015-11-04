@@ -20,8 +20,19 @@ include_directories(
     ${CMAKE_BINARY_DIR}
 )
 
+set(GRAMMAR_TXT "${CMAKE_BINARY_DIR}/simple.txt")
+set(PARSER_CPP "${CMAKE_BINARY_DIR}/parser.cpp")
+
 set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/main.cpp"
+    "${CMAKE_SOURCE_DIR}/src/util.cpp"
+    "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
+    ${PARSER_CPP}
+)
+
+set(PARSERGEN_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/parsergen.cpp"
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
 )
@@ -49,3 +60,16 @@ target_link_libraries(zig LINK_PUBLIC
     ${LLVM_LIBRARIES}
 )
 install(TARGETS zig DESTINATION bin)
+
+add_executable(parsergen ${PARSERGEN_SOURCES})
+set_target_properties(parsergen PROPERTIES
+    LINKER_LANGUAGE C
+    COMPILE_FLAGS ${EXE_CFLAGS})
+
+
+add_custom_command(
+    OUTPUT ${PARSER_CPP}
+    COMMAND parsergen ARGS ${GRAMMAR_TXT} ${PARSER_CPP}
+    DEPENDS ${GRAMMAR_TXT} ${PARSERGEN_SOURCES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)

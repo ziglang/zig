@@ -1,0 +1,53 @@
+Root : many(FnDecl) token(EOF) {
+    $$ = ast_create_root($1);
+}
+
+FnDecl : token(Fn) token(Symbol) token(LParen) list(ParamDecl, token(Comma)) token(RParen) option(token(Arrow) Type) Block {
+    $$ = ast_create_fn_decl($2, $4, $6, $7);
+}
+
+ParamDecl : token(Symbol) token(Colon) Type {
+    $$ = ast_create_param_decl($1, $2);
+}
+
+Type : token(Symbol) {
+    $$ = ast_create_symbol_type($1);
+} | PointerType {
+    $$ = $1;
+}
+
+PointerType : token(Star) token(Const) Type {
+    $$ = ast_create_pointer_type($2, $3);
+} | token(Star) token(Mut) Type {
+    $$ = ast_create_pointer_type($2, $3);
+}
+
+Block : token(LBrace) many(Statement) option(Expression) token(RBrace) {
+    $$ = ast_create_block($2, $3);
+}
+
+Statement : ExpressionStatement {
+    $$ = $1;
+} | ReturnStatement {
+    $$ = $1;
+}
+
+ExpressionStatement : Expression token(Semicolon) {
+    $$ = ast_create_expression_statement($1);
+}
+
+ReturnStatement : token(Return) Expression token(Semicolon) {
+    $$ = ast_create_return_statement($2);
+}
+
+Expression : token(Number) {
+    $$ = ast_create_number($1);
+} | token(String) {
+    $$ = ast_create_string($1);
+} | FnCall {
+    $$ = $1;
+}
+
+FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen) {
+    $$ = ast_create_fn_call($1, $3);
+}

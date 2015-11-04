@@ -49,19 +49,19 @@ static inline void buf_deinit(Buf *buf) {
     buf->list.deinit();
 }
 
-static inline void buf_init_from_mem(Buf *buf, char *ptr, int len) {
+static inline void buf_init_from_mem(Buf *buf, const char *ptr, int len) {
     buf->list.resize(len + 1);
     memcpy(buf_ptr(buf), ptr, len);
     buf->list.at(buf_len(buf)) = 0;
 }
 
-static inline Buf *buf_create_from_mem(char *ptr, int len) {
+static inline Buf *buf_create_from_mem(const char *ptr, int len) {
     Buf *buf = allocate<Buf>(1);
     buf_init_from_mem(buf, ptr, len);
     return buf;
 }
 
-static inline Buf *buf_create_from_str(char *str) {
+static inline Buf *buf_create_from_str(const char *str) {
     return buf_create_from_mem(str, strlen(str));
 }
 
@@ -138,7 +138,7 @@ static inline Buf *buf_dirname(Buf *buf) {
             return buf_slice(buf, 0, i);
         }
     }
-    zig_panic("TODO buf_dirname no slash");
+    return buf_create_from_mem("", 0);
 }
 
 

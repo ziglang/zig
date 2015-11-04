@@ -11,7 +11,7 @@ readable, safe, optimal, and concise code to solve any computing problem.
  * Creating a C library should be a primary use case. Should be easy to export
    an auto-generated .h file.
  * Generics such as containers.
- * Do not depend on libc.
+ * Do not depend on libc unless explicitly imported.
  * First class error code support.
  * Include documentation generator.
  * Eliminate the need for make, cmake, etc.
@@ -25,6 +25,7 @@ readable, safe, optimal, and concise code to solve any computing problem.
    - Whitespace at the end of line is a compile error.
  * Resilient to parsing errors to make IDE integration work well.
  * Source code is UTF-8.
+ * Shebang line OK so language can be used for "scripting" as well.
 
 ## Roadmap
 
@@ -35,3 +36,19 @@ readable, safe, optimal, and concise code to solve any computing problem.
  * Unit tests.
  * Simple .so library
  * How should the Widget use case be solved? In Genesis I'm using C++ and inheritance.
+
+## Grammar
+
+```
+Root : FnDecl*
+FnDecl : TokenFn TokenSymbol TokenLParen list(ParamDecl, TokenComma, 0) TokenRParen (TokenArrow Type)? Block
+ParamDecl : TokenSymbol TokenColon Type
+Type : TokenSymbol | PointerType
+PointerType : TokenStar (TokenConst | TokenMut) Type
+Block : TokenLBrace Statement* Expression? TokenRBrace
+Statement : ExpressionStatement | ReturnStatement
+ExpressionStatement : Expression TokenSemicolon
+ReturnStatement : TokenReturn Expression TokenSemicolon
+Expression : TokenNumber | TokenString | FnCall
+FnCall : TokenSymbol TokenLParen list(Expression, TokenComma, 0) TokenRParen
+```
