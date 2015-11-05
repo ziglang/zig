@@ -21,14 +21,15 @@ include_directories(
 )
 
 set(GRAMMAR_TXT "${CMAKE_BINARY_DIR}/simple.txt")
-set(PARSER_CPP "${CMAKE_BINARY_DIR}/parser.cpp")
+set(PARSER_GENERATED_CPP "${CMAKE_BINARY_DIR}/parser_generated.cpp")
 
 set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
-    ${PARSER_CPP}
+    "${CMAKE_SOURCE_DIR}/src/parser.cpp"
+    ${PARSER_GENERATED_CPP}
 )
 
 set(PARSERGEN_SOURCES
@@ -68,8 +69,8 @@ set_target_properties(parsergen PROPERTIES
 
 
 add_custom_command(
-    OUTPUT ${PARSER_CPP}
-    COMMAND parsergen ARGS ${GRAMMAR_TXT} ${PARSER_CPP}
+    OUTPUT ${PARSER_GENERATED_CPP}
+    COMMAND parsergen ARGS ${GRAMMAR_TXT} ${PARSER_GENERATED_CPP}
     DEPENDS ${GRAMMAR_TXT} ${PARSERGEN_SOURCES}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )

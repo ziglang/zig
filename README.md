@@ -19,7 +19,7 @@ readable, safe, optimal, and concise code to solve any computing problem.
  * Eliminate the need for C headers (when using zig internally).
  * Ability to declare dependencies as Git URLS with commit locking (can
    provide a tag or sha1).
- * Rust-style enums.
+ * Tagged union enum type.
  * Opinionated when it makes life easier.
    - Tab character in source code is a compile error.
    - Whitespace at the end of line is a compile error.
@@ -32,23 +32,29 @@ readable, safe, optimal, and concise code to solve any computing problem.
  * Hello, world.
    - Build AST
    - Code Gen
+   - Produce .o file.
+ * Produce executable file instead of .o file.
+ * Add debugging symbols.
+ * Debug/Release mode.
  * C style comments.
  * Unit tests.
  * Simple .so library
  * How should the Widget use case be solved? In Genesis I'm using C++ and inheritance.
 
-## Grammar
+### Primitive Numeric Types:
 
-```
-Root : FnDecl*
-FnDecl : TokenFn TokenSymbol TokenLParen list(ParamDecl, TokenComma, 0) TokenRParen (TokenArrow Type)? Block
-ParamDecl : TokenSymbol TokenColon Type
-Type : TokenSymbol | PointerType
-PointerType : TokenStar (TokenConst | TokenMut) Type
-Block : TokenLBrace Statement* Expression? TokenRBrace
-Statement : ExpressionStatement | ReturnStatement
-ExpressionStatement : Expression TokenSemicolon
-ReturnStatement : TokenReturn Expression TokenSemicolon
-Expression : TokenNumber | TokenString | FnCall
-FnCall : TokenSymbol TokenLParen list(Expression, TokenComma, 0) TokenRParen
-```
+zig    | C equivalent | Description
+-------|--------------|-------------------------------
+    i8 |       int8_t |    signed 8-bit integer
+    u8 |      uint8_t |  unsigned 8-bit integer
+   i16 |      int16_t |   signed 16-bit integer
+   u16 |     uint16_t | unsigned 16-bit integer
+   i32 |      int32_t |   signed 32-bit integer
+   u32 |     uint32_t | unsigned 32-bit integer
+   i64 |      int64_t |   signed 64-bit integer
+   u64 |     uint64_t | unsigned 64-bit integer
+   f32 |        float |  32-bit IEE754 floating point
+   f64 |       double |  64-bit IEE754 floating point
+  f128 |  long double | 128-bit IEE754 floating point
+ isize |      ssize_t |   signed pointer sized integer
+ usize |       size_t | unsigned pointer sized integer
