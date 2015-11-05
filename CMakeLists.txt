@@ -24,11 +24,12 @@ set(GRAMMAR_TXT "${CMAKE_BINARY_DIR}/simple.txt")
 set(PARSER_GENERATED_CPP "${CMAKE_BINARY_DIR}/parser_generated.cpp")
 
 set(ZIG_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/main.cpp"
-    "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/error.cpp"
+    "${CMAKE_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/parser.cpp"
+    "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/util.cpp"
     ${PARSER_GENERATED_CPP}
 )
 
