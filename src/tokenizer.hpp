@@ -36,15 +36,15 @@ enum TokenId {
 
 // TODO: debug delete this 
 enum TokenId {
-    TokenIdStar = 0,
-    TokenIdLParen = 1,
+    TokenIdLParen = 0,
+    TokenIdRParen = 1,
     TokenIdEof = 2,
+    TokenIdStar = 3,
     TokenIdSymbol,
     TokenIdKeywordFn,
     TokenIdKeywordReturn,
     TokenIdKeywordMut,
     TokenIdKeywordConst,
-    TokenIdRParen,
     TokenIdComma,
     TokenIdLBrace,
     TokenIdRBrace,

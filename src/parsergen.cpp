@@ -136,6 +136,7 @@ struct RuleTuple {
     Buf name;
     ZigList<RuleNode *> children;
     Buf body;
+    Buf union_field_name;
 };
 
 struct RuleMany {
@@ -161,6 +162,9 @@ struct RuleList {
 
 struct RuleSubRule {
     RuleNode *child;
+
+    // for lexer use only
+    Buf name;
 };
 
 enum RuleNodeType {
@@ -175,6 +179,8 @@ enum RuleNodeType {
 
 struct RuleNode {
     RuleNodeType type;
+    int lex_line;
+    int lex_column;
     union {
         RuleTuple tuple;
         RuleMany many;
@@ -205,6 +211,7 @@ struct CodeGenCapture {
     Buf *body;
     bool is_root;
     Buf *field_names;
+    Buf *union_field_name;
 };
 
 struct CodeGen {
@@ -225,6 +232,8 @@ struct ParserState {
 enum LexState {
     LexStateStart,
     LexStateRuleName,
+    LexStateRuleFieldNameStart,
+    LexStateRuleFieldName,
     LexStateWaitForColon,
     LexStateTupleRule,
     LexStateFnName,
@@ -232,6 +241,7 @@ enum LexState {
     LexStateToken,
     LexStateBody,
     LexStateEndOrOr,
+    LexStateSubTupleName,
 };
 
 struct LexStack {
@@ -258,6 +268,8 @@ struct Gen {
     int lex_token_name_begin;
     int lex_body_begin;
     int lex_body_end;
+    int lex_sub_tuple_begin;
+    int lex_field_name_begin;
 };
 
 static ParserState *create_state(Gen *g) {
@@ -303,12 +315,13 @@ static void state_add_push_node(ParserState *state) {
     state_add_code(state, code);
 }
 
-static CodeGen *codegen_create_capture(Buf *body, bool is_root, int field_name_count) {
+static CodeGen *codegen_create_capture(Buf *body, bool is_root, int field_name_count, Buf *union_field_name) {
     CodeGen *code = allocate<CodeGen>(1);
     code->type = CodeGenTypeCapture;
     code->capture.body = body;
     code->capture.is_root = is_root;
     code->capture.field_names = allocate<Buf>(field_name_count);
+    code->capture.union_field_name = union_field_name;
     return code;
 }
 
@@ -325,6 +338,7 @@ static void state_add_eat_token(ParserState *state) {
 }
 
 static void gen(Gen *g, RuleNode *node, Buf *out_field_name) {
+    assert(node);
     switch (node->type) {
         case RuleNodeTypeToken:
             {
@@ -346,13 +360,14 @@ static void gen(Gen *g, RuleNode *node, Buf *out_field_name) {
             break;
         case RuleNodeTypeTuple:
             {
-                buf_init_from_str(out_field_name, "node");
+                buf_init_from_buf(out_field_name, &node->tuple.union_field_name);
 
                 state_add_push_node(g->cur_state);
 
                 bool is_root = (node == g->root);
                 int field_name_count = node->tuple.children.length;
-                CodeGen *code = codegen_create_capture(&node->tuple.body, is_root, field_name_count);
+                CodeGen *code = codegen_create_capture(&node->tuple.body, is_root, field_name_count,
+                        &node->tuple.union_field_name);
 
                 for (int i = 0; i < node->tuple.children.length; i += 1) {
                     RuleNode *child = node->tuple.children.at(i);
@@ -411,7 +426,7 @@ static void lex_error(Gen *g, const char *format, ...) {
 
     va_list ap;
     va_start(ap, format);
-    fprintf(stderr, "Error: Line %d, column %d: ", line, column);
+    fprintf(stderr, "Grammar Error: Line %d, column %d: ", line, column);
     vfprintf(stderr, format, ap);
     fprintf(stderr, "\n");
     va_end(ap);
@@ -428,10 +443,16 @@ static void lex_pop_stack(Gen *g) {
     g->lex_stack.pop();
 }
 
+static RuleNode *create_rule_node(Gen *g) {
+    RuleNode *node = allocate<RuleNode>(1);
+    node->lex_line = g->lex_line;
+    node->lex_column = g->lex_column;
+    return node;
+}
 
 static void begin_rule(Gen *g) {
     assert(!g->lex_cur_rule);
-    g->lex_cur_rule = allocate<RuleNode>(1);
+    g->lex_cur_rule = create_rule_node(g);
     g->lex_cur_rule->type = RuleNodeTypeTuple;
     g->lex_cur_rule_begin = g->lex_pos;
 
@@ -450,6 +471,18 @@ static void end_rule_name(Gen *g) {
     char *ptr = &buf_ptr(g->in_buf)[g->lex_cur_rule_begin];
     int len = g->lex_pos - g->lex_cur_rule_begin;
     buf_init_from_mem(&g->lex_cur_rule->tuple.name, ptr, len);
+}
+
+static void begin_rule_field_name(Gen *g) {
+    assert(g->lex_cur_rule);
+    g->lex_field_name_begin = g->lex_pos;
+}
+
+static void end_rule_field_name(Gen *g) {
+    assert(g->lex_cur_rule);
+    char *ptr = &buf_ptr(g->in_buf)[g->lex_field_name_begin];
+    int len = g->lex_pos - g->lex_field_name_begin;
+    buf_init_from_mem(&g->lex_cur_rule->tuple.union_field_name, ptr, len);
 }
 
 static void begin_fn_name(Gen *g) {
@@ -478,14 +511,12 @@ static void end_token_name(Gen *g) {
     buf_init_from_mem(&token_name, ptr, len);
 
     Token *token = find_or_create_token(g, &token_name);
-    RuleNode *node = allocate<RuleNode>(1);
+    RuleNode *node = create_rule_node(g);
     node->type = RuleNodeTypeToken;
     node->token.token = token;
 
     assert(g->lex_cur_rule->type == RuleNodeTypeTuple);
     g->lex_cur_rule->tuple.children.append(node);
-
-    g->biggest_tuple_len = max(g->biggest_tuple_len, g->lex_cur_rule->tuple.children.length);
 
 
     lex_pop_stack(g);
@@ -502,6 +533,36 @@ static void end_tuple_body(Gen *g) {
     char *ptr = &buf_ptr(g->in_buf)[g->lex_body_begin];
     int len = end_pos - g->lex_body_begin;
     buf_init_from_mem(&g->lex_cur_rule->tuple.body, ptr, len);
+}
+
+static void begin_sub_tuple(Gen *g) {
+    g->lex_sub_tuple_begin = g->lex_pos;
+    lex_push_stack(g);
+}
+
+static void end_sub_tuple(Gen *g) {
+    assert(g->lex_cur_rule->type == RuleNodeTypeTuple);
+    char *ptr = &buf_ptr(g->in_buf)[g->lex_sub_tuple_begin];
+    int len = g->lex_pos - g->lex_sub_tuple_begin;
+
+    RuleNode *node = create_rule_node(g);
+    node->type = RuleNodeTypeSubRule;
+    buf_init_from_mem(&node->sub_rule.name, ptr, len);
+
+    g->lex_cur_rule->tuple.children.append(node);
+
+    lex_pop_stack(g);
+}
+
+static RuleNode *find_rule_node(Gen *g, Buf *name) {
+    for (int i = 0; i < g->rules.length; i += 1) {
+        RuleNode *node = g->rules.at(i);
+        assert(node->type == RuleNodeTypeTuple);
+        if (buf_eql_buf(&node->tuple.name, name)) {
+            return node;
+        }
+    }
+    return nullptr;
 }
 
 static void initialize_rules(Gen *g) {
@@ -524,18 +585,36 @@ static void initialize_rules(Gen *g) {
                 break;
             case LexStateRuleName:
                 switch (c) {
-                    case WHITESPACE:
+                    case '<':
                         end_rule_name(g);
-                        g->lex_state = LexStateWaitForColon;
-                        break;
-                    case ':':
-                        end_rule_name(g);
-                        g->lex_state = LexStateTupleRule;
+                        g->lex_state = LexStateRuleFieldNameStart;
                         break;
                     case SYMBOL_CHAR:
+                        // ok
                         break;
                     default:
-                        lex_error(g, "invalid char: '%c'", c);
+                        lex_error(g, "expected '<', not '%c'", c);
+                }
+                break;
+            case LexStateRuleFieldNameStart:
+                switch (c) {
+                    case SYMBOL_CHAR:
+                        begin_rule_field_name(g);
+                        g->lex_state = LexStateRuleFieldName;
+                        break;
+                    default:
+                        lex_error(g, "expected field name, not '%c'", c);
+                }
+                break;
+            case LexStateRuleFieldName:
+                switch (c) {
+                    case SYMBOL_CHAR:
+                        // ok
+                        break;
+                    case '>':
+                        end_rule_field_name(g);
+                        g->lex_state = LexStateWaitForColon;
+                        break;
                 }
                 break;
             case LexStateWaitForColon:
@@ -559,12 +638,16 @@ static void initialize_rules(Gen *g) {
                         begin_fn_name(g);
                         g->lex_state = LexStateFnName;
                         break;
+                    case UPPER_ALPHA:
+                        begin_sub_tuple(g);
+                        g->lex_state = LexStateSubTupleName;
+                        break;
                     case '{':
                         begin_tuple_body(g);
                         g->lex_state = LexStateBody;
                         break;
                     default:
-                        lex_error(g, "invalid char: '%c'", c);
+                        lex_error(g, "expected rule, not '%c'", c);
                 }
                 break;
             case LexStateFnName:
@@ -589,7 +672,7 @@ static void initialize_rules(Gen *g) {
                         g->lex_state = LexStateToken;
                         break;
                     default:
-                        lex_error(g, "invalid char '%c'", c);
+                        lex_error(g, "expected token name, not '%c'", c);
                 }
                 break;
             case LexStateToken:
@@ -601,7 +684,7 @@ static void initialize_rules(Gen *g) {
                         end_token_name(g);
                         break;
                     default:
-                        lex_error(g, "invalid char '%c'", c);
+                        lex_error(g, "expected token name or ')', not '%c'", c);
                 }
                 break;
             case LexStateBody:
@@ -627,6 +710,20 @@ static void initialize_rules(Gen *g) {
                     default:
                         lex_error(g, "expected ';' or '|'");
                 }
+                break;
+            case LexStateSubTupleName:
+                switch (c) {
+                    case ALPHA:
+                        // ignore
+                        break;
+                    case WHITESPACE:
+                        end_sub_tuple(g);
+                        assert(g->lex_state == LexStateTupleRule);
+                        break;
+                    default:
+                        lex_error(g, "expected rule name, not '%c'", c);
+                }
+                break;
         }
         if (c == '\n') {
             g->lex_line += 1;
@@ -647,8 +744,39 @@ static void initialize_rules(Gen *g) {
         case LexStateTokenStart:
         case LexStateToken:
         case LexStateBody:
+        case LexStateSubTupleName:
+        case LexStateRuleFieldNameStart:
+        case LexStateRuleFieldName:
             lex_error(g, "unexpected EOF");
             break;
+    }
+
+    // Resolve child references into pointers
+    for (int tuple_i = 0; tuple_i < g->rules.length; tuple_i += 1) {
+        RuleNode *node = g->rules.at(tuple_i);
+        assert(node->type == RuleNodeTypeTuple);
+
+        for (int child_i = 0; child_i < node->tuple.children.length; child_i += 1) {
+            RuleNode *child = node->tuple.children.at(child_i);
+            if (child->type == RuleNodeTypeSubRule) {
+                int line = child->lex_line + 1;
+                int column = child->lex_column + 1;
+                RuleNode *referenced_node = find_rule_node(g, &child->sub_rule.name);
+                if (!referenced_node) {
+                    fprintf(stderr, "Grammar Error: Line %d, column %d: Rule not defined: '%s'\n",
+                            line, column, buf_ptr(&child->sub_rule.name));
+                }
+                child->sub_rule.child = referenced_node;
+            }
+        }
+    }
+
+
+    // calculate the biggest tuple len
+    for (int i = 0; i < g->rules.length; i += 1) {
+        RuleNode *node = g->rules.at(i);
+        assert(node->type == RuleNodeTypeTuple);
+        g->biggest_tuple_len = max(g->biggest_tuple_len, node->tuple.children.length);
     }
 }
 
@@ -828,6 +956,8 @@ int main(int argc, char **argv) {
                     fprintf(out_f, "                state = transition[%d][token->id];\n", state->index);
                     break;
                 case CodeGenTypeError:
+                    fprintf(out_f, "                token_index -= 1;\n");
+                    fprintf(out_f, "                token = &tokens->at(token_index);\n");
                     fprintf(out_f, "                ast_error(token, \"%s\");\n", buf_ptr(code->error.msg));
                     break;
                 case CodeGenTypeSave:
@@ -843,7 +973,12 @@ int main(int argc, char **argv) {
                         fprintf(out_f, "%s\n", buf_ptr(code_text));
                         fprintf(out_f, "                return root;\n");
                     } else {
-                        zig_panic("TODO capture non-root");
+                        fprintf(out_f, "                ParserGenNode *parent_node = stack.at(stack.length - 2);\n");
+                        Buf *dest = buf_sprintf("parent_node->data[parent_node->next_index++].%s",
+                                buf_ptr(code->capture.union_field_name));
+                        Buf *code_text = fill_template(code->capture.body, buf_ptr(dest),
+                                code->capture.field_names);
+                        fprintf(out_f, "%s\n", buf_ptr(code_text));
                     }
                     break;
                 case CodeGenTypePopNode:
