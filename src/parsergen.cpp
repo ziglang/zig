@@ -133,10 +133,8 @@ struct Token {
 struct RuleNode;
 
 struct RuleTuple {
-    Buf name;
     ZigList<RuleNode *> children;
     Buf body;
-    Buf union_field_name;
 };
 
 struct RuleMany {
@@ -144,11 +142,13 @@ struct RuleMany {
 };
 
 struct RuleOption {
-    ZigList<RuleNode *> child;
+    RuleNode *child;
 };
 
 struct RuleOr {
-    ZigList<RuleTuple *> children;
+    Buf name;
+    Buf union_field_name;
+    ZigList<RuleNode *> children;
 };
 
 struct RuleToken {
@@ -227,6 +227,7 @@ struct ParserState {
     // One for each token ID.
     ParserState **transition;
     int index;
+    bool is_error;
 };
 
 enum LexState {
@@ -250,8 +251,9 @@ struct LexStack {
 
 struct Gen {
     ZigList<RuleNode *> rules;
-    ParserState *cur_state;
+
     ZigList<ParserState *> transition_table;
+    ParserState *start_state;
     ZigList<Token *> tokens;
     RuleNode *root;
     int biggest_tuple_len;
@@ -260,7 +262,8 @@ struct Gen {
     LexState lex_state;
     int lex_line;
     int lex_column;
-    RuleNode *lex_cur_rule;
+    RuleNode *lex_cur_or_rule;
+    RuleNode *lex_cur_tuple_rule;;
     int lex_cur_rule_begin;
     int lex_fn_name_begin;
     int lex_pos;
@@ -274,9 +277,8 @@ struct Gen {
 
 static ParserState *create_state(Gen *g) {
     ParserState *state = allocate<ParserState>(1);
-    state->index = g->transition_table.length;
+    state->index = -1;
     state->transition = allocate<ParserState*>(g->tokens.length);
-    g->transition_table.append(state);
     return state;
 }
 
@@ -301,6 +303,7 @@ static void state_add_error(ParserState *state, Buf *msg) {
     code->type = CodeGenTypeError;
     code->error.msg = msg;
     state_add_code(state, code);
+    state->is_error = true;
 }
 
 static void state_add_transition(ParserState *state) {
@@ -337,45 +340,61 @@ static void state_add_eat_token(ParserState *state) {
     state_add_code(state, code);
 }
 
-static void gen(Gen *g, RuleNode *node, Buf *out_field_name) {
+
+static void gen(Gen *g, RuleNode *node, Buf *out_field_name, ParserState *cur_state,
+        ZigList<ParserState *> *end_states, bool is_root)
+{
+    struct PossibleState {
+        ParserState *test_state;
+        ZigList<ParserState *> end_states;
+    };
     assert(node);
     switch (node->type) {
         case RuleNodeTypeToken:
             {
                 buf_init_from_str(out_field_name, "token");
 
-                state_add_save_token(g->cur_state);
+                state_add_save_token(cur_state);
 
                 ParserState *ok_state = create_state(g);
                 ParserState *err_state = create_state(g);
                 state_add_error(err_state, buf_sprintf("expected token '%s'", buf_ptr(&node->token.token->name)));
 
-                fill_state_with_transition(g, g->cur_state, err_state);
-                g->cur_state->transition[node->token.token->id] = ok_state;
-                state_add_transition(g->cur_state);
-                state_add_eat_token(g->cur_state);
+                fill_state_with_transition(g, cur_state, err_state);
+                cur_state->transition[node->token.token->id] = ok_state;
+                state_add_transition(cur_state);
+                state_add_eat_token(cur_state);
 
-                g->cur_state = ok_state;
+                end_states->append(ok_state);
             }
             break;
         case RuleNodeTypeTuple:
             {
-                buf_init_from_buf(out_field_name, &node->tuple.union_field_name);
 
-                state_add_push_node(g->cur_state);
-
-                bool is_root = (node == g->root);
                 int field_name_count = node->tuple.children.length;
                 CodeGen *code = codegen_create_capture(&node->tuple.body, is_root, field_name_count,
-                        &node->tuple.union_field_name);
+                        out_field_name);
 
-                for (int i = 0; i < node->tuple.children.length; i += 1) {
-                    RuleNode *child = node->tuple.children.at(i);
-                    gen(g, child, &code->capture.field_names[i]);
+                ZigList<ParserState *> *my_end_states = allocate<ZigList<ParserState *>>(1);
+                my_end_states->append(cur_state);
+                for (int child_index = 0; child_index < node->tuple.children.length; child_index += 1) {
+                    RuleNode *child = node->tuple.children.at(child_index);
+
+                    ZigList<ParserState *> *more_end_states = allocate<ZigList<ParserState *>>(1);
+                    for (int i = 0; i < my_end_states->length; i += 1) {
+                        ParserState *use_state = my_end_states->at(i);
+                        gen(g, child, &code->capture.field_names[i], use_state, more_end_states, false);
+                    }
+
+                    my_end_states = more_end_states;
                 }
-                state_add_code(g->cur_state, code);
 
-                state_add_pop_node(g->cur_state);
+                for (int i = 0; i < my_end_states->length; i += 1) {
+                    ParserState *use_state = my_end_states->at(i);
+                    state_add_code(use_state, code);
+
+                    end_states->append(use_state);
+                }
             }
             break;
         case RuleNodeTypeMany:
@@ -388,12 +407,73 @@ static void gen(Gen *g, RuleNode *node, Buf *out_field_name) {
             zig_panic("TODO");
             break;
         case RuleNodeTypeOr:
-            zig_panic("TODO");
+            {
+                buf_init_from_buf(out_field_name, &node->_or.union_field_name);
+
+                state_add_push_node(cur_state);
+
+                // TODO this probably need to get moved when or can handle conflicts
+                state_add_save_token(cur_state);
+                state_add_transition(cur_state);
+                state_add_eat_token(cur_state);
+
+
+                int possible_state_count = node->_or.children.length;
+                PossibleState *possible_states = allocate<PossibleState>(possible_state_count);
+                for (int i = 0; i < possible_state_count; i += 1) {
+                    RuleNode *child = node->_or.children.at(i);
+                    assert(child->type == RuleNodeTypeTuple);
+
+                    PossibleState *possible_state = &possible_states[i];
+                    possible_state->test_state = create_state(g);
+                    gen(g, child, &node->_or.union_field_name, possible_state->test_state,
+                            &possible_state->end_states, is_root);
+                }
+
+                // try to merge all the possible states into new state.
+                ParserState *err_state = create_state(g);
+                state_add_error(err_state, buf_create_from_str("unexpected token"));
+                for (int token_i = 0; token_i < g->tokens.length; token_i += 1) {
+                    bool any_called_it = false;
+                    bool conflict = false;
+                    for (int state_i = 0; state_i < possible_state_count; state_i += 1) {
+                        PossibleState *possible_state = &possible_states[state_i];
+                        if (!possible_state->test_state->transition[token_i]->is_error) {
+                            if (any_called_it) {
+                                conflict = true;
+                            } else {
+                                any_called_it = true;
+                            }
+                        }
+                    }
+                    if (conflict) {
+                        zig_panic("TODO state transition conflict");
+                    } else {
+                        cur_state->transition[token_i] = err_state;
+                        for (int state_i = 0; state_i < possible_state_count; state_i += 1) {
+                            PossibleState *possible_state = &possible_states[state_i];
+                            if (!possible_state->test_state->transition[token_i]->is_error) {
+                                cur_state->transition[token_i] = possible_state->test_state->transition[token_i];
+                            }
+                        }
+                    }
+                }
+
+                for (int state_i = 0; state_i < possible_state_count; state_i += 1) {
+                    PossibleState *possible_state = &possible_states[state_i];
+                    for (int end_i = 0; end_i < possible_state->end_states.length; end_i += 1) {
+                        ParserState *state = possible_state->end_states.at(end_i);
+                        state_add_pop_node(state);
+
+                        end_states->append(state);
+                    }
+                }
+            }
             break;
         case RuleNodeTypeSubRule:
             {
                 RuleNode *child = node->sub_rule.child;
-                gen(g, child, out_field_name);
+                gen(g, child, out_field_name, cur_state, end_states, false);
             }
             break;
     }
@@ -451,38 +531,51 @@ static RuleNode *create_rule_node(Gen *g) {
 }
 
 static void begin_rule(Gen *g) {
-    assert(!g->lex_cur_rule);
-    g->lex_cur_rule = create_rule_node(g);
-    g->lex_cur_rule->type = RuleNodeTypeTuple;
-    g->lex_cur_rule_begin = g->lex_pos;
+    assert(!g->lex_cur_or_rule);
+    assert(!g->lex_cur_tuple_rule);
 
-    g->lex_state = LexStateEndOrOr;
-    lex_push_stack(g);
+    g->lex_cur_or_rule = create_rule_node(g);
+    g->lex_cur_or_rule->type = RuleNodeTypeOr;
+
+    g->lex_cur_tuple_rule = create_rule_node(g);
+    g->lex_cur_tuple_rule->type = RuleNodeTypeTuple;
+    g->lex_cur_rule_begin = g->lex_pos;
 }
 
 static void end_rule(Gen *g) {
-    assert(g->lex_cur_rule);
-    g->rules.append(g->lex_cur_rule);
-    g->lex_cur_rule = nullptr;
+    assert(g->lex_cur_or_rule);
+    assert(!g->lex_cur_tuple_rule);
+
+    g->rules.append(g->lex_cur_or_rule);
+    g->lex_cur_or_rule = nullptr;
+}
+
+static void perform_or(Gen *g) {
+    assert(g->lex_cur_or_rule);
+    assert(!g->lex_cur_tuple_rule);
+
+    g->lex_cur_tuple_rule = create_rule_node(g);
+    g->lex_cur_tuple_rule->type = RuleNodeTypeTuple;
+    g->lex_cur_rule_begin = g->lex_pos;
 }
 
 static void end_rule_name(Gen *g) {
-    assert(g->lex_cur_rule);
+    assert(g->lex_cur_or_rule);
     char *ptr = &buf_ptr(g->in_buf)[g->lex_cur_rule_begin];
     int len = g->lex_pos - g->lex_cur_rule_begin;
-    buf_init_from_mem(&g->lex_cur_rule->tuple.name, ptr, len);
+    buf_init_from_mem(&g->lex_cur_or_rule->_or.name, ptr, len);
 }
 
 static void begin_rule_field_name(Gen *g) {
-    assert(g->lex_cur_rule);
+    assert(g->lex_cur_or_rule);
     g->lex_field_name_begin = g->lex_pos;
 }
 
 static void end_rule_field_name(Gen *g) {
-    assert(g->lex_cur_rule);
+    assert(g->lex_cur_or_rule);
     char *ptr = &buf_ptr(g->in_buf)[g->lex_field_name_begin];
     int len = g->lex_pos - g->lex_field_name_begin;
-    buf_init_from_mem(&g->lex_cur_rule->tuple.union_field_name, ptr, len);
+    buf_init_from_mem(&g->lex_cur_or_rule->_or.union_field_name, ptr, len);
 }
 
 static void begin_fn_name(Gen *g) {
@@ -505,6 +598,9 @@ static void begin_token_name(Gen *g) {
 }
 
 static void end_token_name(Gen *g) {
+    assert(g->lex_cur_tuple_rule);
+    assert(g->lex_cur_tuple_rule->type == RuleNodeTypeTuple);
+
     char *ptr = &buf_ptr(g->in_buf)[g->lex_token_name_begin];
     int len = g->lex_pos - g->lex_token_name_begin;
     Buf token_name = {0};
@@ -515,24 +611,27 @@ static void end_token_name(Gen *g) {
     node->type = RuleNodeTypeToken;
     node->token.token = token;
 
-    assert(g->lex_cur_rule->type == RuleNodeTypeTuple);
-    g->lex_cur_rule->tuple.children.append(node);
+    g->lex_cur_tuple_rule->tuple.children.append(node);
 
 
     lex_pop_stack(g);
 }
 
 static void begin_tuple_body(Gen *g) {
-    assert(g->lex_cur_rule->type == RuleNodeTypeTuple);
+    assert(g->lex_cur_tuple_rule->type == RuleNodeTypeTuple);
     g->lex_body_begin = g->lex_pos;
 }
 
 static void end_tuple_body(Gen *g) {
-    assert(g->lex_cur_rule->type == RuleNodeTypeTuple);
+    assert(g->lex_cur_or_rule);
+    assert(g->lex_cur_tuple_rule->type == RuleNodeTypeTuple);
     int end_pos = g->lex_pos + 1;
     char *ptr = &buf_ptr(g->in_buf)[g->lex_body_begin];
     int len = end_pos - g->lex_body_begin;
-    buf_init_from_mem(&g->lex_cur_rule->tuple.body, ptr, len);
+    buf_init_from_mem(&g->lex_cur_tuple_rule->tuple.body, ptr, len);
+
+    g->lex_cur_or_rule->_or.children.append(g->lex_cur_tuple_rule);
+    g->lex_cur_tuple_rule = nullptr;
 }
 
 static void begin_sub_tuple(Gen *g) {
@@ -541,7 +640,7 @@ static void begin_sub_tuple(Gen *g) {
 }
 
 static void end_sub_tuple(Gen *g) {
-    assert(g->lex_cur_rule->type == RuleNodeTypeTuple);
+    assert(g->lex_cur_tuple_rule->type == RuleNodeTypeTuple);
     char *ptr = &buf_ptr(g->in_buf)[g->lex_sub_tuple_begin];
     int len = g->lex_pos - g->lex_sub_tuple_begin;
 
@@ -549,7 +648,7 @@ static void end_sub_tuple(Gen *g) {
     node->type = RuleNodeTypeSubRule;
     buf_init_from_mem(&node->sub_rule.name, ptr, len);
 
-    g->lex_cur_rule->tuple.children.append(node);
+    g->lex_cur_tuple_rule->tuple.children.append(node);
 
     lex_pop_stack(g);
 }
@@ -557,8 +656,8 @@ static void end_sub_tuple(Gen *g) {
 static RuleNode *find_rule_node(Gen *g, Buf *name) {
     for (int i = 0; i < g->rules.length; i += 1) {
         RuleNode *node = g->rules.at(i);
-        assert(node->type == RuleNodeTypeTuple);
-        if (buf_eql_buf(&node->tuple.name, name)) {
+        assert(node->type == RuleNodeTypeOr);
+        if (buf_eql_buf(&node->_or.name, name)) {
             return node;
         }
     }
@@ -691,7 +790,7 @@ static void initialize_rules(Gen *g) {
                 switch (c) {
                     case '}':
                         end_tuple_body(g);
-                        lex_pop_stack(g);
+                        g->lex_state = LexStateEndOrOr;
                         break;
                     default:
                         // ignore
@@ -706,6 +805,10 @@ static void initialize_rules(Gen *g) {
                     case ';':
                         end_rule(g);
                         g->lex_state = LexStateStart;
+                        break;
+                    case '|':
+                        perform_or(g);
+                        g->lex_state = LexStateTupleRule;
                         break;
                     default:
                         lex_error(g, "expected ';' or '|'");
@@ -751,32 +854,39 @@ static void initialize_rules(Gen *g) {
             break;
     }
 
-    // Resolve child references into pointers
-    for (int tuple_i = 0; tuple_i < g->rules.length; tuple_i += 1) {
-        RuleNode *node = g->rules.at(tuple_i);
-        assert(node->type == RuleNodeTypeTuple);
+    // Iterate over the rules and
+    //  * resolve child references into pointers
+    //  * calculate the biggest tuple len
+    bool any_errors = false;
+    for (int or_i = 0; or_i < g->rules.length; or_i += 1) {
+        RuleNode *or_node = g->rules.at(or_i);
+        assert(or_node->type == RuleNodeTypeOr);
 
-        for (int child_i = 0; child_i < node->tuple.children.length; child_i += 1) {
-            RuleNode *child = node->tuple.children.at(child_i);
-            if (child->type == RuleNodeTypeSubRule) {
-                int line = child->lex_line + 1;
-                int column = child->lex_column + 1;
-                RuleNode *referenced_node = find_rule_node(g, &child->sub_rule.name);
-                if (!referenced_node) {
-                    fprintf(stderr, "Grammar Error: Line %d, column %d: Rule not defined: '%s'\n",
-                            line, column, buf_ptr(&child->sub_rule.name));
+        for (int tuple_i = 0; tuple_i < or_node->_or.children.length; tuple_i += 1) {
+            RuleNode *tuple_node = or_node->_or.children.at(tuple_i);
+            assert(tuple_node->type == RuleNodeTypeTuple);
+            g->biggest_tuple_len = max(g->biggest_tuple_len, tuple_node->tuple.children.length);
+
+            for (int child_i = 0; child_i < tuple_node->tuple.children.length; child_i += 1) {
+                RuleNode *child = tuple_node->tuple.children.at(child_i);
+
+                if (child->type == RuleNodeTypeSubRule) {
+                    int line = child->lex_line + 1;
+                    int column = child->lex_column + 1;
+                    RuleNode *referenced_node = find_rule_node(g, &child->sub_rule.name);
+                    if (!referenced_node) {
+                        fprintf(stderr, "Grammar Error: Line %d, column %d: Rule not defined: '%s'\n",
+                                line, column, buf_ptr(&child->sub_rule.name));
+                        any_errors = true;
+                    }
+                    child->sub_rule.child = referenced_node;
                 }
-                child->sub_rule.child = referenced_node;
             }
         }
     }
 
-
-    // calculate the biggest tuple len
-    for (int i = 0; i < g->rules.length; i += 1) {
-        RuleNode *node = g->rules.at(i);
-        assert(node->type == RuleNodeTypeTuple);
-        g->biggest_tuple_len = max(g->biggest_tuple_len, node->tuple.children.length);
+    if (any_errors) {
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -851,6 +961,19 @@ static Buf *fill_template(Buf *body, const char *result_name, Buf *field_names) 
     return result;
 }
 
+static void build_transition_table(Gen *g, ParserState *state) {
+    if (!state)
+        return;
+    if (state->index >= 0)
+        return;
+    state->index = g->transition_table.length;
+    g->transition_table.append(state);
+    for (int i = 0; i < g->tokens.length; i += 1) {
+        ParserState *other_state = state->transition[i];
+        build_transition_table(g, other_state);
+    }
+}
+
 int main(int argc, char **argv) {
     const char *in_filename = argv[1];
     const char *out_filename = argv[2];
@@ -882,9 +1005,11 @@ int main(int argc, char **argv) {
 
     g.root = g.rules.at(0);
 
-    g.cur_state = create_state(&g);
+    g.start_state = create_state(&g);
     Buf root_field_name = {0};
-    gen(&g, g.root, &root_field_name);
+    ZigList<ParserState *> end_states = {0};
+    gen(&g, g.root, &root_field_name, g.start_state, &end_states, true);
+    build_transition_table(&g, g.start_state);
 
     fprintf(out_f, "/* This file is generated by parsergen.cpp */\n");
     fprintf(out_f, "\n");
@@ -950,6 +1075,9 @@ int main(int argc, char **argv) {
             CodeGen *code = state->code_gen_list.at(code_i);
             switch (code->type) {
                 case CodeGenTypeTransition:
+                    fprintf(out_f, "                if (token->id < 0 || token->id >= %d) {\n", g.tokens.length);
+                    fprintf(out_f, "                    ast_invalid_token_error(buf, token);\n");
+                    fprintf(out_f, "                }\n");
                     fprintf(out_f, "                assert(transition[%d][token->id] >= 0);\n", state->index);
                     fprintf(out_f, "                assert(transition[%d][token->id] < %d);\n",
                             state->index, g.transition_table.length);

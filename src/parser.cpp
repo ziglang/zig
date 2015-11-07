@@ -82,3 +82,9 @@ void ast_print(AstNode *node, int indent) {
 AstNode *ast_create_root(Token *token) {
     return nullptr;
 }
+
+void ast_invalid_token_error(Buf *buf, Token *token) {
+    Buf token_value = {0};
+    buf_init_from_mem(&token_value, buf_ptr(buf) + token->start_pos, token->end_pos - token->start_pos);
+    ast_error(token, "invalid token: '%s'", buf_ptr(&token_value));
+}

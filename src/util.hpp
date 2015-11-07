@@ -12,6 +12,9 @@
 #include <string.h>
 #include <assert.h>
 
+
+#define BREAKPOINT __asm("int $0x03")
+
 void zig_panic(const char *format, ...)
     __attribute__((cold))
     __attribute__ ((noreturn))
