@@ -78,3 +78,7 @@ void ast_print(AstNode *node, int indent) {
             break;
     }
 }
+
+AstNode *ast_create_root(Token *token) {
+    return nullptr;
+}

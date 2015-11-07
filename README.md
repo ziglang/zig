@@ -26,6 +26,8 @@ readable, safe, optimal, and concise code to solve any computing problem.
  * Resilient to parsing errors to make IDE integration work well.
  * Source code is UTF-8.
  * Shebang line OK so language can be used for "scripting" as well.
+ * Ability to mark functions as test and automatically run them in test mode.
+ * Memory zeroed by default, unless you initialize with "uninitialized".
 
 ## Roadmap
 

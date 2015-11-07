@@ -89,4 +89,6 @@ const char *node_type_str(NodeType node_type);
 
 void ast_print(AstNode *node, int indent);
 
+AstNode *ast_create_root(Token *token);
+
 #endif

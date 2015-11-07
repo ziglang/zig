@@ -36,7 +36,7 @@ void buf_appendf(Buf *buf, const char *format, ...) {
 
     int orig_len = buf_len(buf);
 
-    buf_resize(buf, orig_len + required_size);
+    buf_resize(buf, orig_len + len1);
 
     int len2 = vsnprintf(buf_ptr(buf) + orig_len, required_size, format, ap2);
     assert(len2 == len1);

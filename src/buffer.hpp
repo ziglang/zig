@@ -55,6 +55,14 @@ static inline void buf_init_from_mem(Buf *buf, const char *ptr, int len) {
     buf->list.at(buf_len(buf)) = 0;
 }
 
+static inline void buf_init_from_str(Buf *buf, const char *str) {
+    buf_init_from_mem(buf, str, strlen(str));
+}
+
+static inline void buf_init_from_buf(Buf *buf, Buf *other) {
+    buf_init_from_mem(buf, buf_ptr(other), buf_len(other));
+}
+
 static inline Buf *buf_create_from_mem(const char *ptr, int len) {
     Buf *buf = allocate<Buf>(1);
     buf_init_from_mem(buf, ptr, len);

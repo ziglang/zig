@@ -187,29 +187,39 @@ struct RuleNode {
 };
 
 
-enum ParserStateType {
-    ParserStateTypeError,
-    ParserStateTypeOk,
-    ParserStateTypeCapture,
+enum CodeGenType {
+    CodeGenTypeTransition,
+    CodeGenTypeError,
+    CodeGenTypeSave,
+    CodeGenTypePushNode,
+    CodeGenTypeCapture,
+    CodeGenTypePopNode,
+    CodeGenTypeEatToken,
 };
 
-struct ParserStateError {
+struct CodeGenError {
     Buf *msg;
 };
 
-struct ParserStateCapture {
+struct CodeGenCapture {
     Buf *body;
+    bool is_root;
+    Buf *field_names;
+};
+
+struct CodeGen {
+    CodeGenType type;
+    union {
+        CodeGenError error;
+        CodeGenCapture capture;
+    };
 };
 
 struct ParserState {
-    ParserStateType type;
+    ZigList<CodeGen *> code_gen_list;
     // One for each token ID.
     ParserState **transition;
     int index;
-    union {
-        ParserStateError error;
-        ParserStateCapture capture;
-    };
 };
 
 enum LexState {
@@ -234,6 +244,7 @@ struct Gen {
     ZigList<ParserState *> transition_table;
     ZigList<Token *> tokens;
     RuleNode *root;
+    int biggest_tuple_len;
 
     Buf *in_buf;
     LexState lex_state;
@@ -249,9 +260,8 @@ struct Gen {
     int lex_body_end;
 };
 
-static ParserState *create_state(Gen *g, ParserStateType type) {
+static ParserState *create_state(Gen *g) {
     ParserState *state = allocate<ParserState>(1);
-    state->type = type;
     state->index = g->transition_table.length;
     state->transition = allocate<ParserState*>(g->tokens.length);
     g->transition_table.append(state);
@@ -264,28 +274,93 @@ static void fill_state_with_transition(Gen *g, ParserState *source, ParserState 
     }
 }
 
-static void gen(Gen *g, RuleNode *node) {
+static void state_add_code(ParserState *state, CodeGen *code) {
+    state->code_gen_list.append(code);
+}
+
+static void state_add_save_token(ParserState *state) {
+    CodeGen *code = allocate<CodeGen>(1);
+    code->type = CodeGenTypeSave;
+    state_add_code(state, code);
+}
+
+static void state_add_error(ParserState *state, Buf *msg) {
+    CodeGen *code = allocate<CodeGen>(1);
+    code->type = CodeGenTypeError;
+    code->error.msg = msg;
+    state_add_code(state, code);
+}
+
+static void state_add_transition(ParserState *state) {
+    CodeGen *code = allocate<CodeGen>(1);
+    code->type = CodeGenTypeTransition;
+    state_add_code(state, code);
+}
+
+static void state_add_push_node(ParserState *state) {
+    CodeGen *code = allocate<CodeGen>(1);
+    code->type = CodeGenTypePushNode;
+    state_add_code(state, code);
+}
+
+static CodeGen *codegen_create_capture(Buf *body, bool is_root, int field_name_count) {
+    CodeGen *code = allocate<CodeGen>(1);
+    code->type = CodeGenTypeCapture;
+    code->capture.body = body;
+    code->capture.is_root = is_root;
+    code->capture.field_names = allocate<Buf>(field_name_count);
+    return code;
+}
+
+static void state_add_pop_node(ParserState *state) {
+    CodeGen *code = allocate<CodeGen>(1);
+    code->type = CodeGenTypePopNode;
+    state_add_code(state, code);
+}
+
+static void state_add_eat_token(ParserState *state) {
+    CodeGen *code = allocate<CodeGen>(1);
+    code->type = CodeGenTypeEatToken;
+    state_add_code(state, code);
+}
+
+static void gen(Gen *g, RuleNode *node, Buf *out_field_name) {
     switch (node->type) {
         case RuleNodeTypeToken:
             {
-                ParserState *ok_state = create_state(g, ParserStateTypeOk);
-                ParserState *err_state = create_state(g, ParserStateTypeError);
+                buf_init_from_str(out_field_name, "token");
 
-                err_state->error.msg = buf_sprintf("expected token '%s'", buf_ptr(&node->token.token->name));
+                state_add_save_token(g->cur_state);
+
+                ParserState *ok_state = create_state(g);
+                ParserState *err_state = create_state(g);
+                state_add_error(err_state, buf_sprintf("expected token '%s'", buf_ptr(&node->token.token->name)));
 
                 fill_state_with_transition(g, g->cur_state, err_state);
                 g->cur_state->transition[node->token.token->id] = ok_state;
+                state_add_transition(g->cur_state);
+                state_add_eat_token(g->cur_state);
+
                 g->cur_state = ok_state;
             }
             break;
         case RuleNodeTypeTuple:
             {
+                buf_init_from_str(out_field_name, "node");
+
+                state_add_push_node(g->cur_state);
+
+                bool is_root = (node == g->root);
+                int field_name_count = node->tuple.children.length;
+                CodeGen *code = codegen_create_capture(&node->tuple.body, is_root, field_name_count);
+
                 for (int i = 0; i < node->tuple.children.length; i += 1) {
                     RuleNode *child = node->tuple.children.at(i);
-                    gen(g, child);
+                    gen(g, child, &code->capture.field_names[i]);
                 }
-                g->cur_state->type = ParserStateTypeCapture;
-                g->cur_state->capture.body = &node->tuple.body;
+                state_add_code(g->cur_state, code);
+
+                state_add_pop_node(g->cur_state);
             }
             break;
         case RuleNodeTypeMany:
@@ -301,7 +376,10 @@ static void gen(Gen *g, RuleNode *node) {
             zig_panic("TODO");
             break;
         case RuleNodeTypeSubRule:
-            zig_panic("TODO");
+            {
+                RuleNode *child = node->sub_rule.child;
+                gen(g, child, out_field_name);
+            }
             break;
     }
 }
@@ -406,6 +484,9 @@ static void end_token_name(Gen *g) {
 
     assert(g->lex_cur_rule->type == RuleNodeTypeTuple);
     g->lex_cur_rule->tuple.children.append(node);
+
+    g->biggest_tuple_len = max(g->biggest_tuple_len, g->lex_cur_rule->tuple.children.length);
+
 
     lex_pop_stack(g);
 }
@@ -571,6 +652,76 @@ static void initialize_rules(Gen *g) {
     }
 }
 
+enum TemplateState {
+    TemplateStateStart,
+    TemplateStateDollar,
+    TemplateStateNumber,
+};
+
+static Buf *fill_template(Buf *body, const char *result_name, Buf *field_names) {
+    //fprintf(stderr, "fill template input:\n%s\n", buf_ptr(body));
+    Buf *result = buf_alloc();
+    TemplateState state = TemplateStateStart;
+    int digit_start;
+    for (int i = 0; i < buf_len(body); i += 1) {
+        uint8_t c = buf_ptr(body)[i];
+        switch (state) {
+            case TemplateStateStart:
+                switch (c) {
+                    case '$':
+                        state = TemplateStateDollar;
+                        break;
+                    default:
+                        buf_append_char(result, c);
+                        break;
+                }
+                break;
+            case TemplateStateDollar:
+                switch (c) {
+                    case '$':
+                        buf_append_str(result, result_name);
+                        state = TemplateStateStart;
+                        break;
+                    case DIGIT:
+                        digit_start = i;
+                        state = TemplateStateNumber;
+                        break;
+                    default:
+                        buf_append_char(result, '$');
+                        buf_append_char(result, c);
+                        state = TemplateStateStart;
+                        break;
+                }
+                break;
+            case TemplateStateNumber:
+                switch (c) {
+                    case DIGIT:
+                        // nothing
+                        break;
+                    default:
+                        {
+                            Buf *num_buf = buf_create_from_mem(&buf_ptr(body)[digit_start], i - digit_start);
+                            int index = atoi(buf_ptr(num_buf)) - 1;
+                            buf_appendf(result, "(top_node->data[%d].%s)%c",
+                                    index, buf_ptr(&field_names[index]), c);
+
+                            state = TemplateStateStart;
+                        }
+                        break;
+                }
+                break;
+        }
+    }
+    switch (state) {
+        case TemplateStateStart:
+            // OK
+            break;
+        default:
+            zig_panic("unable to fill grammar template");
+    }
+    //fprintf(stderr, "fill template output:\n%s\n", buf_ptr(result));
+    return result;
+}
 
 int main(int argc, char **argv) {
     const char *in_filename = argv[1];
@@ -603,8 +754,9 @@ int main(int argc, char **argv) {
 
     g.root = g.rules.at(0);
 
-    g.cur_state = create_state(&g, ParserStateTypeOk);
-    gen(&g, g.root);
+    g.cur_state = create_state(&g);
+    Buf root_field_name = {0};
+    gen(&g, g.root, &root_field_name);
 
     fprintf(out_f, "/* This file is generated by parsergen.cpp */\n");
     fprintf(out_f, "\n");
@@ -627,15 +779,14 @@ int main(int argc, char **argv) {
     }
     fprintf(out_f, "\n");
 
-    /* TODO
-    fprintf(out_f, "struct ParserGenNode{\n");
+    fprintf(out_f, "struct ParserGenNode {\n");
+    fprintf(out_f, "    int next_index;\n");
     fprintf(out_f, "    union {\n");
-    fprintf(out_f, "        [%d];\n", biggest_tuple_len);
     fprintf(out_f, "        Token *token;\n");
-    fprintf(out_f, "    };\n");
+    fprintf(out_f, "        AstNode *node;\n");
+    fprintf(out_f, "    } data[%d];\n", g.biggest_tuple_len);
     fprintf(out_f, "};\n");
     fprintf(out_f, "\n");
-    */
 
     fprintf(out_f, "AstNode * ast_parse(Buf *buf, ZigList<Token> *tokens) {\n");
 
@@ -655,39 +806,66 @@ int main(int argc, char **argv) {
 
 
     fprintf(out_f, "    int state = 0;\n");
+    fprintf(out_f, "    int token_index = 0;\n");
+    fprintf(out_f, "    Token *token = &tokens->at(token_index);\n");
     fprintf(out_f, "    AstNode *root = nullptr;\n");
+    fprintf(out_f, "    ZigList<ParserGenNode *> stack = {0};\n");
+    fprintf(out_f, "    ParserGenNode *top_node = nullptr;\n");
 
-    fprintf(out_f, "    for (int i = 0; i < tokens->length; i += 1) {\n");
-    fprintf(out_f, "        Token *token = &tokens->at(i);\n");
+    fprintf(out_f, "    for (;;) {\n");
     fprintf(out_f, "        switch (state) {\n");
 
-    for (int i = 0; i < g.transition_table.length; i += 1) {
-        ParserState *state = g.transition_table.at(i);
-        fprintf(out_f, "            case %d:\n", i);
-        switch (state->type) {
-            case ParserStateTypeError:
-                fprintf(out_f, "                ast_error(token, \"%s\");\n", buf_ptr(state->error.msg));
-                break;
-            case ParserStateTypeOk:
-                fprintf(out_f, "                assert(transition[%d][token->id] >= 0);\n", state->index);
-                fprintf(out_f, "                assert(transition[%d][token->id] < %d);\n",
-                        state->index, g.transition_table.length);
-                fprintf(out_f, "                state = transition[%d][token->id];\n", state->index);
-                break;
-            case ParserStateTypeCapture:
-                // TODO fprintf(out_f, "                %s\n", buf_ptr(state->capture.body));
-                fprintf(out_f, "                state = transition[%d][token->id];\n", state->index);
-                break;
+    for (int state_i = 0; state_i < g.transition_table.length; state_i += 1) {
+        ParserState *state = g.transition_table.at(state_i);
+        fprintf(out_f, "            case %d: {\n", state_i);
+        for (int code_i = 0; code_i < state->code_gen_list.length; code_i += 1) {
+            CodeGen *code = state->code_gen_list.at(code_i);
+            switch (code->type) {
+                case CodeGenTypeTransition:
+                    fprintf(out_f, "                assert(transition[%d][token->id] >= 0);\n", state->index);
+                    fprintf(out_f, "                assert(transition[%d][token->id] < %d);\n",
+                            state->index, g.transition_table.length);
+                    fprintf(out_f, "                state = transition[%d][token->id];\n", state->index);
+                    break;
+                case CodeGenTypeError:
+                    fprintf(out_f, "                ast_error(token, \"%s\");\n", buf_ptr(code->error.msg));
+                    break;
+                case CodeGenTypeSave:
+                    fprintf(out_f, "                top_node->data[top_node->next_index++].token = token;\n");
+                    break;
+                case CodeGenTypePushNode:
+                    fprintf(out_f, "                top_node = allocate<ParserGenNode>(1);\n");
+                    fprintf(out_f, "                stack.append(top_node);\n");
+                    break;
+                case CodeGenTypeCapture:
+                    if (code->capture.is_root) {
+                        Buf *code_text = fill_template(code->capture.body, "root", code->capture.field_names);
+                        fprintf(out_f, "%s\n", buf_ptr(code_text));
+                        fprintf(out_f, "                return root;\n");
+                    } else {
+                        zig_panic("TODO capture non-root");
+                    }
+                    break;
+                case CodeGenTypePopNode:
+                    fprintf(out_f, "                stack.pop();\n");
+                    fprintf(out_f, "                top_node = stack.length ? stack.last() : nullptr;\n");
+                    break;
+                case CodeGenTypeEatToken:
+                    fprintf(out_f, "                token_index += 1;\n");
+                    fprintf(out_f, "                token = (token_index < tokens->length) ? &tokens->at(token_index) : nullptr;\n");
+                    break;
+            }
         }
         fprintf(out_f, "                break;\n");
+        fprintf(out_f, "            }\n");
     }
     fprintf(out_f, "            default:\n");
     fprintf(out_f, "                zig_panic(\"unreachable\");\n");
 
     fprintf(out_f, "        }\n");
     fprintf(out_f, "    }\n");
-    fprintf(out_f, "    return root;\n");
+    fprintf(out_f, "    zig_panic(\"unreachable\");\n");
     fprintf(out_f, "}\n");
 
-
+    return 0;
 }

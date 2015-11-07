@@ -28,7 +28,6 @@ static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options] target\n"
         "Commands:\n"
         "  build          create an executable from target\n"
-        "  link           turn a .o file into an executable\n"
         "Options:\n"
         "  --output       output file\n"
         "  --version      print version number and exit\n"
