@@ -170,6 +170,7 @@ ZigList<Token> *tokenize(Buf *buf, Buf *cur_dir_path) {
                     case WHITESPACE:
                         break;
                     case ALPHA:
+                    case '_':
                         t.state = TokenizeStateSymbol;
                         begin_token(&t, TokenIdSymbol);
                         break;

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2015 Andrew Kelley
+ *
+ * This file is part of zig, which is MIT licensed.
+ * See http://opensource.org/licenses/MIT
+ */
+
 #include "parser.hpp"
 
 #include <stdarg.h>
@@ -165,6 +172,13 @@ static AstNode *ast_create_node_with_node(NodeType type, AstNode *other_node) {
     node->type = type;
     node->line = other_node->line;
     node->column = other_node->column;
+    return node;
+}
+
+static AstNode *ast_create_void_type_node(ParseContext *pc, Token *token) {
+    AstNode *node = ast_create_node(NodeTypeType, token);
+    node->data.type.type = AstNodeTypeTypePrimitive;
+    buf_init_from_str(&node->data.type.primitive_name, "void");
     return node;
 }
 
@@ -468,13 +482,11 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int token_index, int *new_t
     ast_parse_param_decl_list(pc, token_index, &token_index, &node->data.fn_proto.params);
 
     Token *arrow = &pc->tokens->at(token_index);
-    token_index += 1;
     if (arrow->id == TokenIdArrow) {
+        token_index += 1;
         node->data.fn_proto.return_type = ast_parse_type(pc, token_index, &token_index);
-    } else if (arrow->id == TokenIdLBrace) {
-        node->data.fn_proto.return_type = nullptr;
     } else {
-        ast_invalid_token_error(pc, arrow);
+        node->data.fn_proto.return_type = ast_create_void_type_node(pc, arrow);
     }
 
     *new_token_index = token_index;

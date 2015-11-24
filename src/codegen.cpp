@@ -1,10 +1,15 @@
+/*
+ * Copyright (c) 2015 Andrew Kelley
+ *
+ * This file is part of zig, which is MIT licensed.
+ * See http://opensource.org/licenses/MIT
+ */
+
 #include "codegen.hpp"
 #include "hash_map.hpp"
+#include "zig_llvm.hpp"
 
 #include <stdio.h>
-
-#include <llvm-c/Core.h>
-#include <llvm-c/Analysis.h>
 
 struct FnTableEntry {
     LLVMValueRef fn_value;
@@ -49,6 +54,7 @@ static void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
 static LLVMTypeRef to_llvm_type(AstNode *type_node) {
     assert(type_node->type == NodeTypeType);
     assert(type_node->codegen_node);
+    assert(type_node->codegen_node->data.type_ref);
 
     return type_node->codegen_node->data.type_ref;
 }
@@ -134,9 +140,12 @@ static void analyze_node(CodeGen *g, AstNode *node) {
                             node->codegen_node->data.type_ref = LLVMInt8Type();
                         } else if (buf_eql_str(name, "i32")) {
                             node->codegen_node->data.type_ref = LLVMInt32Type();
+                        } else if (buf_eql_str(name, "void")) {
+                            node->codegen_node->data.type_ref = LLVMVoidType();
                         } else {
                             add_node_error(g, node,
                                     buf_sprintf("invalid type name: '%s'", buf_ptr(name)));
+                            node->codegen_node->data.type_ref = LLVMInt8Type();
                         }
                         break;
                     }
@@ -338,4 +347,43 @@ void code_gen(CodeGen *g) {
 
 ZigList<ErrorMsg> *codegen_error_messages(CodeGen *g) {
     return &g->errors;
+}
+
+
+void code_gen_link(CodeGen *g, bool is_static, const char *out_file) {
+    LLVMInitializeAllTargets();
+    LLVMInitializeAllTargetMCs();
+    LLVMInitializeAllAsmPrinters();
+    LLVMInitializeAllAsmParsers();
+    LLVMInitializeNativeTarget();
+
+
+    LLVMPassRegistryRef registry = LLVMGetGlobalPassRegistry();
+    LLVMInitializeCore(registry);
+    LLVMInitializeCodeGen(registry);
+    LLVMZigInitializeLoopStrengthReducePass(registry);
+    LLVMZigInitializeLowerIntrinsicsPass(registry);
+    LLVMZigInitializeUnreachableBlockElimPass(registry);
+
+    char *native_triple = LLVMGetDefaultTargetTriple();
+
+    LLVMTargetRef target_ref;
+    char *err_msg = nullptr;
+    if (LLVMGetTargetFromTriple(native_triple, &target_ref, &err_msg)) {
+        zig_panic("unable to get target from triple: %s", err_msg);
+    }
+
+    char *native_cpu = LLVMZigGetHostCPUName();
+    char *native_features = LLVMZigGetNativeFeatures();
+
+    LLVMCodeGenOptLevel opt_level = LLVMCodeGenLevelNone;
+
+    LLVMRelocMode reloc_mode = is_static ? LLVMRelocStatic : LLVMRelocPIC;
+
+    LLVMTargetMachineRef target_machine = LLVMCreateTargetMachine(target_ref, native_triple,
+            native_cpu, native_features, opt_level, reloc_mode, LLVMCodeModelDefault);
+
+    if (LLVMTargetMachineEmitToFile(target_machine, g->mod, strdup(out_file), LLVMObjectFile, &err_msg)) {
+        zig_panic("unable to write object file: %s", err_msg);
+    }
 }

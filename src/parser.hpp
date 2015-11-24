@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2015 Andrew Kelley
+ *
+ * This file is part of zig, which is MIT licensed.
+ * See http://opensource.org/licenses/MIT
+ */
+
 #ifndef ZIG_PARSER_HPP
 #define ZIG_PARSER_HPP
 

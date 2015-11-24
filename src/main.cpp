@@ -112,6 +112,10 @@ static int build(const char *arg0, const char *in_file, const char *out_file, Zi
     fprintf(stderr, "------------------\n");
     code_gen(codegen);
 
+    fprintf(stderr, "\nLink:\n");
+    fprintf(stderr, "------------------\n");
+    code_gen_link(codegen, false, out_file);
+
     return 0;
 }
 

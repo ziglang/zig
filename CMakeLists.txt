@@ -30,6 +30,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
+    "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
 )
 
 set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")
@@ -37,10 +38,6 @@ configure_file (
     "${CMAKE_SOURCE_DIR}/src/config.h.in"
     ${CONFIGURE_OUT_FILE}
 )
-
-# GTFO, -lstdc++ !!
-set(CMAKE_CXX_IMPLICIT_LINK_LIBRARIES "")
-set(CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES "")
 
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -Wno-unused-variable -Wno-unused-but-set-variable")
 
