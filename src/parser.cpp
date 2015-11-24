@@ -26,16 +26,10 @@ const char *node_type_str(NodeType node_type) {
             return "ParamDecl";
         case NodeTypeType:
             return "Type";
-        case NodeTypePointerType:
-            return "PointerType";
         case NodeTypeBlock:
             return "Block";
         case NodeTypeStatement:
             return "Statement";
-        case NodeTypeExpressionStatement:
-            return "ExpressionStatement";
-        case NodeTypeReturnStatement:
-            return "ReturnStatement";
         case NodeTypeExpression:
             return "Expression";
         case NodeTypeFnCall:

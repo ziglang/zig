@@ -6,17 +6,15 @@
 #include "tokenizer.hpp"
 
 struct AstNode;
+struct CodeGenNode;
 
 enum NodeType {
     NodeTypeRoot,
     NodeTypeFnDecl,
     NodeTypeParamDecl,
     NodeTypeType,
-    NodeTypePointerType,
     NodeTypeBlock,
     NodeTypeStatement,
-    NodeTypeExpressionStatement,
-    NodeTypeReturnStatement,
     NodeTypeExpression,
     NodeTypeFnCall,
 };
@@ -99,6 +97,7 @@ struct AstNode {
     AstNode *parent;
     int line;
     int column;
+    CodeGenNode *codegen_node;
     union {
         AstNodeRoot root;
         AstNodeFnDecl fn_decl;

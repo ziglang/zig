@@ -41,7 +41,6 @@ readable, safe, optimal, and concise code to solve any computing problem.
 ## Roadmap
 
  * Hello, world.
-   - Build AST
    - Code Gen
    - Produce .o file.
  * Produce executable file instead of .o file.
