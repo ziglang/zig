@@ -73,6 +73,54 @@ void ast_print(AstNode *node, int indent) {
 
                 break;
             }
+        case NodeTypeBlock:
+            {
+                fprintf(stderr, "%s\n", node_type_str(node->type));
+                for (int i = 0; i < node->data.block.statements.length; i += 1) {
+                    AstNode *child = node->data.block.statements.at(i);
+                    ast_print(child, indent + 2);
+                }
+                break;
+            }
+        case NodeTypeParamDecl:
+            {
+                Buf *name_buf = &node->data.param_decl.name;
+                fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
+
+                ast_print(node->data.param_decl.type, indent + 2);
+
+                break;
+            }
+        case NodeTypeType:
+            switch (node->data.type.type) {
+                case AstNodeTypeTypePrimitive:
+                    {
+                        Buf *name_buf = &node->data.type.primitive_name;
+                        fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
+                        break;
+                    }
+                case AstNodeTypeTypePointer:
+                    {
+                        const char *const_or_mut_str = node->data.type.is_const ? "const" : "mut";
+                        fprintf(stderr, "'%s' PointerType\n", const_or_mut_str);
+
+                        ast_print(node->data.type.child_type, indent + 2);
+                        break;
+                    }
+            }
+            break;
+        case NodeTypeStatement:
+            switch (node->data.statement.type) {
+                case AstNodeStatementTypeReturn:
+                    fprintf(stderr, "ReturnStatement\n");
+                    ast_print(node->data.statement.data.retrn.expression, indent + 2);
+                    break;
+                case AstNodeStatementTypeExpression:
+                    fprintf(stderr, "ExpressionStatement\n");
+                    ast_print(node->data.statement.data.expr.expression, indent + 2);
+                    break;
+            }
+            break;
         default:
             fprintf(stderr, "%s\n", node_type_str(node->type));
             break;
@@ -124,6 +172,7 @@ static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token
         node->data.type.type = AstNodeTypeTypePrimitive;
         ast_buf_from_token(pc, token, &node->data.type.primitive_name);
     } else if (token->id == TokenIdStar) {
+        node->data.type.type = AstNodeTypeTypePointer;
         Token *const_or_mut = &pc->tokens->at(token_index);
         token_index += 1;
         if (const_or_mut->id == TokenIdKeywordMut) {
