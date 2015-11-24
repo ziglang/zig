@@ -10,6 +10,8 @@ struct CodeGenNode;
 
 enum NodeType {
     NodeTypeRoot,
+    NodeTypeFnProto,
+    NodeTypeFnDef,
     NodeTypeFnDecl,
     NodeTypeParamDecl,
     NodeTypeType,
@@ -17,17 +19,26 @@ enum NodeType {
     NodeTypeStatement,
     NodeTypeExpression,
     NodeTypeFnCall,
+    NodeTypeExternBlock,
 };
 
 struct AstNodeRoot {
-    ZigList<AstNode *> fn_decls;
+    ZigList<AstNode *> top_level_decls;
 };
 
-struct AstNodeFnDecl {
+struct AstNodeFnProto {
     Buf name;
     ZigList<AstNode *> params;
     AstNode *return_type;
+};
+
+struct AstNodeFnDef {
+    AstNode *fn_proto;
     AstNode *body;
+};
+
+struct AstNodeFnDecl {
+    AstNode *fn_proto;
 };
 
 struct AstNodeParamDecl {
@@ -92,6 +103,10 @@ struct AstNodeFnCall {
     ZigList<AstNode *> params;
 };
 
+struct AstNodeExternBlock {
+    ZigList<AstNode *> fn_decls;
+};
+
 struct AstNode {
     enum NodeType type;
     AstNode *parent;
@@ -100,13 +115,16 @@ struct AstNode {
     CodeGenNode *codegen_node;
     union {
         AstNodeRoot root;
+        AstNodeFnDef fn_def;
         AstNodeFnDecl fn_decl;
+        AstNodeFnProto fn_proto;
         AstNodeType type;
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
         AstNodeStatement statement;
         AstNodeExpression expression;
         AstNodeFnCall fn_call;
+        AstNodeExternBlock extern_block;
     } data;
 };
 

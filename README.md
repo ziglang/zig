@@ -72,27 +72,35 @@ zig    | C equivalent | Description
 ### Grammar
 
 ```
-Root : many(FnDecl) token(EOF);
+Root : many(TopLevelDecl) token(EOF)
 
-FnDecl : token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type) Block;
+TopLevelDecl : FnDef | ExternBlock
 
-ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen);
+ExternBlock : token(Extern) token(LBrace) many(FnProtoDecl) token(RBrace)
 
-ParamDecl : token(Symbol) token(Colon) Type;
+FnProto : token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type)
 
-Type : token(Symbol) | PointerType;
+FnDecl : FnProto token(Semicolon)
 
-PointerType : token(Star) token(Const) Type  | token(Star) token(Mut) Type;
+FnDef : FnProto Block
 
-Block : token(LBrace) many(Statement) token(RBrace);
+ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
 
-Statement : ExpressionStatement  | ReturnStatement ;
+ParamDecl : token(Symbol) token(Colon) Type
 
-ExpressionStatement : Expression token(Semicolon) ;
+Type : token(Symbol) | PointerType
 
-ReturnStatement : token(Return) Expression token(Semicolon) ;
+PointerType : token(Star) token(Const) Type  | token(Star) token(Mut) Type
 
-Expression : token(Number)  | token(String)  | FnCall ;
+Block : token(LBrace) many(Statement) token(RBrace)
 
-FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen) ;
+Statement : ExpressionStatement  | ReturnStatement
+
+ExpressionStatement : Expression token(Semicolon)
+
+ReturnStatement : token(Return) Expression token(Semicolon)
+
+Expression : token(Number) | token(String) | FnCall
+
+FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen)
 ```

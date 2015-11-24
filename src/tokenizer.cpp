@@ -150,6 +150,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordMut;
     } else if (mem_eql_str(token_mem, token_len, "const")) {
         t->cur_tok->id = TokenIdKeywordConst;
+    } else if (mem_eql_str(token_mem, token_len, "extern")) {
+        t->cur_tok->id = TokenIdKeywordExtern;
     }
 
     t->cur_tok = nullptr;
@@ -307,6 +309,7 @@ static const char * token_name(Token *token) {
         case TokenIdKeywordConst: return "Const";
         case TokenIdKeywordMut: return "Mut";
         case TokenIdKeywordReturn: return "Return";
+        case TokenIdKeywordExtern: return "Extern";
         case TokenIdLParen: return "LParen";
         case TokenIdRParen: return "RParen";
         case TokenIdComma: return "Comma";

@@ -5,29 +5,33 @@
 
 #include <llvm-c/Core.h>
 
-struct CodeGen {
-    AstNode *root;
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> fn_decls;
-    ZigList<ErrorMsg> errors;
-    LLVMBuilderRef builder;
-    HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> external_fns;
+struct FnTableEntry {
+    LLVMValueRef fn_value;
+    AstNode *proto_node;
 };
 
-struct ExpressionNode {
-    AstNode *type_node;
+struct CodeGen {
+    LLVMModuleRef mod;
+    AstNode *root;
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> fn_defs;
+    ZigList<ErrorMsg> errors;
+    LLVMBuilderRef builder;
+    HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
+    HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
 };
 
 struct CodeGenNode {
     union {
         LLVMTypeRef type_ref; // for NodeTypeType
-        ExpressionNode expr; // for NodeTypeExpression
     } data;
 };
 
 CodeGen *create_codegen(AstNode *root) {
     CodeGen *g = allocate<CodeGen>(1);
     g->root = root;
-    g->fn_decls.init(32);
+    g->fn_defs.init(32);
+    g->fn_table.init(32);
+    g->str_table.init(32);
     return g;
 }
 
@@ -41,29 +45,79 @@ static void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     last_msg->msg = msg;
 }
 
+static LLVMTypeRef to_llvm_type(AstNode *type_node) {
+    assert(type_node->type == NodeTypeType);
+    assert(type_node->codegen_node);
+
+    return type_node->codegen_node->data.type_ref;
+}
+
 static void analyze_node(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeRoot:
-            for (int i = 0; i < node->data.root.fn_decls.length; i += 1) {
-                AstNode *child = node->data.root.fn_decls.at(i);
+            for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
+                AstNode *child = node->data.root.top_level_decls.at(i);
                 analyze_node(g, child);
             }
             break;
-        case NodeTypeFnDecl:
+        case NodeTypeExternBlock:
+            for (int fn_decl_i = 0; fn_decl_i < node->data.extern_block.fn_decls.length; fn_decl_i += 1) {
+                AstNode *fn_decl = node->data.extern_block.fn_decls.at(fn_decl_i);
+                analyze_node(g, fn_decl);
+
+                AstNode *fn_proto = fn_decl->data.fn_decl.fn_proto;
+                Buf *name = &fn_proto->data.fn_proto.name;
+                ZigList<AstNode *> *params = &fn_proto->data.fn_proto.params;
+
+                LLVMTypeRef *fn_param_values = allocate<LLVMTypeRef>(params->length);
+                for (int param_i = 0; param_i < params->length; param_i += 1) {
+                    AstNode *param_node = params->at(param_i);
+                    assert(param_node->type == NodeTypeParamDecl);
+                    AstNode *param_type = param_node->data.param_decl.type;
+                    fn_param_values[param_i] = to_llvm_type(param_type);
+                }
+                LLVMTypeRef return_type = to_llvm_type(fn_proto->data.fn_proto.return_type);
+
+                LLVMTypeRef fn_type = LLVMFunctionType(return_type, fn_param_values, params->length, 0);
+                LLVMValueRef fn_val = LLVMAddFunction(g->mod, buf_ptr(name), fn_type);
+                LLVMSetLinkage(fn_val, LLVMExternalLinkage);
+                LLVMSetFunctionCallConv(fn_val, LLVMCCallConv);
+
+                FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
+                fn_table_entry->fn_value = fn_val;
+                fn_table_entry->proto_node = fn_proto;
+                g->fn_table.put(name, fn_table_entry);
+            }
+            break;
+        case NodeTypeFnDef:
             {
-                auto entry = g->fn_decls.maybe_get(&node->data.fn_decl.name);
+                AstNode *proto_node = node->data.fn_def.fn_proto;
+                assert(proto_node->type = NodeTypeFnProto);
+                Buf *proto_name = &proto_node->data.fn_proto.name;
+                auto entry = g->fn_defs.maybe_get(proto_name);
                 if (entry) {
                     add_node_error(g, node,
-                            buf_sprintf("redefinition of '%s'", buf_ptr(&node->data.fn_decl.name)));
+                            buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
                 } else {
-                    g->fn_decls.put(&node->data.fn_decl.name, node);
-                    for (int i = 0; i < node->data.fn_decl.params.length; i += 1) {
-                        AstNode *child = node->data.fn_decl.params.at(i);
-                        analyze_node(g, child);
-                    }
-                    analyze_node(g, node->data.fn_decl.return_type);
-                    analyze_node(g, node->data.fn_decl.body);
+                    g->fn_defs.put(proto_name, node);
+                    analyze_node(g, proto_node);
                 }
+                break;
+            }
+        case NodeTypeFnDecl:
+            {
+                AstNode *proto_node = node->data.fn_decl.fn_proto;
+                assert(proto_node->type == NodeTypeFnProto);
+                analyze_node(g, proto_node);
+                break;
+            }
+        case NodeTypeFnProto:
+            {
+                for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
+                    AstNode *child = node->data.fn_proto.params.at(i);
+                    analyze_node(g, child);
+                }
+                analyze_node(g, node->data.fn_proto.return_type);
                 break;
             }
         case NodeTypeParamDecl:
@@ -131,47 +185,81 @@ static void analyze_node(CodeGen *g, AstNode *node) {
 }
 
 
-/* TODO external fn
-    LLVMTypeRef puts_param_types[] = {LLVMPointerType(LLVMInt8Type(), 0)};
-    LLVMTypeRef puts_type = LLVMFunctionType(LLVMInt32Type(), puts_param_types, 1, 0);
-    LLVMValueRef puts_fn = LLVMAddFunction(mod, "puts", puts_type);
-    LLVMSetLinkage(puts_fn, LLVMExternalLinkage);
-    */
-
 void semantic_analyze(CodeGen *g) {
+    g->mod = LLVMModuleCreateWithName("ZigModule");
+
     // Pass 1.
     analyze_node(g, g->root);
 }
 
-static LLVMTypeRef to_llvm_type(AstNode *type_node) {
-    assert(type_node->type == NodeTypeType);
-    assert(type_node->codegen_node);
-
-    return type_node->codegen_node->data.type_ref;
-}
+static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node);
 
 static LLVMValueRef gen_fn_call(CodeGen *g, AstNode *fn_call_node) {
     assert(fn_call_node->type == NodeTypeFnCall);
 
-    zig_panic("TODO support external fn declarations");
-    //LLVMTypeRef fn_type =  LLVMFunctionType(LLVMVoidType(), );
+    Buf *name = &fn_call_node->data.fn_call.name;
 
-    // resolve function name
-    //LLVMValueRef result = LLVMBuildCall(g->builder, 
+    auto entry = g->fn_table.maybe_get(name);
+    if (!entry) {
+        add_node_error(g, fn_call_node,
+                buf_sprintf("undefined function: '%s'", buf_ptr(name)));
+        return LLVMConstNull(LLVMInt32Type());
+    }
+    FnTableEntry *fn_table_entry = entry->value;
+    assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
+    int expected_param_count = fn_table_entry->proto_node->data.fn_proto.params.length;
+    int actual_param_count = fn_call_node->data.fn_call.params.length;
+    if (expected_param_count != actual_param_count) {
+        add_node_error(g, fn_call_node,
+                buf_sprintf("wrong number of arguments. Expected %d, got %d.",
+                    expected_param_count, actual_param_count));
+        return LLVMConstNull(LLVMInt32Type());
+    }
 
+    LLVMValueRef *param_values = allocate<LLVMValueRef>(actual_param_count);
+    for (int i = 0; i < actual_param_count; i += 1) {
+        AstNode *expr_node = fn_call_node->data.fn_call.params.at(i);
+        param_values[i] = gen_expr(g, expr_node);
+    }
 
-    //return value;
+    LLVMValueRef result = LLVMBuildCall(g->builder, fn_table_entry->fn_value,
+            param_values, actual_param_count, "");
+
+    return result;
+}
+
+static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
+    auto entry = g->str_table.maybe_get(str);
+    if (entry) {
+        return entry->value;
+    }
+    LLVMValueRef text = LLVMConstString(buf_ptr(str), buf_len(str), false);
+    LLVMValueRef global_value = LLVMAddGlobal(g->mod, LLVMTypeOf(text), "");
+    LLVMSetLinkage(global_value, LLVMInternalLinkage);
+    LLVMSetInitializer(global_value, text);
+    LLVMSetGlobalConstant(global_value, true);
+    g->str_table.put(str, global_value);
+
+    return global_value;
 }
 
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node) {
     assert(expr_node->type == NodeTypeExpression);
     switch (expr_node->data.expression.type) {
         case AstNodeExpressionTypeNumber:
-            zig_panic("TODO number expr");
-            break;
+            {
+                Buf *number_str = &expr_node->data.expression.data.number;
+                LLVMTypeRef number_type = LLVMInt32Type();
+                LLVMValueRef number_val = LLVMConstIntOfStringAndSize(number_type,
+                        buf_ptr(number_str), buf_len(number_str), 10);
+                return number_val;
+            }
         case AstNodeExpressionTypeString:
-            zig_panic("TODO string expr");
-            break;
+            {
+                Buf *str = &expr_node->data.expression.data.string;
+                fprintf(stderr, "str = '%s'\n", buf_ptr(str));
+                return find_or_create_string(g, str);
+            }
         case AstNodeExpressionTypeFnCall:
             return gen_fn_call(g, expr_node->data.expression.data.fn_call);
     }
@@ -203,32 +291,37 @@ static void gen_block(CodeGen *g, AstNode *block_node) {
 }
 
 void code_gen(CodeGen *g) {
-    LLVMModuleRef mod = LLVMModuleCreateWithName("ZigModule");
     g->builder = LLVMCreateBuilder();
 
+    auto it = g->fn_defs.entry_iterator();
+    for (;;) {
+        auto *entry = it.next();
+        if (!entry)
+            break;
 
-    for (int fn_decl_i = 0; fn_decl_i < g->root->data.root.fn_decls.length; fn_decl_i += 1) {
-        AstNode *fn_decl_node = g->root->data.root.fn_decls.at(fn_decl_i);
-        AstNodeFnDecl *fn_decl = &fn_decl_node->data.fn_decl;
+        AstNode *fn_def_node = entry->value;
+        AstNodeFnDef *fn_def = &fn_def_node->data.fn_def;
+        assert(fn_def->fn_proto->type == NodeTypeFnProto);
+        AstNodeFnProto *fn_proto = &fn_def->fn_proto->data.fn_proto;
 
-        LLVMTypeRef ret_type = to_llvm_type(fn_decl->return_type);
-        LLVMTypeRef *param_types = allocate<LLVMTypeRef>(fn_decl->params.length);
-        for (int param_decl_i = 0; param_decl_i < fn_decl->params.length; param_decl_i += 1) {
-            AstNode *param_node = fn_decl->params.at(param_decl_i);
+        LLVMTypeRef ret_type = to_llvm_type(fn_proto->return_type);
+        LLVMTypeRef *param_types = allocate<LLVMTypeRef>(fn_proto->params.length);
+        for (int param_decl_i = 0; param_decl_i < fn_proto->params.length; param_decl_i += 1) {
+            AstNode *param_node = fn_proto->params.at(param_decl_i);
             assert(param_node->type == NodeTypeParamDecl);
             AstNode *type_node = param_node->data.param_decl.type;
             param_types[param_decl_i] = to_llvm_type(type_node);
         }
-        LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, fn_decl->params.length, 0);
-        LLVMValueRef fn = LLVMAddFunction(mod, buf_ptr(&fn_decl->name), function_type);
+        LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, fn_proto->params.length, 0);
+        LLVMValueRef fn = LLVMAddFunction(g->mod, buf_ptr(&fn_proto->name), function_type);
 
-        LLVMBasicBlockRef entry = LLVMAppendBasicBlock(fn, "entry");
-        LLVMPositionBuilderAtEnd(g->builder, entry);
+        LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn, "entry");
+        LLVMPositionBuilderAtEnd(g->builder, entry_block);
 
-        gen_block(g, fn_decl->body);
+        gen_block(g, fn_def->body);
     }
 
-    LLVMDumpModule(mod);
+    LLVMDumpModule(g->mod);
 }
 
 ZigList<ErrorMsg> *codegen_error_messages(CodeGen *g) {

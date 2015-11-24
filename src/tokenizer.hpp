@@ -17,6 +17,7 @@ enum TokenId {
     TokenIdKeywordReturn,
     TokenIdKeywordMut,
     TokenIdKeywordConst,
+    TokenIdKeywordExtern,
     TokenIdLParen,
     TokenIdRParen,
     TokenIdComma,

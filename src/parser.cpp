@@ -20,8 +20,12 @@ const char *node_type_str(NodeType node_type) {
     switch (node_type) {
         case NodeTypeRoot:
             return "Root";
+        case NodeTypeFnDef:
+            return "FnDef";
         case NodeTypeFnDecl:
             return "FnDecl";
+        case NodeTypeFnProto:
+            return "FnProto";
         case NodeTypeParamDecl:
             return "ParamDecl";
         case NodeTypeType:
@@ -34,6 +38,8 @@ const char *node_type_str(NodeType node_type) {
             return "Expression";
         case NodeTypeFnCall:
             return "FnCall";
+        case NodeTypeExternBlock:
+            return "ExternBlock";
     }
     zig_unreachable();
 }
@@ -46,24 +52,30 @@ void ast_print(AstNode *node, int indent) {
     switch (node->type) {
         case NodeTypeRoot:
             fprintf(stderr, "%s\n", node_type_str(node->type));
-            for (int i = 0; i < node->data.root.fn_decls.length; i += 1) {
-                AstNode *child = node->data.root.fn_decls.at(i);
+            for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
+                AstNode *child = node->data.root.top_level_decls.at(i);
                 ast_print(child, indent + 2);
             }
             break;
-        case NodeTypeFnDecl:
+        case NodeTypeFnDef:
             {
-                Buf *name_buf = &node->data.fn_decl.name;
+                fprintf(stderr, "%s\n", node_type_str(node->type));
+                AstNode *child = node->data.fn_def.fn_proto;
+                ast_print(child, indent + 2);
+                ast_print(node->data.fn_def.body, indent + 2);
+                break;
+            }
+        case NodeTypeFnProto:
+            {
+                Buf *name_buf = &node->data.fn_proto.name;
                 fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
 
-                for (int i = 0; i < node->data.fn_decl.params.length; i += 1) {
-                    AstNode *child = node->data.fn_decl.params.at(i);
+                for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
+                    AstNode *child = node->data.fn_proto.params.at(i);
                     ast_print(child, indent + 2);
                 }
 
-                ast_print(node->data.fn_decl.return_type, indent + 2);
-
-                ast_print(node->data.fn_decl.body, indent + 2);
+                ast_print(node->data.fn_proto.return_type, indent + 2);
 
                 break;
             }
@@ -115,6 +127,19 @@ void ast_print(AstNode *node, int indent) {
                     break;
             }
             break;
+        case NodeTypeExternBlock:
+            {
+                fprintf(stderr, "%s\n", node_type_str(node->type));
+                for (int i = 0; i < node->data.extern_block.fn_decls.length; i += 1) {
+                    AstNode *child = node->data.extern_block.fn_decls.at(i);
+                    ast_print(child, indent + 2);
+                }
+                break;
+            }
+        case NodeTypeFnDecl:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            ast_print(node->data.fn_decl.fn_proto, indent + 2);
+            break;
         default:
             fprintf(stderr, "%s\n", node_type_str(node->type));
             break;
@@ -135,8 +160,50 @@ static AstNode *ast_create_node(NodeType type, Token *first_token) {
     return node;
 }
 
+static AstNode *ast_create_node_with_node(NodeType type, AstNode *other_node) {
+    AstNode *node = allocate<AstNode>(1);
+    node->type = type;
+    node->line = other_node->line;
+    node->column = other_node->column;
+    return node;
+}
+
 static void ast_buf_from_token(ParseContext *pc, Token *token, Buf *buf) {
     buf_init_from_mem(buf, buf_ptr(pc->buf) + token->start_pos, token->end_pos - token->start_pos);
+}
+
+static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf) {
+    // skip the double quotes at beginning and end
+    // convert escape sequences
+    bool escape = false;
+    for (int i = token->start_pos; i < token->end_pos - 1; i += 1) {
+        uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
+        if (escape) {
+            switch (c) {
+                case '\\':
+                    buf_append_char(buf, '\\');
+                    break;
+                case 'r':
+                    buf_append_char(buf, '\r');
+                    break;
+                case 'n':
+                    buf_append_char(buf, '\n');
+                    break;
+                case 't':
+                    buf_append_char(buf, '\t');
+                    break;
+                case '"':
+                    buf_append_char(buf, '"');
+                    break;
+            }
+            escape = false;
+        } else if (c == '\\') {
+            escape = true;
+        } else {
+            buf_append_char(buf, c);
+        }
+    }
+    assert(!escape);
 }
 
 static void ast_invalid_token_error(ParseContext *pc, Token *token) {
@@ -304,7 +371,7 @@ static AstNode *ast_parse_expression(ParseContext *pc, int token_index, int *new
         token_index += 1;
     } else if (token->id == TokenIdStringLiteral) {
         node->data.expression.type = AstNodeExpressionTypeString;
-        ast_buf_from_token(pc, token, &node->data.expression.data.string);
+        parse_string_literal(pc, token, &node->data.expression.data.string);
         token_index += 1;
     } else {
         ast_invalid_token_error(pc, token);
@@ -381,50 +448,111 @@ static AstNode *ast_parse_block(ParseContext *pc, int token_index, int *new_toke
 }
 
 /*
-FnDecl : token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type) Block;
+FnProto : token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type)
 */
-static AstNode *ast_parse_fn_decl(ParseContext *pc, int token_index, int *new_token_index) {
+static AstNode *ast_parse_fn_proto(ParseContext *pc, int token_index, int *new_token_index) {
     Token *fn_token = &pc->tokens->at(token_index);
     token_index += 1;
     ast_expect_token(pc, fn_token, TokenIdKeywordFn);
 
-    AstNode *node = ast_create_node(NodeTypeFnDecl, fn_token);
+    AstNode *node = ast_create_node(NodeTypeFnProto, fn_token);
 
 
     Token *fn_name = &pc->tokens->at(token_index);
     token_index += 1;
     ast_expect_token(pc, fn_name, TokenIdSymbol);
 
-    ast_buf_from_token(pc, fn_name, &node->data.fn_decl.name);
+    ast_buf_from_token(pc, fn_name, &node->data.fn_proto.name);
 
 
-    ast_parse_param_decl_list(pc, token_index, &token_index, &node->data.fn_decl.params);
+    ast_parse_param_decl_list(pc, token_index, &token_index, &node->data.fn_proto.params);
 
     Token *arrow = &pc->tokens->at(token_index);
     token_index += 1;
     if (arrow->id == TokenIdArrow) {
-        node->data.fn_decl.return_type = ast_parse_type(pc, token_index, &token_index);
+        node->data.fn_proto.return_type = ast_parse_type(pc, token_index, &token_index);
     } else if (arrow->id == TokenIdLBrace) {
-        node->data.fn_decl.return_type = nullptr;
+        node->data.fn_proto.return_type = nullptr;
     } else {
         ast_invalid_token_error(pc, arrow);
     }
-
-    node->data.fn_decl.body = ast_parse_block(pc, token_index, &token_index);
 
     *new_token_index = token_index;
     return node;
 }
 
+/*
+FnDef : FnProto Block
+*/
+static AstNode *ast_parse_fn_def(ParseContext *pc, int token_index, int *new_token_index) {
+    AstNode *fn_proto = ast_parse_fn_proto(pc, token_index, &token_index);
+    AstNode *node = ast_create_node_with_node(NodeTypeFnDef, fn_proto);
 
-static void ast_parse_fn_decl_list(ParseContext *pc, int token_index, ZigList<AstNode *> *fn_decls,
-        int *new_token_index)
+    node->data.fn_def.fn_proto = fn_proto;
+    node->data.fn_def.body = ast_parse_block(pc, token_index, &token_index);
+
+    *new_token_index = token_index;
+    return node;
+}
+
+/*
+FnDecl : FnProto token(Semicolon)
+*/
+static AstNode *ast_parse_fn_decl(ParseContext *pc, int token_index, int *new_token_index) {
+    AstNode *fn_proto = ast_parse_fn_proto(pc, token_index, &token_index);
+    AstNode *node = ast_create_node_with_node(NodeTypeFnDecl, fn_proto);
+
+    node->data.fn_decl.fn_proto = fn_proto;
+
+    Token *semicolon = &pc->tokens->at(token_index);
+    token_index += 1;
+    ast_expect_token(pc, semicolon, TokenIdSemicolon);
+
+    *new_token_index = token_index;
+    return node;
+}
+
+/*
+ExternBlock : token(Extern) token(LBrace) many(FnProtoDecl) token(RBrace)
+*/
+static AstNode *ast_parse_extern_block(ParseContext *pc, int token_index, int *new_token_index) {
+    Token *extern_kw = &pc->tokens->at(token_index);
+    token_index += 1;
+    ast_expect_token(pc, extern_kw, TokenIdKeywordExtern);
+
+    AstNode *node = ast_create_node(NodeTypeExternBlock, extern_kw);
+
+    Token *l_brace = &pc->tokens->at(token_index);
+    token_index += 1;
+    ast_expect_token(pc, l_brace, TokenIdLBrace);
+
+    for (;;) {
+        Token *token = &pc->tokens->at(token_index);
+        if (token->id == TokenIdRBrace) {
+            token_index += 1;
+            *new_token_index = token_index;
+            return node;
+        } else {
+            AstNode *child = ast_parse_fn_decl(pc, token_index, &token_index);
+            node->data.extern_block.fn_decls.append(child);
+        }
+    }
+
+
+    zig_unreachable();
+}
+
+static void ast_parse_top_level_decls(ParseContext *pc, int token_index, int *new_token_index,
+        ZigList<AstNode *> *top_level_decls)
 {
     for (;;) {
         Token *token = &pc->tokens->at(token_index);
         if (token->id == TokenIdKeywordFn) {
-            AstNode *fn_decl_node = ast_parse_fn_decl(pc, token_index, &token_index);
-            fn_decls->append(fn_decl_node);
+            AstNode *fn_decl_node = ast_parse_fn_def(pc, token_index, &token_index);
+            top_level_decls->append(fn_decl_node);
+        } else if (token->id == TokenIdKeywordExtern) {
+            AstNode *extern_node = ast_parse_extern_block(pc, token_index, &token_index);
+            top_level_decls->append(extern_node);
         } else {
             *new_token_index = token_index;
             return;
@@ -440,7 +568,7 @@ AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens) {
     pc.tokens = tokens;
 
     int new_token_index;
-    ast_parse_fn_decl_list(&pc, 0, &pc.root->data.root.fn_decls, &new_token_index);
+    ast_parse_top_level_decls(&pc, 0, &new_token_index, &pc.root->data.root.top_level_decls);
 
     if (new_token_index != tokens->length - 1) {
         ast_invalid_token_error(&pc, &tokens->at(new_token_index));
