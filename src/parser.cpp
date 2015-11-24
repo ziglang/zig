@@ -79,12 +79,31 @@ void ast_print(AstNode *node, int indent) {
     }
 }
 
-AstNode *ast_create_root(Token *token) {
-    return nullptr;
+struct ParseContext {
+    Buf *buf;
+    AstNode *root;
+};
+
+AstNode *ast_create_root(void) {
+    zig_panic("TODO create root");
 }
 
 void ast_invalid_token_error(Buf *buf, Token *token) {
     Buf token_value = {0};
     buf_init_from_mem(&token_value, buf_ptr(buf) + token->start_pos, token->end_pos - token->start_pos);
     ast_error(token, "invalid token: '%s'", buf_ptr(&token_value));
+}
+
+void ast_parse_fn_decls(ParseContext *pc, ZigList<AstNode *> *fn_decls) {
+    zig_panic("TODO parse fn decls");
+}
+
+AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens) {
+    ParseContext pc = {0};
+    pc.buf = buf;
+    pc.root = ast_create_root();
+
+    ast_parse_fn_decls(&pc, &pc.root->data.root.fn_decls);
+
+    return pc.root;
 }
