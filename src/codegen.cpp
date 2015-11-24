@@ -423,7 +423,7 @@ void code_gen_link(CodeGen *g, bool is_static, const char *out_file) {
     LLVMTargetMachineRef target_machine = LLVMCreateTargetMachine(target_ref, native_triple,
             native_cpu, native_features, opt_level, reloc_mode, LLVMCodeModelDefault);
 
-    Buf out_file_o = {0};
+    Buf out_file_o = BUF_INIT;
     buf_init_from_str(&out_file_o, out_file);
     buf_append_str(&out_file_o, ".o");
 

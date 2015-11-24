@@ -32,14 +32,13 @@ char *LLVMZigGetHostCPUName(void) {
 }
 
 char *LLVMZigGetNativeFeatures(void) {
-    return strdup("");
-    //SubtargetFeatures features;
+    SubtargetFeatures features;
 
-    //StringMap<bool> host_features;
-    //if (sys::getHostCPUFeatures(host_features)) {
-    //    for (auto &F : host_features)
-    //        features.AddFeature(F.first(), F.second);
-    //}
+    StringMap<bool> host_features;
+    if (sys::getHostCPUFeatures(host_features)) {
+        for (auto &F : host_features)
+            features.AddFeature(F.first(), F.second);
+    }
 
-    //return strdup(features.getString().c_str());
+    return strdup(features.getString().c_str());
 }

@@ -13,6 +13,8 @@
 #include <assert.h>
 #include <stdint.h>
 
+#define BUF_INIT {{0}}
+
 struct Buf {
     ZigList<char> list;
 };
