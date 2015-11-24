@@ -4,6 +4,15 @@ An experiment in writing a low-level programming language with the intent to
 replace C. Zig intends to be a small language, yet powerful enough to write
 readable, safe, optimal, and concise code to solve any computing problem.
 
+## Design Principles
+
+ * Never compromise power or performance.
+ * Keep the language small and easy to understand. C programmers should pretty
+   much be able to understand Zig source code without learning anything about
+   Zig.
+ * Interoperability with C is crucial. Using C libraries should not require
+   "Zig bindings".
+
 ## Goals
 
  * Ability to run arbitrary code at compile time and generate code.

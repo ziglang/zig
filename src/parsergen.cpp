@@ -141,10 +141,6 @@ struct RuleMany {
     RuleNode *child;
 };
 
-struct RuleOption {
-    RuleNode *child;
-};
-
 struct RuleOr {
     Buf name;
     Buf union_field_name;
@@ -171,7 +167,6 @@ enum RuleNodeType {
     RuleNodeTypeTuple,
     RuleNodeTypeMany,
     RuleNodeTypeList,
-    RuleNodeTypeOption,
     RuleNodeTypeOr,
     RuleNodeTypeToken,
     RuleNodeTypeSubRule,
@@ -185,7 +180,6 @@ struct RuleNode {
         RuleTuple tuple;
         RuleMany many;
         RuleList list;
-        RuleOption option;
         RuleOr _or;
         RuleToken token;
         RuleSubRule sub_rule;
@@ -401,9 +395,6 @@ static void gen(Gen *g, RuleNode *node, Buf *out_field_name, ParserState *cur_st
             zig_panic("TODO");
             break;
         case RuleNodeTypeList:
-            zig_panic("TODO");
-            break;
-        case RuleNodeTypeOption:
             zig_panic("TODO");
             break;
         case RuleNodeTypeOr:

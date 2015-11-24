@@ -2,12 +2,10 @@ Root<node> : many(FnDecl) token(EOF) {
     $$ = ast_create_root($1);
 };
 
-FnDecl<node> : token(Fn) token(Symbol) token(LParen) list(ParamDecl, token(Comma)) token(RParen) option(ReturnType) Block {
-    $$ = ast_create_fn_decl($2, $4, $6, $7);
-};
-
-ReturnType<node> : token(Arrow) Type {
-    $$ = $2;
+FnDecl<node> : token(Fn) token(Symbol) token(LParen) list(ParamDecl, token(Comma)) token(RParen) token(Arrow) Type Block {
+    $$ = ast_create_fn_decl($2, $4, $7, $8);
+} | token(Fn) token(Symbol) token(LParen) list(ParamDecl, token(Comma)) token(RParen) Block {
+    $$ = ast_create_void_fn_decl($2, $4, $6);
 };
 
 ParamDecl<node> : token(Symbol) token(Colon) Type {
@@ -26,8 +24,10 @@ PointerType<node> : token(Star) token(Const) Type {
     $$ = ast_create_pointer_type($2, $3);
 };
 
-Block<node> : token(LBrace) many(Statement) option(Expression) token(RBrace) {
-    $$ = ast_create_block($2, $3);
+Block<node> : token(LBrace) many(Statement) Expression token(RBrace) {
+    $$ = ast_create_expr_block($2, $3);
+} | token(LBrace) many(Statement) token(RBrace) {
+    $$ = ast_create_block($2);
 };
 
 Statement<node> : ExpressionStatement {
