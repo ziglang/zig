@@ -94,6 +94,7 @@ enum AstNodeExpressionType {
     AstNodeExpressionTypeNumber,
     AstNodeExpressionTypeString,
     AstNodeExpressionTypeFnCall,
+    AstNodeExpressionTypeUnreachable,
 };
 
 struct AstNodeExpression {

@@ -236,7 +236,7 @@ static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
 }
 
 /*
-Type : token(Symbol) | PointerType;
+Type : token(Symbol) | PointerType | token(Unreachable)
 PointerType : token(Star) token(Const) Type  | token(Star) token(Mut) Type;
 */
 static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token_index) {
@@ -245,7 +245,10 @@ static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token
 
     AstNode *node = ast_create_node(NodeTypeType, token);
 
-    if (token->id == TokenIdSymbol) {
+    if (token->id == TokenIdKeywordUnreachable) {
+        node->data.type.type = AstNodeTypeTypePrimitive;
+        buf_init_from_str(&node->data.type.primitive_name, "unreachable");
+    } else if (token->id == TokenIdSymbol) {
         node->data.type.type = AstNodeTypeTypePrimitive;
         ast_buf_from_token(pc, token, &node->data.type.primitive_name);
     } else if (token->id == TokenIdStar) {
@@ -373,10 +376,16 @@ static AstNode *ast_parse_fn_call(ParseContext *pc, int token_index, int *new_to
     return node;
 }
 
+/*
+Expression : token(Number) | token(String) | token(Unreachable) | FnCall
+*/
 static AstNode *ast_parse_expression(ParseContext *pc, int token_index, int *new_token_index) {
     Token *token = &pc->tokens->at(token_index);
     AstNode *node = ast_create_node(NodeTypeExpression, token);
-    if (token->id == TokenIdSymbol) {
+    if (token->id == TokenIdKeywordUnreachable) {
+        node->data.expression.type = AstNodeExpressionTypeUnreachable;
+        token_index += 1;
+    } else if (token->id == TokenIdSymbol) {
         node->data.expression.type = AstNodeExpressionTypeFnCall;
         node->data.expression.data.fn_call = ast_parse_fn_call(pc, token_index, &token_index);
     } else if (token->id == TokenIdNumberLiteral) {
@@ -402,7 +411,7 @@ ExpressionStatement : Expression token(Semicolon) ;
 
 ReturnStatement : token(Return) Expression token(Semicolon) ;
 
-Expression : token(Number)  | token(String)  | FnCall ;
+Expression : token(Number) | token(String) | token(Unreachable) | FnCall
 
 FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen) ;
 */
@@ -420,6 +429,7 @@ static AstNode *ast_parse_statement(ParseContext *pc, int token_index, int *new_
         ast_expect_token(pc, semicolon, TokenIdSemicolon);
     } else if (token->id == TokenIdSymbol ||
                token->id == TokenIdStringLiteral ||
+               token->id == TokenIdKeywordUnreachable ||
                token->id == TokenIdNumberLiteral)
     {
         node->data.statement.type = AstNodeStatementTypeExpression;

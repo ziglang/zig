@@ -40,8 +40,6 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
 ## Roadmap
 
- * Hello, world.
-   - Produce .o file.
  * Produce executable file instead of .o file.
  * Add debugging symbols.
  * Debug/Release mode.
@@ -87,7 +85,7 @@ ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
 
 ParamDecl : token(Symbol) token(Colon) Type
 
-Type : token(Symbol) | PointerType
+Type : token(Symbol) | PointerType | token(Unreachable)
 
 PointerType : token(Star) token(Const) Type  | token(Star) token(Mut) Type
 
@@ -99,7 +97,7 @@ ExpressionStatement : Expression token(Semicolon)
 
 ReturnStatement : token(Return) Expression token(Semicolon)
 
-Expression : token(Number) | token(String) | FnCall
+Expression : token(Number) | token(String) | token(Unreachable) | FnCall
 
 FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen)
 ```

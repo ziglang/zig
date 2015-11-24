@@ -26,9 +26,14 @@ struct CodeGen {
     HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
 };
 
+struct TypeNode {
+    LLVMTypeRef type_ref;
+    bool is_unreachable;
+};
+
 struct CodeGenNode {
     union {
-        LLVMTypeRef type_ref; // for NodeTypeType
+        TypeNode type_node; // for NodeTypeType
     } data;
 };
 
@@ -54,9 +59,16 @@ static void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
 static LLVMTypeRef to_llvm_type(AstNode *type_node) {
     assert(type_node->type == NodeTypeType);
     assert(type_node->codegen_node);
-    assert(type_node->codegen_node->data.type_ref);
+    assert(type_node->codegen_node->data.type_node.type_ref);
 
-    return type_node->codegen_node->data.type_ref;
+    return type_node->codegen_node->data.type_node.type_ref;
+}
+
+
+static bool type_is_unreachable(AstNode *type_node) {
+    assert(type_node->type == NodeTypeType);
+    return type_node->data.type.type == AstNodeTypeTypePrimitive &&
+            buf_eql_str(&type_node->data.type.primitive_name, "unreachable");
 }
 
 static void analyze_node(CodeGen *g, AstNode *node) {
@@ -83,12 +95,17 @@ static void analyze_node(CodeGen *g, AstNode *node) {
                     AstNode *param_type = param_node->data.param_decl.type;
                     fn_param_values[param_i] = to_llvm_type(param_type);
                 }
-                LLVMTypeRef return_type = to_llvm_type(fn_proto->data.fn_proto.return_type);
+                AstNode *return_type_node = fn_proto->data.fn_proto.return_type;
+                LLVMTypeRef return_type = to_llvm_type(return_type_node);
 
                 LLVMTypeRef fn_type = LLVMFunctionType(return_type, fn_param_values, params->length, 0);
                 LLVMValueRef fn_val = LLVMAddFunction(g->mod, buf_ptr(name), fn_type);
                 LLVMSetLinkage(fn_val, LLVMExternalLinkage);
                 LLVMSetFunctionCallConv(fn_val, LLVMCCallConv);
+
+                if (type_is_unreachable(return_type_node)) {
+                    LLVMAddFunctionAttr(fn_val, LLVMNoReturnAttribute);
+                }
 
                 FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
                 fn_table_entry->fn_value = fn_val;
@@ -131,33 +148,43 @@ static void analyze_node(CodeGen *g, AstNode *node) {
             analyze_node(g, node->data.param_decl.type);
             break;
         case NodeTypeType:
-            node->codegen_node = allocate<CodeGenNode>(1);
-            switch (node->data.type.type) {
-                case AstNodeTypeTypePrimitive:
-                    {
-                        Buf *name = &node->data.type.primitive_name;
-                        if (buf_eql_str(name, "u8")) {
-                            node->codegen_node->data.type_ref = LLVMInt8Type();
-                        } else if (buf_eql_str(name, "i32")) {
-                            node->codegen_node->data.type_ref = LLVMInt32Type();
-                        } else if (buf_eql_str(name, "void")) {
-                            node->codegen_node->data.type_ref = LLVMVoidType();
-                        } else {
-                            add_node_error(g, node,
-                                    buf_sprintf("invalid type name: '%s'", buf_ptr(name)));
-                            node->codegen_node->data.type_ref = LLVMInt8Type();
+            {
+                node->codegen_node = allocate<CodeGenNode>(1);
+                TypeNode *type_node = &node->codegen_node->data.type_node;
+                switch (node->data.type.type) {
+                    case AstNodeTypeTypePrimitive:
+                        {
+                            Buf *name = &node->data.type.primitive_name;
+                            if (buf_eql_str(name, "u8")) {
+                                type_node->type_ref = LLVMInt8Type();
+                            } else if (buf_eql_str(name, "i32")) {
+                                type_node->type_ref = LLVMInt32Type();
+                            } else if (buf_eql_str(name, "void")) {
+                                type_node->type_ref = LLVMVoidType();
+                            } else if (buf_eql_str(name, "unreachable")) {
+                                type_node->type_ref = LLVMVoidType();
+                                type_node->is_unreachable = true;
+                            } else {
+                                add_node_error(g, node,
+                                        buf_sprintf("invalid type name: '%s'", buf_ptr(name)));
+                                type_node->type_ref = LLVMVoidType();
+                            }
+                            break;
                         }
-                        break;
-                    }
-                case AstNodeTypeTypePointer:
-                    {
-                        analyze_node(g, node->data.type.child_type);
-                        node->codegen_node->data.type_ref = LLVMPointerType(
-                                node->data.type.child_type->codegen_node->data.type_ref, 0);
-                        break;
-                    }
+                    case AstNodeTypeTypePointer:
+                        {
+                            analyze_node(g, node->data.type.child_type);
+                            TypeNode *child_type_node = &node->data.type.child_type->codegen_node->data.type_node;
+                            if (child_type_node->is_unreachable) {
+                                add_node_error(g, node,
+                                        buf_create_from_str("pointer to unreachable not allowed"));
+                            }
+                            type_node->type_ref = LLVMPointerType(child_type_node->type_ref, 0);
+                            break;
+                        }
+                }
+                break;
             }
-            break;
         case NodeTypeBlock:
             for (int i = 0; i < node->data.block.statements.length; i += 1) {
                 AstNode *child = node->data.block.statements.at(i);
@@ -182,6 +209,8 @@ static void analyze_node(CodeGen *g, AstNode *node) {
                     break;
                 case AstNodeExpressionTypeFnCall:
                     analyze_node(g, node->data.expression.data.fn_call);
+                    break;
+                case AstNodeExpressionTypeUnreachable:
                     break;
             }
             break;
@@ -235,7 +264,11 @@ static LLVMValueRef gen_fn_call(CodeGen *g, AstNode *fn_call_node) {
     LLVMValueRef result = LLVMBuildCall(g->builder, fn_table_entry->fn_value,
             param_values, actual_param_count, "");
 
-    return result;
+    if (type_is_unreachable(fn_table_entry->proto_node->data.fn_proto.return_type)) {
+        return LLVMBuildUnreachable(g->builder);
+    } else {
+        return result;
+    }
 }
 
 static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
@@ -280,6 +313,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node) {
             }
         case AstNodeExpressionTypeFnCall:
             return gen_fn_call(g, expr_node->data.expression.data.fn_call);
+        case AstNodeExpressionTypeUnreachable:
+            return LLVMBuildUnreachable(g->builder);
     }
     zig_unreachable();
 }
@@ -332,6 +367,10 @@ void code_gen(CodeGen *g) {
         }
         LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, fn_proto->params.length, 0);
         LLVMValueRef fn = LLVMAddFunction(g->mod, buf_ptr(&fn_proto->name), function_type);
+
+        if (type_is_unreachable(fn_proto->return_type)) {
+            LLVMAddFunctionAttr(fn, LLVMNoReturnAttribute);
+        }
 
         LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn, "entry");
         LLVMPositionBuilderAtEnd(g->builder, entry_block);

@@ -18,6 +18,7 @@ enum TokenId {
     TokenIdKeywordMut,
     TokenIdKeywordConst,
     TokenIdKeywordExtern,
+    TokenIdKeywordUnreachable,
     TokenIdLParen,
     TokenIdRParen,
     TokenIdComma,

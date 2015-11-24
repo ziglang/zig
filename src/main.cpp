@@ -102,7 +102,8 @@ static int build(const char *arg0, const char *in_file, const char *out_file, Zi
     } else {
         for (int i = 0; i < errors->length; i += 1) {
             ErrorMsg *err = &errors->at(i);
-            fprintf(stderr, "Error: Line %d, column %d: %s\n", err->line_start, err->column_start,
+            fprintf(stderr, "Error: Line %d, column %d: %s\n",
+                    err->line_start + 1, err->column_start + 1,
                     buf_ptr(err->msg));
         }
         return 1;
@@ -115,6 +116,7 @@ static int build(const char *arg0, const char *in_file, const char *out_file, Zi
     fprintf(stderr, "\nLink:\n");
     fprintf(stderr, "------------------\n");
     code_gen_link(codegen, false, out_file);
+    fprintf(stderr, "OK\n");
 
     return 0;
 }
