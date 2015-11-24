@@ -89,6 +89,8 @@ static int build(const char *arg0, const char *in_file, const char *out_file, Zi
 
     AstNode *root = ast_parse(in_data, tokens);
     assert(root);
+    fprintf(stderr, "\nAST:\n");
+    fprintf(stderr, "------\n");
     ast_print(root, 0);
 
 
@@ -135,7 +137,7 @@ int main(int argc, char **argv) {
         } else {
             switch (cmd) {
                 case CmdNone:
-                    zig_panic("unreachable");
+                    zig_unreachable();
                 case CmdBuild:
                     if (!in_file) {
                         in_file = arg;
@@ -154,6 +156,6 @@ int main(int argc, char **argv) {
             return build(arg0, in_file, out_file, &include_paths);
     }
 
-    zig_panic("unreachable");
+    zig_unreachable();
 }
 

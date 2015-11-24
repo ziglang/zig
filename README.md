@@ -69,3 +69,31 @@ zig    | C equivalent | Description
   f128 |  long double | 128-bit IEE754 floating point
  isize |      ssize_t |   signed pointer sized integer
  usize |       size_t | unsigned pointer sized integer
+
+### Grammar
+
+```
+Root : many(FnDecl) token(EOF);
+
+FnDecl : token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type) Block;
+
+ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen);
+
+ParamDecl : token(Symbol) token(Colon) Type;
+
+Type : token(Symbol) | PointerType;
+
+PointerType : token(Star) token(Const) Type  | token(Star) token(Mut) Type;
+
+Block : token(LBrace) many(Statement) token(RBrace);
+
+Statement : ExpressionStatement  | ReturnStatement ;
+
+ExpressionStatement : Expression token(Semicolon) ;
+
+ReturnStatement : token(Return) Expression token(Semicolon) ;
+
+Expression : token(Number)  | token(String)  | FnCall ;
+
+FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen) ;
+```

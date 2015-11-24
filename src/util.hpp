@@ -20,6 +20,12 @@ void zig_panic(const char *format, ...)
     __attribute__ ((noreturn))
     __attribute__ ((format (printf, 1, 2)));
 
+__attribute__((cold))
+__attribute__ ((noreturn))
+static inline void zig_unreachable(void) {
+    zig_panic("unreachable");
+}
+
 template<typename T>
 __attribute__((malloc)) static inline T *allocate_nonzero(size_t count) {
     T *ptr = reinterpret_cast<T*>(malloc(count * sizeof(T)));

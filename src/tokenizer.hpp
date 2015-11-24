@@ -10,7 +10,6 @@
 
 #include "buffer.hpp"
 
-/*
 enum TokenId {
     TokenIdEof,
     TokenIdSymbol,
@@ -28,30 +27,6 @@ enum TokenId {
     TokenIdSemicolon,
     TokenIdNumberLiteral,
     TokenIdPlus,
-    TokenIdColon,
-    TokenIdArrow,
-    TokenIdDash,
-};
-*/
-
-// TODO: debug delete this 
-enum TokenId {
-    TokenIdLParen = 0,
-    TokenIdRParen = 1,
-    TokenIdEof = 2,
-    TokenIdStar = 3,
-    TokenIdPlus = 4,
-    TokenIdSymbol,
-    TokenIdKeywordFn,
-    TokenIdKeywordReturn,
-    TokenIdKeywordMut,
-    TokenIdKeywordConst,
-    TokenIdComma,
-    TokenIdLBrace,
-    TokenIdRBrace,
-    TokenIdStringLiteral,
-    TokenIdSemicolon,
-    TokenIdNumberLiteral,
     TokenIdColon,
     TokenIdArrow,
     TokenIdDash,

@@ -44,20 +44,49 @@ enum AstNodeTypeType {
 
 struct AstNodeType {
     AstNodeTypeType type;
-    AstNode *child;
-};
-
-struct AstNodePointerType {
-    AstNode *const_or_mut;
-    AstNode *type;
+    Buf primitive_name;
+    AstNode *child_type;
+    bool is_const;
 };
 
 struct AstNodeBlock {
-    ZigList<AstNode *> expressions;
+    ZigList<AstNode *> statements;
+};
+
+enum AstNodeStatementType {
+    AstNodeStatementTypeExpression,
+    AstNodeStatementTypeReturn,
+};
+
+struct AstNodeStatementExpression {
+    AstNode *expression;
+};
+
+struct AstNodeStatementReturn {
+    AstNode *expression;
+};
+
+struct AstNodeStatement {
+    AstNodeStatementType type;
+    union {
+        AstNodeStatementExpression expr;
+        AstNodeStatementReturn retrn;
+    } data;
+};
+
+enum AstNodeExpressionType {
+    AstNodeExpressionTypeNumber,
+    AstNodeExpressionTypeString,
+    AstNodeExpressionTypeFnCall,
 };
 
 struct AstNodeExpression {
-    AstNode *child;
+    AstNodeExpressionType type;
+    union {
+        Buf number;
+        Buf string;
+        AstNode *fn_call;
+    } data;
 };
 
 struct AstNodeFnCall {
@@ -74,13 +103,14 @@ struct AstNode {
         AstNodeType type;
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
+        AstNodeStatement statement;
         AstNodeExpression expression;
         AstNodeFnCall fn_call;
     } data;
 };
 
 __attribute__ ((format (printf, 2, 3)))
-void ast_error(Token *token, const char *format, ...);
+void ast_token_error(Token *token, const char *format, ...);
 void ast_invalid_token_error(Buf *buf, Token *token);
 
 
@@ -90,7 +120,5 @@ AstNode * ast_parse(Buf *buf, ZigList<Token> *tokens);
 const char *node_type_str(NodeType node_type);
 
 void ast_print(AstNode *node, int indent);
-
-AstNode *ast_create_root(void);
 
 #endif
