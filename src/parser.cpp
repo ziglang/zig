@@ -133,9 +133,11 @@ struct ParseContext {
     ZigList<Token> *tokens;
 };
 
-static AstNode *ast_create_node(NodeType type) {
+static AstNode *ast_create_node(NodeType type, Token *first_token) {
     AstNode *node = allocate<AstNode>(1);
     node->type = type;
+    node->line = first_token->start_line;
+    node->column = first_token->start_column;
     return node;
 }
 
@@ -163,10 +165,10 @@ Type : token(Symbol) | PointerType;
 PointerType : token(Star) token(Const) Type  | token(Star) token(Mut) Type;
 */
 static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token_index) {
-    AstNode *node = ast_create_node(NodeTypeType);
-
     Token *token = &pc->tokens->at(token_index);
     token_index += 1;
+
+    AstNode *node = ast_create_node(NodeTypeType, token);
 
     if (token->id == TokenIdSymbol) {
         node->data.type.type = AstNodeTypeTypePrimitive;
@@ -197,11 +199,12 @@ ParamDecl<node> : token(Symbol) token(Colon) Type {
 };
 */
 static AstNode *ast_parse_param_decl(ParseContext *pc, int token_index, int *new_token_index) {
-    AstNode *node = ast_create_node(NodeTypeParamDecl);
-
     Token *param_name = &pc->tokens->at(token_index);
     token_index += 1;
     ast_expect_token(pc, param_name, TokenIdSymbol);
+
+    AstNode *node = ast_create_node(NodeTypeParamDecl, param_name);
+
 
     ast_buf_from_token(pc, param_name, &node->data.param_decl.name);
 
@@ -280,11 +283,12 @@ static void ast_parse_fn_call_param_list(ParseContext *pc, int token_index, int 
 FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen) ;
 */
 static AstNode *ast_parse_fn_call(ParseContext *pc, int token_index, int *new_token_index) {
-    AstNode *node = ast_create_node(NodeTypeFnCall);
-
     Token *fn_name = &pc->tokens->at(token_index);
     token_index += 1;
     ast_expect_token(pc, fn_name, TokenIdSymbol);
+
+    AstNode *node = ast_create_node(NodeTypeFnCall, fn_name);
+
 
     ast_buf_from_token(pc, fn_name, &node->data.fn_call.name);
 
@@ -295,9 +299,8 @@ static AstNode *ast_parse_fn_call(ParseContext *pc, int token_index, int *new_to
 }
 
 static AstNode *ast_parse_expression(ParseContext *pc, int token_index, int *new_token_index) {
-    AstNode *node = ast_create_node(NodeTypeExpression);
-
     Token *token = &pc->tokens->at(token_index);
+    AstNode *node = ast_create_node(NodeTypeExpression, token);
     if (token->id == TokenIdSymbol) {
         node->data.expression.type = AstNodeExpressionTypeFnCall;
         node->data.expression.data.fn_call = ast_parse_fn_call(pc, token_index, &token_index);
@@ -329,9 +332,9 @@ Expression : token(Number)  | token(String)  | FnCall ;
 FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen) ;
 */
 static AstNode *ast_parse_statement(ParseContext *pc, int token_index, int *new_token_index) {
-    AstNode *node = ast_create_node(NodeTypeStatement);
-
     Token *token = &pc->tokens->at(token_index);
+    AstNode *node = ast_create_node(NodeTypeStatement, token);
+
     if (token->id == TokenIdKeywordReturn) {
         token_index += 1;
         node->data.statement.type = AstNodeStatementTypeReturn;
@@ -362,11 +365,12 @@ static AstNode *ast_parse_statement(ParseContext *pc, int token_index, int *new_
 Block : token(LBrace) many(Statement) token(RBrace);
 */
 static AstNode *ast_parse_block(ParseContext *pc, int token_index, int *new_token_index) {
-    AstNode *node = ast_create_node(NodeTypeBlock);
-
     Token *l_brace = &pc->tokens->at(token_index);
     token_index += 1;
     ast_expect_token(pc, l_brace, TokenIdLBrace);
+
+    AstNode *node = ast_create_node(NodeTypeBlock, l_brace);
+
 
     for (;;) {
         Token *token = &pc->tokens->at(token_index);
@@ -386,11 +390,12 @@ static AstNode *ast_parse_block(ParseContext *pc, int token_index, int *new_toke
 FnDecl : token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type) Block;
 */
 static AstNode *ast_parse_fn_decl(ParseContext *pc, int token_index, int *new_token_index) {
-    AstNode *node = ast_create_node(NodeTypeFnDecl);
-
     Token *fn_token = &pc->tokens->at(token_index);
     token_index += 1;
     ast_expect_token(pc, fn_token, TokenIdKeywordFn);
+
+    AstNode *node = ast_create_node(NodeTypeFnDecl, fn_token);
+
 
     Token *fn_name = &pc->tokens->at(token_index);
     token_index += 1;
@@ -437,7 +442,7 @@ static void ast_parse_fn_decl_list(ParseContext *pc, int token_index, ZigList<As
 AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens) {
     ParseContext pc = {0};
     pc.buf = buf;
-    pc.root = ast_create_node(NodeTypeRoot);
+    pc.root = ast_create_node(NodeTypeRoot, &tokens->at(0));
     pc.tokens = tokens;
 
     int new_token_index;

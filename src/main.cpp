@@ -12,6 +12,7 @@
 #include "parser.hpp"
 #include "tokenizer.hpp"
 #include "error.hpp"
+#include "codegen.hpp"
 
 #include <stdio.h>
 #include <string.h>
@@ -75,24 +76,41 @@ static int build(const char *arg0, const char *in_file, const char *out_file, Zi
         cur_dir_path = buf_dirname(buf_create_from_str(in_file));
     }
 
-    Buf *in_data = fetch_file(in_f);
-
     fprintf(stderr, "Original source:\n");
     fprintf(stderr, "----------------\n");
+    Buf *in_data = fetch_file(in_f);
     fprintf(stderr, "%s\n", buf_ptr(in_data));
-
-    ZigList<Token> *tokens = tokenize(in_data, cur_dir_path);
 
     fprintf(stderr, "\nTokens:\n");
     fprintf(stderr, "---------\n");
+    ZigList<Token> *tokens = tokenize(in_data, cur_dir_path);
     print_tokens(in_data, tokens);
 
-    AstNode *root = ast_parse(in_data, tokens);
-    assert(root);
     fprintf(stderr, "\nAST:\n");
     fprintf(stderr, "------\n");
+    AstNode *root = ast_parse(in_data, tokens);
+    assert(root);
     ast_print(root, 0);
 
+    fprintf(stderr, "\nSemantic Analysis:\n");
+    fprintf(stderr, "--------------------\n");
+    CodeGen *codegen = create_codegen(root);
+    semantic_analyze(codegen);
+    ZigList<ErrorMsg> *errors = codegen_error_messages(codegen);
+    if (errors->length == 0) {
+        fprintf(stderr, "OK\n");
+    } else {
+        for (int i = 0; i < errors->length; i += 1) {
+            ErrorMsg *err = &errors->at(i);
+            fprintf(stderr, "Error: Line %d, column %d: %s\n", err->line_start, err->column_start,
+                    buf_ptr(err->msg));
+        }
+        return 1;
+    }
+
+    fprintf(stderr, "\nCode Generation:\n");
+    fprintf(stderr, "------------------\n");
+    code_gen(codegen);
 
     return 0;
 }

@@ -97,6 +97,8 @@ struct AstNodeFnCall {
 struct AstNode {
     enum NodeType type;
     AstNode *parent;
+    int line;
+    int column;
     union {
         AstNodeRoot root;
         AstNodeFnDecl fn_decl;
