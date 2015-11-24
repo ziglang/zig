@@ -31,6 +31,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
+    "${CMAKE_SOURCE_DIR}/src/os.cpp"
 )
 
 set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")

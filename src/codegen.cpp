@@ -8,6 +8,7 @@
 #include "codegen.hpp"
 #include "hash_map.hpp"
 #include "zig_llvm.hpp"
+#include "os.hpp"
 
 #include <stdio.h>
 
@@ -422,7 +423,18 @@ void code_gen_link(CodeGen *g, bool is_static, const char *out_file) {
     LLVMTargetMachineRef target_machine = LLVMCreateTargetMachine(target_ref, native_triple,
             native_cpu, native_features, opt_level, reloc_mode, LLVMCodeModelDefault);
 
-    if (LLVMTargetMachineEmitToFile(target_machine, g->mod, strdup(out_file), LLVMObjectFile, &err_msg)) {
+    Buf out_file_o = {0};
+    buf_init_from_str(&out_file_o, out_file);
+    buf_append_str(&out_file_o, ".o");
+
+    if (LLVMTargetMachineEmitToFile(target_machine, g->mod, buf_ptr(&out_file_o), LLVMObjectFile, &err_msg)) {
         zig_panic("unable to write object file: %s", err_msg);
     }
+
+    ZigList<const char *> args = {0};
+    args.append("-o");
+    args.append(out_file);
+    args.append((const char *)buf_ptr(&out_file_o));
+    args.append("-lc");
+    os_spawn_process("ld", args, false);
 }
