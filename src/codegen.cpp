@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include <llvm-c/Core.h>
+#include <llvm-c/Analysis.h>
 
 struct FnTableEntry {
     LLVMValueRef fn_value;
@@ -235,9 +236,10 @@ static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
     }
     LLVMValueRef text = LLVMConstString(buf_ptr(str), buf_len(str), false);
     LLVMValueRef global_value = LLVMAddGlobal(g->mod, LLVMTypeOf(text), "");
-    LLVMSetLinkage(global_value, LLVMInternalLinkage);
+    LLVMSetLinkage(global_value, LLVMPrivateLinkage);
     LLVMSetInitializer(global_value, text);
     LLVMSetGlobalConstant(global_value, true);
+    LLVMSetUnnamedAddr(global_value, true);
     g->str_table.put(str, global_value);
 
     return global_value;
@@ -257,8 +259,15 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node) {
         case AstNodeExpressionTypeString:
             {
                 Buf *str = &expr_node->data.expression.data.string;
-                fprintf(stderr, "str = '%s'\n", buf_ptr(str));
-                return find_or_create_string(g, str);
+                LLVMValueRef str_val = find_or_create_string(g, str);
+                LLVMValueRef indices[] = {
+                    LLVMConstInt(LLVMInt32Type(), 0, false),
+                    LLVMConstInt(LLVMInt32Type(), 0, false)
+                };
+                LLVMValueRef ptr_val = LLVMBuildInBoundsGEP(g->builder, str_val,
+                        indices, 2, "");
+
+                return ptr_val;
             }
         case AstNodeExpressionTypeFnCall:
             return gen_fn_call(g, expr_node->data.expression.data.fn_call);
@@ -322,6 +331,9 @@ void code_gen(CodeGen *g) {
     }
 
     LLVMDumpModule(g->mod);
+
+    char *error = nullptr;
+    LLVMVerifyModule(g->mod, LLVMAbortProcessAction, &error);
 }
 
 ZigList<ErrorMsg> *codegen_error_messages(CodeGen *g) {
