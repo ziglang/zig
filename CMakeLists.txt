@@ -13,7 +13,8 @@ set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}"
 message("Configuring zig version ${ZIG_VERSION}")
 
 find_package(llvm)
-include_directories(${LLVM_INCLUDE_DIR})
+include_directories(${LLVM_INCLUDE_DIRS})
+link_directories(${LLVM_LIBDIRS})
 
 include_directories(
     ${CMAKE_SOURCE_DIR}

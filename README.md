@@ -31,8 +31,8 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
 ## Roadmap
 
- * C style comments.
  * Unit tests.
+ * C style comments.
  * Simple .so library
  * Multiple files
  * figure out integers
