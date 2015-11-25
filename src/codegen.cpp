@@ -537,7 +537,7 @@ static void gen_block(CodeGen *g, AstNode *block_node) {
             case NodeTypeFnCall:
             case NodeTypeExternBlock:
             case NodeTypeDirective:
-                assert(false);
+                zig_unreachable();
         }
     }
 
