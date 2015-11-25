@@ -248,7 +248,7 @@ static void analyze_node(CodeGen *g, AstNode *node) {
         case NodeTypeFnDef:
             {
                 AstNode *proto_node = node->data.fn_def.fn_proto;
-                assert(proto_node->type = NodeTypeFnProto);
+                assert(proto_node->type == NodeTypeFnProto);
                 Buf *proto_name = &proto_node->data.fn_proto.name;
                 auto entry = g->fn_defs.maybe_get(proto_name);
                 if (entry) {
