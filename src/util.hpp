@@ -12,6 +12,7 @@
 #include <string.h>
 #include <assert.h>
 
+#include <new>
 
 #define BREAKPOINT __asm("int $0x03")
 

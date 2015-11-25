@@ -13,4 +13,7 @@
 
 void os_spawn_process(const char *exe, ZigList<const char *> &args, bool detached);
 
+void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename);
+
+
 #endif

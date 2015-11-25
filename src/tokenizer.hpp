@@ -50,7 +50,7 @@ enum TokenizeState {
     TokenizeStateSawDash,
 };
 
-ZigList<Token> *tokenize(Buf *buf, Buf *cur_dir_path);
+ZigList<Token> *tokenize(Buf *buf);
 
 void print_tokens(Buf *buf, ZigList<Token> *tokens);
 

@@ -62,18 +62,15 @@ static int build(const char *arg0, const char *in_file, const char *out_file, Zi
         return usage(arg0);
 
     FILE *in_f;
-    Buf *cur_dir_path;
     if (strcmp(in_file, "-") == 0) {
         in_f = stdin;
         char *result = getcwd(cur_dir, sizeof(cur_dir));
         if (!result)
             zig_panic("unable to get current working directory: %s", strerror(errno));
-        cur_dir_path = buf_create_from_str(result);
     } else {
         in_f = fopen(in_file, "rb");
         if (!in_f)
             zig_panic("unable to open %s for reading: %s\n", in_file, strerror(errno));
-        cur_dir_path = buf_dirname(buf_create_from_str(in_file));
     }
 
     fprintf(stderr, "Original source:\n");
@@ -83,7 +80,7 @@ static int build(const char *arg0, const char *in_file, const char *out_file, Zi
 
     fprintf(stderr, "\nTokens:\n");
     fprintf(stderr, "---------\n");
-    ZigList<Token> *tokens = tokenize(in_data, cur_dir_path);
+    ZigList<Token> *tokens = tokenize(in_data);
     print_tokens(in_data, tokens);
 
     fprintf(stderr, "\nAST:\n");
@@ -94,7 +91,7 @@ static int build(const char *arg0, const char *in_file, const char *out_file, Zi
 
     fprintf(stderr, "\nSemantic Analysis:\n");
     fprintf(stderr, "--------------------\n");
-    CodeGen *codegen = create_codegen(root);
+    CodeGen *codegen = create_codegen(root, false, buf_create_from_str(in_file));
     semantic_analyze(codegen);
     ZigList<ErrorMsg> *errors = codegen_error_messages(codegen);
     if (errors->length == 0) {
@@ -115,7 +112,7 @@ static int build(const char *arg0, const char *in_file, const char *out_file, Zi
 
     fprintf(stderr, "\nLink:\n");
     fprintf(stderr, "------------------\n");
-    code_gen_link(codegen, false, out_file);
+    code_gen_link(codegen, out_file);
     fprintf(stderr, "OK\n");
 
     return 0;

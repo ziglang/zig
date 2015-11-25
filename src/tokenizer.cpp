@@ -100,7 +100,6 @@ struct Tokenize {
     int line;
     int column;
     Token *cur_tok;
-    Buf *cur_dir_path;
 };
 
 __attribute__ ((format (printf, 2, 3)))
@@ -159,11 +158,10 @@ static void end_token(Tokenize *t) {
     t->cur_tok = nullptr;
 }
 
-ZigList<Token> *tokenize(Buf *buf, Buf *cur_dir_path) {
+ZigList<Token> *tokenize(Buf *buf) {
     Tokenize t = {0};
     t.tokens = allocate<ZigList<Token>>(1);
     t.buf = buf;
-    t.cur_dir_path = cur_dir_path;
     for (t.pos = 0; t.pos < buf_len(t.buf); t.pos += 1) {
         uint8_t c = buf_ptr(t.buf)[t.pos];
         switch (t.state) {

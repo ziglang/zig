@@ -31,3 +31,23 @@ void os_spawn_process(const char *exe, ZigList<const char *> &args, bool detache
     execvp(exe, const_cast<char * const *>(argv));
     zig_panic("execvp failed: %s", strerror(errno));
 }
+
+void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
+    if (buf_len(full_path) <= 2)
+        zig_panic("TODO full path small");
+    int last_index = buf_len(full_path) - 1;
+    if (buf_ptr(full_path)[buf_len(full_path) - 1] == '/') {
+        last_index = buf_len(full_path) - 2;
+    }
+    for (int i = last_index; i >= 0; i -= 1) {
+        uint8_t c = buf_ptr(full_path)[i];
+        if (c == '/') {
+            buf_init_from_mem(out_dirname, buf_ptr(full_path), i);
+            buf_init_from_mem(out_basename, buf_ptr(full_path) + i + 1, buf_len(full_path) - (i + 1));
+            return;
+        }
+    }
+    buf_init_from_mem(out_dirname, ".", 1);
+    buf_init_from_buf(out_basename, full_path);
+}
+

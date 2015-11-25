@@ -21,13 +21,13 @@ struct ErrorMsg {
 };
 
 
-CodeGen *create_codegen(AstNode *root);
+CodeGen *create_codegen(AstNode *root, bool is_static, Buf *in_file);
 
 void semantic_analyze(CodeGen *g);
 
 void code_gen(CodeGen *g);
 
-void code_gen_link(CodeGen *g, bool is_static, const char *out_file);
+void code_gen_link(CodeGen *g, const char *out_file);
 
 ZigList<ErrorMsg> *codegen_error_messages(CodeGen *g);
 

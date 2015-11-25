@@ -134,23 +134,6 @@ static inline void buf_splice_buf(Buf *buf, int start, int end, Buf *other) {
     memcpy(buf_ptr(buf) + start, buf_ptr(other), buf_len(other));
 }
 
-// TODO this method needs work
-static inline Buf *buf_dirname(Buf *buf) {
-    if (buf_len(buf) <= 2)
-        zig_panic("TODO buf_dirname small");
-    int last_index = buf_len(buf) - 1;
-    if (buf_ptr(buf)[buf_len(buf) - 1] == '/') {
-        last_index = buf_len(buf) - 2;
-    }
-    for (int i = last_index; i >= 0; i -= 1) {
-        uint8_t c = buf_ptr(buf)[i];
-        if (c == '/') {
-            return buf_slice(buf, 0, i);
-        }
-    }
-    return buf_create_from_mem("", 0);
-}
-
 static inline uint32_t buf_hash(Buf *buf) {
     // FNV 32-bit hash
     uint32_t h = 2166136261;

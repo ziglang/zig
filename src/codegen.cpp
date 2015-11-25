@@ -9,12 +9,39 @@
 #include "hash_map.hpp"
 #include "zig_llvm.hpp"
 #include "os.hpp"
+#include "config.h"
 
 #include <stdio.h>
+
+#include <llvm/IR/DIBuilder.h>
+#include <llvm/IR/DiagnosticInfo.h>
+#include <llvm/IR/DiagnosticPrinter.h>
 
 struct FnTableEntry {
     LLVMValueRef fn_value;
     AstNode *proto_node;
+};
+
+enum TypeId {
+    TypeIdUserDefined,
+    TypeIdPointer,
+    TypeIdU8,
+    TypeIdI32,
+    TypeIdVoid,
+    TypeIdUnreachable,
+};
+
+struct TypeTableEntry {
+    TypeId id;
+    LLVMTypeRef type_ref;
+    llvm::DIType *di_type;
+
+    TypeTableEntry *pointer_child;
+    bool pointer_is_const;
+    int user_defined_id;
+    Buf name;
+    TypeTableEntry *pointer_const_parent;
+    TypeTableEntry *pointer_mut_parent;
 };
 
 struct CodeGen {
@@ -23,13 +50,22 @@ struct CodeGen {
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> fn_defs;
     ZigList<ErrorMsg> errors;
     LLVMBuilderRef builder;
+    llvm::DIBuilder *dbuilder;
+    llvm::DICompileUnit *compile_unit;
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
     HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
+    TypeTableEntry *invalid_type_entry;
+    LLVMTargetDataRef target_data_ref;
+    unsigned pointer_size_bytes;
+    bool is_static;
+    LLVMTargetMachineRef target_machine;
+    Buf in_file;
+    Buf in_dir;
 };
 
 struct TypeNode {
-    LLVMTypeRef type_ref;
-    bool is_unreachable;
+    TypeTableEntry *entry;
 };
 
 struct CodeGenNode {
@@ -38,12 +74,16 @@ struct CodeGenNode {
     } data;
 };
 
-CodeGen *create_codegen(AstNode *root) {
+CodeGen *create_codegen(AstNode *root, bool is_static, Buf *in_full_path) {
     CodeGen *g = allocate<CodeGen>(1);
     g->root = root;
     g->fn_defs.init(32);
     g->fn_table.init(32);
     g->str_table.init(32);
+    g->type_table.init(32);
+    g->is_static = is_static;
+
+    os_path_split(in_full_path, &g->in_dir, &g->in_file);
     return g;
 }
 
@@ -60,9 +100,17 @@ static void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
 static LLVMTypeRef to_llvm_type(AstNode *type_node) {
     assert(type_node->type == NodeTypeType);
     assert(type_node->codegen_node);
-    assert(type_node->codegen_node->data.type_node.type_ref);
+    assert(type_node->codegen_node->data.type_node.entry);
 
-    return type_node->codegen_node->data.type_node.type_ref;
+    return type_node->codegen_node->data.type_node.entry->type_ref;
+}
+
+static llvm::DIType *to_llvm_debug_type(AstNode *type_node) {
+    assert(type_node->type == NodeTypeType);
+    assert(type_node->codegen_node);
+    assert(type_node->codegen_node->data.type_node.entry);
+
+    return type_node->codegen_node->data.type_node.entry->di_type;
 }
 
 
@@ -70,6 +118,56 @@ static bool type_is_unreachable(AstNode *type_node) {
     assert(type_node->type == NodeTypeType);
     return type_node->data.type.type == AstNodeTypeTypePrimitive &&
             buf_eql_str(&type_node->data.type.primitive_name, "unreachable");
+}
+
+static void analyze_node(CodeGen *g, AstNode *node);
+
+static void resolve_type_and_recurse(CodeGen *g, AstNode *node) {
+    assert(!node->codegen_node);
+    node->codegen_node = allocate<CodeGenNode>(1);
+    TypeNode *type_node = &node->codegen_node->data.type_node;
+    switch (node->data.type.type) {
+        case AstNodeTypeTypePrimitive:
+            {
+                Buf *name = &node->data.type.primitive_name;
+                auto table_entry = g->type_table.maybe_get(name);
+                if (table_entry) {
+                    type_node->entry = table_entry->value;
+                } else {
+                    add_node_error(g, node,
+                            buf_sprintf("invalid type name: '%s'", buf_ptr(name)));
+                    type_node->entry = g->invalid_type_entry;
+                }
+                break;
+            }
+        case AstNodeTypeTypePointer:
+            {
+                analyze_node(g, node->data.type.child_type);
+                TypeNode *child_type_node = &node->data.type.child_type->codegen_node->data.type_node;
+                if (child_type_node->entry->id == TypeIdUnreachable) {
+                    add_node_error(g, node,
+                            buf_create_from_str("pointer to unreachable not allowed"));
+                }
+                TypeTableEntry **parent_pointer = node->data.type.is_const ?
+                    &child_type_node->entry->pointer_const_parent :
+                    &child_type_node->entry->pointer_mut_parent;
+                const char *const_or_mut_str = node->data.type.is_const ? "const" : "mut";
+                if (*parent_pointer) {
+                    type_node->entry = *parent_pointer;
+                } else {
+                    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+                    entry->id = TypeIdPointer;
+                    entry->type_ref = LLVMPointerType(child_type_node->entry->type_ref, 0);
+                    buf_appendf(&entry->name, "*%s %s", const_or_mut_str, buf_ptr(&child_type_node->entry->name));
+                    entry->di_type = g->dbuilder->createPointerType(child_type_node->entry->di_type,
+                            g->pointer_size_bytes * 8, g->pointer_size_bytes * 8, buf_ptr(&entry->name));
+                    g->type_table.put(&entry->name, entry);
+                    type_node->entry = entry;
+                    *parent_pointer = entry;
+                }
+                break;
+            }
+    }
 }
 
 static void analyze_node(CodeGen *g, AstNode *node) {
@@ -148,42 +246,10 @@ static void analyze_node(CodeGen *g, AstNode *node) {
         case NodeTypeParamDecl:
             analyze_node(g, node->data.param_decl.type);
             break;
+
         case NodeTypeType:
             {
-                node->codegen_node = allocate<CodeGenNode>(1);
-                TypeNode *type_node = &node->codegen_node->data.type_node;
-                switch (node->data.type.type) {
-                    case AstNodeTypeTypePrimitive:
-                        {
-                            Buf *name = &node->data.type.primitive_name;
-                            if (buf_eql_str(name, "u8")) {
-                                type_node->type_ref = LLVMInt8Type();
-                            } else if (buf_eql_str(name, "i32")) {
-                                type_node->type_ref = LLVMInt32Type();
-                            } else if (buf_eql_str(name, "void")) {
-                                type_node->type_ref = LLVMVoidType();
-                            } else if (buf_eql_str(name, "unreachable")) {
-                                type_node->type_ref = LLVMVoidType();
-                                type_node->is_unreachable = true;
-                            } else {
-                                add_node_error(g, node,
-                                        buf_sprintf("invalid type name: '%s'", buf_ptr(name)));
-                                type_node->type_ref = LLVMVoidType();
-                            }
-                            break;
-                        }
-                    case AstNodeTypeTypePointer:
-                        {
-                            analyze_node(g, node->data.type.child_type);
-                            TypeNode *child_type_node = &node->data.type.child_type->codegen_node->data.type_node;
-                            if (child_type_node->is_unreachable) {
-                                add_node_error(g, node,
-                                        buf_create_from_str("pointer to unreachable not allowed"));
-                            }
-                            type_node->type_ref = LLVMPointerType(child_type_node->type_ref, 0);
-                            break;
-                        }
-                }
+                resolve_type_and_recurse(g, node);
                 break;
             }
         case NodeTypeBlock:
@@ -224,9 +290,84 @@ static void analyze_node(CodeGen *g, AstNode *node) {
     }
 }
 
+static void add_types(CodeGen *g) {
+    {
+        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        entry->id = TypeIdU8;
+        entry->type_ref = LLVMInt8Type();
+        buf_init_from_str(&entry->name, "u8");
+        entry->di_type = g->dbuilder->createBasicType(buf_ptr(&entry->name), 8, 8, llvm::dwarf::DW_ATE_unsigned);
+        g->type_table.put(&entry->name, entry);
+    }
+    {
+        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        entry->id = TypeIdI32;
+        entry->type_ref = LLVMInt32Type();
+        buf_init_from_str(&entry->name, "i32");
+        entry->di_type = g->dbuilder->createBasicType(buf_ptr(&entry->name), 32, 32,
+                llvm::dwarf::DW_ATE_signed);
+        g->type_table.put(&entry->name, entry);
+    }
+    {
+        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        entry->id = TypeIdVoid;
+        entry->type_ref = LLVMVoidType();
+        buf_init_from_str(&entry->name, "void");
+        entry->di_type = g->dbuilder->createBasicType(buf_ptr(&entry->name), 0, 0,
+                llvm::dwarf::DW_ATE_unsigned);
+        g->type_table.put(&entry->name, entry);
+
+        // invalid types are void
+        g->invalid_type_entry = entry;
+    }
+    {
+        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        entry->id = TypeIdUnreachable;
+        entry->type_ref = LLVMVoidType();
+        buf_init_from_str(&entry->name, "unreachable");
+        entry->di_type = g->invalid_type_entry->di_type;
+        g->type_table.put(&entry->name, entry);
+    }
+}
+
 
 void semantic_analyze(CodeGen *g) {
+    LLVMInitializeAllTargets();
+    LLVMInitializeAllTargetMCs();
+    LLVMInitializeAllAsmPrinters();
+    LLVMInitializeAllAsmParsers();
+    LLVMInitializeNativeTarget();
+
+    char *native_triple = LLVMGetDefaultTargetTriple();
+
+    LLVMTargetRef target_ref;
+    char *err_msg = nullptr;
+    if (LLVMGetTargetFromTriple(native_triple, &target_ref, &err_msg)) {
+        zig_panic("unable to get target from triple: %s", err_msg);
+    }
+
+    char *native_cpu = LLVMZigGetHostCPUName();
+    char *native_features = LLVMZigGetNativeFeatures();
+
+    LLVMCodeGenOptLevel opt_level = LLVMCodeGenLevelNone;
+
+    LLVMRelocMode reloc_mode = g->is_static ? LLVMRelocStatic : LLVMRelocPIC;
+
+    g->target_machine = LLVMCreateTargetMachine(target_ref, native_triple,
+            native_cpu, native_features, opt_level, reloc_mode, LLVMCodeModelDefault);
+
+    g->target_data_ref = LLVMGetTargetMachineData(g->target_machine);
+
+
     g->mod = LLVMModuleCreateWithName("ZigModule");
+
+    g->pointer_size_bytes = LLVMPointerSize(g->target_data_ref);
+
+    g->builder = LLVMCreateBuilder();
+    g->dbuilder = new llvm::DIBuilder(*llvm::unwrap(g->mod), true);
+
+
+    add_types(g);
 
     // Pass 1.
     analyze_node(g, g->root);
@@ -344,8 +485,29 @@ static void gen_block(CodeGen *g, AstNode *block_node) {
     }
 }
 
+static llvm::DISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnProto *fn_proto, llvm::DIFile *unit) {
+    llvm::SmallVector<llvm::Metadata *, 8> types;
+
+    llvm::DIType *return_type = to_llvm_debug_type(fn_proto->return_type);
+    types.push_back(return_type);
+
+    for (int i = 0; i < fn_proto->params.length; i += 1) {
+        AstNode *param_node = fn_proto->params.at(i);
+        llvm::DIType *param_type = to_llvm_debug_type(param_node);
+        types.push_back(param_type);
+    }
+
+    return g->dbuilder->createSubroutineType(unit, g->dbuilder->getOrCreateTypeArray(types));
+}
+
 void code_gen(CodeGen *g) {
-    g->builder = LLVMCreateBuilder();
+    Buf *producer = buf_sprintf("zig %s", ZIG_VERSION_STRING);
+    bool is_optimized = false;
+    const char *flags = "";
+    unsigned runtime_version = 0;
+    g->compile_unit = g->dbuilder->createCompileUnit(llvm::dwarf::DW_LANG_C99,
+            buf_ptr(&g->in_file), buf_ptr(&g->in_dir),
+            buf_ptr(producer), is_optimized, flags, runtime_version);
 
     auto it = g->fn_defs.entry_iterator();
     for (;;) {
@@ -369,15 +531,37 @@ void code_gen(CodeGen *g) {
         LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, fn_proto->params.length, 0);
         LLVMValueRef fn = LLVMAddFunction(g->mod, buf_ptr(&fn_proto->name), function_type);
 
+        bool internal_linkage = false;
+        LLVMSetLinkage(fn, internal_linkage ? LLVMPrivateLinkage : LLVMExternalLinkage);
+
         if (type_is_unreachable(fn_proto->return_type)) {
             LLVMAddFunctionAttr(fn, LLVMNoReturnAttribute);
         }
+        LLVMAddFunctionAttr(fn, LLVMNoUnwindAttribute);
+
+        // Add debug info.
+        llvm::DIFile *unit = g->dbuilder->createFile(g->compile_unit->getFilename(),
+                g->compile_unit->getDirectory());
+        llvm::DIScope *fn_scope = unit;
+        unsigned line_number = fn_def_node->line + 1;
+        unsigned scope_line = line_number;
+        bool is_definition = true;
+        unsigned flags = 0;
+        llvm::Function *unwrapped_function = reinterpret_cast<llvm::Function*>(llvm::unwrap(fn));
+        g->dbuilder->createFunction(
+            fn_scope, buf_ptr(&fn_proto->name), "", unit, line_number,
+            create_di_function_type(g, fn_proto, unit), internal_linkage, 
+            is_definition, scope_line, flags, is_optimized, unwrapped_function);
+
+
 
         LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn, "entry");
         LLVMPositionBuilderAtEnd(g->builder, entry_block);
 
         gen_block(g, fn_def->body);
     }
+
+    g->dbuilder->finalize();
 
     LLVMDumpModule(g->mod);
 
@@ -390,14 +574,7 @@ ZigList<ErrorMsg> *codegen_error_messages(CodeGen *g) {
 }
 
 
-void code_gen_link(CodeGen *g, bool is_static, const char *out_file) {
-    LLVMInitializeAllTargets();
-    LLVMInitializeAllTargetMCs();
-    LLVMInitializeAllAsmPrinters();
-    LLVMInitializeAllAsmParsers();
-    LLVMInitializeNativeTarget();
-
-
+void code_gen_link(CodeGen *g, const char *out_file) {
     LLVMPassRegistryRef registry = LLVMGetGlobalPassRegistry();
     LLVMInitializeCore(registry);
     LLVMInitializeCodeGen(registry);
@@ -405,29 +582,12 @@ void code_gen_link(CodeGen *g, bool is_static, const char *out_file) {
     LLVMZigInitializeLowerIntrinsicsPass(registry);
     LLVMZigInitializeUnreachableBlockElimPass(registry);
 
-    char *native_triple = LLVMGetDefaultTargetTriple();
-
-    LLVMTargetRef target_ref;
-    char *err_msg = nullptr;
-    if (LLVMGetTargetFromTriple(native_triple, &target_ref, &err_msg)) {
-        zig_panic("unable to get target from triple: %s", err_msg);
-    }
-
-    char *native_cpu = LLVMZigGetHostCPUName();
-    char *native_features = LLVMZigGetNativeFeatures();
-
-    LLVMCodeGenOptLevel opt_level = LLVMCodeGenLevelNone;
-
-    LLVMRelocMode reloc_mode = is_static ? LLVMRelocStatic : LLVMRelocPIC;
-
-    LLVMTargetMachineRef target_machine = LLVMCreateTargetMachine(target_ref, native_triple,
-            native_cpu, native_features, opt_level, reloc_mode, LLVMCodeModelDefault);
-
     Buf out_file_o = BUF_INIT;
     buf_init_from_str(&out_file_o, out_file);
     buf_append_str(&out_file_o, ".o");
 
-    if (LLVMTargetMachineEmitToFile(target_machine, g->mod, buf_ptr(&out_file_o), LLVMObjectFile, &err_msg)) {
+    char *err_msg = nullptr;
+    if (LLVMTargetMachineEmitToFile(g->target_machine, g->mod, buf_ptr(&out_file_o), LLVMObjectFile, &err_msg)) {
         zig_panic("unable to write object file: %s", err_msg);
     }
 
