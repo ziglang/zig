@@ -21,7 +21,15 @@ struct ErrorMsg {
 };
 
 
-CodeGen *create_codegen(AstNode *root, bool is_static, Buf *in_file);
+CodeGen *create_codegen(AstNode *root, Buf *in_file);
+
+enum CodeGenBuildType {
+    CodeGenBuildTypeDebug,
+    CodeGenBuildTypeRelease,
+};
+void codegen_set_build_type(CodeGen *codegen, CodeGenBuildType build_type);
+void codegen_set_is_static(CodeGen *codegen, bool is_static);
+void codegen_set_strip(CodeGen *codegen, bool strip);
 
 void semantic_analyze(CodeGen *g);
 

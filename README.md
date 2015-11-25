@@ -40,7 +40,6 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
 ## Roadmap
 
- * Debug/Release mode.
  * don't hardcode the link against libc
  * C style comments.
  * Unit tests.

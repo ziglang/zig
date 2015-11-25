@@ -60,6 +60,8 @@ struct CodeGen {
     LLVMTargetDataRef target_data_ref;
     unsigned pointer_size_bytes;
     bool is_static;
+    bool strip_debug_symbols;
+    CodeGenBuildType build_type;
     LLVMTargetMachineRef target_machine;
     Buf in_file;
     Buf in_dir;
@@ -77,17 +79,31 @@ struct CodeGenNode {
     } data;
 };
 
-CodeGen *create_codegen(AstNode *root, bool is_static, Buf *in_full_path) {
+CodeGen *create_codegen(AstNode *root, Buf *in_full_path) {
     CodeGen *g = allocate<CodeGen>(1);
     g->root = root;
     g->fn_defs.init(32);
     g->fn_table.init(32);
     g->str_table.init(32);
     g->type_table.init(32);
-    g->is_static = is_static;
+    g->is_static = false;
+    g->build_type = CodeGenBuildTypeDebug;
+    g->strip_debug_symbols = false;
 
     os_path_split(in_full_path, &g->in_dir, &g->in_file);
     return g;
+}
+
+void codegen_set_build_type(CodeGen *g, CodeGenBuildType build_type) {
+    g->build_type = build_type;
+}
+
+void codegen_set_is_static(CodeGen *g, bool is_static) {
+    g->is_static = is_static;
+}
+
+void codegen_set_strip(CodeGen *g, bool strip) {
+    g->strip_debug_symbols = strip;
 }
 
 static void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
@@ -352,7 +368,8 @@ void semantic_analyze(CodeGen *g) {
     char *native_cpu = LLVMZigGetHostCPUName();
     char *native_features = LLVMZigGetNativeFeatures();
 
-    LLVMCodeGenOptLevel opt_level = LLVMCodeGenLevelNone;
+    LLVMCodeGenOptLevel opt_level = (g->build_type == CodeGenBuildTypeDebug) ?
+        LLVMCodeGenLevelNone : LLVMCodeGenLevelAggressive;
 
     LLVMRelocMode reloc_mode = g->is_static ? LLVMRelocStatic : LLVMRelocPIC;
 
@@ -522,12 +539,13 @@ static llvm::DISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnProt
 
 void code_gen(CodeGen *g) {
     Buf *producer = buf_sprintf("zig %s", ZIG_VERSION_STRING);
-    bool is_optimized = false;
+    bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
     const char *flags = "";
     unsigned runtime_version = 0;
     g->compile_unit = g->dbuilder->createCompileUnit(llvm::dwarf::DW_LANG_C99,
             buf_ptr(&g->in_file), buf_ptr(&g->in_dir),
-            buf_ptr(producer), is_optimized, flags, runtime_version);
+            buf_ptr(producer), is_optimized, flags, runtime_version,
+            "", llvm::DIBuilder::FullDebug, 0, !g->strip_debug_symbols);
 
     g->block_scopes.append(g->compile_unit);
 
@@ -615,6 +633,9 @@ void code_gen_link(CodeGen *g, const char *out_file) {
     }
 
     ZigList<const char *> args = {0};
+    if (g->is_static) {
+        args.append("-static");
+    }
     args.append("-o");
     args.append(out_file);
     args.append((const char *)buf_ptr(&out_file_o));

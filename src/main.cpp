@@ -33,6 +33,9 @@ static int usage(const char *arg0) {
         "  --output       output file\n"
         "  --version      print version number and exit\n"
         "  -Ipath         add path to header include path\n"
+        "  --release      build with optimizations on\n"
+        "  --strip        exclude debug symbols\n"
+        "  --static       build a static executable\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -55,7 +58,9 @@ static Buf *fetch_file(FILE *f) {
     return buf;
 }
 
-static int build(const char *arg0, const char *in_file, const char *out_file, ZigList<char *> *include_paths) {
+static int build(const char *arg0, const char *in_file, const char *out_file,
+        ZigList<char *> *include_paths, bool release, bool strip, bool is_static)
+{
     static char cur_dir[1024];
 
     if (!in_file || !out_file)
@@ -91,7 +96,10 @@ static int build(const char *arg0, const char *in_file, const char *out_file, Zi
 
     fprintf(stderr, "\nSemantic Analysis:\n");
     fprintf(stderr, "--------------------\n");
-    CodeGen *codegen = create_codegen(root, false, buf_create_from_str(in_file));
+    CodeGen *codegen = create_codegen(root, buf_create_from_str(in_file));
+    codegen_set_build_type(codegen, release ? CodeGenBuildTypeRelease : CodeGenBuildTypeDebug);
+    codegen_set_strip(codegen, strip);
+    codegen_set_is_static(codegen, is_static);
     semantic_analyze(codegen);
     ZigList<ErrorMsg> *errors = codegen_error_messages(codegen);
     if (errors->length == 0) {
@@ -128,6 +136,9 @@ int main(int argc, char **argv) {
     char *in_file = NULL;
     char *out_file = NULL;
     ZigList<char *> include_paths = {0};
+    bool release = false;
+    bool strip = false;
+    bool is_static = false;
 
     Cmd cmd = CmdNone;
     for (int i = 1; i < argc; i += 1) {
@@ -136,6 +147,12 @@ int main(int argc, char **argv) {
             if (strcmp(arg, "--version") == 0) {
                 printf("%s\n", ZIG_VERSION_STRING);
                 return EXIT_SUCCESS;
+            } else if (strcmp(arg, "--release") == 0) {
+                release = true;
+            } else if (strcmp(arg, "--strip") == 0) {
+                strip = true;
+            } else if (strcmp(arg, "--static") == 0) {
+                is_static = true;
             } else if (i + 1 >= argc) {
                 return usage(arg0);
             } else {
@@ -174,7 +191,7 @@ int main(int argc, char **argv) {
         case CmdNone:
             return usage(arg0);
         case CmdBuild:
-            return build(arg0, in_file, out_file, &include_paths);
+            return build(arg0, in_file, out_file, &include_paths, release, strip, is_static);
     }
 
     zig_unreachable();
