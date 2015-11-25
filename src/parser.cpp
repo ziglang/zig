@@ -150,6 +150,30 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "%s\n", node_type_str(node->type));
             ast_print(node->data.fn_decl.fn_proto, indent + 2);
             break;
+        case NodeTypeExpression:
+            switch (node->data.expression.type) {
+                case AstNodeExpressionTypeNumber:
+                    fprintf(stderr, "NumberLiteralExpression %s\n", buf_ptr(&node->data.expression.data.number));
+                    break;
+                case AstNodeExpressionTypeString:
+                    fprintf(stderr, "StringLiteralExpression '%s'\n", buf_ptr(&node->data.expression.data.string));
+                    break;
+                case AstNodeExpressionTypeFnCall:
+                    fprintf(stderr, "FnCallExpression\n");
+                    ast_print(node->data.expression.data.fn_call, indent + 2);
+                    break;
+                case AstNodeExpressionTypeUnreachable:
+                    fprintf(stderr, "UnreachableExpression\n");
+                    break;
+            }
+            break;
+        case NodeTypeFnCall:
+            fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.fn_call.name));
+            for (int i = 0; i < node->data.fn_call.params.length; i += 1) {
+                AstNode *child = node->data.fn_call.params.at(i);
+                ast_print(child, indent + 2);
+            }
+            break;
         default:
             fprintf(stderr, "%s\n", node_type_str(node->type));
             break;
