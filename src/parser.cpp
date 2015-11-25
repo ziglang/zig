@@ -181,8 +181,7 @@ static AstNode *ast_create_node(NodeType type, Token *first_token) {
 }
 
 static AstNode *ast_create_node_with_node(NodeType type, AstNode *other_node) {
-    AstNode *node = allocate<AstNode>(1);
-    node->type = type;
+    AstNode *node = ast_create_node_no_line_info(type);
     node->line = other_node->line;
     node->column = other_node->column;
     return node;
@@ -202,8 +201,10 @@ static void ast_buf_from_token(ParseContext *pc, Token *token, Buf *buf) {
 static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf) {
     // skip the double quotes at beginning and end
     // convert escape sequences
+
+    buf_resize(buf, 0);
     bool escape = false;
-    for (int i = token->start_pos; i < token->end_pos - 1; i += 1) {
+    for (int i = token->start_pos + 1; i < token->end_pos - 1; i += 1) {
         uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
         if (escape) {
             switch (c) {

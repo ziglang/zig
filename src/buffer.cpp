@@ -25,6 +25,7 @@ Buf *buf_sprintf(const char *format, ...) {
 }
 
 void buf_appendf(Buf *buf, const char *format, ...) {
+    assert(buf->list.length);
     va_list ap, ap2;
     va_start(ap, format);
     va_copy(ap2, ap);

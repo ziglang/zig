@@ -15,6 +15,8 @@
 
 #define BUF_INIT {{0}}
 
+// Note, you must call one of the alloc, init, or resize functions to have an
+// initialized buffer. The assertions should help with this.
 struct Buf {
     ZigList<char> list;
 };
@@ -23,10 +25,12 @@ Buf *buf_sprintf(const char *format, ...)
     __attribute__ ((format (printf, 1, 2)));
 
 static inline int buf_len(Buf *buf) {
+    assert(buf->list.length);
     return buf->list.length - 1;
 }
 
 static inline char *buf_ptr(Buf *buf) {
+    assert(buf->list.length);
     return buf->list.items;
 }
 
@@ -76,6 +80,7 @@ static inline Buf *buf_create_from_str(const char *str) {
 }
 
 static inline Buf *buf_slice(Buf *in_buf, int start, int end) {
+    assert(in_buf->list.length);
     assert(start >= 0);
     assert(end >= 0);
     assert(start < buf_len(in_buf));
@@ -88,6 +93,7 @@ static inline Buf *buf_slice(Buf *in_buf, int start, int end) {
 }
 
 static inline void buf_append_mem(Buf *buf, const char *mem, int mem_len) {
+    assert(buf->list.length);
     assert(mem_len >= 0);
     int old_len = buf_len(buf);
     buf_resize(buf, old_len + mem_len);
@@ -96,14 +102,17 @@ static inline void buf_append_mem(Buf *buf, const char *mem, int mem_len) {
 }
 
 static inline void buf_append_str(Buf *buf, const char *str) {
+    assert(buf->list.length);
     buf_append_mem(buf, str, strlen(str));
 }
 
 static inline void buf_append_buf(Buf *buf, Buf *append_buf) {
+    assert(buf->list.length);
     buf_append_mem(buf, buf_ptr(append_buf), buf_len(append_buf));
 }
 
 static inline void buf_append_char(Buf *buf, uint8_t c) {
+    assert(buf->list.length);
     buf_append_mem(buf, (const char *)&c, 1);
 }
 
@@ -111,20 +120,25 @@ void buf_appendf(Buf *buf, const char *format, ...)
     __attribute__ ((format (printf, 2, 3)));
 
 static inline bool buf_eql_mem(Buf *buf, const char *mem, int mem_len) {
+    assert(buf->list.length);
     if (buf_len(buf) != mem_len)
         return false;
     return memcmp(buf_ptr(buf), mem, mem_len) == 0;
 }
 
 static inline bool buf_eql_str(Buf *buf, const char *str) {
+    assert(buf->list.length);
     return buf_eql_mem(buf, str, strlen(str));
 }
 
 static inline bool buf_eql_buf(Buf *buf, Buf *other) {
+    assert(buf->list.length);
     return buf_eql_mem(buf, buf_ptr(other), buf_len(other));
 }
 
 static inline void buf_splice_buf(Buf *buf, int start, int end, Buf *other) {
+    assert(buf->list.length);
+
     if (start != end)
         zig_panic("TODO buf_splice_buf");
 
@@ -135,6 +149,7 @@ static inline void buf_splice_buf(Buf *buf, int start, int end, Buf *other) {
 }
 
 static inline uint32_t buf_hash(Buf *buf) {
+    assert(buf->list.length);
     // FNV 32-bit hash
     uint32_t h = 2166136261;
     for (int i = 0; i < buf_len(buf); i += 1) {

@@ -179,6 +179,7 @@ static void resolve_type_and_recurse(CodeGen *g, AstNode *node) {
                     TypeTableEntry *entry = allocate<TypeTableEntry>(1);
                     entry->id = TypeIdPointer;
                     entry->type_ref = LLVMPointerType(child_type_node->entry->type_ref, 0);
+                    buf_resize(&entry->name, 0);
                     buf_appendf(&entry->name, "*%s %s", const_or_mut_str, buf_ptr(&child_type_node->entry->name));
                     entry->di_type = g->dbuilder->createPointerType(child_type_node->entry->di_type,
                             g->pointer_size_bytes * 8, g->pointer_size_bytes * 8, buf_ptr(&entry->name));
