@@ -292,9 +292,6 @@ static void analyze_node(CodeGen *g, AstNode *node) {
                 analyze_node(g, child);
             }
             break;
-        case NodeTypeStatementExpression:
-            analyze_node(g, node->data.statement_expression.expression);
-            break;
         case NodeTypeStatementReturn:
             analyze_node(g, node->data.statement_return.expression);
             break;
@@ -520,10 +517,9 @@ static void gen_block(CodeGen *g, AstNode *block_node) {
                     LLVMBuildRet(g->builder, value);
                     break;
                 }
-            case NodeTypeStatementExpression:
+            case NodeTypeExpression:
                 {
-                    AstNode *expr_node = statement_node->data.statement_expression.expression;
-                    gen_expr(g, expr_node);
+                    gen_expr(g, statement_node);
                     break;
                 }
             case NodeTypeRoot:
@@ -533,7 +529,6 @@ static void gen_block(CodeGen *g, AstNode *block_node) {
             case NodeTypeParamDecl:
             case NodeTypeType:
             case NodeTypeBlock:
-            case NodeTypeExpression:
             case NodeTypeFnCall:
             case NodeTypeExternBlock:
             case NodeTypeDirective:

@@ -41,8 +41,6 @@ const char *node_type_str(NodeType node_type) {
             return "Type";
         case NodeTypeBlock:
             return "Block";
-        case NodeTypeStatementExpression:
-            return "StatementExpression";
         case NodeTypeStatementReturn:
             return "StatementReturn";
         case NodeTypeExpression:
@@ -131,10 +129,6 @@ void ast_print(AstNode *node, int indent) {
         case NodeTypeStatementReturn:
             fprintf(stderr, "ReturnStatement\n");
             ast_print(node->data.statement_return.expression, indent + 2);
-            break;
-        case NodeTypeStatementExpression:
-            fprintf(stderr, "ExpressionStatement\n");
-            ast_print(node->data.statement_expression.expression, indent + 2);
             break;
         case NodeTypeExternBlock:
             {
@@ -466,8 +460,7 @@ static AstNode *ast_parse_statement(ParseContext *pc, int token_index, int *new_
                token->id == TokenIdKeywordUnreachable ||
                token->id == TokenIdNumberLiteral)
     {
-        AstNode *node = ast_create_node(NodeTypeStatementExpression, token);
-        node->data.statement_expression.expression = ast_parse_expression(pc, token_index, &token_index);
+        AstNode *node = ast_parse_expression(pc, token_index, &token_index);
 
         Token *semicolon = &pc->tokens->at(token_index);
         token_index += 1;

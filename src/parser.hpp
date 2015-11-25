@@ -27,7 +27,6 @@ enum NodeType {
     NodeTypeFnCall,
     NodeTypeExternBlock,
     NodeTypeDirective,
-    NodeTypeStatementExpression,
     NodeTypeStatementReturn,
 };
 
@@ -69,10 +68,6 @@ struct AstNodeType {
 
 struct AstNodeBlock {
     ZigList<AstNode *> statements;
-};
-
-struct AstNodeStatementExpression {
-    AstNode *expression;
 };
 
 struct AstNodeStatementReturn {
@@ -124,7 +119,6 @@ struct AstNode {
         AstNodeType type;
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
-        AstNodeStatementExpression statement_expression;
         AstNodeStatementReturn statement_return;
         AstNodeExpression expression;
         AstNodeFnCall fn_call;
