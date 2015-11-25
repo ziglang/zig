@@ -20,8 +20,6 @@ include_directories(
     ${CMAKE_BINARY_DIR}
 )
 
-set(GRAMMAR_TXT "${CMAKE_BINARY_DIR}/simple.txt")
-
 set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
