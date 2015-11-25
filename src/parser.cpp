@@ -167,7 +167,7 @@ void ast_print(AstNode *node, int indent) {
                 ast_print(child, indent + 2);
             }
             break;
-        default:
+        case NodeTypeDirective:
             fprintf(stderr, "%s\n", node_type_str(node->type));
             break;
     }
