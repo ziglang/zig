@@ -14,11 +14,7 @@
 
 #define WHITESPACE \
     ' ': \
-    case '\t': \
-    case '\n': \
-    case '\f': \
-    case '\r': \
-    case 0xb
+    case '\n'
 
 #define DIGIT \
     '0': \

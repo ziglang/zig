@@ -41,9 +41,13 @@ readable, safe, optimal, and concise code to solve any computing problem.
 ## Roadmap
 
  * Debug/Release mode.
+ * don't hardcode the link against libc
  * C style comments.
  * Unit tests.
  * Simple .so library
+ * Multiple files
+ * figure out integers
+ * implement a simple game using SDL2
  * How should the Widget use case be solved? In Genesis I'm using C++ and inheritance.
 
 ### Primitive Numeric Types:
