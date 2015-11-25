@@ -40,7 +40,6 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
 ## Roadmap
 
- * Add debugging symbols.
  * Debug/Release mode.
  * C style comments.
  * Unit tests.

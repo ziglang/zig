@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 
+#include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DiagnosticInfo.h>
 #include <llvm/IR/DiagnosticPrinter.h>
@@ -62,6 +63,8 @@ struct CodeGen {
     LLVMTargetMachineRef target_machine;
     Buf in_file;
     Buf in_dir;
+    ZigList<llvm::DIScope *> block_scopes;
+    llvm::DIFile *di_file;
 };
 
 struct TypeNode {
@@ -375,6 +378,12 @@ void semantic_analyze(CodeGen *g) {
 
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node);
 
+static void add_debug_source_node(CodeGen *g, AstNode *node) {
+    llvm::unwrap(g->builder)->SetCurrentDebugLocation(llvm::DebugLoc::get(
+                node->line + 1, node->column + 1,
+                g->block_scopes.last()));
+}
+
 static LLVMValueRef gen_fn_call(CodeGen *g, AstNode *fn_call_node) {
     assert(fn_call_node->type == NodeTypeFnCall);
 
@@ -403,6 +412,7 @@ static LLVMValueRef gen_fn_call(CodeGen *g, AstNode *fn_call_node) {
         param_values[i] = gen_expr(g, expr_node);
     }
 
+    add_debug_source_node(g, fn_call_node);
     LLVMValueRef result = LLVMBuildCall(g->builder, fn_table_entry->fn_value,
             param_values, actual_param_count, "");
 
@@ -464,6 +474,10 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node) {
 static void gen_block(CodeGen *g, AstNode *block_node) {
     assert(block_node->type == NodeTypeBlock);
 
+    llvm::DILexicalBlock *di_block = g->dbuilder->createLexicalBlock(g->block_scopes.last(),
+            g->di_file, block_node->line + 1, block_node->column + 1);
+    g->block_scopes.append(di_block);
+
     for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
         assert(statement_node->type == NodeTypeStatement);
@@ -472,6 +486,8 @@ static void gen_block(CodeGen *g, AstNode *block_node) {
                 {
                     AstNode *expr_node = statement_node->data.statement.data.retrn.expression;
                     LLVMValueRef value = gen_expr(g, expr_node);
+
+                    add_debug_source_node(g, statement_node);
                     LLVMBuildRet(g->builder, value);
                     break;
                 }
@@ -483,9 +499,13 @@ static void gen_block(CodeGen *g, AstNode *block_node) {
                 }
         }
     }
+
+    g->block_scopes.pop();
 }
 
-static llvm::DISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnProto *fn_proto, llvm::DIFile *unit) {
+static llvm::DISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnProto *fn_proto,
+        llvm::DIFile *di_file)
+{
     llvm::SmallVector<llvm::Metadata *, 8> types;
 
     llvm::DIType *return_type = to_llvm_debug_type(fn_proto->return_type);
@@ -497,7 +517,7 @@ static llvm::DISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnProt
         types.push_back(param_type);
     }
 
-    return g->dbuilder->createSubroutineType(unit, g->dbuilder->getOrCreateTypeArray(types));
+    return g->dbuilder->createSubroutineType(di_file, g->dbuilder->getOrCreateTypeArray(types));
 }
 
 void code_gen(CodeGen *g) {
@@ -508,6 +528,10 @@ void code_gen(CodeGen *g) {
     g->compile_unit = g->dbuilder->createCompileUnit(llvm::dwarf::DW_LANG_C99,
             buf_ptr(&g->in_file), buf_ptr(&g->in_dir),
             buf_ptr(producer), is_optimized, flags, runtime_version);
+
+    g->block_scopes.append(g->compile_unit);
+
+    g->di_file = g->dbuilder->createFile(g->compile_unit->getFilename(), g->compile_unit->getDirectory());
 
     auto it = g->fn_defs.entry_iterator();
     for (;;) {
@@ -540,19 +564,18 @@ void code_gen(CodeGen *g) {
         LLVMAddFunctionAttr(fn, LLVMNoUnwindAttribute);
 
         // Add debug info.
-        llvm::DIFile *unit = g->dbuilder->createFile(g->compile_unit->getFilename(),
-                g->compile_unit->getDirectory());
-        llvm::DIScope *fn_scope = unit;
+        llvm::DIScope *fn_scope = g->di_file;
         unsigned line_number = fn_def_node->line + 1;
         unsigned scope_line = line_number;
         bool is_definition = true;
         unsigned flags = 0;
         llvm::Function *unwrapped_function = reinterpret_cast<llvm::Function*>(llvm::unwrap(fn));
-        g->dbuilder->createFunction(
-            fn_scope, buf_ptr(&fn_proto->name), "", unit, line_number,
-            create_di_function_type(g, fn_proto, unit), internal_linkage, 
+        llvm::DISubprogram *subprogram = g->dbuilder->createFunction(
+            fn_scope, buf_ptr(&fn_proto->name), "", g->di_file, line_number,
+            create_di_function_type(g, fn_proto, g->di_file), internal_linkage, 
             is_definition, scope_line, flags, is_optimized, unwrapped_function);
 
+        g->block_scopes.append(subprogram);
 
 
         LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn, "entry");
