@@ -119,7 +119,7 @@ static int build(const char *arg0, const char *in_file, const char *out_file,
     code_gen(codegen);
 
     fprintf(stderr, "\nLink:\n");
-    fprintf(stderr, "------------------\n");
+    fprintf(stderr, "-------\n");
     code_gen_link(codegen, out_file);
     fprintf(stderr, "OK\n");
 

@@ -33,11 +33,9 @@ void os_spawn_process(const char *exe, ZigList<const char *> &args, bool detache
 }
 
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
-    if (buf_len(full_path) <= 2)
-        zig_panic("TODO full path small");
     int last_index = buf_len(full_path) - 1;
-    if (buf_ptr(full_path)[buf_len(full_path) - 1] == '/') {
-        last_index = buf_len(full_path) - 2;
+    if (last_index >= 0 && buf_ptr(full_path)[last_index] == '/') {
+        last_index -= 1;
     }
     for (int i = last_index; i >= 0; i -= 1) {
         uint8_t c = buf_ptr(full_path)[i];

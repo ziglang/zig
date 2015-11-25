@@ -136,18 +136,6 @@ static inline bool buf_eql_buf(Buf *buf, Buf *other) {
     return buf_eql_mem(buf, buf_ptr(other), buf_len(other));
 }
 
-static inline void buf_splice_buf(Buf *buf, int start, int end, Buf *other) {
-    assert(buf->list.length);
-
-    if (start != end)
-        zig_panic("TODO buf_splice_buf");
-
-    int old_buf_len = buf_len(buf);
-    buf_resize(buf, old_buf_len + buf_len(other));
-    memmove(buf_ptr(buf) + start + buf_len(other), buf_ptr(buf) + start, old_buf_len - start);
-    memcpy(buf_ptr(buf) + start, buf_ptr(other), buf_len(other));
-}
-
 static inline uint32_t buf_hash(Buf *buf) {
     assert(buf->list.length);
     // FNV 32-bit hash
