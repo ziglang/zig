@@ -292,15 +292,11 @@ static void analyze_node(CodeGen *g, AstNode *node) {
                 analyze_node(g, child);
             }
             break;
-        case NodeTypeStatement:
-            switch (node->data.statement.type) {
-                case AstNodeStatementTypeExpression:
-                    analyze_node(g, node->data.statement.data.expr.expression);
-                    break;
-                case AstNodeStatementTypeReturn:
-                    analyze_node(g, node->data.statement.data.retrn.expression);
-                    break;
-            }
+        case NodeTypeStatementExpression:
+            analyze_node(g, node->data.statement_expression.expression);
+            break;
+        case NodeTypeStatementReturn:
+            analyze_node(g, node->data.statement_return.expression);
             break;
         case NodeTypeExpression:
             switch (node->data.expression.type) {
@@ -514,23 +510,34 @@ static void gen_block(CodeGen *g, AstNode *block_node) {
 
     for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
-        assert(statement_node->type == NodeTypeStatement);
-        switch (statement_node->data.statement.type) {
-            case AstNodeStatementTypeReturn:
+        switch (statement_node->type) {
+            case NodeTypeStatementReturn:
                 {
-                    AstNode *expr_node = statement_node->data.statement.data.retrn.expression;
+                    AstNode *expr_node = statement_node->data.statement_return.expression;
                     LLVMValueRef value = gen_expr(g, expr_node);
 
                     add_debug_source_node(g, statement_node);
                     LLVMBuildRet(g->builder, value);
                     break;
                 }
-            case AstNodeStatementTypeExpression:
+            case NodeTypeStatementExpression:
                 {
-                    AstNode *expr_node = statement_node->data.statement.data.expr.expression;
+                    AstNode *expr_node = statement_node->data.statement_expression.expression;
                     gen_expr(g, expr_node);
                     break;
                 }
+            case NodeTypeRoot:
+            case NodeTypeFnProto:
+            case NodeTypeFnDef:
+            case NodeTypeFnDecl:
+            case NodeTypeParamDecl:
+            case NodeTypeType:
+            case NodeTypeBlock:
+            case NodeTypeExpression:
+            case NodeTypeFnCall:
+            case NodeTypeExternBlock:
+            case NodeTypeDirective:
+                assert(false);
         }
     }
 

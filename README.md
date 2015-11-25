@@ -80,11 +80,11 @@ ParamDecl : token(Symbol) token(Colon) Type
 
 Type : token(Symbol) | PointerType | token(Unreachable)
 
-PointerType : token(Star) token(Const) Type  | token(Star) token(Mut) Type
+PointerType : token(Star) token(Const) Type | token(Star) token(Mut) Type
 
 Block : token(LBrace) many(Statement) token(RBrace)
 
-Statement : ExpressionStatement  | ReturnStatement
+Statement : ExpressionStatement | ReturnStatement
 
 ExpressionStatement : Expression token(Semicolon)
 

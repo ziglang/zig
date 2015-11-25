@@ -10,6 +10,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+static void ast_error(Token *token, const char *format, ...) __attribute__ ((noreturn));
 __attribute__ ((format (printf, 2, 3)))
 static void ast_error(Token *token, const char *format, ...) {
     int line = token->start_line + 1;
@@ -40,8 +41,10 @@ const char *node_type_str(NodeType node_type) {
             return "Type";
         case NodeTypeBlock:
             return "Block";
-        case NodeTypeStatement:
-            return "Statement";
+        case NodeTypeStatementExpression:
+            return "StatementExpression";
+        case NodeTypeStatementReturn:
+            return "StatementReturn";
         case NodeTypeExpression:
             return "Expression";
         case NodeTypeFnCall:
@@ -125,17 +128,13 @@ void ast_print(AstNode *node, int indent) {
                     }
             }
             break;
-        case NodeTypeStatement:
-            switch (node->data.statement.type) {
-                case AstNodeStatementTypeReturn:
-                    fprintf(stderr, "ReturnStatement\n");
-                    ast_print(node->data.statement.data.retrn.expression, indent + 2);
-                    break;
-                case AstNodeStatementTypeExpression:
-                    fprintf(stderr, "ExpressionStatement\n");
-                    ast_print(node->data.statement.data.expr.expression, indent + 2);
-                    break;
-            }
+        case NodeTypeStatementReturn:
+            fprintf(stderr, "ReturnStatement\n");
+            ast_print(node->data.statement_return.expression, indent + 2);
+            break;
+        case NodeTypeStatementExpression:
+            fprintf(stderr, "ExpressionStatement\n");
+            ast_print(node->data.statement_expression.expression, indent + 2);
             break;
         case NodeTypeExternBlock:
             {
@@ -258,7 +257,8 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf) {
     assert(!escape);
 }
 
-static void ast_invalid_token_error(ParseContext *pc, Token *token) {
+void ast_invalid_token_error(ParseContext *pc, Token *token) __attribute__ ((noreturn));
+void ast_invalid_token_error(ParseContext *pc, Token *token) {
     Buf token_value = BUF_INIT;
     ast_buf_from_token(pc, token, &token_value);
     ast_error(token, "invalid token: '%s'", buf_ptr(&token_value));
@@ -448,40 +448,35 @@ Statement : ExpressionStatement  | ReturnStatement ;
 ExpressionStatement : Expression token(Semicolon) ;
 
 ReturnStatement : token(Return) Expression token(Semicolon) ;
-
-Expression : token(Number) | token(String) | token(Unreachable) | FnCall
-
-FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen) ;
 */
 static AstNode *ast_parse_statement(ParseContext *pc, int token_index, int *new_token_index) {
     Token *token = &pc->tokens->at(token_index);
-    AstNode *node = ast_create_node(NodeTypeStatement, token);
-
     if (token->id == TokenIdKeywordReturn) {
+        AstNode *node = ast_create_node(NodeTypeStatementReturn, token);
         token_index += 1;
-        node->data.statement.type = AstNodeStatementTypeReturn;
-        node->data.statement.data.retrn.expression = ast_parse_expression(pc, token_index, &token_index);
+        node->data.statement_return.expression = ast_parse_expression(pc, token_index, &token_index);
 
         Token *semicolon = &pc->tokens->at(token_index);
         token_index += 1;
         ast_expect_token(pc, semicolon, TokenIdSemicolon);
+        *new_token_index = token_index;
+        return node;
     } else if (token->id == TokenIdSymbol ||
                token->id == TokenIdStringLiteral ||
                token->id == TokenIdKeywordUnreachable ||
                token->id == TokenIdNumberLiteral)
     {
-        node->data.statement.type = AstNodeStatementTypeExpression;
-        node->data.statement.data.expr.expression = ast_parse_expression(pc, token_index, &token_index);
+        AstNode *node = ast_create_node(NodeTypeStatementExpression, token);
+        node->data.statement_expression.expression = ast_parse_expression(pc, token_index, &token_index);
 
         Token *semicolon = &pc->tokens->at(token_index);
         token_index += 1;
         ast_expect_token(pc, semicolon, TokenIdSemicolon);
+        *new_token_index = token_index;
+        return node;
     } else {
         ast_invalid_token_error(pc, token);
     }
-
-    *new_token_index = token_index;
-    return node;
 }
 
 /*
