@@ -10,8 +10,8 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-static void ast_error(Token *token, const char *format, ...) __attribute__ ((noreturn));
 __attribute__ ((format (printf, 2, 3)))
+__attribute__ ((noreturn))
 static void ast_error(Token *token, const char *format, ...) {
     int line = token->start_line + 1;
     int column = token->start_column + 1;
@@ -257,7 +257,7 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf) {
     assert(!escape);
 }
 
-void ast_invalid_token_error(ParseContext *pc, Token *token) __attribute__ ((noreturn));
+__attribute__ ((noreturn))
 void ast_invalid_token_error(ParseContext *pc, Token *token) {
     Buf token_value = BUF_INIT;
     ast_buf_from_token(pc, token, &token_value);
