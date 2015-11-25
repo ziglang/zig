@@ -32,6 +32,7 @@ enum TokenId {
     TokenIdColon,
     TokenIdArrow,
     TokenIdDash,
+    TokenIdNumberSign,
 };
 
 struct Token {

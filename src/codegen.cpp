@@ -56,6 +56,7 @@ struct CodeGen {
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
     HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> link_table;
     TypeTableEntry *invalid_type_entry;
     LLVMTargetDataRef target_data_ref;
     unsigned pointer_size_bytes;
@@ -86,6 +87,7 @@ CodeGen *create_codegen(AstNode *root, Buf *in_full_path) {
     g->fn_table.init(32);
     g->str_table.init(32);
     g->type_table.init(32);
+    g->link_table.init(32);
     g->is_static = false;
     g->build_type = CodeGenBuildTypeDebug;
     g->strip_debug_symbols = false;
@@ -198,6 +200,18 @@ static void analyze_node(CodeGen *g, AstNode *node) {
             }
             break;
         case NodeTypeExternBlock:
+            for (int i = 0; i < node->data.extern_block.directives->length; i += 1) {
+                AstNode *directive_node = node->data.extern_block.directives->at(i);
+                Buf *name = &directive_node->data.directive.name;
+                Buf *param = &directive_node->data.directive.param;
+                if (buf_eql_str(name, "link")) {
+                    g->link_table.put(param, true);
+                } else {
+                    add_node_error(g, node,
+                            buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+                }
+            }
+
             for (int fn_decl_i = 0; fn_decl_i < node->data.extern_block.fn_decls.length; fn_decl_i += 1) {
                 AstNode *fn_decl = node->data.extern_block.fn_decls.at(fn_decl_i);
                 analyze_node(g, fn_decl);
@@ -305,6 +319,8 @@ static void analyze_node(CodeGen *g, AstNode *node) {
                 AstNode *child = node->data.fn_call.params.at(i);
                 analyze_node(g, child);
             }
+            break;
+        case NodeTypeDirective:
             break;
     }
 }
@@ -639,6 +655,16 @@ void code_gen_link(CodeGen *g, const char *out_file) {
     args.append("-o");
     args.append(out_file);
     args.append((const char *)buf_ptr(&out_file_o));
-    args.append("-lc");
+
+    auto it = g->link_table.entry_iterator();
+    for (;;) {
+        auto *entry = it.next();
+        if (!entry)
+            break;
+
+        Buf *arg = buf_sprintf("-l%s", buf_ptr(entry->key));
+        args.append(buf_ptr(arg));
+    }
+
     os_spawn_process("ld", args, false);
 }

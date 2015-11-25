@@ -40,12 +40,13 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
 ## Roadmap
 
- * don't hardcode the link against libc
  * C style comments.
  * Unit tests.
  * Simple .so library
  * Multiple files
  * figure out integers
+ * inline assembly and syscalls
+ * running code at compile time
  * implement a simple game using SDL2
  * How should the Widget use case be solved? In Genesis I'm using C++ and inheritance.
 
@@ -74,13 +75,13 @@ Root : many(TopLevelDecl) token(EOF)
 
 TopLevelDecl : FnDef | ExternBlock
 
-ExternBlock : token(Extern) token(LBrace) many(FnProtoDecl) token(RBrace)
+ExternBlock : many(Directive) token(Extern) token(LBrace) many(FnProtoDecl) token(RBrace)
 
 FnProto : token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type)
 
 FnDecl : FnProto token(Semicolon)
 
-FnDef : FnProto Block
+FnDef : many(Directive) FnProto Block
 
 ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
 
@@ -101,4 +102,6 @@ ReturnStatement : token(Return) Expression token(Semicolon)
 Expression : token(Number) | token(String) | token(Unreachable) | FnCall
 
 FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen)
+
+Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
 ```

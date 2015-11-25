@@ -27,6 +27,7 @@ enum NodeType {
     NodeTypeExpression,
     NodeTypeFnCall,
     NodeTypeExternBlock,
+    NodeTypeDirective,
 };
 
 struct AstNodeRoot {
@@ -112,7 +113,13 @@ struct AstNodeFnCall {
 };
 
 struct AstNodeExternBlock {
+    ZigList<AstNode *> *directives;
     ZigList<AstNode *> fn_decls;
+};
+
+struct AstNodeDirective {
+    Buf name;
+    Buf param;
 };
 
 struct AstNode {
@@ -133,6 +140,7 @@ struct AstNode {
         AstNodeExpression expression;
         AstNodeFnCall fn_call;
         AstNodeExternBlock extern_block;
+        AstNodeDirective directive;
     } data;
 };
 

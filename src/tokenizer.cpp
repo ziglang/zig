@@ -218,6 +218,10 @@ ZigList<Token> *tokenize(Buf *buf) {
                         begin_token(&t, TokenIdDash);
                         t.state = TokenizeStateSawDash;
                         break;
+                    case '#':
+                        begin_token(&t, TokenIdNumberSign);
+                        end_token(&t);
+                        break;
                     default:
                         tokenize_error(&t, "invalid character: '%c'", c);
                 }
@@ -321,6 +325,7 @@ static const char * token_name(Token *token) {
         case TokenIdColon: return "Colon";
         case TokenIdArrow: return "Arrow";
         case TokenIdDash: return "Dash";
+        case TokenIdNumberSign: return "NumberSign";
     }
     return "(invalid token)";
 }

@@ -48,6 +48,8 @@ const char *node_type_str(NodeType node_type) {
             return "FnCall";
         case NodeTypeExternBlock:
             return "ExternBlock";
+        case NodeTypeDirective:
+            return "Directive";
     }
     zig_unreachable();
 }
@@ -158,13 +160,23 @@ struct ParseContext {
     Buf *buf;
     AstNode *root;
     ZigList<Token> *tokens;
+    ZigList<AstNode *> *directive_list;
 };
 
-static AstNode *ast_create_node(NodeType type, Token *first_token) {
+static AstNode *ast_create_node_no_line_info(NodeType type) {
     AstNode *node = allocate<AstNode>(1);
     node->type = type;
+    return node;
+}
+
+static void ast_update_node_line_info(AstNode *node, Token *first_token) {
     node->line = first_token->start_line;
     node->column = first_token->start_column;
+}
+
+static AstNode *ast_create_node(NodeType type, Token *first_token) {
+    AstNode *node = ast_create_node_no_line_info(type);
+    ast_update_node_line_info(node, first_token);
     return node;
 }
 
@@ -536,7 +548,57 @@ static AstNode *ast_parse_fn_decl(ParseContext *pc, int token_index, int *new_to
 }
 
 /*
-ExternBlock : token(Extern) token(LBrace) many(FnProtoDecl) token(RBrace)
+Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
+*/
+static AstNode *ast_parse_directive(ParseContext *pc, int token_index, int *new_token_index) {
+    Token *number_sign = &pc->tokens->at(token_index);
+    token_index += 1;
+    ast_expect_token(pc, number_sign, TokenIdNumberSign);
+
+    AstNode *node = ast_create_node(NodeTypeDirective, number_sign);
+
+    Token *name_symbol = &pc->tokens->at(token_index);
+    token_index += 1;
+    ast_expect_token(pc, name_symbol, TokenIdSymbol);
+
+    ast_buf_from_token(pc, name_symbol, &node->data.directive.name);
+
+    Token *l_paren = &pc->tokens->at(token_index);
+    token_index += 1;
+    ast_expect_token(pc, l_paren, TokenIdLParen);
+
+    Token *param_str = &pc->tokens->at(token_index);
+    token_index += 1;
+    ast_expect_token(pc, param_str, TokenIdStringLiteral);
+
+    parse_string_literal(pc, param_str, &node->data.directive.param);
+
+    Token *r_paren = &pc->tokens->at(token_index);
+    token_index += 1;
+    ast_expect_token(pc, r_paren, TokenIdRParen);
+
+    *new_token_index = token_index;
+    return node;
+}
+
+static void ast_parse_directives(ParseContext *pc, int token_index, int *new_token_index,
+        ZigList<AstNode *> *directives)
+{
+    for (;;) {
+        Token *token = &pc->tokens->at(token_index);
+        if (token->id == TokenIdNumberSign) {
+            AstNode *directive_node = ast_parse_directive(pc, token_index, &token_index);
+            directives->append(directive_node);
+        } else {
+            *new_token_index = token_index;
+            return;
+        }
+    }
+    zig_unreachable();
+}
+
+/*
+ExternBlock : many(Directive) token(Extern) token(LBrace) many(FnProtoDecl) token(RBrace)
 */
 static AstNode *ast_parse_extern_block(ParseContext *pc, int token_index, int *new_token_index) {
     Token *extern_kw = &pc->tokens->at(token_index);
@@ -544,6 +606,9 @@ static AstNode *ast_parse_extern_block(ParseContext *pc, int token_index, int *n
     ast_expect_token(pc, extern_kw, TokenIdKeywordExtern);
 
     AstNode *node = ast_create_node(NodeTypeExternBlock, extern_kw);
+
+    node->data.extern_block.directives = pc->directive_list;
+    pc->directive_list = nullptr;
 
     Token *l_brace = &pc->tokens->at(token_index);
     token_index += 1;
@@ -570,7 +635,11 @@ static void ast_parse_top_level_decls(ParseContext *pc, int token_index, int *ne
 {
     for (;;) {
         Token *token = &pc->tokens->at(token_index);
-        if (token->id == TokenIdKeywordFn) {
+        if (token->id == TokenIdNumberSign) {
+            assert(!pc->directive_list);
+            pc->directive_list = allocate<ZigList<AstNode*>>(1);
+            ast_parse_directives(pc, token_index, &token_index, pc->directive_list);
+        } else if (token->id == TokenIdKeywordFn) {
             AstNode *fn_decl_node = ast_parse_fn_def(pc, token_index, &token_index);
             top_level_decls->append(fn_decl_node);
         } else if (token->id == TokenIdKeywordExtern) {
