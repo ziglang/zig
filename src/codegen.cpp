@@ -721,6 +721,11 @@ void code_gen_link(CodeGen *g, const char *out_file) {
     if (g->is_static) {
         args.append("-static");
     }
+    if (getenv("ZIG_DEBIAN_HACK") != nullptr) {
+        // XXX: hack. see https://github.com/andrewrk/zig/issues/1
+        args.append("-dynamic-linker");
+        args.append("/lib64/ld-linux-x86-64.so.2");
+    }
     args.append("-o");
     args.append(out_file);
     args.append((const char *)buf_ptr(&out_file_o));
