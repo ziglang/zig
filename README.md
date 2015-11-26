@@ -31,7 +31,6 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
 ## Roadmap
 
- * Unit tests.
  * C style comments.
  * Simple .so library
  * Multiple files
@@ -66,7 +65,7 @@ Root : many(TopLevelDecl) token(EOF)
 
 TopLevelDecl : FnDef | ExternBlock
 
-ExternBlock : many(Directive) token(Extern) token(LBrace) many(FnProtoDecl) token(RBrace)
+ExternBlock : many(Directive) token(Extern) token(LBrace) many(FnDecl) token(RBrace)
 
 FnProto : token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type)
 
@@ -95,4 +94,14 @@ Expression : token(Number) | token(String) | token(Unreachable) | FnCall
 FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen)
 
 Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
+```
+
+### Building
+
+```
+mkdir build
+cd build
+cmake ..
+make
+./run_tests
 ```

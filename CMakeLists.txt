@@ -33,16 +33,29 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
 )
 
+set(TEST_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/util.cpp"
+    "${CMAKE_SOURCE_DIR}/src/os.cpp"
+    "${CMAKE_SOURCE_DIR}/test/standalone.cpp"
+)
+
+
 set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")
 configure_file (
     "${CMAKE_SOURCE_DIR}/src/config.h.in"
     ${CONFIGURE_OUT_FILE}
 )
 
+include_directories(
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_BINARY_DIR}
+    "${CMAKE_SOURCE_DIR}/src"
+)
+
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -Wno-unused-variable -Wno-unused-but-set-variable")
 
 set(EXE_CFLAGS "-std=c++11 -fno-exceptions -fno-rtti -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -Werror -Wall -Werror=strict-prototypes -Werror=old-style-definition -Werror=missing-prototypes")
-
 
 add_executable(zig ${ZIG_SOURCES})
 set_target_properties(zig PROPERTIES
@@ -52,3 +65,8 @@ target_link_libraries(zig LINK_PUBLIC
 )
 install(TARGETS zig DESTINATION bin)
 
+add_executable(run_tests ${TEST_SOURCES})
+target_link_libraries(run_tests)
+set_target_properties(run_tests PROPERTIES
+    COMPILE_FLAGS ${EXE_CFLAGS}
+)
