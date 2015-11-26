@@ -38,7 +38,7 @@ void os_spawn_process(const char *exe, ZigList<const char *> &args, bool detache
 }
 
 static void read_all_fd(int fd, Buf *out_buf) {
-    static const ssize_t buf_size = 8192;
+    static const ssize_t buf_size = 0x2000;
     buf_resize(out_buf, buf_size);
     ssize_t actual_buf_len = 0;
     for (;;) {
