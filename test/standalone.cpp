@@ -102,9 +102,9 @@ static void run_test(TestCase *test_case) {
 
     if (return_code != 0) {
         printf("\nProgram exited with return code %d:\n", return_code);
-        printf("zig");
-        for (int i = 0; i < test_case->compiler_args.length; i += 1) {
-            printf(" %s", test_case->compiler_args.at(i));
+        printf("%s", tmp_exe_path);
+        for (int i = 0; i < test_case->program_args.length; i += 1) {
+            printf(" %s", test_case->program_args.at(i));
         }
         printf("\n");
         printf("%s\n", buf_ptr(&program_stderr));

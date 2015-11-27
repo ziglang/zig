@@ -17,6 +17,8 @@
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DiagnosticInfo.h>
 #include <llvm/IR/DiagnosticPrinter.h>
+#include <llvm/Target/TargetMachine.h>
+#include <llvm/Support/TargetParser.h>
 
 struct FnTableEntry {
     LLVMValueRef fn_value;
@@ -66,6 +68,7 @@ struct CodeGen {
     bool strip_debug_symbols;
     CodeGenBuildType build_type;
     LLVMTargetMachineRef target_machine;
+    bool is_native_target;
     Buf in_file;
     Buf in_dir;
     ZigList<llvm::DIScope *> block_scopes;
@@ -423,6 +426,7 @@ void semantic_analyze(CodeGen *g) {
     LLVMInitializeAllAsmParsers();
     LLVMInitializeNativeTarget();
 
+    g->is_native_target = true;
     char *native_triple = LLVMGetDefaultTargetTriple();
 
     LLVMTargetRef target_ref;
@@ -699,6 +703,121 @@ ZigList<ErrorMsg> *codegen_error_messages(CodeGen *g) {
     return &g->errors;
 }
 
+enum FloatAbi {
+    FloatAbiHard,
+    FloatAbiSoft,
+    FloatAbiSoftFp,
+};
+
+
+static int get_arm_sub_arch_version(const llvm::Triple &triple) {
+    return llvm::ARMTargetParser::parseArchVersion(triple.getArchName());
+}
+
+static FloatAbi get_float_abi(const llvm::Triple &triple) {
+    switch (triple.getOS()) {
+        case llvm::Triple::Darwin:
+        case llvm::Triple::MacOSX:
+        case llvm::Triple::IOS:
+            if (get_arm_sub_arch_version(triple) == 6 ||
+                get_arm_sub_arch_version(triple) == 7)
+            {
+                return FloatAbiSoftFp;
+            } else {
+                return FloatAbiSoft;
+            }
+        case llvm::Triple::Win32:
+            return FloatAbiHard;
+        case llvm::Triple::FreeBSD:
+            switch (triple.getEnvironment()) {
+                case llvm::Triple::GNUEABIHF:
+                    return FloatAbiHard;
+                default:
+                    return FloatAbiSoft;
+            }
+        default:
+            switch (triple.getEnvironment()) {
+                case llvm::Triple::GNUEABIHF:
+                    return FloatAbiHard;
+                case llvm::Triple::GNUEABI:
+                    return FloatAbiSoftFp;
+                case llvm::Triple::EABIHF:
+                    return FloatAbiHard;
+                case llvm::Triple::EABI:
+                    return FloatAbiSoftFp;
+                case llvm::Triple::Android:
+                    if (get_arm_sub_arch_version(triple) == 7) {
+                        return FloatAbiSoftFp;
+                    } else {
+                        return FloatAbiSoft;
+                    }
+                default:
+                    return FloatAbiSoft;
+            }
+    }
+}
+
+static Buf *get_dynamic_linker(CodeGen *g) {
+    llvm::TargetMachine *target_machine = reinterpret_cast<llvm::TargetMachine*>(g->target_machine);
+    const llvm::Triple &triple = target_machine->getTargetTriple();
+
+    const llvm::Triple::ArchType arch = triple.getArch();
+
+    if (triple.getEnvironment() == llvm::Triple::Android) {
+        if (triple.isArch64Bit()) {
+            return buf_create_from_str("/system/bin/linker64");
+        } else {
+            return buf_create_from_str("/system/bin/linker");
+        }
+    } else if (arch == llvm::Triple::x86 ||
+            arch == llvm::Triple::sparc ||
+            arch == llvm::Triple::sparcel)
+    {
+        return buf_create_from_str("/lib/ld-linux.so.2");
+    } else if (arch == llvm::Triple::aarch64) {
+        return buf_create_from_str("/lib/ld-linux-aarch64.so.1");
+    } else if (arch == llvm::Triple::aarch64_be) {
+        return buf_create_from_str("/lib/ld-linux-aarch64_be.so.1");
+    } else if (arch == llvm::Triple::arm || arch == llvm::Triple::thumb) {
+        if (triple.getEnvironment() == llvm::Triple::GNUEABIHF ||
+            get_float_abi(triple) == FloatAbiHard)
+        {
+            return buf_create_from_str("/lib/ld-linux-armhf.so.3");
+        } else {
+            return buf_create_from_str("/lib/ld-linux.so.3");
+        }
+    } else if (arch == llvm::Triple::armeb || arch == llvm::Triple::thumbeb) {
+        if (triple.getEnvironment() == llvm::Triple::GNUEABIHF ||
+            get_float_abi(triple) == FloatAbiHard)
+        {
+            return buf_create_from_str("/lib/ld-linux-armhf.so.3");
+        } else {
+            return buf_create_from_str("/lib/ld-linux.so.3");
+        }
+    } else if (arch == llvm::Triple::mips || arch == llvm::Triple::mipsel ||
+            arch == llvm::Triple::mips64 || arch == llvm::Triple::mips64el)
+    {
+        // when you want to solve this TODO, grep clang codebase for
+        // getLinuxDynamicLinker
+        zig_panic("TODO figure out MIPS dynamic linker name");
+    } else if (arch == llvm::Triple::ppc) {
+        return buf_create_from_str("/lib/ld.so.1");
+    } else if (arch == llvm::Triple::ppc64) {
+        return buf_create_from_str("/lib64/ld64.so.2");
+    } else if (arch == llvm::Triple::ppc64le) {
+        return buf_create_from_str("/lib64/ld64.so.2");
+    } else if (arch == llvm::Triple::systemz) {
+        return buf_create_from_str("/lib64/ld64.so.1");
+    } else if (arch == llvm::Triple::sparcv9) {
+        return buf_create_from_str("/lib64/ld-linux.so.2");
+    } else if (arch == llvm::Triple::x86_64 &&
+            triple.getEnvironment() == llvm::Triple::GNUX32)
+    {
+        return buf_create_from_str("/libx32/ld-linux-x32.so.2");
+    } else {
+        return buf_create_from_str("/lib64/ld-linux-x86-64.so.2");
+    }
+}
 
 void code_gen_link(CodeGen *g, const char *out_file) {
     LLVMPassRegistryRef registry = LLVMGetGlobalPassRegistry();
@@ -721,13 +840,21 @@ void code_gen_link(CodeGen *g, const char *out_file) {
     if (g->is_static) {
         args.append("-static");
     }
-    if (getenv("ZIG_DEBIAN_HACK") != nullptr) {
-        // XXX: hack. see https://github.com/andrewrk/zig/issues/1
+
+    char *ZIG_NATIVE_DYNAMIC_LINKER = getenv("ZIG_NATIVE_DYNAMIC_LINKER");
+    if (g->is_native_target && ZIG_NATIVE_DYNAMIC_LINKER) {
+        if (ZIG_NATIVE_DYNAMIC_LINKER[0] != 0) {
+            args.append("-dynamic-linker");
+            args.append(ZIG_NATIVE_DYNAMIC_LINKER);
+        }
+    } else {
         args.append("-dynamic-linker");
-        args.append("/lib64/ld-linux-x86-64.so.2");
+        args.append(buf_ptr(get_dynamic_linker(g)));
     }
+
     args.append("-o");
     args.append(out_file);
+
     args.append((const char *)buf_ptr(&out_file_o));
 
     auto it = g->link_table.entry_iterator();
@@ -742,3 +869,5 @@ void code_gen_link(CodeGen *g, const char *out_file) {
 
     os_spawn_process("ld", args, false);
 }
+
+
