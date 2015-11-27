@@ -26,6 +26,7 @@ struct FnTableEntry {
     AstNode *fn_def_node;
     bool is_extern;
     bool internal_linkage;
+    unsigned calling_convention;
 };
 
 enum TypeId {
@@ -51,7 +52,7 @@ struct TypeTableEntry {
 };
 
 struct CodeGen {
-    LLVMModuleRef mod;
+    LLVMModuleRef module;
     AstNode *root;
     ZigList<ErrorMsg> errors;
     LLVMBuilderRef builder;
@@ -228,6 +229,7 @@ static void find_declarations(CodeGen *g, AstNode *node) {
                 FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
                 fn_table_entry->proto_node = fn_proto;
                 fn_table_entry->is_extern = true;
+                fn_table_entry->calling_convention = LLVMCCallConv;
                 g->fn_table.put(name, fn_table_entry);
             }
             break;
@@ -244,6 +246,12 @@ static void find_declarations(CodeGen *g, AstNode *node) {
                     FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
                     fn_table_entry->proto_node = proto_node;
                     fn_table_entry->fn_def_node = node;
+                    fn_table_entry->internal_linkage = proto_node->data.fn_proto.visib_mod != FnProtoVisibModExport;
+                    if (fn_table_entry->internal_linkage) {
+                        fn_table_entry->calling_convention = LLVMFastCallConv;
+                    } else {
+                        fn_table_entry->calling_convention = LLVMCCallConv;
+                    }
                     g->fn_table.put(proto_name, fn_table_entry);
                     g->fn_defs.append(fn_table_entry);
 
@@ -512,12 +520,12 @@ void semantic_analyze(CodeGen *g) {
     g->target_data_ref = LLVMGetTargetMachineData(g->target_machine);
 
 
-    g->mod = LLVMModuleCreateWithName("ZigModule");
+    g->module = LLVMModuleCreateWithName("ZigModule");
 
     g->pointer_size_bytes = LLVMPointerSize(g->target_data_ref);
 
     g->builder = LLVMCreateBuilder();
-    g->dbuilder = new llvm::DIBuilder(*llvm::unwrap(g->mod), true);
+    g->dbuilder = new llvm::DIBuilder(*llvm::unwrap(g->module), true);
 
 
     add_types(g);
@@ -550,8 +558,8 @@ static LLVMValueRef gen_fn_call(CodeGen *g, AstNode *fn_call_node) {
     }
 
     add_debug_source_node(g, fn_call_node);
-    LLVMValueRef result = LLVMBuildCall(g->builder, fn_table_entry->fn_value,
-            param_values, actual_param_count, "");
+    LLVMValueRef result = LLVMZigBuildCall(g->builder, fn_table_entry->fn_value,
+            param_values, actual_param_count, fn_table_entry->calling_convention, "");
 
     if (type_is_unreachable(fn_table_entry->proto_node->data.fn_proto.return_type)) {
         return LLVMBuildUnreachable(g->builder);
@@ -566,7 +574,7 @@ static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
         return entry->value;
     }
     LLVMValueRef text = LLVMConstString(buf_ptr(str), buf_len(str), false);
-    LLVMValueRef global_value = LLVMAddGlobal(g->mod, LLVMTypeOf(text), "");
+    LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(text), "");
     LLVMSetLinkage(global_value, LLVMPrivateLinkage);
     LLVMSetInitializer(global_value, text);
     LLVMSetGlobalConstant(global_value, true);
@@ -614,6 +622,8 @@ static void gen_block(CodeGen *g, AstNode *block_node, bool add_implicit_return)
     llvm::DILexicalBlock *di_block = g->dbuilder->createLexicalBlock(g->block_scopes.last(),
             g->di_file, block_node->line + 1, block_node->column + 1);
     g->block_scopes.append(di_block);
+
+    add_debug_source_node(g, block_node);
 
     for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
@@ -714,16 +724,15 @@ void code_gen(CodeGen *g) {
             param_types[param_decl_i] = to_llvm_type(type_node);
         }
         LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, fn_proto->params.length, 0);
-        LLVMValueRef fn = LLVMAddFunction(g->mod, buf_ptr(&fn_proto->name), function_type);
+        LLVMValueRef fn = LLVMAddFunction(g->module, buf_ptr(&fn_proto->name), function_type);
 
-        LLVMSetLinkage(fn, fn_table_entry->internal_linkage ? LLVMPrivateLinkage : LLVMExternalLinkage);
+        LLVMSetLinkage(fn, fn_table_entry->internal_linkage ? LLVMInternalLinkage : LLVMExternalLinkage);
 
         if (type_is_unreachable(fn_proto->return_type)) {
             LLVMAddFunctionAttr(fn, LLVMNoReturnAttribute);
         }
-        if (fn_table_entry->is_extern) {
-            LLVMSetFunctionCallConv(fn, LLVMCCallConv);
-        } else {
+        LLVMSetFunctionCallConv(fn, fn_table_entry->calling_convention);
+        if (!fn_table_entry->is_extern) {
             LLVMAddFunctionAttr(fn, LLVMNoUnwindAttribute);
         }
 
@@ -768,10 +777,19 @@ void code_gen(CodeGen *g) {
 
     g->dbuilder->finalize();
 
-    LLVMDumpModule(g->mod);
+    LLVMDumpModule(g->module);
 
+    // in release mode, we're sooooo confident that we've generated correct ir,
+    // that we skip the verify module step in order to get better performance.
+#ifndef NDEBUG
     char *error = nullptr;
-    LLVMVerifyModule(g->mod, LLVMAbortProcessAction, &error);
+    LLVMVerifyModule(g->module, LLVMAbortProcessAction, &error);
+#endif
+}
+
+void code_gen_optimize(CodeGen *g) {
+    LLVMZigOptimizeModule(g->target_machine, g->module);
+    LLVMDumpModule(g->module);
 }
 
 ZigList<ErrorMsg> *codegen_error_messages(CodeGen *g) {
@@ -907,7 +925,9 @@ void code_gen_link(CodeGen *g, const char *out_file) {
     buf_append_str(&out_file_o, ".o");
 
     char *err_msg = nullptr;
-    if (LLVMTargetMachineEmitToFile(g->target_machine, g->mod, buf_ptr(&out_file_o), LLVMObjectFile, &err_msg)) {
+    if (LLVMZigTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(&out_file_o),
+                LLVMObjectFile, &err_msg))
+    {
         zig_panic("unable to write object file: %s", err_msg);
     }
 

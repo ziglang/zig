@@ -27,12 +27,11 @@ readable, safe, optimal, and concise code to solve any computing problem.
  * Source code is UTF-8.
  * Shebang line OK so language can be used for "scripting" as well.
  * Ability to mark functions as test and automatically run them in test mode.
+   This mode should automatically provide test coverage.
  * Memory zeroed by default, unless you initialize with "uninitialized".
 
 ## Roadmap
 
- * pub/private/export functions
- * make sure that release mode optimizes out empty private functions
  * test framework to test for compile errors
  * Simple .so library
  * Multiple files
@@ -69,11 +68,13 @@ TopLevelDecl : FnDef | ExternBlock
 
 ExternBlock : many(Directive) token(Extern) token(LBrace) many(FnDecl) token(RBrace)
 
-FnProto : token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type)
+FnProto : many(Directive) option(FnVisibleMod) token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type)
+
+FnVisibleMod : token(Pub) | token(Export)
 
 FnDecl : FnProto token(Semicolon)
 
-FnDef : many(Directive) FnProto Block
+FnDef : FnProto Block
 
 ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
 

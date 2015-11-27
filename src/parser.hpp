@@ -34,7 +34,15 @@ struct AstNodeRoot {
     ZigList<AstNode *> top_level_decls;
 };
 
+enum FnProtoVisibMod {
+    FnProtoVisibModPrivate,
+    FnProtoVisibModPub,
+    FnProtoVisibModExport,
+};
+
 struct AstNodeFnProto {
+    ZigList<AstNode *> *directives;
+    FnProtoVisibMod visib_mod;
     Buf name;
     ZigList<AstNode *> params;
     AstNode *return_type;

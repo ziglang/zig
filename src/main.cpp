@@ -118,6 +118,12 @@ static int build(const char *arg0, const char *in_file, const char *out_file,
     fprintf(stderr, "------------------\n");
     code_gen(codegen);
 
+    if (release) {
+        fprintf(stderr, "\nOptimization:\n");
+        fprintf(stderr, "---------------\n");
+        code_gen_optimize(codegen);
+    }
+
     fprintf(stderr, "\nLink:\n");
     fprintf(stderr, "-------\n");
     code_gen_link(codegen, out_file);

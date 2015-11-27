@@ -53,7 +53,7 @@ static void add_all_test_cases(void) {
             fn exit(code: i32) -> unreachable;
         }
 
-        fn _start() -> unreachable {
+        export fn _start() -> unreachable {
             puts("Hello, world!");
             exit(0);
         }
@@ -69,7 +69,7 @@ static void add_all_test_cases(void) {
         fn empty_function_1() {}
         fn empty_function_2() { return; }
 
-        fn _start() -> unreachable {
+        export fn _start() -> unreachable {
             empty_function_1();
             empty_function_2();
             this_is_a_function();
@@ -95,7 +95,7 @@ static void add_all_test_cases(void) {
 
         /// this is a documentation comment
         /// doc comment line 2
-        fn _start() -> unreachable {
+        export fn _start() -> unreachable {
             puts(/* mid-line comment /* nested */ */ "OK");
             exit(0);
         }

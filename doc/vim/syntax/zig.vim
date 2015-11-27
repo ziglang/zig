@@ -7,7 +7,7 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn keyword zigKeyword fn return mut const extern unreachable
+syn keyword zigKeyword fn return mut const extern unreachable export pub
 
 let b:current_syntax = "zig"
 

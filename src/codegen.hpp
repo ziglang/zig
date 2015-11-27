@@ -33,6 +33,8 @@ void codegen_set_strip(CodeGen *codegen, bool strip);
 
 void semantic_analyze(CodeGen *g);
 
+void code_gen_optimize(CodeGen *g);
+
 void code_gen(CodeGen *g);
 
 void code_gen_link(CodeGen *g, const char *out_file);

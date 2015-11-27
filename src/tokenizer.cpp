@@ -163,6 +163,10 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordExtern;
     } else if (mem_eql_str(token_mem, token_len, "unreachable")) {
         t->cur_tok->id = TokenIdKeywordUnreachable;
+    } else if (mem_eql_str(token_mem, token_len, "pub")) {
+        t->cur_tok->id = TokenIdKeywordPub;
+    } else if (mem_eql_str(token_mem, token_len, "export")) {
+        t->cur_tok->id = TokenIdKeywordExport;
     }
 
     t->cur_tok = nullptr;
@@ -407,6 +411,8 @@ static const char * token_name(Token *token) {
         case TokenIdKeywordReturn: return "Return";
         case TokenIdKeywordExtern: return "Extern";
         case TokenIdKeywordUnreachable: return "Unreachable";
+        case TokenIdKeywordPub: return "Pub";
+        case TokenIdKeywordExport: return "Export";
         case TokenIdLParen: return "LParen";
         case TokenIdRParen: return "RParen";
         case TokenIdComma: return "Comma";

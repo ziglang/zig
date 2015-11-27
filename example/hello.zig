@@ -4,7 +4,7 @@ extern {
     fn exit(code: i32) -> unreachable;
 }
 
-fn _start() -> unreachable {
+export fn _start() -> unreachable {
     puts("Hello, world!");
     exit(0);
 }
