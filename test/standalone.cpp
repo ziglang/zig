@@ -75,6 +75,26 @@ static void add_all_test_cases(void) {
             exit(0);
         }
     )SOURCE", "OK\n");
+
+    add_simple_case("comments", R"SOURCE(
+        #link("c")
+        extern {
+            fn puts(s: *mut u8) -> i32;
+            fn exit(code: i32) -> unreachable;
+        }
+
+        /**
+         * multi line doc comment
+         */
+        fn another_function() -> i32 { return 0; }
+
+        /// this is a documentation comment
+        /// doc comment line 2
+        fn _start() -> unreachable {
+            puts(/* mid-line comment /* nested */ */ "OK");
+            exit(0);
+        }
+    )SOURCE", "OK\n");
 }
 
 static void run_test(TestCase *test_case) {
@@ -83,11 +103,12 @@ static void run_test(TestCase *test_case) {
     Buf zig_stderr = BUF_INIT;
     Buf zig_stdout = BUF_INIT;
     int return_code;
-    os_exec_process("./zig", test_case->compiler_args, &return_code, &zig_stderr, &zig_stdout);
+    static const char *zig_exe = "./zig";
+    os_exec_process(zig_exe, test_case->compiler_args, &return_code, &zig_stderr, &zig_stdout);
 
     if (return_code != 0) {
         printf("\nCompile failed with return code %d:\n", return_code);
-        printf("zig");
+        printf("%s", zig_exe);
         for (int i = 0; i < test_case->compiler_args.length; i += 1) {
             printf(" %s", test_case->compiler_args.at(i));
         }

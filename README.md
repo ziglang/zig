@@ -31,7 +31,7 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
 ## Roadmap
 
- * C style comments.
+ * empty function and return with no expression
  * Simple .so library
  * Multiple files
  * figure out integers

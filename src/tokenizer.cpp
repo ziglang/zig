@@ -87,6 +87,19 @@
     case DIGIT: \
     case '_'
 
+enum TokenizeState {
+    TokenizeStateStart,
+    TokenizeStateSymbol,
+    TokenizeStateNumber,
+    TokenizeStateString,
+    TokenizeStateSawDash,
+    TokenizeStateSawSlash,
+    TokenizeStateLineComment,
+    TokenizeStateMultiLineComment,
+    TokenizeStateMultiLineCommentSlash,
+    TokenizeStateMultiLineCommentStar,
+};
+
 
 struct Tokenize {
     Buf *buf;
@@ -96,6 +109,7 @@ struct Tokenize {
     int line;
     int column;
     Token *cur_tok;
+    int multi_line_comment_count;
 };
 
 __attribute__ ((format (printf, 2, 3)))
@@ -222,8 +236,78 @@ ZigList<Token> *tokenize(Buf *buf) {
                         begin_token(&t, TokenIdNumberSign);
                         end_token(&t);
                         break;
+                    case '/':
+                        t.state = TokenizeStateSawSlash;
+                        break;
                     default:
                         tokenize_error(&t, "invalid character: '%c'", c);
+                }
+                break;
+            case TokenizeStateSawSlash:
+                switch (c) {
+                    case '/':
+                        t.state = TokenizeStateLineComment;
+                        break;
+                    case '*':
+                        t.state = TokenizeStateMultiLineComment;
+                        t.multi_line_comment_count = 1;
+                        break;
+                    default:
+                        tokenize_error(&t, "invalid character: '%c'", c);
+                        break;
+                }
+                break;
+            case TokenizeStateLineComment:
+                switch (c) {
+                    case '\n':
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        // do nothing
+                        break;
+                }
+                break;
+            case TokenizeStateMultiLineComment:
+                switch (c) {
+                    case '*':
+                        t.state = TokenizeStateMultiLineCommentStar;
+                        break;
+                    case '/':
+                        t.state = TokenizeStateMultiLineCommentSlash;
+                        break;
+                    default:
+                        // do nothing
+                        break;
+                }
+                break;
+            case TokenizeStateMultiLineCommentSlash:
+                switch (c) {
+                    case '*':
+                        t.state = TokenizeStateMultiLineComment;
+                        t.multi_line_comment_count += 1;
+                        break;
+                    case '/':
+                        break;
+                    default:
+                        t.state = TokenizeStateMultiLineComment;
+                        break;
+                }
+                break;
+            case TokenizeStateMultiLineCommentStar:
+                switch (c) {
+                    case '/':
+                        t.multi_line_comment_count -= 1;
+                        if (t.multi_line_comment_count == 0) {
+                            t.state = TokenizeStateStart;
+                        } else {
+                            t.state = TokenizeStateMultiLineComment;
+                        }
+                        break;
+                    case '*':
+                        break;
+                    default:
+                        t.state = TokenizeStateMultiLineComment;
+                        break;
                 }
                 break;
             case TokenizeStateSymbol:
@@ -295,7 +379,18 @@ ZigList<Token> *tokenize(Buf *buf) {
         case TokenizeStateSawDash:
             end_token(&t);
             break;
+        case TokenizeStateSawSlash:
+            tokenize_error(&t, "unexpected EOF");
+            break;
+        case TokenizeStateLineComment:
+            break;
+        case TokenizeStateMultiLineComment:
+        case TokenizeStateMultiLineCommentSlash:
+        case TokenizeStateMultiLineCommentStar:
+            tokenize_error(&t, "unterminated multi-line comment");
+            break;
     }
+    t.pos = -1;
     begin_token(&t, TokenIdEof);
     end_token(&t);
     assert(!t.cur_tok);
@@ -333,9 +428,11 @@ static const char * token_name(Token *token) {
 void print_tokens(Buf *buf, ZigList<Token> *tokens) {
     for (int i = 0; i < tokens->length; i += 1) {
         Token *token = &tokens->at(i);
-        printf("%s ", token_name(token));
-        fwrite(buf_ptr(buf) + token->start_pos, 1, token->end_pos - token->start_pos, stdout);
-        printf("\n");
+        fprintf(stderr, "%s ", token_name(token));
+        if (token->start_pos >= 0) {
+            fwrite(buf_ptr(buf) + token->start_pos, 1, token->end_pos - token->start_pos, stderr);
+        }
+        fprintf(stderr, "\n");
     }
 }
 

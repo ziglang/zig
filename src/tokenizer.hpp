@@ -43,14 +43,6 @@ struct Token {
     int start_column;
 };
 
-enum TokenizeState {
-    TokenizeStateStart,
-    TokenizeStateSymbol,
-    TokenizeStateNumber,
-    TokenizeStateString,
-    TokenizeStateSawDash,
-};
-
 ZigList<Token> *tokenize(Buf *buf);
 
 void print_tokens(Buf *buf, ZigList<Token> *tokens);
