@@ -31,7 +31,9 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
 ## Roadmap
 
- * empty function and return with no expression
+ * pub/private/export functions
+ * make sure that release mode optimizes out empty private functions
+ * test framework to test for compile errors
  * Simple .so library
  * Multiple files
  * figure out integers
@@ -87,7 +89,7 @@ Statement : ExpressionStatement | ReturnStatement
 
 ExpressionStatement : Expression token(Semicolon)
 
-ReturnStatement : token(Return) Expression token(Semicolon)
+ReturnStatement : token(Return) option(Expression) token(Semicolon)
 
 Expression : token(Number) | token(String) | token(Unreachable) | FnCall
 

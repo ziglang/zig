@@ -66,7 +66,12 @@ static void add_all_test_cases(void) {
             fn exit(code: i32) -> unreachable;
         }
 
+        fn empty_function_1() {}
+        fn empty_function_2() { return; }
+
         fn _start() -> unreachable {
+            empty_function_1();
+            empty_function_2();
             this_is_a_function();
         }
 
@@ -86,7 +91,7 @@ static void add_all_test_cases(void) {
         /**
          * multi line doc comment
          */
-        fn another_function() -> i32 { return 0; }
+        fn another_function() {}
 
         /// this is a documentation comment
         /// doc comment line 2

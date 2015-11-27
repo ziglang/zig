@@ -128,7 +128,8 @@ void ast_print(AstNode *node, int indent) {
             break;
         case NodeTypeStatementReturn:
             fprintf(stderr, "ReturnStatement\n");
-            ast_print(node->data.statement_return.expression, indent + 2);
+            if (node->data.statement_return.expression)
+                ast_print(node->data.statement_return.expression, indent + 2);
             break;
         case NodeTypeExternBlock:
             {
@@ -258,7 +259,7 @@ void ast_invalid_token_error(ParseContext *pc, Token *token) {
     ast_error(token, "invalid token: '%s'", buf_ptr(&token_value));
 }
 
-static AstNode *ast_parse_expression(ParseContext *pc, int token_index, int *new_token_index);
+static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool mandatory);
 
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
@@ -374,7 +375,7 @@ static void ast_parse_fn_call_param_list(ParseContext *pc, int token_index, int 
     }
 
     for (;;) {
-        AstNode *expr = ast_parse_expression(pc, token_index, &token_index);
+        AstNode *expr = ast_parse_expression(pc, &token_index, true);
         params->append(expr);
 
         Token *token = &pc->tokens->at(token_index);
@@ -411,28 +412,29 @@ static AstNode *ast_parse_fn_call(ParseContext *pc, int token_index, int *new_to
 /*
 Expression : token(Number) | token(String) | token(Unreachable) | FnCall
 */
-static AstNode *ast_parse_expression(ParseContext *pc, int token_index, int *new_token_index) {
-    Token *token = &pc->tokens->at(token_index);
+static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *token = &pc->tokens->at(*token_index);
     AstNode *node = ast_create_node(NodeTypeExpression, token);
     if (token->id == TokenIdKeywordUnreachable) {
         node->data.expression.type = AstNodeExpressionTypeUnreachable;
-        token_index += 1;
+        *token_index += 1;
     } else if (token->id == TokenIdSymbol) {
         node->data.expression.type = AstNodeExpressionTypeFnCall;
-        node->data.expression.data.fn_call = ast_parse_fn_call(pc, token_index, &token_index);
+        node->data.expression.data.fn_call = ast_parse_fn_call(pc, *token_index, token_index);
     } else if (token->id == TokenIdNumberLiteral) {
         node->data.expression.type = AstNodeExpressionTypeNumber;
         ast_buf_from_token(pc, token, &node->data.expression.data.number);
-        token_index += 1;
+        *token_index += 1;
     } else if (token->id == TokenIdStringLiteral) {
         node->data.expression.type = AstNodeExpressionTypeString;
         parse_string_literal(pc, token, &node->data.expression.data.string);
-        token_index += 1;
-    } else {
+        *token_index += 1;
+    } else if (mandatory) {
         ast_invalid_token_error(pc, token);
+    } else {
+        return nullptr;
     }
 
-    *new_token_index = token_index;
     return node;
 }
 
@@ -441,14 +443,14 @@ Statement : ExpressionStatement  | ReturnStatement ;
 
 ExpressionStatement : Expression token(Semicolon) ;
 
-ReturnStatement : token(Return) Expression token(Semicolon) ;
+ReturnStatement : token(Return) option(Expression) token(Semicolon) ;
 */
 static AstNode *ast_parse_statement(ParseContext *pc, int token_index, int *new_token_index) {
     Token *token = &pc->tokens->at(token_index);
     if (token->id == TokenIdKeywordReturn) {
         AstNode *node = ast_create_node(NodeTypeStatementReturn, token);
         token_index += 1;
-        node->data.statement_return.expression = ast_parse_expression(pc, token_index, &token_index);
+        node->data.statement_return.expression = ast_parse_expression(pc, &token_index, false);
 
         Token *semicolon = &pc->tokens->at(token_index);
         token_index += 1;
@@ -460,7 +462,7 @@ static AstNode *ast_parse_statement(ParseContext *pc, int token_index, int *new_
                token->id == TokenIdKeywordUnreachable ||
                token->id == TokenIdNumberLiteral)
     {
-        AstNode *node = ast_parse_expression(pc, token_index, &token_index);
+        AstNode *node = ast_parse_expression(pc, &token_index, true);
 
         Token *semicolon = &pc->tokens->at(token_index);
         token_index += 1;
