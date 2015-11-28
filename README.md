@@ -34,7 +34,6 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
  * Math expression
  * Export .so library
- * Export .o file
  * Multiple files
  * inline assembly and syscalls
  * running code at compile time

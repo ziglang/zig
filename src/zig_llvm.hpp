@@ -22,7 +22,7 @@ char *LLVMZigGetHostCPUName(void);
 char *LLVMZigGetNativeFeatures(void);
 
 LLVMBool LLVMZigTargetMachineEmitToFile(LLVMTargetMachineRef target_machine, LLVMModuleRef module,
-        char* filename, LLVMCodeGenFileType codegen, char** error_msg);
+        const char* filename, LLVMCodeGenFileType codegen, char** error_msg);
 
 void LLVMZigOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref);
 

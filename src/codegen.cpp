@@ -994,7 +994,10 @@ void code_gen_link(CodeGen *g, const char *out_file) {
 
     Buf out_file_o = BUF_INIT;
     buf_init_from_str(&out_file_o, out_file);
-    buf_append_str(&out_file_o, ".o");
+
+    if (g->out_type != OutTypeObj) {
+        buf_append_str(&out_file_o, ".o");
+    }
 
     char *err_msg = nullptr;
     if (LLVMZigTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(&out_file_o),
@@ -1003,6 +1006,17 @@ void code_gen_link(CodeGen *g, const char *out_file) {
         zig_panic("unable to write object file: %s", err_msg);
     }
 
+    if (g->out_type == OutTypeObj) {
+        return;
+    }
+
+    if (g->out_type == OutTypeLib && g->is_static) {
+        // invoke `ar`
+        zig_panic("TODO invoke ar");
+        return;
+    }
+
+    // invoke `ld`
     ZigList<const char *> args = {0};
     if (g->is_static) {
         args.append("-static");

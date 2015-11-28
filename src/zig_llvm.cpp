@@ -156,7 +156,7 @@ static LLVMBool LLVMZigTargetMachineEmit(LLVMTargetMachineRef targ_machine_ref, 
 }
 
 LLVMBool LLVMZigTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        char* filename, LLVMCodeGenFileType codegen, char** err_msg)
+        const char* filename, LLVMCodeGenFileType codegen, char** err_msg)
 {
     std::error_code error_code;
     raw_fd_ostream dest(filename, error_code, sys::fs::F_None);
