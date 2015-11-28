@@ -30,6 +30,16 @@ readable, safe, optimal, and concise code to solve any computing problem.
    This mode should automatically provide test coverage.
  * Memory zeroed by default, unless you initialize with "uninitialized".
 
+### Building
+
+```
+mkdir build
+cd build
+cmake ..
+make
+./run_tests
+```
+
 ## Roadmap
 
  * Math expression
@@ -93,25 +103,63 @@ PointerType : token(Star) token(Const) Type | token(Star) token(Mut) Type
 
 Block : token(LBrace) many(Statement) token(RBrace)
 
-Statement : ExpressionStatement | ReturnStatement
+Statement : ExpressionStatement
 
 ExpressionStatement : Expression token(Semicolon)
 
-ReturnStatement : token(Return) option(Expression) token(Semicolon)
+Expression : BoolOrExpression | ReturnExpression
 
-Expression : token(Number) | token(String) | token(Unreachable) | FnCall
+BoolOrExpression : BoolAndExpression token(BoolOr) BoolAndExpression | BoolAndExpression
+
+ReturnExpression : token(Return) option(Expression)
+
+BoolAndExpression : ComparisonExpression token(BoolAnd) ComparisonExpression | ComparisonExpression
+
+ComparisonExpression : BinaryOrExpression ComparisonOperator BinaryOrExpression | BinaryOrExpression
+
+ComparisonOperator : token(BoolEq) | token(BoolNotEq) | token(BoolLessThan) | token(BoolGreaterThan) | token(BoolLessEqual) | token(BoolGreaterEqual)
+
+BinaryOrExpression : BinaryXorExpression token(BinOr) BinaryXorExpression | BinaryXorExpression
+
+BinaryXorExpression : BinaryAndExpression token(BinXor) BinaryAndExpression | BinaryAndExpression
+
+BinaryAndExpression : BitShiftExpression token(BinAnd) BitShiftExpression | BitShiftExpression
+
+BitShiftExpression : AdditionExpression BitShiftOperator AdditionExpression | AdditionExpression
+
+BitShiftOperator : token(BitShiftLeft | token(BitShiftRight)
+
+AdditionExpression : MultiplyExpression AdditionOperator MultiplyExpression | MultiplyExpression
+
+AdditionOperator : token(Plus) | token(Minus)
+
+MultiplyExpression : CastExpression MultiplyOperator CastExpression | CastExpression
+
+MultiplyOperator : token(Star) | token(Slash) | token(Percent)
+
+CastExpression : PrimaryExpression token(as) Type | PrimaryExpression
+
+PrimaryExpression : token(Number) | token(String) | token(Unreachable) | FnCall | GroupedExpression | Block
+
+GroupedExpression : token(LParen) Expression token(RParen)
 
 FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen)
 
 Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
 ```
 
-### Building
+### Binary Operator Precedence
 
 ```
-mkdir build
-cd build
-cmake ..
-make
-./run_tests
+as
+* / %
++ -
+<< >>
+&
+^
+|
+== != < > <= >=
+&&
+||
+=
 ```

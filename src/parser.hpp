@@ -24,11 +24,22 @@ enum NodeType {
     NodeTypeParamDecl,
     NodeTypeType,
     NodeTypeBlock,
-    NodeTypeExpression,
     NodeTypeFnCall,
     NodeTypeExternBlock,
     NodeTypeDirective,
-    NodeTypeStatementReturn,
+    NodeTypeReturnExpr,
+    NodeTypeBoolOrExpr,
+    NodeTypeBoolAndExpr,
+    NodeTypeComparisonExpr,
+    NodeTypeBinOrExpr,
+    NodeTypeBinXorExpr,
+    NodeTypeBinAndExpr,
+    NodeTypeBitShiftExpr,
+    NodeTypeAddExpr,
+    NodeTypeMultExpr,
+    NodeTypeCastExpr,
+    NodeTypePrimaryExpr,
+    NodeTypeGroupedExpr,
 };
 
 struct AstNodeRoot {
@@ -80,24 +91,15 @@ struct AstNodeBlock {
     ZigList<AstNode *> statements;
 };
 
-struct AstNodeStatementReturn {
-    AstNode *expression;
+struct AstNodeReturnExpr {
+    // might be null in case of return void;
+    AstNode *expr;
 };
 
-enum AstNodeExpressionType {
-    AstNodeExpressionTypeNumber,
-    AstNodeExpressionTypeString,
-    AstNodeExpressionTypeFnCall,
-    AstNodeExpressionTypeUnreachable,
-};
-
-struct AstNodeExpression {
-    AstNodeExpressionType type;
-    union {
-        Buf number;
-        Buf string;
-        AstNode *fn_call;
-    } data;
+struct AstNodeBoolOrExpr {
+    AstNode *op1;
+    // if op2 is non-null, do boolean or, otherwise nothing
+    AstNode *op2;
 };
 
 struct AstNodeFnCall {
@@ -120,6 +122,117 @@ struct AstNodeRootExportDecl {
     Buf name;
 };
 
+struct AstNodeBoolAndExpr {
+    AstNode *op1;
+    // if op2 is non-null, do boolean and, otherwise nothing
+    AstNode *op2;
+};
+
+enum CmpOp {
+    CmpOpInvalid,
+    CmpOpEq,
+    CmpOpNotEq,
+    CmpOpLessThan,
+    CmpOpGreaterThan,
+    CmpOpLessOrEq,
+    CmpOpGreaterOrEq,
+};
+
+struct AstNodeComparisonExpr {
+    AstNode *op1;
+    CmpOp cmp_op;
+    // if op2 is non-null, do cmp_op, otherwise nothing
+    AstNode *op2;
+};
+
+struct AstNodeBinOrExpr {
+    AstNode *op1;
+    // if op2 is non-null, do binary or, otherwise nothing
+    AstNode *op2;
+};
+
+struct AstNodeBinXorExpr {
+    AstNode *op1;
+    // if op2 is non-null, do binary xor, otherwise nothing
+    AstNode *op2;
+};
+
+struct AstNodeBinAndExpr {
+    AstNode *op1;
+    // if op2 is non-null, do binary and, otherwise nothing
+    AstNode *op2;
+};
+
+enum BitShiftOp {
+    BitShiftOpInvalid,
+    BitShiftOpLeft,
+    BitShiftOpRight,
+};
+
+struct AstNodeBitShiftExpr {
+    AstNode *op1;
+    BitShiftOp bit_shift_op;
+    // if op2 is non-null, do bit_shift_op, otherwise nothing
+    AstNode *op2;
+};
+
+enum AddOp {
+    AddOpInvalid,
+    AddOpAdd,
+    AddOpSub,
+};
+
+struct AstNodeAddExpr {
+    AstNode *op1;
+    AddOp add_op;
+    // if op2 is non-null, do add_op, otherwise nothing
+    AstNode *op2;
+};
+
+enum MultOp {
+    MultOpInvalid,
+    MultOpMult,
+    MultOpDiv,
+    MultOpMod,
+};
+
+struct AstNodeMultExpr {
+    AstNode *op1;
+    MultOp mult_op;
+    // if op2 is non-null, do mult_op, otherwise nothing
+    AstNode *op2;
+};
+
+struct AstNodeCastExpr {
+    AstNode *primary_expr;
+    // if type is non-null, do cast, otherwise nothing
+    AstNode *type;
+};
+
+enum PrimaryExprType {
+    PrimaryExprTypeNumber,
+    PrimaryExprTypeString,
+    PrimaryExprTypeUnreachable,
+    PrimaryExprTypeFnCall,
+    PrimaryExprTypeGroupedExpr,
+    PrimaryExprTypeBlock,
+};
+
+struct AstNodePrimaryExpr {
+    PrimaryExprType type;
+    union {
+        Buf number;
+        Buf string;
+        AstNode *fn_call;
+        AstNode *grouped_expr;
+        AstNode *block;
+    } data;
+};
+
+struct AstNodeGroupedExpr {
+    AstNode *expr;
+};
+
 struct AstNode {
     enum NodeType type;
     AstNode *parent;
@@ -135,11 +248,22 @@ struct AstNode {
         AstNodeType type;
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
-        AstNodeStatementReturn statement_return;
-        AstNodeExpression expression;
+        AstNodeReturnExpr return_expr;
+        AstNodeBoolOrExpr bool_or_expr;
         AstNodeFnCall fn_call;
         AstNodeExternBlock extern_block;
         AstNodeDirective directive;
+        AstNodeBoolAndExpr bool_and_expr;
+        AstNodeComparisonExpr comparison_expr;
+        AstNodeBinOrExpr bin_or_expr;
+        AstNodeBinXorExpr bin_xor_expr;
+        AstNodeBinAndExpr bin_and_expr;
+        AstNodeBitShiftExpr bit_shift_expr;
+        AstNodeAddExpr add_expr;
+        AstNodeMultExpr mult_expr;
+        AstNodeCastExpr cast_expr;
+        AstNodePrimaryExpr primary_expr;
+        AstNodeGroupedExpr grouped_expr;
     } data;
 };
 

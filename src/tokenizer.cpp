@@ -98,6 +98,12 @@ enum TokenizeState {
     TokenizeStateMultiLineComment,
     TokenizeStateMultiLineCommentSlash,
     TokenizeStateMultiLineCommentStar,
+    TokenizeStatePipe,
+    TokenizeStateAmpersand,
+    TokenizeStateEq,
+    TokenizeStateBang,
+    TokenizeStateLessThan,
+    TokenizeStateGreaterThan,
 };
 
 
@@ -144,6 +150,11 @@ static void begin_token(Tokenize *t, TokenId id) {
     t->cur_tok = token;
 }
 
+static void cancel_token(Tokenize *t) {
+    t->tokens->pop();
+    t->cur_tok = nullptr;
+}
+
 static void end_token(Tokenize *t) {
     assert(t->cur_tok);
     t->cur_tok->end_pos = t->pos + 1;
@@ -167,6 +178,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordPub;
     } else if (mem_eql_str(token_mem, token_len, "export")) {
         t->cur_tok->id = TokenIdKeywordExport;
+    } else if (mem_eql_str(token_mem, token_len, "as")) {
+        t->cur_tok->id = TokenIdKeywordAs;
     }
 
     t->cur_tok = nullptr;
@@ -212,6 +225,10 @@ ZigList<Token> *tokenize(Buf *buf) {
                         begin_token(&t, TokenIdStar);
                         end_token(&t);
                         break;
+                    case '%':
+                        begin_token(&t, TokenIdPercent);
+                        end_token(&t);
+                        break;
                     case '{':
                         begin_token(&t, TokenIdLBrace);
                         end_token(&t);
@@ -240,24 +257,149 @@ ZigList<Token> *tokenize(Buf *buf) {
                         begin_token(&t, TokenIdNumberSign);
                         end_token(&t);
                         break;
+                    case '^':
+                        begin_token(&t, TokenIdBinXor);
+                        end_token(&t);
+                        break;
                     case '/':
+                        begin_token(&t, TokenIdSlash);
                         t.state = TokenizeStateSawSlash;
+                        break;
+                    case '|':
+                        begin_token(&t, TokenIdBinOr);
+                        t.state = TokenizeStatePipe;
+                        break;
+                    case '&':
+                        begin_token(&t, TokenIdBinAnd);
+                        t.state = TokenizeStateAmpersand;
+                        break;
+                    case '=':
+                        begin_token(&t, TokenIdEq);
+                        t.state = TokenizeStateEq;
+                        break;
+                    case '!':
+                        begin_token(&t, TokenIdNot);
+                        t.state = TokenizeStateBang;
+                        break;
+                    case '<':
+                        begin_token(&t, TokenIdCmpLessThan);
+                        t.state = TokenizeStateLessThan;
+                        break;
+                    case '>':
+                        begin_token(&t, TokenIdCmpGreaterThan);
+                        t.state = TokenizeStateGreaterThan;
                         break;
                     default:
                         tokenize_error(&t, "invalid character: '%c'", c);
                 }
                 break;
+            case TokenizeStateGreaterThan:
+                switch (c) {
+                    case '=':
+                        t.cur_tok->id = TokenIdCmpGreaterOrEq;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    case '>':
+                        t.cur_tok->id = TokenIdBitShiftRight;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateLessThan:
+                switch (c) {
+                    case '=':
+                        t.cur_tok->id = TokenIdCmpLessOrEq;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                    case '<':
+                        t.cur_tok->id = TokenIdBitShiftLeft;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateBang:
+                switch (c) {
+                    case '=':
+                        t.cur_tok->id = TokenIdCmpNotEq;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateEq:
+                switch (c) {
+                    case '=':
+                        t.cur_tok->id = TokenIdCmpEq;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateAmpersand:
+                switch (c) {
+                    case '&':
+                        t.cur_tok->id = TokenIdBoolAnd;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStatePipe:
+                switch (c) {
+                    case '|':
+                        t.cur_tok->id = TokenIdBoolOr;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
             case TokenizeStateSawSlash:
                 switch (c) {
                     case '/':
+                        cancel_token(&t);
                         t.state = TokenizeStateLineComment;
                         break;
                     case '*':
+                        cancel_token(&t);
                         t.state = TokenizeStateMultiLineComment;
                         t.multi_line_comment_count = 1;
                         break;
                     default:
-                        tokenize_error(&t, "invalid character: '%c'", c);
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
                         break;
                 }
                 break;
@@ -371,16 +513,18 @@ ZigList<Token> *tokenize(Buf *buf) {
     switch (t.state) {
         case TokenizeStateStart:
             break;
-        case TokenizeStateSymbol:
-            end_token(&t);
-            break;
         case TokenizeStateString:
             tokenize_error(&t, "unterminated string");
             break;
+        case TokenizeStateSymbol:
         case TokenizeStateNumber:
-            end_token(&t);
-            break;
         case TokenizeStateSawDash:
+        case TokenizeStatePipe:
+        case TokenizeStateAmpersand:
+        case TokenizeStateEq:
+        case TokenizeStateBang:
+        case TokenizeStateLessThan:
+        case TokenizeStateGreaterThan:
             end_token(&t);
             break;
         case TokenizeStateSawSlash:
@@ -413,6 +557,7 @@ static const char * token_name(Token *token) {
         case TokenIdKeywordUnreachable: return "Unreachable";
         case TokenIdKeywordPub: return "Pub";
         case TokenIdKeywordExport: return "Export";
+        case TokenIdKeywordAs: return "As";
         case TokenIdLParen: return "LParen";
         case TokenIdRParen: return "RParen";
         case TokenIdComma: return "Comma";
@@ -427,6 +572,23 @@ static const char * token_name(Token *token) {
         case TokenIdArrow: return "Arrow";
         case TokenIdDash: return "Dash";
         case TokenIdNumberSign: return "NumberSign";
+        case TokenIdBinOr: return "BinOr";
+        case TokenIdBinAnd: return "BinAnd";
+        case TokenIdBinXor: return "BinXor";
+        case TokenIdBoolOr: return "BoolOr";
+        case TokenIdBoolAnd: return "BoolAnd";
+        case TokenIdEq: return "Eq";
+        case TokenIdNot: return "Not";
+        case TokenIdCmpEq: return "CmpEq";
+        case TokenIdCmpNotEq: return "CmpNotEq";
+        case TokenIdCmpLessThan: return "CmpLessThan";
+        case TokenIdCmpGreaterThan: return "CmpGreaterThan";
+        case TokenIdCmpLessOrEq: return "CmpLessOrEq";
+        case TokenIdCmpGreaterOrEq: return "CmpGreaterOrEq";
+        case TokenIdBitShiftLeft: return "BitShiftLeft";
+        case TokenIdBitShiftRight: return "BitShiftRight";
+        case TokenIdSlash: return "Slash";
+        case TokenIdPercent: return "Percent";
     }
     return "(invalid token)";
 }

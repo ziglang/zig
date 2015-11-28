@@ -7,7 +7,7 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn keyword zigKeyword fn return mut const extern unreachable export pub
+syn keyword zigKeyword fn return mut const extern unreachable export pub as
 syn keyword zigType bool i8 u8 i16 u16 i32 u32 i64 u64 isize usize f32 f64 f128 void
 
 syn region zigCommentLine start="//" end="$" contains=zigTodo,@Spell
