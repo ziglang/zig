@@ -988,13 +988,6 @@ gcc -fPIC -g -Werror -pedantic  -shared -Wl,-soname,libsoundio.so.1 -o libsoundi
 
 */
 void code_gen_link(CodeGen *g, const char *out_file) {
-    LLVMPassRegistryRef registry = LLVMGetGlobalPassRegistry();
-    LLVMInitializeCore(registry);
-    LLVMInitializeCodeGen(registry);
-    LLVMZigInitializeLoopStrengthReducePass(registry);
-    LLVMZigInitializeLowerIntrinsicsPass(registry);
-    LLVMZigInitializeUnreachableBlockElimPass(registry);
-
     if (!out_file) {
         out_file = buf_ptr(g->out_name);
     }
