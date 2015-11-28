@@ -83,6 +83,7 @@ struct TypeNode {
 
 struct FnDefNode {
     bool add_implicit_return;
+    bool skip;
 };
 
 struct CodeGenNode {
@@ -214,7 +215,7 @@ static void find_declarations(CodeGen *g, AstNode *node) {
                 if (buf_eql_str(name, "link")) {
                     g->link_table.put(param, true);
                 } else {
-                    add_node_error(g, node,
+                    add_node_error(g, directive_node,
                             buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
                 }
             }
@@ -242,6 +243,9 @@ static void find_declarations(CodeGen *g, AstNode *node) {
                 if (entry) {
                     add_node_error(g, node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
+                    assert(!node->codegen_node);
+                    node->codegen_node = allocate<CodeGenNode>(1);
+                    node->codegen_node->data.fn_def_node.skip = true;
                 } else {
                     FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
                     fn_table_entry->proto_node = proto_node;
@@ -261,6 +265,12 @@ static void find_declarations(CodeGen *g, AstNode *node) {
             }
         case NodeTypeFnProto:
             {
+                for (int i = 0; i < node->data.fn_proto.directives->length; i += 1) {
+                    AstNode *directive_node = node->data.fn_proto.directives->at(i);
+                    Buf *name = &directive_node->data.directive.name;
+                    add_node_error(g, directive_node,
+                            buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+                }
                 for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
                     AstNode *child = node->data.fn_proto.params.at(i);
                     find_declarations(g, child);
@@ -363,11 +373,18 @@ static void analyze_node(CodeGen *g, AstNode *node) {
             break;
         case NodeTypeFnDef:
             {
+                if (node->codegen_node && node->codegen_node->data.fn_def_node.skip) {
+                    // we detected an error with this function definition which prevents us
+                    // from further analyzing it.
+                    break;
+                }
+
                 AstNode *proto_node = node->data.fn_def.fn_proto;
                 assert(proto_node->type == NodeTypeFnProto);
                 analyze_node(g, proto_node);
 
                 check_fn_def_control_flow(g, node);
+                analyze_node(g, node->data.fn_def.body);
                 break;
             }
         case NodeTypeFnDecl:

@@ -10,6 +10,7 @@
 #include "os.hpp"
 
 #include <stdio.h>
+#include <stdarg.h>
 
 struct TestSourceFile {
     const char *relative_path;
@@ -25,9 +26,10 @@ struct TestCase {
     ZigList<const char *> program_args;
 };
 
-ZigList<TestCase*> test_cases = {0};
-const char *tmp_source_path = ".tmp_source.zig";
-const char *tmp_exe_path = "./.tmp_exe";
+static ZigList<TestCase*> test_cases = {0};
+static const char *tmp_source_path = ".tmp_source.zig";
+static const char *tmp_exe_path = "./.tmp_exe";
+static const char *zig_exe = "./zig";
 
 static void add_simple_case(const char *case_name, const char *source, const char *output) {
     TestCase *test_case = allocate<TestCase>(1);
@@ -45,7 +47,32 @@ static void add_simple_case(const char *case_name, const char *source, const cha
     test_cases.append(test_case);
 }
 
-static void add_all_test_cases(void) {
+static void add_compile_fail_case(const char *case_name, const char *source, int count, ...) {
+    va_list ap;
+    va_start(ap, count);
+
+    TestCase *test_case = allocate<TestCase>(1);
+    test_case->case_name = case_name;
+    test_case->source = source;
+
+    for (int i = 0; i < count; i += 1) {
+        const char *arg = va_arg(ap, const char *);
+        test_case->compile_errors.append(arg);
+    }
+
+    test_case->compiler_args.append("build");
+    test_case->compiler_args.append(tmp_source_path);
+    test_case->compiler_args.append("--output");
+    test_case->compiler_args.append(tmp_exe_path);
+    test_case->compiler_args.append("--release");
+    test_case->compiler_args.append("--strip");
+
+    test_cases.append(test_case);
+
+    va_end(ap);
+}
+
+static void add_compiling_test_cases(void) {
     add_simple_case("hello world with libc", R"SOURCE(
         #link("c")
         extern {
@@ -102,23 +129,102 @@ static void add_all_test_cases(void) {
     )SOURCE", "OK\n");
 }
 
+static void add_compile_failure_test_cases(void) {
+    add_compile_fail_case("multiple function definitions", R"SOURCE(
+fn a() {}
+fn a() {}
+    )SOURCE", 1, "Line 3, column 1: redefinition of 'a'");
+
+    add_compile_fail_case("bad directive", R"SOURCE(
+#bogus1("")
+extern {
+    fn b();
+}
+#bogus2("")
+fn a() {}
+    )SOURCE", 2, "Line 2, column 1: invalid directive: 'bogus1'",
+                 "Line 6, column 1: invalid directive: 'bogus2'");
+
+    add_compile_fail_case("unreachable with return", R"SOURCE(
+fn a() -> unreachable {return;}
+    )SOURCE", 1, "Line 2, column 24: return statement in function with unreachable return type");
+
+    add_compile_fail_case("control reaches end of non-void function", R"SOURCE(
+fn a() -> i32 {}
+    )SOURCE", 1, "Line 2, column 1: control reaches end of non-void function");
+
+    add_compile_fail_case("undefined function call", R"SOURCE(
+fn a() {
+    b();
+}
+    )SOURCE", 1, "Line 3, column 5: undefined function: 'b'");
+
+    add_compile_fail_case("wrong number of arguments", R"SOURCE(
+fn a() {
+    b(1);
+}
+fn b(a: i32, b: i32, c: i32) { }
+    )SOURCE", 1, "Line 3, column 5: wrong number of arguments. Expected 3, got 1.");
+
+    add_compile_fail_case("invalid type", R"SOURCE(
+fn a() -> bogus {}
+    )SOURCE", 1, "Line 2, column 11: invalid type name: 'bogus'");
+
+    add_compile_fail_case("pointer to unreachable", R"SOURCE(
+fn a() -> *mut unreachable {}
+    )SOURCE", 1, "Line 2, column 11: pointer to unreachable not allowed");
+
+    add_compile_fail_case("unreachable code", R"SOURCE(
+fn a() {
+    return;
+    b();
+}
+
+fn b() {}
+    )SOURCE", 1, "Line 4, column 5: unreachable code");
+}
+
+static void print_compiler_invokation(TestCase *test_case, Buf *zig_stderr) {
+    printf("%s", zig_exe);
+    for (int i = 0; i < test_case->compiler_args.length; i += 1) {
+        printf(" %s", test_case->compiler_args.at(i));
+    }
+    printf("\n");
+    printf("%s\n", buf_ptr(zig_stderr));
+}
+
 static void run_test(TestCase *test_case) {
     os_write_file(buf_create_from_str(tmp_source_path), buf_create_from_str(test_case->source));
 
     Buf zig_stderr = BUF_INIT;
     Buf zig_stdout = BUF_INIT;
     int return_code;
-    static const char *zig_exe = "./zig";
     os_exec_process(zig_exe, test_case->compiler_args, &return_code, &zig_stderr, &zig_stdout);
+
+    if (test_case->compile_errors.length) {
+        if (return_code) {
+            for (int i = 0; i < test_case->compile_errors.length; i += 1) {
+                const char *err_text = test_case->compile_errors.at(i);
+                if (!strstr(buf_ptr(&zig_stderr), err_text)) {
+                    printf("\n");
+                    printf("========= Expected this compile error: =========\n");
+                    printf("%s\n", err_text);
+                    printf("================================================\n");
+                    print_compiler_invokation(test_case, &zig_stderr);
+                    exit(1);
+                }
+            }
+            return; // success
+        } else {
+            printf("\nCompile failed with return code 0 (Expected failure):\n");
+            print_compiler_invokation(test_case, &zig_stderr);
+            exit(1);
+        }
+    }
 
     if (return_code != 0) {
         printf("\nCompile failed with return code %d:\n", return_code);
-        printf("%s", zig_exe);
-        for (int i = 0; i < test_case->compiler_args.length; i += 1) {
-            printf(" %s", test_case->compiler_args.at(i));
-        }
-        printf("\n");
-        printf("%s\n", buf_ptr(&zig_stderr));
+        print_compiler_invokation(test_case, &zig_stderr);
         exit(1);
     }
 
@@ -164,7 +270,8 @@ static void cleanup(void) {
 }
 
 int main(int argc, char **argv) {
-    add_all_test_cases();
+    add_compiling_test_cases();
+    add_compile_failure_test_cases();
     run_all_tests();
     cleanup();
 }

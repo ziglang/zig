@@ -16,6 +16,8 @@
 
 #define BREAKPOINT __asm("int $0x03")
 
+static const int COMPILE_FAILED_ERR_CODE = 10; // chosen with a random number generator
+
 void zig_panic(const char *format, ...)
     __attribute__((cold))
     __attribute__ ((noreturn))

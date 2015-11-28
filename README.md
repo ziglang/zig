@@ -32,11 +32,15 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
 ## Roadmap
 
- * test framework to test for compile errors
  * Simple .so library
  * Multiple files
  * inline assembly and syscalls
  * running code at compile time
+ * print! macro that takes var args
+ * panic! macro that prints a stack trace to stderr in debug mode and calls
+   abort() in release mode
+ * unreachable codegen to panic("unreachable") in debug mode, and nothing in
+   release mode
  * implement a simple game using SDL2
  * How should the Widget use case be solved? In Genesis I'm using C++ and inheritance.
 
