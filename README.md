@@ -35,7 +35,6 @@ readable, safe, optimal, and concise code to solve any computing problem.
  * test framework to test for compile errors
  * Simple .so library
  * Multiple files
- * figure out integers
  * inline assembly and syscalls
  * running code at compile time
  * implement a simple game using SDL2
@@ -45,6 +44,7 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
 zig    | C equivalent | Description
 -------|--------------|-------------------------------
+  bool |         bool |  unsigned 1-bit integer
     i8 |       int8_t |    signed 8-bit integer
     u8 |      uint8_t |  unsigned 8-bit integer
    i16 |      int16_t |   signed 16-bit integer
@@ -56,8 +56,8 @@ zig    | C equivalent | Description
    f32 |        float |  32-bit IEE754 floating point
    f64 |       double |  64-bit IEE754 floating point
   f128 |  long double | 128-bit IEE754 floating point
- isize |      ssize_t |   signed pointer sized integer
- usize |       size_t | unsigned pointer sized integer
+ isize |     intptr_t |   signed pointer sized integer
+ usize |    uintptr_t | unsigned pointer sized integer
 
 ### Grammar
 
