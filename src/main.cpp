@@ -28,16 +28,22 @@
 static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options] target\n"
         "Commands:\n"
-        "  build          create an executable from target\n"
-        "Options:\n"
-        "  --output       output file\n"
-        "  --version      print version number and exit\n"
-        "  -Ipath         add path to header include path\n"
-        "  --release      build with optimizations on\n"
-        "  --strip        exclude debug symbols\n"
-        "  --static       build a static executable\n"
+        "  build                  create executable, object, or library from target\n"
+        "  version                print version number and exit\n"
+        "Optional Options:\n"
+        "  --release              build with optimizations on and debug protection off\n"
+        "  --static               output will be statically linked\n"
+        "  --strip                exclude debug symbols\n"
+        "  --export [exe|lib|obj] override output type\n"
+        "  --name [name]          override output name\n"
+        "  --output [file]        override destination path\n"
     , arg0);
     return EXIT_FAILURE;
+}
+
+static int version(void) {
+    printf("%s\n", ZIG_VERSION_STRING);
+    return EXIT_SUCCESS;
 }
 
 static Buf *fetch_file(FILE *f) {
@@ -58,12 +64,12 @@ static Buf *fetch_file(FILE *f) {
     return buf;
 }
 
-static int build(const char *arg0, const char *in_file, const char *out_file,
-        ZigList<char *> *include_paths, bool release, bool strip, bool is_static)
+static int build(const char *arg0, const char *in_file, const char *out_file, bool release,
+        bool strip, bool is_static, OutType out_type, char *out_name)
 {
     static char cur_dir[1024];
 
-    if (!in_file || !out_file)
+    if (!in_file)
         return usage(arg0);
 
     FILE *in_f;
@@ -100,6 +106,10 @@ static int build(const char *arg0, const char *in_file, const char *out_file,
     codegen_set_build_type(codegen, release ? CodeGenBuildTypeRelease : CodeGenBuildTypeDebug);
     codegen_set_strip(codegen, strip);
     codegen_set_is_static(codegen, is_static);
+    if (out_type != OutTypeUnknown)
+        codegen_set_out_type(codegen, out_type);
+    if (out_name)
+        codegen_set_out_name(codegen, buf_create_from_str(out_name));
     semantic_analyze(codegen);
     ZigList<ErrorMsg> *errors = codegen_error_messages(codegen);
     if (errors->length == 0) {
@@ -135,25 +145,25 @@ static int build(const char *arg0, const char *in_file, const char *out_file,
 enum Cmd {
     CmdNone,
     CmdBuild,
+    CmdVersion,
 };
 
 int main(int argc, char **argv) {
     char *arg0 = argv[0];
     char *in_file = NULL;
     char *out_file = NULL;
-    ZigList<char *> include_paths = {0};
     bool release = false;
     bool strip = false;
     bool is_static = false;
+
+    OutType out_type = OutTypeUnknown;
+    char *out_name = NULL;
 
     Cmd cmd = CmdNone;
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
         if (arg[0] == '-' && arg[1] == '-') {
-            if (strcmp(arg, "--version") == 0) {
-                printf("%s\n", ZIG_VERSION_STRING);
-                return EXIT_SUCCESS;
-            } else if (strcmp(arg, "--release") == 0) {
+            if (strcmp(arg, "--release") == 0) {
                 release = true;
             } else if (strcmp(arg, "--strip") == 0) {
                 strip = true;
@@ -165,15 +175,27 @@ int main(int argc, char **argv) {
                 i += 1;
                 if (strcmp(arg, "--output") == 0) {
                     out_file = argv[i];
+                } else if (strcmp(arg, "--export") == 0) {
+                    if (strcmp(argv[i], "exe") == 0) {
+                        out_type = OutTypeExe;
+                    } else if (strcmp(argv[i], "lib") == 0) {
+                        out_type = OutTypeLib;
+                    } else if (strcmp(argv[i], "obj") == 0) {
+                        out_type = OutTypeObj;
+                    } else {
+                        return usage(arg0);
+                    }
+                } else if (strcmp(arg, "--name") == 0) {
+                    out_name = argv[i];
                 } else {
                     return usage(arg0);
                 }
             }
-        } else if (arg[0] == '-' && arg[1] == 'I') {
-            include_paths.append(arg + 2);
         } else if (cmd == CmdNone) {
             if (strcmp(arg, "build") == 0) {
                 cmd = CmdBuild;
+            } else if (strcmp(arg, "version") == 0) {
+                cmd = CmdVersion;
             } else {
                 fprintf(stderr, "Unrecognized command: %s\n", arg);
                 return usage(arg0);
@@ -189,6 +211,8 @@ int main(int argc, char **argv) {
                         return usage(arg0);
                     }
                     break;
+                case CmdVersion:
+                    return usage(arg0);
             }
         }
     }
@@ -197,9 +221,10 @@ int main(int argc, char **argv) {
         case CmdNone:
             return usage(arg0);
         case CmdBuild:
-            return build(arg0, in_file, out_file, &include_paths, release, strip, is_static);
+            return build(arg0, in_file, out_file, release, strip, is_static, out_type, out_name);
+        case CmdVersion:
+            return version();
     }
 
     zig_unreachable();
 }
-

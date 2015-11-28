@@ -29,6 +29,8 @@ const char *node_type_str(NodeType node_type) {
     switch (node_type) {
         case NodeTypeRoot:
             return "Root";
+        case NodeTypeRootExportDecl:
+            return "RootExportDecl";
         case NodeTypeFnDef:
             return "FnDef";
         case NodeTypeFnDecl:
@@ -67,6 +69,11 @@ void ast_print(AstNode *node, int indent) {
                 AstNode *child = node->data.root.top_level_decls.at(i);
                 ast_print(child, indent + 2);
             }
+            break;
+        case NodeTypeRootExportDecl:
+            fprintf(stderr, "%s %s '%s'\n", node_type_str(node->type),
+                    buf_ptr(&node->data.root_export_decl.type),
+                    buf_ptr(&node->data.root_export_decl.name));
             break;
         case NodeTypeFnDef:
             {
@@ -714,6 +721,36 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
     zig_unreachable();
 }
 
+static AstNode *ast_parse_root_export_decl(ParseContext *pc, int *token_index) {
+    Token *export_kw = &pc->tokens->at(*token_index);
+    if (export_kw->id != TokenIdKeywordExport)
+        return nullptr;
+    *token_index += 1;
+
+    AstNode *node = ast_create_node(NodeTypeRootExportDecl, export_kw);
+
+    Token *export_type = &pc->tokens->at(*token_index);
+    *token_index += 1;
+    ast_expect_token(pc, export_type, TokenIdSymbol);
+
+    ast_buf_from_token(pc, export_type, &node->data.root_export_decl.type);
+
+    Token *export_name = &pc->tokens->at(*token_index);
+    *token_index += 1;
+    ast_expect_token(pc, export_name, TokenIdStringLiteral);
+
+    parse_string_literal(pc, export_name, &node->data.root_export_decl.name);
+
+    Token *semicolon = &pc->tokens->at(*token_index);
+    *token_index += 1;
+    ast_expect_token(pc, semicolon, TokenIdSemicolon);
+
+    return node;
+}
+
+/*
+Root : RootExportDecl many(TopLevelDecl) token(EOF)
+ */
 AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens) {
     ParseContext pc = {0};
     pc.buf = buf;
@@ -721,6 +758,9 @@ AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens) {
     pc.tokens = tokens;
 
     int token_index = 0;
+
+    pc.root->data.root.root_export_decl = ast_parse_root_export_decl(&pc, &token_index);
+
     ast_parse_top_level_decls(&pc, &token_index, &pc.root->data.root.top_level_decls);
 
     if (token_index != tokens->length - 1) {

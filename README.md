@@ -32,7 +32,9 @@ readable, safe, optimal, and concise code to solve any computing problem.
 
 ## Roadmap
 
- * Simple .so library
+ * Math expression
+ * Export .so library
+ * Export .o file
  * Multiple files
  * inline assembly and syscalls
  * running code at compile time
@@ -66,7 +68,9 @@ zig    | C equivalent | Description
 ### Grammar
 
 ```
-Root : many(TopLevelDecl) token(EOF)
+Root : RootExportDecl many(TopLevelDecl) token(EOF)
+
+RootExportDecl : token(Export) token(Symbol) token(String) token(Semicolon)
 
 TopLevelDecl : FnDef | ExternBlock
 

@@ -39,6 +39,10 @@ static void add_simple_case(const char *case_name, const char *source, const cha
 
     test_case->compiler_args.append("build");
     test_case->compiler_args.append(tmp_source_path);
+    test_case->compiler_args.append("--export");
+    test_case->compiler_args.append("exe");
+    test_case->compiler_args.append("--name");
+    test_case->compiler_args.append("test");
     test_case->compiler_args.append("--output");
     test_case->compiler_args.append(tmp_exe_path);
     test_case->compiler_args.append("--release");

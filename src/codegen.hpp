@@ -12,6 +12,14 @@
 
 struct CodeGen;
 
+enum OutType {
+    OutTypeUnknown,
+    OutTypeExe,
+    OutTypeLib,
+    OutTypeObj,
+};
+
+
 struct ErrorMsg {
     int line_start;
     int column_start;
@@ -30,6 +38,8 @@ enum CodeGenBuildType {
 void codegen_set_build_type(CodeGen *codegen, CodeGenBuildType build_type);
 void codegen_set_is_static(CodeGen *codegen, bool is_static);
 void codegen_set_strip(CodeGen *codegen, bool strip);
+void codegen_set_out_type(CodeGen *codegen, OutType out_type);
+void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
 
 void semantic_analyze(CodeGen *g);
 

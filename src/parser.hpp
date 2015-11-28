@@ -17,6 +17,7 @@ struct CodeGenNode;
 
 enum NodeType {
     NodeTypeRoot,
+    NodeTypeRootExportDecl,
     NodeTypeFnProto,
     NodeTypeFnDef,
     NodeTypeFnDecl,
@@ -31,6 +32,7 @@ enum NodeType {
 };
 
 struct AstNodeRoot {
+    AstNode *root_export_decl;
     ZigList<AstNode *> top_level_decls;
 };
 
@@ -113,6 +115,11 @@ struct AstNodeDirective {
     Buf param;
 };
 
+struct AstNodeRootExportDecl {
+    Buf type;
+    Buf name;
+};
+
 struct AstNode {
     enum NodeType type;
     AstNode *parent;
@@ -121,6 +128,7 @@ struct AstNode {
     CodeGenNode *codegen_node;
     union {
         AstNodeRoot root;
+        AstNodeRootExportDecl root_export_decl;
         AstNodeFnDef fn_def;
         AstNodeFnDecl fn_decl;
         AstNodeFnProto fn_proto;

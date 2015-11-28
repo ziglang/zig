@@ -75,6 +75,8 @@ struct CodeGen {
     ZigList<llvm::DIScope *> block_scopes;
     llvm::DIFile *di_file;
     ZigList<FnTableEntry *> fn_defs;
+    Buf *out_name;
+    OutType out_type;
 };
 
 struct TypeNode {
@@ -103,6 +105,8 @@ CodeGen *create_codegen(AstNode *root, Buf *in_full_path) {
     g->is_static = false;
     g->build_type = CodeGenBuildTypeDebug;
     g->strip_debug_symbols = false;
+    g->out_name = nullptr;
+    g->out_type = OutTypeUnknown;
 
     os_path_split(in_full_path, &g->in_dir, &g->in_file);
     return g;
@@ -118,6 +122,14 @@ void codegen_set_is_static(CodeGen *g, bool is_static) {
 
 void codegen_set_strip(CodeGen *g, bool strip) {
     g->strip_debug_symbols = strip;
+}
+
+void codegen_set_out_type(CodeGen *g, OutType out_type) {
+    g->out_type = out_type;
+}
+
+void codegen_set_out_name(CodeGen *g, Buf *out_name) {
+    g->out_name = out_name;
 }
 
 static void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
@@ -294,6 +306,7 @@ static void find_declarations(CodeGen *g, AstNode *node) {
         case NodeTypeBlock:
         case NodeTypeExpression:
         case NodeTypeFnCall:
+        case NodeTypeRootExportDecl:
             zig_unreachable();
     }
 }
@@ -355,15 +368,50 @@ static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
 static void analyze_node(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeRoot:
-            // Iterate once over the top level declarations to build the function table
-            for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
-                AstNode *child = node->data.root.top_level_decls.at(i);
-                find_declarations(g, child);
+            {
+                AstNode *root_export_decl_node = node->data.root.root_export_decl;
+                if (root_export_decl_node) {
+                    assert(root_export_decl_node->type == NodeTypeRootExportDecl);
+                    if (!g->out_name)
+                        g->out_name = &root_export_decl_node->data.root_export_decl.name;
+
+                    Buf *out_type = &root_export_decl_node->data.root_export_decl.type;
+                    OutType export_out_type;
+                    if (buf_eql_str(out_type, "executable")) {
+                        export_out_type = OutTypeExe;
+                    } else if (buf_eql_str(out_type, "library")) {
+                        export_out_type = OutTypeLib;
+                    } else if (buf_eql_str(out_type, "object")) {
+                        export_out_type = OutTypeObj;
+                    } else {
+                        add_node_error(g, root_export_decl_node,
+                                buf_sprintf("invalid export type: '%s'", buf_ptr(out_type)));
+                    }
+                    if (g->out_type == OutTypeUnknown)
+                        g->out_type = export_out_type;
+                } else {
+                    if (!g->out_name) {
+                        add_node_error(g, node,
+                                buf_sprintf("missing export declaration and output name not provided"));
+                    } else if (g->out_type == OutTypeUnknown) {
+                        add_node_error(g, node,
+                                buf_sprintf("missing export declaration and export type not provided"));
+                    }
+                }
+
+                // Iterate once over the top level declarations to build the function table
+                for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
+                    AstNode *child = node->data.root.top_level_decls.at(i);
+                    find_declarations(g, child);
+                }
+                for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
+                    AstNode *child = node->data.root.top_level_decls.at(i);
+                    analyze_node(g, child);
+                }
+                break;
             }
-            for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
-                AstNode *child = node->data.root.top_level_decls.at(i);
-                analyze_node(g, child);
-            }
+        case NodeTypeRootExportDecl:
+            // handled in parent
             break;
         case NodeTypeExternBlock:
             for (int fn_decl_i = 0; fn_decl_i < node->data.extern_block.fn_decls.length; fn_decl_i += 1) {
@@ -674,6 +722,7 @@ static void gen_block(CodeGen *g, AstNode *block_node, bool add_implicit_return)
             case NodeTypeFnCall:
             case NodeTypeExternBlock:
             case NodeTypeDirective:
+            case NodeTypeRootExportDecl:
                 zig_unreachable();
         }
     }
@@ -929,6 +978,15 @@ static Buf *get_dynamic_linker(CodeGen *g) {
     }
 }
 
+/*
+
+# static link into libfoo.a
+ar cq libfoo.a foo1.o foo2.o 
+
+# dynamic link into libfoo.so
+gcc -fPIC -g -Werror -pedantic  -shared -Wl,-soname,libsoundio.so.1 -o libsoundio.so.1.0.3 foo1.o foo2.o -ljack -lpulse -lasound -lpthread 
+
+*/
 void code_gen_link(CodeGen *g, const char *out_file) {
     LLVMPassRegistryRef registry = LLVMGetGlobalPassRegistry();
     LLVMInitializeCore(registry);
@@ -936,6 +994,10 @@ void code_gen_link(CodeGen *g, const char *out_file) {
     LLVMZigInitializeLoopStrengthReducePass(registry);
     LLVMZigInitializeLowerIntrinsicsPass(registry);
     LLVMZigInitializeUnreachableBlockElimPass(registry);
+
+    if (!out_file) {
+        out_file = buf_ptr(g->out_name);
+    }
 
     Buf out_file_o = BUF_INIT;
     buf_init_from_str(&out_file_o, out_file);
