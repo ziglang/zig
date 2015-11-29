@@ -756,13 +756,37 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
     zig_panic("TODO cast expression");
 }
 
-static LLVMValueRef gen_mult_expr(CodeGen *g, AstNode *node) {
+static LLVMValueRef gen_arithmetic_bin_op_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
     LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
     LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
 
     switch (node->data.bin_op_expr.bin_op) {
+        case BinOpTypeBinOr:
+            add_debug_source_node(g, node);
+            return LLVMBuildOr(g->builder, val1, val2, "");
+        case BinOpTypeBinXor:
+            add_debug_source_node(g, node);
+            return LLVMBuildXor(g->builder, val1, val2, "");
+        case BinOpTypeBinAnd:
+            add_debug_source_node(g, node);
+            return LLVMBuildAnd(g->builder, val1, val2, "");
+        case BinOpTypeBitShiftLeft:
+            add_debug_source_node(g, node);
+            return LLVMBuildShl(g->builder, val1, val2, "");
+        case BinOpTypeBitShiftRight:
+            // TODO implement type system so that we know whether to do
+            // logical or arithmetic shifting here.
+            // signed -> arithmetic, unsigned -> logical
+            add_debug_source_node(g, node);
+            return LLVMBuildLShr(g->builder, val1, val2, "");
+        case BinOpTypeAdd:
+            add_debug_source_node(g, node);
+            return LLVMBuildAdd(g->builder, val1, val2, "");
+        case BinOpTypeSub:
+            add_debug_source_node(g, node);
+            return LLVMBuildSub(g->builder, val1, val2, "");
         case BinOpTypeMult:
             // TODO types so we know float vs int
             add_debug_source_node(g, node);
@@ -775,87 +799,22 @@ static LLVMValueRef gen_mult_expr(CodeGen *g, AstNode *node) {
             // TODO types so we know float vs int and signed vs unsigned
             add_debug_source_node(g, node);
             return LLVMBuildSRem(g->builder, val1, val2, "");
-        default:
+        case BinOpTypeBoolOr:
+        case BinOpTypeBoolAnd:
+        case BinOpTypeCmpEq:
+        case BinOpTypeCmpNotEq:
+        case BinOpTypeCmpLessThan:
+        case BinOpTypeCmpGreaterThan:
+        case BinOpTypeCmpLessOrEq:
+        case BinOpTypeCmpGreaterOrEq:
+        case BinOpTypeInvalid:
             zig_unreachable();
     }
     zig_unreachable();
-}
-
-static LLVMValueRef gen_add_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeBinOpExpr);
-
-    LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
-    LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
-
-    switch (node->data.bin_op_expr.bin_op) {
-        case BinOpTypeAdd:
-            add_debug_source_node(g, node);
-            return LLVMBuildAdd(g->builder, val1, val2, "");
-        case BinOpTypeSub:
-            add_debug_source_node(g, node);
-            return LLVMBuildSub(g->builder, val1, val2, "");
-        default:
-            zig_unreachable();
-    }
-    zig_unreachable();
-}
-
-static LLVMValueRef gen_bit_shift_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeBinOpExpr);
-
-    LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
-    LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
-
-    switch (node->data.bin_op_expr.bin_op) {
-        case BinOpTypeBitShiftLeft:
-            add_debug_source_node(g, node);
-            return LLVMBuildShl(g->builder, val1, val2, "");
-        case BinOpTypeBitShiftRight:
-            // TODO implement type system so that we know whether to do
-            // logical or arithmetic shifting here.
-            // signed -> arithmetic, unsigned -> logical
-            add_debug_source_node(g, node);
-            return LLVMBuildLShr(g->builder, val1, val2, "");
-        default:
-            zig_unreachable();
-    }
-    zig_unreachable();
-}
-
-static LLVMValueRef gen_bin_and_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeBinOpExpr);
-
-    LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
-    LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
-
-    add_debug_source_node(g, node);
-    return LLVMBuildAnd(g->builder, val1, val2, "");
-}
-
-static LLVMValueRef gen_bin_xor_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeBinOpExpr);
-
-    LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
-    LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
-
-    add_debug_source_node(g, node);
-    return LLVMBuildXor(g->builder, val1, val2, "");
-}
-
-static LLVMValueRef gen_bin_or_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeBinOpExpr);
-
-    LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
-    LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
-
-    add_debug_source_node(g, node);
-    return LLVMBuildOr(g->builder, val1, val2, "");
 }
 
 static LLVMIntPredicate cmp_op_to_int_predicate(BinOpType cmp_op, bool is_signed) {
     switch (cmp_op) {
-        case BinOpTypeInvalid:
-            zig_unreachable();
         case BinOpTypeCmpEq:
             return LLVMIntEQ;
         case BinOpTypeCmpNotEq:
@@ -963,21 +922,16 @@ static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
         case BinOpTypeCmpGreaterOrEq:
             return gen_cmp_expr(g, node);
         case BinOpTypeBinOr:
-            return gen_bin_or_expr(g, node);
         case BinOpTypeBinXor:
-            return gen_bin_xor_expr(g, node);
         case BinOpTypeBinAnd:
-            return gen_bin_and_expr(g, node);
         case BinOpTypeBitShiftLeft:
         case BinOpTypeBitShiftRight:
-            return gen_bit_shift_expr(g, node);
         case BinOpTypeAdd:
         case BinOpTypeSub:
-            return gen_add_expr(g, node);
         case BinOpTypeMult:
         case BinOpTypeDiv:
         case BinOpTypeMod:
-            return gen_mult_expr(g, node);
+            return gen_arithmetic_bin_op_expr(g, node);
     }
     zig_unreachable();
 }
