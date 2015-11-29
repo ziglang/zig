@@ -1059,7 +1059,8 @@ static llvm::DISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnProt
 
     for (int i = 0; i < fn_proto->params.length; i += 1) {
         AstNode *param_node = fn_proto->params.at(i);
-        llvm::DIType *param_type = to_llvm_debug_type(param_node);
+        assert(param_node->type == NodeTypeParamDecl);
+        llvm::DIType *param_type = to_llvm_debug_type(param_node->data.param_decl.type);
         types.push_back(param_type);
     }
 
