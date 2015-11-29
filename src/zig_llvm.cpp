@@ -115,58 +115,6 @@ void LLVMZigOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef 
     MPM->run(*module);
 }
 
-static LLVMBool LLVMZigTargetMachineEmit(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        raw_pwrite_stream &out_stream, LLVMCodeGenFileType codegen, char **err_msg)
-{
-    TargetMachine* target_machine = reinterpret_cast<TargetMachine*>(targ_machine_ref);
-    Module* module = unwrap(module_ref);
-    TargetLibraryInfoImpl tlii(Triple(module->getTargetTriple()));
-
-    legacy::PassManager pass;
-
-    pass.add(new TargetLibraryInfoWrapperPass(tlii));
-
-    const DataLayout *td = target_machine->getDataLayout();
-
-    if (!td) {
-        *err_msg = strdup("No DataLayout in TargetMachine");
-        return true;
-    }
-    module->setDataLayout(*td);
-
-
-    TargetMachine::CodeGenFileType ft;
-    switch (codegen) {
-        case LLVMAssemblyFile:
-            ft = TargetMachine::CGFT_AssemblyFile;
-            break;
-        default:
-            ft = TargetMachine::CGFT_ObjectFile;
-            break;
-    }
-    if (target_machine->addPassesToEmitFile(pass, out_stream, ft)) {
-        *err_msg = strdup("TargetMachine can't emit a file of this type");
-        return true;
-    }
-
-    pass.run(*module);
-
-    out_stream.flush();
-    return false;
-}
-
-LLVMBool LLVMZigTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        const char* filename, LLVMCodeGenFileType codegen, char** err_msg)
-{
-    std::error_code error_code;
-    raw_fd_ostream dest(filename, error_code, sys::fs::F_None);
-    if (error_code) {
-        *err_msg = strdup(error_code.message().c_str());
-        return true;
-    }
-    return LLVMZigTargetMachineEmit(targ_machine_ref, module_ref, dest, codegen, err_msg);
-}
-
 LLVMValueRef LLVMZigBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, unsigned CC, const char *Name)
 {

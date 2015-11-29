@@ -21,9 +21,6 @@ void LLVMZigInitializeUnreachableBlockElimPass(LLVMPassRegistryRef R);
 char *LLVMZigGetHostCPUName(void);
 char *LLVMZigGetNativeFeatures(void);
 
-LLVMBool LLVMZigTargetMachineEmitToFile(LLVMTargetMachineRef target_machine, LLVMModuleRef module,
-        const char* filename, LLVMCodeGenFileType codegen, char** error_msg);
-
 void LLVMZigOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref);
 
 LLVMValueRef LLVMZigBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,

@@ -42,9 +42,10 @@ make
 
 ## Roadmap
 
- * Math expression
+ * variables and parameters
  * Export .so library
  * Multiple files
+ * Type checking
  * inline assembly and syscalls
  * running code at compile time
  * print! macro that takes var args

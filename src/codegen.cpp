@@ -1313,7 +1313,7 @@ void code_gen_link(CodeGen *g, const char *out_file) {
     }
 
     char *err_msg = nullptr;
-    if (LLVMZigTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(&out_file_o),
+    if (LLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(&out_file_o),
                 LLVMObjectFile, &err_msg))
     {
         zig_panic("unable to write object file: %s", err_msg);
