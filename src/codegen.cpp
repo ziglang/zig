@@ -317,6 +317,7 @@ static void find_declarations(CodeGen *g, AstNode *node) {
         case NodeTypeAddExpr:
         case NodeTypeMultExpr:
         case NodeTypeCastExpr:
+        case NodeTypeUnaryExpr:
         case NodeTypePrimaryExpr:
         case NodeTypeGroupedExpr:
             zig_unreachable();
@@ -542,6 +543,9 @@ static void analyze_node(CodeGen *g, AstNode *node) {
         case NodeTypeCastExpr:
             zig_panic("TODO");
             break;
+        case NodeTypeUnaryExpr:
+            zig_panic("TODO");
+            break;
         case NodeTypePrimaryExpr:
             switch (node->data.primary_expr.type) {
                 case PrimaryExprTypeNumber:
@@ -740,10 +744,35 @@ static LLVMValueRef gen_primary_expr(CodeGen *g, AstNode *node) {
     zig_unreachable();
 }
 
+static LLVMValueRef gen_unary_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeUnaryExpr);
+    assert(node->data.unary_expr.primary_expr);
+
+    LLVMValueRef expr = gen_expr(g, node->data.unary_expr.primary_expr);
+
+    switch (node->data.unary_expr.unary_op) {
+        case UnaryOpNegation:
+            add_debug_source_node(g, node);
+            return LLVMBuildNeg(g->builder, expr, "");
+        case UnaryOpBoolNot:
+            {
+                LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(expr));
+                add_debug_source_node(g, node);
+                return LLVMBuildICmp(g->builder, LLVMIntEQ, expr, zero, "");
+            }
+        case UnaryOpBinNot:
+            add_debug_source_node(g, node);
+            return LLVMBuildNot(g->builder, expr, "");
+        case UnaryOpInvalid:
+            zig_unreachable();
+    }
+
+}
+
 static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeCastExpr);
 
-    LLVMValueRef expr = gen_primary_expr(g, node->data.cast_expr.primary_expr);
+    LLVMValueRef expr = gen_expr(g, node->data.cast_expr.unary_expr);
 
     if (!node->data.cast_expr.type)
         return expr;
@@ -997,6 +1026,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_bool_or_expr(g, node);
         case NodeTypeReturnExpr:
             return gen_return_expr(g, node);
+        case NodeTypeUnaryExpr:
+            return gen_unary_expr(g, node);
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:

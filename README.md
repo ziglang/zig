@@ -138,7 +138,11 @@ MultiplyExpression : CastExpression MultiplyOperator CastExpression | CastExpres
 
 MultiplyOperator : token(Star) | token(Slash) | token(Percent)
 
-CastExpression : PrimaryExpression token(as) Type | PrimaryExpression
+CastExpression : UnaryExpression token(as) Type | UnaryExpression
+
+UnaryExpression : UnaryOp PrimaryExpression | PrimaryExpression
+
+UnaryOp : token(Not) | token(Dash) | token(Tilde)
 
 PrimaryExpression : token(Number) | token(String) | token(Unreachable) | FnCall | GroupedExpression | Block
 
@@ -149,9 +153,11 @@ FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen
 Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
 ```
 
-### Binary Operator Precedence
+### Operator Precedence
 
 ```
+x()
+!x -x ~x
 as
 * / %
 + -

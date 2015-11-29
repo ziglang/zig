@@ -10,6 +10,16 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+static const char *unary_op_str(UnaryOp unary_op) {
+    switch (unary_op) {
+        case UnaryOpInvalid: return "(invalid)";
+        case UnaryOpNegation: return "-";
+        case UnaryOpBoolNot: return "!";
+        case UnaryOpBinNot: return "~";
+    }
+    zig_unreachable();
+}
+
 static const char *mult_op_str(MultOp mult_op) {
     switch (mult_op) {
         case MultOpInvalid: return "(invalid)";
@@ -116,6 +126,8 @@ const char *node_type_str(NodeType node_type) {
             return "PrimaryExpr";
         case NodeTypeGroupedExpr:
             return "GroupedExpr";
+        case NodeTypeUnaryExpr:
+            return "UnaryExpr";
     }
     zig_unreachable();
 }
@@ -284,9 +296,14 @@ void ast_print(AstNode *node, int indent) {
             break;
         case NodeTypeCastExpr:
             fprintf(stderr, "%s\n", node_type_str(node->type));
-            ast_print(node->data.cast_expr.primary_expr, indent + 2);
+            ast_print(node->data.cast_expr.unary_expr, indent + 2);
             if (node->data.cast_expr.type)
                 ast_print(node->data.cast_expr.type, indent + 2);
+            break;
+        case NodeTypeUnaryExpr:
+            fprintf(stderr, "%s %s\n", node_type_str(node->type),
+                    unary_op_str(node->data.unary_expr.unary_op));
+            ast_print(node->data.unary_expr.primary_expr, indent + 2);
             break;
         case NodeTypePrimaryExpr:
             switch (node->data.primary_expr.type) {
@@ -688,21 +705,65 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
     ast_invalid_token_error(pc, token);
 }
 
+static UnaryOp tok_to_unary_op(Token *token) {
+    switch (token->id) {
+        case TokenIdBang: return UnaryOpBoolNot;
+        case TokenIdDash: return UnaryOpNegation;
+        case TokenIdTilde: return UnaryOpBinNot;
+        default: return UnaryOpInvalid;
+    }
+}
+
 /*
-CastExpression : PrimaryExpression token(As) Type | PrimaryExpression
+UnaryOp : token(Not) | token(Dash) | token(Tilde)
+*/
+static UnaryOp ast_parse_unary_op(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *token = &pc->tokens->at(*token_index);
+    UnaryOp result = tok_to_unary_op(token);
+    if (result == UnaryOpInvalid) {
+        if (mandatory) {
+            ast_invalid_token_error(pc, token);
+        } else {
+            return UnaryOpInvalid;
+        }
+    }
+    *token_index += 1;
+    return result;
+}
+
+/*
+UnaryExpression : UnaryOp PrimaryExpression | PrimaryExpression
+*/
+static AstNode *ast_parse_unary_expr(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *token = &pc->tokens->at(*token_index);
+    UnaryOp unary_op = ast_parse_unary_op(pc, token_index, false);
+    if (unary_op == UnaryOpInvalid)
+        return ast_parse_primary_expr(pc, token_index, mandatory);
+
+    AstNode *primary_expr = ast_parse_primary_expr(pc, token_index, true);
+    AstNode *node = ast_create_node(NodeTypeUnaryExpr, token);
+    node->data.unary_expr.primary_expr = primary_expr;
+    node->data.unary_expr.unary_op = unary_op;
+
+    return node;
+}
+
+
+/*
+CastExpression : UnaryExpression token(as) Type | UnaryExpression
 */
 static AstNode *ast_parse_cast_expression(ParseContext *pc, int *token_index, bool mandatory) {
-    AstNode *primary_expr = ast_parse_primary_expr(pc, token_index, mandatory);
-    if (!primary_expr)
+    AstNode *unary_expr = ast_parse_unary_expr(pc, token_index, mandatory);
+    if (!unary_expr)
         return nullptr;
 
     Token *as_kw = &pc->tokens->at(*token_index);
     if (as_kw->id != TokenIdKeywordAs)
-        return primary_expr;
+        return unary_expr;
     *token_index += 1;
 
     AstNode *node = ast_create_node(NodeTypeCastExpr, as_kw);
-    node->data.cast_expr.primary_expr = primary_expr;
+    node->data.cast_expr.unary_expr = unary_expr;
 
     node->data.cast_expr.type = ast_parse_type(pc, *token_index, token_index);
 
