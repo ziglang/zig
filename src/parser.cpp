@@ -10,12 +10,12 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-static const char *unary_op_str(UnaryOp unary_op) {
-    switch (unary_op) {
-        case UnaryOpInvalid: return "(invalid)";
-        case UnaryOpNegation: return "-";
-        case UnaryOpBoolNot: return "!";
-        case UnaryOpBinNot: return "~";
+static const char *prefix_op_str(PrefixOp prefix_op) {
+    switch (prefix_op) {
+        case PrefixOpInvalid: return "(invalid)";
+        case PrefixOpNegation: return "-";
+        case PrefixOpBoolNot: return "!";
+        case PrefixOpBinNot: return "~";
     }
     zig_unreachable();
 }
@@ -126,8 +126,8 @@ const char *node_type_str(NodeType node_type) {
             return "PrimaryExpr";
         case NodeTypeGroupedExpr:
             return "GroupedExpr";
-        case NodeTypeUnaryExpr:
-            return "UnaryExpr";
+        case NodeTypePrefixOpExpr:
+            return "PrefixOpExpr";
     }
     zig_unreachable();
 }
@@ -296,14 +296,14 @@ void ast_print(AstNode *node, int indent) {
             break;
         case NodeTypeCastExpr:
             fprintf(stderr, "%s\n", node_type_str(node->type));
-            ast_print(node->data.cast_expr.unary_expr, indent + 2);
+            ast_print(node->data.cast_expr.prefix_op_expr, indent + 2);
             if (node->data.cast_expr.type)
                 ast_print(node->data.cast_expr.type, indent + 2);
             break;
-        case NodeTypeUnaryExpr:
+        case NodeTypePrefixOpExpr:
             fprintf(stderr, "%s %s\n", node_type_str(node->type),
-                    unary_op_str(node->data.unary_expr.unary_op));
-            ast_print(node->data.unary_expr.primary_expr, indent + 2);
+                    prefix_op_str(node->data.prefix_op_expr.prefix_op));
+            ast_print(node->data.prefix_op_expr.primary_expr, indent + 2);
             break;
         case NodeTypePrimaryExpr:
             switch (node->data.primary_expr.type) {
@@ -705,26 +705,26 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
     ast_invalid_token_error(pc, token);
 }
 
-static UnaryOp tok_to_unary_op(Token *token) {
+static PrefixOp tok_to_prefix_op(Token *token) {
     switch (token->id) {
-        case TokenIdBang: return UnaryOpBoolNot;
-        case TokenIdDash: return UnaryOpNegation;
-        case TokenIdTilde: return UnaryOpBinNot;
-        default: return UnaryOpInvalid;
+        case TokenIdBang: return PrefixOpBoolNot;
+        case TokenIdDash: return PrefixOpNegation;
+        case TokenIdTilde: return PrefixOpBinNot;
+        default: return PrefixOpInvalid;
     }
 }
 
 /*
-UnaryOp : token(Not) | token(Dash) | token(Tilde)
+PrefixOp : token(Not) | token(Dash) | token(Tilde)
 */
-static UnaryOp ast_parse_unary_op(ParseContext *pc, int *token_index, bool mandatory) {
+static PrefixOp ast_parse_prefix_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
-    UnaryOp result = tok_to_unary_op(token);
-    if (result == UnaryOpInvalid) {
+    PrefixOp result = tok_to_prefix_op(token);
+    if (result == PrefixOpInvalid) {
         if (mandatory) {
             ast_invalid_token_error(pc, token);
         } else {
-            return UnaryOpInvalid;
+            return PrefixOpInvalid;
         }
     }
     *token_index += 1;
@@ -732,38 +732,38 @@ static UnaryOp ast_parse_unary_op(ParseContext *pc, int *token_index, bool manda
 }
 
 /*
-UnaryExpression : UnaryOp PrimaryExpression | PrimaryExpression
+PrefixOpExpression : PrefixOp PrimaryExpression | PrimaryExpression
 */
-static AstNode *ast_parse_unary_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
-    UnaryOp unary_op = ast_parse_unary_op(pc, token_index, false);
-    if (unary_op == UnaryOpInvalid)
+    PrefixOp prefix_op = ast_parse_prefix_op(pc, token_index, false);
+    if (prefix_op == PrefixOpInvalid)
         return ast_parse_primary_expr(pc, token_index, mandatory);
 
     AstNode *primary_expr = ast_parse_primary_expr(pc, token_index, true);
-    AstNode *node = ast_create_node(NodeTypeUnaryExpr, token);
-    node->data.unary_expr.primary_expr = primary_expr;
-    node->data.unary_expr.unary_op = unary_op;
+    AstNode *node = ast_create_node(NodeTypePrefixOpExpr, token);
+    node->data.prefix_op_expr.primary_expr = primary_expr;
+    node->data.prefix_op_expr.prefix_op = prefix_op;
 
     return node;
 }
 
 
 /*
-CastExpression : UnaryExpression token(as) Type | UnaryExpression
+CastExpression : PrefixOpExpression token(as) Type | PrefixOpExpression
 */
 static AstNode *ast_parse_cast_expression(ParseContext *pc, int *token_index, bool mandatory) {
-    AstNode *unary_expr = ast_parse_unary_expr(pc, token_index, mandatory);
-    if (!unary_expr)
+    AstNode *prefix_op_expr = ast_parse_prefix_op_expr(pc, token_index, mandatory);
+    if (!prefix_op_expr)
         return nullptr;
 
     Token *as_kw = &pc->tokens->at(*token_index);
     if (as_kw->id != TokenIdKeywordAs)
-        return unary_expr;
+        return prefix_op_expr;
     *token_index += 1;
 
     AstNode *node = ast_create_node(NodeTypeCastExpr, as_kw);
-    node->data.cast_expr.unary_expr = unary_expr;
+    node->data.cast_expr.prefix_op_expr = prefix_op_expr;
 
     node->data.cast_expr.type = ast_parse_type(pc, *token_index, token_index);
 

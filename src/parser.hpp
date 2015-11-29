@@ -40,7 +40,7 @@ enum NodeType {
     NodeTypeCastExpr,
     NodeTypePrimaryExpr,
     NodeTypeGroupedExpr,
-    NodeTypeUnaryExpr,
+    NodeTypePrefixOpExpr,
 };
 
 struct AstNodeRoot {
@@ -205,7 +205,7 @@ struct AstNodeMultExpr {
 };
 
 struct AstNodeCastExpr {
-    AstNode *unary_expr;
+    AstNode *prefix_op_expr;
     // if type is non-null, do cast, otherwise nothing
     AstNode *type;
 };
@@ -234,15 +234,15 @@ struct AstNodeGroupedExpr {
     AstNode *expr;
 };
 
-enum UnaryOp {
-    UnaryOpInvalid,
-    UnaryOpBoolNot,
-    UnaryOpBinNot,
-    UnaryOpNegation,
+enum PrefixOp {
+    PrefixOpInvalid,
+    PrefixOpBoolNot,
+    PrefixOpBinNot,
+    PrefixOpNegation,
 };
 
-struct AstNodeUnaryExpr {
-    UnaryOp unary_op;
+struct AstNodePrefixOpExpr {
+    PrefixOp prefix_op;
     AstNode *primary_expr;
 };
 
@@ -277,7 +277,7 @@ struct AstNode {
         AstNodeCastExpr cast_expr;
         AstNodePrimaryExpr primary_expr;
         AstNodeGroupedExpr grouped_expr;
-        AstNodeUnaryExpr unary_expr;
+        AstNodePrefixOpExpr prefix_op_expr;
     } data;
 };
 

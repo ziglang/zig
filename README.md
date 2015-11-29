@@ -138,17 +138,17 @@ MultiplyExpression : CastExpression MultiplyOperator CastExpression | CastExpres
 
 MultiplyOperator : token(Star) | token(Slash) | token(Percent)
 
-CastExpression : UnaryExpression token(as) Type | UnaryExpression
+CastExpression : PrefixOpExpression token(as) Type | PrefixOpExpression
 
-UnaryExpression : UnaryOp PrimaryExpression | PrimaryExpression
+PrefixOpExpression : PrefixOp FnCallExpression | FnCallExpression
 
-UnaryOp : token(Not) | token(Dash) | token(Tilde)
+FnCallExpression : PrimaryExpression token(LParen) list(Expression, token(Comma)) token(RParen)
 
-PrimaryExpression : token(Number) | token(String) | token(Unreachable) | FnCall | GroupedExpression | Block
+PrefixOp : token(Not) | token(Dash) | token(Tilde)
+
+PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | Block
 
 GroupedExpression : token(LParen) Expression token(RParen)
-
-FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen)
 
 Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
 ```
