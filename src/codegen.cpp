@@ -1293,6 +1293,10 @@ void code_gen_link(CodeGen *g, const char *out_file) {
         args.append("-static");
     }
 
+    if (g->out_type == OutTypeLib) {
+        zig_panic("TODO add ld commands for shared library");
+    }
+
     char *ZIG_NATIVE_DYNAMIC_LINKER = getenv("ZIG_NATIVE_DYNAMIC_LINKER");
     if (g->is_native_target && ZIG_NATIVE_DYNAMIC_LINKER) {
         if (ZIG_NATIVE_DYNAMIC_LINKER[0] != 0) {
