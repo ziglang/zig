@@ -401,7 +401,7 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf) {
 }
 
 __attribute__ ((noreturn))
-void ast_invalid_token_error(ParseContext *pc, Token *token) {
+static void ast_invalid_token_error(ParseContext *pc, Token *token) {
     Buf token_value = BUF_INIT;
     ast_buf_from_token(pc, token, &token_value);
     ast_error(token, "invalid token: '%s'", buf_ptr(&token_value));
