@@ -24,7 +24,6 @@ enum NodeType {
     NodeTypeParamDecl,
     NodeTypeType,
     NodeTypeBlock,
-    NodeTypeFnCall,
     NodeTypeExternBlock,
     NodeTypeDirective,
     NodeTypeReturnExpr,
@@ -41,6 +40,7 @@ enum NodeType {
     NodeTypePrimaryExpr,
     NodeTypeGroupedExpr,
     NodeTypePrefixOpExpr,
+    NodeTypeFnCallExpr,
 };
 
 struct AstNodeRoot {
@@ -103,8 +103,8 @@ struct AstNodeBoolOrExpr {
     AstNode *op2;
 };
 
-struct AstNodeFnCall {
-    Buf name;
+struct AstNodeFnCallExpr {
+    AstNode *fn_ref_expr;
     ZigList<AstNode *> params;
 };
 
@@ -214,9 +214,9 @@ enum PrimaryExprType {
     PrimaryExprTypeNumber,
     PrimaryExprTypeString,
     PrimaryExprTypeUnreachable,
-    PrimaryExprTypeFnCall,
     PrimaryExprTypeGroupedExpr,
     PrimaryExprTypeBlock,
+    PrimaryExprTypeSymbol,
 };
 
 struct AstNodePrimaryExpr {
@@ -224,7 +224,7 @@ struct AstNodePrimaryExpr {
     union {
         Buf number;
         Buf string;
-        AstNode *fn_call;
+        Buf symbol;
         AstNode *grouped_expr;
         AstNode *block;
     } data;
@@ -263,7 +263,6 @@ struct AstNode {
         AstNodeBlock block;
         AstNodeReturnExpr return_expr;
         AstNodeBoolOrExpr bool_or_expr;
-        AstNodeFnCall fn_call;
         AstNodeExternBlock extern_block;
         AstNodeDirective directive;
         AstNodeBoolAndExpr bool_and_expr;
@@ -278,6 +277,7 @@ struct AstNode {
         AstNodePrimaryExpr primary_expr;
         AstNodeGroupedExpr grouped_expr;
         AstNodePrefixOpExpr prefix_op_expr;
+        AstNodeFnCallExpr fn_call_expr;
     } data;
 };
 
