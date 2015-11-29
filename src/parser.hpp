@@ -28,15 +28,7 @@ enum NodeType {
     NodeTypeExternBlock,
     NodeTypeDirective,
     NodeTypeReturnExpr,
-    NodeTypeBoolOrExpr,
-    NodeTypeBoolAndExpr,
-    NodeTypeComparisonExpr,
-    NodeTypeBinOrExpr,
-    NodeTypeBinXorExpr,
-    NodeTypeBinAndExpr,
-    NodeTypeBitShiftExpr,
-    NodeTypeAddExpr,
-    NodeTypeMultExpr,
+    NodeTypeBinOpExpr,
     NodeTypeCastExpr,
     NodeTypePrimaryExpr,
     NodeTypeGroupedExpr,
@@ -96,9 +88,32 @@ struct AstNodeReturnExpr {
     AstNode *expr;
 };
 
-struct AstNodeBoolOrExpr {
+enum BinOpType {
+    BinOpTypeInvalid,
+    // TODO: include assignment?
+    BinOpTypeBoolOr,
+    BinOpTypeBoolAnd,
+    BinOpTypeCmpEq,
+    BinOpTypeCmpNotEq,
+    BinOpTypeCmpLessThan,
+    BinOpTypeCmpGreaterThan,
+    BinOpTypeCmpLessOrEq,
+    BinOpTypeCmpGreaterOrEq,
+    BinOpTypeBinOr,
+    BinOpTypeBinXor,
+    BinOpTypeBinAnd,
+    BinOpTypeBitShiftLeft,
+    BinOpTypeBitShiftRight,
+    BinOpTypeAdd,
+    BinOpTypeSub,
+    BinOpTypeMult,
+    BinOpTypeDiv,
+    BinOpTypeMod,
+};
+
+struct AstNodeBinOpExpr {
     AstNode *op1;
-    // if op2 is non-null, do boolean or, otherwise nothing
+    BinOpType bin_op;
     AstNode *op2;
 };
 
@@ -120,87 +135,6 @@ struct AstNodeDirective {
 struct AstNodeRootExportDecl {
     Buf type;
     Buf name;
-};
-
-struct AstNodeBoolAndExpr {
-    AstNode *op1;
-    // if op2 is non-null, do boolean and, otherwise nothing
-    AstNode *op2;
-};
-
-enum CmpOp {
-    CmpOpInvalid,
-    CmpOpEq,
-    CmpOpNotEq,
-    CmpOpLessThan,
-    CmpOpGreaterThan,
-    CmpOpLessOrEq,
-    CmpOpGreaterOrEq,
-};
-
-struct AstNodeComparisonExpr {
-    AstNode *op1;
-    CmpOp cmp_op;
-    // if op2 is non-null, do cmp_op, otherwise nothing
-    AstNode *op2;
-};
-
-struct AstNodeBinOrExpr {
-    AstNode *op1;
-    // if op2 is non-null, do binary or, otherwise nothing
-    AstNode *op2;
-};
-
-struct AstNodeBinXorExpr {
-    AstNode *op1;
-    // if op2 is non-null, do binary xor, otherwise nothing
-    AstNode *op2;
-};
-
-struct AstNodeBinAndExpr {
-    AstNode *op1;
-    // if op2 is non-null, do binary and, otherwise nothing
-    AstNode *op2;
-};
-
-enum BitShiftOp {
-    BitShiftOpInvalid,
-    BitShiftOpLeft,
-    BitShiftOpRight,
-};
-
-struct AstNodeBitShiftExpr {
-    AstNode *op1;
-    BitShiftOp bit_shift_op;
-    // if op2 is non-null, do bit_shift_op, otherwise nothing
-    AstNode *op2;
-};
-
-enum AddOp {
-    AddOpInvalid,
-    AddOpAdd,
-    AddOpSub,
-};
-
-struct AstNodeAddExpr {
-    AstNode *op1;
-    AddOp add_op;
-    // if op2 is non-null, do add_op, otherwise nothing
-    AstNode *op2;
-};
-
-enum MultOp {
-    MultOpInvalid,
-    MultOpMult,
-    MultOpDiv,
-    MultOpMod,
-};
-
-struct AstNodeMultExpr {
-    AstNode *op1;
-    MultOp mult_op;
-    // if op2 is non-null, do mult_op, otherwise nothing
-    AstNode *op2;
 };
 
 struct AstNodeCastExpr {
@@ -249,18 +183,10 @@ struct AstNode {
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
         AstNodeReturnExpr return_expr;
-        AstNodeBoolOrExpr bool_or_expr;
+        AstNodeBinOpExpr bin_op_expr;
         AstNodeFnCall fn_call;
         AstNodeExternBlock extern_block;
         AstNodeDirective directive;
-        AstNodeBoolAndExpr bool_and_expr;
-        AstNodeComparisonExpr comparison_expr;
-        AstNodeBinOrExpr bin_or_expr;
-        AstNodeBinXorExpr bin_xor_expr;
-        AstNodeBinAndExpr bin_and_expr;
-        AstNodeBitShiftExpr bit_shift_expr;
-        AstNodeAddExpr add_expr;
-        AstNodeMultExpr mult_expr;
         AstNodeCastExpr cast_expr;
         AstNodePrimaryExpr primary_expr;
         AstNodeGroupedExpr grouped_expr;

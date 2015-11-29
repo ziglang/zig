@@ -10,43 +10,27 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-static const char *mult_op_str(MultOp mult_op) {
-    switch (mult_op) {
-        case MultOpInvalid: return "(invalid)";
-        case MultOpMult: return "*";
-        case MultOpDiv: return "/";
-        case MultOpMod: return "%";
-    }
-    zig_unreachable();
-}
-
-static const char *add_op_str(AddOp add_op) {
-    switch (add_op) {
-        case AddOpInvalid: return "(invalid)";
-        case AddOpAdd: return "+";
-        case AddOpSub: return "-";
-    }
-    zig_unreachable();
-}
-
-static const char *bit_shift_op_str(BitShiftOp bit_shift_op) {
-    switch (bit_shift_op) {
-        case BitShiftOpInvalid: return "(invalid)";
-        case BitShiftOpLeft: return "<<";
-        case BitShiftOpRight: return ">>";
-    }
-    zig_unreachable();
-}
-
-static const char *cmp_op_str(CmpOp cmp_op) {
-    switch (cmp_op) {
-        case CmpOpInvalid: return "(invalid)";
-        case CmpOpEq: return "=";
-        case CmpOpNotEq: return "!=";
-        case CmpOpLessThan: return "<";
-        case CmpOpGreaterThan: return ">";
-        case CmpOpLessOrEq: return "<=";
-        case CmpOpGreaterOrEq: return ">=";
+static const char *bin_op_str(BinOpType bin_op) {
+    switch (bin_op) {
+        case BinOpTypeInvalid:        return "(invalid)";
+        case BinOpTypeBoolOr:         return "||";
+        case BinOpTypeBoolAnd:        return "&&";
+        case BinOpTypeCmpEq:          return "==";
+        case BinOpTypeCmpNotEq:       return "!=";
+        case BinOpTypeCmpLessThan:    return "<";
+        case BinOpTypeCmpGreaterThan: return ">";
+        case BinOpTypeCmpLessOrEq:    return "<=";
+        case BinOpTypeCmpGreaterOrEq: return ">=";
+        case BinOpTypeBinOr:          return "|";
+        case BinOpTypeBinXor:         return "^";
+        case BinOpTypeBinAnd:         return "&";
+        case BinOpTypeBitShiftLeft:   return "<<";
+        case BinOpTypeBitShiftRight:  return ">>";
+        case BinOpTypeAdd:            return "+";
+        case BinOpTypeSub:            return "-";
+        case BinOpTypeMult:           return "*";
+        case BinOpTypeDiv:            return "/";
+        case BinOpTypeMod:            return "%";
     }
     zig_unreachable();
 }
@@ -84,8 +68,8 @@ const char *node_type_str(NodeType node_type) {
             return "Type";
         case NodeTypeBlock:
             return "Block";
-        case NodeTypeBoolOrExpr:
-            return "BoolOrExpr";
+        case NodeTypeBinOpExpr:
+            return "BinOpExpr";
         case NodeTypeFnCall:
             return "FnCall";
         case NodeTypeExternBlock:
@@ -94,22 +78,6 @@ const char *node_type_str(NodeType node_type) {
             return "Directive";
         case NodeTypeReturnExpr:
             return "ReturnExpr";
-        case NodeTypeBoolAndExpr:
-            return "BoolAndExpr";
-        case NodeTypeComparisonExpr:
-            return "ComparisonExpr";
-        case NodeTypeBinOrExpr:
-            return "BinOrExpr";
-        case NodeTypeBinXorExpr:
-            return "BinXorExpr";
-        case NodeTypeBinAndExpr:
-            return "BinAndExpr";
-        case NodeTypeBitShiftExpr:
-            return "BitShiftExpr";
-        case NodeTypeAddExpr:
-            return "AddExpr";
-        case NodeTypeMultExpr:
-            return "MultExpr";
         case NodeTypeCastExpr:
             return "CastExpr";
         case NodeTypePrimaryExpr:
@@ -214,11 +182,11 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "%s\n", node_type_str(node->type));
             ast_print(node->data.fn_decl.fn_proto, indent + 2);
             break;
-        case NodeTypeBoolOrExpr:
-            fprintf(stderr, "%s\n", node_type_str(node->type));
-            ast_print(node->data.bool_or_expr.op1, indent + 2);
-            if (node->data.bool_or_expr.op2)
-                ast_print(node->data.bool_or_expr.op2, indent + 2);
+        case NodeTypeBinOpExpr:
+            fprintf(stderr, "%s %s\n", node_type_str(node->type),
+                    bin_op_str(node->data.bin_op_expr.bin_op));
+            ast_print(node->data.bin_op_expr.op1, indent + 2);
+            ast_print(node->data.bin_op_expr.op2, indent + 2);
             break;
         case NodeTypeFnCall:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.fn_call.name));
@@ -229,58 +197,6 @@ void ast_print(AstNode *node, int indent) {
             break;
         case NodeTypeDirective:
             fprintf(stderr, "%s\n", node_type_str(node->type));
-            break;
-        case NodeTypeBoolAndExpr:
-            fprintf(stderr, "%s\n", node_type_str(node->type));
-            ast_print(node->data.bool_and_expr.op1, indent + 2);
-            if (node->data.bool_and_expr.op2)
-                ast_print(node->data.bool_and_expr.op2, indent + 2);
-            break;
-        case NodeTypeComparisonExpr:
-            fprintf(stderr, "%s %s\n", node_type_str(node->type),
-                    cmp_op_str(node->data.comparison_expr.cmp_op));
-            ast_print(node->data.comparison_expr.op1, indent + 2);
-            if (node->data.comparison_expr.op2)
-                ast_print(node->data.comparison_expr.op2, indent + 2);
-            break;
-        case NodeTypeBinOrExpr:
-            fprintf(stderr, "%s\n", node_type_str(node->type));
-            ast_print(node->data.bin_or_expr.op1, indent + 2);
-            if (node->data.bin_or_expr.op2)
-                ast_print(node->data.bin_or_expr.op2, indent + 2);
-            break;
-        case NodeTypeBinXorExpr:
-            fprintf(stderr, "%s\n", node_type_str(node->type));
-            ast_print(node->data.bin_xor_expr.op1, indent + 2);
-            if (node->data.bin_xor_expr.op2)
-                ast_print(node->data.bin_xor_expr.op2, indent + 2);
-            break;
-        case NodeTypeBinAndExpr:
-            fprintf(stderr, "%s\n", node_type_str(node->type));
-            ast_print(node->data.bin_and_expr.op1, indent + 2);
-            if (node->data.bin_and_expr.op2)
-                ast_print(node->data.bin_and_expr.op2, indent + 2);
-            break;
-        case NodeTypeBitShiftExpr:
-            fprintf(stderr, "%s %s\n", node_type_str(node->type),
-                    bit_shift_op_str(node->data.bit_shift_expr.bit_shift_op));
-            ast_print(node->data.bit_shift_expr.op1, indent + 2);
-            if (node->data.bit_shift_expr.op2)
-                ast_print(node->data.bit_shift_expr.op2, indent + 2);
-            break;
-        case NodeTypeAddExpr:
-            fprintf(stderr, "%s %s\n", node_type_str(node->type),
-                    add_op_str(node->data.add_expr.add_op));
-            ast_print(node->data.add_expr.op1, indent + 2);
-            if (node->data.add_expr.op2)
-                ast_print(node->data.add_expr.op2, indent + 2);
-            break;
-        case NodeTypeMultExpr:
-            fprintf(stderr, "%s %s\n", node_type_str(node->type),
-                    mult_op_str(node->data.mult_expr.mult_op));
-            ast_print(node->data.mult_expr.op1, indent + 2);
-            if (node->data.mult_expr.op2)
-                ast_print(node->data.mult_expr.op2, indent + 2);
             break;
         case NodeTypeCastExpr:
             fprintf(stderr, "%s\n", node_type_str(node->type));
@@ -709,26 +625,26 @@ static AstNode *ast_parse_cast_expression(ParseContext *pc, int *token_index, bo
     return node;
 }
 
-static MultOp tok_to_mult_op(Token *token) {
+static BinOpType tok_to_mult_op(Token *token) {
     switch (token->id) {
-        case TokenIdStar: return MultOpMult;
-        case TokenIdSlash: return MultOpDiv;
-        case TokenIdPercent: return MultOpMod;
-        default: return MultOpInvalid;
+        case TokenIdStar: return BinOpTypeMult;
+        case TokenIdSlash: return BinOpTypeDiv;
+        case TokenIdPercent: return BinOpTypeMod;
+        default: return BinOpTypeInvalid;
     }
 }
 
 /*
 MultiplyOperator : token(Star) | token(Slash) | token(Percent)
 */
-static MultOp ast_parse_mult_op(ParseContext *pc, int *token_index, bool mandatory) {
+static BinOpType ast_parse_mult_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
-    MultOp result = tok_to_mult_op(token);
-    if (result == MultOpInvalid) {
+    BinOpType result = tok_to_mult_op(token);
+    if (result == BinOpTypeInvalid) {
         if (mandatory) {
             ast_invalid_token_error(pc, token);
         } else {
-            return MultOpInvalid;
+            return BinOpTypeInvalid;
         }
     }
     *token_index += 1;
@@ -744,39 +660,39 @@ static AstNode *ast_parse_mult_expr(ParseContext *pc, int *token_index, bool man
         return nullptr;
 
     Token *token = &pc->tokens->at(*token_index);
-    MultOp mult_op = ast_parse_mult_op(pc, token_index, false);
-    if (mult_op == MultOpInvalid)
+    BinOpType mult_op = ast_parse_mult_op(pc, token_index, false);
+    if (mult_op == BinOpTypeInvalid)
         return operand_1;
 
     AstNode *operand_2 = ast_parse_cast_expression(pc, token_index, true);
 
-    AstNode *node = ast_create_node(NodeTypeMultExpr, token);
-    node->data.mult_expr.op1 = operand_1;
-    node->data.mult_expr.mult_op = mult_op;
-    node->data.mult_expr.op2 = operand_2;
+    AstNode *node = ast_create_node(NodeTypeBinOpExpr, token);
+    node->data.bin_op_expr.op1 = operand_1;
+    node->data.bin_op_expr.bin_op = mult_op;
+    node->data.bin_op_expr.op2 = operand_2;
 
     return node;
 }
 
-static AddOp tok_to_add_op(Token *token) {
+static BinOpType tok_to_add_op(Token *token) {
     switch (token->id) {
-        case TokenIdPlus: return AddOpAdd;
-        case TokenIdDash: return AddOpSub;
-        default: return AddOpInvalid;
+        case TokenIdPlus: return BinOpTypeAdd;
+        case TokenIdDash: return BinOpTypeSub;
+        default: return BinOpTypeInvalid;
     }
 }
 
 /*
 AdditionOperator : token(Plus) | token(Minus)
 */
-static AddOp ast_parse_add_op(ParseContext *pc, int *token_index, bool mandatory) {
+static BinOpType ast_parse_add_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
-    AddOp result = tok_to_add_op(token);
-    if (result == AddOpInvalid) {
+    BinOpType result = tok_to_add_op(token);
+    if (result == BinOpTypeInvalid) {
         if (mandatory) {
             ast_invalid_token_error(pc, token);
         } else {
-            return AddOpInvalid;
+            return BinOpTypeInvalid;
         }
     }
     *token_index += 1;
@@ -792,39 +708,39 @@ static AstNode *ast_parse_add_expr(ParseContext *pc, int *token_index, bool mand
         return nullptr;
 
     Token *token = &pc->tokens->at(*token_index);
-    AddOp add_op = ast_parse_add_op(pc, token_index, false);
-    if (add_op == AddOpInvalid)
+    BinOpType add_op = ast_parse_add_op(pc, token_index, false);
+    if (add_op == BinOpTypeInvalid)
         return operand_1;
 
     AstNode *operand_2 = ast_parse_mult_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(NodeTypeAddExpr, token);
-    node->data.add_expr.op1 = operand_1;
-    node->data.add_expr.add_op = add_op;
-    node->data.add_expr.op2 = operand_2;
+    AstNode *node = ast_create_node(NodeTypeBinOpExpr, token);
+    node->data.bin_op_expr.op1 = operand_1;
+    node->data.bin_op_expr.bin_op = add_op;
+    node->data.bin_op_expr.op2 = operand_2;
 
     return node;
 }
 
-static BitShiftOp tok_to_bit_shift_op(Token *token) {
+static BinOpType tok_to_bit_shift_op(Token *token) {
     switch (token->id) {
-        case TokenIdBitShiftLeft: return BitShiftOpLeft;
-        case TokenIdBitShiftRight: return BitShiftOpRight;
-        default: return BitShiftOpInvalid;
+        case TokenIdBitShiftLeft: return BinOpTypeBitShiftLeft;
+        case TokenIdBitShiftRight: return BinOpTypeBitShiftRight;
+        default: return BinOpTypeInvalid;
     }
 }
 
 /*
 BitShiftOperator : token(BitShiftLeft | token(BitShiftRight)
 */
-static BitShiftOp ast_parse_bit_shift_op(ParseContext *pc, int *token_index, bool mandatory) {
+static BinOpType ast_parse_bit_shift_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
-    BitShiftOp result = tok_to_bit_shift_op(token);
-    if (result == BitShiftOpInvalid) {
+    BinOpType result = tok_to_bit_shift_op(token);
+    if (result == BinOpTypeInvalid) {
         if (mandatory) {
             ast_invalid_token_error(pc, token);
         } else {
-            return BitShiftOpInvalid;
+            return BinOpTypeInvalid;
         }
     }
     *token_index += 1;
@@ -840,16 +756,16 @@ static AstNode *ast_parse_bit_shift_expr(ParseContext *pc, int *token_index, boo
         return nullptr;
 
     Token *token = &pc->tokens->at(*token_index);
-    BitShiftOp bit_shift_op = ast_parse_bit_shift_op(pc, token_index, false);
-    if (bit_shift_op == BitShiftOpInvalid)
+    BinOpType bit_shift_op = ast_parse_bit_shift_op(pc, token_index, false);
+    if (bit_shift_op == BinOpTypeInvalid)
         return operand_1;
 
     AstNode *operand_2 = ast_parse_add_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(NodeTypeBitShiftExpr, token);
-    node->data.bit_shift_expr.op1 = operand_1;
-    node->data.bit_shift_expr.bit_shift_op = bit_shift_op;
-    node->data.bit_shift_expr.op2 = operand_2;
+    AstNode *node = ast_create_node(NodeTypeBinOpExpr, token);
+    node->data.bin_op_expr.op1 = operand_1;
+    node->data.bin_op_expr.bin_op = bit_shift_op;
+    node->data.bin_op_expr.op2 = operand_2;
 
     return node;
 }
@@ -870,9 +786,10 @@ static AstNode *ast_parse_bin_and_expr(ParseContext *pc, int *token_index, bool 
 
     AstNode *operand_2 = ast_parse_bit_shift_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(NodeTypeBinAndExpr, token);
-    node->data.bin_and_expr.op1 = operand_1;
-    node->data.bin_and_expr.op2 = operand_2;
+    AstNode *node = ast_create_node(NodeTypeBinOpExpr, token);
+    node->data.bin_op_expr.op1 = operand_1;
+    node->data.bin_op_expr.bin_op = BinOpTypeBinAnd;
+    node->data.bin_op_expr.op2 = operand_2;
 
     return node;
 }
@@ -892,9 +809,10 @@ static AstNode *ast_parse_bin_xor_expr(ParseContext *pc, int *token_index, bool 
 
     AstNode *operand_2 = ast_parse_bin_and_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(NodeTypeBinXorExpr, token);
-    node->data.bin_xor_expr.op1 = operand_1;
-    node->data.bin_xor_expr.op2 = operand_2;
+    AstNode *node = ast_create_node(NodeTypeBinOpExpr, token);
+    node->data.bin_op_expr.op1 = operand_1;
+    node->data.bin_op_expr.bin_op = BinOpTypeBinXor;
+    node->data.bin_op_expr.op2 = operand_2;
 
     return node;
 }
@@ -914,33 +832,34 @@ static AstNode *ast_parse_bin_or_expr(ParseContext *pc, int *token_index, bool m
 
     AstNode *operand_2 = ast_parse_bin_xor_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(NodeTypeBinOrExpr, token);
-    node->data.bin_or_expr.op1 = operand_1;
-    node->data.bin_or_expr.op2 = operand_2;
+    AstNode *node = ast_create_node(NodeTypeBinOpExpr, token);
+    node->data.bin_op_expr.op1 = operand_1;
+    node->data.bin_op_expr.bin_op = BinOpTypeBinOr;
+    node->data.bin_op_expr.op2 = operand_2;
 
     return node;
 }
 
-static CmpOp tok_to_cmp_op(Token *token) {
+static BinOpType tok_to_cmp_op(Token *token) {
     switch (token->id) {
-        case TokenIdCmpEq: return CmpOpEq;
-        case TokenIdCmpNotEq: return CmpOpNotEq;
-        case TokenIdCmpLessThan: return CmpOpLessThan;
-        case TokenIdCmpGreaterThan: return CmpOpGreaterThan;
-        case TokenIdCmpLessOrEq: return CmpOpLessOrEq;
-        case TokenIdCmpGreaterOrEq: return CmpOpGreaterOrEq;
-        default: return CmpOpInvalid;
+        case TokenIdCmpEq: return BinOpTypeCmpEq;
+        case TokenIdCmpNotEq: return BinOpTypeCmpNotEq;
+        case TokenIdCmpLessThan: return BinOpTypeCmpLessThan;
+        case TokenIdCmpGreaterThan: return BinOpTypeCmpGreaterThan;
+        case TokenIdCmpLessOrEq: return BinOpTypeCmpLessOrEq;
+        case TokenIdCmpGreaterOrEq: return BinOpTypeCmpGreaterOrEq;
+        default: return BinOpTypeInvalid;
     }
 }
 
-static CmpOp ast_parse_comparison_operator(ParseContext *pc, int *token_index, bool mandatory) {
+static BinOpType ast_parse_comparison_operator(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
-    CmpOp result = tok_to_cmp_op(token);
-    if (result == CmpOpInvalid) {
+    BinOpType result = tok_to_cmp_op(token);
+    if (result == BinOpTypeInvalid) {
         if (mandatory) {
             ast_invalid_token_error(pc, token);
         } else {
-            return CmpOpInvalid;
+            return BinOpTypeInvalid;
         }
     }
     *token_index += 1;
@@ -956,16 +875,16 @@ static AstNode *ast_parse_comparison_expr(ParseContext *pc, int *token_index, bo
         return nullptr;
 
     Token *token = &pc->tokens->at(*token_index);
-    CmpOp cmp_op = ast_parse_comparison_operator(pc, token_index, false);
-    if (cmp_op == CmpOpInvalid)
+    BinOpType cmp_op = ast_parse_comparison_operator(pc, token_index, false);
+    if (cmp_op == BinOpTypeInvalid)
         return operand_1;
 
     AstNode *operand_2 = ast_parse_bin_or_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(NodeTypeComparisonExpr, token);
-    node->data.comparison_expr.op1 = operand_1;
-    node->data.comparison_expr.cmp_op = cmp_op;
-    node->data.comparison_expr.op2 = operand_2;
+    AstNode *node = ast_create_node(NodeTypeBinOpExpr, token);
+    node->data.bin_op_expr.op1 = operand_1;
+    node->data.bin_op_expr.bin_op = cmp_op;
+    node->data.bin_op_expr.op2 = operand_2;
 
     return node;
 }
@@ -985,9 +904,10 @@ static AstNode *ast_parse_bool_and_expr(ParseContext *pc, int *token_index, bool
 
     AstNode *operand_2 = ast_parse_comparison_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(NodeTypeBoolAndExpr, token);
-    node->data.bool_and_expr.op1 = operand_1;
-    node->data.bool_and_expr.op2 = operand_2;
+    AstNode *node = ast_create_node(NodeTypeBinOpExpr, token);
+    node->data.bin_op_expr.op1 = operand_1;
+    node->data.bin_op_expr.bin_op = BinOpTypeBoolAnd;
+    node->data.bin_op_expr.op2 = operand_2;
 
     return node;
 }
@@ -1024,9 +944,10 @@ static AstNode *ast_parse_bool_or_expr(ParseContext *pc, int *token_index, bool 
 
     AstNode *operand_2 = ast_parse_bool_and_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(NodeTypeBoolOrExpr, token);
-    node->data.bool_or_expr.op1 = operand_1;
-    node->data.bool_or_expr.op2 = operand_2;
+    AstNode *node = ast_create_node(NodeTypeBinOpExpr, token);
+    node->data.bin_op_expr.op1 = operand_1;
+    node->data.bin_op_expr.bin_op = BinOpTypeBoolOr;
+    node->data.bin_op_expr.op2 = operand_2;
 
     return node;
 }
