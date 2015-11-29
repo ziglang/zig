@@ -88,6 +88,8 @@ ExternBlock : many(Directive) token(Extern) token(LBrace) many(FnDecl) token(RBr
 
 FnProto : many(Directive) option(FnVisibleMod) token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type)
 
+Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
+
 FnVisibleMod : token(Pub) | token(Export)
 
 FnDecl : FnProto token(Semicolon)
@@ -138,20 +140,24 @@ MultiplyExpression : CastExpression MultiplyOperator CastExpression | CastExpres
 
 MultiplyOperator : token(Star) | token(Slash) | token(Percent)
 
-CastExpression : PrimaryExpression token(as) Type | PrimaryExpression
+CastExpression : PrefixOpExpression token(as) Type | PrefixOpExpression
 
-PrimaryExpression : token(Number) | token(String) | token(Unreachable) | FnCall | GroupedExpression | Block
+PrefixOpExpression : PrefixOp FnCallExpression | FnCallExpression
+
+FnCallExpression : PrimaryExpression token(LParen) list(Expression, token(Comma)) token(RParen) | PrimaryExpression
+
+PrefixOp : token(Not) | token(Dash) | token(Tilde)
+
+PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | Block | token(Symbol)
 
 GroupedExpression : token(LParen) Expression token(RParen)
-
-FnCall : token(Symbol) token(LParen) list(Expression, token(Comma)) token(RParen)
-
-Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
 ```
 
-### Binary Operator Precedence
+### Operator Precedence
 
 ```
+x()
+!x -x ~x
 as
 * / %
 + -

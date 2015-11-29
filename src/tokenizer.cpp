@@ -249,6 +249,10 @@ ZigList<Token> *tokenize(Buf *buf) {
                         begin_token(&t, TokenIdPlus);
                         end_token(&t);
                         break;
+                    case '~':
+                        begin_token(&t, TokenIdTilde);
+                        end_token(&t);
+                        break;
                     case '-':
                         begin_token(&t, TokenIdDash);
                         t.state = TokenizeStateSawDash;
@@ -278,7 +282,7 @@ ZigList<Token> *tokenize(Buf *buf) {
                         t.state = TokenizeStateEq;
                         break;
                     case '!':
-                        begin_token(&t, TokenIdNot);
+                        begin_token(&t, TokenIdBang);
                         t.state = TokenizeStateBang;
                         break;
                     case '<':
@@ -578,7 +582,8 @@ static const char * token_name(Token *token) {
         case TokenIdBoolOr: return "BoolOr";
         case TokenIdBoolAnd: return "BoolAnd";
         case TokenIdEq: return "Eq";
-        case TokenIdNot: return "Not";
+        case TokenIdBang: return "Bang";
+        case TokenIdTilde: return "Tilde";
         case TokenIdCmpEq: return "CmpEq";
         case TokenIdCmpNotEq: return "CmpNotEq";
         case TokenIdCmpLessThan: return "CmpLessThan";

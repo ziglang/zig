@@ -24,7 +24,6 @@ enum NodeType {
     NodeTypeParamDecl,
     NodeTypeType,
     NodeTypeBlock,
-    NodeTypeFnCall,
     NodeTypeExternBlock,
     NodeTypeDirective,
     NodeTypeReturnExpr,
@@ -32,6 +31,8 @@ enum NodeType {
     NodeTypeCastExpr,
     NodeTypePrimaryExpr,
     NodeTypeGroupedExpr,
+    NodeTypePrefixOpExpr,
+    NodeTypeFnCallExpr,
 };
 
 struct AstNodeRoot {
@@ -117,8 +118,8 @@ struct AstNodeBinOpExpr {
     AstNode *op2;
 };
 
-struct AstNodeFnCall {
-    Buf name;
+struct AstNodeFnCallExpr {
+    AstNode *fn_ref_expr;
     ZigList<AstNode *> params;
 };
 
@@ -138,7 +139,7 @@ struct AstNodeRootExportDecl {
 };
 
 struct AstNodeCastExpr {
-    AstNode *primary_expr;
+    AstNode *prefix_op_expr;
     // if type is non-null, do cast, otherwise nothing
     AstNode *type;
 };
@@ -147,9 +148,9 @@ enum PrimaryExprType {
     PrimaryExprTypeNumber,
     PrimaryExprTypeString,
     PrimaryExprTypeUnreachable,
-    PrimaryExprTypeFnCall,
     PrimaryExprTypeGroupedExpr,
     PrimaryExprTypeBlock,
+    PrimaryExprTypeSymbol,
 };
 
 struct AstNodePrimaryExpr {
@@ -157,7 +158,7 @@ struct AstNodePrimaryExpr {
     union {
         Buf number;
         Buf string;
-        AstNode *fn_call;
+        Buf symbol;
         AstNode *grouped_expr;
         AstNode *block;
     } data;
@@ -165,6 +166,18 @@ struct AstNodePrimaryExpr {
 
 struct AstNodeGroupedExpr {
     AstNode *expr;
+};
+
+enum PrefixOp {
+    PrefixOpInvalid,
+    PrefixOpBoolNot,
+    PrefixOpBinNot,
+    PrefixOpNegation,
+};
+
+struct AstNodePrefixOpExpr {
+    PrefixOp prefix_op;
+    AstNode *primary_expr;
 };
 
 struct AstNode {
@@ -184,12 +197,13 @@ struct AstNode {
         AstNodeBlock block;
         AstNodeReturnExpr return_expr;
         AstNodeBinOpExpr bin_op_expr;
-        AstNodeFnCall fn_call;
         AstNodeExternBlock extern_block;
         AstNodeDirective directive;
         AstNodeCastExpr cast_expr;
         AstNodePrimaryExpr primary_expr;
         AstNodeGroupedExpr grouped_expr;
+        AstNodePrefixOpExpr prefix_op_expr;
+        AstNodeFnCallExpr fn_call_expr;
     } data;
 };
 

@@ -306,9 +306,10 @@ static void find_declarations(CodeGen *g, AstNode *node) {
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
-        case NodeTypeFnCall:
+        case NodeTypeFnCallExpr:
         case NodeTypeRootExportDecl:
         case NodeTypeCastExpr:
+        case NodeTypePrefixOpExpr:
         case NodeTypePrimaryExpr:
         case NodeTypeGroupedExpr:
             zig_unreachable();
@@ -367,6 +368,14 @@ static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
                     buf_sprintf("control reaches end of non-void function"));
         }
     }
+}
+
+static Buf *hack_get_fn_call_name(CodeGen *g, AstNode *node) {
+    // Assume that the expression evaluates to a simple name and return the buf
+    // TODO after type checking works we should be able to remove this hack
+    assert(node->type == NodeTypePrimaryExpr);
+    assert(node->data.primary_expr.type == PrimaryExprTypeSymbol);
+    return &node->data.primary_expr.data.symbol;
 }
 
 static void analyze_node(CodeGen *g, AstNode *node) {
@@ -477,9 +486,9 @@ static void analyze_node(CodeGen *g, AstNode *node) {
             analyze_node(g, node->data.bin_op_expr.op1);
             analyze_node(g, node->data.bin_op_expr.op2);
             break;
-        case NodeTypeFnCall:
+        case NodeTypeFnCallExpr:
             {
-                Buf *name = &node->data.fn_call.name;
+                Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
 
                 auto entry = g->fn_table.maybe_get(name);
                 if (!entry) {
@@ -489,7 +498,7 @@ static void analyze_node(CodeGen *g, AstNode *node) {
                     FnTableEntry *fn_table_entry = entry->value;
                     assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
                     int expected_param_count = fn_table_entry->proto_node->data.fn_proto.params.length;
-                    int actual_param_count = node->data.fn_call.params.length;
+                    int actual_param_count = node->data.fn_call_expr.params.length;
                     if (expected_param_count != actual_param_count) {
                         add_node_error(g, node,
                                 buf_sprintf("wrong number of arguments. Expected %d, got %d.",
@@ -497,8 +506,8 @@ static void analyze_node(CodeGen *g, AstNode *node) {
                     }
                 }
 
-                for (int i = 0; i < node->data.fn_call.params.length; i += 1) {
-                    AstNode *child = node->data.fn_call.params.at(i);
+                for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
+                    AstNode *child = node->data.fn_call_expr.params.at(i);
                     analyze_node(g, child);
                 }
                 break;
@@ -509,15 +518,16 @@ static void analyze_node(CodeGen *g, AstNode *node) {
         case NodeTypeCastExpr:
             zig_panic("TODO");
             break;
+        case NodeTypePrefixOpExpr:
+            zig_panic("TODO");
+            break;
         case NodeTypePrimaryExpr:
             switch (node->data.primary_expr.type) {
                 case PrimaryExprTypeNumber:
                 case PrimaryExprTypeString:
                 case PrimaryExprTypeUnreachable:
+                case PrimaryExprTypeSymbol:
                     // nothing to do
-                    break;
-                case PrimaryExprTypeFnCall:
-                    analyze_node(g, node->data.primary_expr.data.fn_call);
                     break;
                 case PrimaryExprTypeGroupedExpr:
                     analyze_node(g, node->data.primary_expr.data.grouped_expr);
@@ -625,33 +635,6 @@ static void add_debug_source_node(CodeGen *g, AstNode *node) {
                 g->block_scopes.last()));
 }
 
-static LLVMValueRef gen_fn_call(CodeGen *g, AstNode *fn_call_node) {
-    assert(fn_call_node->type == NodeTypeFnCall);
-
-    Buf *name = &fn_call_node->data.fn_call.name;
-    FnTableEntry *fn_table_entry = g->fn_table.get(name);
-    assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
-    int expected_param_count = fn_table_entry->proto_node->data.fn_proto.params.length;
-    int actual_param_count = fn_call_node->data.fn_call.params.length;
-    assert(expected_param_count == actual_param_count);
-
-    LLVMValueRef *param_values = allocate<LLVMValueRef>(actual_param_count);
-    for (int i = 0; i < actual_param_count; i += 1) {
-        AstNode *expr_node = fn_call_node->data.fn_call.params.at(i);
-        param_values[i] = gen_expr(g, expr_node);
-    }
-
-    add_debug_source_node(g, fn_call_node);
-    LLVMValueRef result = LLVMZigBuildCall(g->builder, fn_table_entry->fn_value,
-            param_values, actual_param_count, fn_table_entry->calling_convention, "");
-
-    if (type_is_unreachable(fn_table_entry->proto_node->data.fn_proto.return_type)) {
-        return LLVMBuildUnreachable(g->builder);
-    } else {
-        return result;
-    }
-}
-
 static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
     auto entry = g->str_table.maybe_get(str);
     if (entry) {
@@ -696,21 +679,76 @@ static LLVMValueRef gen_primary_expr(CodeGen *g, AstNode *node) {
         case PrimaryExprTypeUnreachable:
             add_debug_source_node(g, node);
             return LLVMBuildUnreachable(g->builder);
-        case PrimaryExprTypeFnCall:
-            return gen_fn_call(g, prim_expr->data.fn_call);
         case PrimaryExprTypeGroupedExpr:
             return gen_expr(g, prim_expr->data.grouped_expr);
         case PrimaryExprTypeBlock:
+            zig_panic("TODO block in expression");
+            break;
+        case PrimaryExprTypeSymbol:
+            zig_panic("TODO variable reference");
             break;
     }
 
     zig_unreachable();
 }
 
+static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeFnCallExpr);
+
+    Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
+
+    FnTableEntry *fn_table_entry = g->fn_table.get(name);
+    assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
+    int expected_param_count = fn_table_entry->proto_node->data.fn_proto.params.length;
+    int actual_param_count = node->data.fn_call_expr.params.length;
+    assert(expected_param_count == actual_param_count);
+
+    LLVMValueRef *param_values = allocate<LLVMValueRef>(actual_param_count);
+    for (int i = 0; i < actual_param_count; i += 1) {
+        AstNode *expr_node = node->data.fn_call_expr.params.at(i);
+        param_values[i] = gen_expr(g, expr_node);
+    }
+
+    add_debug_source_node(g, node);
+    LLVMValueRef result = LLVMZigBuildCall(g->builder, fn_table_entry->fn_value,
+            param_values, actual_param_count, fn_table_entry->calling_convention, "");
+
+    if (type_is_unreachable(fn_table_entry->proto_node->data.fn_proto.return_type)) {
+        return LLVMBuildUnreachable(g->builder);
+    } else {
+        return result;
+    }
+}
+
+static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypePrefixOpExpr);
+    assert(node->data.prefix_op_expr.primary_expr);
+
+    LLVMValueRef expr = gen_expr(g, node->data.prefix_op_expr.primary_expr);
+
+    switch (node->data.prefix_op_expr.prefix_op) {
+        case PrefixOpNegation:
+            add_debug_source_node(g, node);
+            return LLVMBuildNeg(g->builder, expr, "");
+        case PrefixOpBoolNot:
+            {
+                LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(expr));
+                add_debug_source_node(g, node);
+                return LLVMBuildICmp(g->builder, LLVMIntEQ, expr, zero, "");
+            }
+        case PrefixOpBinNot:
+            add_debug_source_node(g, node);
+            return LLVMBuildNot(g->builder, expr, "");
+        case PrefixOpInvalid:
+            zig_unreachable();
+    }
+    zig_unreachable();
+}
+
 static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeCastExpr);
 
-    LLVMValueRef expr = gen_primary_expr(g, node->data.cast_expr.primary_expr);
+    LLVMValueRef expr = gen_expr(g, node->data.cast_expr.prefix_op_expr);
 
     if (!node->data.cast_expr.type)
         return expr;
@@ -968,6 +1006,12 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_return_expr(g, node);
         case NodeTypeCastExpr:
             return gen_cast_expr(g, node);
+        case NodeTypePrefixOpExpr:
+            return gen_prefix_op_expr(g, node);
+        case NodeTypeFnCallExpr:
+            return gen_fn_call_expr(g, node);
+        case NodeTypePrimaryExpr:
+            return gen_primary_expr(g, node);
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -976,11 +1020,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeParamDecl:
         case NodeTypeType:
         case NodeTypeBlock:
-        case NodeTypeFnCall:
         case NodeTypeExternBlock:
         case NodeTypeDirective:
-        case NodeTypePrimaryExpr:
-            return gen_primary_expr(g, node);
         case NodeTypeGroupedExpr:
             zig_unreachable();
     }
