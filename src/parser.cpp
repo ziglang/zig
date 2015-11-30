@@ -1246,9 +1246,9 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
             continue;
         }
 
-        AstNode *fn_decl_node = ast_parse_fn_def(pc, token_index, false);
-        if (fn_decl_node) {
-            top_level_decls->append(fn_decl_node);
+        AstNode *fn_def_node = ast_parse_fn_def(pc, token_index, false);
+        if (fn_def_node) {
+            top_level_decls->append(fn_def_node);
             continue;
         }
 
