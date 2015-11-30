@@ -186,6 +186,11 @@ fn a() {
 
 fn b() {}
     )SOURCE", 1, "Line 4, column 5: unreachable code");
+
+    add_compile_fail_case("bad version string", R"SOURCE(
+#version("aoeu")
+export executable "test";
+    )SOURCE", 1, "Line 2, column 1: invalid version string");
 }
 
 static void print_compiler_invokation(TestCase *test_case, Buf *zig_stderr) {

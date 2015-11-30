@@ -42,8 +42,7 @@ make
 
 ## Roadmap
 
- * variables and parameters
- * Export .so library
+ * variable declarations and assignment expressions
  * Multiple files
  * Type checking
  * inline assembly and syscalls
