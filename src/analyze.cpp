@@ -43,9 +43,7 @@ static void set_root_export_version(CodeGen *g, Buf *version_buf, AstNode *node)
     }
 }
 
-static void find_declarations(CodeGen *g, AstNode *node);
-
-static void resolve_type_and_recurse(CodeGen *g, AstNode *node) {
+static void resolve_type(CodeGen *g, AstNode *node) {
     assert(!node->codegen_node);
     node->codegen_node = allocate<CodeGenNode>(1);
     TypeNode *type_node = &node->codegen_node->data.type_node;
@@ -65,7 +63,7 @@ static void resolve_type_and_recurse(CodeGen *g, AstNode *node) {
             }
         case AstNodeTypeTypePointer:
             {
-                find_declarations(g, node->data.type.child_type);
+                resolve_type(g, node->data.type.child_type);
                 TypeNode *child_type_node = &node->data.type.child_type->codegen_node->data.type_node;
                 if (child_type_node->entry->id == TypeIdUnreachable) {
                     add_node_error(g, node,
@@ -94,7 +92,29 @@ static void resolve_type_and_recurse(CodeGen *g, AstNode *node) {
     }
 }
 
-static void find_declarations(CodeGen *g, AstNode *node) {
+static void resolve_function_proto(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeFnProto);
+
+    for (int i = 0; i < node->data.fn_proto.directives->length; i += 1) {
+        AstNode *directive_node = node->data.fn_proto.directives->at(i);
+        Buf *name = &directive_node->data.directive.name;
+        add_node_error(g, directive_node,
+                buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+    }
+
+    for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
+        AstNode *child = node->data.fn_proto.params.at(i);
+        assert(child->type == NodeTypeParamDecl);
+
+        // parameter names are not important here.
+
+        resolve_type(g, child->data.param_decl.type);
+    }
+
+    resolve_type(g, node->data.fn_proto.return_type);
+}
+
+static void preview_function_declarations(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeExternBlock:
             for (int i = 0; i < node->data.extern_block.directives->length; i += 1) {
@@ -113,7 +133,7 @@ static void find_declarations(CodeGen *g, AstNode *node) {
                 AstNode *fn_decl = node->data.extern_block.fn_decls.at(fn_decl_i);
                 assert(fn_decl->type == NodeTypeFnDecl);
                 AstNode *fn_proto = fn_decl->data.fn_decl.fn_proto;
-                find_declarations(g, fn_proto);
+                resolve_function_proto(g, fn_proto);
                 Buf *name = &fn_proto->data.fn_proto.name;
 
                 FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
@@ -148,34 +168,9 @@ static void find_declarations(CodeGen *g, AstNode *node) {
                     g->fn_table.put(proto_name, fn_table_entry);
                     g->fn_defs.append(fn_table_entry);
 
-                    find_declarations(g, proto_node);
+                    resolve_function_proto(g, proto_node);
                 }
-                break;
             }
-        case NodeTypeFnProto:
-            {
-                for (int i = 0; i < node->data.fn_proto.directives->length; i += 1) {
-                    AstNode *directive_node = node->data.fn_proto.directives->at(i);
-                    Buf *name = &directive_node->data.directive.name;
-                    add_node_error(g, directive_node,
-                            buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
-                }
-                for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
-                    AstNode *child = node->data.fn_proto.params.at(i);
-                    find_declarations(g, child);
-                }
-                find_declarations(g, node->data.fn_proto.return_type);
-                break;
-            }
-            break;
-        case NodeTypeParamDecl:
-            find_declarations(g, node->data.param_decl.type);
-            break;
-        case NodeTypeType:
-            resolve_type_and_recurse(g, node);
-            break;
-        case NodeTypeDirective:
-            // we handled directives in the parent function
             break;
         case NodeTypeRootExportDecl:
             for (int i = 0; i < node->data.root_export_decl.directives->length; i += 1) {
@@ -189,7 +184,36 @@ static void find_declarations(CodeGen *g, AstNode *node) {
                             buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
                 }
             }
+
+            if (g->root_export_decl) {
+                add_node_error(g, node,
+                        buf_sprintf("only one root export declaration allowed"));
+            } else {
+                g->root_export_decl = node;
+
+                if (!g->out_name)
+                    g->out_name = &node->data.root_export_decl.name;
+
+                Buf *out_type = &node->data.root_export_decl.type;
+                OutType export_out_type;
+                if (buf_eql_str(out_type, "executable")) {
+                    export_out_type = OutTypeExe;
+                } else if (buf_eql_str(out_type, "library")) {
+                    export_out_type = OutTypeLib;
+                } else if (buf_eql_str(out_type, "object")) {
+                    export_out_type = OutTypeObj;
+                } else {
+                    add_node_error(g, node,
+                            buf_sprintf("invalid export type: '%s'", buf_ptr(out_type)));
+                }
+                if (g->out_type == OutTypeUnknown)
+                    g->out_type = export_out_type;
+            }
             break;
+        case NodeTypeDirective:
+        case NodeTypeParamDecl:
+        case NodeTypeFnProto:
+        case NodeTypeType:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
         case NodeTypeRoot:
@@ -260,113 +284,22 @@ static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
     }
 }
 
-static void analyze_node(CodeGen *g, AstNode *node) {
+static void analyze_expression(CodeGen *g, AstNode *node) {
     switch (node->type) {
-        case NodeTypeRoot:
-            {
-                // Iterate once over the top level declarations to build the function table
-                for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
-                    AstNode *child = node->data.root.top_level_decls.at(i);
-                    find_declarations(g, child);
-                }
-                for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
-                    AstNode *child = node->data.root.top_level_decls.at(i);
-                    analyze_node(g, child);
-                }
-                if (!g->out_name) {
-                    add_node_error(g, node,
-                            buf_sprintf("missing export declaration and output name not provided"));
-                } else if (g->out_type == OutTypeUnknown) {
-                    add_node_error(g, node,
-                            buf_sprintf("missing export declaration and export type not provided"));
-                }
-                break;
-            }
-        case NodeTypeRootExportDecl:
-            if (g->root_export_decl) {
-                add_node_error(g, node,
-                        buf_sprintf("only one root export declaration allowed"));
-            } else {
-                g->root_export_decl = node;
-
-                if (!g->out_name)
-                    g->out_name = &node->data.root_export_decl.name;
-
-                Buf *out_type = &node->data.root_export_decl.type;
-                OutType export_out_type;
-                if (buf_eql_str(out_type, "executable")) {
-                    export_out_type = OutTypeExe;
-                } else if (buf_eql_str(out_type, "library")) {
-                    export_out_type = OutTypeLib;
-                } else if (buf_eql_str(out_type, "object")) {
-                    export_out_type = OutTypeObj;
-                } else {
-                    add_node_error(g, node,
-                            buf_sprintf("invalid export type: '%s'", buf_ptr(out_type)));
-                }
-                if (g->out_type == OutTypeUnknown)
-                    g->out_type = export_out_type;
-            }
-            break;
-        case NodeTypeExternBlock:
-            for (int fn_decl_i = 0; fn_decl_i < node->data.extern_block.fn_decls.length; fn_decl_i += 1) {
-                AstNode *fn_decl = node->data.extern_block.fn_decls.at(fn_decl_i);
-                analyze_node(g, fn_decl);
-            }
-            break;
-        case NodeTypeFnDef:
-            {
-                if (node->codegen_node && node->codegen_node->data.fn_def_node.skip) {
-                    // we detected an error with this function definition which prevents us
-                    // from further analyzing it.
-                    break;
-                }
-
-                AstNode *proto_node = node->data.fn_def.fn_proto;
-                assert(proto_node->type == NodeTypeFnProto);
-                analyze_node(g, proto_node);
-
-                check_fn_def_control_flow(g, node);
-                analyze_node(g, node->data.fn_def.body);
-                break;
-            }
-        case NodeTypeFnDecl:
-            {
-                AstNode *proto_node = node->data.fn_decl.fn_proto;
-                assert(proto_node->type == NodeTypeFnProto);
-                analyze_node(g, proto_node);
-                break;
-            }
-        case NodeTypeFnProto:
-            {
-                for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
-                    AstNode *child = node->data.fn_proto.params.at(i);
-                    analyze_node(g, child);
-                }
-                analyze_node(g, node->data.fn_proto.return_type);
-                break;
-            }
-        case NodeTypeParamDecl:
-            analyze_node(g, node->data.param_decl.type);
-            break;
-
-        case NodeTypeType:
-            // ignore; we handled types with find_declarations
-            break;
         case NodeTypeBlock:
             for (int i = 0; i < node->data.block.statements.length; i += 1) {
                 AstNode *child = node->data.block.statements.at(i);
-                analyze_node(g, child);
+                analyze_expression(g, child);
             }
             break;
         case NodeTypeReturnExpr:
             if (node->data.return_expr.expr) {
-                analyze_node(g, node->data.return_expr.expr);
+                analyze_expression(g, node->data.return_expr.expr);
             }
             break;
         case NodeTypeBinOpExpr:
-            analyze_node(g, node->data.bin_op_expr.op1);
-            analyze_node(g, node->data.bin_op_expr.op2);
+            analyze_expression(g, node->data.bin_op_expr.op1);
+            analyze_expression(g, node->data.bin_op_expr.op2);
             break;
         case NodeTypeFnCallExpr:
             {
@@ -390,13 +323,10 @@ static void analyze_node(CodeGen *g, AstNode *node) {
 
                 for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
                     AstNode *child = node->data.fn_call_expr.params.at(i);
-                    analyze_node(g, child);
+                    analyze_expression(g, child);
                 }
                 break;
             }
-        case NodeTypeDirective:
-            // we looked at directives in the parent node
-            break;
         case NodeTypeCastExpr:
             zig_panic("TODO");
             break;
@@ -409,10 +339,93 @@ static void analyze_node(CodeGen *g, AstNode *node) {
         case NodeTypeSymbol:
             // nothing to do
             break;
+        case NodeTypeDirective:
+        case NodeTypeFnDecl:
+        case NodeTypeFnProto:
+        case NodeTypeParamDecl:
+        case NodeTypeType:
+        case NodeTypeRoot:
+        case NodeTypeRootExportDecl:
+        case NodeTypeExternBlock:
+        case NodeTypeFnDef:
+            zig_unreachable();
     }
 }
 
-static void add_types(CodeGen *g) {
+static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
+    switch (node->type) {
+        case NodeTypeFnDef:
+            {
+                if (node->codegen_node && node->codegen_node->data.fn_def_node.skip) {
+                    // we detected an error with this function definition which prevents us
+                    // from further analyzing it.
+                    break;
+                }
+
+                AstNode *fn_proto_node = node->data.fn_def.fn_proto;
+                assert(fn_proto_node->type == NodeTypeFnProto);
+
+                AstNodeFnProto *fn_proto = &fn_proto_node->data.fn_proto;
+                for (int i = 0; i < fn_proto->params.length; i += 1) {
+                    AstNode *param_decl_node = fn_proto->params.at(i);
+                    assert(param_decl_node->type == NodeTypeParamDecl);
+                    // TODO: define local variables for parameters
+                }
+
+                check_fn_def_control_flow(g, node);
+                analyze_expression(g, node->data.fn_def.body);
+            }
+            break;
+
+        case NodeTypeRootExportDecl:
+        case NodeTypeExternBlock:
+            // already looked at these in the preview pass
+            break;
+
+        case NodeTypeDirective:
+        case NodeTypeParamDecl:
+        case NodeTypeFnProto:
+        case NodeTypeType:
+        case NodeTypeFnDecl:
+        case NodeTypeReturnExpr:
+        case NodeTypeRoot:
+        case NodeTypeBlock:
+        case NodeTypeBinOpExpr:
+        case NodeTypeFnCallExpr:
+        case NodeTypeNumberLiteral:
+        case NodeTypeStringLiteral:
+        case NodeTypeUnreachable:
+        case NodeTypeSymbol:
+        case NodeTypeCastExpr:
+        case NodeTypePrefixOpExpr:
+            zig_unreachable();
+    }
+}
+
+static void analyze_root(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeRoot);
+
+    // find function declarations
+    for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
+        AstNode *child = node->data.root.top_level_decls.at(i);
+        preview_function_declarations(g, child);
+    }
+
+    for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
+        AstNode *child = node->data.root.top_level_decls.at(i);
+        analyze_top_level_declaration(g, child);
+    }
+
+    if (!g->out_name) {
+        add_node_error(g, node,
+                buf_sprintf("missing export declaration and output name not provided"));
+    } else if (g->out_type == OutTypeUnknown) {
+        add_node_error(g, node,
+                buf_sprintf("missing export declaration and export type not provided"));
+    }
+}
+
+static void define_primitive_types(CodeGen *g) {
     {
         TypeTableEntry *entry = allocate<TypeTableEntry>(1);
         entry->id = TypeIdU8;
@@ -491,8 +504,8 @@ void semantic_analyze(CodeGen *g) {
     g->dbuilder = new llvm::DIBuilder(*llvm::unwrap(g->module), true);
 
 
-    add_types(g);
+    define_primitive_types(g);
 
-    analyze_node(g, g->root);
+    analyze_root(g, g->root);
 }
 
