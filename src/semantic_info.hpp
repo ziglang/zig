@@ -21,17 +21,7 @@ struct FnTableEntry {
     unsigned calling_convention;
 };
 
-enum TypeId {
-    TypeIdUserDefined,
-    TypeIdPointer,
-    TypeIdU8,
-    TypeIdI32,
-    TypeIdVoid,
-    TypeIdUnreachable,
-};
-
 struct TypeTableEntry {
-    TypeId id;
     LLVMTypeRef type_ref;
     LLVMZigDIType *di_type;
 
@@ -54,7 +44,15 @@ struct CodeGen {
     HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> link_table;
-    TypeTableEntry *invalid_type_entry;
+
+    struct {
+        TypeTableEntry *entry_u8;
+        TypeTableEntry *entry_i32;
+        TypeTableEntry *entry_void;
+        TypeTableEntry *entry_unreachable;
+        TypeTableEntry *entry_invalid;
+    } builtin_types;
+
     LLVMTargetDataRef target_data_ref;
     unsigned pointer_size_bytes;
     bool is_static;
