@@ -1195,12 +1195,56 @@ static AstNode *ast_parse_extern_block(ParseContext *pc, int *token_index, bool 
     zig_unreachable();
 }
 
+/*
+RootExportDecl : many(Directive) token(Export) token(Symbol) token(String) token(Semicolon)
+*/
+static AstNode *ast_parse_root_export_decl(ParseContext *pc, int *token_index, bool mandatory) {
+    assert(mandatory == false);
+
+    Token *export_kw = &pc->tokens->at(*token_index);
+    if (export_kw->id != TokenIdKeywordExport)
+        return nullptr;
+
+    Token *export_type = &pc->tokens->at(*token_index + 1);
+    if (export_type->id != TokenIdSymbol)
+        return nullptr;
+
+    *token_index += 2;
+
+    AstNode *node = ast_create_node(NodeTypeRootExportDecl, export_kw);
+    node->data.root_export_decl.directives = pc->directive_list;
+    pc->directive_list = nullptr;
+
+    ast_buf_from_token(pc, export_type, &node->data.root_export_decl.type);
+
+    Token *export_name = &pc->tokens->at(*token_index);
+    *token_index += 1;
+    ast_expect_token(pc, export_name, TokenIdStringLiteral);
+
+    parse_string_literal(pc, export_name, &node->data.root_export_decl.name);
+
+    Token *semicolon = &pc->tokens->at(*token_index);
+    *token_index += 1;
+    ast_expect_token(pc, semicolon, TokenIdSemicolon);
+
+    return node;
+}
+
+/*
+TopLevelDecl : FnDef | ExternBlock | RootExportDecl
+*/
 static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigList<AstNode *> *top_level_decls) {
     for (;;) {
         Token *directive_token = &pc->tokens->at(*token_index);
         assert(!pc->directive_list);
         pc->directive_list = allocate<ZigList<AstNode*>>(1);
         ast_parse_directives(pc, token_index, pc->directive_list);
+
+        AstNode *root_export_decl_node = ast_parse_root_export_decl(pc, token_index, false);
+        if (root_export_decl_node) {
+            top_level_decls->append(root_export_decl_node);
+            continue;
+        }
 
         AstNode *fn_decl_node = ast_parse_fn_def(pc, token_index, false);
         if (fn_decl_node) {
@@ -1224,40 +1268,11 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
     zig_unreachable();
 }
 
-static AstNode *ast_parse_root_export_decl(ParseContext *pc, int *token_index) {
-    Token *export_kw = &pc->tokens->at(*token_index);
-    if (export_kw->id != TokenIdKeywordExport)
-        return nullptr;
-    *token_index += 1;
-
-    AstNode *node = ast_create_node(NodeTypeRootExportDecl, export_kw);
-
-    Token *export_type = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, export_type, TokenIdSymbol);
-
-    ast_buf_from_token(pc, export_type, &node->data.root_export_decl.type);
-
-    Token *export_name = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, export_name, TokenIdStringLiteral);
-
-    parse_string_literal(pc, export_name, &node->data.root_export_decl.name);
-
-    Token *semicolon = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, semicolon, TokenIdSemicolon);
-
-    return node;
-}
-
 /*
-Root : RootExportDecl many(TopLevelDecl) token(EOF)
+Root : many(TopLevelDecl) token(EOF)
  */
 static AstNode *ast_parse_root(ParseContext *pc, int *token_index) {
     AstNode *node = ast_create_node(NodeTypeRoot, &pc->tokens->at(*token_index));
-
-    node->data.root.root_export_decl = ast_parse_root_export_decl(pc, token_index);
 
     ast_parse_top_level_decls(pc, token_index, &node->data.root.top_level_decls);
 

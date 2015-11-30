@@ -38,7 +38,6 @@ enum NodeType {
 };
 
 struct AstNodeRoot {
-    AstNode *root_export_decl;
     ZigList<AstNode *> top_level_decls;
 };
 
@@ -138,6 +137,7 @@ struct AstNodeDirective {
 struct AstNodeRootExportDecl {
     Buf type;
     Buf name;
+    ZigList<AstNode *> *directives;
 };
 
 struct AstNodeCastExpr {

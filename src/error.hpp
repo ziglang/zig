@@ -9,6 +9,7 @@
 #define ERROR_HPP
 
 enum Error {
+    ErrorNone,
     ErrorNoMem,
     ErrorInvalidFormat,
 };

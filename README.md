@@ -42,9 +42,6 @@ make
 
 ## Roadmap
 
- * ability to specify version
- * cli ability to override library export locations
- * add test for building library
  * variables and parameters
  * Export .so library
  * Multiple files
@@ -81,11 +78,11 @@ zig    | C equivalent | Description
 ### Grammar
 
 ```
-Root : RootExportDecl many(TopLevelDecl) token(EOF)
+Root : many(TopLevelDecl) token(EOF)
 
-RootExportDecl : token(Export) token(Symbol) token(String) token(Semicolon)
+TopLevelDecl : FnDef | ExternBlock | RootExportDecl
 
-TopLevelDecl : FnDef | ExternBlock
+RootExportDecl : many(Directive) token(Export) token(Symbol) token(String) token(Semicolon)
 
 ExternBlock : many(Directive) token(Extern) token(LBrace) many(FnDecl) token(RBrace)
 

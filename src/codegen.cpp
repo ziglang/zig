@@ -10,6 +10,7 @@
 #include "zig_llvm.hpp"
 #include "os.hpp"
 #include "config.h"
+#include "error.hpp"
 
 #include <stdio.h>
 
@@ -79,6 +80,10 @@ struct CodeGen {
     OutType out_type;
     FnTableEntry *cur_fn;
     bool c_stdint_used;
+    AstNode *root_export_decl;
+    int version_major;
+    int version_minor;
+    int version_patch;
 };
 
 struct TypeNode {
@@ -167,6 +172,30 @@ static bool type_is_unreachable(AstNode *type_node) {
     assert(type_node->codegen_node);
     assert(type_node->codegen_node->data.type_node.entry);
     return type_node->codegen_node->data.type_node.entry->id == TypeIdUnreachable;
+}
+
+
+static int parse_version_string(Buf *buf, int *major, int *minor, int *patch) {
+    char *dot1 = strstr(buf_ptr(buf), ".");
+    if (!dot1)
+        return ErrorInvalidFormat;
+    char *dot2 = strstr(dot1 + 1, ".");
+    if (!dot2)
+        return ErrorInvalidFormat;
+
+    *major = (int)strtol(buf_ptr(buf), nullptr, 10);
+    *minor = (int)strtol(dot1 + 1, nullptr, 10);
+    *patch = (int)strtol(dot2 + 1, nullptr, 10);
+
+    return ErrorNone;
+}
+
+static void set_root_export_version(CodeGen *g, Buf *version_buf, AstNode *node) {
+    int err;
+    if ((err = parse_version_string(version_buf, &g->version_major, &g->version_minor, &g->version_patch))) {
+        add_node_error(g, node,
+                buf_sprintf("invalid version string"));
+    }
 }
 
 static void find_declarations(CodeGen *g, AstNode *node);
@@ -303,13 +332,25 @@ static void find_declarations(CodeGen *g, AstNode *node) {
         case NodeTypeDirective:
             // we handled directives in the parent function
             break;
+        case NodeTypeRootExportDecl:
+            for (int i = 0; i < node->data.root_export_decl.directives->length; i += 1) {
+                AstNode *directive_node = node->data.root_export_decl.directives->at(i);
+                Buf *name = &directive_node->data.directive.name;
+                Buf *param = &directive_node->data.directive.param;
+                if (buf_eql_str(name, "version")) {
+                    set_root_export_version(g, param, directive_node);
+                } else {
+                    add_node_error(g, directive_node,
+                            buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+                }
+            }
+            break;
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
         case NodeTypeFnCallExpr:
-        case NodeTypeRootExportDecl:
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeUnreachable:
@@ -385,36 +426,6 @@ static void analyze_node(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeRoot:
             {
-                AstNode *root_export_decl_node = node->data.root.root_export_decl;
-                if (root_export_decl_node) {
-                    assert(root_export_decl_node->type == NodeTypeRootExportDecl);
-                    if (!g->out_name)
-                        g->out_name = &root_export_decl_node->data.root_export_decl.name;
-
-                    Buf *out_type = &root_export_decl_node->data.root_export_decl.type;
-                    OutType export_out_type;
-                    if (buf_eql_str(out_type, "executable")) {
-                        export_out_type = OutTypeExe;
-                    } else if (buf_eql_str(out_type, "library")) {
-                        export_out_type = OutTypeLib;
-                    } else if (buf_eql_str(out_type, "object")) {
-                        export_out_type = OutTypeObj;
-                    } else {
-                        add_node_error(g, root_export_decl_node,
-                                buf_sprintf("invalid export type: '%s'", buf_ptr(out_type)));
-                    }
-                    if (g->out_type == OutTypeUnknown)
-                        g->out_type = export_out_type;
-                } else {
-                    if (!g->out_name) {
-                        add_node_error(g, node,
-                                buf_sprintf("missing export declaration and output name not provided"));
-                    } else if (g->out_type == OutTypeUnknown) {
-                        add_node_error(g, node,
-                                buf_sprintf("missing export declaration and export type not provided"));
-                    }
-                }
-
                 // Iterate once over the top level declarations to build the function table
                 for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
                     AstNode *child = node->data.root.top_level_decls.at(i);
@@ -424,10 +435,40 @@ static void analyze_node(CodeGen *g, AstNode *node) {
                     AstNode *child = node->data.root.top_level_decls.at(i);
                     analyze_node(g, child);
                 }
+                if (!g->out_name) {
+                    add_node_error(g, node,
+                            buf_sprintf("missing export declaration and output name not provided"));
+                } else if (g->out_type == OutTypeUnknown) {
+                    add_node_error(g, node,
+                            buf_sprintf("missing export declaration and export type not provided"));
+                }
                 break;
             }
         case NodeTypeRootExportDecl:
-            // handled in parent
+            if (g->root_export_decl) {
+                add_node_error(g, node,
+                        buf_sprintf("only one root export declaration allowed"));
+            } else {
+                g->root_export_decl = node;
+
+                if (!g->out_name)
+                    g->out_name = &node->data.root_export_decl.name;
+
+                Buf *out_type = &node->data.root_export_decl.type;
+                OutType export_out_type;
+                if (buf_eql_str(out_type, "executable")) {
+                    export_out_type = OutTypeExe;
+                } else if (buf_eql_str(out_type, "library")) {
+                    export_out_type = OutTypeLib;
+                } else if (buf_eql_str(out_type, "object")) {
+                    export_out_type = OutTypeObj;
+                } else {
+                    add_node_error(g, node,
+                            buf_sprintf("invalid export type: '%s'", buf_ptr(out_type)));
+                }
+                if (g->out_type == OutTypeUnknown)
+                    g->out_type = export_out_type;
+            }
             break;
         case NodeTypeExternBlock:
             for (int fn_decl_i = 0; fn_decl_i < node->data.extern_block.fn_decls.length; fn_decl_i += 1) {
@@ -1401,11 +1442,9 @@ void code_gen_link(CodeGen *g, const char *out_file) {
     }
 
     if (g->out_type == OutTypeLib) {
-        int major = 1;
-        int minor = 0;
-        int patch = 0;
-        Buf *out_lib_so = buf_sprintf("lib%s.so.%d.%d.%d", buf_ptr(g->out_name), major, minor, patch);
-        Buf *soname = buf_sprintf("lib%s.so.%d", buf_ptr(g->out_name), major);
+        Buf *out_lib_so = buf_sprintf("lib%s.so.%d.%d.%d",
+                buf_ptr(g->out_name), g->version_major, g->version_minor, g->version_patch);
+        Buf *soname = buf_sprintf("lib%s.so.%d", buf_ptr(g->out_name), g->version_major);
         args.append("-shared");
         args.append("-soname");
         args.append(buf_ptr(soname));
