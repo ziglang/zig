@@ -22,6 +22,7 @@ include_directories(
 )
 
 set(ZIG_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
     "${CMAKE_SOURCE_DIR}/src/main.cpp"

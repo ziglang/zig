@@ -41,8 +41,6 @@ void codegen_set_strip(CodeGen *codegen, bool strip);
 void codegen_set_out_type(CodeGen *codegen, OutType out_type);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
 
-void semantic_analyze(CodeGen *g);
-
 void code_gen_optimize(CodeGen *g);
 
 void code_gen(CodeGen *g);

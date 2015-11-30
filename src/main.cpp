@@ -13,6 +13,7 @@
 #include "tokenizer.hpp"
 #include "error.hpp"
 #include "codegen.hpp"
+#include "analyze.hpp"
 
 #include <stdio.h>
 #include <string.h>
