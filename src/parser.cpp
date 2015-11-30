@@ -1254,21 +1254,25 @@ static AstNode *ast_parse_root_export_decl(ParseContext *pc, int *token_index) {
 /*
 Root : RootExportDecl many(TopLevelDecl) token(EOF)
  */
+static AstNode *ast_parse_root(ParseContext *pc, int *token_index) {
+    AstNode *node = ast_create_node(NodeTypeRoot, &pc->tokens->at(*token_index));
+
+    node->data.root.root_export_decl = ast_parse_root_export_decl(pc, token_index);
+
+    ast_parse_top_level_decls(pc, token_index, &node->data.root.top_level_decls);
+
+    if (*token_index != pc->tokens->length - 1) {
+        ast_invalid_token_error(pc, &pc->tokens->at(*token_index));
+    }
+
+    return node;
+}
+
 AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens) {
     ParseContext pc = {0};
     pc.buf = buf;
-    pc.root = ast_create_node(NodeTypeRoot, &tokens->at(0));
     pc.tokens = tokens;
-
     int token_index = 0;
-
-    pc.root->data.root.root_export_decl = ast_parse_root_export_decl(&pc, &token_index);
-
-    ast_parse_top_level_decls(&pc, &token_index, &pc.root->data.root.top_level_decls);
-
-    if (token_index != tokens->length - 1) {
-        ast_invalid_token_error(&pc, &tokens->at(token_index));
-    }
-
+    pc.root = ast_parse_root(&pc, &token_index);
     return pc.root;
 }

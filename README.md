@@ -42,6 +42,9 @@ make
 
 ## Roadmap
 
+ * ability to specify version
+ * cli ability to override library export locations
+ * add test for building library
  * variables and parameters
  * Export .so library
  * Multiple files
