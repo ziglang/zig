@@ -15,13 +15,7 @@
 #include "semantic_info.hpp"
 
 #include <stdio.h>
-
-#include <llvm/IR/IRBuilder.h>
-#include <llvm/IR/DIBuilder.h>
-#include <llvm/IR/DiagnosticInfo.h>
-#include <llvm/IR/DiagnosticPrinter.h>
-#include <llvm/Target/TargetMachine.h>
-#include <llvm/Support/TargetParser.h>
+#include <errno.h>
 
 CodeGen *create_codegen(AstNode *root, Buf *in_full_path) {
     CodeGen *g = allocate<CodeGen>(1);
@@ -460,24 +454,16 @@ static void gen_block(CodeGen *g, AstNode *block_node, bool add_implicit_return)
 static LLVMZigDISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnProto *fn_proto,
         LLVMZigDIFile *di_file)
 {
-    llvm::SmallVector<llvm::Metadata *, 8> types;
-
-    llvm::DIType *return_type = reinterpret_cast<llvm::DIType*>(to_llvm_debug_type(fn_proto->return_type));
-    types.push_back(return_type);
-
+    LLVMZigDIType **types = allocate<LLVMZigDIType*>(1 + fn_proto->params.length);
+    types[0] = to_llvm_debug_type(fn_proto->return_type);
+    int types_len = fn_proto->params.length + 1;
     for (int i = 0; i < fn_proto->params.length; i += 1) {
         AstNode *param_node = fn_proto->params.at(i);
         assert(param_node->type == NodeTypeParamDecl);
-        llvm::DIType *param_type = reinterpret_cast<llvm::DIType*>(to_llvm_debug_type(param_node->data.param_decl.type));
-        types.push_back(param_type);
+        LLVMZigDIType *param_type = to_llvm_debug_type(param_node->data.param_decl.type);
+        types[i + 1] = param_type;
     }
-
-    llvm::DIBuilder *dibuilder = reinterpret_cast<llvm::DIBuilder*>(g->dbuilder);
-
-    llvm::DISubroutineType *result = dibuilder->createSubroutineType(
-            reinterpret_cast<llvm::DIFile*>(di_file),
-            dibuilder->getOrCreateTypeArray(types));
-    return reinterpret_cast<LLVMZigDISubroutineType*>(result);
+    return LLVMZigCreateSubroutineType(g->dbuilder, di_file, types, types_len, 0);
 }
 
 void code_gen(CodeGen *g) {
@@ -594,122 +580,6 @@ void code_gen_optimize(CodeGen *g) {
 
 ZigList<ErrorMsg> *codegen_error_messages(CodeGen *g) {
     return &g->errors;
-}
-
-enum FloatAbi {
-    FloatAbiHard,
-    FloatAbiSoft,
-    FloatAbiSoftFp,
-};
-
-
-static int get_arm_sub_arch_version(const llvm::Triple &triple) {
-    return llvm::ARMTargetParser::parseArchVersion(triple.getArchName());
-}
-
-static FloatAbi get_float_abi(const llvm::Triple &triple) {
-    switch (triple.getOS()) {
-        case llvm::Triple::Darwin:
-        case llvm::Triple::MacOSX:
-        case llvm::Triple::IOS:
-            if (get_arm_sub_arch_version(triple) == 6 ||
-                get_arm_sub_arch_version(triple) == 7)
-            {
-                return FloatAbiSoftFp;
-            } else {
-                return FloatAbiSoft;
-            }
-        case llvm::Triple::Win32:
-            return FloatAbiHard;
-        case llvm::Triple::FreeBSD:
-            switch (triple.getEnvironment()) {
-                case llvm::Triple::GNUEABIHF:
-                    return FloatAbiHard;
-                default:
-                    return FloatAbiSoft;
-            }
-        default:
-            switch (triple.getEnvironment()) {
-                case llvm::Triple::GNUEABIHF:
-                    return FloatAbiHard;
-                case llvm::Triple::GNUEABI:
-                    return FloatAbiSoftFp;
-                case llvm::Triple::EABIHF:
-                    return FloatAbiHard;
-                case llvm::Triple::EABI:
-                    return FloatAbiSoftFp;
-                case llvm::Triple::Android:
-                    if (get_arm_sub_arch_version(triple) == 7) {
-                        return FloatAbiSoftFp;
-                    } else {
-                        return FloatAbiSoft;
-                    }
-                default:
-                    return FloatAbiSoft;
-            }
-    }
-}
-
-static Buf *get_dynamic_linker(CodeGen *g) {
-    llvm::TargetMachine *target_machine = reinterpret_cast<llvm::TargetMachine*>(g->target_machine);
-    const llvm::Triple &triple = target_machine->getTargetTriple();
-
-    const llvm::Triple::ArchType arch = triple.getArch();
-
-    if (triple.getEnvironment() == llvm::Triple::Android) {
-        if (triple.isArch64Bit()) {
-            return buf_create_from_str("/system/bin/linker64");
-        } else {
-            return buf_create_from_str("/system/bin/linker");
-        }
-    } else if (arch == llvm::Triple::x86 ||
-            arch == llvm::Triple::sparc ||
-            arch == llvm::Triple::sparcel)
-    {
-        return buf_create_from_str("/lib/ld-linux.so.2");
-    } else if (arch == llvm::Triple::aarch64) {
-        return buf_create_from_str("/lib/ld-linux-aarch64.so.1");
-    } else if (arch == llvm::Triple::aarch64_be) {
-        return buf_create_from_str("/lib/ld-linux-aarch64_be.so.1");
-    } else if (arch == llvm::Triple::arm || arch == llvm::Triple::thumb) {
-        if (triple.getEnvironment() == llvm::Triple::GNUEABIHF ||
-            get_float_abi(triple) == FloatAbiHard)
-        {
-            return buf_create_from_str("/lib/ld-linux-armhf.so.3");
-        } else {
-            return buf_create_from_str("/lib/ld-linux.so.3");
-        }
-    } else if (arch == llvm::Triple::armeb || arch == llvm::Triple::thumbeb) {
-        if (triple.getEnvironment() == llvm::Triple::GNUEABIHF ||
-            get_float_abi(triple) == FloatAbiHard)
-        {
-            return buf_create_from_str("/lib/ld-linux-armhf.so.3");
-        } else {
-            return buf_create_from_str("/lib/ld-linux.so.3");
-        }
-    } else if (arch == llvm::Triple::mips || arch == llvm::Triple::mipsel ||
-            arch == llvm::Triple::mips64 || arch == llvm::Triple::mips64el)
-    {
-        // when you want to solve this TODO, grep clang codebase for
-        // getLinuxDynamicLinker
-        zig_panic("TODO figure out MIPS dynamic linker name");
-    } else if (arch == llvm::Triple::ppc) {
-        return buf_create_from_str("/lib/ld.so.1");
-    } else if (arch == llvm::Triple::ppc64) {
-        return buf_create_from_str("/lib64/ld64.so.2");
-    } else if (arch == llvm::Triple::ppc64le) {
-        return buf_create_from_str("/lib64/ld64.so.2");
-    } else if (arch == llvm::Triple::systemz) {
-        return buf_create_from_str("/lib64/ld64.so.1");
-    } else if (arch == llvm::Triple::sparcv9) {
-        return buf_create_from_str("/lib64/ld-linux.so.2");
-    } else if (arch == llvm::Triple::x86_64 &&
-            triple.getEnvironment() == llvm::Triple::GNUX32)
-    {
-        return buf_create_from_str("/libx32/ld-linux-x32.so.2");
-    } else {
-        return buf_create_from_str("/lib64/ld-linux-x86-64.so.2");
-    }
 }
 
 static Buf *to_c_type(CodeGen *g, AstNode *type_node) {
@@ -865,7 +735,7 @@ void code_gen_link(CodeGen *g, const char *out_file) {
         }
     } else {
         args.append("-dynamic-linker");
-        args.append(buf_ptr(get_dynamic_linker(g)));
+        args.append(buf_ptr(get_dynamic_linker(g->target_machine)));
     }
 
     if (g->out_type == OutTypeLib) {

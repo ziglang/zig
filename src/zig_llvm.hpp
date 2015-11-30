@@ -42,6 +42,9 @@ LLVMZigDIType *LLVMZigCreateDebugPointerType(LLVMZigDIBuilder *dibuilder, LLVMZi
 LLVMZigDIType *LLVMZigCreateDebugBasicType(LLVMZigDIBuilder *dibuilder, const char *name,
         uint64_t size_in_bits, uint64_t align_in_bits, unsigned encoding);
 
+LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
+        LLVMZigDIFile *file, LLVMZigDIType **types_array, int types_array_len, unsigned flags);
+
 unsigned LLVMZigEncoding_DW_ATE_unsigned(void);
 unsigned LLVMZigEncoding_DW_ATE_signed(void);
 unsigned LLVMZigLang_DW_LANG_C99(void);
@@ -71,5 +74,13 @@ LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigD
         unsigned flags, bool is_optimized, LLVMValueRef function);
 
 void LLVMZigDIBuilderFinalize(LLVMZigDIBuilder *dibuilder);
+
+
+/*
+ * This stuff is not LLVM API but it depends on the LLVM C++ API so we put it here.
+ */
+#include "buffer.hpp"
+
+Buf *get_dynamic_linker(LLVMTargetMachineRef target_machine);
 
 #endif
