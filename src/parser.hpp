@@ -29,8 +29,10 @@ enum NodeType {
     NodeTypeReturnExpr,
     NodeTypeBinOpExpr,
     NodeTypeCastExpr,
-    NodeTypePrimaryExpr,
-    NodeTypeGroupedExpr,
+    NodeTypeNumberLiteral,
+    NodeTypeStringLiteral,
+    NodeTypeUnreachable,
+    NodeTypeSymbol,
     NodeTypePrefixOpExpr,
     NodeTypeFnCallExpr,
 };
@@ -144,30 +146,6 @@ struct AstNodeCastExpr {
     AstNode *type;
 };
 
-enum PrimaryExprType {
-    PrimaryExprTypeNumber,
-    PrimaryExprTypeString,
-    PrimaryExprTypeUnreachable,
-    PrimaryExprTypeGroupedExpr,
-    PrimaryExprTypeBlock,
-    PrimaryExprTypeSymbol,
-};
-
-struct AstNodePrimaryExpr {
-    PrimaryExprType type;
-    union {
-        Buf number;
-        Buf string;
-        Buf symbol;
-        AstNode *grouped_expr;
-        AstNode *block;
-    } data;
-};
-
-struct AstNodeGroupedExpr {
-    AstNode *expr;
-};
-
 enum PrefixOp {
     PrefixOpInvalid,
     PrefixOpBoolNot,
@@ -200,10 +178,11 @@ struct AstNode {
         AstNodeExternBlock extern_block;
         AstNodeDirective directive;
         AstNodeCastExpr cast_expr;
-        AstNodePrimaryExpr primary_expr;
-        AstNodeGroupedExpr grouped_expr;
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodeFnCallExpr fn_call_expr;
+        Buf number;
+        Buf string;
+        Buf symbol;
     } data;
 };
 

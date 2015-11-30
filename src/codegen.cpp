@@ -308,10 +308,12 @@ static void find_declarations(CodeGen *g, AstNode *node) {
         case NodeTypeBinOpExpr:
         case NodeTypeFnCallExpr:
         case NodeTypeRootExportDecl:
+        case NodeTypeNumberLiteral:
+        case NodeTypeStringLiteral:
+        case NodeTypeUnreachable:
+        case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
-        case NodeTypePrimaryExpr:
-        case NodeTypeGroupedExpr:
             zig_unreachable();
     }
 }
@@ -373,9 +375,8 @@ static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
 static Buf *hack_get_fn_call_name(CodeGen *g, AstNode *node) {
     // Assume that the expression evaluates to a simple name and return the buf
     // TODO after type checking works we should be able to remove this hack
-    assert(node->type == NodeTypePrimaryExpr);
-    assert(node->data.primary_expr.type == PrimaryExprTypeSymbol);
-    return &node->data.primary_expr.data.symbol;
+    assert(node->type == NodeTypeSymbol);
+    return &node->data.symbol;
 }
 
 static void analyze_node(CodeGen *g, AstNode *node) {
@@ -521,24 +522,11 @@ static void analyze_node(CodeGen *g, AstNode *node) {
         case NodeTypePrefixOpExpr:
             zig_panic("TODO");
             break;
-        case NodeTypePrimaryExpr:
-            switch (node->data.primary_expr.type) {
-                case PrimaryExprTypeNumber:
-                case PrimaryExprTypeString:
-                case PrimaryExprTypeUnreachable:
-                case PrimaryExprTypeSymbol:
-                    // nothing to do
-                    break;
-                case PrimaryExprTypeGroupedExpr:
-                    analyze_node(g, node->data.primary_expr.data.grouped_expr);
-                    break;
-                case PrimaryExprTypeBlock:
-                    analyze_node(g, node->data.primary_expr.data.block);
-                    break;
-            }
-            break;
-        case NodeTypeGroupedExpr:
-            zig_panic("TODO");
+        case NodeTypeNumberLiteral:
+        case NodeTypeStringLiteral:
+        case NodeTypeUnreachable:
+        case NodeTypeSymbol:
+            // nothing to do
             break;
     }
 }
@@ -649,47 +637,6 @@ static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
     g->str_table.put(str, global_value);
 
     return global_value;
-}
-
-static LLVMValueRef gen_primary_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypePrimaryExpr);
-
-    AstNodePrimaryExpr *prim_expr = &node->data.primary_expr;
-
-    switch (node->data.primary_expr.type) {
-        case PrimaryExprTypeNumber:
-            {
-                Buf *number_str = &prim_expr->data.number;
-                LLVMTypeRef number_type = LLVMInt32Type();
-                LLVMValueRef number_val = LLVMConstIntOfStringAndSize(number_type,
-                        buf_ptr(number_str), buf_len(number_str), 10);
-                return number_val;
-            }
-        case PrimaryExprTypeString:
-            {
-                Buf *str = &prim_expr->data.string;
-                LLVMValueRef str_val = find_or_create_string(g, str);
-                LLVMValueRef indices[] = {
-                    LLVMConstInt(LLVMInt32Type(), 0, false),
-                    LLVMConstInt(LLVMInt32Type(), 0, false)
-                };
-                LLVMValueRef ptr_val = LLVMBuildInBoundsGEP(g->builder, str_val, indices, 2, "");
-                return ptr_val;
-            }
-        case PrimaryExprTypeUnreachable:
-            add_debug_source_node(g, node);
-            return LLVMBuildUnreachable(g->builder);
-        case PrimaryExprTypeGroupedExpr:
-            return gen_expr(g, prim_expr->data.grouped_expr);
-        case PrimaryExprTypeBlock:
-            zig_panic("TODO block in expression");
-            break;
-        case PrimaryExprTypeSymbol:
-            zig_panic("TODO variable reference");
-            break;
-    }
-
-    zig_unreachable();
 }
 
 static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
@@ -964,8 +911,28 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_prefix_op_expr(g, node);
         case NodeTypeFnCallExpr:
             return gen_fn_call_expr(g, node);
-        case NodeTypePrimaryExpr:
-            return gen_primary_expr(g, node);
+        case NodeTypeUnreachable:
+            add_debug_source_node(g, node);
+            return LLVMBuildUnreachable(g->builder);
+        case NodeTypeNumberLiteral:
+            {
+                Buf *number_str = &node->data.number;
+                LLVMTypeRef number_type = LLVMInt32Type();
+                LLVMValueRef number_val = LLVMConstIntOfStringAndSize(number_type,
+                        buf_ptr(number_str), buf_len(number_str), 10);
+                return number_val;
+            }
+        case NodeTypeStringLiteral:
+            {
+                Buf *str = &node->data.string;
+                LLVMValueRef str_val = find_or_create_string(g, str);
+                LLVMValueRef indices[] = {
+                    LLVMConstInt(LLVMInt32Type(), 0, false),
+                    LLVMConstInt(LLVMInt32Type(), 0, false)
+                };
+                LLVMValueRef ptr_val = LLVMBuildInBoundsGEP(g->builder, str_val, indices, 2, "");
+                return ptr_val;
+            }
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -976,7 +943,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeBlock:
         case NodeTypeExternBlock:
         case NodeTypeDirective:
-        case NodeTypeGroupedExpr:
+        case NodeTypeSymbol:
             zig_unreachable();
     }
     zig_unreachable();

@@ -90,10 +90,14 @@ const char *node_type_str(NodeType node_type) {
             return "ReturnExpr";
         case NodeTypeCastExpr:
             return "CastExpr";
-        case NodeTypePrimaryExpr:
-            return "PrimaryExpr";
-        case NodeTypeGroupedExpr:
-            return "GroupedExpr";
+        case NodeTypeNumberLiteral:
+            return "NumberLiteral";
+        case NodeTypeStringLiteral:
+            return "StringLiteral";
+        case NodeTypeUnreachable:
+            return "Unreachable";
+        case NodeTypeSymbol:
+            return "Symbol";
         case NodeTypePrefixOpExpr:
             return "PrefixOpExpr";
     }
@@ -222,36 +226,20 @@ void ast_print(AstNode *node, int indent) {
                     prefix_op_str(node->data.prefix_op_expr.prefix_op));
             ast_print(node->data.prefix_op_expr.primary_expr, indent + 2);
             break;
-        case NodeTypePrimaryExpr:
-            switch (node->data.primary_expr.type) {
-                case PrimaryExprTypeNumber:
-                    fprintf(stderr, "PrimaryExpr Number %s\n",
-                            buf_ptr(&node->data.primary_expr.data.number));
-                    break;
-                case PrimaryExprTypeString:
-                    fprintf(stderr, "PrimaryExpr String '%s'\n",
-                            buf_ptr(&node->data.primary_expr.data.string));
-                    break;
-                case PrimaryExprTypeUnreachable:
-                    fprintf(stderr, "PrimaryExpr Unreachable\n");
-                    break;
-                case PrimaryExprTypeGroupedExpr:
-                    fprintf(stderr, "PrimaryExpr GroupedExpr\n");
-                    ast_print(node->data.primary_expr.data.grouped_expr, indent + 2);
-                    break;
-                case PrimaryExprTypeBlock:
-                    fprintf(stderr, "PrimaryExpr Block\n");
-                    ast_print(node->data.primary_expr.data.block, indent + 2);
-                    break;
-                case PrimaryExprTypeSymbol:
-                    fprintf(stderr, "PrimaryExpr Symbol %s\n",
-                            buf_ptr(&node->data.primary_expr.data.symbol));
-                    break;
-            }
+        case NodeTypeNumberLiteral:
+            fprintf(stderr, "PrimaryExpr Number %s\n",
+                    buf_ptr(&node->data.number));
             break;
-        case NodeTypeGroupedExpr:
-            fprintf(stderr, "%s\n", node_type_str(node->type));
-            ast_print(node->data.grouped_expr.expr, indent + 2);
+        case NodeTypeStringLiteral:
+            fprintf(stderr, "PrimaryExpr String '%s'\n",
+                    buf_ptr(&node->data.string));
+            break;
+        case NodeTypeUnreachable:
+            fprintf(stderr, "PrimaryExpr Unreachable\n");
+            break;
+        case NodeTypeSymbol:
+            fprintf(stderr, "PrimaryExpr Symbol %s\n",
+                    buf_ptr(&node->data.symbol));
             break;
     }
 }
@@ -535,9 +523,11 @@ static AstNode *ast_parse_grouped_expr(ParseContext *pc, int *token_index, bool 
 
     *token_index += 1;
 
-    AstNode *node = ast_create_node(NodeTypeGroupedExpr, l_paren);
+    AstNode *node = ast_parse_expression(pc, token_index, true);
 
-    node->data.grouped_expr.expr = ast_parse_expression(pc, token_index, true);
+    Token *r_paren = &pc->tokens->at(*token_index);
+    *token_index += 1;
+    ast_expect_token(pc, r_paren, TokenIdRParen);
 
     return node;
 }
@@ -549,44 +539,34 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
     Token *token = &pc->tokens->at(*token_index);
 
     if (token->id == TokenIdNumberLiteral) {
-        AstNode *node = ast_create_node(NodeTypePrimaryExpr, token);
-        node->data.primary_expr.type = PrimaryExprTypeNumber;
-        ast_buf_from_token(pc, token, &node->data.primary_expr.data.number);
+        AstNode *node = ast_create_node(NodeTypeNumberLiteral, token);
+        ast_buf_from_token(pc, token, &node->data.number);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdStringLiteral) {
-        AstNode *node = ast_create_node(NodeTypePrimaryExpr, token);
-        node->data.primary_expr.type = PrimaryExprTypeString;
-        parse_string_literal(pc, token, &node->data.primary_expr.data.string);
+        AstNode *node = ast_create_node(NodeTypeStringLiteral, token);
+        parse_string_literal(pc, token, &node->data.string);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordUnreachable) {
-        AstNode *node = ast_create_node(NodeTypePrimaryExpr, token);
-        node->data.primary_expr.type = PrimaryExprTypeUnreachable;
+        AstNode *node = ast_create_node(NodeTypeUnreachable, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdSymbol) {
-        AstNode *node = ast_create_node(NodeTypePrimaryExpr, token);
-        node->data.primary_expr.type = PrimaryExprTypeSymbol;
-        ast_buf_from_token(pc, token, &node->data.primary_expr.data.symbol);
+        AstNode *node = ast_create_node(NodeTypeSymbol, token);
+        ast_buf_from_token(pc, token, &node->data.symbol);
         *token_index += 1;
         return node;
     }
 
     AstNode *block_node = ast_parse_block(pc, token_index, false);
     if (block_node) {
-        AstNode *node = ast_create_node(NodeTypePrimaryExpr, token);
-        node->data.primary_expr.type = PrimaryExprTypeBlock;
-        node->data.primary_expr.data.block = block_node;
-        return node;
+        return block_node;
     }
 
     AstNode *grouped_expr_node = ast_parse_grouped_expr(pc, token_index, false);
     if (grouped_expr_node) {
-        AstNode *node = ast_create_node(NodeTypePrimaryExpr, token);
-        node->data.primary_expr.type = PrimaryExprTypeGroupedExpr;
-        node->data.primary_expr.data.grouped_expr = grouped_expr_node;
-        return node;
+        return grouped_expr_node;
     }
 
     if (!mandatory)
