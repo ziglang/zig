@@ -10,9 +10,7 @@
 
 #include "codegen.hpp"
 #include "hash_map.hpp"
-
-#include <llvm/IR/DIBuilder.h>
-#include <llvm/IR/DiagnosticInfo.h>
+#include "zig_llvm.hpp"
 
 struct FnTableEntry {
     LLVMValueRef fn_value;
@@ -35,7 +33,7 @@ enum TypeId {
 struct TypeTableEntry {
     TypeId id;
     LLVMTypeRef type_ref;
-    llvm::DIType *di_type;
+    LLVMZigDIType *di_type;
 
     TypeTableEntry *pointer_child;
     bool pointer_is_const;
@@ -50,8 +48,8 @@ struct CodeGen {
     AstNode *root;
     ZigList<ErrorMsg> errors;
     LLVMBuilderRef builder;
-    llvm::DIBuilder *dbuilder;
-    llvm::DICompileUnit *compile_unit;
+    LLVMZigDIBuilder *dbuilder;
+    LLVMZigDICompileUnit *compile_unit;
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
     HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
@@ -66,8 +64,8 @@ struct CodeGen {
     bool is_native_target;
     Buf in_file;
     Buf in_dir;
-    ZigList<llvm::DIScope *> block_scopes;
-    llvm::DIFile *di_file;
+    ZigList<LLVMZigDIScope *> block_scopes;
+    LLVMZigDIFile *di_file;
     ZigList<FnTableEntry *> fn_defs;
     Buf *out_name;
     OutType out_type;

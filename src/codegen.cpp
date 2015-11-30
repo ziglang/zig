@@ -70,7 +70,7 @@ static LLVMTypeRef to_llvm_type(AstNode *type_node) {
     return type_node->codegen_node->data.type_node.entry->type_ref;
 }
 
-static llvm::DIType *to_llvm_debug_type(AstNode *type_node) {
+static LLVMZigDIType *to_llvm_debug_type(AstNode *type_node) {
     assert(type_node->type == NodeTypeType);
     assert(type_node->codegen_node);
     assert(type_node->codegen_node->data.type_node.entry);
@@ -86,9 +86,7 @@ static bool type_is_unreachable(AstNode *type_node) {
 }
 
 static void add_debug_source_node(CodeGen *g, AstNode *node) {
-    llvm::unwrap(g->builder)->SetCurrentDebugLocation(llvm::DebugLoc::get(
-                node->line + 1, node->column + 1,
-                g->block_scopes.last()));
+    LLVMZigSetCurrentDebugLocation(g->builder, node->line + 1, node->column + 1, g->block_scopes.last());
 }
 
 static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
@@ -441,9 +439,9 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
 static void gen_block(CodeGen *g, AstNode *block_node, bool add_implicit_return) {
     assert(block_node->type == NodeTypeBlock);
 
-    llvm::DILexicalBlock *di_block = g->dbuilder->createLexicalBlock(g->block_scopes.last(),
+    LLVMZigDILexicalBlock *di_block = LLVMZigCreateLexicalBlock(g->dbuilder, g->block_scopes.last(),
             g->di_file, block_node->line + 1, block_node->column + 1);
-    g->block_scopes.append(di_block);
+    g->block_scopes.append(LLVMZigLexicalBlockToScope(di_block));
 
     add_debug_source_node(g, block_node);
 
@@ -459,22 +457,27 @@ static void gen_block(CodeGen *g, AstNode *block_node, bool add_implicit_return)
     g->block_scopes.pop();
 }
 
-static llvm::DISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnProto *fn_proto,
-        llvm::DIFile *di_file)
+static LLVMZigDISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnProto *fn_proto,
+        LLVMZigDIFile *di_file)
 {
     llvm::SmallVector<llvm::Metadata *, 8> types;
 
-    llvm::DIType *return_type = to_llvm_debug_type(fn_proto->return_type);
+    llvm::DIType *return_type = reinterpret_cast<llvm::DIType*>(to_llvm_debug_type(fn_proto->return_type));
     types.push_back(return_type);
 
     for (int i = 0; i < fn_proto->params.length; i += 1) {
         AstNode *param_node = fn_proto->params.at(i);
         assert(param_node->type == NodeTypeParamDecl);
-        llvm::DIType *param_type = to_llvm_debug_type(param_node->data.param_decl.type);
+        llvm::DIType *param_type = reinterpret_cast<llvm::DIType*>(to_llvm_debug_type(param_node->data.param_decl.type));
         types.push_back(param_type);
     }
 
-    return g->dbuilder->createSubroutineType(di_file, g->dbuilder->getOrCreateTypeArray(types));
+    llvm::DIBuilder *dibuilder = reinterpret_cast<llvm::DIBuilder*>(g->dbuilder);
+
+    llvm::DISubroutineType *result = dibuilder->createSubroutineType(
+            reinterpret_cast<llvm::DIFile*>(di_file),
+            dibuilder->getOrCreateTypeArray(types));
+    return reinterpret_cast<LLVMZigDISubroutineType*>(result);
 }
 
 void code_gen(CodeGen *g) {
@@ -484,14 +487,14 @@ void code_gen(CodeGen *g) {
     bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
     const char *flags = "";
     unsigned runtime_version = 0;
-    g->compile_unit = g->dbuilder->createCompileUnit(llvm::dwarf::DW_LANG_C99,
+    g->compile_unit = LLVMZigCreateCompileUnit(g->dbuilder, LLVMZigLang_DW_LANG_C99(),
             buf_ptr(&g->in_file), buf_ptr(&g->in_dir),
             buf_ptr(producer), is_optimized, flags, runtime_version,
-            "", llvm::DIBuilder::FullDebug, 0, !g->strip_debug_symbols);
+            "", 0, !g->strip_debug_symbols);
 
-    g->block_scopes.append(g->compile_unit);
+    g->block_scopes.append(LLVMZigCompileUnitToScope(g->compile_unit));
 
-    g->di_file = g->dbuilder->createFile(g->compile_unit->getFilename(), g->compile_unit->getDirectory());
+    g->di_file = LLVMZigCreateFile(g->dbuilder, buf_ptr(&g->in_file), buf_ptr(&g->in_dir));
 
 
     // Generate function prototypes
@@ -543,18 +546,17 @@ void code_gen(CodeGen *g) {
         AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
         // Add debug info.
-        llvm::DIScope *fn_scope = g->di_file;
+        LLVMZigDIScope *fn_scope = LLVMZigFileToScope(g->di_file);
         unsigned line_number = fn_def_node->line + 1;
         unsigned scope_line = line_number;
         bool is_definition = true;
         unsigned flags = 0;
-        llvm::Function *unwrapped_function = reinterpret_cast<llvm::Function*>(llvm::unwrap(fn));
-        llvm::DISubprogram *subprogram = g->dbuilder->createFunction(
+        LLVMZigDISubprogram *subprogram = LLVMZigCreateFunction(g->dbuilder,
             fn_scope, buf_ptr(&fn_proto->name), "", g->di_file, line_number,
             create_di_function_type(g, fn_proto, g->di_file), fn_table_entry->internal_linkage, 
-            is_definition, scope_line, flags, is_optimized, unwrapped_function);
+            is_definition, scope_line, flags, is_optimized, fn);
 
-        g->block_scopes.append(subprogram);
+        g->block_scopes.append(LLVMZigSubprogramToScope(subprogram));
 
         LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn, "entry");
         LLVMPositionBuilderAtEnd(g->builder, entry_block);
@@ -573,7 +575,7 @@ void code_gen(CodeGen *g) {
     }
     assert(!g->errors.length);
 
-    g->dbuilder->finalize();
+    LLVMZigDIBuilderFinalize(g->dbuilder);
 
     LLVMDumpModule(g->module);
 
@@ -897,5 +899,3 @@ void code_gen_link(CodeGen *g, const char *out_file) {
         generate_h_file(g);
     }
 }
-
-

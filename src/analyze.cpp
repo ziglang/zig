@@ -81,7 +81,7 @@ static void resolve_type(CodeGen *g, AstNode *node) {
                     entry->type_ref = LLVMPointerType(child_type_node->entry->type_ref, 0);
                     buf_resize(&entry->name, 0);
                     buf_appendf(&entry->name, "*%s %s", const_or_mut_str, buf_ptr(&child_type_node->entry->name));
-                    entry->di_type = g->dbuilder->createPointerType(child_type_node->entry->di_type,
+                    entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type_node->entry->di_type,
                             g->pointer_size_bytes * 8, g->pointer_size_bytes * 8, buf_ptr(&entry->name));
                     g->type_table.put(&entry->name, entry);
                     type_node->entry = entry;
@@ -431,7 +431,8 @@ static void define_primitive_types(CodeGen *g) {
         entry->id = TypeIdU8;
         entry->type_ref = LLVMInt8Type();
         buf_init_from_str(&entry->name, "u8");
-        entry->di_type = g->dbuilder->createBasicType(buf_ptr(&entry->name), 8, 8, llvm::dwarf::DW_ATE_unsigned);
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 8, 8,
+                LLVMZigEncoding_DW_ATE_unsigned());
         g->type_table.put(&entry->name, entry);
     }
     {
@@ -439,8 +440,8 @@ static void define_primitive_types(CodeGen *g) {
         entry->id = TypeIdI32;
         entry->type_ref = LLVMInt32Type();
         buf_init_from_str(&entry->name, "i32");
-        entry->di_type = g->dbuilder->createBasicType(buf_ptr(&entry->name), 32, 32,
-                llvm::dwarf::DW_ATE_signed);
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 32, 32,
+                LLVMZigEncoding_DW_ATE_signed());
         g->type_table.put(&entry->name, entry);
     }
     {
@@ -448,8 +449,8 @@ static void define_primitive_types(CodeGen *g) {
         entry->id = TypeIdVoid;
         entry->type_ref = LLVMVoidType();
         buf_init_from_str(&entry->name, "void");
-        entry->di_type = g->dbuilder->createBasicType(buf_ptr(&entry->name), 0, 0,
-                llvm::dwarf::DW_ATE_unsigned);
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 0, 0,
+                LLVMZigEncoding_DW_ATE_unsigned());
         g->type_table.put(&entry->name, entry);
 
         // invalid types are void
@@ -501,7 +502,7 @@ void semantic_analyze(CodeGen *g) {
     g->pointer_size_bytes = LLVMPointerSize(g->target_data_ref);
 
     g->builder = LLVMCreateBuilder();
-    g->dbuilder = new llvm::DIBuilder(*llvm::unwrap(g->module), true);
+    g->dbuilder = LLVMZigCreateDIBuilder(g->module, true);
 
 
     define_primitive_types(g);
