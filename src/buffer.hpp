@@ -12,6 +12,7 @@
 
 #include <assert.h>
 #include <stdint.h>
+#include <ctype.h>
 
 #define BUF_INIT {{0}}
 
@@ -145,6 +146,12 @@ static inline uint32_t buf_hash(Buf *buf) {
         h = h * 16777619;
     }
     return h;
+}
+
+static inline void buf_upcase(Buf *buf) {
+    for (int i = 0; i < buf_len(buf); i += 1) {
+        buf_ptr(buf)[i] = toupper(buf_ptr(buf)[i]);
+    }
 }
 
 #endif

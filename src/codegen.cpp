@@ -77,7 +77,8 @@ struct CodeGen {
     ZigList<FnTableEntry *> fn_defs;
     Buf *out_name;
     OutType out_type;
-    LLVMValueRef cur_fn;
+    FnTableEntry *cur_fn;
+    bool c_stdint_used;
 };
 
 struct TypeNode {
@@ -87,6 +88,7 @@ struct TypeNode {
 struct FnDefNode {
     bool add_implicit_return;
     bool skip;
+    LLVMValueRef *params;
 };
 
 struct CodeGenNode {
@@ -639,6 +641,23 @@ static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
     return global_value;
 }
 
+static LLVMValueRef get_variable_value(CodeGen *g, Buf *name) {
+    assert(g->cur_fn->proto_node->type == NodeTypeFnProto);
+    int param_count = g->cur_fn->proto_node->data.fn_proto.params.length;
+    for (int i = 0; i < param_count; i += 1) {
+        AstNode *param_decl_node = g->cur_fn->proto_node->data.fn_proto.params.at(i);
+        assert(param_decl_node->type == NodeTypeParamDecl);
+        Buf *param_name = &param_decl_node->data.param_decl.name;
+        if (buf_eql_buf(name, param_name)) {
+            CodeGenNode *codegen_node = g->cur_fn->fn_def_node->codegen_node;
+            assert(codegen_node);
+            FnDefNode *codegen_fn_def = &codegen_node->data.fn_def_node;
+            return codegen_fn_def->params[i];
+        }
+    }
+    zig_unreachable();
+}
+
 static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
@@ -797,9 +816,9 @@ static LLVMValueRef gen_bool_and_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
 
     // block for when val1 == true
-    LLVMBasicBlockRef true_block = LLVMAppendBasicBlock(g->cur_fn, "BoolAndTrue");
+    LLVMBasicBlockRef true_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolAndTrue");
     // block for when val1 == false (don't even evaluate the second part)
-    LLVMBasicBlockRef false_block = LLVMAppendBasicBlock(g->cur_fn, "BoolAndFalse");
+    LLVMBasicBlockRef false_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolAndFalse");
 
     LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(val1));
     add_debug_source_node(g, node);
@@ -828,9 +847,9 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     LLVMValueRef val1 = gen_expr(g, expr_node->data.bin_op_expr.op1);
 
     // block for when val1 == false
-    LLVMBasicBlockRef false_block = LLVMAppendBasicBlock(g->cur_fn, "BoolOrFalse");
+    LLVMBasicBlockRef false_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolOrFalse");
     // block for when val1 == true (don't even evaluate the second part)
-    LLVMBasicBlockRef true_block = LLVMAppendBasicBlock(g->cur_fn, "BoolOrTrue");
+    LLVMBasicBlockRef true_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolOrTrue");
 
     LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(val1));
     add_debug_source_node(g, expr_node);
@@ -933,6 +952,11 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
                 LLVMValueRef ptr_val = LLVMBuildInBoundsGEP(g->builder, str_val, indices, 2, "");
                 return ptr_val;
             }
+        case NodeTypeSymbol:
+            {
+                Buf *name = &node->data.symbol;
+                return get_variable_value(g, name);
+            }
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -943,7 +967,6 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeBlock:
         case NodeTypeExternBlock:
         case NodeTypeDirective:
-        case NodeTypeSymbol:
             zig_unreachable();
     }
     zig_unreachable();
@@ -1047,7 +1070,7 @@ void code_gen(CodeGen *g) {
         FnTableEntry *fn_table_entry = g->fn_defs.at(i);
         AstNode *fn_def_node = fn_table_entry->fn_def_node;
         LLVMValueRef fn = fn_table_entry->fn_value;
-        g->cur_fn = fn;
+        g->cur_fn = fn_table_entry;
 
         AstNode *proto_node = fn_table_entry->proto_node;
         assert(proto_node->type == NodeTypeFnProto);
@@ -1072,7 +1095,12 @@ void code_gen(CodeGen *g) {
 
         CodeGenNode *codegen_node = fn_def_node->codegen_node;
         assert(codegen_node);
-        bool add_implicit_return = codegen_node->data.fn_def_node.add_implicit_return;
+
+        FnDefNode *codegen_fn_def = &codegen_node->data.fn_def_node;
+        codegen_fn_def->params = allocate<LLVMValueRef>(LLVMCountParams(fn));
+        LLVMGetParams(fn, codegen_fn_def->params);
+
+        bool add_implicit_return = codegen_fn_def->add_implicit_return;
         gen_block(g, fn_def_node->data.fn_def.body, add_implicit_return);
 
         g->block_scopes.pop();
@@ -1216,15 +1244,113 @@ static Buf *get_dynamic_linker(CodeGen *g) {
     }
 }
 
-/*
+static Buf *to_c_type(CodeGen *g, AstNode *type_node) {
+    assert(type_node->type == NodeTypeType);
+    assert(type_node->codegen_node);
 
-# static link into libfoo.a
-ar cq libfoo.a foo1.o foo2.o 
+    TypeTableEntry *type_entry = type_node->codegen_node->data.type_node.entry;
+    assert(type_entry);
 
-# dynamic link into libfoo.so
-gcc -fPIC -g -Werror -pedantic  -shared -Wl,-soname,libsoundio.so.1 -o libsoundio.so.1.0.3 foo1.o foo2.o -ljack -lpulse -lasound -lpthread 
+    switch (type_entry->id) {
+        case TypeIdUserDefined:
+            zig_panic("TODO");
+            break;
+        case TypeIdPointer:
+            zig_panic("TODO");
+            break;
+        case TypeIdU8:
+            g->c_stdint_used = true;
+            return buf_create_from_str("uint8_t");
+        case TypeIdI32:
+            g->c_stdint_used = true;
+            return buf_create_from_str("int32_t");
+        case TypeIdVoid:
+            zig_panic("TODO");
+            break;
+        case TypeIdUnreachable:
+            zig_panic("TODO");
+            break;
+    }
+    zig_unreachable();
+}
 
-*/
+static void generate_h_file(CodeGen *g) {
+    Buf *h_file_out_path = buf_sprintf("%s.h", buf_ptr(g->out_name));
+    FILE *out_h = fopen(buf_ptr(h_file_out_path), "wb");
+    if (!out_h)
+        zig_panic("unable to open %s: %s", buf_ptr(h_file_out_path), strerror(errno));
+
+    Buf *export_macro = buf_sprintf("%s_EXPORT", buf_ptr(g->out_name));
+    buf_upcase(export_macro);
+
+    Buf *extern_c_macro = buf_sprintf("%s_EXTERN_C", buf_ptr(g->out_name));
+    buf_upcase(extern_c_macro);
+
+    Buf h_buf = BUF_INIT;
+    buf_resize(&h_buf, 0);
+    for (int fn_def_i = 0; fn_def_i < g->fn_defs.length; fn_def_i += 1) {
+        FnTableEntry *fn_table_entry = g->fn_defs.at(fn_def_i);
+        AstNode *proto_node = fn_table_entry->proto_node;
+        assert(proto_node->type == NodeTypeFnProto);
+        AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
+
+        if (fn_proto->visib_mod != FnProtoVisibModExport)
+            continue;
+
+        buf_appendf(&h_buf, "%s %s %s(",
+                buf_ptr(export_macro),
+                buf_ptr(to_c_type(g, fn_proto->return_type)),
+                buf_ptr(&fn_proto->name));
+
+        if (fn_proto->params.length) {
+            for (int param_i = 0; param_i < fn_proto->params.length; param_i += 1) {
+                AstNode *param_decl_node = fn_proto->params.at(param_i);
+                AstNode *param_type = param_decl_node->data.param_decl.type;
+                buf_appendf(&h_buf, "%s %s",
+                        buf_ptr(to_c_type(g, param_type)),
+                        buf_ptr(&param_decl_node->data.param_decl.name));
+                if (param_i < fn_proto->params.length - 1)
+                    buf_appendf(&h_buf, ", ");
+            }
+            buf_appendf(&h_buf, ");\n");
+        } else {
+            buf_appendf(&h_buf, "void);\n");
+        }
+    }
+
+    Buf *ifdef_dance_name = buf_sprintf("%s_%s_H", buf_ptr(g->out_name), buf_ptr(g->out_name));
+    buf_upcase(ifdef_dance_name);
+
+    fprintf(out_h, "#ifndef %s\n", buf_ptr(ifdef_dance_name));
+    fprintf(out_h, "#define %s\n\n", buf_ptr(ifdef_dance_name));
+
+    if (g->c_stdint_used)
+        fprintf(out_h, "#include <stdint.h>\n");
+
+    fprintf(out_h, "\n");
+
+    fprintf(out_h, "#ifdef __cplusplus\n");
+    fprintf(out_h, "#define %s extern \"C\"\n", buf_ptr(extern_c_macro));
+    fprintf(out_h, "#else\n");
+    fprintf(out_h, "#define %s\n", buf_ptr(extern_c_macro));
+    fprintf(out_h, "#endif\n");
+    fprintf(out_h, "\n");
+    fprintf(out_h, "#if defined(_WIN32)\n");
+    fprintf(out_h, "#define %s %s __declspec(dllimport)\n", buf_ptr(export_macro), buf_ptr(extern_c_macro));
+    fprintf(out_h, "#else\n");
+    fprintf(out_h, "#define %s %s __attribute__((visibility (\"default\")))\n",
+            buf_ptr(export_macro), buf_ptr(extern_c_macro));
+    fprintf(out_h, "#endif\n");
+    fprintf(out_h, "\n");
+
+    fprintf(out_h, "%s", buf_ptr(&h_buf));
+
+    fprintf(out_h, "\n#endif\n");
+
+    if (fclose(out_h))
+        zig_panic("unable to close h file: %s", strerror(errno));
+}
+
 void code_gen_link(CodeGen *g, const char *out_file) {
     if (!out_file) {
         out_file = buf_ptr(g->out_name);
@@ -1250,6 +1376,9 @@ void code_gen_link(CodeGen *g, const char *out_file) {
 
     if (g->out_type == OutTypeLib && g->is_static) {
         // invoke `ar`
+        // example:
+        // # static link into libfoo.a
+        // ar cq libfoo.a foo1.o foo2.o 
         zig_panic("TODO invoke ar");
         return;
     }
@@ -1258,10 +1387,6 @@ void code_gen_link(CodeGen *g, const char *out_file) {
     ZigList<const char *> args = {0};
     if (g->is_static) {
         args.append("-static");
-    }
-
-    if (g->out_type == OutTypeLib) {
-        zig_panic("TODO add ld commands for shared library");
     }
 
     char *ZIG_NATIVE_DYNAMIC_LINKER = getenv("ZIG_NATIVE_DYNAMIC_LINKER");
@@ -1273,6 +1398,18 @@ void code_gen_link(CodeGen *g, const char *out_file) {
     } else {
         args.append("-dynamic-linker");
         args.append(buf_ptr(get_dynamic_linker(g)));
+    }
+
+    if (g->out_type == OutTypeLib) {
+        int major = 1;
+        int minor = 0;
+        int patch = 0;
+        Buf *out_lib_so = buf_sprintf("lib%s.so.%d.%d.%d", buf_ptr(g->out_name), major, minor, patch);
+        Buf *soname = buf_sprintf("lib%s.so.%d", buf_ptr(g->out_name), major);
+        args.append("-shared");
+        args.append("-soname");
+        args.append(buf_ptr(soname));
+        out_file = buf_ptr(out_lib_so);
     }
 
     args.append("-o");
@@ -1291,6 +1428,10 @@ void code_gen_link(CodeGen *g, const char *out_file) {
     }
 
     os_spawn_process("ld", args, false);
+
+    if (g->out_type == OutTypeLib) {
+        generate_h_file(g);
+    }
 }
 
 
