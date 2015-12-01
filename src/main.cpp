@@ -25,6 +25,7 @@ static int usage(const char *arg0) {
         "  --name [name]          override output name\n"
         "  --output [file]        override destination path\n"
         "  --verbose              turn on compiler debug output\n"
+        "  --color [auto|off|on]  enable or disable colored error messages\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -43,6 +44,7 @@ struct Build {
     OutType out_type;
     const char *out_name;
     bool verbose;
+    ErrColor color;
 };
 
 static int build(const char *arg0, Build *b) {
@@ -73,6 +75,7 @@ static int build(const char *arg0, Build *b) {
     if (b->out_name)
         codegen_set_out_name(g, buf_create_from_str(b->out_name));
     codegen_set_verbose(g, b->verbose);
+    codegen_set_errmsg_color(g, b->color);
     codegen_add_root_code(g, &root_source_name, &root_source_code);
     codegen_link(g, b->out_file);
 
@@ -106,7 +109,9 @@ int main(int argc, char **argv) {
                 return usage(arg0);
             } else {
                 i += 1;
-                if (strcmp(arg, "--output") == 0) {
+                if (i >= argc) {
+                    return usage(arg0);
+                } else if (strcmp(arg, "--output") == 0) {
                     b.out_file = argv[i];
                 } else if (strcmp(arg, "--export") == 0) {
                     if (strcmp(argv[i], "exe") == 0) {
@@ -115,6 +120,16 @@ int main(int argc, char **argv) {
                         b.out_type = OutTypeLib;
                     } else if (strcmp(argv[i], "obj") == 0) {
                         b.out_type = OutTypeObj;
+                    } else {
+                        return usage(arg0);
+                    }
+                } else if (strcmp(arg, "--color") == 0) {
+                    if (strcmp(argv[i], "auto") == 0) {
+                        b.color = ErrColorAuto;
+                    } else if (strcmp(argv[i], "on") == 0) {
+                        b.color = ErrColorOn;
+                    } else if (strcmp(argv[i], "off") == 0) {
+                        b.color = ErrColorOff;
                     } else {
                         return usage(arg0);
                     }

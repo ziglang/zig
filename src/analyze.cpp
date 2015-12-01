@@ -17,14 +17,18 @@ struct BlockContext {
     BlockContext *parent;
 };
 
-static void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
-    g->errors.add_one();
-    ErrorMsg *last_msg = &g->errors.last();
-    last_msg->line_start = node->line;
-    last_msg->column_start = node->column;
-    last_msg->line_end = -1;
-    last_msg->column_end = -1;
-    last_msg->msg = msg;
+void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
+    ErrorMsg *err = allocate<ErrorMsg>(1);
+    err->line_start = node->line;
+    err->column_start = node->column;
+    err->line_end = -1;
+    err->column_end = -1;
+    err->msg = msg;
+    err->path = node->owner->path;
+    err->source = node->owner->source_code;
+    err->line_offsets = node->owner->line_offsets;
+
+    g->errors.append(err);
 }
 
 static int parse_version_string(Buf *buf, int *major, int *minor, int *patch) {
@@ -139,6 +143,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 AstNode *fn_decl = node->data.extern_block.fn_decls.at(fn_decl_i);
                 assert(fn_decl->type == NodeTypeFnDecl);
                 AstNode *fn_proto = fn_decl->data.fn_decl.fn_proto;
+                bool is_pub = (fn_proto->data.fn_proto.visib_mod == FnProtoVisibModPub);
                 resolve_function_proto(g, fn_proto);
                 Buf *name = &fn_proto->data.fn_proto.name;
 
@@ -147,7 +152,12 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 fn_table_entry->is_extern = true;
                 fn_table_entry->calling_convention = LLVMCCallConv;
                 fn_table_entry->import_entry = import;
-                g->fn_table.put(name, fn_table_entry);
+
+                g->fn_protos.append(fn_table_entry);
+                import->fn_table.put(name, fn_table_entry);
+                if (is_pub) {
+                    g->fn_table.put(name, fn_table_entry);
+                }
             }
             break;
         case NodeTypeFnDef:
@@ -155,67 +165,89 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 AstNode *proto_node = node->data.fn_def.fn_proto;
                 assert(proto_node->type == NodeTypeFnProto);
                 Buf *proto_name = &proto_node->data.fn_proto.name;
-                auto entry = g->fn_table.maybe_get(proto_name);
+                auto entry = import->fn_table.maybe_get(proto_name);
+                bool skip = false;
+                bool is_internal = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModExport);
+                bool is_pub = (proto_node->data.fn_proto.visib_mod == FnProtoVisibModPub);
                 if (entry) {
                     add_node_error(g, node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
                     assert(!node->codegen_node);
                     node->codegen_node = allocate<CodeGenNode>(1);
                     node->codegen_node->data.fn_def_node.skip = true;
-                } else {
+                    skip = true;
+                } else if (is_pub) {
+                    auto entry = g->fn_table.maybe_get(proto_name);
+                    if (entry) {
+                        add_node_error(g, node,
+                                buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
+                        assert(!node->codegen_node);
+                        node->codegen_node = allocate<CodeGenNode>(1);
+                        node->codegen_node->data.fn_def_node.skip = true;
+                        skip = true;
+                    }
+                }
+                if (!skip) {
                     FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
                     fn_table_entry->import_entry = import;
                     fn_table_entry->proto_node = proto_node;
                     fn_table_entry->fn_def_node = node;
-                    fn_table_entry->internal_linkage = proto_node->data.fn_proto.visib_mod != FnProtoVisibModExport;
-                    if (fn_table_entry->internal_linkage) {
-                        fn_table_entry->calling_convention = LLVMFastCallConv;
-                    } else {
-                        fn_table_entry->calling_convention = LLVMCCallConv;
-                    }
-                    g->fn_table.put(proto_name, fn_table_entry);
+                    fn_table_entry->internal_linkage = is_internal;
+                    fn_table_entry->calling_convention = is_internal ? LLVMFastCallConv : LLVMCCallConv;
+
+                    g->fn_protos.append(fn_table_entry);
                     g->fn_defs.append(fn_table_entry);
+
+                    import->fn_table.put(proto_name, fn_table_entry);
+                    if (is_pub) {
+                        g->fn_table.put(proto_name, fn_table_entry);
+                    }
 
                     resolve_function_proto(g, proto_node);
                 }
             }
             break;
         case NodeTypeRootExportDecl:
-            for (int i = 0; i < node->data.root_export_decl.directives->length; i += 1) {
-                AstNode *directive_node = node->data.root_export_decl.directives->at(i);
-                Buf *name = &directive_node->data.directive.name;
-                Buf *param = &directive_node->data.directive.param;
-                if (buf_eql_str(name, "version")) {
-                    set_root_export_version(g, param, directive_node);
-                } else {
-                    add_node_error(g, directive_node,
-                            buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+            if (import == g->root_import) {
+                for (int i = 0; i < node->data.root_export_decl.directives->length; i += 1) {
+                    AstNode *directive_node = node->data.root_export_decl.directives->at(i);
+                    Buf *name = &directive_node->data.directive.name;
+                    Buf *param = &directive_node->data.directive.param;
+                    if (buf_eql_str(name, "version")) {
+                        set_root_export_version(g, param, directive_node);
+                    } else {
+                        add_node_error(g, directive_node,
+                                buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+                    }
                 }
-            }
 
-            if (g->root_export_decl) {
-                add_node_error(g, node,
-                        buf_sprintf("only one root export declaration allowed"));
-            } else {
-                g->root_export_decl = node;
-
-                if (!g->root_out_name)
-                    g->root_out_name = &node->data.root_export_decl.name;
-
-                Buf *out_type = &node->data.root_export_decl.type;
-                OutType export_out_type;
-                if (buf_eql_str(out_type, "executable")) {
-                    export_out_type = OutTypeExe;
-                } else if (buf_eql_str(out_type, "library")) {
-                    export_out_type = OutTypeLib;
-                } else if (buf_eql_str(out_type, "object")) {
-                    export_out_type = OutTypeObj;
-                } else {
+                if (g->root_export_decl) {
                     add_node_error(g, node,
-                            buf_sprintf("invalid export type: '%s'", buf_ptr(out_type)));
+                            buf_sprintf("only one root export declaration allowed"));
+                } else {
+                    g->root_export_decl = node;
+
+                    if (!g->root_out_name)
+                        g->root_out_name = &node->data.root_export_decl.name;
+
+                    Buf *out_type = &node->data.root_export_decl.type;
+                    OutType export_out_type;
+                    if (buf_eql_str(out_type, "executable")) {
+                        export_out_type = OutTypeExe;
+                    } else if (buf_eql_str(out_type, "library")) {
+                        export_out_type = OutTypeLib;
+                    } else if (buf_eql_str(out_type, "object")) {
+                        export_out_type = OutTypeObj;
+                    } else {
+                        add_node_error(g, node,
+                                buf_sprintf("invalid export type: '%s'", buf_ptr(out_type)));
+                    }
+                    if (g->out_type == OutTypeUnknown)
+                        g->out_type = export_out_type;
                 }
-                if (g->out_type == OutTypeUnknown)
-                    g->out_type = export_out_type;
+            } else {
+                add_node_error(g, node,
+                        buf_sprintf("root export declaration only valid in root source file"));
             }
             break;
         case NodeTypeUse:
@@ -263,7 +295,7 @@ static void check_type_compatibility(CodeGen *g, AstNode *node, TypeTableEntry *
     add_node_error(g, node, buf_sprintf("type mismatch."));
 }
 
-static TypeTableEntry * analyze_expression(CodeGen *g, BlockContext *context, TypeTableEntry *expected_type, AstNode *node) {
+static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context, TypeTableEntry *expected_type, AstNode *node) {
     switch (node->type) {
         case NodeTypeBlock:
             {
@@ -276,7 +308,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, BlockContext *context, Ty
                                 buf_sprintf("unreachable code"));
                         break;
                     }
-                    return_type = analyze_expression(g, context, nullptr, child);
+                    return_type = analyze_expression(g, import, context, nullptr, child);
                 }
                 return return_type;
             }
@@ -286,7 +318,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, BlockContext *context, Ty
                 TypeTableEntry *expected_return_type = get_return_type(context);
                 TypeTableEntry *actual_return_type;
                 if (node->data.return_expr.expr) {
-                    actual_return_type = analyze_expression(g, context, expected_return_type, node->data.return_expr.expr);
+                    actual_return_type = analyze_expression(g, import, context, expected_return_type, node->data.return_expr.expr);
                 } else {
                     actual_return_type = g->builtin_types.entry_void;
                 }
@@ -304,8 +336,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, BlockContext *context, Ty
         case NodeTypeBinOpExpr:
             {
                 // TODO: think about expected types
-                analyze_expression(g, context, expected_type, node->data.bin_op_expr.op1);
-                analyze_expression(g, context, expected_type, node->data.bin_op_expr.op2);
+                analyze_expression(g, import, context, expected_type, node->data.bin_op_expr.op1);
+                analyze_expression(g, import, context, expected_type, node->data.bin_op_expr.op2);
                 return expected_type;
             }
 
@@ -313,14 +345,17 @@ static TypeTableEntry * analyze_expression(CodeGen *g, BlockContext *context, Ty
             {
                 Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
 
-                auto entry = g->fn_table.maybe_get(name);
+                auto entry = import->fn_table.maybe_get(name);
+                if (!entry)
+                    entry = g->fn_table.maybe_get(name);
+
                 if (!entry) {
                     add_node_error(g, node,
                             buf_sprintf("undefined function: '%s'", buf_ptr(name)));
                     // still analyze the parameters, even though we don't know what to expect
                     for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
                         AstNode *child = node->data.fn_call_expr.params.at(i);
-                        analyze_expression(g, context, nullptr, child);
+                        analyze_expression(g, import, context, nullptr, child);
                     }
 
                     return g->builtin_types.entry_invalid;
@@ -350,7 +385,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, BlockContext *context, Ty
                             if (param_type_node->codegen_node)
                                 expected_param_type = param_type_node->codegen_node->data.type_node.entry;
                         }
-                        analyze_expression(g, context, expected_param_type, child);
+                        analyze_expression(g, import, context, expected_param_type, child);
                     }
 
                     TypeTableEntry *return_type = fn_proto->return_type->codegen_node->data.type_node.entry;
@@ -444,76 +479,7 @@ static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
     }
 }
 
-static void analyze_expression(CodeGen *g, AstNode *node) {
-    switch (node->type) {
-        case NodeTypeBlock:
-            for (int i = 0; i < node->data.block.statements.length; i += 1) {
-                AstNode *child = node->data.block.statements.at(i);
-                analyze_expression(g, child);
-            }
-            break;
-        case NodeTypeReturnExpr:
-            if (node->data.return_expr.expr) {
-                analyze_expression(g, node->data.return_expr.expr);
-            }
-            break;
-        case NodeTypeBinOpExpr:
-            analyze_expression(g, node->data.bin_op_expr.op1);
-            analyze_expression(g, node->data.bin_op_expr.op2);
-            break;
-        case NodeTypeFnCallExpr:
-            {
-                Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
-
-                auto entry = g->fn_table.maybe_get(name);
-                if (!entry) {
-                    add_node_error(g, node,
-                            buf_sprintf("undefined function: '%s'", buf_ptr(name)));
-                } else {
-                    FnTableEntry *fn_table_entry = entry->value;
-                    assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
-                    int expected_param_count = fn_table_entry->proto_node->data.fn_proto.params.length;
-                    int actual_param_count = node->data.fn_call_expr.params.length;
-                    if (expected_param_count != actual_param_count) {
-                        add_node_error(g, node,
-                                buf_sprintf("wrong number of arguments. Expected %d, got %d.",
-                                    expected_param_count, actual_param_count));
-                    }
-                }
-
-                for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
-                    AstNode *child = node->data.fn_call_expr.params.at(i);
-                    analyze_expression(g, child);
-                }
-                break;
-            }
-        case NodeTypeCastExpr:
-            zig_panic("TODO");
-            break;
-        case NodeTypePrefixOpExpr:
-            zig_panic("TODO");
-            break;
-        case NodeTypeNumberLiteral:
-        case NodeTypeStringLiteral:
-        case NodeTypeUnreachable:
-        case NodeTypeSymbol:
-            // nothing to do
-            break;
-        case NodeTypeDirective:
-        case NodeTypeFnDecl:
-        case NodeTypeFnProto:
-        case NodeTypeParamDecl:
-        case NodeTypeType:
-        case NodeTypeRoot:
-        case NodeTypeRootExportDecl:
-        case NodeTypeExternBlock:
-        case NodeTypeFnDef:
-        case NodeTypeUse:
-            zig_unreachable();
-    }
-}
-
-static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
+static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeFnDef:
             {
@@ -540,7 +506,7 @@ static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
                 context.root = &context;
                 context.parent = nullptr;
                 TypeTableEntry *expected_type = fn_proto->return_type->codegen_node->data.type_node.entry;
-                analyze_expression(g, &context, expected_type, node->data.fn_def.body);
+                analyze_expression(g, import, &context, expected_type, node->data.fn_def.body);
             }
             break;
 
@@ -576,37 +542,55 @@ static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
     }
 }
 
-static void analyze_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+static void find_function_declarations_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     assert(node->type == NodeTypeRoot);
 
-    // find function declarations
     for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
         AstNode *child = node->data.root.top_level_decls.at(i);
         preview_function_declarations(g, import, child);
     }
 
+}
+
+static void analyze_top_level_decls_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+    assert(node->type == NodeTypeRoot);
+
     for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
         AstNode *child = node->data.root.top_level_decls.at(i);
-        analyze_top_level_declaration(g, child);
-    }
-
-    if (!g->root_out_name) {
-        add_node_error(g, node,
-                buf_sprintf("missing export declaration and output name not provided"));
-    } else if (g->out_type == OutTypeUnknown) {
-        add_node_error(g, node,
-                buf_sprintf("missing export declaration and export type not provided"));
+        analyze_top_level_declaration(g, import, child);
     }
 }
 
 void semantic_analyze(CodeGen *g) {
-    auto it = g->import_table.entry_iterator();
-    for (;;) {
-        auto *entry = it.next();
-        if (!entry)
-            break;
+    {
+        auto it = g->import_table.entry_iterator();
+        for (;;) {
+            auto *entry = it.next();
+            if (!entry)
+                break;
 
-        ImportTableEntry *import = entry->value;
-        analyze_root(g, import, import->root);
+            ImportTableEntry *import = entry->value;
+            find_function_declarations_root(g, import, import->root);
+        }
+    }
+    {
+        auto it = g->import_table.entry_iterator();
+        for (;;) {
+            auto *entry = it.next();
+            if (!entry)
+                break;
+
+            ImportTableEntry *import = entry->value;
+            analyze_top_level_decls_root(g, import, import->root);
+        }
+    }
+
+
+    if (!g->root_out_name) {
+        add_node_error(g, g->root_import->root,
+                buf_sprintf("missing export declaration and output name not provided"));
+    } else if (g->out_type == OutTypeUnknown) {
+        add_node_error(g, g->root_import->root,
+                buf_sprintf("missing export declaration and export type not provided"));
     }
 }

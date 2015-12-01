@@ -14,13 +14,13 @@
 
 struct TestSourceFile {
     const char *relative_path;
-    const char *text;
+    const char *source_code;
 };
 
 struct TestCase {
     const char *case_name;
     const char *output;
-    const char *source;
+    ZigList<TestSourceFile> source_files;
     ZigList<const char *> compile_errors;
     ZigList<const char *> compiler_args;
     ZigList<const char *> program_args;
@@ -31,11 +31,20 @@ static const char *tmp_source_path = ".tmp_source.zig";
 static const char *tmp_exe_path = "./.tmp_exe";
 static const char *zig_exe = "./zig";
 
-static void add_simple_case(const char *case_name, const char *source, const char *output) {
+static void add_source_file(TestCase *test_case, const char *path, const char *source) {
+    test_case->source_files.add_one();
+    test_case->source_files.last().relative_path = path;
+    test_case->source_files.last().source_code = source;
+}
+
+static TestCase *add_simple_case(const char *case_name, const char *source, const char *output) {
     TestCase *test_case = allocate<TestCase>(1);
     test_case->case_name = case_name;
     test_case->output = output;
-    test_case->source = source;
+
+    test_case->source_files.resize(1);
+    test_case->source_files.at(0).relative_path = tmp_source_path;
+    test_case->source_files.at(0).source_code = source;
 
     test_case->compiler_args.append("build");
     test_case->compiler_args.append(tmp_source_path);
@@ -48,17 +57,23 @@ static void add_simple_case(const char *case_name, const char *source, const cha
     test_case->compiler_args.append("--release");
     test_case->compiler_args.append("--strip");
     test_case->compiler_args.append("--verbose");
+    test_case->compiler_args.append("--color");
+    test_case->compiler_args.append("on");
 
     test_cases.append(test_case);
+
+    return test_case;
 }
 
-static void add_compile_fail_case(const char *case_name, const char *source, int count, ...) {
+static TestCase *add_compile_fail_case(const char *case_name, const char *source, int count, ...) {
     va_list ap;
     va_start(ap, count);
 
     TestCase *test_case = allocate<TestCase>(1);
     test_case->case_name = case_name;
-    test_case->source = source;
+    test_case->source_files.resize(1);
+    test_case->source_files.at(0).relative_path = tmp_source_path;
+    test_case->source_files.at(0).source_code = source;
 
     for (int i = 0; i < count; i += 1) {
         const char *arg = va_arg(ap, const char *);
@@ -76,6 +91,8 @@ static void add_compile_fail_case(const char *case_name, const char *source, int
     test_cases.append(test_case);
 
     va_end(ap);
+
+    return test_case;
 }
 
 static void add_compiling_test_cases(void) {
@@ -133,13 +150,52 @@ static void add_compiling_test_cases(void) {
             exit(0);
         }
     )SOURCE", "OK\n");
+
+    {
+        TestCase *tc = add_simple_case("multiple files with private function", R"SOURCE(
+            use "libc.zig";
+            use "foo.zig";
+
+            export fn _start() -> unreachable {
+                private_function();
+            }
+
+            fn private_function() -> unreachable {
+                print_text();
+                exit(0);
+            }
+        )SOURCE", "OK\n");
+
+        add_source_file(tc, "libc.zig", R"SOURCE(
+            #link("c")
+            extern {
+                pub fn puts(s: *mut u8) -> i32;
+                pub fn exit(code: i32) -> unreachable;
+            }
+        )SOURCE");
+
+        add_source_file(tc, "foo.zig", R"SOURCE(
+            use "libc.zig";
+
+            // purposefully conflicting function with main source file
+            // but it's private so it should be OK
+            fn private_function() {
+                puts("OK");
+            }
+
+            pub fn print_text() {
+                private_function();
+            }
+        )SOURCE");
+    }
+
 }
 
 static void add_compile_failure_test_cases(void) {
     add_compile_fail_case("multiple function definitions", R"SOURCE(
 fn a() {}
 fn a() {}
-    )SOURCE", 1, "Line 3, column 1: redefinition of 'a'");
+    )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of 'a'");
 
     add_compile_fail_case("bad directive", R"SOURCE(
 #bogus1("")
@@ -148,37 +204,37 @@ extern {
 }
 #bogus2("")
 fn a() {}
-    )SOURCE", 2, "Line 2, column 1: invalid directive: 'bogus1'",
-                 "Line 6, column 1: invalid directive: 'bogus2'");
+    )SOURCE", 2, ".tmp_source.zig:2:1: error: invalid directive: 'bogus1'",
+                 ".tmp_source.zig:6:1: error: invalid directive: 'bogus2'");
 
     add_compile_fail_case("unreachable with return", R"SOURCE(
 fn a() -> unreachable {return;}
-    )SOURCE", 1, "Line 2, column 24: return statement in function with unreachable return type");
+    )SOURCE", 1, ".tmp_source.zig:2:24: error: return statement in function with unreachable return type");
 
     add_compile_fail_case("control reaches end of non-void function", R"SOURCE(
 fn a() -> i32 {}
-    )SOURCE", 1, "Line 2, column 1: control reaches end of non-void function");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: control reaches end of non-void function");
 
     add_compile_fail_case("undefined function call", R"SOURCE(
 fn a() {
     b();
 }
-    )SOURCE", 1, "Line 3, column 5: undefined function: 'b'");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: undefined function: 'b'");
 
     add_compile_fail_case("wrong number of arguments", R"SOURCE(
 fn a() {
     b(1);
 }
 fn b(a: i32, b: i32, c: i32) { }
-    )SOURCE", 1, "Line 3, column 5: wrong number of arguments. Expected 3, got 1.");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: wrong number of arguments. Expected 3, got 1.");
 
     add_compile_fail_case("invalid type", R"SOURCE(
 fn a() -> bogus {}
-    )SOURCE", 1, "Line 2, column 11: invalid type name: 'bogus'");
+    )SOURCE", 1, ".tmp_source.zig:2:11: error: invalid type name: 'bogus'");
 
     add_compile_fail_case("pointer to unreachable", R"SOURCE(
 fn a() -> *mut unreachable {}
-    )SOURCE", 1, "Line 2, column 11: pointer to unreachable not allowed");
+    )SOURCE", 1, ".tmp_source.zig:2:11: error: pointer to unreachable not allowed");
 
     add_compile_fail_case("unreachable code", R"SOURCE(
 fn a() {
@@ -187,12 +243,16 @@ fn a() {
 }
 
 fn b() {}
-    )SOURCE", 1, "Line 4, column 5: unreachable code");
+    )SOURCE", 1, ".tmp_source.zig:4:5: error: unreachable code");
 
     add_compile_fail_case("bad version string", R"SOURCE(
 #version("aoeu")
 export executable "test";
-    )SOURCE", 1, "Line 2, column 1: invalid version string");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: invalid version string");
+
+    add_compile_fail_case("bad import", R"SOURCE(
+use "bogus-does-not-exist.zig";
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: unable to open \"./bogus-does-not-exist.zig\": file not found");
 }
 
 static void print_compiler_invokation(TestCase *test_case, Buf *zig_stderr) {
@@ -205,7 +265,12 @@ static void print_compiler_invokation(TestCase *test_case, Buf *zig_stderr) {
 }
 
 static void run_test(TestCase *test_case) {
-    os_write_file(buf_create_from_str(tmp_source_path), buf_create_from_str(test_case->source));
+    for (int i = 0; i < test_case->source_files.length; i += 1) {
+        TestSourceFile *test_source = &test_case->source_files.at(i);
+        os_write_file(
+                buf_create_from_str(test_source->relative_path),
+                buf_create_from_str(test_source->source_code));
+    }
 
     Buf zig_stderr = BUF_INIT;
     Buf zig_stdout = BUF_INIT;
@@ -262,6 +327,11 @@ static void run_test(TestCase *test_case) {
         printf("%s\n", buf_ptr(&program_stdout));
         printf("=======================================\n");
         exit(1);
+    }
+
+    for (int i = 0; i < test_case->source_files.length; i += 1) {
+        TestSourceFile *test_source = &test_case->source_files.at(i);
+        remove(test_source->relative_path);
     }
 }
 

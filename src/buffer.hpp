@@ -13,6 +13,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <stdarg.h>
 
 #define BUF_INIT {{0}}
 
@@ -24,6 +25,7 @@ struct Buf {
 
 Buf *buf_sprintf(const char *format, ...)
     __attribute__ ((format (printf, 1, 2)));
+Buf *buf_vprintf(const char *format, va_list ap);
 
 static inline int buf_len(Buf *buf) {
     assert(buf->list.length);

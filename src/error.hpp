@@ -13,6 +13,12 @@ enum Error {
     ErrorNoMem,
     ErrorInvalidFormat,
     ErrorSemanticAnalyzeFail,
+    ErrorAccess,
+    ErrorInterrupted,
+    ErrorSystemResources,
+    ErrorFileNotFound,
+    ErrorFileSystem,
+    ErrorFileTooBig,
 };
 
 const char *err_str(int err);

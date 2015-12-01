@@ -13,6 +13,7 @@
 #include "error.hpp"
 #include "semantic_info.hpp"
 #include "analyze.hpp"
+#include "errmsg.hpp"
 
 #include <stdio.h>
 #include <errno.h>
@@ -39,6 +40,10 @@ void codegen_set_is_static(CodeGen *g, bool is_static) {
 
 void codegen_set_verbose(CodeGen *g, bool verbose) {
     g->verbose = verbose;
+}
+
+void codegen_set_errmsg_color(CodeGen *g, ErrColor err_color) {
+    g->err_color = err_color;
 }
 
 void codegen_set_strip(CodeGen *g, bool strip) {
@@ -120,7 +125,13 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
 
     Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
 
-    FnTableEntry *fn_table_entry = g->fn_table.get(name);
+    FnTableEntry *fn_table_entry;
+    auto entry = g->cur_fn->import_entry->fn_table.maybe_get(name);
+    if (entry)
+        fn_table_entry = entry->value;
+    else
+        fn_table_entry = g->fn_table.get(name);
+
     assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
     int expected_param_count = fn_table_entry->proto_node->data.fn_proto.params.length;
     int actual_param_count = node->data.fn_call_expr.params.length;
@@ -473,13 +484,8 @@ static void do_code_gen(CodeGen *g) {
 
 
     // Generate function prototypes
-    auto it = g->fn_table.entry_iterator();
-    for (;;) {
-        auto *entry = it.next();
-        if (!entry)
-            break;
-
-        FnTableEntry *fn_table_entry = entry->value;
+    for (int i = 0; i < g->fn_protos.length; i += 1) {
+        FnTableEntry *fn_table_entry = g->fn_protos.at(i);
 
         AstNode *proto_node = fn_table_entry->proto_node;
         assert(proto_node->type == NodeTypeFnProto);
@@ -542,6 +548,7 @@ static void do_code_gen(CodeGen *g) {
         assert(codegen_node);
 
         FnDefNode *codegen_fn_def = &codegen_node->data.fn_def_node;
+        assert(codegen_fn_def);
         codegen_fn_def->params = allocate<LLVMValueRef>(LLVMCountParams(fn));
         LLVMGetParams(fn, codegen_fn_def->params);
 
@@ -664,7 +671,8 @@ static void init(CodeGen *g, Buf *source_path) {
 
 }
 
-static void codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
+static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
+    int err;
     Buf full_path = BUF_INIT;
     os_path_join(g->root_source_dir, source_path, &full_path);
 
@@ -681,24 +689,42 @@ static void codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
         fprintf(stderr, "---------\n");
     }
 
-    ZigList<Token> *tokens = tokenize(source_code);
+    Tokenization tokenization = {0};
+    tokenize(source_code, &tokenization);
+
+    if (tokenization.err) {
+        ErrorMsg *err = allocate<ErrorMsg>(1);
+        err->line_start = tokenization.err_line;
+        err->column_start = tokenization.err_column;
+        err->line_end = -1;
+        err->column_end = -1;
+        err->msg = tokenization.err;
+        err->path = source_path;
+        err->source = source_code;
+        err->line_offsets = tokenization.line_offsets;
+
+        print_err_msg(err, g->err_color);
+        exit(1);
+    }
 
     if (g->verbose) {
-        print_tokens(source_code, tokens);
+        print_tokens(source_code, tokenization.tokens);
 
         fprintf(stderr, "\nAST:\n");
         fprintf(stderr, "------\n");
     }
 
     ImportTableEntry *import_entry = allocate<ImportTableEntry>(1);
+    import_entry->source_code = source_code;
+    import_entry->line_offsets = tokenization.line_offsets;
+    import_entry->path = source_path;
     import_entry->fn_table.init(32);
-    import_entry->root = ast_parse(source_code, tokens);
+    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);
     if (g->verbose) {
         ast_print(import_entry->root, 0);
     }
 
-    import_entry->path = source_path;
     import_entry->di_file = LLVMZigCreateFile(g->dbuilder, buf_ptr(&basename), buf_ptr(&dirname));
     g->import_table.put(source_path, import_entry);
 
@@ -713,18 +739,23 @@ static void codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
         if (!entry) {
             Buf full_path = BUF_INIT;
             os_path_join(g->root_source_dir, &top_level_decl->data.use.path, &full_path);
-            Buf import_code = BUF_INIT;
-            os_fetch_file_path(&full_path, &import_code);
-            codegen_add_code(g, &top_level_decl->data.use.path, &import_code);
+            Buf *import_code = buf_alloc();
+            if ((err = os_fetch_file_path(&full_path, import_code))) {
+                add_node_error(g, top_level_decl,
+                        buf_sprintf("unable to open \"%s\": %s", buf_ptr(&full_path), err_str(err)));
+                break;
+            }
+            codegen_add_code(g, &top_level_decl->data.use.path, import_code);
         }
     }
+
+    return import_entry;
 }
 
 void codegen_add_root_code(CodeGen *g, Buf *source_path, Buf *source_code) {
     init(g, source_path);
 
-    codegen_add_code(g, source_path, source_code);
-
+    g->root_import = codegen_add_code(g, source_path, source_code);
 
     if (g->verbose) {
         fprintf(stderr, "\nSemantic Analysis:\n");
@@ -738,10 +769,8 @@ void codegen_add_root_code(CodeGen *g, Buf *source_path, Buf *source_code) {
         }
     } else {
         for (int i = 0; i < g->errors.length; i += 1) {
-            ErrorMsg *err = &g->errors.at(i);
-            fprintf(stderr, "Error: Line %d, column %d: %s\n",
-                    err->line_start + 1, err->column_start + 1,
-                    buf_ptr(err->msg));
+            ErrorMsg *err = g->errors.at(i);
+            print_err_msg(err, g->err_color);
         }
         exit(1);
     }

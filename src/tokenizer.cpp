@@ -104,6 +104,7 @@ enum TokenizeState {
     TokenizeStateBang,
     TokenizeStateLessThan,
     TokenizeStateGreaterThan,
+    TokenizeStateError,
 };
 
 
@@ -116,27 +117,25 @@ struct Tokenize {
     int column;
     Token *cur_tok;
     int multi_line_comment_count;
+    Tokenization *out;
 };
 
 __attribute__ ((format (printf, 2, 3)))
 static void tokenize_error(Tokenize *t, const char *format, ...) {
-    int line;
-    int column;
+    t->state = TokenizeStateError;
+
     if (t->cur_tok) {
-        line = t->cur_tok->start_line + 1;
-        column = t->cur_tok->start_column + 1;
+        t->out->err_line = t->cur_tok->start_line;
+        t->out->err_column = t->cur_tok->start_column;
     } else {
-        line = t->line + 1;
-        column = t->column + 1;
+        t->out->err_line = t->line;
+        t->out->err_column = t->column;
     }
 
     va_list ap;
     va_start(ap, format);
-    fprintf(stderr, "Error: Line %d, column %d: ", line, column);
-    vfprintf(stderr, format, ap);
-    fprintf(stderr, "\n");
+    t->out->err = buf_vprintf(format, ap);
     va_end(ap);
-    exit(EXIT_FAILURE);
 }
 
 static void begin_token(Tokenize *t, TokenId id) {
@@ -187,13 +186,20 @@ static void end_token(Tokenize *t) {
     t->cur_tok = nullptr;
 }
 
-ZigList<Token> *tokenize(Buf *buf) {
+void tokenize(Buf *buf, Tokenization *out) {
     Tokenize t = {0};
-    t.tokens = allocate<ZigList<Token>>(1);
+    t.out = out;
+    t.tokens = out->tokens = allocate<ZigList<Token>>(1);
     t.buf = buf;
+
+    out->line_offsets = allocate<ZigList<int>>(1);
+
+    out->line_offsets->append(0);
     for (t.pos = 0; t.pos < buf_len(t.buf); t.pos += 1) {
         uint8_t c = buf_ptr(t.buf)[t.pos];
         switch (t.state) {
+            case TokenizeStateError:
+                break;
             case TokenizeStateStart:
                 switch (c) {
                     case WHITESPACE:
@@ -509,6 +515,7 @@ ZigList<Token> *tokenize(Buf *buf) {
                 break;
         }
         if (c == '\n') {
+            out->line_offsets->append(t.pos + 1);
             t.line += 1;
             t.column = 0;
         } else {
@@ -518,6 +525,7 @@ ZigList<Token> *tokenize(Buf *buf) {
     // EOF
     switch (t.state) {
         case TokenizeStateStart:
+        case TokenizeStateError:
             break;
         case TokenizeStateString:
             tokenize_error(&t, "unterminated string");
@@ -544,11 +552,12 @@ ZigList<Token> *tokenize(Buf *buf) {
             tokenize_error(&t, "unterminated multi-line comment");
             break;
     }
-    t.pos = -1;
-    begin_token(&t, TokenIdEof);
-    end_token(&t);
-    assert(!t.cur_tok);
-    return t.tokens;
+    if (t.state != TokenizeStateError) {
+        t.pos = -1;
+        begin_token(&t, TokenIdEof);
+        end_token(&t);
+        assert(!t.cur_tok);
+    }
 }
 
 static const char * token_name(Token *token) {

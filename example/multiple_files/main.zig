@@ -1,9 +1,9 @@
-export executable "test";
+export executable "test-multiple-files";
 
 use "libc.zig";
 use "foo.zig";
 
-fn _start() -> unreachable {
+export fn _start() -> unreachable {
     private_function();
 }
 
