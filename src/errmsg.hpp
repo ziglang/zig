@@ -11,6 +11,12 @@
 #include "buffer.hpp"
 #include "list.hpp"
 
+enum ErrColor {
+    ErrColorAuto,
+    ErrColorOff,
+    ErrColorOn,
+};
+
 struct ErrorMsg {
     int line_start;
     int column_start;
@@ -22,6 +28,6 @@ struct ErrorMsg {
     ZigList<int> *line_offsets;
 };
 
-void print_err_msg(ErrorMsg *msg);
+void print_err_msg(ErrorMsg *msg, ErrColor color);
 
 #endif

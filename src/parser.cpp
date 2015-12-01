@@ -242,6 +242,7 @@ struct ParseContext {
     ZigList<Token> *tokens;
     ZigList<AstNode *> *directive_list;
     ImportTableEntry *owner;
+    ErrColor err_color;
 };
 
 __attribute__ ((format (printf, 3, 4)))
@@ -262,7 +263,7 @@ static void ast_error(ParseContext *pc, Token *token, const char *format, ...) {
     err->source = pc->owner->source_code;
     err->line_offsets = pc->owner->line_offsets;
 
-    print_err_msg(err);
+    print_err_msg(err, pc->err_color);
     exit(EXIT_FAILURE);
 }
 
@@ -1334,8 +1335,9 @@ static AstNode *ast_parse_root(ParseContext *pc, int *token_index) {
     return node;
 }
 
-AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner) {
+AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner, ErrColor err_color) {
     ParseContext pc = {0};
+    pc.err_color = err_color;
     pc.owner = owner;
     pc.buf = buf;
     pc.tokens = tokens;

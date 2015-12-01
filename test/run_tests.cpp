@@ -48,6 +48,8 @@ static void add_simple_case(const char *case_name, const char *source, const cha
     test_case->compiler_args.append("--release");
     test_case->compiler_args.append("--strip");
     test_case->compiler_args.append("--verbose");
+    test_case->compiler_args.append("--color");
+    test_case->compiler_args.append("on");
 
     test_cases.append(test_case);
 }

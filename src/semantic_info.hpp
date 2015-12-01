@@ -89,6 +89,7 @@ struct CodeGen {
     int version_minor;
     int version_patch;
     bool verbose;
+    ErrColor err_color;
     ImportTableEntry *root_import;
 };
 

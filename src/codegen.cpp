@@ -42,6 +42,10 @@ void codegen_set_verbose(CodeGen *g, bool verbose) {
     g->verbose = verbose;
 }
 
+void codegen_set_errmsg_color(CodeGen *g, ErrColor err_color) {
+    g->err_color = err_color;
+}
+
 void codegen_set_strip(CodeGen *g, bool strip) {
     g->strip_debug_symbols = strip;
 }
@@ -693,7 +697,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
         err->source = source_code;
         err->line_offsets = tokenization.line_offsets;
 
-        print_err_msg(err);
+        print_err_msg(err, g->err_color);
         exit(1);
     }
 
@@ -709,7 +713,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
     import_entry->line_offsets = tokenization.line_offsets;
     import_entry->path = source_path;
     import_entry->fn_table.init(32);
-    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry);
+    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);
     if (g->verbose) {
         ast_print(import_entry->root, 0);
@@ -756,7 +760,7 @@ void codegen_add_root_code(CodeGen *g, Buf *source_path, Buf *source_code) {
     } else {
         for (int i = 0; i < g->errors.length; i += 1) {
             ErrorMsg *err = g->errors.at(i);
-            print_err_msg(err);
+            print_err_msg(err, g->err_color);
         }
         exit(1);
     }

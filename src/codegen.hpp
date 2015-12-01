@@ -9,6 +9,7 @@
 #define ZIG_CODEGEN_HPP
 
 #include "parser.hpp"
+#include "errmsg.hpp"
 
 struct CodeGen;
 
@@ -18,7 +19,6 @@ enum OutType {
     OutTypeLib,
     OutTypeObj,
 };
-
 
 CodeGen *codegen_create(Buf *root_source_dir);
 
@@ -30,6 +30,7 @@ void codegen_set_build_type(CodeGen *codegen, CodeGenBuildType build_type);
 void codegen_set_is_static(CodeGen *codegen, bool is_static);
 void codegen_set_strip(CodeGen *codegen, bool strip);
 void codegen_set_verbose(CodeGen *codegen, bool verbose);
+void codegen_set_errmsg_color(CodeGen *codegen, ErrColor err_color);
 void codegen_set_out_type(CodeGen *codegen, OutType out_type);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
 

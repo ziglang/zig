@@ -8,8 +8,8 @@
 #define GREEN "\x1b[32;1m"
 #define RESET "\x1b[0m"
 
-void print_err_msg(ErrorMsg *err) {
-    if (os_stderr_tty()) {
+void print_err_msg(ErrorMsg *err, ErrColor color) {
+    if (color == ErrColorOn || (color == ErrColorAuto && os_stderr_tty())) {
         fprintf(stderr, WHITE "%s:%d:%d: " RED "error:" WHITE " %s" RESET "\n",
                 buf_ptr(err->path),
                 err->line_start + 1, err->column_start + 1,
