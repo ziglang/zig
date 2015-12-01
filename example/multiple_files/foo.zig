@@ -6,6 +6,6 @@ fn private_function() {
     puts("it works!");
 }
 
-fn print_text() {
+pub fn print_text() {
     private_function();
 }

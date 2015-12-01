@@ -14,13 +14,13 @@
 
 struct TestSourceFile {
     const char *relative_path;
-    const char *text;
+    const char *source_code;
 };
 
 struct TestCase {
     const char *case_name;
     const char *output;
-    const char *source;
+    ZigList<TestSourceFile> source_files;
     ZigList<const char *> compile_errors;
     ZigList<const char *> compiler_args;
     ZigList<const char *> program_args;
@@ -31,11 +31,20 @@ static const char *tmp_source_path = ".tmp_source.zig";
 static const char *tmp_exe_path = "./.tmp_exe";
 static const char *zig_exe = "./zig";
 
-static void add_simple_case(const char *case_name, const char *source, const char *output) {
+static void add_source_file(TestCase *test_case, const char *path, const char *source) {
+    test_case->source_files.add_one();
+    test_case->source_files.last().relative_path = path;
+    test_case->source_files.last().source_code = source;
+}
+
+static TestCase *add_simple_case(const char *case_name, const char *source, const char *output) {
     TestCase *test_case = allocate<TestCase>(1);
     test_case->case_name = case_name;
     test_case->output = output;
-    test_case->source = source;
+
+    test_case->source_files.resize(1);
+    test_case->source_files.at(0).relative_path = tmp_source_path;
+    test_case->source_files.at(0).source_code = source;
 
     test_case->compiler_args.append("build");
     test_case->compiler_args.append(tmp_source_path);
@@ -52,15 +61,19 @@ static void add_simple_case(const char *case_name, const char *source, const cha
     test_case->compiler_args.append("on");
 
     test_cases.append(test_case);
+
+    return test_case;
 }
 
-static void add_compile_fail_case(const char *case_name, const char *source, int count, ...) {
+static TestCase *add_compile_fail_case(const char *case_name, const char *source, int count, ...) {
     va_list ap;
     va_start(ap, count);
 
     TestCase *test_case = allocate<TestCase>(1);
     test_case->case_name = case_name;
-    test_case->source = source;
+    test_case->source_files.resize(1);
+    test_case->source_files.at(0).relative_path = tmp_source_path;
+    test_case->source_files.at(0).source_code = source;
 
     for (int i = 0; i < count; i += 1) {
         const char *arg = va_arg(ap, const char *);
@@ -78,6 +91,8 @@ static void add_compile_fail_case(const char *case_name, const char *source, int
     test_cases.append(test_case);
 
     va_end(ap);
+
+    return test_case;
 }
 
 static void add_compiling_test_cases(void) {
@@ -135,6 +150,45 @@ static void add_compiling_test_cases(void) {
             exit(0);
         }
     )SOURCE", "OK\n");
+
+    {
+        TestCase *tc = add_simple_case("multiple files with private function", R"SOURCE(
+            use "libc.zig";
+            use "foo.zig";
+
+            export fn _start() -> unreachable {
+                private_function();
+            }
+
+            fn private_function() -> unreachable {
+                print_text();
+                exit(0);
+            }
+        )SOURCE", "OK\n");
+
+        add_source_file(tc, "libc.zig", R"SOURCE(
+            #link("c")
+            extern {
+                pub fn puts(s: *mut u8) -> i32;
+                pub fn exit(code: i32) -> unreachable;
+            }
+        )SOURCE");
+
+        add_source_file(tc, "foo.zig", R"SOURCE(
+            use "libc.zig";
+
+            // purposefully conflicting function with main source file
+            // but it's private so it should be OK
+            fn private_function() {
+                puts("OK");
+            }
+
+            pub fn print_text() {
+                private_function();
+            }
+        )SOURCE");
+    }
+
 }
 
 static void add_compile_failure_test_cases(void) {
@@ -207,7 +261,12 @@ static void print_compiler_invokation(TestCase *test_case, Buf *zig_stderr) {
 }
 
 static void run_test(TestCase *test_case) {
-    os_write_file(buf_create_from_str(tmp_source_path), buf_create_from_str(test_case->source));
+    for (int i = 0; i < test_case->source_files.length; i += 1) {
+        TestSourceFile *test_source = &test_case->source_files.at(i);
+        os_write_file(
+                buf_create_from_str(test_source->relative_path),
+                buf_create_from_str(test_source->source_code));
+    }
 
     Buf zig_stderr = BUF_INIT;
     Buf zig_stdout = BUF_INIT;
@@ -264,6 +323,11 @@ static void run_test(TestCase *test_case) {
         printf("%s\n", buf_ptr(&program_stdout));
         printf("=======================================\n");
         exit(1);
+    }
+
+    for (int i = 0; i < test_case->source_files.length; i += 1) {
+        TestSourceFile *test_source = &test_case->source_files.at(i);
+        remove(test_source->relative_path);
     }
 }
 

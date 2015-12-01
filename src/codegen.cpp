@@ -125,7 +125,13 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
 
     Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
 
-    FnTableEntry *fn_table_entry = g->fn_table.get(name);
+    FnTableEntry *fn_table_entry;
+    auto entry = g->cur_fn->import_entry->fn_table.maybe_get(name);
+    if (entry)
+        fn_table_entry = entry->value;
+    else
+        fn_table_entry = g->fn_table.get(name);
+
     assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
     int expected_param_count = fn_table_entry->proto_node->data.fn_proto.params.length;
     int actual_param_count = node->data.fn_call_expr.params.length;
@@ -478,13 +484,8 @@ static void do_code_gen(CodeGen *g) {
 
 
     // Generate function prototypes
-    auto it = g->fn_table.entry_iterator();
-    for (;;) {
-        auto *entry = it.next();
-        if (!entry)
-            break;
-
-        FnTableEntry *fn_table_entry = entry->value;
+    for (int i = 0; i < g->fn_protos.length; i += 1) {
+        FnTableEntry *fn_table_entry = g->fn_protos.at(i);
 
         AstNode *proto_node = fn_table_entry->proto_node;
         assert(proto_node->type == NodeTypeFnProto);
@@ -547,6 +548,7 @@ static void do_code_gen(CodeGen *g) {
         assert(codegen_node);
 
         FnDefNode *codegen_fn_def = &codegen_node->data.fn_def_node;
+        assert(codegen_fn_def);
         codegen_fn_def->params = allocate<LLVMValueRef>(LLVMCountParams(fn));
         LLVMGetParams(fn, codegen_fn_def->params);
 
@@ -733,9 +735,9 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
         if (!entry) {
             Buf full_path = BUF_INIT;
             os_path_join(g->root_source_dir, &top_level_decl->data.use.path, &full_path);
-            Buf import_code = BUF_INIT;
-            os_fetch_file_path(&full_path, &import_code);
-            codegen_add_code(g, &top_level_decl->data.use.path, &import_code);
+            Buf *import_code = buf_alloc();
+            os_fetch_file_path(&full_path, import_code);
+            codegen_add_code(g, &top_level_decl->data.use.path, import_code);
         }
     }
 

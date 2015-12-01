@@ -137,6 +137,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 AstNode *fn_decl = node->data.extern_block.fn_decls.at(fn_decl_i);
                 assert(fn_decl->type == NodeTypeFnDecl);
                 AstNode *fn_proto = fn_decl->data.fn_decl.fn_proto;
+                bool is_pub = (fn_proto->data.fn_proto.visib_mod == FnProtoVisibModPub);
                 resolve_function_proto(g, fn_proto);
                 Buf *name = &fn_proto->data.fn_proto.name;
 
@@ -145,7 +146,12 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 fn_table_entry->is_extern = true;
                 fn_table_entry->calling_convention = LLVMCCallConv;
                 fn_table_entry->import_entry = import;
-                g->fn_table.put(name, fn_table_entry);
+
+                g->fn_protos.append(fn_table_entry);
+                import->fn_table.put(name, fn_table_entry);
+                if (is_pub) {
+                    g->fn_table.put(name, fn_table_entry);
+                }
             }
             break;
         case NodeTypeFnDef:
@@ -153,26 +159,43 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 AstNode *proto_node = node->data.fn_def.fn_proto;
                 assert(proto_node->type == NodeTypeFnProto);
                 Buf *proto_name = &proto_node->data.fn_proto.name;
-                auto entry = g->fn_table.maybe_get(proto_name);
+                auto entry = import->fn_table.maybe_get(proto_name);
+                bool skip = false;
+                bool is_internal = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModExport);
+                bool is_pub = (proto_node->data.fn_proto.visib_mod == FnProtoVisibModPub);
                 if (entry) {
                     add_node_error(g, node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
                     assert(!node->codegen_node);
                     node->codegen_node = allocate<CodeGenNode>(1);
                     node->codegen_node->data.fn_def_node.skip = true;
-                } else {
+                    skip = true;
+                } else if (is_pub) {
+                    auto entry = g->fn_table.maybe_get(proto_name);
+                    if (entry) {
+                        add_node_error(g, node,
+                                buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
+                        assert(!node->codegen_node);
+                        node->codegen_node = allocate<CodeGenNode>(1);
+                        node->codegen_node->data.fn_def_node.skip = true;
+                        skip = true;
+                    }
+                }
+                if (!skip) {
                     FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
                     fn_table_entry->import_entry = import;
                     fn_table_entry->proto_node = proto_node;
                     fn_table_entry->fn_def_node = node;
-                    fn_table_entry->internal_linkage = proto_node->data.fn_proto.visib_mod != FnProtoVisibModExport;
-                    if (fn_table_entry->internal_linkage) {
-                        fn_table_entry->calling_convention = LLVMFastCallConv;
-                    } else {
-                        fn_table_entry->calling_convention = LLVMCCallConv;
-                    }
-                    g->fn_table.put(proto_name, fn_table_entry);
+                    fn_table_entry->internal_linkage = is_internal;
+                    fn_table_entry->calling_convention = is_internal ? LLVMFastCallConv : LLVMCCallConv;
+
+                    g->fn_protos.append(fn_table_entry);
                     g->fn_defs.append(fn_table_entry);
+
+                    import->fn_table.put(proto_name, fn_table_entry);
+                    if (is_pub) {
+                        g->fn_table.put(proto_name, fn_table_entry);
+                    }
 
                     resolve_function_proto(g, proto_node);
                 }
@@ -297,28 +320,31 @@ static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
     }
 }
 
-static void analyze_expression(CodeGen *g, AstNode *node) {
+static void analyze_expression(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeBlock:
             for (int i = 0; i < node->data.block.statements.length; i += 1) {
                 AstNode *child = node->data.block.statements.at(i);
-                analyze_expression(g, child);
+                analyze_expression(g, import, child);
             }
             break;
         case NodeTypeReturnExpr:
             if (node->data.return_expr.expr) {
-                analyze_expression(g, node->data.return_expr.expr);
+                analyze_expression(g, import, node->data.return_expr.expr);
             }
             break;
         case NodeTypeBinOpExpr:
-            analyze_expression(g, node->data.bin_op_expr.op1);
-            analyze_expression(g, node->data.bin_op_expr.op2);
+            analyze_expression(g, import, node->data.bin_op_expr.op1);
+            analyze_expression(g, import, node->data.bin_op_expr.op2);
             break;
         case NodeTypeFnCallExpr:
             {
                 Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
 
-                auto entry = g->fn_table.maybe_get(name);
+                auto entry = import->fn_table.maybe_get(name);
+                if (!entry)
+                    entry = g->fn_table.maybe_get(name);
+
                 if (!entry) {
                     add_node_error(g, node,
                             buf_sprintf("undefined function: '%s'", buf_ptr(name)));
@@ -336,7 +362,7 @@ static void analyze_expression(CodeGen *g, AstNode *node) {
 
                 for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
                     AstNode *child = node->data.fn_call_expr.params.at(i);
-                    analyze_expression(g, child);
+                    analyze_expression(g, import, child);
                 }
                 break;
             }
@@ -366,7 +392,7 @@ static void analyze_expression(CodeGen *g, AstNode *node) {
     }
 }
 
-static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
+static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeFnDef:
             {
@@ -387,7 +413,7 @@ static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
                 }
 
                 check_fn_def_control_flow(g, node);
-                analyze_expression(g, node->data.fn_def.body);
+                analyze_expression(g, import, node->data.fn_def.body);
             }
             break;
 
@@ -423,32 +449,49 @@ static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
     }
 }
 
-static void analyze_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+static void find_function_declarations_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     assert(node->type == NodeTypeRoot);
 
-    // find function declarations
     for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
         AstNode *child = node->data.root.top_level_decls.at(i);
         preview_function_declarations(g, import, child);
     }
 
+}
+
+static void analyze_top_level_decls_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+    assert(node->type == NodeTypeRoot);
+
     for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
         AstNode *child = node->data.root.top_level_decls.at(i);
-        analyze_top_level_declaration(g, child);
+        analyze_top_level_declaration(g, import, child);
     }
-
 }
 
 void semantic_analyze(CodeGen *g) {
-    auto it = g->import_table.entry_iterator();
-    for (;;) {
-        auto *entry = it.next();
-        if (!entry)
-            break;
+    {
+        auto it = g->import_table.entry_iterator();
+        for (;;) {
+            auto *entry = it.next();
+            if (!entry)
+                break;
 
-        ImportTableEntry *import = entry->value;
-        analyze_root(g, import, import->root);
+            ImportTableEntry *import = entry->value;
+            find_function_declarations_root(g, import, import->root);
+        }
     }
+    {
+        auto it = g->import_table.entry_iterator();
+        for (;;) {
+            auto *entry = it.next();
+            if (!entry)
+                break;
+
+            ImportTableEntry *import = entry->value;
+            analyze_top_level_decls_root(g, import, import->root);
+        }
+    }
+
 
     if (!g->root_out_name) {
         add_node_error(g, g->root_import->root,

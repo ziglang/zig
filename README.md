@@ -43,7 +43,6 @@ make
 ## Roadmap
 
  * variable declarations and assignment expressions
- * Multiple files
  * Type checking
  * inline assembly and syscalls
  * running code at compile time

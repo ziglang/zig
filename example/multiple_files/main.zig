@@ -3,7 +3,7 @@ export executable "test";
 use "libc.zig";
 use "foo.zig";
 
-fn _start() -> unreachable {
+export fn _start() -> unreachable {
     private_function();
 }
 

@@ -80,7 +80,14 @@ struct CodeGen {
     Buf *root_source_dir;
     Buf *root_out_name;
     ZigList<LLVMZigDIScope *> block_scopes;
+
+    // The function definitions this module includes. There must be a corresponding
+    // fn_protos entry.
     ZigList<FnTableEntry *> fn_defs;
+    // The function prototypes this module includes. In the case of external declarations,
+    // there will not be a corresponding fn_defs entry.
+    ZigList<FnTableEntry *> fn_protos;
+
     OutType out_type;
     FnTableEntry *cur_fn;
     bool c_stdint_used;
