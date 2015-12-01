@@ -65,6 +65,7 @@ struct CodeGen {
     struct {
         TypeTableEntry *entry_u8;
         TypeTableEntry *entry_i32;
+        TypeTableEntry *entry_string_literal;
         TypeTableEntry *entry_void;
         TypeTableEntry *entry_unreachable;
         TypeTableEntry *entry_invalid;

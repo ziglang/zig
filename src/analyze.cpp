@@ -54,6 +54,26 @@ static void set_root_export_version(CodeGen *g, Buf *version_buf, AstNode *node)
     }
 }
 
+TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
+    TypeTableEntry **parent_pointer = is_const ?
+        &child_type->pointer_const_parent :
+        &child_type->pointer_mut_parent;
+    const char *const_or_mut_str = is_const ? "const" : "mut";
+    if (*parent_pointer) {
+        return *parent_pointer;
+    } else {
+        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
+        buf_resize(&entry->name, 0);
+        buf_appendf(&entry->name, "*%s %s", const_or_mut_str, buf_ptr(&child_type->name));
+        entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type->di_type,
+                g->pointer_size_bytes * 8, g->pointer_size_bytes * 8, buf_ptr(&entry->name));
+        g->type_table.put(&entry->name, entry);
+        *parent_pointer = entry;
+        return entry;
+    }
+}
+
 static void resolve_type(CodeGen *g, AstNode *node) {
     assert(!node->codegen_node);
     node->codegen_node = allocate<CodeGenNode>(1);
@@ -75,28 +95,12 @@ static void resolve_type(CodeGen *g, AstNode *node) {
         case AstNodeTypeTypePointer:
             {
                 resolve_type(g, node->data.type.child_type);
-                TypeNode *child_type_node = &node->data.type.child_type->codegen_node->data.type_node;
-                if (child_type_node->entry == g->builtin_types.entry_unreachable) {
+                TypeTableEntry *child_type = node->data.type.child_type->codegen_node->data.type_node.entry;
+                if (child_type == g->builtin_types.entry_unreachable) {
                     add_node_error(g, node,
                             buf_create_from_str("pointer to unreachable not allowed"));
                 }
-                TypeTableEntry **parent_pointer = node->data.type.is_const ?
-                    &child_type_node->entry->pointer_const_parent :
-                    &child_type_node->entry->pointer_mut_parent;
-                const char *const_or_mut_str = node->data.type.is_const ? "const" : "mut";
-                if (*parent_pointer) {
-                    type_node->entry = *parent_pointer;
-                } else {
-                    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-                    entry->type_ref = LLVMPointerType(child_type_node->entry->type_ref, 0);
-                    buf_resize(&entry->name, 0);
-                    buf_appendf(&entry->name, "*%s %s", const_or_mut_str, buf_ptr(&child_type_node->entry->name));
-                    entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type_node->entry->di_type,
-                            g->pointer_size_bytes * 8, g->pointer_size_bytes * 8, buf_ptr(&entry->name));
-                    g->type_table.put(&entry->name, entry);
-                    type_node->entry = entry;
-                    *parent_pointer = entry;
-                }
+                type_node->entry = get_pointer_to_type(g, child_type, node->data.type.is_const);
                 break;
             }
     }
@@ -284,23 +288,26 @@ static TypeTableEntry * get_return_type(BlockContext *context) {
 }
 
 static void check_type_compatibility(CodeGen *g, AstNode *node, TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
+    if (expected_type == nullptr)
+        return; // anything will do
     if (expected_type == actual_type)
-        return; // good
+        return; // match
     if (expected_type == g->builtin_types.entry_invalid || actual_type == g->builtin_types.entry_invalid)
         return; // already complained
     if (actual_type == g->builtin_types.entry_unreachable)
         return; // TODO: is this true?
 
     // TODO better error message
-    add_node_error(g, node, buf_sprintf("type mismatch."));
+    add_node_error(g, node, buf_sprintf("type mismatch. expected %s. got %s", buf_ptr(&expected_type->name), buf_ptr(&actual_type->name)));
 }
 
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context, TypeTableEntry *expected_type, AstNode *node) {
+    TypeTableEntry *return_type = nullptr;
     switch (node->type) {
         case NodeTypeBlock:
             {
                 // TODO: nested block scopes
-                TypeTableEntry *return_type = g->builtin_types.entry_void;
+                return_type = g->builtin_types.entry_void;
                 for (int i = 0; i < node->data.block.statements.length; i += 1) {
                     AstNode *child = node->data.block.statements.at(i);
                     if (return_type == g->builtin_types.entry_unreachable) {
@@ -310,7 +317,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     }
                     return_type = analyze_expression(g, import, context, nullptr, child);
                 }
-                return return_type;
+                break;
             }
 
         case NodeTypeReturnExpr:
@@ -330,7 +337,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 }
 
                 check_type_compatibility(g, node, expected_return_type, actual_return_type);
-                return g->builtin_types.entry_unreachable;
+                return_type = g->builtin_types.entry_unreachable;
+                break;
             }
 
         case NodeTypeBinOpExpr:
@@ -338,7 +346,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 // TODO: think about expected types
                 analyze_expression(g, import, context, expected_type, node->data.bin_op_expr.op1);
                 analyze_expression(g, import, context, expected_type, node->data.bin_op_expr.op2);
-                return expected_type;
+                return_type = expected_type;
+                break;
             }
 
         case NodeTypeFnCallExpr:
@@ -358,7 +367,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                         analyze_expression(g, import, context, nullptr, child);
                     }
 
-                    return g->builtin_types.entry_invalid;
+                    return_type = g->builtin_types.entry_invalid;
                 } else {
                     FnTableEntry *fn_table_entry = entry->value;
                     assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
@@ -388,21 +397,23 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                         analyze_expression(g, import, context, expected_param_type, child);
                     }
 
-                    TypeTableEntry *return_type = fn_proto->return_type->codegen_node->data.type_node.entry;
-                    check_type_compatibility(g, node, expected_type, return_type);
-                    return return_type;
+                    return_type = fn_proto->return_type->codegen_node->data.type_node.entry;
                 }
+                break;
             }
 
         case NodeTypeNumberLiteral:
             // TODO: generic literal int type
-            return g->builtin_types.entry_i32;
+            return_type = g->builtin_types.entry_i32;
+            break;
 
         case NodeTypeStringLiteral:
-            zig_panic("TODO: string literal");
+            return_type = g->builtin_types.entry_string_literal;
+            break;
 
         case NodeTypeUnreachable:
-            return g->builtin_types.entry_unreachable;
+            return_type = g->builtin_types.entry_unreachable;
+            break;
 
         case NodeTypeSymbol:
             // look up symbol in symbol table
@@ -423,7 +434,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeUse:
             zig_unreachable();
     }
-    zig_unreachable();
+    assert(return_type);
+    check_type_compatibility(g, node, expected_type, return_type);
+    return return_type;
 }
 
 static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {

@@ -99,7 +99,7 @@ static void add_compiling_test_cases(void) {
     add_simple_case("hello world with libc", R"SOURCE(
         #link("c")
         extern {
-            fn puts(s: *mut u8) -> i32;
+            fn puts(s: *const u8) -> i32;
             fn exit(code: i32) -> unreachable;
         }
 
@@ -112,7 +112,7 @@ static void add_compiling_test_cases(void) {
     add_simple_case("function call", R"SOURCE(
         #link("c")
         extern {
-            fn puts(s: *mut u8) -> i32;
+            fn puts(s: *const u8) -> i32;
             fn exit(code: i32) -> unreachable;
         }
 
@@ -134,7 +134,7 @@ static void add_compiling_test_cases(void) {
     add_simple_case("comments", R"SOURCE(
         #link("c")
         extern {
-            fn puts(s: *mut u8) -> i32;
+            fn puts(s: *const u8) -> i32;
             fn exit(code: i32) -> unreachable;
         }
 
@@ -169,7 +169,7 @@ static void add_compiling_test_cases(void) {
         add_source_file(tc, "libc.zig", R"SOURCE(
             #link("c")
             extern {
-                pub fn puts(s: *mut u8) -> i32;
+                pub fn puts(s: *const u8) -> i32;
                 pub fn exit(code: i32) -> unreachable;
             }
         )SOURCE");

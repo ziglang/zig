@@ -589,6 +589,7 @@ static void define_primitive_types(CodeGen *g) {
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_u8 = entry;
     }
+    g->builtin_types.entry_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
     {
         TypeTableEntry *entry = allocate<TypeTableEntry>(1);
         entry->type_ref = LLVMInt32Type();
