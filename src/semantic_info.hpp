@@ -12,6 +12,8 @@
 #include "hash_map.hpp"
 #include "zig_llvm.hpp"
 
+struct FnTableEntry;
+
 struct TypeTableEntry {
     LLVMTypeRef type_ref;
     LLVMZigDIType *di_type;
@@ -28,6 +30,9 @@ struct ImportTableEntry {
     AstNode *root;
     Buf *path; // relative to root_source_dir
     LLVMZigDIFile *di_file;
+
+    // reminder: hash tables must be initialized before use
+    HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
 };
 
 struct FnTableEntry {
@@ -81,7 +86,6 @@ struct CodeGen {
     int version_minor;
     int version_patch;
     bool verbose;
-    bool initialized;
 };
 
 struct TypeNode {
