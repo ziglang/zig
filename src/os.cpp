@@ -180,3 +180,7 @@ int os_get_cwd(Buf *out_cwd) {
 
     return 0;
 }
+
+bool os_stderr_tty(void) {
+    return isatty(STDERR_FILENO);
+}

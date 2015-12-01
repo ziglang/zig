@@ -12,13 +12,17 @@
 #include "os.hpp"
 
 static void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
-    g->errors.add_one();
-    ErrorMsg *last_msg = &g->errors.last();
-    last_msg->line_start = node->line;
-    last_msg->column_start = node->column;
-    last_msg->line_end = -1;
-    last_msg->column_end = -1;
-    last_msg->msg = msg;
+    ErrorMsg *err = allocate<ErrorMsg>(1);
+    err->line_start = node->line;
+    err->column_start = node->column;
+    err->line_end = -1;
+    err->column_end = -1;
+    err->msg = msg;
+    err->path = node->owner->path;
+    err->source = node->owner->source_code;
+    err->line_offsets = node->owner->line_offsets;
+
+    g->errors.append(err);
 }
 
 static int parse_version_string(Buf *buf, int *major, int *minor, int *patch) {

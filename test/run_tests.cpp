@@ -139,7 +139,7 @@ static void add_compile_failure_test_cases(void) {
     add_compile_fail_case("multiple function definitions", R"SOURCE(
 fn a() {}
 fn a() {}
-    )SOURCE", 1, "Line 3, column 1: redefinition of 'a'");
+    )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of 'a'");
 
     add_compile_fail_case("bad directive", R"SOURCE(
 #bogus1("")
@@ -148,37 +148,37 @@ extern {
 }
 #bogus2("")
 fn a() {}
-    )SOURCE", 2, "Line 2, column 1: invalid directive: 'bogus1'",
-                 "Line 6, column 1: invalid directive: 'bogus2'");
+    )SOURCE", 2, ".tmp_source.zig:2:1: error: invalid directive: 'bogus1'",
+                 ".tmp_source.zig:6:1: error: invalid directive: 'bogus2'");
 
     add_compile_fail_case("unreachable with return", R"SOURCE(
 fn a() -> unreachable {return;}
-    )SOURCE", 1, "Line 2, column 24: return statement in function with unreachable return type");
+    )SOURCE", 1, ".tmp_source.zig:2:24: error: return statement in function with unreachable return type");
 
     add_compile_fail_case("control reaches end of non-void function", R"SOURCE(
 fn a() -> i32 {}
-    )SOURCE", 1, "Line 2, column 1: control reaches end of non-void function");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: control reaches end of non-void function");
 
     add_compile_fail_case("undefined function call", R"SOURCE(
 fn a() {
     b();
 }
-    )SOURCE", 1, "Line 3, column 5: undefined function: 'b'");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: undefined function: 'b'");
 
     add_compile_fail_case("wrong number of arguments", R"SOURCE(
 fn a() {
     b(1);
 }
 fn b(a: i32, b: i32, c: i32) { }
-    )SOURCE", 1, "Line 3, column 5: wrong number of arguments. Expected 3, got 1.");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: wrong number of arguments. Expected 3, got 1.");
 
     add_compile_fail_case("invalid type", R"SOURCE(
 fn a() -> bogus {}
-    )SOURCE", 1, "Line 2, column 11: invalid type name: 'bogus'");
+    )SOURCE", 1, ".tmp_source.zig:2:11: error: invalid type name: 'bogus'");
 
     add_compile_fail_case("pointer to unreachable", R"SOURCE(
 fn a() -> *mut unreachable {}
-    )SOURCE", 1, "Line 2, column 11: pointer to unreachable not allowed");
+    )SOURCE", 1, ".tmp_source.zig:2:11: error: pointer to unreachable not allowed");
 
     add_compile_fail_case("unreachable code", R"SOURCE(
 fn a() {
@@ -187,12 +187,12 @@ fn a() {
 }
 
 fn b() {}
-    )SOURCE", 1, "Line 4, column 5: unreachable code");
+    )SOURCE", 1, ".tmp_source.zig:4:5: error: unreachable code");
 
     add_compile_fail_case("bad version string", R"SOURCE(
 #version("aoeu")
 export executable "test";
-    )SOURCE", 1, "Line 2, column 1: invalid version string");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: invalid version string");
 }
 
 static void print_compiler_invokation(TestCase *test_case, Buf *zig_stderr) {

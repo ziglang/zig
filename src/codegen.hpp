@@ -20,15 +20,6 @@ enum OutType {
 };
 
 
-struct ErrorMsg {
-    int line_start;
-    int column_start;
-    int line_end;
-    int column_end;
-    Buf *msg;
-};
-
-
 CodeGen *codegen_create(Buf *root_source_dir);
 
 enum CodeGenBuildType {

@@ -65,7 +65,17 @@ struct Token {
     int start_column;
 };
 
-ZigList<Token> *tokenize(Buf *buf);
+struct Tokenization {
+    ZigList<Token> *tokens;
+    ZigList<int> *line_offsets;
+
+    // if an error occurred
+    Buf *err;
+    int err_line;
+    int err_column;
+};
+
+void tokenize(Buf *buf, Tokenization *out_tokenization);
 
 void print_tokens(Buf *buf, ZigList<Token> *tokens);
 

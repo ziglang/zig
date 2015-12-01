@@ -11,6 +11,7 @@
 #include "codegen.hpp"
 #include "hash_map.hpp"
 #include "zig_llvm.hpp"
+#include "errmsg.hpp"
 
 struct FnTableEntry;
 
@@ -30,6 +31,8 @@ struct ImportTableEntry {
     AstNode *root;
     Buf *path; // relative to root_source_dir
     LLVMZigDIFile *di_file;
+    Buf *source_code;
+    ZigList<int> *line_offsets;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
@@ -47,7 +50,7 @@ struct FnTableEntry {
 
 struct CodeGen {
     LLVMModuleRef module;
-    ZigList<ErrorMsg> errors;
+    ZigList<ErrorMsg*> errors;
     LLVMBuilderRef builder;
     LLVMZigDIBuilder *dbuilder;
     LLVMZigDICompileUnit *compile_unit;

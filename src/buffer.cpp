@@ -3,9 +3,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-Buf *buf_sprintf(const char *format, ...) {
-    va_list ap, ap2;
-    va_start(ap, format);
+Buf *buf_vprintf(const char *format, va_list ap) {
+    va_list ap2;
     va_copy(ap2, ap);
 
     int len1 = vsnprintf(nullptr, 0, format, ap);
@@ -19,9 +18,16 @@ Buf *buf_sprintf(const char *format, ...) {
     assert(len2 == len1);
 
     va_end(ap2);
-    va_end(ap);
 
     return buf;
+}
+
+Buf *buf_sprintf(const char *format, ...) {
+    va_list ap;
+    va_start(ap, format);
+    Buf *result = buf_vprintf(format, ap);
+    va_end(ap);
+    return result;
 }
 
 void buf_appendf(Buf *buf, const char *format, ...) {

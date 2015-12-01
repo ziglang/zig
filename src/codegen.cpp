@@ -13,6 +13,7 @@
 #include "error.hpp"
 #include "semantic_info.hpp"
 #include "analyze.hpp"
+#include "errmsg.hpp"
 
 #include <stdio.h>
 #include <errno.h>
@@ -678,24 +679,42 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
         fprintf(stderr, "---------\n");
     }
 
-    ZigList<Token> *tokens = tokenize(source_code);
+    Tokenization tokenization = {0};
+    tokenize(source_code, &tokenization);
+
+    if (tokenization.err) {
+        ErrorMsg *err = allocate<ErrorMsg>(1);
+        err->line_start = tokenization.err_line;
+        err->column_start = tokenization.err_column;
+        err->line_end = -1;
+        err->column_end = -1;
+        err->msg = tokenization.err;
+        err->path = source_path;
+        err->source = source_code;
+        err->line_offsets = tokenization.line_offsets;
+
+        print_err_msg(err);
+        exit(1);
+    }
 
     if (g->verbose) {
-        print_tokens(source_code, tokens);
+        print_tokens(source_code, tokenization.tokens);
 
         fprintf(stderr, "\nAST:\n");
         fprintf(stderr, "------\n");
     }
 
     ImportTableEntry *import_entry = allocate<ImportTableEntry>(1);
+    import_entry->source_code = source_code;
+    import_entry->line_offsets = tokenization.line_offsets;
+    import_entry->path = source_path;
     import_entry->fn_table.init(32);
-    import_entry->root = ast_parse(source_code, tokens);
+    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry);
     assert(import_entry->root);
     if (g->verbose) {
         ast_print(import_entry->root, 0);
     }
 
-    import_entry->path = source_path;
     import_entry->di_file = LLVMZigCreateFile(g->dbuilder, buf_ptr(&basename), buf_ptr(&dirname));
     g->import_table.put(source_path, import_entry);
 
@@ -736,10 +755,8 @@ void codegen_add_root_code(CodeGen *g, Buf *source_path, Buf *source_code) {
         }
     } else {
         for (int i = 0; i < g->errors.length; i += 1) {
-            ErrorMsg *err = &g->errors.at(i);
-            fprintf(stderr, "Error: Line %d, column %d: %s\n",
-                    err->line_start + 1, err->column_start + 1,
-                    buf_ptr(err->msg));
+            ErrorMsg *err = g->errors.at(i);
+            print_err_msg(err);
         }
         exit(1);
     }
