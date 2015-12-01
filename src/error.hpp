@@ -12,6 +12,7 @@ enum Error {
     ErrorNone,
     ErrorNoMem,
     ErrorInvalidFormat,
+    ErrorSemanticAnalyzeFail,
 };
 
 const char *err_str(int err);

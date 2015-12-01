@@ -9,7 +9,8 @@
 #define ZIG_ANALYZE_HPP
 
 struct CodeGen;
+struct ImportTableEntry;
 
-void semantic_analyze(CodeGen *g);
+void semantic_analyze(CodeGen *g, ImportTableEntry *entry);
 
 #endif

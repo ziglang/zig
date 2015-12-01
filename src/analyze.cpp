@@ -119,7 +119,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node) {
     resolve_type(g, node->data.fn_proto.return_type);
 }
 
-static void preview_function_declarations(CodeGen *g, AstNode *node) {
+static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeExternBlock:
             for (int i = 0; i < node->data.extern_block.directives->length; i += 1) {
@@ -145,6 +145,7 @@ static void preview_function_declarations(CodeGen *g, AstNode *node) {
                 fn_table_entry->proto_node = fn_proto;
                 fn_table_entry->is_extern = true;
                 fn_table_entry->calling_convention = LLVMCCallConv;
+                fn_table_entry->import_entry = import;
                 g->fn_table.put(name, fn_table_entry);
             }
             break;
@@ -162,6 +163,7 @@ static void preview_function_declarations(CodeGen *g, AstNode *node) {
                     node->codegen_node->data.fn_def_node.skip = true;
                 } else {
                     FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
+                    fn_table_entry->import_entry = import;
                     fn_table_entry->proto_node = proto_node;
                     fn_table_entry->fn_def_node = node;
                     fn_table_entry->internal_linkage = proto_node->data.fn_proto.visib_mod != FnProtoVisibModExport;
@@ -196,8 +198,8 @@ static void preview_function_declarations(CodeGen *g, AstNode *node) {
             } else {
                 g->root_export_decl = node;
 
-                if (!g->out_name)
-                    g->out_name = &node->data.root_export_decl.name;
+                if (!g->root_out_name)
+                    g->root_out_name = &node->data.root_export_decl.name;
 
                 Buf *out_type = &node->data.root_export_decl.type;
                 OutType export_out_type;
@@ -214,6 +216,9 @@ static void preview_function_declarations(CodeGen *g, AstNode *node) {
                 if (g->out_type == OutTypeUnknown)
                     g->out_type = export_out_type;
             }
+            break;
+        case NodeTypeUse:
+            zig_panic("TODO use");
             break;
         case NodeTypeDirective:
         case NodeTypeParamDecl:
@@ -379,6 +384,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, BlockContext *context, Ty
         case NodeTypeRootExportDecl:
         case NodeTypeExternBlock:
         case NodeTypeFnDef:
+        case NodeTypeUse:
             zig_unreachable();
     }
     zig_unreachable();
@@ -437,6 +443,75 @@ static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
     }
 }
 
+static void analyze_expression(CodeGen *g, AstNode *node) {
+    switch (node->type) {
+        case NodeTypeBlock:
+            for (int i = 0; i < node->data.block.statements.length; i += 1) {
+                AstNode *child = node->data.block.statements.at(i);
+                analyze_expression(g, child);
+            }
+            break;
+        case NodeTypeReturnExpr:
+            if (node->data.return_expr.expr) {
+                analyze_expression(g, node->data.return_expr.expr);
+            }
+            break;
+        case NodeTypeBinOpExpr:
+            analyze_expression(g, node->data.bin_op_expr.op1);
+            analyze_expression(g, node->data.bin_op_expr.op2);
+            break;
+        case NodeTypeFnCallExpr:
+            {
+                Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
+
+                auto entry = g->fn_table.maybe_get(name);
+                if (!entry) {
+                    add_node_error(g, node,
+                            buf_sprintf("undefined function: '%s'", buf_ptr(name)));
+                } else {
+                    FnTableEntry *fn_table_entry = entry->value;
+                    assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
+                    int expected_param_count = fn_table_entry->proto_node->data.fn_proto.params.length;
+                    int actual_param_count = node->data.fn_call_expr.params.length;
+                    if (expected_param_count != actual_param_count) {
+                        add_node_error(g, node,
+                                buf_sprintf("wrong number of arguments. Expected %d, got %d.",
+                                    expected_param_count, actual_param_count));
+                    }
+                }
+
+                for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
+                    AstNode *child = node->data.fn_call_expr.params.at(i);
+                    analyze_expression(g, child);
+                }
+                break;
+            }
+        case NodeTypeCastExpr:
+            zig_panic("TODO");
+            break;
+        case NodeTypePrefixOpExpr:
+            zig_panic("TODO");
+            break;
+        case NodeTypeNumberLiteral:
+        case NodeTypeStringLiteral:
+        case NodeTypeUnreachable:
+        case NodeTypeSymbol:
+            // nothing to do
+            break;
+        case NodeTypeDirective:
+        case NodeTypeFnDecl:
+        case NodeTypeFnProto:
+        case NodeTypeParamDecl:
+        case NodeTypeType:
+        case NodeTypeRoot:
+        case NodeTypeRootExportDecl:
+        case NodeTypeExternBlock:
+        case NodeTypeFnDef:
+        case NodeTypeUse:
+            zig_unreachable();
+    }
+}
+
 static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeFnDef:
@@ -470,9 +545,9 @@ static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
 
         case NodeTypeRootExportDecl:
         case NodeTypeExternBlock:
+        case NodeTypeUse:
             // already looked at these in the preview pass
             break;
-
         case NodeTypeDirective:
         case NodeTypeParamDecl:
         case NodeTypeFnProto:
@@ -493,13 +568,13 @@ static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
     }
 }
 
-static void analyze_root(CodeGen *g, AstNode *node) {
+static void analyze_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     assert(node->type == NodeTypeRoot);
 
     // find function declarations
     for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
         AstNode *child = node->data.root.top_level_decls.at(i);
-        preview_function_declarations(g, child);
+        preview_function_declarations(g, import, child);
     }
 
     for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
@@ -507,7 +582,7 @@ static void analyze_root(CodeGen *g, AstNode *node) {
         analyze_top_level_declaration(g, child);
     }
 
-    if (!g->out_name) {
+    if (!g->root_out_name) {
         add_node_error(g, node,
                 buf_sprintf("missing export declaration and output name not provided"));
     } else if (g->out_type == OutTypeUnknown) {
@@ -516,91 +591,7 @@ static void analyze_root(CodeGen *g, AstNode *node) {
     }
 }
 
-static void define_primitive_types(CodeGen *g) {
-    {
-        // if this type is anywhere in the AST, we should never hit codegen.
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-        buf_init_from_str(&entry->name, "(invalid)");
-        g->builtin_types.entry_invalid = entry;
-    }
-    {
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-        entry->type_ref = LLVMInt8Type();
-        buf_init_from_str(&entry->name, "u8");
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 8, 8,
-                LLVMZigEncoding_DW_ATE_unsigned());
-        g->type_table.put(&entry->name, entry);
-        g->builtin_types.entry_u8 = entry;
-    }
-    {
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-        entry->type_ref = LLVMInt32Type();
-        buf_init_from_str(&entry->name, "i32");
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 32, 32,
-                LLVMZigEncoding_DW_ATE_signed());
-        g->type_table.put(&entry->name, entry);
-        g->builtin_types.entry_i32 = entry;
-    }
-    {
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-        entry->type_ref = LLVMVoidType();
-        buf_init_from_str(&entry->name, "void");
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 0, 0,
-                LLVMZigEncoding_DW_ATE_unsigned());
-        g->type_table.put(&entry->name, entry);
-        g->builtin_types.entry_void = entry;
-    }
-    {
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-        entry->type_ref = LLVMVoidType();
-        buf_init_from_str(&entry->name, "unreachable");
-        entry->di_type = g->builtin_types.entry_void->di_type;
-        g->type_table.put(&entry->name, entry);
-        g->builtin_types.entry_unreachable = entry;
-    }
-}
-
-
-void semantic_analyze(CodeGen *g) {
-    LLVMInitializeAllTargets();
-    LLVMInitializeAllTargetMCs();
-    LLVMInitializeAllAsmPrinters();
-    LLVMInitializeAllAsmParsers();
-    LLVMInitializeNativeTarget();
-
-    g->is_native_target = true;
-    char *native_triple = LLVMGetDefaultTargetTriple();
-
-    LLVMTargetRef target_ref;
-    char *err_msg = nullptr;
-    if (LLVMGetTargetFromTriple(native_triple, &target_ref, &err_msg)) {
-        zig_panic("unable to get target from triple: %s", err_msg);
-    }
-
-    char *native_cpu = LLVMZigGetHostCPUName();
-    char *native_features = LLVMZigGetNativeFeatures();
-
-    LLVMCodeGenOptLevel opt_level = (g->build_type == CodeGenBuildTypeDebug) ?
-        LLVMCodeGenLevelNone : LLVMCodeGenLevelAggressive;
-
-    LLVMRelocMode reloc_mode = g->is_static ? LLVMRelocStatic : LLVMRelocPIC;
-
-    g->target_machine = LLVMCreateTargetMachine(target_ref, native_triple,
-            native_cpu, native_features, opt_level, reloc_mode, LLVMCodeModelDefault);
-
-    g->target_data_ref = LLVMGetTargetMachineData(g->target_machine);
-
-
-    g->module = LLVMModuleCreateWithName("ZigModule");
-
-    g->pointer_size_bytes = LLVMPointerSize(g->target_data_ref);
-
-    g->builder = LLVMCreateBuilder();
-    g->dbuilder = LLVMZigCreateDIBuilder(g->module, true);
-
-
-    define_primitive_types(g);
-
-    analyze_root(g, g->root);
+void semantic_analyze(CodeGen *g, ImportTableEntry *import_table_entry) {
+    analyze_root(g, import_table_entry, import_table_entry->root);
 }
 

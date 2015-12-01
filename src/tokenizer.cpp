@@ -180,6 +180,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordExport;
     } else if (mem_eql_str(token_mem, token_len, "as")) {
         t->cur_tok->id = TokenIdKeywordAs;
+    } else if (mem_eql_str(token_mem, token_len, "use")) {
+        t->cur_tok->id = TokenIdKeywordUse;
     }
 
     t->cur_tok = nullptr;
@@ -562,6 +564,7 @@ static const char * token_name(Token *token) {
         case TokenIdKeywordPub: return "Pub";
         case TokenIdKeywordExport: return "Export";
         case TokenIdKeywordAs: return "As";
+        case TokenIdKeywordUse: return "Use";
         case TokenIdLParen: return "LParen";
         case TokenIdRParen: return "RParen";
         case TokenIdComma: return "Comma";

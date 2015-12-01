@@ -12,15 +12,6 @@
 #include "hash_map.hpp"
 #include "zig_llvm.hpp"
 
-struct FnTableEntry {
-    LLVMValueRef fn_value;
-    AstNode *proto_node;
-    AstNode *fn_def_node;
-    bool is_extern;
-    bool internal_linkage;
-    unsigned calling_convention;
-};
-
 struct TypeTableEntry {
     LLVMTypeRef type_ref;
     LLVMZigDIType *di_type;
@@ -33,17 +24,35 @@ struct TypeTableEntry {
     TypeTableEntry *pointer_mut_parent;
 };
 
+struct ImportTableEntry {
+    AstNode *root;
+    Buf *path; // relative to root_source_dir
+    LLVMZigDIFile *di_file;
+};
+
+struct FnTableEntry {
+    LLVMValueRef fn_value;
+    AstNode *proto_node;
+    AstNode *fn_def_node;
+    bool is_extern;
+    bool internal_linkage;
+    unsigned calling_convention;
+    ImportTableEntry *import_entry;
+};
+
 struct CodeGen {
     LLVMModuleRef module;
-    AstNode *root;
     ZigList<ErrorMsg> errors;
     LLVMBuilderRef builder;
     LLVMZigDIBuilder *dbuilder;
     LLVMZigDICompileUnit *compile_unit;
+
+    // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
     HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> link_table;
+    HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
 
     struct {
         TypeTableEntry *entry_u8;
@@ -60,12 +69,10 @@ struct CodeGen {
     CodeGenBuildType build_type;
     LLVMTargetMachineRef target_machine;
     bool is_native_target;
-    Buf in_file;
-    Buf in_dir;
+    Buf *root_source_dir;
+    Buf *root_out_name;
     ZigList<LLVMZigDIScope *> block_scopes;
-    LLVMZigDIFile *di_file;
     ZigList<FnTableEntry *> fn_defs;
-    Buf *out_name;
     OutType out_type;
     FnTableEntry *cur_fn;
     bool c_stdint_used;
@@ -73,6 +80,8 @@ struct CodeGen {
     int version_major;
     int version_minor;
     int version_patch;
+    bool verbose;
+    bool initialized;
 };
 
 struct TypeNode {
