@@ -11,7 +11,7 @@
 #include "zig_llvm.hpp"
 #include "os.hpp"
 
-static void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
+void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     ErrorMsg *err = allocate<ErrorMsg>(1);
     err->line_start = node->line;
     err->column_start = node->column;

@@ -249,6 +249,10 @@ fn b() {}
 #version("aoeu")
 export executable "test";
     )SOURCE", 1, ".tmp_source.zig:2:1: error: invalid version string");
+
+    add_compile_fail_case("bad import", R"SOURCE(
+use "bogus-does-not-exist.zig";
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: unable to open \"./bogus-does-not-exist.zig\": file not found");
 }
 
 static void print_compiler_invokation(TestCase *test_case, Buf *zig_stderr) {

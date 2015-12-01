@@ -669,6 +669,7 @@ static void init(CodeGen *g, Buf *source_path) {
 }
 
 static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
+    int err;
     Buf full_path = BUF_INIT;
     os_path_join(g->root_source_dir, source_path, &full_path);
 
@@ -736,7 +737,11 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
             Buf full_path = BUF_INIT;
             os_path_join(g->root_source_dir, &top_level_decl->data.use.path, &full_path);
             Buf *import_code = buf_alloc();
-            os_fetch_file_path(&full_path, import_code);
+            if ((err = os_fetch_file_path(&full_path, import_code))) {
+                add_node_error(g, top_level_decl,
+                        buf_sprintf("unable to open \"%s\": %s", buf_ptr(&full_path), err_str(err)));
+                break;
+            }
             codegen_add_code(g, &top_level_decl->data.use.path, import_code);
         }
     }

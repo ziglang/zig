@@ -7,6 +7,7 @@
 
 #include "os.hpp"
 #include "util.hpp"
+#include "error.hpp"
 
 #include <unistd.h>
 #include <errno.h>
@@ -143,26 +144,65 @@ void os_write_file(Buf *full_path, Buf *contents) {
 int os_fetch_file(FILE *f, Buf *out_contents) {
     int fd = fileno(f);
     struct stat st;
-    if (fstat(fd, &st))
-        zig_panic("unable to stat file: %s", strerror(errno));
+    if (fstat(fd, &st)) {
+        switch (errno) {
+            case EACCES:
+                return ErrorAccess;
+            case ENOENT:
+                return ErrorFileNotFound;
+            case ENOMEM:
+                return ErrorSystemResources;
+            case EINTR:
+                return ErrorInterrupted;
+            case EINVAL:
+                zig_unreachable();
+            default:
+                return ErrorFileSystem;
+        }
+    }
     off_t big_size = st.st_size;
-    if (big_size > INT_MAX)
-        zig_panic("file too big");
+    if (big_size > INT_MAX) {
+        return ErrorFileTooBig;
+    }
     int size = (int)big_size;
 
     buf_resize(out_contents, size);
     ssize_t ret = read(fd, buf_ptr(out_contents), size);
 
-    if (ret != size)
-        zig_panic("unable to read file: %s", strerror(errno));
+    if (ret != size) {
+        switch (errno) {
+            case EINTR:
+                return ErrorInterrupted;
+            case EINVAL:
+            case EISDIR:
+                zig_unreachable();
+            default:
+                return ErrorFileSystem;
+        }
+    }
 
     return 0;
 }
 
 int os_fetch_file_path(Buf *full_path, Buf *out_contents) {
     FILE *f = fopen(buf_ptr(full_path), "rb");
-    if (!f)
-        zig_panic("unable to open %s: %s\n", buf_ptr(full_path), strerror(errno));
+    if (!f) {
+        switch (errno) {
+            case EACCES:
+                return ErrorAccess;
+            case EINTR:
+                return ErrorInterrupted;
+            case EINVAL:
+                zig_unreachable();
+            case ENFILE:
+            case ENOMEM:
+                return ErrorSystemResources;
+            case ENOENT:
+                return ErrorFileNotFound;
+            default:
+                return ErrorFileSystem;
+        }
+    }
     int result = os_fetch_file(f, out_contents);
     fclose(f);
     return result;

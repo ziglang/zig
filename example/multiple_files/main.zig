@@ -1,4 +1,4 @@
-export executable "test";
+export executable "test-multiple-files";
 
 use "libc.zig";
 use "foo.zig";

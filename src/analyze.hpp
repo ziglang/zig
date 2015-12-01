@@ -9,7 +9,10 @@
 #define ZIG_ANALYZE_HPP
 
 struct CodeGen;
+struct AstNode;
+struct Buf;
 
 void semantic_analyze(CodeGen *g);
+void add_node_error(CodeGen *g, AstNode *node, Buf *msg);
 
 #endif
