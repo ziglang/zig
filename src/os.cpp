@@ -13,8 +13,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <stdio.h>
 #include <fcntl.h>
+#include <limits.h>
 
 void os_spawn_process(const char *exe, ZigList<const char *> &args, bool detached) {
     pid_t pid = fork();
@@ -37,7 +37,7 @@ void os_spawn_process(const char *exe, ZigList<const char *> &args, bool detache
     zig_panic("execvp failed: %s", strerror(errno));
 }
 
-static void read_all_fd(int fd, Buf *out_buf) {
+static void read_all_fd_stream(int fd, Buf *out_buf) {
     static const ssize_t buf_size = 0x2000;
     buf_resize(out_buf, buf_size);
     ssize_t actual_buf_len = 0;
@@ -70,6 +70,12 @@ void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
     }
     buf_init_from_mem(out_dirname, ".", 1);
     buf_init_from_buf(out_basename, full_path);
+}
+
+void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
+    buf_init_from_buf(out_full_path, dirname);
+    buf_append_char(out_full_path, '/');
+    buf_append_buf(out_full_path, basename);
 }
 
 void os_exec_process(const char *exe, ZigList<const char *> &args,
@@ -117,8 +123,8 @@ void os_exec_process(const char *exe, ZigList<const char *> &args,
 
         waitpid(pid, return_code, 0);
 
-        read_all_fd(stdout_pipe[0], out_stdout);
-        read_all_fd(stderr_pipe[0], out_stderr);
+        read_all_fd_stream(stdout_pipe[0], out_stdout);
+        read_all_fd_stream(stderr_pipe[0], out_stderr);
 
     }
 }
@@ -132,4 +138,45 @@ void os_write_file(Buf *full_path, Buf *contents) {
         zig_panic("write failed: %s", strerror(errno));
     if (close(fd) == -1)
         zig_panic("close failed");
+}
+
+int os_fetch_file(FILE *f, Buf *out_contents) {
+    int fd = fileno(f);
+    struct stat st;
+    if (fstat(fd, &st))
+        zig_panic("unable to stat file: %s", strerror(errno));
+    off_t big_size = st.st_size;
+    if (big_size > INT_MAX)
+        zig_panic("file too big");
+    int size = (int)big_size;
+
+    buf_resize(out_contents, size);
+    ssize_t ret = read(fd, buf_ptr(out_contents), size);
+
+    if (ret != size)
+        zig_panic("unable to read file: %s", strerror(errno));
+
+    return 0;
+}
+
+int os_fetch_file_path(Buf *full_path, Buf *out_contents) {
+    FILE *f = fopen(buf_ptr(full_path), "rb");
+    if (!f)
+        zig_panic("unable to open %s: %s\n", buf_ptr(full_path), strerror(errno));
+    int result = os_fetch_file(f, out_contents);
+    fclose(f);
+    return result;
+}
+
+int os_get_cwd(Buf *out_cwd) {
+    int err = ERANGE;
+    buf_resize(out_cwd, 512);
+    while (err == ERANGE) {
+        buf_resize(out_cwd, buf_len(out_cwd) * 2);
+        err = getcwd(buf_ptr(out_cwd), buf_len(out_cwd)) ? 0 : errno;
+    }
+    if (err)
+        zig_panic("unable to get cwd: %s", strerror(err));
+
+    return 0;
 }

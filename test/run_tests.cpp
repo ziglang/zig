@@ -47,6 +47,7 @@ static void add_simple_case(const char *case_name, const char *source, const cha
     test_case->compiler_args.append(tmp_exe_path);
     test_case->compiler_args.append("--release");
     test_case->compiler_args.append("--strip");
+    test_case->compiler_args.append("--verbose");
 
     test_cases.append(test_case);
 }
@@ -70,6 +71,7 @@ static void add_compile_fail_case(const char *case_name, const char *source, int
     test_case->compiler_args.append(tmp_exe_path);
     test_case->compiler_args.append("--release");
     test_case->compiler_args.append("--strip");
+    test_case->compiler_args.append("--verbose");
 
     test_cases.append(test_case);
 

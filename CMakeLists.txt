@@ -22,16 +22,16 @@ include_directories(
 )
 
 set(ZIG_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
+    "${CMAKE_SOURCE_DIR}/src/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
+    "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
     "${CMAKE_SOURCE_DIR}/src/main.cpp"
-    "${CMAKE_SOURCE_DIR}/src/parser.cpp"
-    "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/util.cpp"
-    "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
-    "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
+    "${CMAKE_SOURCE_DIR}/src/util.cpp"
+    "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
 )
 
 set(TEST_SOURCES

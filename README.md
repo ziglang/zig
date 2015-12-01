@@ -79,7 +79,9 @@ zig    | C equivalent | Description
 ```
 Root : many(TopLevelDecl) token(EOF)
 
-TopLevelDecl : FnDef | ExternBlock | RootExportDecl
+TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use
+
+Use : many(Directive) token(Use) token(String) token(Semicolon)
 
 RootExportDecl : many(Directive) token(Export) token(Symbol) token(String) token(Semicolon)
 

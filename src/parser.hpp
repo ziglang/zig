@@ -35,6 +35,7 @@ enum NodeType {
     NodeTypeSymbol,
     NodeTypePrefixOpExpr,
     NodeTypeFnCallExpr,
+    NodeTypeUse,
 };
 
 struct AstNodeRoot {
@@ -158,6 +159,11 @@ struct AstNodePrefixOpExpr {
     AstNode *primary_expr;
 };
 
+struct AstNodeUse {
+    Buf path;
+    ZigList<AstNode *> *directives;
+};
+
 struct AstNode {
     enum NodeType type;
     AstNode *parent;
@@ -180,6 +186,7 @@ struct AstNode {
         AstNodeCastExpr cast_expr;
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodeFnCallExpr fn_call_expr;
+        AstNodeUse use;
         Buf number;
         Buf string;
         Buf symbol;
