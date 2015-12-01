@@ -9,6 +9,7 @@
 #include "semantic_info.hpp"
 #include "error.hpp"
 #include "zig_llvm.hpp"
+#include "os.hpp"
 
 struct BlockContext {
     AstNode *node;
@@ -218,7 +219,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
             }
             break;
         case NodeTypeUse:
-            zig_panic("TODO use");
+            // nothing to do here
             break;
         case NodeTypeDirective:
         case NodeTypeParamDecl:
@@ -545,8 +546,15 @@ static void analyze_top_level_declaration(CodeGen *g, AstNode *node) {
 
         case NodeTypeRootExportDecl:
         case NodeTypeExternBlock:
-        case NodeTypeUse:
             // already looked at these in the preview pass
+            break;
+        case NodeTypeUse:
+            for (int i = 0; i < node->data.use.directives->length; i += 1) {
+                AstNode *directive_node = node->data.use.directives->at(i);
+                Buf *name = &directive_node->data.directive.name;
+                add_node_error(g, directive_node,
+                        buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+            }
             break;
         case NodeTypeDirective:
         case NodeTypeParamDecl:
@@ -591,7 +599,14 @@ static void analyze_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     }
 }
 
-void semantic_analyze(CodeGen *g, ImportTableEntry *import_table_entry) {
-    analyze_root(g, import_table_entry, import_table_entry->root);
-}
+void semantic_analyze(CodeGen *g) {
+    auto it = g->import_table.entry_iterator();
+    for (;;) {
+        auto *entry = it.next();
+        if (!entry)
+            break;
 
+        ImportTableEntry *import = entry->value;
+        analyze_root(g, import, import->root);
+    }
+}

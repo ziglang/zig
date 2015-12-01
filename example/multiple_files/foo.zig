@@ -1,5 +1,11 @@
 use "libc.zig";
 
-fn print_text() {
+// purposefully conflicting function with main.zig
+// but it's private so it should be OK
+fn private_function() {
     puts("it works!");
+}
+
+fn print_text() {
+    private_function();
 }

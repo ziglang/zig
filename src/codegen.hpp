@@ -42,7 +42,7 @@ void codegen_set_verbose(CodeGen *codegen, bool verbose);
 void codegen_set_out_type(CodeGen *codegen, OutType out_type);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
 
-void codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code);
+void codegen_add_root_code(CodeGen *g, Buf *source_path, Buf *source_code);
 
 void codegen_link(CodeGen *g, const char *out_file);
 
