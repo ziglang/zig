@@ -106,7 +106,7 @@ struct TypeNode {
 };
 
 struct FnDefNode {
-    bool add_implicit_return;
+    TypeTableEntry *implicit_return_type;
     bool skip;
     LLVMValueRef *params;
 };

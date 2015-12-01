@@ -23,6 +23,7 @@ enum TokenId {
     TokenIdKeywordExport,
     TokenIdKeywordAs,
     TokenIdKeywordUse,
+    TokenIdKeywordVoid,
     TokenIdLParen,
     TokenIdRParen,
     TokenIdComma,

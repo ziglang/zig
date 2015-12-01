@@ -104,11 +104,7 @@ Type : token(Symbol) | PointerType | token(Unreachable)
 
 PointerType : token(Star) token(Const) Type | token(Star) token(Mut) Type
 
-Block : token(LBrace) many(Statement) token(RBrace)
-
-Statement : ExpressionStatement
-
-ExpressionStatement : Expression token(Semicolon)
+Block : token(LBrace) list(option(Expression), token(Semicolon)) token(RBrace)
 
 Expression : BoolOrExpression | ReturnExpression
 

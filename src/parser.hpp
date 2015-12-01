@@ -38,6 +38,7 @@ enum NodeType {
     NodeTypePrefixOpExpr,
     NodeTypeFnCallExpr,
     NodeTypeUse,
+    NodeTypeVoid,
 };
 
 struct AstNodeRoot {

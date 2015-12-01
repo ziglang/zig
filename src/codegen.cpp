@@ -401,6 +401,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeUnreachable:
             add_debug_source_node(g, node);
             return LLVMBuildUnreachable(g->builder);
+        case NodeTypeVoid:
+            return nullptr;
         case NodeTypeNumberLiteral:
             {
                 Buf *number_str = &node->data.number;
@@ -441,7 +443,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
     zig_unreachable();
 }
 
-static void gen_block(CodeGen *g, ImportTableEntry *import, AstNode *block_node, bool add_implicit_return) {
+static void gen_block(CodeGen *g, ImportTableEntry *import, AstNode *block_node, TypeTableEntry *implicit_return_type) {
     assert(block_node->type == NodeTypeBlock);
 
     LLVMZigDILexicalBlock *di_block = LLVMZigCreateLexicalBlock(g->dbuilder, g->block_scopes.last(),
@@ -450,13 +452,16 @@ static void gen_block(CodeGen *g, ImportTableEntry *import, AstNode *block_node,
 
     add_debug_source_node(g, block_node);
 
+    LLVMValueRef return_value;
     for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
-        gen_expr(g, statement_node);
+        return_value = gen_expr(g, statement_node);
     }
 
-    if (add_implicit_return) {
+    if (implicit_return_type == g->builtin_types.entry_void) {
         LLVMBuildRetVoid(g->builder);
+    } else if (implicit_return_type != g->builtin_types.entry_unreachable) {
+        LLVMBuildRet(g->builder, return_value);
     }
 
     g->block_scopes.pop();
@@ -552,8 +557,8 @@ static void do_code_gen(CodeGen *g) {
         codegen_fn_def->params = allocate<LLVMValueRef>(LLVMCountParams(fn));
         LLVMGetParams(fn, codegen_fn_def->params);
 
-        bool add_implicit_return = codegen_fn_def->add_implicit_return;
-        gen_block(g, import, fn_def_node->data.fn_def.body, add_implicit_return);
+        TypeTableEntry *implicit_return_type = codegen_fn_def->implicit_return_type;
+        gen_block(g, import, fn_def_node->data.fn_def.body, implicit_return_type);
 
         g->block_scopes.pop();
     }

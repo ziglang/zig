@@ -270,6 +270,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeUnreachable:
+        case NodeTypeVoid:
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
@@ -311,8 +312,12 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 for (int i = 0; i < node->data.block.statements.length; i += 1) {
                     AstNode *child = node->data.block.statements.at(i);
                     if (return_type == g->builtin_types.entry_unreachable) {
-                        add_node_error(g, child,
-                                buf_sprintf("unreachable code"));
+                        if (child->type == NodeTypeVoid) {
+                            // {unreachable;void;void} is allowed.
+                            // ignore void statements once we enter unreachable land.
+                            continue;
+                        }
+                        add_node_error(g, child, buf_sprintf("unreachable code"));
                         break;
                     }
                     return_type = analyze_expression(g, import, context, nullptr, child);
@@ -415,6 +420,10 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             return_type = g->builtin_types.entry_unreachable;
             break;
 
+        case NodeTypeVoid:
+            return_type = g->builtin_types.entry_void;
+            break;
+
         case NodeTypeSymbol:
             // look up symbol in symbol table
             zig_panic("TODO");
@@ -439,59 +448,6 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
     return return_type;
 }
 
-static void check_fn_def_control_flow(CodeGen *g, AstNode *node) {
-    // Follow the execution flow and make sure the code returns appropriately.
-    // * A `return` statement in an unreachable type function should be an error.
-    // * Control flow should not be able to reach the end of an unreachable type function.
-    // * Functions that have a type other than void should not return without a value.
-    // * void functions without explicit return statements at the end need the
-    //   add_implicit_return flag set on the codegen node.
-    assert(node->type == NodeTypeFnDef);
-    AstNode *proto_node = node->data.fn_def.fn_proto;
-    assert(proto_node->type == NodeTypeFnProto);
-    AstNode *return_type_node = proto_node->data.fn_proto.return_type;
-    assert(return_type_node->type == NodeTypeType);
-
-    node->codegen_node = allocate<CodeGenNode>(1);
-    FnDefNode *codegen_fn_def = &node->codegen_node->data.fn_def_node;
-
-    assert(return_type_node->codegen_node);
-    TypeTableEntry *type_entry = return_type_node->codegen_node->data.type_node.entry;
-    assert(type_entry);
-
-    AstNode *body_node = node->data.fn_def.body;
-    assert(body_node->type == NodeTypeBlock);
-
-    // TODO once we understand types, do this pass after type checking, and
-    // if an expression has an unreachable value then stop looking at statements after
-    // it. then we can remove the check to `unreachable` in the end of this function.
-    bool prev_statement_return = false;
-    for (int i = 0; i < body_node->data.block.statements.length; i += 1) {
-        AstNode *statement_node = body_node->data.block.statements.at(i);
-        if (statement_node->type == NodeTypeReturnExpr) {
-            if (type_entry == g->builtin_types.entry_unreachable) {
-                add_node_error(g, statement_node,
-                        buf_sprintf("return statement in function with unreachable return type"));
-                return;
-            } else {
-                prev_statement_return = true;
-            }
-        } else if (prev_statement_return) {
-            add_node_error(g, statement_node,
-                    buf_sprintf("unreachable code"));
-        }
-    }
-
-    if (!prev_statement_return) {
-        if (type_entry == g->builtin_types.entry_void) {
-            codegen_fn_def->add_implicit_return = true;
-        } else if (type_entry != g->builtin_types.entry_unreachable) {
-            add_node_error(g, node,
-                    buf_sprintf("control reaches end of non-void function"));
-        }
-    }
-}
-
 static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeFnDef:
@@ -512,14 +468,15 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                     // TODO: define local variables for parameters
                 }
 
-                check_fn_def_control_flow(g, node);
-
                 BlockContext context;
                 context.node = node;
                 context.root = &context;
                 context.parent = nullptr;
                 TypeTableEntry *expected_type = fn_proto->return_type->codegen_node->data.type_node.entry;
-                analyze_expression(g, import, &context, expected_type, node->data.fn_def.body);
+                TypeTableEntry *block_return_type = analyze_expression(g, import, &context, expected_type, node->data.fn_def.body);
+
+                node->codegen_node = allocate<CodeGenNode>(1);
+                node->codegen_node->data.fn_def_node.implicit_return_type = block_return_type;
             }
             break;
 
@@ -548,6 +505,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeUnreachable:
+        case NodeTypeVoid:
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:

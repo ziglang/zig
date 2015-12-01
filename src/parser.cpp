@@ -89,6 +89,8 @@ const char *node_type_str(NodeType node_type) {
             return "PrefixOpExpr";
         case NodeTypeUse:
             return "Use";
+        case NodeTypeVoid:
+            return "Void";
     }
     zig_unreachable();
 }
@@ -232,6 +234,9 @@ void ast_print(AstNode *node, int indent) {
             break;
         case NodeTypeUse:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.use.path));
+            break;
+        case NodeTypeVoid:
+            fprintf(stderr, "Void\n");
             break;
     }
 }
@@ -416,6 +421,9 @@ static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token
     if (token->id == TokenIdKeywordUnreachable) {
         node->data.type.type = AstNodeTypeTypePrimitive;
         buf_init_from_str(&node->data.type.primitive_name, "unreachable");
+    } else if (token->id == TokenIdKeywordVoid) {
+        node->data.type.type = AstNodeTypeTypePrimitive;
+        buf_init_from_str(&node->data.type.primitive_name, "void");
     } else if (token->id == TokenIdSymbol) {
         node->data.type.type = AstNodeTypeTypePrimitive;
         ast_buf_from_token(pc, token, &node->data.type.primitive_name);
@@ -567,6 +575,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         return node;
     } else if (token->id == TokenIdKeywordUnreachable) {
         AstNode *node = ast_create_node(pc, NodeTypeUnreachable, token);
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordVoid) {
+        AstNode *node = ast_create_node(pc, NodeTypeVoid, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdSymbol) {
@@ -1024,50 +1036,42 @@ static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool ma
 }
 
 /*
-ExpressionStatement : Expression token(Semicolon)
-*/
-static AstNode *ast_parse_expression_statement(ParseContext *pc, int *token_index) {
-    AstNode *expr_node = ast_parse_expression(pc, token_index, true);
-
-    Token *semicolon = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, semicolon, TokenIdSemicolon);
-
-    return expr_node;
-}
-
-/*
-Statement : ExpressionStatement
-*/
-static AstNode *ast_parse_statement(ParseContext *pc, int *token_index) {
-    return ast_parse_expression_statement(pc, token_index);
-}
-
-/*
-Block : token(LBrace) many(Statement) token(RBrace);
+Block : token(LBrace) list(option(Expression), token(Semicolon)) token(RBrace)
 */
 static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandatory) {
-    Token *l_brace = &pc->tokens->at(*token_index);
+    Token *last_token = &pc->tokens->at(*token_index);
 
-    if (l_brace->id != TokenIdLBrace) {
+    if (last_token->id != TokenIdLBrace) {
         if (mandatory) {
-            ast_invalid_token_error(pc, l_brace);
+            ast_invalid_token_error(pc, last_token);
         } else {
             return nullptr;
         }
     }
     *token_index += 1;
 
-    AstNode *node = ast_create_node(pc, NodeTypeBlock, l_brace);
+    AstNode *node = ast_create_node(pc, NodeTypeBlock, last_token);
 
+    // {}   -> {void}
+    // {;}  -> {void;void}
+    // {2}  -> {2}
+    // {2;} -> {2;void}
+    // {;2} -> {void;2}
     for (;;) {
-        Token *token = &pc->tokens->at(*token_index);
-        if (token->id == TokenIdRBrace) {
+        AstNode *expression_node = ast_parse_expression(pc, token_index, false);
+        if (!expression_node) {
+            expression_node = ast_create_node(pc, NodeTypeVoid, last_token);
+        }
+        node->data.block.statements.append(expression_node);
+
+        last_token = &pc->tokens->at(*token_index);
+        if (last_token->id == TokenIdRBrace) {
             *token_index += 1;
             return node;
+        } else if (last_token->id == TokenIdSemicolon) {
+            *token_index += 1;
         } else {
-            AstNode *statement_node = ast_parse_statement(pc, token_index);
-            node->data.block.statements.append(statement_node);
+            ast_invalid_token_error(pc, last_token);
         }
     }
     zig_unreachable();

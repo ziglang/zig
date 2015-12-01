@@ -209,11 +209,11 @@ fn a() {}
 
     add_compile_fail_case("unreachable with return", R"SOURCE(
 fn a() -> unreachable {return;}
-    )SOURCE", 1, ".tmp_source.zig:2:24: error: return statement in function with unreachable return type");
+    )SOURCE", 1, ".tmp_source.zig:2:24: error: type mismatch. expected unreachable. got void");
 
     add_compile_fail_case("control reaches end of non-void function", R"SOURCE(
 fn a() -> i32 {}
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: control reaches end of non-void function");
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: type mismatch. expected i32. got void");
 
     add_compile_fail_case("undefined function call", R"SOURCE(
 fn a() {
