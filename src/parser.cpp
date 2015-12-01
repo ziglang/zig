@@ -229,18 +229,18 @@ void ast_print(AstNode *node, int indent) {
             ast_print(node->data.prefix_op_expr.primary_expr, indent + 2);
             break;
         case NodeTypeNumberLiteral:
-            fprintf(stderr, "PrimaryExpr Number %s\n",
+            fprintf(stderr, "NumberLiteral %s\n",
                     buf_ptr(&node->data.number));
             break;
         case NodeTypeStringLiteral:
-            fprintf(stderr, "PrimaryExpr String '%s'\n",
+            fprintf(stderr, "StringLiteral '%s'\n",
                     buf_ptr(&node->data.string));
             break;
         case NodeTypeUnreachable:
-            fprintf(stderr, "PrimaryExpr Unreachable\n");
+            fprintf(stderr, "Unreachable\n");
             break;
         case NodeTypeSymbol:
-            fprintf(stderr, "PrimaryExpr Symbol %s\n",
+            fprintf(stderr, "Symbol %s\n",
                     buf_ptr(&node->data.symbol));
             break;
         case NodeTypeUse:

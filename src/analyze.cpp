@@ -363,7 +363,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, BlockContext *context, Ty
             return g->builtin_types.entry_i32;
 
         case NodeTypeStringLiteral:
-            zig_panic("TODO");
+            zig_panic("TODO: string literal");
 
         case NodeTypeUnreachable:
             return g->builtin_types.entry_unreachable;
