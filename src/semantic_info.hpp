@@ -86,6 +86,7 @@ struct CodeGen {
     int version_minor;
     int version_patch;
     bool verbose;
+    ImportTableEntry *root_import;
 };
 
 struct TypeNode {

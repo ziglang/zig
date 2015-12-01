@@ -661,7 +661,7 @@ static void init(CodeGen *g, Buf *source_path) {
 
 }
 
-static void codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
+static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
     Buf full_path = BUF_INIT;
     os_path_join(g->root_source_dir, source_path, &full_path);
 
@@ -715,13 +715,14 @@ static void codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
             codegen_add_code(g, &top_level_decl->data.use.path, &import_code);
         }
     }
+
+    return import_entry;
 }
 
 void codegen_add_root_code(CodeGen *g, Buf *source_path, Buf *source_code) {
     init(g, source_path);
 
-    codegen_add_code(g, source_path, source_code);
-
+    g->root_import = codegen_add_code(g, source_path, source_code);
 
     if (g->verbose) {
         fprintf(stderr, "\nSemantic Analysis:\n");

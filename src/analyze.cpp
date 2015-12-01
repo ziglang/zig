@@ -175,41 +175,46 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
             }
             break;
         case NodeTypeRootExportDecl:
-            for (int i = 0; i < node->data.root_export_decl.directives->length; i += 1) {
-                AstNode *directive_node = node->data.root_export_decl.directives->at(i);
-                Buf *name = &directive_node->data.directive.name;
-                Buf *param = &directive_node->data.directive.param;
-                if (buf_eql_str(name, "version")) {
-                    set_root_export_version(g, param, directive_node);
-                } else {
-                    add_node_error(g, directive_node,
-                            buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+            if (import == g->root_import) {
+                for (int i = 0; i < node->data.root_export_decl.directives->length; i += 1) {
+                    AstNode *directive_node = node->data.root_export_decl.directives->at(i);
+                    Buf *name = &directive_node->data.directive.name;
+                    Buf *param = &directive_node->data.directive.param;
+                    if (buf_eql_str(name, "version")) {
+                        set_root_export_version(g, param, directive_node);
+                    } else {
+                        add_node_error(g, directive_node,
+                                buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+                    }
                 }
-            }
 
-            if (g->root_export_decl) {
-                add_node_error(g, node,
-                        buf_sprintf("only one root export declaration allowed"));
-            } else {
-                g->root_export_decl = node;
-
-                if (!g->root_out_name)
-                    g->root_out_name = &node->data.root_export_decl.name;
-
-                Buf *out_type = &node->data.root_export_decl.type;
-                OutType export_out_type;
-                if (buf_eql_str(out_type, "executable")) {
-                    export_out_type = OutTypeExe;
-                } else if (buf_eql_str(out_type, "library")) {
-                    export_out_type = OutTypeLib;
-                } else if (buf_eql_str(out_type, "object")) {
-                    export_out_type = OutTypeObj;
-                } else {
+                if (g->root_export_decl) {
                     add_node_error(g, node,
-                            buf_sprintf("invalid export type: '%s'", buf_ptr(out_type)));
+                            buf_sprintf("only one root export declaration allowed"));
+                } else {
+                    g->root_export_decl = node;
+
+                    if (!g->root_out_name)
+                        g->root_out_name = &node->data.root_export_decl.name;
+
+                    Buf *out_type = &node->data.root_export_decl.type;
+                    OutType export_out_type;
+                    if (buf_eql_str(out_type, "executable")) {
+                        export_out_type = OutTypeExe;
+                    } else if (buf_eql_str(out_type, "library")) {
+                        export_out_type = OutTypeLib;
+                    } else if (buf_eql_str(out_type, "object")) {
+                        export_out_type = OutTypeObj;
+                    } else {
+                        add_node_error(g, node,
+                                buf_sprintf("invalid export type: '%s'", buf_ptr(out_type)));
+                    }
+                    if (g->out_type == OutTypeUnknown)
+                        g->out_type = export_out_type;
                 }
-                if (g->out_type == OutTypeUnknown)
-                    g->out_type = export_out_type;
+            } else {
+                add_node_error(g, node,
+                        buf_sprintf("root export declaration only valid in root source file"));
             }
             break;
         case NodeTypeUse:
@@ -428,13 +433,6 @@ static void analyze_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         analyze_top_level_declaration(g, child);
     }
 
-    if (!g->root_out_name) {
-        add_node_error(g, node,
-                buf_sprintf("missing export declaration and output name not provided"));
-    } else if (g->out_type == OutTypeUnknown) {
-        add_node_error(g, node,
-                buf_sprintf("missing export declaration and export type not provided"));
-    }
 }
 
 void semantic_analyze(CodeGen *g) {
@@ -446,5 +444,13 @@ void semantic_analyze(CodeGen *g) {
 
         ImportTableEntry *import = entry->value;
         analyze_root(g, import, import->root);
+    }
+
+    if (!g->root_out_name) {
+        add_node_error(g, g->root_import->root,
+                buf_sprintf("missing export declaration and output name not provided"));
+    } else if (g->out_type == OutTypeUnknown) {
+        add_node_error(g, g->root_import->root,
+                buf_sprintf("missing export declaration and export type not provided"));
     }
 }
