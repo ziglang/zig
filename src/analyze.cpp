@@ -104,6 +104,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
                 return type_node->entry;
             }
     }
+    zig_unreachable();
 }
 
 static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_table_entry) {
