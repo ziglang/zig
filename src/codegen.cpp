@@ -477,6 +477,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_bin_op_expr(g, node);
         case NodeTypeReturnExpr:
             return gen_return_expr(g, node);
+        case NodeTypeVariableDeclaration:
+            zig_panic("TODO: variable declaration code gen");
         case NodeTypeCastExpr:
             return gen_cast_expr(g, node);
         case NodeTypePrefixOpExpr:

@@ -277,6 +277,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeType:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
+        case NodeTypeVariableDeclaration:
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
@@ -370,6 +371,14 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
                 check_type_compatibility(g, node, expected_return_type, actual_return_type);
                 return_type = g->builtin_types.entry_unreachable;
+                break;
+            }
+
+        case NodeTypeVariableDeclaration:
+            {
+                zig_panic("TODO: analyze variable declaration");
+
+                return_type = g->builtin_types.entry_void;
                 break;
             }
 
@@ -630,6 +639,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeType:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
+        case NodeTypeVariableDeclaration:
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:

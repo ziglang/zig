@@ -29,6 +29,7 @@ enum NodeType {
     NodeTypeExternBlock,
     NodeTypeDirective,
     NodeTypeReturnExpr,
+    NodeTypeVariableDeclaration,
     NodeTypeBinOpExpr,
     NodeTypeCastExpr,
     NodeTypeNumberLiteral,
@@ -92,6 +93,13 @@ struct AstNodeBlock {
 
 struct AstNodeReturnExpr {
     // might be null in case of return void;
+    AstNode *expr;
+};
+
+struct AstNodeVariableDeclaration {
+    Buf symbol;
+    // one or both of type and expr will be non null
+    AstNode *type;
     AstNode *expr;
 };
 
@@ -190,6 +198,7 @@ struct AstNode {
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
         AstNodeReturnExpr return_expr;
+        AstNodeVariableDeclaration variable_declaration;
         AstNodeBinOpExpr bin_op_expr;
         AstNodeExternBlock extern_block;
         AstNodeDirective directive;

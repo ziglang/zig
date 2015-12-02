@@ -75,6 +75,8 @@ const char *node_type_str(NodeType node_type) {
             return "Directive";
         case NodeTypeReturnExpr:
             return "ReturnExpr";
+        case NodeTypeVariableDeclaration:
+            return "VariableDeclaration";
         case NodeTypeCastExpr:
             return "CastExpr";
         case NodeTypeNumberLiteral:
@@ -178,6 +180,16 @@ void ast_print(AstNode *node, int indent) {
             if (node->data.return_expr.expr)
                 ast_print(node->data.return_expr.expr, indent + 2);
             break;
+        case NodeTypeVariableDeclaration:
+            {
+                Buf *name_buf = &node->data.variable_declaration.symbol;
+                fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
+                if (node->data.variable_declaration.type)
+                    ast_print(node->data.variable_declaration.type, indent + 2);
+                if (node->data.variable_declaration.expr)
+                    ast_print(node->data.variable_declaration.expr, indent + 2);
+                break;
+            }
         case NodeTypeExternBlock:
             {
                 fprintf(stderr, "%s\n", node_type_str(node->type));
@@ -1043,6 +1055,45 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index, bool m
 }
 
 /*
+VariableDeclaration : token(Let) token(Symbole) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
+*/
+static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *let_tok = &pc->tokens->at(*token_index);
+    if (let_tok->id == TokenIdKeywordLet) {
+        *token_index += 1;
+        AstNode *node = ast_create_node(pc, NodeTypeVariableDeclaration, let_tok);
+
+        Token *name_token = &pc->tokens->at(*token_index);
+        *token_index += 1;
+        ast_expect_token(pc, name_token, TokenIdSymbol);
+        ast_buf_from_token(pc, name_token, &node->data.variable_declaration.symbol);
+
+        Token *eq_or_colon = &pc->tokens->at(*token_index);
+        *token_index += 1;
+        if (eq_or_colon->id == TokenIdEq) {
+            node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
+            return node;
+        } else if (eq_or_colon->id == TokenIdColon) {
+            node->data.variable_declaration.type = ast_parse_type(pc, *token_index, token_index);
+
+            Token *eq_token = &pc->tokens->at(*token_index);
+            if (eq_token->id == TokenIdEq) {
+                *token_index += 1;
+
+                node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
+            }
+            return node;
+        } else {
+            ast_invalid_token_error(pc, eq_or_colon);
+        }
+    } else if (mandatory) {
+        ast_invalid_token_error(pc, let_tok);
+    } else {
+        return nullptr;
+    }
+}
+
+/*
 BoolOrExpression : BoolAndExpression token(BoolOr) BoolAndExpression | BoolAndExpression
 */
 static AstNode *ast_parse_bool_or_expr(ParseContext *pc, int *token_index, bool mandatory) {
@@ -1086,18 +1137,22 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool ma
 }
 
 /*
-NonBlockExpression : BoolOrExpression | ReturnExpression
+NonBlockExpression : ReturnExpression | VariableDeclaration | BoolOrExpression
 */
 static AstNode *ast_parse_non_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
-    AstNode *bool_or_expr = ast_parse_bool_or_expr(pc, token_index, false);
-    if (bool_or_expr)
-        return bool_or_expr;
-
     AstNode *return_expr = ast_parse_return_expr(pc, token_index, false);
     if (return_expr)
         return return_expr;
+
+    AstNode *variable_declaration_expr = ast_parse_variable_declaration_expr(pc, token_index, false);
+    if (variable_declaration_expr)
+        return variable_declaration_expr;
+
+    AstNode *bool_or_expr = ast_parse_bool_or_expr(pc, token_index, false);
+    if (bool_or_expr)
+        return bool_or_expr;
 
     if (mandatory)
         ast_invalid_token_error(pc, token);

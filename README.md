@@ -114,13 +114,15 @@ Statement : NonBlockExpression token(Semicolon) | BlockExpression
 
 Expression : BlockExpression | NonBlockExpression
 
-NonBlockExpression : BoolOrExpression | ReturnExpression
+NonBlockExpression : ReturnExpression | VariableDeclaration | BoolOrExpression
 
 BlockExpression : IfExpression | Block
 
 BoolOrExpression : BoolAndExpression token(BoolOr) BoolAndExpression | BoolAndExpression
 
 ReturnExpression : token(Return) option(Expression)
+
+VariableDeclaration : token(Let) token(Symbole) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
 
 IfExpression : token(If) Expression Block option(Else | ElseIf)
 
