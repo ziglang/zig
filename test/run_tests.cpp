@@ -295,7 +295,16 @@ export executable "test";
 
     add_compile_fail_case("bad import", R"SOURCE(
 use "bogus-does-not-exist.zig";
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: unable to open \"./bogus-does-not-exist.zig\": file not found");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: unable to open './bogus-does-not-exist.zig': file not found");
+
+    add_compile_fail_case("undeclared identifier", R"SOURCE(
+fn a() {
+    b +
+    c
+}
+    )SOURCE", 2,
+            ".tmp_source.zig:3:5: error: use of undeclared identifier 'b'",
+            ".tmp_source.zig:4:5: error: use of undeclared identifier 'c'");
 }
 
 static void print_compiler_invokation(TestCase *test_case, Buf *zig_stderr) {

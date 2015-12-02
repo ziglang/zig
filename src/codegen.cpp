@@ -821,7 +821,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
             Buf *import_code = buf_alloc();
             if ((err = os_fetch_file_path(&full_path, import_code))) {
                 add_node_error(g, top_level_decl,
-                        buf_sprintf("unable to open \"%s\": %s", buf_ptr(&full_path), err_str(err)));
+                        buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));
                 break;
             }
             codegen_add_code(g, &top_level_decl->data.use.path, import_code);
