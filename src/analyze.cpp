@@ -74,7 +74,7 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
     }
 }
 
-static void resolve_type(CodeGen *g, AstNode *node) {
+static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
     assert(!node->codegen_node);
     node->codegen_node = allocate<CodeGenNode>(1);
     TypeNode *type_node = &node->codegen_node->data.type_node;
@@ -90,7 +90,7 @@ static void resolve_type(CodeGen *g, AstNode *node) {
                             buf_sprintf("invalid type name: '%s'", buf_ptr(name)));
                     type_node->entry = g->builtin_types.entry_invalid;
                 }
-                break;
+                return type_node->entry;
             }
         case AstNodeTypeTypePointer:
             {
@@ -101,12 +101,12 @@ static void resolve_type(CodeGen *g, AstNode *node) {
                             buf_create_from_str("pointer to unreachable not allowed"));
                 }
                 type_node->entry = get_pointer_to_type(g, child_type, node->data.type.is_const);
-                break;
+                return type_node->entry;
             }
     }
 }
 
-static void resolve_function_proto(CodeGen *g, AstNode *node) {
+static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_table_entry) {
     assert(node->type == NodeTypeFnProto);
 
     for (int i = 0; i < node->data.fn_proto.directives->length; i += 1) {
@@ -120,9 +120,11 @@ static void resolve_function_proto(CodeGen *g, AstNode *node) {
         AstNode *child = node->data.fn_proto.params.at(i);
         assert(child->type == NodeTypeParamDecl);
 
-        // parameter names are not important here.
-
-        resolve_type(g, child->data.param_decl.type);
+        Buf *param_name = &child->data.param_decl.name;
+        SymbolTableEntry *symbol_entry = allocate<SymbolTableEntry>(1);
+        symbol_entry->type_entry = resolve_type(g, child->data.param_decl.type);
+        symbol_entry->param_index = i;
+        fn_table_entry->symbol_table.put(param_name, symbol_entry);
     }
 
     resolve_type(g, node->data.fn_proto.return_type);
@@ -148,20 +150,26 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 assert(fn_decl->type == NodeTypeFnDecl);
                 AstNode *fn_proto = fn_decl->data.fn_decl.fn_proto;
                 bool is_pub = (fn_proto->data.fn_proto.visib_mod == FnProtoVisibModPub);
-                resolve_function_proto(g, fn_proto);
-                Buf *name = &fn_proto->data.fn_proto.name;
 
                 FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
                 fn_table_entry->proto_node = fn_proto;
                 fn_table_entry->is_extern = true;
                 fn_table_entry->calling_convention = LLVMCCallConv;
                 fn_table_entry->import_entry = import;
+                fn_table_entry->symbol_table.init(8);
 
+                resolve_function_proto(g, fn_proto, fn_table_entry);
+
+                Buf *name = &fn_proto->data.fn_proto.name;
                 g->fn_protos.append(fn_table_entry);
                 import->fn_table.put(name, fn_table_entry);
                 if (is_pub) {
                     g->fn_table.put(name, fn_table_entry);
                 }
+
+                assert(!fn_proto->codegen_node);
+                fn_proto->codegen_node = allocate<CodeGenNode>(1);
+                fn_proto->codegen_node->data.fn_proto_node.fn_table_entry = fn_table_entry;
             }
             break;
         case NodeTypeFnDef:
@@ -198,6 +206,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                     fn_table_entry->fn_def_node = node;
                     fn_table_entry->internal_linkage = is_internal;
                     fn_table_entry->calling_convention = is_internal ? LLVMFastCallConv : LLVMCCallConv;
+                    fn_table_entry->symbol_table.init(8);
 
                     g->fn_protos.append(fn_table_entry);
                     g->fn_defs.append(fn_table_entry);
@@ -207,7 +216,11 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                         g->fn_table.put(proto_name, fn_table_entry);
                     }
 
-                    resolve_function_proto(g, proto_node);
+                    resolve_function_proto(g, proto_node, fn_table_entry);
+
+                    assert(!proto_node->codegen_node);
+                    proto_node->codegen_node = allocate<CodeGenNode>(1);
+                    proto_node->codegen_node->data.fn_proto_node.fn_table_entry = fn_table_entry;
                 }
             }
             break;
@@ -287,6 +300,16 @@ static TypeTableEntry * get_return_type(BlockContext *context) {
     AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
     assert(return_type_node->codegen_node);
     return return_type_node->codegen_node->data.type_node.entry;
+}
+
+static FnTableEntry *get_context_fn_entry(BlockContext *context) {
+    AstNode *fn_def_node = context->root->node;
+    assert(fn_def_node->type == NodeTypeFnDef);
+    AstNode *fn_proto_node = fn_def_node->data.fn_def.fn_proto;
+    assert(fn_proto_node->type == NodeTypeFnProto);
+    assert(fn_proto_node->codegen_node);
+    assert(fn_proto_node->codegen_node->data.fn_proto_node.fn_table_entry);
+    return fn_proto_node->codegen_node->data.fn_proto_node.fn_table_entry;
 }
 
 static void check_type_compatibility(CodeGen *g, AstNode *node, TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
@@ -482,9 +505,20 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             break;
 
         case NodeTypeSymbol:
-            // look up symbol in symbol table
-            zig_panic("TODO analyze_expression symbol");
-
+            {
+                Buf *symbol_name = &node->data.symbol;
+                FnTableEntry *fn_table_entry = get_context_fn_entry(context);
+                auto table_entry = fn_table_entry->symbol_table.maybe_get(symbol_name);
+                if (table_entry) {
+                    SymbolTableEntry *symbol_entry = table_entry->value;
+                    return_type = symbol_entry->type_entry;
+                } else {
+                    add_node_error(g, node,
+                            buf_sprintf("use of undeclared identifier '%s'", buf_ptr(symbol_name)));
+                    return_type = g->builtin_types.entry_invalid;
+                }
+                break;
+            }
         case NodeTypeCastExpr:
             zig_panic("TODO analyze_expression cast expr");
             break;

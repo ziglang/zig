@@ -213,6 +213,25 @@ static void add_compiling_test_cases(void) {
             exit(0);
         }
     )SOURCE", "1 is true\n!0 is true\n");
+
+    add_simple_case("params", R"SOURCE(
+        #link("c")
+        extern {
+            fn puts(s: *const u8) -> i32;
+            fn exit(code: i32) -> unreachable;
+        }
+
+        fn add(a: i32, b: i32) -> i32 {
+            a + b
+        }
+
+        export fn _start() -> unreachable {
+            if add(22, 11) == 33 {
+                puts("pass");
+            }
+            exit(0);
+        }
+    )SOURCE", "pass\n");
 }
 
 static void add_compile_failure_test_cases(void) {

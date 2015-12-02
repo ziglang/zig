@@ -38,6 +38,11 @@ struct ImportTableEntry {
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
 };
 
+struct SymbolTableEntry {
+    TypeTableEntry *type_entry;
+    int param_index; // only valid in the case of parameters
+};
+
 struct FnTableEntry {
     LLVMValueRef fn_value;
     AstNode *proto_node;
@@ -46,6 +51,9 @@ struct FnTableEntry {
     bool internal_linkage;
     unsigned calling_convention;
     ImportTableEntry *import_entry;
+
+    // reminder: hash tables must be initialized before use
+    HashMap<Buf *, SymbolTableEntry *, buf_hash, buf_eql_buf> symbol_table;
 };
 
 struct CodeGen {
@@ -106,6 +114,10 @@ struct TypeNode {
     TypeTableEntry *entry;
 };
 
+struct FnProtoNode {
+    FnTableEntry *fn_table_entry;
+};
+
 struct FnDefNode {
     TypeTableEntry *implicit_return_type;
     bool skip;
@@ -121,6 +133,7 @@ struct CodeGenNode {
         TypeNode type_node; // for NodeTypeType
         FnDefNode fn_def_node; // for NodeTypeFnDef
         ExprNode expr_node; // for all the expression nodes
+        FnProtoNode fn_proto_node; // for NodeTypeFnProto
     } data;
 };
 

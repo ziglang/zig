@@ -105,19 +105,13 @@ static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
 
 static LLVMValueRef get_variable_value(CodeGen *g, Buf *name) {
     assert(g->cur_fn->proto_node->type == NodeTypeFnProto);
-    int param_count = g->cur_fn->proto_node->data.fn_proto.params.length;
-    for (int i = 0; i < param_count; i += 1) {
-        AstNode *param_decl_node = g->cur_fn->proto_node->data.fn_proto.params.at(i);
-        assert(param_decl_node->type == NodeTypeParamDecl);
-        Buf *param_name = &param_decl_node->data.param_decl.name;
-        if (buf_eql_buf(name, param_name)) {
-            CodeGenNode *codegen_node = g->cur_fn->fn_def_node->codegen_node;
-            assert(codegen_node);
-            FnDefNode *codegen_fn_def = &codegen_node->data.fn_def_node;
-            return codegen_fn_def->params[i];
-        }
-    }
-    zig_unreachable();
+
+    SymbolTableEntry *symbol_entry = g->cur_fn->symbol_table.get(name);
+
+    CodeGenNode *codegen_node = g->cur_fn->fn_def_node->codegen_node;
+    assert(codegen_node);
+    FnDefNode *codegen_fn_def = &codegen_node->data.fn_def_node;
+    return codegen_fn_def->params[symbol_entry->param_index];
 }
 
 static TypeTableEntry *get_expr_type(AstNode *node) {
