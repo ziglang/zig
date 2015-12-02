@@ -274,6 +274,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
+        case NodeTypeIfExpr:
             zig_unreachable();
     }
 }
@@ -302,7 +303,9 @@ static void check_type_compatibility(CodeGen *g, AstNode *node, TypeTableEntry *
     add_node_error(g, node, buf_sprintf("type mismatch. expected %s. got %s", buf_ptr(&expected_type->name), buf_ptr(&actual_type->name)));
 }
 
-static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context, TypeTableEntry *expected_type, AstNode *node) {
+static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
     TypeTableEntry *return_type = nullptr;
     switch (node->type) {
         case NodeTypeBlock:
@@ -348,10 +351,64 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
         case NodeTypeBinOpExpr:
             {
-                // TODO: think about expected types
-                analyze_expression(g, import, context, expected_type, node->data.bin_op_expr.op1);
-                analyze_expression(g, import, context, expected_type, node->data.bin_op_expr.op2);
-                return_type = expected_type;
+                switch (node->data.bin_op_expr.bin_op) {
+                    case BinOpTypeBoolOr:
+                    case BinOpTypeBoolAnd:
+                        analyze_expression(g, import, context, g->builtin_types.entry_bool,
+                                node->data.bin_op_expr.op1);
+                        analyze_expression(g, import, context, g->builtin_types.entry_bool,
+                                node->data.bin_op_expr.op2);
+                        return_type = g->builtin_types.entry_bool;
+                        break;
+                    case BinOpTypeCmpEq:
+                    case BinOpTypeCmpNotEq:
+                    case BinOpTypeCmpLessThan:
+                    case BinOpTypeCmpGreaterThan:
+                    case BinOpTypeCmpLessOrEq:
+                    case BinOpTypeCmpGreaterOrEq:
+                        // TODO think how should type checking for these work?
+                        analyze_expression(g, import, context, g->builtin_types.entry_i32,
+                                node->data.bin_op_expr.op1);
+                        analyze_expression(g, import, context, g->builtin_types.entry_i32,
+                                node->data.bin_op_expr.op2);
+                        return_type = g->builtin_types.entry_bool;
+                        break;
+                    case BinOpTypeBinOr:
+                        zig_panic("TODO bin or type");
+                        break;
+                    case BinOpTypeBinXor:
+                        zig_panic("TODO bin xor type");
+                        break;
+                    case BinOpTypeBinAnd:
+                        zig_panic("TODO bin and type");
+                        break;
+                    case BinOpTypeBitShiftLeft:
+                        zig_panic("TODO bit shift left type");
+                        break;
+                    case BinOpTypeBitShiftRight:
+                        zig_panic("TODO bit shift right type");
+                        break;
+                    case BinOpTypeAdd:
+                    case BinOpTypeSub:
+                        // TODO think how should type checking for these work?
+                        analyze_expression(g, import, context, g->builtin_types.entry_i32,
+                                node->data.bin_op_expr.op1);
+                        analyze_expression(g, import, context, g->builtin_types.entry_i32,
+                                node->data.bin_op_expr.op2);
+                        return_type = g->builtin_types.entry_i32;
+                        break;
+                    case BinOpTypeMult:
+                        zig_panic("TODO mult type");
+                        break;
+                    case BinOpTypeDiv:
+                        zig_panic("TODO div type");
+                        break;
+                    case BinOpTypeMod:
+                        zig_panic("TODO modulus type");
+                        break;
+                    case BinOpTypeInvalid:
+                        zig_unreachable();
+                }
                 break;
             }
 
@@ -426,11 +483,46 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
         case NodeTypeSymbol:
             // look up symbol in symbol table
-            zig_panic("TODO");
+            zig_panic("TODO analyze_expression symbol");
 
         case NodeTypeCastExpr:
+            zig_panic("TODO analyze_expression cast expr");
+            break;
+
         case NodeTypePrefixOpExpr:
-            zig_panic("TODO");
+            switch (node->data.prefix_op_expr.prefix_op) {
+                case PrefixOpBoolNot:
+                    analyze_expression(g, import, context, g->builtin_types.entry_bool,
+                            node->data.prefix_op_expr.primary_expr);
+                    return_type = g->builtin_types.entry_bool;
+                    break;
+                case PrefixOpBinNot:
+                    zig_panic("TODO type check bin not");
+                    break;
+                case PrefixOpNegation:
+                    zig_panic("TODO type check negation");
+                    break;
+                case PrefixOpInvalid:
+                    zig_unreachable();
+            }
+            break;
+        case NodeTypeIfExpr:
+            {
+                analyze_expression(g, import, context, g->builtin_types.entry_bool, node->data.if_expr.condition);
+
+                TypeTableEntry *else_type;
+                if (node->data.if_expr.else_node) {
+                    else_type = analyze_expression(g, import, context, expected_type, node->data.if_expr.else_node);
+                } else {
+                    else_type = g->builtin_types.entry_void;
+                }
+                TypeTableEntry *then_type = analyze_expression(g, import, context, expected_type,
+                        node->data.if_expr.then_block);
+
+                check_type_compatibility(g, node, expected_type, else_type);
+                return_type = then_type;
+                break;
+            }
         case NodeTypeDirective:
         case NodeTypeFnDecl:
         case NodeTypeFnProto:
@@ -445,6 +537,11 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
     }
     assert(return_type);
     check_type_compatibility(g, node, expected_type, return_type);
+
+    assert(!node->codegen_node);
+    node->codegen_node = allocate<CodeGenNode>(1);
+    node->codegen_node->data.expr_node.type_entry = return_type;
+
     return return_type;
 }
 
@@ -509,6 +606,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
+        case NodeTypeIfExpr:
             zig_unreachable();
     }
 }

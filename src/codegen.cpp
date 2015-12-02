@@ -120,6 +120,10 @@ static LLVMValueRef get_variable_value(CodeGen *g, Buf *name) {
     zig_unreachable();
 }
 
+static TypeTableEntry *get_expr_type(AstNode *node) {
+    return node->codegen_node->data.expr_node.type_entry;
+}
+
 static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
@@ -283,6 +287,7 @@ static LLVMValueRef gen_bool_and_expr(CodeGen *g, AstNode *node) {
 
     LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
 
+    LLVMBasicBlockRef orig_block = LLVMGetInsertBlock(g->builder);
     // block for when val1 == true
     LLVMBasicBlockRef true_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolAndTrue");
     // block for when val1 == false (don't even evaluate the second part)
@@ -297,13 +302,14 @@ static LLVMValueRef gen_bool_and_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
     add_debug_source_node(g, node);
     LLVMValueRef val2_i1 = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
+    LLVMBuildBr(g->builder, false_block);
 
     LLVMPositionBuilderAtEnd(g->builder, false_block);
     add_debug_source_node(g, node);
     LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMInt1Type(), "");
     LLVMValueRef one_i1 = LLVMConstAllOnes(LLVMInt1Type());
     LLVMValueRef incoming_values[2] = {one_i1, val2_i1};
-    LLVMBasicBlockRef incoming_blocks[2] = {LLVMGetInsertBlock(g->builder), true_block};
+    LLVMBasicBlockRef incoming_blocks[2] = {orig_block, true_block};
     LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
 
     return phi;
@@ -313,6 +319,8 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     assert(expr_node->type == NodeTypeBinOpExpr);
 
     LLVMValueRef val1 = gen_expr(g, expr_node->data.bin_op_expr.op1);
+
+    LLVMBasicBlockRef orig_block = LLVMGetInsertBlock(g->builder);
 
     // block for when val1 == false
     LLVMBasicBlockRef false_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolOrFalse");
@@ -328,13 +336,14 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     LLVMValueRef val2 = gen_expr(g, expr_node->data.bin_op_expr.op2);
     add_debug_source_node(g, expr_node);
     LLVMValueRef val2_i1 = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
+    LLVMBuildBr(g->builder, true_block);
 
     LLVMPositionBuilderAtEnd(g->builder, true_block);
     add_debug_source_node(g, expr_node);
     LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMInt1Type(), "");
     LLVMValueRef one_i1 = LLVMConstAllOnes(LLVMInt1Type());
     LLVMValueRef incoming_values[2] = {one_i1, val2_i1};
-    LLVMBasicBlockRef incoming_blocks[2] = {LLVMGetInsertBlock(g->builder), false_block};
+    LLVMBasicBlockRef incoming_blocks[2] = {orig_block, false_block};
     LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
 
     return phi;
@@ -383,9 +392,91 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
         return LLVMBuildRetVoid(g->builder);
     }
 }
-/*
-Expression : BoolOrExpression | ReturnExpression
-*/
+
+static LLVMValueRef gen_if_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeIfExpr);
+    assert(node->data.if_expr.condition);
+    assert(node->data.if_expr.then_block);
+
+    LLVMValueRef cond_value = gen_expr(g, node->data.if_expr.condition);
+
+    TypeTableEntry *then_type = get_expr_type(node->data.if_expr.then_block);
+    bool use_expr_value = (then_type != g->builtin_types.entry_unreachable &&
+                           then_type != g->builtin_types.entry_void);
+
+    if (node->data.if_expr.else_node) {
+        LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Then");
+        LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Else");
+        LLVMBasicBlockRef endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
+
+        LLVMBuildCondBr(g->builder, cond_value, then_block, else_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, then_block);
+        LLVMValueRef then_expr_result = gen_expr(g, node->data.if_expr.then_block);
+        LLVMBuildBr(g->builder, endif_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, else_block);
+        LLVMValueRef else_expr_result = gen_expr(g, node->data.if_expr.else_node);
+        LLVMBuildBr(g->builder, endif_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, endif_block);
+        if (use_expr_value) {
+            LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(then_expr_result), "");
+            LLVMValueRef incoming_values[2] = {then_expr_result, else_expr_result};
+            LLVMBasicBlockRef incoming_blocks[2] = {then_block, else_block};
+            LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
+
+            return phi;
+        }
+
+        return nullptr;
+    }
+
+    assert(!use_expr_value);
+
+    LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Then");
+    LLVMBasicBlockRef endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
+
+    LLVMBuildCondBr(g->builder, cond_value, then_block, endif_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, then_block);
+    gen_expr(g, node->data.if_expr.then_block);
+    LLVMBuildBr(g->builder, endif_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, endif_block);
+    return nullptr;
+}
+
+static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *implicit_return_type) {
+    assert(block_node->type == NodeTypeBlock);
+
+    ImportTableEntry *import = g->cur_fn->import_entry;
+
+    LLVMZigDILexicalBlock *di_block = LLVMZigCreateLexicalBlock(g->dbuilder, g->block_scopes.last(),
+            import->di_file, block_node->line + 1, block_node->column + 1);
+    g->block_scopes.append(LLVMZigLexicalBlockToScope(di_block));
+
+    add_debug_source_node(g, block_node);
+
+    LLVMValueRef return_value;
+    for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
+        AstNode *statement_node = block_node->data.block.statements.at(i);
+        return_value = gen_expr(g, statement_node);
+    }
+
+    if (implicit_return_type) {
+        if (implicit_return_type == g->builtin_types.entry_void) {
+            LLVMBuildRetVoid(g->builder);
+        } else if (implicit_return_type != g->builtin_types.entry_unreachable) {
+            LLVMBuildRet(g->builder, return_value);
+        }
+    }
+
+    g->block_scopes.pop();
+
+    return return_value;
+}
+
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeBinOpExpr:
@@ -403,6 +494,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return LLVMBuildUnreachable(g->builder);
         case NodeTypeVoid:
             return nullptr;
+        case NodeTypeIfExpr:
+            return gen_if_expr(g, node);
         case NodeTypeNumberLiteral:
             {
                 Buf *number_str = &node->data.number;
@@ -427,6 +520,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
                 Buf *name = &node->data.symbol;
                 return get_variable_value(g, name);
             }
+        case NodeTypeBlock:
+            return gen_block(g, node, nullptr);
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -434,37 +529,12 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeType:
-        case NodeTypeBlock:
         case NodeTypeExternBlock:
         case NodeTypeDirective:
         case NodeTypeUse:
             zig_unreachable();
     }
     zig_unreachable();
-}
-
-static void gen_block(CodeGen *g, ImportTableEntry *import, AstNode *block_node, TypeTableEntry *implicit_return_type) {
-    assert(block_node->type == NodeTypeBlock);
-
-    LLVMZigDILexicalBlock *di_block = LLVMZigCreateLexicalBlock(g->dbuilder, g->block_scopes.last(),
-            import->di_file, block_node->line + 1, block_node->column + 1);
-    g->block_scopes.append(LLVMZigLexicalBlockToScope(di_block));
-
-    add_debug_source_node(g, block_node);
-
-    LLVMValueRef return_value;
-    for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
-        AstNode *statement_node = block_node->data.block.statements.at(i);
-        return_value = gen_expr(g, statement_node);
-    }
-
-    if (implicit_return_type == g->builtin_types.entry_void) {
-        LLVMBuildRetVoid(g->builder);
-    } else if (implicit_return_type != g->builtin_types.entry_unreachable) {
-        LLVMBuildRet(g->builder, return_value);
-    }
-
-    g->block_scopes.pop();
 }
 
 static LLVMZigDISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnProto *fn_proto,
@@ -558,7 +628,7 @@ static void do_code_gen(CodeGen *g) {
         LLVMGetParams(fn, codegen_fn_def->params);
 
         TypeTableEntry *implicit_return_type = codegen_fn_def->implicit_return_type;
-        gen_block(g, import, fn_def_node->data.fn_def.body, implicit_return_type);
+        gen_block(g, fn_def_node->data.fn_def.body, implicit_return_type);
 
         g->block_scopes.pop();
     }
@@ -584,6 +654,15 @@ static void define_primitive_types(CodeGen *g) {
         TypeTableEntry *entry = allocate<TypeTableEntry>(1);
         buf_init_from_str(&entry->name, "(invalid)");
         g->builtin_types.entry_invalid = entry;
+    }
+    {
+        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        entry->type_ref = LLVMInt1Type();
+        buf_init_from_str(&entry->name, "bool");
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 1, 8,
+                LLVMZigEncoding_DW_ATE_unsigned());
+        g->type_table.put(&entry->name, entry);
+        g->builtin_types.entry_bool = entry;
     }
     {
         TypeTableEntry *entry = allocate<TypeTableEntry>(1);
@@ -803,7 +882,7 @@ static Buf *to_c_type(CodeGen *g, AstNode *type_node) {
         g->c_stdint_used = true;
         return buf_create_from_str("int32_t");
     } else {
-        zig_panic("TODO");
+        zig_panic("TODO to_c_type");
     }
 }
 

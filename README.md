@@ -44,7 +44,11 @@ make
 
  * variable declarations and assignment expressions
  * Type checking
+ * loops
+ * labels and goto
  * inline assembly and syscalls
+ * conditional compilation and ability to check target platform and architecture
+ * main function with command line arguments
  * running code at compile time
  * print! macro that takes var args
  * panic! macro that prints a stack trace to stderr in debug mode and calls
@@ -104,13 +108,25 @@ Type : token(Symbol) | PointerType | token(Unreachable)
 
 PointerType : token(Star) token(Const) Type | token(Star) token(Mut) Type
 
-Block : token(LBrace) list(option(Expression), token(Semicolon)) token(RBrace)
+Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
 
-Expression : BoolOrExpression | ReturnExpression
+Statement : NonBlockExpression token(Semicolon) | BlockExpression
+
+Expression : BlockExpression | NonBlockExpression
+
+NonBlockExpression : BoolOrExpression | ReturnExpression
+
+BlockExpression : IfExpression | Block
 
 BoolOrExpression : BoolAndExpression token(BoolOr) BoolAndExpression | BoolAndExpression
 
 ReturnExpression : token(Return) option(Expression)
+
+IfExpression : token(If) Expression Block option(Else | ElseIf)
+
+ElseIf : token(Else) IfExpression
+
+Else : token(Else) Block
 
 BoolAndExpression : ComparisonExpression token(BoolAnd) ComparisonExpression | ComparisonExpression
 
@@ -144,7 +160,7 @@ FnCallExpression : PrimaryExpression token(LParen) list(Expression, token(Comma)
 
 PrefixOp : token(Not) | token(Dash) | token(Tilde)
 
-PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | Block | token(Symbol)
+PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | token(Symbol)
 
 GroupedExpression : token(LParen) Expression token(RParen)
 ```

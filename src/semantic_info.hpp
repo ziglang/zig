@@ -63,6 +63,7 @@ struct CodeGen {
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
 
     struct {
+        TypeTableEntry *entry_bool;
         TypeTableEntry *entry_u8;
         TypeTableEntry *entry_i32;
         TypeTableEntry *entry_string_literal;
@@ -111,10 +112,15 @@ struct FnDefNode {
     LLVMValueRef *params;
 };
 
+struct ExprNode {
+    TypeTableEntry *type_entry;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
         FnDefNode fn_def_node; // for NodeTypeFnDef
+        ExprNode expr_node; // for all the expression nodes
     } data;
 };
 

@@ -39,6 +39,7 @@ enum NodeType {
     NodeTypeFnCallExpr,
     NodeTypeUse,
     NodeTypeVoid,
+    NodeTypeIfExpr,
 };
 
 struct AstNodeRoot {
@@ -167,6 +168,12 @@ struct AstNodeUse {
     ZigList<AstNode *> *directives;
 };
 
+struct AstNodeIfExpr {
+    AstNode *condition;
+    AstNode *then_block;
+    AstNode *else_node; // null, block node, or other if expr node
+};
+
 struct AstNode {
     enum NodeType type;
     int line;
@@ -190,6 +197,7 @@ struct AstNode {
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodeFnCallExpr fn_call_expr;
         AstNodeUse use;
+        AstNodeIfExpr if_expr;
         Buf number;
         Buf string;
         Buf symbol;

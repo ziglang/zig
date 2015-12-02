@@ -189,6 +189,30 @@ static void add_compiling_test_cases(void) {
         )SOURCE");
     }
 
+    add_simple_case("if statements", R"SOURCE(
+        #link("c")
+        extern {
+            fn puts(s: *const u8) -> i32;
+            fn exit(code: i32) -> unreachable;
+        }
+
+        export fn _start() -> unreachable {
+            if 1 != 0 {
+                puts("1 is true");
+            } else {
+                puts("1 is false");
+            }
+            if 0 != 0 {
+                puts("0 is true");
+            } else if 1 - 1 != 0 {
+                puts("1 - 1 is true");
+            }
+            if !(0 != 0) {
+                puts("!0 is true");
+            }
+            exit(0);
+        }
+    )SOURCE", "1 is true\n!0 is true\n");
 }
 
 static void add_compile_failure_test_cases(void) {

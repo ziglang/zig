@@ -91,6 +91,8 @@ const char *node_type_str(NodeType node_type) {
             return "Use";
         case NodeTypeVoid:
             return "Void";
+        case NodeTypeIfExpr:
+            return "IfExpr";
     }
     zig_unreachable();
 }
@@ -236,7 +238,15 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.use.path));
             break;
         case NodeTypeVoid:
-            fprintf(stderr, "Void\n");
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            break;
+        case NodeTypeIfExpr:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            if (node->data.if_expr.condition)
+                ast_print(node->data.if_expr.condition, indent + 2);
+            ast_print(node->data.if_expr.then_block, indent + 2);
+            if (node->data.if_expr.else_node)
+                ast_print(node->data.if_expr.else_node, indent + 2);
             break;
     }
 }
@@ -353,6 +363,7 @@ static void ast_invalid_token_error(ParseContext *pc, Token *token) {
 
 static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool mandatory);
 static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandatory);
+static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool mandatory);
 
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
@@ -558,7 +569,7 @@ static AstNode *ast_parse_grouped_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | Block | token(Symbol)
+PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | token(Symbol)
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -586,11 +597,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         ast_buf_from_token(pc, token, &node->data.symbol);
         *token_index += 1;
         return node;
-    }
-
-    AstNode *block_node = ast_parse_block(pc, token_index, false);
-    if (block_node) {
-        return block_node;
     }
 
     AstNode *grouped_expr_node = ast_parse_grouped_expr(pc, token_index, false);
@@ -976,6 +982,50 @@ static AstNode *ast_parse_bool_and_expr(ParseContext *pc, int *token_index, bool
 }
 
 /*
+ElseIf : token(Else) IfExpression
+Else : token(Else) Block
+*/
+static AstNode *ast_parse_else_or_else_if(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *else_token = &pc->tokens->at(*token_index);
+
+    if (else_token->id != TokenIdKeywordElse) {
+        if (mandatory) {
+            ast_invalid_token_error(pc, else_token);
+        } else {
+            return nullptr;
+        }
+    }
+    *token_index += 1;
+
+    AstNode *if_expr = ast_parse_if_expr(pc, token_index, false);
+    if (if_expr)
+        return if_expr;
+
+    return ast_parse_block(pc, token_index, true);
+}
+
+/*
+IfExpression : token(If) Expression Block option(Else | ElseIf)
+*/
+static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *if_tok = &pc->tokens->at(*token_index);
+    if (if_tok->id != TokenIdKeywordIf) {
+        if (mandatory) {
+            ast_invalid_token_error(pc, if_tok);
+        } else {
+            return nullptr;
+        }
+    }
+    *token_index += 1;
+
+    AstNode *node = ast_create_node(pc, NodeTypeIfExpr, if_tok);
+    node->data.if_expr.condition = ast_parse_expression(pc, token_index, true);
+    node->data.if_expr.then_block = ast_parse_block(pc, token_index, true);
+    node->data.if_expr.else_node = ast_parse_else_or_else_if(pc, token_index, false);
+    return node;
+}
+
+/*
 ReturnExpression : token(Return) option(Expression)
 */
 static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index, bool mandatory) {
@@ -1016,27 +1066,68 @@ static AstNode *ast_parse_bool_or_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-Expression : BoolOrExpression | ReturnExpression
+BlockExpression : IfExpression | Block
 */
-static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
-    AstNode *return_expr = ast_parse_return_expr(pc, token_index, false);
-    if (return_expr)
-        return return_expr;
+    AstNode *if_expr = ast_parse_if_expr(pc, token_index, false);
+    if (if_expr)
+        return if_expr;
+
+    AstNode *block = ast_parse_block(pc, token_index, false);
+    if (block)
+        return block;
+
+    if (mandatory)
+        ast_invalid_token_error(pc, token);
+
+    return nullptr;
+}
+
+/*
+NonBlockExpression : BoolOrExpression | ReturnExpression
+*/
+static AstNode *ast_parse_non_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *token = &pc->tokens->at(*token_index);
 
     AstNode *bool_or_expr = ast_parse_bool_or_expr(pc, token_index, false);
     if (bool_or_expr)
         return bool_or_expr;
 
-    if (!mandatory)
-        return nullptr;
+    AstNode *return_expr = ast_parse_return_expr(pc, token_index, false);
+    if (return_expr)
+        return return_expr;
 
-    ast_invalid_token_error(pc, token);
+    if (mandatory)
+        ast_invalid_token_error(pc, token);
+
+    return nullptr;
 }
 
 /*
-Block : token(LBrace) list(option(Expression), token(Semicolon)) token(RBrace)
+Expression : BlockExpression | NonBlockExpression
+*/
+static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    AstNode *block_expr = ast_parse_block_expr(pc, token_index, false);
+    if (block_expr)
+        return block_expr;
+
+    AstNode *non_block_expr = ast_parse_non_block_expr(pc, token_index, false);
+    if (non_block_expr)
+        return non_block_expr;
+
+    if (mandatory)
+        ast_invalid_token_error(pc, token);
+
+    return nullptr;
+}
+
+/*
+Statement : NonBlockExpression token(Semicolon) | BlockExpression
+Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
 */
 static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandatory) {
     Token *last_token = &pc->tokens->at(*token_index);
@@ -1058,16 +1149,22 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
     // {2;} -> {2;void}
     // {;2} -> {void;2}
     for (;;) {
-        AstNode *expression_node = ast_parse_expression(pc, token_index, false);
-        if (!expression_node) {
-            expression_node = ast_create_node(pc, NodeTypeVoid, last_token);
+        AstNode *statement_node = ast_parse_block_expr(pc, token_index, false);
+        bool semicolon_expected = !statement_node;
+        if (!statement_node) {
+            statement_node = ast_parse_non_block_expr(pc, token_index, false);
+            if (!statement_node) {
+                statement_node = ast_create_node(pc, NodeTypeVoid, last_token);
+            }
         }
-        node->data.block.statements.append(expression_node);
+        node->data.block.statements.append(statement_node);
 
         last_token = &pc->tokens->at(*token_index);
         if (last_token->id == TokenIdRBrace) {
             *token_index += 1;
             return node;
+        } else if (!semicolon_expected) {
+            continue;
         } else if (last_token->id == TokenIdSemicolon) {
             *token_index += 1;
         } else {
