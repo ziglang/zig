@@ -345,7 +345,10 @@ static void check_type_compatibility(CodeGen *g, AstNode *node, TypeTableEntry *
         return; // TODO: is this true?
 
     // TODO better error message
-    add_node_error(g, node, buf_sprintf("type mismatch. expected %s. got %s", buf_ptr(&expected_type->name), buf_ptr(&actual_type->name)));
+    add_node_error(g, node,
+        buf_sprintf("type mismatch. expected %s. got %s",
+            buf_ptr(&expected_type->name),
+            buf_ptr(&actual_type->name)));
 }
 
 static BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
@@ -434,8 +437,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
                 LocalVariableTableEntry *existing_variable = find_local_variable(context, &variable_declaration->symbol);
                 if (existing_variable) {
-                    add_node_error(g, node, buf_sprintf("redeclaration of variable '%s'.",
-                        buf_ptr(&variable_declaration->symbol)));
+                    add_node_error(g, node,
+                        buf_sprintf("redeclaration of variable '%s'.", buf_ptr(&variable_declaration->symbol)));
                 } else {
                     LocalVariableTableEntry *variable_entry = allocate<LocalVariableTableEntry>(1);
                     buf_init_from_buf(&variable_entry->name, &variable_declaration->symbol);
@@ -596,12 +599,11 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeSymbol:
             {
                 Buf *symbol_name = &node->data.symbol;
-                FnTableEntry *fn_table_entry = get_context_fn_entry(context);
-                auto table_entry = fn_table_entry->symbol_table.maybe_get(symbol_name);
-                if (table_entry) {
-                    SymbolTableEntry *symbol_entry = table_entry->value;
-                    return_type = symbol_entry->type_entry;
+                LocalVariableTableEntry *local_variable = find_local_variable(context, symbol_name);
+                if (local_variable) {
+                    return_type = local_variable->type;
                 } else {
+                    // TODO: check global variables also
                     add_node_error(g, node,
                             buf_sprintf("use of undeclared identifier '%s'", buf_ptr(symbol_name)));
                     return_type = g->builtin_types.entry_invalid;
@@ -718,8 +720,8 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                         // unique definition
                         context->variable_table.put(&variable_entry->name, variable_entry);
                     } else {
-                        add_node_error(g, node, buf_sprintf("redeclaration of parameter '%s'.",
-                            buf_ptr(&existing_entry->name)));
+                        add_node_error(g, node,
+                            buf_sprintf("redeclaration of parameter '%s'.", buf_ptr(&existing_entry->name)));
                         if (existing_entry->type == variable_entry->type) {
                             // types agree, so the type is probably good enough for the rest of analysis
                         } else {
