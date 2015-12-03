@@ -273,6 +273,22 @@ export fn _start() -> unreachable {
     exit(0);
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("bool literals", R"SOURCE(
+#link("c")
+extern {
+    fn puts(s: *const u8) -> i32;
+    fn exit(code: i32) -> unreachable;
+}
+
+export fn _start() -> unreachable {
+    if (true)   { puts("OK 1"); }
+    if (false)  { puts("BAD 1"); }
+    if (!true)  { puts("BAD 2"); }
+    if (!false) { puts("OK 2"); }
+    exit(0);
+}
+    )SOURCE", "OK 1\nOK 2\n");
 }
 
 static void add_compile_failure_test_cases(void) {
@@ -381,6 +397,12 @@ fn f() -> i32 {
     a
 }
     )SOURCE", 1, ".tmp_source.zig:2:15: error: type mismatch. expected i32. got *const u8");
+
+    add_compile_fail_case("if condition is bool, not int", R"SOURCE(
+fn f() {
+    if (0) {}
+}
+    )SOURCE", 1, ".tmp_source.zig:3:9: error: type mismatch. expected bool. got i32");
 
 }
 
