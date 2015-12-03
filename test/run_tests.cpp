@@ -289,6 +289,28 @@ export fn _start() -> unreachable {
     exit(0);
 }
     )SOURCE", "OK 1\nOK 2\n");
+
+    add_simple_case("separate block scopes", R"SOURCE(
+#link("c")
+extern {
+    fn puts(s: *const u8) -> i32;
+    fn exit(code: i32) -> unreachable;
+}
+
+export fn _start() -> unreachable {
+    if (true) {
+        let no_conflict = 5;
+        if (no_conflict == 5) { puts("OK 1"); }
+    }
+
+    let c = {
+        let no_conflict = 10;
+        no_conflict
+    };
+    if (c == 10) { puts("OK 2"); }
+    exit(0);
+}
+    )SOURCE", "OK 1\nOK 2\n");
 }
 
 static void add_compile_failure_test_cases(void) {
