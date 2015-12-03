@@ -404,6 +404,22 @@ fn f() {
 }
     )SOURCE", 1, ".tmp_source.zig:3:9: error: type mismatch. expected bool. got i32");
 
+    add_compile_fail_case("assign unreachable", R"SOURCE(
+fn f() {
+    let a = return;
+}
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: variable initialization is unreachable.");
+
+    add_compile_fail_case("unreachable variable", R"SOURCE(
+fn f() {
+    let a : unreachable = return;
+}
+    )SOURCE", 1, ".tmp_source.zig:3:13: error: variable of type 'unreachable' is not allowed.");
+
+    add_compile_fail_case("unreachable parameter", R"SOURCE(
+fn f(a : unreachable) {}
+    )SOURCE", 1, ".tmp_source.zig:2:10: error: parameter of type 'unreachable' is not allowed.");
+
 }
 
 static void print_compiler_invocation(TestCase *test_case, Buf *zig_stderr) {

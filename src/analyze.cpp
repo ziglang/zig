@@ -421,9 +421,17 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
                 TypeTableEntry *explicit_type = variable_declaration->type != nullptr ?
                     resolve_type(g, variable_declaration->type) : nullptr;
+                if (explicit_type == g->builtin_types.entry_unreachable) {
+                    add_node_error(g, variable_declaration->type,
+                        buf_sprintf("variable of type 'unreachable' is not allowed."));
+                }
 
                 TypeTableEntry *implicit_type = variable_declaration->expr != nullptr ?
                     analyze_expression(g, import, context, explicit_type, variable_declaration->expr) : nullptr;
+                if (implicit_type == g->builtin_types.entry_unreachable) {
+                    add_node_error(g, node,
+                        buf_sprintf("variable initialization is unreachable."));
+                }
 
                 if (implicit_type == nullptr) {
                     add_node_error(g, node, buf_sprintf("initial values are required for variable declaration."));
@@ -714,6 +722,11 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                     AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
                     assert(param_decl->type->type == NodeTypeType);
                     TypeTableEntry *type = param_decl->type->codegen_node->data.type_node.entry;
+
+                    if (type == g->builtin_types.entry_unreachable) {
+                        add_node_error(g, param_decl->type,
+                            buf_sprintf("parameter of type 'unreachable' is not allowed."));
+                    }
 
                     LocalVariableTableEntry *variable_entry = allocate<LocalVariableTableEntry>(1);
                     buf_init_from_buf(&variable_entry->name, &param_decl->name);
