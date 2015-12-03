@@ -61,12 +61,17 @@ start_over:
 }
 
 static Buf *to_zig_type(CXType raw_type) {
-    CXType canonical = clang_getCanonicalType(raw_type);
-    switch (canonical.kind) {
-        case CXType_Invalid:
-            zig_unreachable();
-        case CXType_Unexposed:
+    if (raw_type.kind == CXType_Unexposed) {
+        CXType canonical = clang_getCanonicalType(raw_type);
+        if (canonical.kind != CXType_Unexposed)
+            return to_zig_type(canonical);
+        else
             zig_panic("clang C api insufficient");
+    }
+    switch (raw_type.kind) {
+        case CXType_Invalid:
+        case CXType_Unexposed:
+            zig_unreachable();
         case CXType_Void:
             return buf_create_from_str("void");
         case CXType_Bool:
@@ -125,7 +130,7 @@ static Buf *to_zig_type(CXType raw_type) {
             zig_panic("TODO");
         case CXType_Pointer:
             {
-                CXType pointee_type = clang_getPointeeType(canonical);
+                CXType pointee_type = clang_getPointeeType(raw_type);
                 Buf *pointee_buf = to_zig_type(pointee_type);
                 if (clang_isConstQualifiedType(pointee_type)) {
                     return buf_sprintf("*const %s", buf_ptr(pointee_buf));
@@ -141,16 +146,39 @@ static Buf *to_zig_type(CXType raw_type) {
             zig_panic("TODO");
         case CXType_Record:
             {
-                const char *name = prefixes_stripped(canonical);
+                const char *name = prefixes_stripped(raw_type);
                 return buf_sprintf("%s", name);
             }
         case CXType_Enum:
             {
-                const char *name = prefixes_stripped(canonical);
+                const char *name = prefixes_stripped(raw_type);
                 return buf_sprintf("%s", name);
             }
         case CXType_Typedef:
-            zig_panic("TODO");
+            {
+                const char *name = prefixes_stripped(raw_type);
+                if (strcmp(name, "int8_t") == 0) {
+                    return buf_create_from_str("i8");
+                } else if (strcmp(name, "uint8_t") == 0) {
+                    return buf_create_from_str("u8");
+                } else if (strcmp(name, "uint16_t") == 0) {
+                    return buf_create_from_str("u16");
+                } else if (strcmp(name, "uint32_t") == 0) {
+                    return buf_create_from_str("u32");
+                } else if (strcmp(name, "uint64_t") == 0) {
+                    return buf_create_from_str("u64");
+                } else if (strcmp(name, "int16_t") == 0) {
+                    return buf_create_from_str("i16");
+                } else if (strcmp(name, "int32_t") == 0) {
+                    return buf_create_from_str("i32");
+                } else if (strcmp(name, "int64_t") == 0) {
+                    return buf_create_from_str("i64");
+                } else {
+                    CXCursor typedef_cursor = clang_getTypeDeclaration(raw_type);
+                    CXType underlying_type = clang_getTypedefDeclUnderlyingType(typedef_cursor);
+                    return to_zig_type(underlying_type);
+                }
+            }
         case CXType_ObjCInterface:
             zig_panic("TODO");
         case CXType_ObjCObjectPointer:
