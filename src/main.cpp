@@ -10,15 +10,17 @@
 #include "codegen.hpp"
 #include "os.hpp"
 #include "error.hpp"
+#include "parseh.hpp"
 
 #include <stdio.h>
 
 static int usage(const char *arg0) {
-    fprintf(stderr, "Usage: %s [command] [options] target\n"
+    fprintf(stderr, "Usage: %s [command] [options]\n"
         "Commands:\n"
         "  build                  create executable, object, or library from target\n"
         "  version                print version number and exit\n"
-        "Optional Options:\n"
+        "  parseh                 convert a c header file to zig extern declarations\n"
+        "Command: build target\n"
         "  --release              build with optimizations on and debug protection off\n"
         "  --static               output will be statically linked\n"
         "  --strip                exclude debug symbols\n"
@@ -27,11 +29,15 @@ static int usage(const char *arg0) {
         "  --output [file]        override destination path\n"
         "  --verbose              turn on compiler debug output\n"
         "  --color [auto|off|on]  enable or disable colored error messages\n"
+        "Command: parseh target\n"
+        "  -isystem [dir]         add additional search path for other .h files\n"
+        "  -dirafter [dir]        same as -isystem but do it last\n"
+        "  -B[prefix]             set the C compiler data path\n"
     , arg0);
     return EXIT_FAILURE;
 }
 
-static int version(void) {
+static int version(const char *arg0, int argc, char **argv) {
     printf("%s\n", ZIG_VERSION_STRING);
     return EXIT_SUCCESS;
 }
@@ -48,62 +54,11 @@ struct Build {
     ErrColor color;
 };
 
-static int build(const char *arg0, Build *b) {
+static int build(const char *arg0, int argc, char **argv) {
     int err;
-
-    if (!b->in_file)
-        return usage(arg0);
-
-    Buf in_file_buf = BUF_INIT;
-    buf_init_from_str(&in_file_buf, b->in_file);
-
-    Buf root_source_dir = BUF_INIT;
-    Buf root_source_code = BUF_INIT;
-    Buf root_source_name = BUF_INIT;
-    if (buf_eql_str(&in_file_buf, "-")) {
-        os_get_cwd(&root_source_dir);
-        if ((err = os_fetch_file(stdin, &root_source_code))) {
-            fprintf(stderr, "unable to read stdin: %s\n", err_str(err));
-            return 1;
-        }
-        buf_init_from_str(&root_source_name, "");
-    } else {
-        os_path_split(&in_file_buf, &root_source_dir, &root_source_name);
-        if ((err = os_fetch_file_path(buf_create_from_str(b->in_file), &root_source_code))) {
-            fprintf(stderr, "unable to open '%s': %s\n", b->in_file, err_str(err));
-            return 1;
-        }
-    }
-
-    CodeGen *g = codegen_create(&root_source_dir);
-    codegen_set_build_type(g, b->release ? CodeGenBuildTypeRelease : CodeGenBuildTypeDebug);
-    codegen_set_strip(g, b->strip);
-    codegen_set_is_static(g, b->is_static);
-    if (b->out_type != OutTypeUnknown)
-        codegen_set_out_type(g, b->out_type);
-    if (b->out_name)
-        codegen_set_out_name(g, buf_create_from_str(b->out_name));
-    codegen_set_verbose(g, b->verbose);
-    codegen_set_errmsg_color(g, b->color);
-    codegen_add_root_code(g, &root_source_name, &root_source_code);
-    codegen_link(g, b->out_file);
-
-    return 0;
-}
-
-enum Cmd {
-    CmdNone,
-    CmdBuild,
-    CmdVersion,
-};
-
-int main(int argc, char **argv) {
-    char *arg0 = argv[0];
-
     Build b = {0};
-    Cmd cmd = CmdNone;
 
-    for (int i = 1; i < argc; i += 1) {
+    for (int i = 0; i < argc; i += 1) {
         char *arg = argv[i];
         if (arg[0] == '-' && arg[1] == '-') {
             if (strcmp(arg, "--release") == 0) {
@@ -148,40 +103,109 @@ int main(int argc, char **argv) {
                     return usage(arg0);
                 }
             }
-        } else if (cmd == CmdNone) {
+        } else if (!b.in_file) {
+            b.in_file = arg;
+        } else {
+            return usage(arg0);
+        }
+    }
+
+    if (!b.in_file)
+        return usage(arg0);
+
+    Buf in_file_buf = BUF_INIT;
+    buf_init_from_str(&in_file_buf, b.in_file);
+
+    Buf root_source_dir = BUF_INIT;
+    Buf root_source_code = BUF_INIT;
+    Buf root_source_name = BUF_INIT;
+    if (buf_eql_str(&in_file_buf, "-")) {
+        os_get_cwd(&root_source_dir);
+        if ((err = os_fetch_file(stdin, &root_source_code))) {
+            fprintf(stderr, "unable to read stdin: %s\n", err_str(err));
+            return 1;
+        }
+        buf_init_from_str(&root_source_name, "");
+    } else {
+        os_path_split(&in_file_buf, &root_source_dir, &root_source_name);
+        if ((err = os_fetch_file_path(buf_create_from_str(b.in_file), &root_source_code))) {
+            fprintf(stderr, "unable to open '%s': %s\n", b.in_file, err_str(err));
+            return 1;
+        }
+    }
+
+    CodeGen *g = codegen_create(&root_source_dir);
+    codegen_set_build_type(g, b.release ? CodeGenBuildTypeRelease : CodeGenBuildTypeDebug);
+    codegen_set_strip(g, b.strip);
+    codegen_set_is_static(g, b.is_static);
+    if (b.out_type != OutTypeUnknown)
+        codegen_set_out_type(g, b.out_type);
+    if (b.out_name)
+        codegen_set_out_name(g, buf_create_from_str(b.out_name));
+    codegen_set_verbose(g, b.verbose);
+    codegen_set_errmsg_color(g, b.color);
+    codegen_add_root_code(g, &root_source_name, &root_source_code);
+    codegen_link(g, b.out_file);
+
+    return 0;
+}
+
+static int parseh(const char *arg0, int argc, char **argv) {
+    char *in_file = nullptr;
+    ZigList<const char *> clang_argv = {0};
+    for (int i = 0; i < argc; i += 1) {
+        char *arg = argv[i];
+        if (arg[0] == '-') {
+            if (arg[1] == 'I') {
+                clang_argv.append(arg);
+            } else if (strcmp(arg, "-isystem") == 0) {
+                if (i + 1 >= argc) {
+                    return usage(arg0);
+                }
+                clang_argv.append("-isystem");
+                clang_argv.append(argv[i + 1]);
+            } else if (arg[1] == 'B') {
+                clang_argv.append(arg);
+            } else {
+                fprintf(stderr, "unrecognized argument: %s", arg);
+                return usage(arg0);
+            }
+        } else if (!in_file) {
+            in_file = arg;
+        } else {
+            return usage(arg0);
+        }
+    }
+    if (!in_file) {
+        fprintf(stderr, "missing target argument");
+        return usage(arg0);
+    }
+
+    parse_h_file(in_file, &clang_argv, stdout);
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    char *arg0 = argv[0];
+    int (*cmd)(const char *, int, char **) = nullptr;
+    for (int i = 1; i < argc; i += 1) {
+        char *arg = argv[i];
+        if (arg[0] == '-' && arg[1] == '-') {
+            return usage(arg0);
+        } else {
             if (strcmp(arg, "build") == 0) {
-                cmd = CmdBuild;
+                cmd = build;
             } else if (strcmp(arg, "version") == 0) {
-                cmd = CmdVersion;
+                cmd = version;
+            } else if (strcmp(arg, "parseh") == 0) {
+                cmd = parseh;
             } else {
                 fprintf(stderr, "Unrecognized command: %s\n", arg);
                 return usage(arg0);
             }
-        } else {
-            switch (cmd) {
-                case CmdNone:
-                    zig_unreachable();
-                case CmdBuild:
-                    if (!b.in_file) {
-                        b.in_file = arg;
-                    } else {
-                        return usage(arg0);
-                    }
-                    break;
-                case CmdVersion:
-                    return usage(arg0);
-            }
+            return cmd(arg0, argc - i - 1, &argv[i + 1]);
         }
     }
 
-    switch (cmd) {
-        case CmdNone:
-            return usage(arg0);
-        case CmdBuild:
-            return build(arg0, &b);
-        case CmdVersion:
-            return version();
-    }
-
-    zig_unreachable();
+    return usage(arg0);
 }

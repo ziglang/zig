@@ -59,6 +59,7 @@ static inline void buf_deinit(Buf *buf) {
 }
 
 static inline void buf_init_from_mem(Buf *buf, const char *ptr, int len) {
+    assert(len >= 0);
     buf->list.resize(len + 1);
     memcpy(buf_ptr(buf), ptr, len);
     buf->list.at(buf_len(buf)) = 0;
@@ -73,6 +74,7 @@ static inline void buf_init_from_buf(Buf *buf, Buf *other) {
 }
 
 static inline Buf *buf_create_from_mem(const char *ptr, int len) {
+    assert(len >= 0);
     Buf *buf = allocate<Buf>(1);
     buf_init_from_mem(buf, ptr, len);
     return buf;
@@ -80,6 +82,10 @@ static inline Buf *buf_create_from_mem(const char *ptr, int len) {
 
 static inline Buf *buf_create_from_str(const char *str) {
     return buf_create_from_mem(str, strlen(str));
+}
+
+static inline Buf *buf_create_from_buf(Buf *buf) {
+    return buf_create_from_mem(buf_ptr(buf), buf_len(buf));
 }
 
 static inline Buf *buf_slice(Buf *in_buf, int start, int end) {
