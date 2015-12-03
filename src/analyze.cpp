@@ -335,9 +335,8 @@ static void check_type_compatibility(CodeGen *g, AstNode *node, TypeTableEntry *
     if (expected_type == g->builtin_types.entry_invalid || actual_type == g->builtin_types.entry_invalid)
         return; // already complained
     if (actual_type == g->builtin_types.entry_unreachable)
-        return; // TODO: is this true?
+        return; // sorry toots; gotta run. good luck with that expected type.
 
-    // TODO better error message
     add_node_error(g, node,
         buf_sprintf("type mismatch. expected %s. got %s",
             buf_ptr(&expected_type->name),
@@ -632,14 +631,16 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             {
                 analyze_expression(g, import, context, g->builtin_types.entry_bool, node->data.if_expr.condition);
 
+                TypeTableEntry *then_type = analyze_expression(g, import, context, expected_type,
+                        node->data.if_expr.then_block);
+
                 TypeTableEntry *else_type;
                 if (node->data.if_expr.else_node) {
                     else_type = analyze_expression(g, import, context, expected_type, node->data.if_expr.else_node);
                 } else {
                     else_type = g->builtin_types.entry_void;
                 }
-                TypeTableEntry *then_type = analyze_expression(g, import, context, expected_type,
-                        node->data.if_expr.then_block);
+
 
                 TypeTableEntry *primary_type;
                 TypeTableEntry *other_type;
@@ -651,6 +652,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     other_type = else_type;
                 }
 
+                check_type_compatibility(g, node, primary_type, other_type);
                 check_type_compatibility(g, node, expected_type, other_type);
                 return_type = primary_type;
                 break;
