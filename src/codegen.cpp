@@ -76,11 +76,29 @@ static LLVMZigDIType *to_llvm_debug_type(AstNode *type_node) {
     return type_node->codegen_node->data.type_node.entry->di_type;
 }
 
-static bool type_is_unreachable(CodeGen *g, AstNode *type_node) {
+static TypeTableEntry *get_type_for_type_node(CodeGen *g, AstNode *type_node) {
     assert(type_node->type == NodeTypeType);
     assert(type_node->codegen_node);
     assert(type_node->codegen_node->data.type_node.entry);
-    return type_node->codegen_node->data.type_node.entry == g->builtin_types.entry_unreachable;
+    return type_node->codegen_node->data.type_node.entry;
+}
+
+static bool type_is_unreachable(CodeGen *g, AstNode *type_node) {
+    return get_type_for_type_node(g, type_node) == g->builtin_types.entry_unreachable;
+}
+
+static bool is_param_decl_type_void(CodeGen *g, AstNode *param_decl_node) {
+    assert(param_decl_node->type == NodeTypeParamDecl);
+    return get_type_for_type_node(g, param_decl_node->data.param_decl.type) == g->builtin_types.entry_void;
+}
+
+static int count_non_void_params(CodeGen *g, ZigList<AstNode *> *params) {
+    int result = 0;
+    for (int i = 0; i < params->length; i += 1) {
+        if (!is_param_decl_type_void(g, params->at(i)))
+            result += 1;
+    }
+    return result;
 }
 
 static void add_debug_source_node(CodeGen *g, AstNode *node) {
@@ -124,15 +142,23 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     int actual_param_count = node->data.fn_call_expr.params.length;
     assert(expected_param_count == actual_param_count);
 
-    LLVMValueRef *param_values = allocate<LLVMValueRef>(actual_param_count);
+    // don't really include void values
+    int gen_param_count = count_non_void_params(g, &fn_table_entry->proto_node->data.fn_proto.params);
+    LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(gen_param_count);
+
+    int gen_param_index = 0;
     for (int i = 0; i < actual_param_count; i += 1) {
         AstNode *expr_node = node->data.fn_call_expr.params.at(i);
-        param_values[i] = gen_expr(g, expr_node);
+        LLVMValueRef param_value = gen_expr(g, expr_node);
+        if (!is_param_decl_type_void(g, fn_table_entry->proto_node->data.fn_proto.params.at(i))) {
+            gen_param_values[gen_param_index] = param_value;
+            gen_param_index += 1;
+        }
     }
 
     add_debug_source_node(g, node);
     LLVMValueRef result = LLVMZigBuildCall(g->builder, fn_table_entry->fn_value,
-            param_values, actual_param_count, fn_table_entry->calling_convention, "");
+            gen_param_values, gen_param_count, fn_table_entry->calling_convention, "");
 
     if (type_is_unreachable(g, fn_table_entry->proto_node->data.fn_proto.return_type)) {
         return LLVMBuildUnreachable(g->builder);
@@ -590,14 +616,19 @@ static void do_code_gen(CodeGen *g) {
         AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
         LLVMTypeRef ret_type = to_llvm_type(fn_proto->return_type);
-        LLVMTypeRef *param_types = allocate<LLVMTypeRef>(fn_proto->params.length);
+        int param_count = count_non_void_params(g, &fn_proto->params);
+        LLVMTypeRef *param_types = allocate<LLVMTypeRef>(param_count);
+        int gen_param_index = 0;
         for (int param_decl_i = 0; param_decl_i < fn_proto->params.length; param_decl_i += 1) {
             AstNode *param_node = fn_proto->params.at(param_decl_i);
             assert(param_node->type == NodeTypeParamDecl);
+            if (is_param_decl_type_void(g, param_node))
+                continue;
             AstNode *type_node = param_node->data.param_decl.type;
-            param_types[param_decl_i] = to_llvm_type(type_node);
+            param_types[gen_param_index] = to_llvm_type(type_node);
+            gen_param_index += 1;
         }
-        LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, fn_proto->params.length, 0);
+        LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, param_count, 0);
         LLVMValueRef fn = LLVMAddFunction(g->module, buf_ptr(&fn_proto->name), function_type);
 
         LLVMSetLinkage(fn, fn_table_entry->internal_linkage ? LLVMInternalLinkage : LLVMExternalLinkage);
@@ -647,16 +678,20 @@ static void do_code_gen(CodeGen *g) {
 
         FnDefNode *codegen_fn_def = &codegen_node->data.fn_def_node;
         assert(codegen_fn_def);
-        int param_count = fn_proto->params.length;
-        assert(param_count == (int)LLVMCountParams(fn));
-        LLVMValueRef *params = allocate<LLVMValueRef>(param_count);
+        int non_void_param_count = count_non_void_params(g, &fn_proto->params);
+        assert(non_void_param_count == (int)LLVMCountParams(fn));
+        LLVMValueRef *params = allocate<LLVMValueRef>(non_void_param_count);
         LLVMGetParams(fn, params);
 
-        for (int i = 0; i < param_count; i += 1) {
+        int non_void_index = 0;
+        for (int i = 0; i < fn_proto->params.length; i += 1) {
             AstNode *param_decl = fn_proto->params.at(i);
             assert(param_decl->type == NodeTypeParamDecl);
+            if (is_param_decl_type_void(g, param_decl))
+                continue;
             LocalVariableTableEntry *parameter_variable = fn_def_node->codegen_node->data.fn_def_node.block_context->variable_table.get(&param_decl->data.param_decl.name);
-            parameter_variable->value_ref = params[i];
+            parameter_variable->value_ref = params[non_void_index];
+            non_void_index += 1;
         }
 
         build_label_blocks(g, fn_def_node->data.fn_def.body);

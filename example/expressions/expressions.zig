@@ -25,5 +25,16 @@ export fn _start() -> unreachable {
         no_conflict
     };
     if (c == 10) { puts("OK 2"); }
+
+    void_fun(1, void, 2);
+
     other_exit();
+}
+
+fn void_fun(a : i32, b : void, c : i32) -> void {
+    let x = a + 1;    // i32
+    let y = c + 1;    // i32
+    let z = b;        // void
+    let w : void = z; // void
+    if (x + y == 4) { return w; }
 }
