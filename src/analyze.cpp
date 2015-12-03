@@ -115,12 +115,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
         AstNode *child = node->data.fn_proto.params.at(i);
         assert(child->type == NodeTypeParamDecl);
-
-        Buf *param_name = &child->data.param_decl.name;
-        SymbolTableEntry *symbol_entry = allocate<SymbolTableEntry>(1);
-        symbol_entry->type_entry = resolve_type(g, child->data.param_decl.type);
-        symbol_entry->param_index = i;
-        fn_table_entry->symbol_table.put(param_name, symbol_entry);
+        resolve_type(g, child->data.param_decl.type);
     }
 
     resolve_type(g, node->data.fn_proto.return_type);
@@ -171,7 +166,6 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 fn_table_entry->is_extern = true;
                 fn_table_entry->calling_convention = LLVMCCallConv;
                 fn_table_entry->import_entry = import;
-                fn_table_entry->symbol_table.init(8);
                 fn_table_entry->label_table.init(8);
 
                 resolve_function_proto(g, fn_proto, fn_table_entry);
@@ -222,7 +216,6 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                     fn_table_entry->fn_def_node = node;
                     fn_table_entry->internal_linkage = is_internal;
                     fn_table_entry->calling_convention = is_internal ? LLVMFastCallConv : LLVMCCallConv;
-                    fn_table_entry->symbol_table.init(8);
                     fn_table_entry->label_table.init(8);
 
                     g->fn_protos.append(fn_table_entry);
@@ -363,7 +356,7 @@ static BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     return context;
 }
 
-static LocalVariableTableEntry *find_local_variable(BlockContext *context, Buf *name) {
+LocalVariableTableEntry *find_local_variable(BlockContext *context, Buf *name) {
     while (true) {
         auto entry = context->variable_table.maybe_get(name);
         if (entry != nullptr)
@@ -431,6 +424,10 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
                 TypeTableEntry *implicit_type = variable_declaration->expr != nullptr ?
                     analyze_expression(g, import, context, explicit_type, variable_declaration->expr) : nullptr;
+
+                if (implicit_type == nullptr) {
+                    add_node_error(g, node, buf_sprintf("initial values are required for variable declaration."));
+                }
 
                 TypeTableEntry *type = explicit_type != nullptr ? explicit_type : implicit_type;
                 assert(type != nullptr); // should have been caught by the parser
@@ -736,6 +733,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
 
                 node->codegen_node = allocate<CodeGenNode>(1);
                 node->codegen_node->data.fn_def_node.implicit_return_type = block_return_type;
+                node->codegen_node->data.fn_def_node.block_context = context;
             }
             break;
 

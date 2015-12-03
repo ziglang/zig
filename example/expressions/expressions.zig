@@ -7,8 +7,8 @@ extern {
 export fn _start() -> unreachable {
     let a : i32 = 1;
     let b = 2;
-    let c : i32;
-    // let d; // compile error
+    // let c : i32; // not yet support for const variables
+    // let d; // parse error
     puts("Hello, world!");
     exit(a + b);
 }

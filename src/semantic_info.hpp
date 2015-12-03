@@ -38,11 +38,6 @@ struct ImportTableEntry {
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
 };
 
-struct SymbolTableEntry {
-    TypeTableEntry *type_entry;
-    int param_index; // only valid in the case of parameters
-};
-
 struct LabelTableEntry {
     AstNode *label_node;
     LLVMBasicBlockRef basic_block;
@@ -58,7 +53,6 @@ struct FnTableEntry {
     ImportTableEntry *import_entry;
 
     // reminder: hash tables must be initialized before use
-    HashMap<Buf *, SymbolTableEntry *, buf_hash, buf_eql_buf> symbol_table;
     HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
 };
 
@@ -120,6 +114,7 @@ struct CodeGen {
 struct LocalVariableTableEntry {
     Buf name;
     TypeTableEntry *type;
+    LLVMValueRef value_ref;
 };
 
 struct BlockContext {
@@ -139,8 +134,8 @@ struct FnProtoNode {
 
 struct FnDefNode {
     TypeTableEntry *implicit_return_type;
+    BlockContext *block_context;
     bool skip;
-    LLVMValueRef *params;
 };
 
 struct ExprNode {

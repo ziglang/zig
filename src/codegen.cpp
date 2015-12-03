@@ -103,17 +103,6 @@ static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
     return global_value;
 }
 
-static LLVMValueRef get_variable_value(CodeGen *g, Buf *name) {
-    assert(g->cur_fn->proto_node->type == NodeTypeFnProto);
-
-    SymbolTableEntry *symbol_entry = g->cur_fn->symbol_table.get(name);
-
-    CodeGenNode *codegen_node = g->cur_fn->fn_def_node->codegen_node;
-    assert(codegen_node);
-    FnDefNode *codegen_fn_def = &codegen_node->data.fn_def_node;
-    return codegen_fn_def->params[symbol_entry->param_index];
-}
-
 static TypeTableEntry *get_expr_type(AstNode *node) {
     return node->codegen_node->expr_node.type_entry;
 }
@@ -481,7 +470,12 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeReturnExpr:
             return gen_return_expr(g, node);
         case NodeTypeVariableDeclaration:
-            zig_panic("TODO: variable declaration code gen");
+            {
+                LocalVariableTableEntry *variable = find_local_variable(node->codegen_node->expr_node.block_context, &node->data.variable_declaration.symbol);
+                assert(node->data.variable_declaration.expr);
+                variable->value_ref = gen_expr(g, node->data.variable_declaration.expr);
+                return nullptr;
+            }
         case NodeTypeCastExpr:
             return gen_cast_expr(g, node);
         case NodeTypePrefixOpExpr:
@@ -516,8 +510,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             }
         case NodeTypeSymbol:
             {
-                Buf *name = &node->data.symbol;
-                return get_variable_value(g, name);
+                LocalVariableTableEntry *variable = find_local_variable(node->codegen_node->expr_node.block_context, &node->data.symbol);
+                return variable->value_ref;
             }
         case NodeTypeBlock:
             return gen_block(g, node, nullptr);
@@ -648,8 +642,17 @@ static void do_code_gen(CodeGen *g) {
 
         FnDefNode *codegen_fn_def = &codegen_node->data.fn_def_node;
         assert(codegen_fn_def);
-        codegen_fn_def->params = allocate<LLVMValueRef>(LLVMCountParams(fn));
-        LLVMGetParams(fn, codegen_fn_def->params);
+        int param_count = fn_proto->params.length;
+        assert(param_count == (int)LLVMCountParams(fn));
+        LLVMValueRef *params = allocate<LLVMValueRef>(param_count);
+        LLVMGetParams(fn, params);
+
+        for (int i = 0; i < param_count; i += 1) {
+            AstNode *param_decl = fn_proto->params.at(i);
+            assert(param_decl->type == NodeTypeParamDecl);
+            LocalVariableTableEntry *parameter_variable = fn_def_node->codegen_node->data.fn_def_node.block_context->variable_table.get(&param_decl->data.param_decl.name);
+            parameter_variable->value_ref = params[i];
+        }
 
         build_label_blocks(g, fn_def_node->data.fn_def.body);
 
