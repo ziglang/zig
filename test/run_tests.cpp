@@ -406,7 +406,7 @@ fn f() {
 
 }
 
-static void print_compiler_invokation(TestCase *test_case, Buf *zig_stderr) {
+static void print_compiler_invocation(TestCase *test_case, Buf *zig_stderr) {
     printf("%s", zig_exe);
     for (int i = 0; i < test_case->compiler_args.length; i += 1) {
         printf(" %s", test_case->compiler_args.at(i));
@@ -437,21 +437,21 @@ static void run_test(TestCase *test_case) {
                     printf("========= Expected this compile error: =========\n");
                     printf("%s\n", err_text);
                     printf("================================================\n");
-                    print_compiler_invokation(test_case, &zig_stderr);
+                    print_compiler_invocation(test_case, &zig_stderr);
                     exit(1);
                 }
             }
             return; // success
         } else {
             printf("\nCompile failed with return code 0 (Expected failure):\n");
-            print_compiler_invokation(test_case, &zig_stderr);
+            print_compiler_invocation(test_case, &zig_stderr);
             exit(1);
         }
     }
 
     if (return_code != 0) {
         printf("\nCompile failed with return code %d:\n", return_code);
-        print_compiler_invokation(test_case, &zig_stderr);
+        print_compiler_invocation(test_case, &zig_stderr);
         exit(1);
     }
 
