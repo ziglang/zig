@@ -45,7 +45,6 @@ make
  * variable declarations and assignment expressions
  * Type checking
  * loops
- * labels and goto
  * inline assembly and syscalls
  * conditional compilation and ability to check target platform and architecture
  * main function with command line arguments
@@ -110,7 +109,9 @@ PointerType : token(Star) token(Const) Type | token(Star) token(Mut) Type
 
 Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
 
-Statement : NonBlockExpression token(Semicolon) | BlockExpression
+Statement : Label | NonBlockExpression token(Semicolon) | BlockExpression
+
+Label: token(Symbol) token(Colon)
 
 Expression : BlockExpression | NonBlockExpression
 
@@ -162,7 +163,9 @@ FnCallExpression : PrimaryExpression token(LParen) list(Expression, token(Comma)
 
 PrefixOp : token(Not) | token(Dash) | token(Tilde)
 
-PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | token(Symbol)
+PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | token(Symbol) | Goto
+
+Goto: token(Goto) token(Symbol)
 
 GroupedExpression : token(LParen) Expression token(RParen)
 ```

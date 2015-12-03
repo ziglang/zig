@@ -95,6 +95,10 @@ const char *node_type_str(NodeType node_type) {
             return "Void";
         case NodeTypeIfExpr:
             return "IfExpr";
+        case NodeTypeLabel:
+            return "Label";
+        case NodeTypeGoto:
+            return "Label";
     }
     zig_unreachable();
 }
@@ -259,6 +263,12 @@ void ast_print(AstNode *node, int indent) {
             ast_print(node->data.if_expr.then_block, indent + 2);
             if (node->data.if_expr.else_node)
                 ast_print(node->data.if_expr.else_node, indent + 2);
+            break;
+        case NodeTypeLabel:
+            fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.label.name));
+            break;
+        case NodeTypeGoto:
+            fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.go_to.name));
             break;
     }
 }
@@ -581,7 +591,7 @@ static AstNode *ast_parse_grouped_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | token(Symbol)
+PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | token(Symbol) | Goto
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -608,6 +618,16 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
         ast_buf_from_token(pc, token, &node->data.symbol);
         *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordGoto) {
+        AstNode *node = ast_create_node(pc, NodeTypeGoto, token);
+        *token_index += 1;
+
+        Token *dest_symbol = &pc->tokens->at(*token_index);
+        *token_index += 1;
+        ast_expect_token(pc, dest_symbol, TokenIdSymbol);
+
+        ast_buf_from_token(pc, dest_symbol, &node->data.go_to.name);
         return node;
     }
 
@@ -1181,7 +1201,36 @@ static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool ma
 }
 
 /*
-Statement : NonBlockExpression token(Semicolon) | BlockExpression
+Label: token(Symbol) token(Colon)
+*/
+static AstNode *ast_parse_label(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *symbol_token = &pc->tokens->at(*token_index);
+    if (symbol_token->id != TokenIdSymbol) {
+        if (mandatory) {
+            ast_invalid_token_error(pc, symbol_token);
+        } else {
+            return nullptr;
+        }
+    }
+
+    Token *colon_token = &pc->tokens->at(*token_index + 1);
+    if (colon_token->id != TokenIdColon) {
+        if (mandatory) {
+            ast_invalid_token_error(pc, colon_token);
+        } else {
+            return nullptr;
+        }
+    }
+
+    *token_index += 2;
+
+    AstNode *node = ast_create_node(pc, NodeTypeLabel, symbol_token);
+    ast_buf_from_token(pc, symbol_token, &node->data.label.name);
+    return node;
+}
+
+/*
+Statement : Label | NonBlockExpression token(Semicolon) | BlockExpression
 Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
 */
 static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandatory) {
@@ -1204,12 +1253,18 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
     // {2;} -> {2;void}
     // {;2} -> {void;2}
     for (;;) {
-        AstNode *statement_node = ast_parse_block_expr(pc, token_index, false);
-        bool semicolon_expected = !statement_node;
-        if (!statement_node) {
-            statement_node = ast_parse_non_block_expr(pc, token_index, false);
+        AstNode *statement_node = ast_parse_label(pc, token_index, false);
+        bool semicolon_expected;
+        if (statement_node) {
+            semicolon_expected = false;
+        } else {
+            statement_node = ast_parse_block_expr(pc, token_index, false);
+            semicolon_expected = !statement_node;
             if (!statement_node) {
-                statement_node = ast_create_node(pc, NodeTypeVoid, last_token);
+                statement_node = ast_parse_non_block_expr(pc, token_index, false);
+                if (!statement_node) {
+                    statement_node = ast_create_node(pc, NodeTypeVoid, last_token);
+                }
             }
         }
         node->data.block.statements.append(statement_node);

@@ -255,6 +255,19 @@ void LLVMZigDIBuilderFinalize(LLVMZigDIBuilder *dibuilder) {
     reinterpret_cast<DIBuilder*>(dibuilder)->finalize();
 }
 
+LLVMZigInsertionPoint *LLVMZigSaveInsertPoint(LLVMBuilderRef builder_wrapped) {
+    IRBuilderBase::InsertPoint *ip = new IRBuilderBase::InsertPoint();
+    *ip = unwrap(builder_wrapped)->saveIP();
+    return reinterpret_cast<LLVMZigInsertionPoint*>(ip);
+}
+
+void LLVMZigRestoreInsertPoint(LLVMBuilderRef builder, LLVMZigInsertionPoint *ip_wrapped) {
+    IRBuilderBase::InsertPoint *ip = reinterpret_cast<IRBuilderBase::InsertPoint*>(ip_wrapped);
+    unwrap(builder)->restoreIP(*ip);
+}
+
+//------------------------------------
+
 enum FloatAbi {
     FloatAbiHard,
     FloatAbiSoft,

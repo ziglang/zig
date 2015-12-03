@@ -6,7 +6,18 @@ extern {
     fn exit(code: i32) -> unreachable;
 }
 
+fn loop(a : i32) {
+    if a == 0 {
+        goto done;
+    }
+    puts("loop");
+    loop(a - 1);
+
+done:
+    return;
+}
+
 export fn _start() -> unreachable {
-    puts("Hello, world!");
+    loop(3);
     exit(0);
 }

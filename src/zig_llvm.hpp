@@ -22,6 +22,7 @@ struct LLVMZigDIFile;
 struct LLVMZigDILexicalBlock;
 struct LLVMZigDISubprogram;
 struct LLVMZigDISubroutineType;
+struct LLVMZigInsertionPoint;
 
 void LLVMZigInitializeLoopStrengthReducePass(LLVMPassRegistryRef R);
 void LLVMZigInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R);
@@ -74,6 +75,9 @@ LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigD
         unsigned flags, bool is_optimized, LLVMValueRef function);
 
 void LLVMZigDIBuilderFinalize(LLVMZigDIBuilder *dibuilder);
+
+LLVMZigInsertionPoint *LLVMZigSaveInsertPoint(LLVMBuilderRef builder);
+void LLVMZigRestoreInsertPoint(LLVMBuilderRef builder, LLVMZigInsertionPoint *point);
 
 
 /*

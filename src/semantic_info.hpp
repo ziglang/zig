@@ -43,6 +43,11 @@ struct SymbolTableEntry {
     int param_index; // only valid in the case of parameters
 };
 
+struct LabelTableEntry {
+    AstNode *label_node;
+    LLVMBasicBlockRef basic_block;
+};
+
 struct FnTableEntry {
     LLVMValueRef fn_value;
     AstNode *proto_node;
@@ -54,6 +59,7 @@ struct FnTableEntry {
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, SymbolTableEntry *, buf_hash, buf_eql_buf> symbol_table;
+    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
 };
 
 struct CodeGen {
@@ -100,6 +106,7 @@ struct CodeGen {
 
     OutType out_type;
     FnTableEntry *cur_fn;
+    LLVMBasicBlockRef cur_basic_block;
     bool c_stdint_used;
     AstNode *root_export_decl;
     int version_major;
@@ -132,9 +139,10 @@ struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
         FnDefNode fn_def_node; // for NodeTypeFnDef
-        ExprNode expr_node; // for all the expression nodes
         FnProtoNode fn_proto_node; // for NodeTypeFnProto
+        LabelTableEntry *label_entry; // for NodeTypeGoto and NodeTypeLabel
     } data;
+    ExprNode expr_node; // for all the expression nodes
 };
 
 static inline Buf *hack_get_fn_call_name(CodeGen *g, AstNode *node) {

@@ -41,6 +41,8 @@ enum NodeType {
     NodeTypeUse,
     NodeTypeVoid,
     NodeTypeIfExpr,
+    NodeTypeLabel,
+    NodeTypeGoto,
 };
 
 struct AstNodeRoot {
@@ -182,6 +184,14 @@ struct AstNodeIfExpr {
     AstNode *else_node; // null, block node, or other if expr node
 };
 
+struct AstNodeLabel {
+    Buf name;
+};
+
+struct AstNodeGoto {
+    Buf name;
+};
+
 struct AstNode {
     enum NodeType type;
     int line;
@@ -207,6 +217,8 @@ struct AstNode {
         AstNodeFnCallExpr fn_call_expr;
         AstNodeUse use;
         AstNodeIfExpr if_expr;
+        AstNodeLabel label;
+        AstNodeGoto go_to;
         Buf number;
         Buf string;
         Buf symbol;

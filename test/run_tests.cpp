@@ -232,6 +232,30 @@ static void add_compiling_test_cases(void) {
             exit(0);
         }
     )SOURCE", "pass\n");
+
+    add_simple_case("goto", R"SOURCE(
+        #link("c")
+        extern {
+            fn puts(s: *const u8) -> i32;
+            fn exit(code: i32) -> unreachable;
+        }
+
+        fn loop(a : i32) {
+            if a == 0 {
+                goto done;
+            }
+            puts("loop");
+            loop(a - 1);
+
+        done:
+            return;
+        }
+
+        export fn _start() -> unreachable {
+            loop(3);
+            exit(0);
+        }
+    )SOURCE", "loop\nloop\nloop\n");
 }
 
 static void add_compile_failure_test_cases(void) {
@@ -305,6 +329,17 @@ fn a() {
     )SOURCE", 2,
             ".tmp_source.zig:3:5: error: use of undeclared identifier 'b'",
             ".tmp_source.zig:4:5: error: use of undeclared identifier 'c'");
+
+    add_compile_fail_case("goto cause unreachable code", R"SOURCE(
+fn a() {
+    goto done;
+    b();
+done:
+    return;
+}
+fn b() {}
+    )SOURCE", 1, ".tmp_source.zig:4:5: error: unreachable code");
+
 }
 
 static void print_compiler_invokation(TestCase *test_case, Buf *zig_stderr) {

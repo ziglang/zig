@@ -131,6 +131,25 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     resolve_type(g, node->data.fn_proto.return_type);
 }
 
+static void preview_function_labels(CodeGen *g, AstNode *node, FnTableEntry *fn_table_entry) {
+    assert(node->type == NodeTypeBlock);
+
+    for (int i = 0; i < node->data.block.statements.length; i += 1) {
+        AstNode *label_node = node->data.block.statements.at(i);
+        if (label_node->type != NodeTypeLabel)
+            continue;
+
+        LabelTableEntry *label_entry = allocate<LabelTableEntry>(1);
+        label_entry->label_node = label_node;
+        Buf *name = &label_node->data.label.name;
+        fn_table_entry->label_table.put(name, label_entry);
+
+        assert(!label_node->codegen_node);
+        label_node->codegen_node = allocate<CodeGenNode>(1);
+        label_node->codegen_node->data.label_entry = label_entry;
+    }
+}
+
 static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeExternBlock:
@@ -158,6 +177,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 fn_table_entry->calling_convention = LLVMCCallConv;
                 fn_table_entry->import_entry = import;
                 fn_table_entry->symbol_table.init(8);
+                fn_table_entry->label_table.init(8);
 
                 resolve_function_proto(g, fn_proto, fn_table_entry);
 
@@ -208,6 +228,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                     fn_table_entry->internal_linkage = is_internal;
                     fn_table_entry->calling_convention = is_internal ? LLVMFastCallConv : LLVMCCallConv;
                     fn_table_entry->symbol_table.init(8);
+                    fn_table_entry->label_table.init(8);
 
                     g->fn_protos.append(fn_table_entry);
                     g->fn_defs.append(fn_table_entry);
@@ -222,6 +243,8 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                     assert(!proto_node->codegen_node);
                     proto_node->codegen_node = allocate<CodeGenNode>(1);
                     proto_node->codegen_node->data.fn_proto_node.fn_table_entry = fn_table_entry;
+
+                    preview_function_labels(g, node->data.fn_def.body, fn_table_entry);
                 }
             }
             break;
@@ -290,6 +313,8 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfExpr:
+        case NodeTypeLabel:
+        case NodeTypeGoto:
             zig_unreachable();
     }
 }
@@ -339,6 +364,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 return_type = g->builtin_types.entry_void;
                 for (int i = 0; i < node->data.block.statements.length; i += 1) {
                     AstNode *child = node->data.block.statements.at(i);
+                    if (child->type == NodeTypeLabel)
+                        continue;
                     if (return_type == g->builtin_types.entry_unreachable) {
                         if (child->type == NodeTypeVoid) {
                             // {unreachable;void;void} is allowed.
@@ -365,7 +392,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
                 if (actual_return_type == g->builtin_types.entry_unreachable) {
                     // "return exit(0)" should just be "exit(0)".
-                    add_node_error(g, node, buf_sprintf("returning is unreachable."));
+                    add_node_error(g, node, buf_sprintf("returning is unreachable"));
                     actual_return_type = g->builtin_types.entry_invalid;
                 }
 
@@ -373,7 +400,6 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 return_type = g->builtin_types.entry_unreachable;
                 break;
             }
-
         case NodeTypeVariableDeclaration:
             {
                 zig_panic("TODO: analyze variable declaration");
@@ -382,6 +408,21 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 break;
             }
 
+        case NodeTypeGoto:
+            {
+                FnTableEntry *fn_table_entry = get_context_fn_entry(context);
+                auto table_entry = fn_table_entry->label_table.maybe_get(&node->data.go_to.name);
+                if (table_entry) {
+                    assert(!node->codegen_node);
+                    node->codegen_node = allocate<CodeGenNode>(1);
+                    node->codegen_node->data.label_entry = table_entry->value;
+                } else {
+                    add_node_error(g, node,
+                            buf_sprintf("use of undeclared label '%s'", buf_ptr(&node->data.go_to.name)));
+                }
+                return_type = g->builtin_types.entry_unreachable;
+                break;
+            }
         case NodeTypeBinOpExpr:
             {
                 switch (node->data.bin_op_expr.bin_op) {
@@ -563,8 +604,18 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 TypeTableEntry *then_type = analyze_expression(g, import, context, expected_type,
                         node->data.if_expr.then_block);
 
-                check_type_compatibility(g, node, expected_type, else_type);
-                return_type = then_type;
+                TypeTableEntry *primary_type;
+                TypeTableEntry *other_type;
+                if (then_type == g->builtin_types.entry_unreachable) {
+                    primary_type = else_type;
+                    other_type = then_type;
+                } else {
+                    primary_type = then_type;
+                    other_type = else_type;
+                }
+
+                check_type_compatibility(g, node, expected_type, other_type);
+                return_type = primary_type;
                 break;
             }
         case NodeTypeDirective:
@@ -577,14 +628,19 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeExternBlock:
         case NodeTypeFnDef:
         case NodeTypeUse:
+        case NodeTypeLabel:
             zig_unreachable();
     }
     assert(return_type);
     check_type_compatibility(g, node, expected_type, return_type);
 
-    assert(!node->codegen_node);
-    node->codegen_node = allocate<CodeGenNode>(1);
-    node->codegen_node->data.expr_node.type_entry = return_type;
+    if (node->codegen_node) {
+        assert(node->type == NodeTypeGoto);
+    } else {
+        assert(node->type != NodeTypeGoto);
+        node->codegen_node = allocate<CodeGenNode>(1);
+    }
+    node->codegen_node->expr_node.type_entry = return_type;
 
     return return_type;
 }
@@ -652,6 +708,8 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfExpr:
+        case NodeTypeLabel:
+        case NodeTypeGoto:
             zig_unreachable();
     }
 }

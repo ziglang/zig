@@ -9,6 +9,7 @@
 #include "buffer.hpp"
 #include "codegen.hpp"
 #include "os.hpp"
+#include "error.hpp"
 
 #include <stdio.h>
 
@@ -48,6 +49,8 @@ struct Build {
 };
 
 static int build(const char *arg0, Build *b) {
+    int err;
+
     if (!b->in_file)
         return usage(arg0);
 
@@ -59,11 +62,17 @@ static int build(const char *arg0, Build *b) {
     Buf root_source_name = BUF_INIT;
     if (buf_eql_str(&in_file_buf, "-")) {
         os_get_cwd(&root_source_dir);
-        os_fetch_file(stdin, &root_source_code);
+        if ((err = os_fetch_file(stdin, &root_source_code))) {
+            fprintf(stderr, "unable to read stdin: %s\n", err_str(err));
+            return 1;
+        }
         buf_init_from_str(&root_source_name, "");
     } else {
         os_path_split(&in_file_buf, &root_source_dir, &root_source_name);
-        os_fetch_file_path(buf_create_from_str(b->in_file), &root_source_code);
+        if ((err = os_fetch_file_path(buf_create_from_str(b->in_file), &root_source_code))) {
+            fprintf(stderr, "unable to open '%s': %s\n", b->in_file, err_str(err));
+            return 1;
+        }
     }
 
     CodeGen *g = codegen_create(&root_source_dir);
