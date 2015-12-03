@@ -11,12 +11,6 @@
 #include "zig_llvm.hpp"
 #include "os.hpp"
 
-struct BlockContext {
-    AstNode *node;
-    BlockContext *root;
-    BlockContext *parent;
-};
-
 void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     ErrorMsg *err = allocate<ErrorMsg>(1);
     err->line_start = node->line;
@@ -75,6 +69,7 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
 }
 
 static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeType);
     assert(!node->codegen_node);
     node->codegen_node = allocate<CodeGenNode>(1);
     TypeNode *type_node = &node->codegen_node->data.type_node;
@@ -353,6 +348,30 @@ static void check_type_compatibility(CodeGen *g, AstNode *node, TypeTableEntry *
     add_node_error(g, node, buf_sprintf("type mismatch. expected %s. got %s", buf_ptr(&expected_type->name), buf_ptr(&actual_type->name)));
 }
 
+static BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
+    BlockContext *context = allocate<BlockContext>(1);
+    context->node = node;
+    context->parent = parent;
+    if (parent != nullptr)
+        context->root = parent->root;
+    else
+        context->root = context;
+    context->variable_table.init(8);
+    return context;
+}
+
+static LocalVariableTableEntry *find_local_variable(BlockContext *context, Buf *name) {
+    while (true) {
+        auto entry = context->variable_table.maybe_get(name);
+        if (entry != nullptr)
+            return entry->value;
+
+        context = context->parent;
+        if (context == nullptr)
+            return nullptr;
+    }
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -360,7 +379,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
     switch (node->type) {
         case NodeTypeBlock:
             {
-                // TODO: nested block scopes
+                BlockContext *child_context = new_block_context(node, context);
                 return_type = g->builtin_types.entry_void;
                 for (int i = 0; i < node->data.block.statements.length; i += 1) {
                     AstNode *child = node->data.block.statements.at(i);
@@ -375,7 +394,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                         add_node_error(g, child, buf_sprintf("unreachable code"));
                         break;
                     }
-                    return_type = analyze_expression(g, import, context, nullptr, child);
+                    return_type = analyze_expression(g, import, child_context, nullptr, child);
                 }
                 break;
             }
@@ -402,8 +421,27 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             }
         case NodeTypeVariableDeclaration:
             {
-                zig_panic("TODO: analyze variable declaration");
+                AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;;
 
+                TypeTableEntry *explicit_type = variable_declaration->type != nullptr ?
+                    resolve_type(g, variable_declaration->type) : nullptr;
+
+                TypeTableEntry *implicit_type = variable_declaration->expr != nullptr ?
+                    analyze_expression(g, import, context, explicit_type, variable_declaration->expr) : nullptr;
+
+                TypeTableEntry *type = explicit_type != nullptr ? explicit_type : implicit_type;
+                assert(type != nullptr); // should have been caught by the parser
+
+                LocalVariableTableEntry *existing_variable = find_local_variable(context, &variable_declaration->symbol);
+                if (existing_variable) {
+                    add_node_error(g, node, buf_sprintf("redeclaration of variable '%s'.",
+                        buf_ptr(&variable_declaration->symbol)));
+                } else {
+                    LocalVariableTableEntry *variable_entry = allocate<LocalVariableTableEntry>(1);
+                    buf_init_from_buf(&variable_entry->name, &variable_declaration->symbol);
+                    variable_entry->type = type;
+                    context->variable_table.put(&variable_entry->name, variable_entry);
+                }
                 return_type = g->builtin_types.entry_void;
                 break;
             }
@@ -641,6 +679,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         node->codegen_node = allocate<CodeGenNode>(1);
     }
     node->codegen_node->expr_node.type_entry = return_type;
+    node->codegen_node->expr_node.block_context = context;
 
     return return_type;
 }
@@ -658,19 +697,40 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                 AstNode *fn_proto_node = node->data.fn_def.fn_proto;
                 assert(fn_proto_node->type == NodeTypeFnProto);
 
+                BlockContext *context = new_block_context(node, nullptr);
+
                 AstNodeFnProto *fn_proto = &fn_proto_node->data.fn_proto;
                 for (int i = 0; i < fn_proto->params.length; i += 1) {
                     AstNode *param_decl_node = fn_proto->params.at(i);
                     assert(param_decl_node->type == NodeTypeParamDecl);
-                    // TODO: define local variables for parameters
+
+                    // define local variables for parameters
+                    AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
+                    assert(param_decl->type->type == NodeTypeType);
+                    TypeTableEntry *type = param_decl->type->codegen_node->data.type_node.entry;
+
+                    LocalVariableTableEntry *variable_entry = allocate<LocalVariableTableEntry>(1);
+                    buf_init_from_buf(&variable_entry->name, &param_decl->name);
+                    variable_entry->type = type;
+
+                    LocalVariableTableEntry *existing_entry = find_local_variable(context, &variable_entry->name);
+                    if (!existing_entry) {
+                        // unique definition
+                        context->variable_table.put(&variable_entry->name, variable_entry);
+                    } else {
+                        add_node_error(g, node, buf_sprintf("redeclaration of parameter '%s'.",
+                            buf_ptr(&existing_entry->name)));
+                        if (existing_entry->type == variable_entry->type) {
+                            // types agree, so the type is probably good enough for the rest of analysis
+                        } else {
+                            // types disagree. don't trust either one of them.
+                            existing_entry->type = g->builtin_types.entry_invalid;;
+                        }
+                    }
                 }
 
-                BlockContext context;
-                context.node = node;
-                context.root = &context;
-                context.parent = nullptr;
                 TypeTableEntry *expected_type = fn_proto->return_type->codegen_node->data.type_node.entry;
-                TypeTableEntry *block_return_type = analyze_expression(g, import, &context, expected_type, node->data.fn_def.body);
+                TypeTableEntry *block_return_type = analyze_expression(g, import, context, expected_type, node->data.fn_def.body);
 
                 node->codegen_node = allocate<CodeGenNode>(1);
                 node->codegen_node->data.fn_def_node.implicit_return_type = block_return_type;

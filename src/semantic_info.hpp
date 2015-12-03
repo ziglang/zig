@@ -117,6 +117,18 @@ struct CodeGen {
     ImportTableEntry *root_import;
 };
 
+struct LocalVariableTableEntry {
+    Buf name;
+    TypeTableEntry *type;
+};
+
+struct BlockContext {
+    AstNode *node; // either NodeTypeFnDef or NodeTypeBlock
+    BlockContext *root; // always points to the BlockContext with the NodeTypeFnDef
+    BlockContext *parent; // nullptr when this is the root
+    HashMap<Buf *, LocalVariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
+};
+
 struct TypeNode {
     TypeTableEntry *entry;
 };
@@ -133,6 +145,9 @@ struct FnDefNode {
 
 struct ExprNode {
     TypeTableEntry *type_entry;
+    // the context in which this expression is evaluated.
+    // for blocks, this points to the containing scope, not the block's own scope for its children.
+    BlockContext *block_context;
 };
 
 struct CodeGenNode {
