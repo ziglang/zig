@@ -297,6 +297,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeStringLiteral:
         case NodeTypeUnreachable:
         case NodeTypeVoid:
+        case NodeTypeBoolLiteral:
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
@@ -592,6 +593,10 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             return_type = g->builtin_types.entry_void;
             break;
 
+        case NodeTypeBoolLiteral:
+            return_type = g->builtin_types.entry_bool;
+            break;
+
         case NodeTypeSymbol:
             {
                 Buf *symbol_name = &node->data.symbol;
@@ -766,6 +771,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeStringLiteral:
         case NodeTypeUnreachable:
         case NodeTypeVoid:
+        case NodeTypeBoolLiteral:
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:

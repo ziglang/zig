@@ -40,6 +40,7 @@ enum NodeType {
     NodeTypeFnCallExpr,
     NodeTypeUse,
     NodeTypeVoid,
+    NodeTypeBoolLiteral,
     NodeTypeIfExpr,
     NodeTypeLabel,
     NodeTypeGoto,
@@ -222,6 +223,7 @@ struct AstNode {
         Buf number;
         Buf string;
         Buf symbol;
+        bool bool_literal;
     } data;
 };
 

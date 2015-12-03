@@ -163,11 +163,13 @@ FnCallExpression : PrimaryExpression token(LParen) list(Expression, token(Comma)
 
 PrefixOp : token(Not) | token(Dash) | token(Tilde)
 
-PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | token(Symbol) | Goto
+PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | token(Symbol) | Goto
 
 Goto: token(Goto) token(Symbol)
 
 GroupedExpression : token(LParen) Expression token(RParen)
+
+KeywordLiteral : token(Unreachable) | token(Void) | token(True) | token(False)
 ```
 
 ### Operator Precedence

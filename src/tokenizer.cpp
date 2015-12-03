@@ -185,6 +185,10 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordUse;
     } else if (mem_eql_str(token_mem, token_len, "void")) {
         t->cur_tok->id = TokenIdKeywordVoid;
+    } else if (mem_eql_str(token_mem, token_len, "true")) {
+        t->cur_tok->id = TokenIdKeywordTrue;
+    } else if (mem_eql_str(token_mem, token_len, "false")) {
+        t->cur_tok->id = TokenIdKeywordFalse;
     } else if (mem_eql_str(token_mem, token_len, "if")) {
         t->cur_tok->id = TokenIdKeywordIf;
     } else if (mem_eql_str(token_mem, token_len, "else")) {
@@ -586,6 +590,8 @@ static const char * token_name(Token *token) {
         case TokenIdKeywordAs: return "As";
         case TokenIdKeywordUse: return "Use";
         case TokenIdKeywordVoid: return "Void";
+        case TokenIdKeywordTrue: return "True";
+        case TokenIdKeywordFalse: return "False";
         case TokenIdKeywordIf: return "If";
         case TokenIdKeywordElse: return "Else";
         case TokenIdKeywordGoto: return "Goto";

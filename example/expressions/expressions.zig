@@ -4,6 +4,12 @@ extern {
     fn exit(code: i32) -> unreachable;
 }
 
+fn other_exit() -> unreachable {
+    if (true) { exit(0); }
+    // the unreachable statement is the programmer assuring the compiler that this code is impossible to execute.
+    unreachable;
+}
+
 export fn _start() -> unreachable {
     let a : i32 = 1;
     let b = 2;
@@ -19,5 +25,5 @@ export fn _start() -> unreachable {
         no_conflict
     };
     if (c == 10) { puts("OK 2"); }
-    exit(0);
+    other_exit();
 }

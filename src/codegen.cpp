@@ -487,6 +487,11 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return LLVMBuildUnreachable(g->builder);
         case NodeTypeVoid:
             return nullptr;
+        case NodeTypeBoolLiteral:
+            if (node->data.bool_literal)
+                return LLVMConstAllOnes(LLVMInt1Type());
+            else
+                return LLVMConstNull(LLVMInt1Type());
         case NodeTypeIfExpr:
             return gen_if_expr(g, node);
         case NodeTypeNumberLiteral:

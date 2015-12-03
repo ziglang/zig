@@ -25,6 +25,8 @@ enum TokenId {
     TokenIdKeywordAs,
     TokenIdKeywordUse,
     TokenIdKeywordVoid,
+    TokenIdKeywordTrue,
+    TokenIdKeywordFalse,
     TokenIdKeywordIf,
     TokenIdKeywordElse,
     TokenIdKeywordGoto,

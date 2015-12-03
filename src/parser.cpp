@@ -93,6 +93,8 @@ const char *node_type_str(NodeType node_type) {
             return "Use";
         case NodeTypeVoid:
             return "Void";
+        case NodeTypeBoolLiteral:
+            return "BoolLiteral";
         case NodeTypeIfExpr:
             return "IfExpr";
         case NodeTypeLabel:
@@ -255,6 +257,9 @@ void ast_print(AstNode *node, int indent) {
             break;
         case NodeTypeVoid:
             fprintf(stderr, "%s\n", node_type_str(node->type));
+            break;
+        case NodeTypeBoolLiteral:
+            fprintf(stderr, "%s '%s'\n", node_type_str(node->type), node->data.bool_literal ? "true" : "false");
             break;
         case NodeTypeIfExpr:
             fprintf(stderr, "%s\n", node_type_str(node->type));
@@ -457,6 +462,12 @@ static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token
     } else if (token->id == TokenIdKeywordVoid) {
         node->data.type.type = AstNodeTypeTypePrimitive;
         buf_init_from_str(&node->data.type.primitive_name, "void");
+    } else if (token->id == TokenIdKeywordTrue) {
+        node->data.type.type = AstNodeTypeTypePrimitive;
+        buf_init_from_str(&node->data.type.primitive_name, "true");
+    } else if (token->id == TokenIdKeywordFalse) {
+        node->data.type.type = AstNodeTypeTypePrimitive;
+        buf_init_from_str(&node->data.type.primitive_name, "false");
     } else if (token->id == TokenIdSymbol) {
         node->data.type.type = AstNodeTypeTypePrimitive;
         ast_buf_from_token(pc, token, &node->data.type.primitive_name);
@@ -612,6 +623,16 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         return node;
     } else if (token->id == TokenIdKeywordVoid) {
         AstNode *node = ast_create_node(pc, NodeTypeVoid, token);
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordTrue) {
+        AstNode *node = ast_create_node(pc, NodeTypeBoolLiteral, token);
+        node->data.bool_literal = true;
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordFalse) {
+        AstNode *node = ast_create_node(pc, NodeTypeBoolLiteral, token);
+        node->data.bool_literal = false;
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdSymbol) {
