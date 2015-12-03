@@ -311,6 +311,26 @@ export fn _start() -> unreachable {
     exit(0);
 }
     )SOURCE", "OK 1\nOK 2\n");
+
+    add_simple_case("void parameters", R"SOURCE(
+#link("c")
+extern {
+    fn puts(s: *const u8) -> i32;
+    fn exit(code: i32) -> unreachable;
+}
+
+export fn _start() -> unreachable {
+    void_fun(1, void, 2);
+    exit(0);
+}
+
+fn void_fun(a : i32, b : void, c : i32) {
+    let v = b;
+    let vv : void = if (a == 1) {v} else {};
+    if (a + c == 3) { puts("OK"); }
+    return vv;
+}
+    )SOURCE", "OK\n");
 }
 
 static void add_compile_failure_test_cases(void) {
