@@ -256,6 +256,23 @@ static void add_compiling_test_cases(void) {
             exit(0);
         }
     )SOURCE", "loop\nloop\nloop\n");
+
+    add_simple_case("local variables", R"SOURCE(
+#link("c")
+extern {
+    fn puts(s: *const u8) -> i32;
+    fn exit(code: i32) -> unreachable;
+}
+
+export fn _start() -> unreachable {
+    let a : i32 = 1;
+    let b = 2;
+    if (a + b == 3) {
+        puts("OK");
+    }
+    exit(0);
+}
+    )SOURCE", "OK\n");
 }
 
 static void add_compile_failure_test_cases(void) {
@@ -339,6 +356,31 @@ done:
 }
 fn b() {}
     )SOURCE", 1, ".tmp_source.zig:4:5: error: unreachable code");
+
+    add_compile_fail_case("parameter redeclaration", R"SOURCE(
+fn f(a : i32, a : i32) {
+}
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: redeclaration of parameter 'a'.");
+
+    add_compile_fail_case("local variable redeclaration", R"SOURCE(
+fn f() {
+    let a : i32 = 0;
+    let a = 0;
+}
+    )SOURCE", 1, ".tmp_source.zig:4:5: error: redeclaration of variable 'a'.");
+
+    add_compile_fail_case("local variable redeclares parameter", R"SOURCE(
+fn f(a : i32) {
+    let a = 0;
+}
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: redeclaration of variable 'a'.");
+
+    add_compile_fail_case("variable has wrong type", R"SOURCE(
+fn f() -> i32 {
+    let a = "a";
+    a
+}
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: type mismatch. expected i32. got *const u8");
 
 }
 
