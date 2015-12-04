@@ -42,7 +42,7 @@ make
 
 ## Roadmap
 
- * unreachable <--> noreturn attribute
+ * parseh: unreachable <--> noreturn attribute
  * error for extern function with void parameter
  * unused label error
  * loops

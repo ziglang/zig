@@ -17,6 +17,7 @@ struct Fn {
 };
 
 struct ParseH {
+    CXTranslationUnit tu;
     FILE *f;
     ZigList<Fn *> fn_list;
     Fn *cur_fn;
@@ -243,17 +244,25 @@ static bool is_storage_class_export(CX_StorageClass storage_class) {
     zig_unreachable();
 }
 
-static void begin_fn(ParseH *p) {
-    assert(!p->cur_fn);
-    p->cur_fn = allocate<Fn>(1);
-}
+static enum CXChildVisitResult visit_fn_children(CXCursor cursor, CXCursor parent, CXClientData client_data) {
+    ParseH *p = (ParseH*)client_data;
+    enum CXCursorKind kind = clang_getCursorKind(cursor);
 
-static void end_fn(ParseH *p) {
-    if (p->cur_fn) {
-        p->fn_list.append(p->cur_fn);
-        p->cur_fn = nullptr;
+    switch (kind) {
+    case CXCursor_ParmDecl:
+        {
+            assert(p->cur_fn);
+            assert(p->arg_index < p->cur_fn->arg_count);
+            CXString name = clang_getCursorSpelling(cursor);
+            buf_init_from_str(&p->cur_fn->args[p->arg_index].name, clang_getCString(name));
+            p->arg_index += 1;
+            return CXChildVisit_Continue;
+        }
+    default:
+        return CXChildVisit_Recurse;
     }
 }
+
 
 static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXClientData client_data) {
     ParseH *p = (ParseH*)client_data;
@@ -282,8 +291,8 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
                 return CXChildVisit_Continue;
             }
 
-            end_fn(p);
-            begin_fn(p);
+            assert(!p->cur_fn);
+            p->cur_fn = allocate<Fn>(1);
 
             CXType return_type = clang_getResultType(fn_type);
             p->cur_fn->return_type = to_zig_type(p, return_type);
@@ -300,17 +309,13 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
 
             p->arg_index = 0;
 
+            clang_visitChildren(cursor, visit_fn_children, p);
+
+            p->fn_list.append(p->cur_fn);
+            p->cur_fn = nullptr;
+
             return CXChildVisit_Recurse;
         }
-    case CXCursor_ParmDecl:
-        {
-            assert(p->cur_fn);
-            assert(p->arg_index < p->cur_fn->arg_count);
-            buf_init_from_str(&p->cur_fn->args[p->arg_index].name, clang_getCString(name));
-            p->arg_index += 1;
-            return CXChildVisit_Continue;
-        }
-    case CXCursor_UnexposedAttr:
     case CXCursor_CompoundStmt:
     case CXCursor_FieldDecl:
     case CXCursor_TypedefDecl:
@@ -330,7 +335,6 @@ void parse_h_file(const char *target_path, ZigList<const char *> *clang_argv, FI
     ParseH parse_h = {0};
     ParseH *p = &parse_h;
     p->f = f;
-    CXTranslationUnit tu;
     CXIndex index = clang_createIndex(1, 0);
 
     char *ZIG_PARSEH_CFLAGS = getenv("ZIG_PARSEH_CFLAGS");
@@ -355,17 +359,17 @@ void parse_h_file(const char *target_path, ZigList<const char *> *clang_argv, FI
     enum CXErrorCode err_code;
     if ((err_code = clang_parseTranslationUnit2(index, target_path,
             clang_argv->items, clang_argv->length - 1,
-            NULL, 0, CXTranslationUnit_None, &tu)))
+            NULL, 0, CXTranslationUnit_None, &p->tu)))
     {
         zig_panic("parse translation unit failure");
     }
 
 
-    unsigned diag_count = clang_getNumDiagnostics(tu);
+    unsigned diag_count = clang_getNumDiagnostics(p->tu);
 
     if (diag_count > 0) {
         for (unsigned i = 0; i < diag_count; i += 1) {
-            CXDiagnostic diagnostic = clang_getDiagnostic(tu, i);
+            CXDiagnostic diagnostic = clang_getDiagnostic(p->tu, i);
             CXSourceLocation location = clang_getDiagnosticLocation(diagnostic);
 
             CXFile file;
@@ -381,9 +385,8 @@ void parse_h_file(const char *target_path, ZigList<const char *> *clang_argv, FI
     }
 
 
-    CXCursor cursor = clang_getTranslationUnitCursor(tu);
+    CXCursor cursor = clang_getTranslationUnitCursor(p->tu);
     clang_visitChildren(cursor, fn_visitor, p);
-    end_fn(p);
 
     if (p->fn_list.length) {
         fprintf(f, "extern {\n");
