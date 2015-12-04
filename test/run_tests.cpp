@@ -418,20 +418,20 @@ fn b() {}
     add_compile_fail_case("parameter redeclaration", R"SOURCE(
 fn f(a : i32, a : i32) {
 }
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: redeclaration of parameter 'a'.");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: redeclaration of parameter 'a'");
 
     add_compile_fail_case("local variable redeclaration", R"SOURCE(
 fn f() {
     let a : i32 = 0;
     let a = 0;
 }
-    )SOURCE", 1, ".tmp_source.zig:4:5: error: redeclaration of variable 'a'.");
+    )SOURCE", 1, ".tmp_source.zig:4:5: error: redeclaration of variable 'a'");
 
     add_compile_fail_case("local variable redeclares parameter", R"SOURCE(
 fn f(a : i32) {
     let a = 0;
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: redeclaration of variable 'a'.");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: redeclaration of variable 'a'");
 
     add_compile_fail_case("variable has wrong type", R"SOURCE(
 fn f() -> i32 {
@@ -450,17 +450,21 @@ fn f() {
 fn f() {
     let a = return;
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: variable initialization is unreachable.");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: variable initialization is unreachable");
 
     add_compile_fail_case("unreachable variable", R"SOURCE(
 fn f() {
     let a : unreachable = return;
 }
-    )SOURCE", 1, ".tmp_source.zig:3:13: error: variable of type 'unreachable' is not allowed.");
+    )SOURCE", 1, ".tmp_source.zig:3:13: error: variable of type 'unreachable' not allowed");
 
     add_compile_fail_case("unreachable parameter", R"SOURCE(
 fn f(a : unreachable) {}
-    )SOURCE", 1, ".tmp_source.zig:2:10: error: parameter of type 'unreachable' is not allowed.");
+    )SOURCE", 1, ".tmp_source.zig:2:10: error: parameter of type 'unreachable' not allowed");
+
+    add_compile_fail_case("exporting a void parameter", R"SOURCE(
+export fn f(a : void) {}
+    )SOURCE", 1, ".tmp_source.zig:2:17: error: parameter of type 'void' not allowed on exported functions");
 
 }
 

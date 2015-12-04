@@ -115,7 +115,16 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
         AstNode *child = node->data.fn_proto.params.at(i);
         assert(child->type == NodeTypeParamDecl);
-        resolve_type(g, child->data.param_decl.type);
+        TypeTableEntry *type_entry = resolve_type(g, child->data.param_decl.type);
+        if (type_entry == g->builtin_types.entry_unreachable) {
+            add_node_error(g, child->data.param_decl.type,
+                buf_sprintf("parameter of type 'unreachable' not allowed"));
+        } else if (type_entry == g->builtin_types.entry_void) {
+            if (node->data.fn_proto.visib_mod == FnProtoVisibModExport) {
+                add_node_error(g, child->data.param_decl.type,
+                    buf_sprintf("parameter of type 'void' not allowed on exported functions"));
+            }
+        }
     }
 
     resolve_type(g, node->data.fn_proto.return_type);
@@ -423,18 +432,18 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     resolve_type(g, variable_declaration->type) : nullptr;
                 if (explicit_type == g->builtin_types.entry_unreachable) {
                     add_node_error(g, variable_declaration->type,
-                        buf_sprintf("variable of type 'unreachable' is not allowed."));
+                        buf_sprintf("variable of type 'unreachable' not allowed"));
                 }
 
                 TypeTableEntry *implicit_type = variable_declaration->expr != nullptr ?
                     analyze_expression(g, import, context, explicit_type, variable_declaration->expr) : nullptr;
                 if (implicit_type == g->builtin_types.entry_unreachable) {
                     add_node_error(g, node,
-                        buf_sprintf("variable initialization is unreachable."));
+                        buf_sprintf("variable initialization is unreachable"));
                 }
 
                 if (implicit_type == nullptr) {
-                    add_node_error(g, node, buf_sprintf("initial values are required for variable declaration."));
+                    add_node_error(g, node, buf_sprintf("initial values are required for variable declaration"));
                 }
 
                 TypeTableEntry *type = explicit_type != nullptr ? explicit_type : implicit_type;
@@ -443,7 +452,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 LocalVariableTableEntry *existing_variable = find_local_variable(context, &variable_declaration->symbol);
                 if (existing_variable) {
                     add_node_error(g, node,
-                        buf_sprintf("redeclaration of variable '%s'.", buf_ptr(&variable_declaration->symbol)));
+                        buf_sprintf("redeclaration of variable '%s'", buf_ptr(&variable_declaration->symbol)));
                 } else {
                     LocalVariableTableEntry *variable_entry = allocate<LocalVariableTableEntry>(1);
                     buf_init_from_buf(&variable_entry->name, &variable_declaration->symbol);
@@ -722,11 +731,6 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                     AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
                     assert(param_decl->type->type == NodeTypeType);
                     TypeTableEntry *type = param_decl->type->codegen_node->data.type_node.entry;
-
-                    if (type == g->builtin_types.entry_unreachable) {
-                        add_node_error(g, param_decl->type,
-                            buf_sprintf("parameter of type 'unreachable' is not allowed."));
-                    }
 
                     LocalVariableTableEntry *variable_entry = allocate<LocalVariableTableEntry>(1);
                     buf_init_from_buf(&variable_entry->name, &param_decl->name);

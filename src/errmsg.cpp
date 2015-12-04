@@ -19,7 +19,9 @@ void print_err_msg(ErrorMsg *err, ErrColor color) {
         assert(err->line_offsets);
 
         int line_start_offset = err->line_offsets->at(err->line_start);
-        int line_end_offset = err->line_offsets->at(err->line_start + 1);
+        int end_line = err->line_start + 1;
+        int line_end_offset = (end_line >= err->line_offsets->length) ?
+            buf_len(err->source) : err->line_offsets->at(err->line_start + 1);
 
         fwrite(buf_ptr(err->source) + line_start_offset, 1, line_end_offset - line_start_offset - 1, stderr);
         fprintf(stderr, "\n");
