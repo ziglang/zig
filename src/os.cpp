@@ -38,22 +38,24 @@ void os_spawn_process(const char *exe, ZigList<const char *> &args, bool detache
     zig_panic("execvp failed: %s", strerror(errno));
 }
 
-static void read_all_fd_stream(int fd, Buf *out_buf) {
+static int read_all_fd_stream(int fd, Buf *out_buf) {
     static const ssize_t buf_size = 0x2000;
     buf_resize(out_buf, buf_size);
     ssize_t actual_buf_len = 0;
     for (;;) {
         ssize_t amt_read = read(fd, buf_ptr(out_buf), buf_len(out_buf));
-        if (amt_read < 0)
-            zig_panic("fd read error");
+        if (amt_read < 0) {
+            return ErrorFileSystem;
+        }
         actual_buf_len += amt_read;
         if (amt_read == 0) {
             buf_resize(out_buf, actual_buf_len);
-            return;
+            return 0;
         }
 
         buf_resize(out_buf, actual_buf_len + buf_size);
     }
+    zig_unreachable();
 }
 
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
@@ -142,46 +144,7 @@ void os_write_file(Buf *full_path, Buf *contents) {
 }
 
 int os_fetch_file(FILE *f, Buf *out_contents) {
-    int fd = fileno(f);
-    struct stat st;
-    if (fstat(fd, &st)) {
-        switch (errno) {
-            case EACCES:
-                return ErrorAccess;
-            case ENOENT:
-                return ErrorFileNotFound;
-            case ENOMEM:
-                return ErrorSystemResources;
-            case EINTR:
-                return ErrorInterrupted;
-            case EINVAL:
-                zig_unreachable();
-            default:
-                return ErrorFileSystem;
-        }
-    }
-    off_t big_size = st.st_size;
-    if (big_size > INT_MAX) {
-        return ErrorFileTooBig;
-    }
-    int size = (int)big_size;
-
-    buf_resize(out_contents, size);
-    ssize_t ret = read(fd, buf_ptr(out_contents), size);
-
-    if (ret != size) {
-        switch (errno) {
-            case EINTR:
-                return ErrorInterrupted;
-            case EINVAL:
-            case EISDIR:
-                zig_unreachable();
-            default:
-                return ErrorFileSystem;
-        }
-    }
-
-    return 0;
+    return read_all_fd_stream(fileno(f), out_contents);
 }
 
 int os_fetch_file_path(Buf *full_path, Buf *out_contents) {
