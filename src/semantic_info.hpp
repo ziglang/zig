@@ -102,8 +102,6 @@ struct CodeGen {
     FnTableEntry *cur_fn;
     LLVMBasicBlockRef cur_basic_block;
     bool c_stdint_used;
-    bool c_unreachable_used;
-    Buf *c_unreachable_macro;
     AstNode *root_export_decl;
     int version_major;
     int version_minor;

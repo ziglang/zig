@@ -938,7 +938,7 @@ void codegen_add_root_code(CodeGen *g, Buf *source_path, Buf *source_code) {
     do_code_gen(g);
 }
 
-static Buf *to_c_type(CodeGen *g, AstNode *type_node) {
+static void to_c_type(CodeGen *g, AstNode *type_node, Buf *out_buf) {
     assert(type_node->type == NodeTypeType);
     assert(type_node->codegen_node);
 
@@ -947,13 +947,16 @@ static Buf *to_c_type(CodeGen *g, AstNode *type_node) {
 
     if (type_entry == g->builtin_types.entry_u8) {
         g->c_stdint_used = true;
-        return buf_create_from_str("uint8_t");
+        buf_init_from_str(out_buf, "uint8_t");
     } else if (type_entry == g->builtin_types.entry_i32) {
         g->c_stdint_used = true;
-        return buf_create_from_str("int32_t");
+        buf_init_from_str(out_buf, "int32_t");
     } else if (type_entry == g->builtin_types.entry_unreachable) {
-        g->c_unreachable_used = true;
-        return g->c_unreachable_macro;
+        buf_init_from_str(out_buf, "__attribute__((__noreturn__)) void");
+    } else if (type_entry == g->builtin_types.entry_bool) {
+        buf_init_from_str(out_buf, "unsigned char");
+    } else if (type_entry == g->builtin_types.entry_void) {
+        buf_init_from_str(out_buf, "void");
     } else {
         zig_panic("TODO to_c_type");
     }
@@ -971,9 +974,6 @@ static void generate_h_file(CodeGen *g) {
     Buf *extern_c_macro = buf_sprintf("%s_EXTERN_C", buf_ptr(g->root_out_name));
     buf_upcase(extern_c_macro);
 
-    g->c_unreachable_macro = buf_sprintf("%s_UNREACHABLE", buf_ptr(g->root_out_name));
-    buf_upcase(g->c_unreachable_macro);
-
     Buf h_buf = BUF_INIT;
     buf_resize(&h_buf, 0);
     for (int fn_def_i = 0; fn_def_i < g->fn_defs.length; fn_def_i += 1) {
@@ -985,19 +985,22 @@ static void generate_h_file(CodeGen *g) {
         if (fn_proto->visib_mod != FnProtoVisibModExport)
             continue;
 
-        Buf *return_type_c = to_c_type(g, fn_proto->return_type);
+        Buf return_type_c = BUF_INIT;
+        to_c_type(g, fn_proto->return_type, &return_type_c);
 
         buf_appendf(&h_buf, "%s %s %s(",
                 buf_ptr(export_macro),
-                buf_ptr(return_type_c),
+                buf_ptr(&return_type_c),
                 buf_ptr(&fn_proto->name));
 
+        Buf param_type_c = BUF_INIT;
         if (fn_proto->params.length) {
             for (int param_i = 0; param_i < fn_proto->params.length; param_i += 1) {
                 AstNode *param_decl_node = fn_proto->params.at(param_i);
                 AstNode *param_type = param_decl_node->data.param_decl.type;
+                to_c_type(g, param_type, &param_type_c);
                 buf_appendf(&h_buf, "%s %s",
-                        buf_ptr(to_c_type(g, param_type)),
+                        buf_ptr(&param_type_c),
                         buf_ptr(&param_decl_node->data.param_decl.name));
                 if (param_i < fn_proto->params.length - 1)
                     buf_appendf(&h_buf, ", ");
@@ -1020,8 +1023,6 @@ static void generate_h_file(CodeGen *g) {
 
     if (g->c_stdint_used)
         fprintf(out_h, "#include <stdint.h>\n");
-    if (g->c_unreachable_used)
-        fprintf(out_h, "#define %s __attribute__((__noreturn__)) void\n", buf_ptr(g->c_unreachable_macro));
 
     fprintf(out_h, "\n");
 

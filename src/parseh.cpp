@@ -290,11 +290,6 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
 
             buf_init_from_str(&p->cur_fn->name, clang_getCString(name));
 
-            if (buf_eql_str(&p->cur_fn->name, "exit")) {
-                print_location(p);
-                zig_panic("Found it");
-            }
-
             p->cur_fn->arg_count = clang_getNumArgTypes(fn_type);
             p->cur_fn->args = allocate<Arg>(p->cur_fn->arg_count);
 
