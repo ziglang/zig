@@ -42,9 +42,12 @@ make
 
 ## Roadmap
 
- * variable declarations and assignment expressions
- * Type checking
+ * unreachable <--> noreturn attribute
+ * unused label error
  * loops
+ * structs
+ * tagged enums
+ * calling external variadic functions and exporting variadic functions
  * inline assembly and syscalls
  * conditional compilation and ability to check target platform and architecture
  * main function with command line arguments

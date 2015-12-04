@@ -951,6 +951,9 @@ static Buf *to_c_type(CodeGen *g, AstNode *type_node) {
     } else if (type_entry == g->builtin_types.entry_i32) {
         g->c_stdint_used = true;
         return buf_create_from_str("int32_t");
+    } else if (type_entry == g->builtin_types.entry_unreachable) {
+        g->c_unreachable_used = true;
+        return g->c_unreachable_macro;
     } else {
         zig_panic("TODO to_c_type");
     }
@@ -968,6 +971,9 @@ static void generate_h_file(CodeGen *g) {
     Buf *extern_c_macro = buf_sprintf("%s_EXTERN_C", buf_ptr(g->root_out_name));
     buf_upcase(extern_c_macro);
 
+    g->c_unreachable_macro = buf_sprintf("%s_UNREACHABLE", buf_ptr(g->root_out_name));
+    buf_upcase(g->c_unreachable_macro);
+
     Buf h_buf = BUF_INIT;
     buf_resize(&h_buf, 0);
     for (int fn_def_i = 0; fn_def_i < g->fn_defs.length; fn_def_i += 1) {
@@ -979,9 +985,11 @@ static void generate_h_file(CodeGen *g) {
         if (fn_proto->visib_mod != FnProtoVisibModExport)
             continue;
 
+        Buf *return_type_c = to_c_type(g, fn_proto->return_type);
+
         buf_appendf(&h_buf, "%s %s %s(",
                 buf_ptr(export_macro),
-                buf_ptr(to_c_type(g, fn_proto->return_type)),
+                buf_ptr(return_type_c),
                 buf_ptr(&fn_proto->name));
 
         if (fn_proto->params.length) {
@@ -994,10 +1002,13 @@ static void generate_h_file(CodeGen *g) {
                 if (param_i < fn_proto->params.length - 1)
                     buf_appendf(&h_buf, ", ");
             }
-            buf_appendf(&h_buf, ");\n");
+            buf_appendf(&h_buf, ")");
         } else {
-            buf_appendf(&h_buf, "void);\n");
+            buf_appendf(&h_buf, "void)");
         }
+
+        buf_appendf(&h_buf, ";\n");
+
     }
 
     Buf *ifdef_dance_name = buf_sprintf("%s_%s_H",
@@ -1009,6 +1020,8 @@ static void generate_h_file(CodeGen *g) {
 
     if (g->c_stdint_used)
         fprintf(out_h, "#include <stdint.h>\n");
+    if (g->c_unreachable_used)
+        fprintf(out_h, "#define %s __attribute__((__noreturn__)) void\n", buf_ptr(g->c_unreachable_macro));
 
     fprintf(out_h, "\n");
 

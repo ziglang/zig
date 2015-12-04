@@ -22,6 +22,8 @@ struct ParseH {
     Fn *cur_fn;
     int arg_index;
     int cur_indent;
+    CXSourceRange range;
+    CXSourceLocation location;
 };
 
 static const int indent_size = 4;
@@ -60,11 +62,20 @@ start_over:
     return c_name;
 }
 
-static Buf *to_zig_type(CXType raw_type) {
+static void print_location(ParseH *p) {
+    CXFile file;
+    unsigned line, column, offset;
+    clang_getFileLocation(p->location, &file, &line, &column, &offset);
+    CXString file_name = clang_getFileName(file);
+
+    fprintf(stderr, "%s line %u, column %u\n", clang_getCString(file_name), line, column);
+}
+
+static Buf *to_zig_type(ParseH *p, CXType raw_type) {
     if (raw_type.kind == CXType_Unexposed) {
         CXType canonical = clang_getCanonicalType(raw_type);
         if (canonical.kind != CXType_Unexposed)
-            return to_zig_type(canonical);
+            return to_zig_type(p, canonical);
         else
             zig_panic("clang C api insufficient");
     }
@@ -83,11 +94,14 @@ static Buf *to_zig_type(CXType raw_type) {
         case CXType_UChar:
             return buf_create_from_str("u8");
         case CXType_WChar:
-            zig_panic("TODO");
+            print_location(p);
+            zig_panic("TODO wchar");
         case CXType_Char16:
-            zig_panic("TODO");
+            print_location(p);
+            zig_panic("TODO char16");
         case CXType_Char32:
-            zig_panic("TODO");
+            print_location(p);
+            zig_panic("TODO char32");
         case CXType_UShort:
             return buf_create_from_str("c_ushort");
         case CXType_UInt:
@@ -97,7 +111,8 @@ static Buf *to_zig_type(CXType raw_type) {
         case CXType_ULongLong:
             return buf_create_from_str("c_ulonglong");
         case CXType_UInt128:
-            zig_panic("TODO");
+            print_location(p);
+            zig_panic("TODO uint128");
         case CXType_Short:
             return buf_create_from_str("c_short");
         case CXType_Int:
@@ -107,43 +122,34 @@ static Buf *to_zig_type(CXType raw_type) {
         case CXType_LongLong:
             return buf_create_from_str("c_longlong");
         case CXType_Int128:
-            zig_panic("TODO");
+            print_location(p);
+            zig_panic("TODO int128");
         case CXType_Float:
             return buf_create_from_str("f32");
         case CXType_Double:
             return buf_create_from_str("f64");
         case CXType_LongDouble:
             return buf_create_from_str("f128");
-        case CXType_NullPtr:
-            zig_panic("TODO");
-        case CXType_Overload:
-            zig_panic("TODO");
-        case CXType_Dependent:
-            zig_panic("TODO");
-        case CXType_ObjCId:
-            zig_panic("TODO");
-        case CXType_ObjCClass:
-            zig_panic("TODO");
-        case CXType_ObjCSel:
-            zig_panic("TODO");
-        case CXType_Complex:
-            zig_panic("TODO");
-        case CXType_Pointer:
+        case CXType_IncompleteArray:
             {
-                CXType pointee_type = clang_getPointeeType(raw_type);
-                Buf *pointee_buf = to_zig_type(pointee_type);
+                CXType pointee_type = clang_getArrayElementType(raw_type);
+                Buf *pointee_buf = to_zig_type(p, pointee_type);
                 if (clang_isConstQualifiedType(pointee_type)) {
                     return buf_sprintf("*const %s", buf_ptr(pointee_buf));
                 } else {
                     return buf_sprintf("*mut %s", buf_ptr(pointee_buf));
                 }
             }
-        case CXType_BlockPointer:
-            zig_panic("TODO");
-        case CXType_LValueReference:
-            zig_panic("TODO");
-        case CXType_RValueReference:
-            zig_panic("TODO");
+        case CXType_Pointer:
+            {
+                CXType pointee_type = clang_getPointeeType(raw_type);
+                Buf *pointee_buf = to_zig_type(p, pointee_type);
+                if (clang_isConstQualifiedType(pointee_type)) {
+                    return buf_sprintf("*const %s", buf_ptr(pointee_buf));
+                } else {
+                    return buf_sprintf("*mut %s", buf_ptr(pointee_buf));
+                }
+            }
         case CXType_Record:
             {
                 const char *name = prefixes_stripped(raw_type);
@@ -176,28 +182,44 @@ static Buf *to_zig_type(CXType raw_type) {
                 } else {
                     CXCursor typedef_cursor = clang_getTypeDeclaration(raw_type);
                     CXType underlying_type = clang_getTypedefDeclUnderlyingType(typedef_cursor);
-                    return to_zig_type(underlying_type);
+                    return to_zig_type(p, underlying_type);
                 }
             }
-        case CXType_ObjCInterface:
-            zig_panic("TODO");
-        case CXType_ObjCObjectPointer:
-            zig_panic("TODO");
-        case CXType_FunctionNoProto:
-            zig_panic("TODO");
-        case CXType_FunctionProto:
-            zig_panic("TODO");
         case CXType_ConstantArray:
-            zig_panic("TODO");
+            {
+                CXType child_type = clang_getArrayElementType(raw_type);
+                Buf *zig_child_type = to_zig_type(p, child_type);
+                long size = (long)clang_getArraySize(raw_type);
+                return buf_sprintf("[%s; %ld]", buf_ptr(zig_child_type), size);
+            }
+        case CXType_FunctionProto:
+            fprintf(stderr, "warning: TODO function proto\n");
+            print_location(p);
+            return buf_create_from_str("*const u8");
+        case CXType_FunctionNoProto:
+            print_location(p);
+            zig_panic("TODO function no proto");
+        case CXType_BlockPointer:
+            print_location(p);
+            zig_panic("TODO block pointer");
         case CXType_Vector:
-            zig_panic("TODO");
-        case CXType_IncompleteArray:
-            zig_panic("TODO");
+            print_location(p);
+            zig_panic("TODO vector");
+        case CXType_LValueReference:
+        case CXType_RValueReference:
         case CXType_VariableArray:
-            zig_panic("TODO");
         case CXType_DependentSizedArray:
-            zig_panic("TODO");
         case CXType_MemberPointer:
+        case CXType_ObjCInterface:
+        case CXType_ObjCObjectPointer:
+        case CXType_NullPtr:
+        case CXType_Overload:
+        case CXType_Dependent:
+        case CXType_ObjCId:
+        case CXType_ObjCClass:
+        case CXType_ObjCSel:
+        case CXType_Complex:
+            print_location(p);
             zig_panic("TODO");
     }
 
@@ -238,6 +260,9 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
     enum CXCursorKind kind = clang_getCursorKind(cursor);
     CXString name = clang_getCursorSpelling(cursor);
 
+    p->range = clang_getCursorExtent(cursor);
+    p->location = clang_getRangeStart(p->range);
+
     switch (kind) {
     case CXCursor_FunctionDecl:
         {
@@ -245,27 +270,37 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
             if (!is_storage_class_export(storage_class))
                 return CXChildVisit_Continue;
 
+            CXType fn_type = clang_getCursorType(cursor);
+            if (clang_isFunctionTypeVariadic(fn_type)) {
+                print_location(p);
+                fprintf(stderr, "warning: skipping variadic function, not yet supported\n");
+                return CXChildVisit_Continue;
+            }
+            if (clang_getFunctionTypeCallingConv(fn_type) != CXCallingConv_C) {
+                print_location(p);
+                fprintf(stderr, "warning: skipping non c calling convention function, not yet supported\n");
+                return CXChildVisit_Continue;
+            }
+
             end_fn(p);
             begin_fn(p);
 
-            CXType fn_type = clang_getCursorType(cursor);
-            if (clang_isFunctionTypeVariadic(fn_type)) {
-                zig_panic("TODO support variadic function");
-            }
-            if (clang_getFunctionTypeCallingConv(fn_type) != CXCallingConv_C) {
-                zig_panic("TODO support non c calling convention");
-            }
             CXType return_type = clang_getResultType(fn_type);
-            p->cur_fn->return_type = to_zig_type(return_type);
+            p->cur_fn->return_type = to_zig_type(p, return_type);
 
             buf_init_from_str(&p->cur_fn->name, clang_getCString(name));
+
+            if (buf_eql_str(&p->cur_fn->name, "exit")) {
+                print_location(p);
+                zig_panic("Found it");
+            }
 
             p->cur_fn->arg_count = clang_getNumArgTypes(fn_type);
             p->cur_fn->args = allocate<Arg>(p->cur_fn->arg_count);
 
             for (int i = 0; i < p->cur_fn->arg_count; i += 1) {
                 CXType param_type = clang_getArgType(fn_type, i);
-                p->cur_fn->args[i].type = to_zig_type(param_type);
+                p->cur_fn->args[i].type = to_zig_type(p, param_type);
             }
 
             p->arg_index = 0;
@@ -283,6 +318,7 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
     case CXCursor_UnexposedAttr:
     case CXCursor_CompoundStmt:
     case CXCursor_FieldDecl:
+    case CXCursor_TypedefDecl:
         return CXChildVisit_Continue;
     default:
         return CXChildVisit_Recurse;
