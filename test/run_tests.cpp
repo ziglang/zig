@@ -548,12 +548,21 @@ static void run_test(TestCase *test_case) {
     }
 }
 
-static void run_all_tests(void) {
-    for (int i = 0; i < test_cases.length; i += 1) {
-        TestCase *test_case = test_cases.at(i);
-        printf("Test %d/%d %s...", i + 1, test_cases.length, test_case->case_name);
-        run_test(test_case);
-        printf("OK\n");
+static void run_all_tests(bool reverse) {
+    if (reverse) {
+        for (int i = test_cases.length - 1; i >= 0; i -= 1) {
+            TestCase *test_case = test_cases.at(i);
+            printf("Test %d/%d %s...", i + 1, test_cases.length, test_case->case_name);
+            run_test(test_case);
+            printf("OK\n");
+        }
+    } else {
+        for (int i = 0; i < test_cases.length; i += 1) {
+            TestCase *test_case = test_cases.at(i);
+            printf("Test %d/%d %s...", i + 1, test_cases.length, test_case->case_name);
+            run_test(test_case);
+            printf("OK\n");
+        }
     }
     printf("%d tests passed.\n", test_cases.length);
 }
@@ -563,9 +572,22 @@ static void cleanup(void) {
     remove(tmp_exe_path);
 }
 
+static int usage(const char *arg0) {
+    fprintf(stderr, "Usage: %s [--reverse]\n", arg0);
+    return 1;
+}
+
 int main(int argc, char **argv) {
+    bool reverse = false;
+    for (int i = 1; i < argc; i += 1) {
+        if (strcmp(argv[i], "--reverse") == 0) {
+            reverse = true;
+        } else {
+            return usage(argv[0]);
+        }
+    }
     add_compiling_test_cases();
     add_compile_failure_test_cases();
-    run_all_tests();
+    run_all_tests(reverse);
     cleanup();
 }
