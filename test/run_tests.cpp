@@ -466,6 +466,11 @@ fn f(a : unreachable) {}
 export fn f(a : void) {}
     )SOURCE", 1, ".tmp_source.zig:2:17: error: parameter of type 'void' not allowed on exported functions");
 
+    add_compile_fail_case("unused label", R"SOURCE(
+export fn f() {
+a_label:
+}
+    )SOURCE", 1, ".tmp_source.zig:3:1: error: label 'a_label' defined but not used");
 }
 
 static void print_compiler_invocation(TestCase *test_case, Buf *zig_stderr) {

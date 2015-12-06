@@ -41,6 +41,7 @@ struct ImportTableEntry {
 struct LabelTableEntry {
     AstNode *label_node;
     LLVMBasicBlockRef basic_block;
+    bool used;
 };
 
 struct FnTableEntry {

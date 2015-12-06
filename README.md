@@ -42,8 +42,6 @@ make
 
 ## Roadmap
 
- * parseh: unreachable <--> noreturn attribute
- * unused label error
  * loops
  * structs
  * tagged enums

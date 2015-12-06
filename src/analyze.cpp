@@ -471,6 +471,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     assert(!node->codegen_node);
                     node->codegen_node = allocate<CodeGenNode>(1);
                     node->codegen_node->data.label_entry = table_entry->value;
+                    table_entry->value->used = true;
                 } else {
                     add_node_error(g, node,
                             buf_sprintf("use of undeclared label '%s'", buf_ptr(&node->data.go_to.name)));
@@ -758,6 +759,23 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                 node->codegen_node = allocate<CodeGenNode>(1);
                 node->codegen_node->data.fn_def_node.implicit_return_type = block_return_type;
                 node->codegen_node->data.fn_def_node.block_context = context;
+
+                {
+                    FnTableEntry *fn_table_entry = fn_proto_node->codegen_node->data.fn_proto_node.fn_table_entry;
+                    auto it = fn_table_entry->label_table.entry_iterator();
+                    for (;;) {
+                        auto *entry = it.next();
+                        if (!entry)
+                            break;
+
+                        LabelTableEntry *label_entry = entry->value;
+                        if (!label_entry->used) {
+                            add_node_error(g, label_entry->label_node,
+                                buf_sprintf("label '%s' defined but not used",
+                                    buf_ptr(&label_entry->label_node->data.label.name)));
+                        }
+                    }
+                }
             }
             break;
 
