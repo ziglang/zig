@@ -362,6 +362,13 @@ static BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     else
         context->root = context;
     context->variable_table.init(8);
+
+    AstNode *fn_def_node = context->root->node;
+    assert(fn_def_node->type == NodeTypeFnDef);
+    assert(fn_def_node->codegen_node);
+    FnDefNode *fn_def_info = &fn_def_node->codegen_node->data.fn_def_node;
+    fn_def_info->all_block_contexts.append(context);
+
     return context;
 }
 
@@ -388,8 +395,13 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 return_type = g->builtin_types.entry_void;
                 for (int i = 0; i < node->data.block.statements.length; i += 1) {
                     AstNode *child = node->data.block.statements.at(i);
-                    if (child->type == NodeTypeLabel)
+                    if (child->type == NodeTypeLabel) {
+                        LabelTableEntry *label_entry = child->codegen_node->data.label_entry;
+                        assert(label_entry);
+                        label_entry->entered_from_fallthrough = (return_type != g->builtin_types.entry_unreachable);
+                        return_type = g->builtin_types.entry_void;
                         continue;
+                    }
                     if (return_type == g->builtin_types.entry_unreachable) {
                         if (child->type == NodeTypeVoid) {
                             // {unreachable;void;void} is allowed.
@@ -457,6 +469,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     LocalVariableTableEntry *variable_entry = allocate<LocalVariableTableEntry>(1);
                     buf_init_from_buf(&variable_entry->name, &variable_declaration->symbol);
                     variable_entry->type = type;
+                    variable_entry->is_const = variable_declaration->is_const;
+                    variable_entry->decl_node = node;
                     context->variable_table.put(&variable_entry->name, variable_entry);
                 }
                 return_type = g->builtin_types.entry_void;
@@ -482,6 +496,32 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeBinOpExpr:
             {
                 switch (node->data.bin_op_expr.bin_op) {
+                    case BinOpTypeAssign:
+                        {
+                            AstNode *lhs_node = node->data.bin_op_expr.op1;
+                            if (lhs_node->type == NodeTypeSymbol) {
+                                Buf *name = &lhs_node->data.symbol;
+                                LocalVariableTableEntry *var = find_local_variable(context, name);
+                                if (var) {
+                                    if (var->is_const) {
+                                        add_node_error(g, lhs_node,
+                                            buf_sprintf("cannot assign to constant variable"));
+                                    } else {
+                                        analyze_expression(g, import, context, var->type,
+                                                node->data.bin_op_expr.op2);
+                                    }
+                                } else {
+                                    add_node_error(g, lhs_node,
+                                            buf_sprintf("use of undeclared identifier '%s'", buf_ptr(name)));
+                                }
+
+                            } else {
+                                add_node_error(g, lhs_node,
+                                        buf_sprintf("expected a bare identifier"));
+                            }
+                            return_type = g->builtin_types.entry_void;
+                            break;
+                        }
                     case BinOpTypeBoolOr:
                     case BinOpTypeBoolAnd:
                         analyze_expression(g, import, context, g->builtin_types.entry_bool,
@@ -721,7 +761,10 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                 AstNode *fn_proto_node = node->data.fn_def.fn_proto;
                 assert(fn_proto_node->type == NodeTypeFnProto);
 
+                assert(!node->codegen_node);
+                node->codegen_node = allocate<CodeGenNode>(1);
                 BlockContext *context = new_block_context(node, nullptr);
+                node->codegen_node->data.fn_def_node.block_context = context;
 
                 AstNodeFnProto *fn_proto = &fn_proto_node->data.fn_proto;
                 for (int i = 0; i < fn_proto->params.length; i += 1) {
@@ -736,6 +779,8 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                     LocalVariableTableEntry *variable_entry = allocate<LocalVariableTableEntry>(1);
                     buf_init_from_buf(&variable_entry->name, &param_decl->name);
                     variable_entry->type = type;
+                    variable_entry->is_const = true;
+                    variable_entry->decl_node = param_decl_node;
 
                     LocalVariableTableEntry *existing_entry = find_local_variable(context, &variable_entry->name);
                     if (!existing_entry) {
@@ -756,9 +801,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                 TypeTableEntry *expected_type = fn_proto->return_type->codegen_node->data.type_node.entry;
                 TypeTableEntry *block_return_type = analyze_expression(g, import, context, expected_type, node->data.fn_def.body);
 
-                node->codegen_node = allocate<CodeGenNode>(1);
                 node->codegen_node->data.fn_def_node.implicit_return_type = block_return_type;
-                node->codegen_node->data.fn_def_node.block_context = context;
 
                 {
                     FnTableEntry *fn_table_entry = fn_proto_node->codegen_node->data.fn_proto_node.fn_table_entry;

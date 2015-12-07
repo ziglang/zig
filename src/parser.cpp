@@ -33,6 +33,7 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeMult:           return "*";
         case BinOpTypeDiv:            return "/";
         case BinOpTypeMod:            return "%";
+        case BinOpTypeAssign:         return "=";
     }
     zig_unreachable();
 }
@@ -1096,7 +1097,7 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index, bool m
 }
 
 /*
-VariableDeclaration : token(Let) token(Symbole) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
+VariableDeclaration : token(Let) option(token(Mut)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
 */
 static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *let_tok = &pc->tokens->at(*token_index);
@@ -1104,9 +1105,21 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token
         *token_index += 1;
         AstNode *node = ast_create_node(pc, NodeTypeVariableDeclaration, let_tok);
 
-        Token *name_token = &pc->tokens->at(*token_index);
+        Token *name_token;
+        Token *token = &pc->tokens->at(*token_index);
+        if (token->id == TokenIdKeywordMut) {
+            node->data.variable_declaration.is_const = false;
+            *token_index += 1;
+            name_token = &pc->tokens->at(*token_index);
+            ast_expect_token(pc, name_token, TokenIdSymbol);
+        } else if (token->id == TokenIdSymbol) {
+            node->data.variable_declaration.is_const = true;
+            name_token = token;
+        } else {
+            ast_invalid_token_error(pc, token);
+        }
+
         *token_index += 1;
-        ast_expect_token(pc, name_token, TokenIdSymbol);
         ast_buf_from_token(pc, name_token, &node->data.variable_declaration.symbol);
 
         Token *eq_or_colon = &pc->tokens->at(*token_index);
@@ -1178,7 +1191,30 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool ma
 }
 
 /*
-NonBlockExpression : ReturnExpression | VariableDeclaration | BoolOrExpression
+AssignmentExpression : BoolOrExpression token(Equal) BoolOrExpression | BoolOrExpression
+*/
+static AstNode *ast_parse_ass_expr(ParseContext *pc, int *token_index, bool mandatory) {
+    AstNode *lhs = ast_parse_bool_or_expr(pc, token_index, mandatory);
+    if (!lhs)
+        return lhs;
+
+    Token *token = &pc->tokens->at(*token_index);
+    if (token->id != TokenIdEq)
+        return lhs;
+    *token_index += 1;
+
+    AstNode *rhs = ast_parse_bool_or_expr(pc, token_index, true);
+
+    AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+    node->data.bin_op_expr.op1 = lhs;
+    node->data.bin_op_expr.bin_op = BinOpTypeAssign;
+    node->data.bin_op_expr.op2 = rhs;
+
+    return node;
+}
+
+/*
+NonBlockExpression : ReturnExpression | VariableDeclaration | AssignmentExpression
 */
 static AstNode *ast_parse_non_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1191,9 +1227,10 @@ static AstNode *ast_parse_non_block_expr(ParseContext *pc, int *token_index, boo
     if (variable_declaration_expr)
         return variable_declaration_expr;
 
-    AstNode *bool_or_expr = ast_parse_bool_or_expr(pc, token_index, false);
-    if (bool_or_expr)
-        return bool_or_expr;
+
+    AstNode *ass_expr = ast_parse_ass_expr(pc, token_index, false);
+    if (ass_expr)
+        return ass_expr;
 
     if (mandatory)
         ast_invalid_token_error(pc, token);

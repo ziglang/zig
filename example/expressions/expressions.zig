@@ -1,3 +1,5 @@
+export executable "expressions";
+
 #link("c")
 extern {
     fn puts(s: *const u8) -> i32;
@@ -28,6 +30,8 @@ export fn _start() -> unreachable {
 
     void_fun(1, void, 2);
 
+    test_mutable_vars();
+
     other_exit();
 }
 
@@ -37,4 +41,16 @@ fn void_fun(a : i32, b : void, c : i32) -> void {
     let z = b;        // void
     let w : void = z; // void
     if (x + y == 4) { return w; }
+}
+
+fn test_mutable_vars() {
+    let mut i = 0;
+loop_start:
+    if i == 3 {
+        goto done;
+    }
+    puts("loop");
+    i = i + 1;
+    goto loop_start;
+done:
 }

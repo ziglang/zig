@@ -42,6 +42,7 @@ struct LabelTableEntry {
     AstNode *label_node;
     LLVMBasicBlockRef basic_block;
     bool used;
+    bool entered_from_fallthrough;
 };
 
 struct FnTableEntry {
@@ -116,6 +117,8 @@ struct LocalVariableTableEntry {
     Buf name;
     TypeTableEntry *type;
     LLVMValueRef value_ref;
+    bool is_const;
+    AstNode *decl_node;
 };
 
 struct BlockContext {
@@ -137,6 +140,7 @@ struct FnDefNode {
     TypeTableEntry *implicit_return_type;
     BlockContext *block_context;
     bool skip;
+    ZigList<BlockContext *> all_block_contexts;
 };
 
 struct ExprNode {
@@ -146,12 +150,17 @@ struct ExprNode {
     BlockContext *block_context;
 };
 
+struct AssignNode {
+    LocalVariableTableEntry *var_entry;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
         FnDefNode fn_def_node; // for NodeTypeFnDef
         FnProtoNode fn_proto_node; // for NodeTypeFnProto
         LabelTableEntry *label_entry; // for NodeTypeGoto and NodeTypeLabel
+        AssignNode assign_node; // for NodeTypeBinOpExpr where op is BinOpTypeAssign
     } data;
     ExprNode expr_node; // for all the expression nodes
 };

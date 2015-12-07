@@ -101,6 +101,7 @@ struct AstNodeReturnExpr {
 
 struct AstNodeVariableDeclaration {
     Buf symbol;
+    bool is_const;
     // one or both of type and expr will be non null
     AstNode *type;
     AstNode *expr;
@@ -108,7 +109,7 @@ struct AstNodeVariableDeclaration {
 
 enum BinOpType {
     BinOpTypeInvalid,
-    // TODO: include assignment?
+    BinOpTypeAssign,
     BinOpTypeBoolOr,
     BinOpTypeBoolAnd,
     BinOpTypeCmpEq,

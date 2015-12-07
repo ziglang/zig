@@ -331,6 +331,27 @@ fn void_fun(a : i32, b : void, c : i32) {
     return vv;
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("void parameters", R"SOURCE(
+#link("c")
+extern {
+    fn puts(s: *const u8) -> i32;
+    fn exit(code: i32) -> unreachable;
+}
+
+export fn _start() -> unreachable {
+    let mut i = 0;
+loop_start:
+    if i == 3 {
+        goto done;
+    }
+    puts("loop");
+    i = i + 1;
+    goto loop_start;
+done:
+    exit(0);
+}
+    )SOURCE", "loop\nloop\nloop\n");
 }
 
 static void add_compile_failure_test_cases(void) {
@@ -467,10 +488,29 @@ export fn f(a : void) {}
     )SOURCE", 1, ".tmp_source.zig:2:17: error: parameter of type 'void' not allowed on exported functions");
 
     add_compile_fail_case("unused label", R"SOURCE(
-export fn f() {
+fn f() {
 a_label:
 }
     )SOURCE", 1, ".tmp_source.zig:3:1: error: label 'a_label' defined but not used");
+
+    add_compile_fail_case("expected bare identifier", R"SOURCE(
+fn f() {
+    3 = 3;
+}
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: expected a bare identifier");
+
+    add_compile_fail_case("assign to constant variable", R"SOURCE(
+fn f() {
+    let a = 3;
+    a = 4;
+}
+    )SOURCE", 1, ".tmp_source.zig:4:5: error: cannot assign to constant variable");
+
+    add_compile_fail_case("use of undeclared identifier", R"SOURCE(
+fn f() {
+    b = 3;
+}
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: use of undeclared identifier 'b'");
 }
 
 static void print_compiler_invocation(TestCase *test_case, Buf *zig_stderr) {

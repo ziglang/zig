@@ -102,6 +102,7 @@ static int count_non_void_params(CodeGen *g, ZigList<AstNode *> *params) {
 }
 
 static void add_debug_source_node(CodeGen *g, AstNode *node) {
+    // TODO g->block_scopes.last() is not always correct and should probably integrate with BlockContext
     LLVMZigSetCurrentDebugLocation(g->builder, node->line + 1, node->column + 1, g->block_scopes.last());
 }
 
@@ -210,6 +211,8 @@ static LLVMValueRef gen_arithmetic_bin_op_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
 
     switch (node->data.bin_op_expr.bin_op) {
+        case BinOpTypeAssign:
+            zig_panic("TODO assignment");
         case BinOpTypeBinOr:
             add_debug_source_node(g, node);
             return LLVMBuildOr(g->builder, val1, val2, "");
@@ -358,8 +361,28 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     return phi;
 }
 
+static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeBinOpExpr);
+
+    AstNode *symbol_node = node->data.bin_op_expr.op1;
+    assert(symbol_node->type == NodeTypeSymbol);
+
+    LocalVariableTableEntry *var = find_local_variable(node->codegen_node->expr_node.block_context,
+            &symbol_node->data.symbol);
+
+    // semantic checking ensures no variables are constant
+    assert(!var->is_const);
+
+    LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
+
+    add_debug_source_node(g, node);
+    return LLVMBuildStore(g->builder, value, var->value_ref);
+}
+
 static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
     switch (node->data.bin_op_expr.bin_op) {
+        case BinOpTypeAssign:
+            return gen_assign_expr(g, node);
         case BinOpTypeInvalid:
             zig_unreachable();
         case BinOpTypeBoolOr:
@@ -498,9 +521,20 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeVariableDeclaration:
             {
                 LocalVariableTableEntry *variable = find_local_variable(node->codegen_node->expr_node.block_context, &node->data.variable_declaration.symbol);
-                assert(node->data.variable_declaration.expr);
-                variable->value_ref = gen_expr(g, node->data.variable_declaration.expr);
-                return nullptr;
+                if (variable->is_const) {
+                    assert(node->data.variable_declaration.expr);
+                    variable->value_ref = gen_expr(g, node->data.variable_declaration.expr);
+                    return nullptr;
+                } else {
+                    if (node->data.variable_declaration.expr) {
+                        LLVMValueRef value = gen_expr(g, node->data.variable_declaration.expr);
+
+                        add_debug_source_node(g, node);
+                        return LLVMBuildStore(g->builder, value, variable->value_ref);
+                    } else {
+
+                    }
+                }
             }
         case NodeTypeCastExpr:
             return gen_cast_expr(g, node);
@@ -542,7 +576,11 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeSymbol:
             {
                 LocalVariableTableEntry *variable = find_local_variable(node->codegen_node->expr_node.block_context, &node->data.symbol);
-                return variable->value_ref;
+                if (variable->is_const) {
+                    return variable->value_ref;
+                } else {
+                    return LLVMBuildLoad(g->builder, variable->value_ref, "");
+                }
             }
         case NodeTypeBlock:
             return gen_block(g, node, nullptr);
@@ -551,11 +589,15 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return LLVMBuildBr(g->builder, node->codegen_node->data.label_entry->basic_block);
         case NodeTypeLabel:
             {
-                LLVMBasicBlockRef basic_block = node->codegen_node->data.label_entry->basic_block;
-                add_debug_source_node(g, node);
-                LLVMValueRef result = LLVMBuildBr(g->builder, basic_block);
+                LabelTableEntry *label_entry = node->codegen_node->data.label_entry;
+                assert(label_entry);
+                LLVMBasicBlockRef basic_block = label_entry->basic_block;
+                if (label_entry->entered_from_fallthrough) {
+                    add_debug_source_node(g, node);
+                    LLVMBuildBr(g->builder, basic_block);
+                }
                 LLVMPositionBuilderAtEnd(g->builder, basic_block);
-                return result;
+                return nullptr;
             }
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
@@ -695,6 +737,24 @@ static void do_code_gen(CodeGen *g) {
         }
 
         build_label_blocks(g, fn_def_node->data.fn_def.body);
+
+        // allocate all local variables
+        for (int i = 0; i < codegen_fn_def->all_block_contexts.length; i += 1) {
+            BlockContext *block_context = codegen_fn_def->all_block_contexts.at(i);
+
+            auto it = block_context->variable_table.entry_iterator();
+            for (;;) {
+                auto *entry = it.next();
+                if (!entry)
+                    break;
+
+                LocalVariableTableEntry *var = entry->value;
+                if (!var->is_const) {
+                    add_debug_source_node(g, var->decl_node);
+                    var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
+                }
+            }
+        }
 
         TypeTableEntry *implicit_return_type = codegen_fn_def->implicit_return_type;
         gen_block(g, fn_def_node->data.fn_def.body, implicit_return_type);
