@@ -43,11 +43,15 @@ compromises backward compatibility.
 ### Current Status
 
  * Core language features are lacking such as structs, enums, loops.
+ * Only Linux is supported.
+ * Only building for the native target is supported.
  * Have a look in the examples/ folder to see some code examples.
  * Optimized machine code that Zig produces is indistinguishable from
    optimized machine code produced from equivalent C program.
- * Generating dynamic libraries, executables, object files, and C header files
-   works.
+ * Zig can generate dynamic libraries, executables, object files, and C
+   header files.
+ * The binaries produced by Zig have complete debugging information so you can,
+   for example, use GDB to debug your software.
 
 ### Roadmap
 
