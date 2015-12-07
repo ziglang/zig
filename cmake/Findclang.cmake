@@ -6,9 +6,9 @@
 # CLANG_INCLUDE_DIR
 # CLANG_LIBRARY
 
-find_path(CLANG_INCLUDE_DIR NAMES clang-c/Index.h)
+find_path(CLANG_INCLUDE_DIR NAMES clang-c/Index.h PATHS /usr/lib/llvm-3.7/include/)
 
-find_library(CLANG_LIBRARY NAMES clang)
+find_library(CLANG_LIBRARY NAMES clang PATHS /usr/lib/llvm-3.7/lib/)
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(CLANG DEFAULT_MSG CLANG_LIBRARY CLANG_INCLUDE_DIR)
