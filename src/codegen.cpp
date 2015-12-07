@@ -526,14 +526,14 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
                     variable->value_ref = gen_expr(g, node->data.variable_declaration.expr);
                     return nullptr;
                 } else {
+                    LLVMValueRef value;
                     if (node->data.variable_declaration.expr) {
-                        LLVMValueRef value = gen_expr(g, node->data.variable_declaration.expr);
-
-                        add_debug_source_node(g, node);
-                        return LLVMBuildStore(g->builder, value, variable->value_ref);
+                        value = gen_expr(g, node->data.variable_declaration.expr);
                     } else {
-
+                        value = LLVMConstNull(variable->type->type_ref);
                     }
+                    add_debug_source_node(g, node);
+                    return LLVMBuildStore(g->builder, value, variable->value_ref);
                 }
             }
         case NodeTypeCastExpr:

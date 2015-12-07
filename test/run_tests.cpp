@@ -332,7 +332,7 @@ fn void_fun(a : i32, b : void, c : i32) {
 }
     )SOURCE", "OK\n");
 
-    add_simple_case("void parameters", R"SOURCE(
+    add_simple_case("mutable local variables", R"SOURCE(
 #link("c")
 extern {
     fn puts(s: *const u8) -> i32;
@@ -340,6 +340,9 @@ extern {
 }
 
 export fn _start() -> unreachable {
+    let mut zero : i32;
+    if (zero == 0) { puts("zero"); }
+
     let mut i = 0;
 loop_start:
     if i == 3 {
@@ -351,7 +354,7 @@ loop_start:
 done:
     exit(0);
 }
-    )SOURCE", "loop\nloop\nloop\n");
+    )SOURCE", "zero\nloop\nloop\nloop\n");
 }
 
 static void add_compile_failure_test_cases(void) {

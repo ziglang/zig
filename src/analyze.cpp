@@ -454,8 +454,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                         buf_sprintf("variable initialization is unreachable"));
                 }
 
-                if (implicit_type == nullptr) {
-                    add_node_error(g, node, buf_sprintf("initial values are required for variable declaration"));
+                if (implicit_type == nullptr && variable_declaration->is_const) {
+                    add_node_error(g, node, buf_sprintf("variables must have initial values or be declared 'mut'."));
                 }
 
                 TypeTableEntry *type = explicit_type != nullptr ? explicit_type : implicit_type;
