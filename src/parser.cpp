@@ -1214,7 +1214,7 @@ static AstNode *ast_parse_ass_expr(ParseContext *pc, int *token_index, bool mand
 }
 
 /*
-NonBlockExpression : ReturnExpression | VariableDeclaration | AssignmentExpression
+NonBlockExpression : ReturnExpression | AssignmentExpression
 */
 static AstNode *ast_parse_non_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1222,11 +1222,6 @@ static AstNode *ast_parse_non_block_expr(ParseContext *pc, int *token_index, boo
     AstNode *return_expr = ast_parse_return_expr(pc, token_index, false);
     if (return_expr)
         return return_expr;
-
-    AstNode *variable_declaration_expr = ast_parse_variable_declaration_expr(pc, token_index, false);
-    if (variable_declaration_expr)
-        return variable_declaration_expr;
-
 
     AstNode *ass_expr = ast_parse_ass_expr(pc, token_index, false);
     if (ass_expr)
@@ -1288,8 +1283,8 @@ static AstNode *ast_parse_label(ParseContext *pc, int *token_index, bool mandato
 }
 
 /*
-Statement : Label | NonBlockExpression token(Semicolon) | BlockExpression
 Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
+Statement : Label | VariableDeclaration token(Semicolon) | NonBlockExpression token(Semicolon) | BlockExpression
 */
 static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandatory) {
     Token *last_token = &pc->tokens->at(*token_index);
@@ -1316,12 +1311,17 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
         if (statement_node) {
             semicolon_expected = false;
         } else {
-            statement_node = ast_parse_block_expr(pc, token_index, false);
-            semicolon_expected = !statement_node;
-            if (!statement_node) {
-                statement_node = ast_parse_non_block_expr(pc, token_index, false);
+            statement_node = ast_parse_variable_declaration_expr(pc, token_index, false);
+            if (statement_node) {
+                semicolon_expected = true;
+            } else {
+                statement_node = ast_parse_block_expr(pc, token_index, false);
+                semicolon_expected = !statement_node;
                 if (!statement_node) {
-                    statement_node = ast_create_node(pc, NodeTypeVoid, last_token);
+                    statement_node = ast_parse_non_block_expr(pc, token_index, false);
+                    if (!statement_node) {
+                        statement_node = ast_create_node(pc, NodeTypeVoid, last_token);
+                    }
                 }
             }
         }

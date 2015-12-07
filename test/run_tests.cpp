@@ -514,6 +514,12 @@ fn f() {
     b = 3;
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: use of undeclared identifier 'b'");
+
+    add_compile_fail_case("let is a statement, not an expression", R"SOURCE(
+fn f() {
+    (let a = 0);
+}
+    )SOURCE", 1, ".tmp_source.zig:3:6: error: invalid token: 'let'");
 }
 
 static void print_compiler_invocation(TestCase *test_case, Buf *zig_stderr) {

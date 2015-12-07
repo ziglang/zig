@@ -150,13 +150,15 @@ PointerType : token(Star) token(Const) Type | token(Star) token(Mut) Type
 
 Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
 
-Statement : Label | NonBlockExpression token(Semicolon) | BlockExpression
+Statement : Label | VariableDeclaration token(Semicolon) | NonBlockExpression token(Semicolon) | BlockExpression
 
 Label: token(Symbol) token(Colon)
 
+VariableDeclaration : token(Let) option(token(Mut)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
+
 Expression : BlockExpression | NonBlockExpression
 
-NonBlockExpression : ReturnExpression | VariableDeclaration | AssignmentExpression
+NonBlockExpression : ReturnExpression | AssignmentExpression
 
 AssignmentExpression : BoolOrExpression token(Equal) BoolOrExpression | BoolOrExpression
 
@@ -165,8 +167,6 @@ BlockExpression : IfExpression | Block
 BoolOrExpression : BoolAndExpression token(BoolOr) BoolAndExpression | BoolAndExpression
 
 ReturnExpression : token(Return) option(Expression)
-
-VariableDeclaration : token(Let) option(token(Mut)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
 
 IfExpression : token(If) Expression Block option(Else | ElseIf)
 
