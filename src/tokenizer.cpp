@@ -259,6 +259,14 @@ void tokenize(Buf *buf, Tokenization *out) {
                         begin_token(&t, TokenIdRBrace);
                         end_token(&t);
                         break;
+                    case '[':
+                        begin_token(&t, TokenIdLBracket);
+                        end_token(&t);
+                        break;
+                    case ']':
+                        begin_token(&t, TokenIdRBracket);
+                        end_token(&t);
+                        break;
                     case ';':
                         begin_token(&t, TokenIdSemicolon);
                         end_token(&t);
@@ -601,6 +609,8 @@ static const char * token_name(Token *token) {
         case TokenIdStar: return "Star";
         case TokenIdLBrace: return "LBrace";
         case TokenIdRBrace: return "RBrace";
+        case TokenIdLBracket: return "LBracket";
+        case TokenIdRBracket: return "RBracket";
         case TokenIdStringLiteral: return "StringLiteral";
         case TokenIdSemicolon: return "Semicolon";
         case TokenIdNumberLiteral: return "NumberLiteral";

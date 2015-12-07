@@ -19,3 +19,10 @@ void zig_panic(const char *format, ...) {
     va_end(ap);
     abort();
 }
+
+uint32_t int_hash(int i) {
+    return *reinterpret_cast<uint32_t*>(&i);
+}
+bool int_eq(int a, int b) {
+    return a == b;
+}

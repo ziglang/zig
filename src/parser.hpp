@@ -81,12 +81,14 @@ struct AstNodeParamDecl {
 enum AstNodeTypeType {
     AstNodeTypeTypePrimitive,
     AstNodeTypeTypePointer,
+    AstNodeTypeTypeArray,
 };
 
 struct AstNodeType {
     AstNodeTypeType type;
     Buf primitive_name;
     AstNode *child_type;
+    AstNode *array_size;
     bool is_const;
 };
 

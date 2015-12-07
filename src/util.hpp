@@ -9,6 +9,7 @@
 #define ZIG_UTIL_HPP
 
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <assert.h>
 
@@ -77,5 +78,8 @@ static inline bool mem_eql_str(const char *mem, size_t mem_len, const char *str)
         return false;
     return memcmp(mem, str, mem_len) == 0;
 }
+
+uint32_t int_hash(int i);
+bool int_eq(int a, int b);
 
 #endif

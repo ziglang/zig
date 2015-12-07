@@ -180,6 +180,13 @@ void ast_print(AstNode *node, int indent) {
                         ast_print(node->data.type.child_type, indent + 2);
                         break;
                     }
+                case AstNodeTypeTypeArray:
+                    {
+                        fprintf(stderr, "ArrayType\n");
+                        ast_print(node->data.type.child_type, indent + 2);
+                        ast_print(node->data.type.array_size, indent + 2);
+                        break;
+                    }
             }
             break;
         case NodeTypeReturnExpr:
@@ -448,8 +455,9 @@ static void ast_parse_directives(ParseContext *pc, int *token_index,
 
 
 /*
-Type : token(Symbol) | PointerType | token(Unreachable)
-PointerType : token(Star) token(Const) Type  | token(Star) token(Mut) Type;
+Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType
+PointerType : token(Star) (token(Const) | token(Mut)) Type
+ArrayType : token(LBracket) Type token(Semicolon) token(Number) token(RBracket)
 */
 static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token_index) {
     Token *token = &pc->tokens->at(token_index);
@@ -463,12 +471,6 @@ static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token
     } else if (token->id == TokenIdKeywordVoid) {
         node->data.type.type = AstNodeTypeTypePrimitive;
         buf_init_from_str(&node->data.type.primitive_name, "void");
-    } else if (token->id == TokenIdKeywordTrue) {
-        node->data.type.type = AstNodeTypeTypePrimitive;
-        buf_init_from_str(&node->data.type.primitive_name, "true");
-    } else if (token->id == TokenIdKeywordFalse) {
-        node->data.type.type = AstNodeTypeTypePrimitive;
-        buf_init_from_str(&node->data.type.primitive_name, "false");
     } else if (token->id == TokenIdSymbol) {
         node->data.type.type = AstNodeTypeTypePrimitive;
         ast_buf_from_token(pc, token, &node->data.type.primitive_name);
@@ -485,6 +487,20 @@ static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token
         }
 
         node->data.type.child_type = ast_parse_type(pc, token_index, &token_index);
+    } else if (token->id == TokenIdLBracket) {
+        node->data.type.type = AstNodeTypeTypeArray;
+
+        node->data.type.child_type = ast_parse_type(pc, token_index, &token_index);
+
+        Token *semicolon_token = &pc->tokens->at(token_index);
+        token_index += 1;
+        ast_expect_token(pc, semicolon_token, TokenIdSemicolon);
+
+        node->data.type.array_size = ast_parse_expression(pc, &token_index, true);
+
+        Token *rbracket_token = &pc->tokens->at(token_index);
+        token_index += 1;
+        ast_expect_token(pc, rbracket_token, TokenIdRBracket);
     } else {
         ast_invalid_token_error(pc, token);
     }
@@ -494,8 +510,7 @@ static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token
 }
 
 /*
-ParamDecl<node> : token(Symbol) token(Colon) Type {
-};
+ParamDecl : token(Symbol) token(Colon) Type
 */
 static AstNode *ast_parse_param_decl(ParseContext *pc, int token_index, int *new_token_index) {
     Token *param_name = &pc->tokens->at(token_index);

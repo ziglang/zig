@@ -23,8 +23,11 @@ struct TypeTableEntry {
     bool pointer_is_const;
     int user_defined_id;
     Buf name;
+
+    // use these fields to make sure we don't duplicate type table entries for the same type
     TypeTableEntry *pointer_const_parent;
     TypeTableEntry *pointer_mut_parent;
+    HashMap<int, TypeTableEntry *, int_hash, int_eq> arrays_by_size;
 };
 
 struct ImportTableEntry {

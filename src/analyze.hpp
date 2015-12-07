@@ -18,6 +18,7 @@ struct BlockContext;
 
 void semantic_analyze(CodeGen *g);
 void add_node_error(CodeGen *g, AstNode *node, Buf *msg);
+TypeTableEntry *new_type_table_entry();
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
 LocalVariableTableEntry *find_local_variable(BlockContext *context, Buf *name);
 

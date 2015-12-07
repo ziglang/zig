@@ -48,24 +48,51 @@ static void set_root_export_version(CodeGen *g, Buf *version_buf, AstNode *node)
     }
 }
 
+TypeTableEntry *new_type_table_entry() {
+    TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+    entry->arrays_by_size.init(2);
+    return entry;
+}
+
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
     TypeTableEntry **parent_pointer = is_const ?
         &child_type->pointer_const_parent :
         &child_type->pointer_mut_parent;
-    const char *const_or_mut_str = is_const ? "const" : "mut";
     if (*parent_pointer) {
         return *parent_pointer;
     } else {
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        TypeTableEntry *entry = new_type_table_entry();
         entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
         buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "*%s %s", const_or_mut_str, buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "*%s %s", is_const ? "const" : "mut", buf_ptr(&child_type->name));
         entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type->di_type,
                 g->pointer_size_bytes * 8, g->pointer_size_bytes * 8, buf_ptr(&entry->name));
         g->type_table.put(&entry->name, entry);
         *parent_pointer = entry;
         return entry;
     }
+}
+
+static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, int array_size) {
+    auto existing_entry = child_type->arrays_by_size.maybe_get(array_size);
+    if (existing_entry) {
+        return existing_entry->value;
+    } else {
+        TypeTableEntry *entry = new_type_table_entry();
+        entry->type_ref = LLVMArrayType(child_type->type_ref, array_size);
+        buf_resize(&entry->name, 0);
+        buf_appendf(&entry->name, "[%s; %ud]", buf_ptr(&child_type->name), array_size);
+        //entry->di_type = LLVMZigCreateDebugArrayType(g->dbuilder, ..., buf_ptr(&entry->name)); // TODO
+
+        g->type_table.put(&entry->name, entry);
+        child_type->arrays_by_size.put(array_size, entry);
+        return entry;
+    }
+}
+
+static int parse_int(Buf *number) {
+    // TODO: think about integer size of array sizes
+    return atoi(buf_ptr(number));
 }
 
 static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
@@ -96,6 +123,28 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
                             buf_create_from_str("pointer to unreachable not allowed"));
                 }
                 type_node->entry = get_pointer_to_type(g, child_type, node->data.type.is_const);
+                return type_node->entry;
+            }
+        case AstNodeTypeTypeArray:
+            {
+                resolve_type(g, node->data.type.child_type);
+                TypeTableEntry *child_type = node->data.type.child_type->codegen_node->data.type_node.entry;
+                if (child_type == g->builtin_types.entry_unreachable) {
+                    add_node_error(g, node,
+                            buf_create_from_str("array of unreachable not allowed"));
+                }
+
+                AstNode *size_node = node->data.type.array_size;
+                int size; // TODO: think about integer size of array sizes
+                if (size_node->type != NodeTypeNumberLiteral) {
+                    add_node_error(g, size_node,
+                        buf_create_from_str("array size must be literal number"));
+                    size = -1;
+                } else {
+                    size = parse_int(&size_node->data.number);
+                }
+
+                type_node->entry = get_array_type(g, child_type, size); // TODO
                 return type_node->entry;
             }
     }

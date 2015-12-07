@@ -144,9 +144,11 @@ ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
 
 ParamDecl : token(Symbol) token(Colon) Type
 
-Type : token(Symbol) | PointerType | token(Unreachable)
+Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType
 
-PointerType : token(Star) token(Const) Type | token(Star) token(Mut) Type
+PointerType : token(Star) (token(Const) | token(Mut)) Type
+
+ArrayType : token(LBracket) Type token(Semicolon) Expression token(RBracket)
 
 Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
 

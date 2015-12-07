@@ -781,12 +781,12 @@ static void do_code_gen(CodeGen *g) {
 static void define_primitive_types(CodeGen *g) {
     {
         // if this type is anywhere in the AST, we should never hit codegen.
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        TypeTableEntry *entry = new_type_table_entry();
         buf_init_from_str(&entry->name, "(invalid)");
         g->builtin_types.entry_invalid = entry;
     }
     {
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        TypeTableEntry *entry = new_type_table_entry();
         entry->type_ref = LLVMInt1Type();
         buf_init_from_str(&entry->name, "bool");
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 1, 8,
@@ -795,7 +795,7 @@ static void define_primitive_types(CodeGen *g) {
         g->builtin_types.entry_bool = entry;
     }
     {
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        TypeTableEntry *entry = new_type_table_entry();
         entry->type_ref = LLVMInt8Type();
         buf_init_from_str(&entry->name, "u8");
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 8, 8,
@@ -805,7 +805,7 @@ static void define_primitive_types(CodeGen *g) {
     }
     g->builtin_types.entry_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
     {
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        TypeTableEntry *entry = new_type_table_entry();
         entry->type_ref = LLVMInt32Type();
         buf_init_from_str(&entry->name, "i32");
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 32, 32,
@@ -814,7 +814,7 @@ static void define_primitive_types(CodeGen *g) {
         g->builtin_types.entry_i32 = entry;
     }
     {
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        TypeTableEntry *entry = new_type_table_entry();
         entry->type_ref = LLVMVoidType();
         buf_init_from_str(&entry->name, "void");
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 0, 0,
@@ -823,7 +823,7 @@ static void define_primitive_types(CodeGen *g) {
         g->builtin_types.entry_void = entry;
     }
     {
-        TypeTableEntry *entry = allocate<TypeTableEntry>(1);
+        TypeTableEntry *entry = new_type_table_entry();
         entry->type_ref = LLVMVoidType();
         buf_init_from_str(&entry->name, "unreachable");
         entry->di_type = g->builtin_types.entry_void->di_type;
