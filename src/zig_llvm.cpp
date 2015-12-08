@@ -185,6 +185,10 @@ unsigned LLVMZigEncoding_DW_ATE_signed(void) {
     return dwarf::DW_ATE_signed;
 }
 
+unsigned LLVMZigEncoding_DW_ATE_float(void) {
+    return dwarf::DW_ATE_float;
+}
+
 unsigned LLVMZigLang_DW_LANG_C99(void) {
     return dwarf::DW_LANG_C99;
 }
@@ -320,6 +324,16 @@ LLVMValueRef LLVMZigInsertDeclare(LLVMZigDIBuilder *dibuilder, LLVMValueRef stor
 LLVMZigDILocation *LLVMZigGetDebugLoc(unsigned line, unsigned col, LLVMZigDIScope *scope) {
     DebugLoc debug_loc = DebugLoc::get(line, col, reinterpret_cast<DIScope*>(scope), nullptr);
     return reinterpret_cast<LLVMZigDILocation*>(debug_loc.get());
+}
+
+void LLVMZigSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
+    if (on_state) {
+        FastMathFlags fmf;
+        fmf.setUnsafeAlgebra();
+        unwrap(builder_wrapped)->SetFastMathFlags(fmf);
+    } else {
+        unwrap(builder_wrapped)->clearFastMathFlags();
+    }
 }
 
 //------------------------------------

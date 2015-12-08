@@ -21,6 +21,8 @@ struct TypeTableEntry {
     LLVMZigDIType *di_type;
     uint64_t size_in_bits;
     uint64_t align_in_bits;
+    bool is_signed_int;
+    bool is_float;
 
     TypeTableEntry *pointer_child;
     bool pointer_is_const;
@@ -82,6 +84,7 @@ struct CodeGen {
         TypeTableEntry *entry_bool;
         TypeTableEntry *entry_u8;
         TypeTableEntry *entry_i32;
+        TypeTableEntry *entry_f32;
         TypeTableEntry *entry_string_literal;
         TypeTableEntry *entry_void;
         TypeTableEntry *entry_unreachable;

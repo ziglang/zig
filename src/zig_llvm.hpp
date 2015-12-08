@@ -55,6 +55,7 @@ LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder
 
 unsigned LLVMZigEncoding_DW_ATE_unsigned(void);
 unsigned LLVMZigEncoding_DW_ATE_signed(void);
+unsigned LLVMZigEncoding_DW_ATE_float(void);
 unsigned LLVMZigLang_DW_LANG_C99(void);
 unsigned LLVMZigTag_DW_auto_variable(void);
 unsigned LLVMZigTag_DW_arg_variable(void);
@@ -95,6 +96,8 @@ void LLVMZigRestoreInsertPoint(LLVMBuilderRef builder, LLVMZigInsertionPoint *po
 LLVMValueRef LLVMZigInsertDeclare(LLVMZigDIBuilder *dibuilder, LLVMValueRef storage,
         LLVMZigDILocalVariable *var_info, LLVMZigDILocation *debug_loc, LLVMValueRef insert_before_instr);
 LLVMZigDILocation *LLVMZigGetDebugLoc(unsigned line, unsigned col, LLVMZigDIScope *scope);
+
+void LLVMZigSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
 
 
 /*
