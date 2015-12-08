@@ -189,6 +189,14 @@ unsigned LLVMZigLang_DW_LANG_C99(void) {
     return dwarf::DW_LANG_C99;
 }
 
+unsigned LLVMZigTag_DW_auto_variable(void) {
+    return dwarf::DW_TAG_auto_variable;
+}
+
+unsigned LLVMZigTag_DW_arg_variable(void) {
+    return dwarf::DW_TAG_arg_variable;
+}
+
 LLVMZigDIBuilder *LLVMZigCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved) {
     DIBuilder *di_builder = new DIBuilder(*unwrap(module), allow_unresolved);
     return reinterpret_cast<LLVMZigDIBuilder *>(di_builder);
@@ -211,16 +219,23 @@ LLVMZigDILexicalBlock *LLVMZigCreateLexicalBlock(LLVMZigDIBuilder *dbuilder, LLV
     return reinterpret_cast<LLVMZigDILexicalBlock*>(result);
 }
 
-/*
-LLVMZigDILocalVariable *
 
-    DILocalVariable *createLocalVariable(unsigned Tag, DIScope *Scope,
-                                         StringRef Name, DIFile *File,
-                                         unsigned LineNo, DIType *Ty,
-                                         bool AlwaysPreserve = false,
-                                         unsigned Flags = 0,
-                                         unsigned ArgNo = 0);
-                                         */
+LLVMZigDILocalVariable *LLVMZigCreateLocalVariable(LLVMZigDIBuilder *dbuilder, unsigned tag,
+        LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
+        LLVMZigDIType *type, bool always_preserve, unsigned flags, unsigned arg_no)
+{
+    DILocalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createLocalVariable(
+            tag,
+            reinterpret_cast<DIScope*>(scope),
+            name,
+            reinterpret_cast<DIFile*>(file),
+            line_no,
+            reinterpret_cast<DIType*>(type),
+            always_preserve,
+            flags,
+            arg_no);
+    return reinterpret_cast<LLVMZigDILocalVariable*>(result);
+}
 
 LLVMZigDIScope *LLVMZigLexicalBlockToScope(LLVMZigDILexicalBlock *lexical_block) {
     DIScope *scope = reinterpret_cast<DILexicalBlock*>(lexical_block);

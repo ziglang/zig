@@ -102,8 +102,8 @@ static int count_non_void_params(CodeGen *g, ZigList<AstNode *> *params) {
 }
 
 static void add_debug_source_node(CodeGen *g, AstNode *node) {
-    // TODO g->block_scopes.last() is not always correct and should probably integrate with BlockContext
-    LLVMZigSetCurrentDebugLocation(g->builder, node->line + 1, node->column + 1, g->block_scopes.last());
+    LLVMZigSetCurrentDebugLocation(g->builder, node->line + 1, node->column + 1,
+            g->cur_block_context->di_scope);
 }
 
 static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
@@ -484,13 +484,7 @@ static LLVMValueRef gen_if_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *implicit_return_type) {
     assert(block_node->type == NodeTypeBlock);
 
-    ImportTableEntry *import = g->cur_fn->import_entry;
-
-    LLVMZigDILexicalBlock *di_block = LLVMZigCreateLexicalBlock(g->dbuilder, g->block_scopes.last(),
-            import->di_file, block_node->line + 1, block_node->column + 1);
-    g->block_scopes.append(LLVMZigLexicalBlockToScope(di_block));
-
-    add_debug_source_node(g, block_node);
+    g->cur_block_context = block_node->codegen_node->data.block_node.block_context;
 
     LLVMValueRef return_value;
     for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
@@ -505,8 +499,6 @@ static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *i
             LLVMBuildRet(g->builder, return_value);
         }
     }
-
-    g->block_scopes.pop();
 
     return return_value;
 }
@@ -654,9 +646,6 @@ static LLVMZigDISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnPro
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
-    g->block_scopes.append(LLVMZigCompileUnitToScope(g->compile_unit));
-
-
     // Generate function prototypes
     for (int i = 0; i < g->fn_protos.length; i += 1) {
         FnTableEntry *fn_table_entry = g->fn_protos.at(i);
@@ -718,8 +707,6 @@ static void do_code_gen(CodeGen *g) {
             create_di_function_type(g, fn_proto, import->di_file), fn_table_entry->internal_linkage, 
             is_definition, scope_line, flags, is_optimized, fn);
 
-        g->block_scopes.append(LLVMZigSubprogramToScope(subprogram));
-
         LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn, "entry");
         LLVMPositionBuilderAtEnd(g->builder, entry_block);
 
@@ -728,6 +715,9 @@ static void do_code_gen(CodeGen *g) {
 
         FnDefNode *codegen_fn_def = &codegen_node->data.fn_def_node;
         assert(codegen_fn_def);
+
+        codegen_fn_def->block_context->di_scope = LLVMZigSubprogramToScope(subprogram);
+
         int non_void_param_count = count_non_void_params(g, &fn_proto->params);
         assert(non_void_param_count == (int)LLVMCountParams(fn));
         LLVMValueRef *params = allocate<LLVMValueRef>(non_void_param_count);
@@ -746,14 +736,21 @@ static void do_code_gen(CodeGen *g) {
 
         build_label_blocks(g, fn_def_node->data.fn_def.body);
 
+        // Set up debug info for blocks and variables and
         // allocate all local variables
         for (int i = 0; i < codegen_fn_def->all_block_contexts.length; i += 1) {
             BlockContext *block_context = codegen_fn_def->all_block_contexts.at(i);
 
-            // skip the block context for function parameters
-            if (block_context->node->type == NodeTypeFnDef) {
-                continue;
+            if (block_context->parent) {
+                LLVMZigDILexicalBlock *di_block = LLVMZigCreateLexicalBlock(g->dbuilder,
+                    block_context->parent->di_scope,
+                    import->di_file,
+                    block_context->node->line + 1,
+                    block_context->node->column + 1);
+                block_context->di_scope = LLVMZigLexicalBlockToScope(di_block);
             }
+
+            g->cur_block_context = block_context;
 
             auto it = block_context->variable_table.entry_iterator();
             for (;;) {
@@ -765,15 +762,28 @@ static void do_code_gen(CodeGen *g) {
                 if (var->type == g->builtin_types.entry_void)
                     continue;
 
-                add_debug_source_node(g, var->decl_node);
-                var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
+                unsigned tag;
+                unsigned arg_no;
+                if (block_context->node->type == NodeTypeFnDef) {
+                    tag = LLVMZigTag_DW_arg_variable();
+                    arg_no = var->arg_index + 1;
+                } else {
+                    tag = LLVMZigTag_DW_auto_variable();
+                    arg_no = 0;
+
+                    add_debug_source_node(g, var->decl_node);
+                    var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
+                }
+
+                var->di_loc_var = LLVMZigCreateLocalVariable(g->dbuilder, tag,
+                        block_context->di_scope, buf_ptr(&var->name),
+                        import->di_file, var->decl_node->line + 1,
+                        var->type->di_type, !g->strip_debug_symbols, 0, arg_no);
             }
         }
 
         TypeTableEntry *implicit_return_type = codegen_fn_def->implicit_return_type;
         gen_block(g, fn_def_node->data.fn_def.body, implicit_return_type);
-
-        g->block_scopes.pop();
 
     }
     assert(!g->errors.length);

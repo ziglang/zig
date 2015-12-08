@@ -14,6 +14,7 @@
 #include "errmsg.hpp"
 
 struct FnTableEntry;
+struct BlockContext;
 
 struct TypeTableEntry {
     LLVMTypeRef type_ref;
@@ -96,7 +97,6 @@ struct CodeGen {
     bool is_native_target;
     Buf *root_source_dir;
     Buf *root_out_name;
-    ZigList<LLVMZigDIScope *> block_scopes;
 
     // The function definitions this module includes. There must be a corresponding
     // fn_protos entry.
@@ -108,6 +108,7 @@ struct CodeGen {
     OutType out_type;
     FnTableEntry *cur_fn;
     LLVMBasicBlockRef cur_basic_block;
+    BlockContext *cur_block_context;
     bool c_stdint_used;
     AstNode *root_export_decl;
     int version_major;
@@ -125,6 +126,8 @@ struct LocalVariableTableEntry {
     bool is_const;
     bool is_ptr; // if true, value_ref is a pointer
     AstNode *decl_node;
+    LLVMZigDILocalVariable *di_loc_var;
+    int arg_index;
 };
 
 struct BlockContext {
@@ -132,6 +135,7 @@ struct BlockContext {
     BlockContext *root; // always points to the BlockContext with the NodeTypeFnDef
     BlockContext *parent; // nullptr when this is the root
     HashMap<Buf *, LocalVariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
+    LLVMZigDIScope *di_scope;
 };
 
 struct TypeNode {
@@ -146,6 +150,7 @@ struct FnDefNode {
     TypeTableEntry *implicit_return_type;
     BlockContext *block_context;
     bool skip;
+    // Required to be a pre-order traversal of the AST. (parents must come before children)
     ZigList<BlockContext *> all_block_contexts;
 };
 
@@ -160,6 +165,10 @@ struct AssignNode {
     LocalVariableTableEntry *var_entry;
 };
 
+struct BlockNode {
+    BlockContext *block_context;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
@@ -167,6 +176,7 @@ struct CodeGenNode {
         FnProtoNode fn_proto_node; // for NodeTypeFnProto
         LabelTableEntry *label_entry; // for NodeTypeGoto and NodeTypeLabel
         AssignNode assign_node; // for NodeTypeBinOpExpr where op is BinOpTypeAssign
+        BlockNode block_node; // for NodeTypeBlock
     } data;
     ExprNode expr_node; // for all the expression nodes
 };

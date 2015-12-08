@@ -443,10 +443,13 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         TypeTableEntry *expected_type, AstNode *node)
 {
     TypeTableEntry *return_type = nullptr;
+    assert(!node->codegen_node);
+    node->codegen_node = allocate<CodeGenNode>(1);
     switch (node->type) {
         case NodeTypeBlock:
             {
                 BlockContext *child_context = new_block_context(node, context);
+                node->codegen_node->data.block_node.block_context = child_context;
                 return_type = g->builtin_types.entry_void;
                 for (int i = 0; i < node->data.block.statements.length; i += 1) {
                     AstNode *child = node->data.block.statements.at(i);
@@ -538,8 +541,6 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 FnTableEntry *fn_table_entry = get_context_fn_entry(context);
                 auto table_entry = fn_table_entry->label_table.maybe_get(&node->data.go_to.name);
                 if (table_entry) {
-                    assert(!node->codegen_node);
-                    node->codegen_node = allocate<CodeGenNode>(1);
                     node->codegen_node->data.label_entry = table_entry->value;
                     table_entry->value->used = true;
                 } else {
@@ -792,12 +793,6 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
     assert(return_type);
     check_type_compatibility(g, node, expected_type, return_type);
 
-    if (node->codegen_node) {
-        assert(node->type == NodeTypeGoto);
-    } else {
-        assert(node->type != NodeTypeGoto);
-        node->codegen_node = allocate<CodeGenNode>(1);
-    }
     node->codegen_node->expr_node.type_entry = return_type;
     node->codegen_node->expr_node.block_context = context;
 
@@ -837,6 +832,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                     variable_entry->type = type;
                     variable_entry->is_const = true;
                     variable_entry->decl_node = param_decl_node;
+                    variable_entry->arg_index = i;
 
                     LocalVariableTableEntry *existing_entry = find_local_variable(context, &variable_entry->name);
                     if (!existing_entry) {

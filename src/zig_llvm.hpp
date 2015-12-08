@@ -22,6 +22,7 @@ struct LLVMZigDIFile;
 struct LLVMZigDILexicalBlock;
 struct LLVMZigDISubprogram;
 struct LLVMZigDISubroutineType;
+struct LLVMZigDILocalVariable;
 struct LLVMZigInsertionPoint;
 
 void LLVMZigInitializeLoopStrengthReducePass(LLVMPassRegistryRef R);
@@ -54,6 +55,8 @@ LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder
 unsigned LLVMZigEncoding_DW_ATE_unsigned(void);
 unsigned LLVMZigEncoding_DW_ATE_signed(void);
 unsigned LLVMZigLang_DW_LANG_C99(void);
+unsigned LLVMZigTag_DW_auto_variable(void);
+unsigned LLVMZigTag_DW_arg_variable(void);
 
 LLVMZigDIBuilder *LLVMZigCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
 
@@ -63,6 +66,10 @@ LLVMZigDIScope *LLVMZigLexicalBlockToScope(LLVMZigDILexicalBlock *lexical_block)
 LLVMZigDIScope *LLVMZigCompileUnitToScope(LLVMZigDICompileUnit *compile_unit);
 LLVMZigDIScope *LLVMZigFileToScope(LLVMZigDIFile *difile);
 LLVMZigDIScope *LLVMZigSubprogramToScope(LLVMZigDISubprogram *subprogram);
+
+LLVMZigDILocalVariable *LLVMZigCreateLocalVariable(LLVMZigDIBuilder *dbuilder, unsigned tag,
+        LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
+        LLVMZigDIType *type, bool always_preserve, unsigned flags, unsigned arg_no);
 
 LLVMZigDILexicalBlock *LLVMZigCreateLexicalBlock(LLVMZigDIBuilder *dbuilder, LLVMZigDIScope *scope,
         LLVMZigDIFile *file, unsigned line, unsigned col);
