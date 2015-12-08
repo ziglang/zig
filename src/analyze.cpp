@@ -65,8 +65,10 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
         entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "*%s %s", is_const ? "const" : "mut", buf_ptr(&child_type->name));
+        entry->size_in_bits = g->pointer_size_bytes * 8;
+        entry->align_in_bits = g->pointer_size_bytes * 8;
         entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type->di_type,
-                g->pointer_size_bytes * 8, g->pointer_size_bytes * 8, buf_ptr(&entry->name));
+                entry->size_in_bits, entry->align_in_bits, buf_ptr(&entry->name));
         g->type_table.put(&entry->name, entry);
         *parent_pointer = entry;
         return entry;
@@ -81,8 +83,12 @@ static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, in
         TypeTableEntry *entry = new_type_table_entry();
         entry->type_ref = LLVMArrayType(child_type->type_ref, array_size);
         buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "[%s; %ud]", buf_ptr(&child_type->name), array_size);
-        //entry->di_type = LLVMZigCreateDebugArrayType(g->dbuilder, ..., buf_ptr(&entry->name)); // TODO
+        buf_appendf(&entry->name, "[%s; %d]", buf_ptr(&child_type->name), array_size);
+
+        entry->size_in_bits = child_type->size_in_bits * array_size;
+        entry->align_in_bits = child_type->align_in_bits;
+        entry->di_type = LLVMZigCreateDebugArrayType(g->dbuilder, entry->size_in_bits,
+                entry->align_in_bits, child_type->di_type, array_size);
 
         g->type_table.put(&entry->name, entry);
         child_type->arrays_by_size.put(array_size, entry);

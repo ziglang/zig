@@ -149,6 +149,18 @@ LLVMZigDIType *LLVMZigCreateDebugBasicType(LLVMZigDIBuilder *dibuilder, const ch
     return reinterpret_cast<LLVMZigDIType*>(di_type);
 }
 
+LLVMZigDIType *LLVMZigCreateDebugArrayType(LLVMZigDIBuilder *dibuilder, uint64_t size_in_bits,
+        uint64_t align_in_bits, LLVMZigDIType *elem_type, int elem_count)
+{
+    SmallVector<Metadata *, 1> subrange;
+    subrange.push_back(reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateSubrange(0, elem_count - 1));
+    DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createArrayType(
+            size_in_bits, align_in_bits,
+            reinterpret_cast<DIType*>(elem_type),
+            reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(subrange));
+    return reinterpret_cast<LLVMZigDIType*>(di_type);
+}
+
 LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
         LLVMZigDIFile *file, LLVMZigDIType **types_array, int types_array_len, unsigned flags)
 {

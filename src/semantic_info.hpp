@@ -18,6 +18,8 @@ struct FnTableEntry;
 struct TypeTableEntry {
     LLVMTypeRef type_ref;
     LLVMZigDIType *di_type;
+    uint64_t size_in_bits;
+    uint64_t align_in_bits;
 
     TypeTableEntry *pointer_child;
     bool pointer_is_const;

@@ -43,6 +43,11 @@ LLVMZigDIType *LLVMZigCreateDebugPointerType(LLVMZigDIBuilder *dibuilder, LLVMZi
 LLVMZigDIType *LLVMZigCreateDebugBasicType(LLVMZigDIBuilder *dibuilder, const char *name,
         uint64_t size_in_bits, uint64_t align_in_bits, unsigned encoding);
 
+LLVMZigDIType *LLVMZigCreateDebugArrayType(LLVMZigDIBuilder *dibuilder,
+        uint64_t size_in_bits, uint64_t align_in_bits, LLVMZigDIType *elem_type,
+        int elem_count);
+
+
 LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
         LLVMZigDIFile *file, LLVMZigDIType **types_array, int types_array_len, unsigned flags);
 

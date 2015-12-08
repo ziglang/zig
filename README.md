@@ -55,6 +55,7 @@ compromises backward compatibility.
 
 ### Roadmap
 
+ * debugging for variables
  * structs
  * loops
  * enums

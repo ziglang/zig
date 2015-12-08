@@ -789,7 +789,10 @@ static void define_primitive_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry();
         entry->type_ref = LLVMInt1Type();
         buf_init_from_str(&entry->name, "bool");
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 1, 8,
+        entry->size_in_bits = 1;
+        entry->align_in_bits = 8;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_bool = entry;
@@ -798,7 +801,10 @@ static void define_primitive_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry();
         entry->type_ref = LLVMInt8Type();
         buf_init_from_str(&entry->name, "u8");
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 8, 8,
+        entry->size_in_bits = 8;
+        entry->align_in_bits = 8;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_u8 = entry;
@@ -808,7 +814,10 @@ static void define_primitive_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry();
         entry->type_ref = LLVMInt32Type();
         buf_init_from_str(&entry->name, "i32");
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 32, 32,
+        entry->size_in_bits = 32;
+        entry->align_in_bits = 32;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_i32 = entry;
@@ -817,7 +826,8 @@ static void define_primitive_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry();
         entry->type_ref = LLVMVoidType();
         buf_init_from_str(&entry->name, "void");
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), 0, 0,
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_void = entry;
