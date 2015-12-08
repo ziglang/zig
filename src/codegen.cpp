@@ -528,8 +528,6 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
                     return nullptr;
                 } else {
                     add_debug_source_node(g, node);
-                    variable->value_ref = LLVMBuildAlloca(g->builder,
-                            variable->type->type_ref, buf_ptr(&variable->name));
                     LLVMValueRef store_instr = LLVMBuildStore(g->builder, value, variable->value_ref);
 
                     LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(node->line + 1, node->column + 1,
@@ -779,6 +777,9 @@ static void do_code_gen(CodeGen *g) {
                 } else {
                     tag = LLVMZigTag_DW_auto_variable();
                     arg_no = 0;
+
+                    add_debug_source_node(g, var->decl_node);
+                    var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
                 }
 
                 var->di_loc_var = LLVMZigCreateLocalVariable(g->dbuilder, tag,
