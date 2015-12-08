@@ -885,11 +885,16 @@ static void init(CodeGen *g, Buf *source_path) {
     g->is_native_target = true;
     char *native_triple = LLVMGetDefaultTargetTriple();
 
+    g->module = LLVMModuleCreateWithName(buf_ptr(source_path));
+
+    LLVMSetTarget(g->module, native_triple);
+
     LLVMTargetRef target_ref;
     char *err_msg = nullptr;
     if (LLVMGetTargetFromTriple(native_triple, &target_ref, &err_msg)) {
         zig_panic("unable to get target from triple: %s", err_msg);
     }
+
 
     char *native_cpu = LLVMZigGetHostCPUName();
     char *native_features = LLVMZigGetNativeFeatures();
@@ -904,8 +909,9 @@ static void init(CodeGen *g, Buf *source_path) {
 
     g->target_data_ref = LLVMGetTargetMachineData(g->target_machine);
 
+    char *layout_str = LLVMCopyStringRepOfTargetData(g->target_data_ref);
+    LLVMSetDataLayout(g->module, layout_str);
 
-    g->module = LLVMModuleCreateWithName("ZigModule");
 
     g->pointer_size_bytes = LLVMPointerSize(g->target_data_ref);
 
