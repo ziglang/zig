@@ -211,6 +211,17 @@ LLVMZigDILexicalBlock *LLVMZigCreateLexicalBlock(LLVMZigDIBuilder *dbuilder, LLV
     return reinterpret_cast<LLVMZigDILexicalBlock*>(result);
 }
 
+/*
+LLVMZigDILocalVariable *
+
+    DILocalVariable *createLocalVariable(unsigned Tag, DIScope *Scope,
+                                         StringRef Name, DIFile *File,
+                                         unsigned LineNo, DIType *Ty,
+                                         bool AlwaysPreserve = false,
+                                         unsigned Flags = 0,
+                                         unsigned ArgNo = 0);
+                                         */
+
 LLVMZigDIScope *LLVMZigLexicalBlockToScope(LLVMZigDILexicalBlock *lexical_block) {
     DIScope *scope = reinterpret_cast<DILexicalBlock*>(lexical_block);
     return reinterpret_cast<LLVMZigDIScope*>(scope);

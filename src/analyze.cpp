@@ -525,6 +525,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     buf_init_from_buf(&variable_entry->name, &variable_declaration->symbol);
                     variable_entry->type = type;
                     variable_entry->is_const = variable_declaration->is_const;
+                    variable_entry->is_ptr = true;
                     variable_entry->decl_node = node;
                     context->variable_table.put(&variable_entry->name, variable_entry);
                 }

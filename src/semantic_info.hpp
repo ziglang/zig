@@ -123,6 +123,7 @@ struct LocalVariableTableEntry {
     TypeTableEntry *type;
     LLVMValueRef value_ref;
     bool is_const;
+    bool is_ptr; // if true, value_ref is a pointer
     AstNode *decl_node;
 };
 
