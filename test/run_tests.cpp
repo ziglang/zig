@@ -392,7 +392,7 @@ fn a() {
     b(1);
 }
 fn b(a: i32, b: i32, c: i32) { }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: wrong number of arguments. Expected 3, got 1.");
+    )SOURCE", 1, ".tmp_source.zig:3:6: error: wrong number of arguments. Expected 3, got 1.");
 
     add_compile_fail_case("invalid type", R"SOURCE(
 fn a() -> bogus {}

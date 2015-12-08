@@ -11,7 +11,6 @@
 #include "os.hpp"
 #include "config.h"
 #include "error.hpp"
-#include "semantic_info.hpp"
 #include "analyze.hpp"
 #include "errmsg.hpp"
 
@@ -168,6 +167,12 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     }
 }
 
+static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeArrayAccessExpr);
+
+    zig_panic("TODO gen arary access");
+}
+
 static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypePrefixOpExpr);
     assert(node->data.prefix_op_expr.primary_expr);
@@ -229,49 +234,55 @@ static LLVMValueRef gen_arithmetic_bin_op_expr(CodeGen *g, AstNode *node) {
             return LLVMBuildShl(g->builder, val1, val2, "");
         case BinOpTypeBitShiftRight:
             add_debug_source_node(g, node);
-            if (op1_type->is_signed_int) {
+            if (op1_type->id == TypeTableEntryIdInt) {
                 return LLVMBuildAShr(g->builder, val1, val2, "");
             } else {
                 return LLVMBuildLShr(g->builder, val1, val2, "");
             }
         case BinOpTypeAdd:
             add_debug_source_node(g, node);
-            if (op1_type->is_float) {
+            if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFAdd(g->builder, val1, val2, "");
             } else {
                 return LLVMBuildNSWAdd(g->builder, val1, val2, "");
             }
         case BinOpTypeSub:
             add_debug_source_node(g, node);
-            if (op1_type->is_float) {
+            if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFSub(g->builder, val1, val2, "");
             } else {
                 return LLVMBuildNSWSub(g->builder, val1, val2, "");
             }
         case BinOpTypeMult:
             add_debug_source_node(g, node);
-            if (op1_type->is_float) {
+            if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFMul(g->builder, val1, val2, "");
             } else {
                 return LLVMBuildNSWMul(g->builder, val1, val2, "");
             }
         case BinOpTypeDiv:
             add_debug_source_node(g, node);
-            if (op1_type->is_float) {
+            if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFDiv(g->builder, val1, val2, "");
-            } else if (op1_type->is_signed_int) {
-                return LLVMBuildSDiv(g->builder, val1, val2, "");
             } else {
-                return LLVMBuildUDiv(g->builder, val1, val2, "");
+                assert(op1_type->id == TypeTableEntryIdInt);
+                if (op1_type->data.integral.is_signed) {
+                    return LLVMBuildSDiv(g->builder, val1, val2, "");
+                } else {
+                    return LLVMBuildUDiv(g->builder, val1, val2, "");
+                }
             }
         case BinOpTypeMod:
             add_debug_source_node(g, node);
-            if (op1_type->is_float) {
+            if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFRem(g->builder, val1, val2, "");
-            } else if (op1_type->is_signed_int) {
-                return LLVMBuildSRem(g->builder, val1, val2, "");
             } else {
-                return LLVMBuildURem(g->builder, val1, val2, "");
+                assert(op1_type->id == TypeTableEntryIdInt);
+                if (op1_type->data.integral.is_signed) {
+                    return LLVMBuildSRem(g->builder, val1, val2, "");
+                } else {
+                    return LLVMBuildURem(g->builder, val1, val2, "");
+                }
             }
         case BinOpTypeBoolOr:
         case BinOpTypeBoolAnd:
@@ -337,11 +348,13 @@ static LLVMValueRef gen_cmp_expr(CodeGen *g, AstNode *node) {
     assert(op1_type == op2_type);
 
     add_debug_source_node(g, node);
-    if (op1_type->is_float) {
+    if (op1_type->id == TypeTableEntryIdFloat) {
         LLVMRealPredicate pred = cmp_op_to_real_predicate(node->data.bin_op_expr.bin_op);
         return LLVMBuildFCmp(g->builder, pred, val1, val2, "");
     } else {
-        LLVMIntPredicate pred = cmp_op_to_int_predicate(node->data.bin_op_expr.bin_op, op1_type->is_signed_int);
+        assert(op1_type->id == TypeTableEntryIdInt);
+        LLVMIntPredicate pred = cmp_op_to_int_predicate(node->data.bin_op_expr.bin_op,
+                op1_type->data.integral.is_signed);
         return LLVMBuildICmp(g->builder, pred, val1, val2, "");
     }
 }
@@ -596,6 +609,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_prefix_op_expr(g, node);
         case NodeTypeFnCallExpr:
             return gen_fn_call_expr(g, node);
+        case NodeTypeArrayAccessExpr:
+            return gen_array_access_expr(g, node);
         case NodeTypeUnreachable:
             add_debug_source_node(g, node);
             return LLVMBuildUnreachable(g->builder);
@@ -865,12 +880,12 @@ static void do_code_gen(CodeGen *g) {
 static void define_primitive_types(CodeGen *g) {
     {
         // if this type is anywhere in the AST, we should never hit codegen.
-        TypeTableEntry *entry = new_type_table_entry();
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInvalid);
         buf_init_from_str(&entry->name, "(invalid)");
         g->builtin_types.entry_invalid = entry;
     }
     {
-        TypeTableEntry *entry = new_type_table_entry();
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBool);
         entry->type_ref = LLVMInt1Type();
         buf_init_from_str(&entry->name, "bool");
         entry->size_in_bits = 1;
@@ -882,7 +897,7 @@ static void define_primitive_types(CodeGen *g) {
         g->builtin_types.entry_bool = entry;
     }
     {
-        TypeTableEntry *entry = new_type_table_entry();
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMInt8Type();
         buf_init_from_str(&entry->name, "u8");
         entry->size_in_bits = 8;
@@ -895,12 +910,12 @@ static void define_primitive_types(CodeGen *g) {
     }
     g->builtin_types.entry_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
     {
-        TypeTableEntry *entry = new_type_table_entry();
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMInt32Type();
         buf_init_from_str(&entry->name, "i32");
         entry->size_in_bits = 32;
         entry->align_in_bits = 32;
-        entry->is_signed_int = true;
+        entry->data.integral.is_signed = true;
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
@@ -908,12 +923,11 @@ static void define_primitive_types(CodeGen *g) {
         g->builtin_types.entry_i32 = entry;
     }
     {
-        TypeTableEntry *entry = new_type_table_entry();
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
         entry->type_ref = LLVMFloatType();
         buf_init_from_str(&entry->name, "f32");
         entry->size_in_bits = 32;
         entry->align_in_bits = 32;
-        entry->is_float = true;
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_float());
@@ -921,7 +935,7 @@ static void define_primitive_types(CodeGen *g) {
         g->builtin_types.entry_f32 = entry;
     }
     {
-        TypeTableEntry *entry = new_type_table_entry();
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);
         entry->type_ref = LLVMVoidType();
         buf_init_from_str(&entry->name, "void");
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
@@ -931,7 +945,7 @@ static void define_primitive_types(CodeGen *g) {
         g->builtin_types.entry_void = entry;
     }
     {
-        TypeTableEntry *entry = new_type_table_entry();
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUnreachable);
         entry->type_ref = LLVMVoidType();
         buf_init_from_str(&entry->name, "unreachable");
         entry->di_type = g->builtin_types.entry_void->di_type;

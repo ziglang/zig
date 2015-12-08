@@ -6,10 +6,44 @@
  */
 
 #include "analyze.hpp"
-#include "semantic_info.hpp"
 #include "error.hpp"
 #include "zig_llvm.hpp"
 #include "os.hpp"
+
+static AstNode *first_executing_node(AstNode *node) {
+    switch (node->type) {
+        case NodeTypeFnCallExpr:
+            return first_executing_node(node->data.fn_call_expr.fn_ref_expr);
+        case NodeTypeRoot:
+        case NodeTypeRootExportDecl:
+        case NodeTypeFnProto:
+        case NodeTypeFnDef:
+        case NodeTypeFnDecl:
+        case NodeTypeParamDecl:
+        case NodeTypeType:
+        case NodeTypeBlock:
+        case NodeTypeExternBlock:
+        case NodeTypeDirective:
+        case NodeTypeReturnExpr:
+        case NodeTypeVariableDeclaration:
+        case NodeTypeBinOpExpr:
+        case NodeTypeCastExpr:
+        case NodeTypeNumberLiteral:
+        case NodeTypeStringLiteral:
+        case NodeTypeUnreachable:
+        case NodeTypeSymbol:
+        case NodeTypePrefixOpExpr:
+        case NodeTypeArrayAccessExpr:
+        case NodeTypeUse:
+        case NodeTypeVoid:
+        case NodeTypeBoolLiteral:
+        case NodeTypeIfExpr:
+        case NodeTypeLabel:
+        case NodeTypeGoto:
+            return node;
+    }
+    zig_panic("unreachable");
+}
 
 void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     ErrorMsg *err = allocate<ErrorMsg>(1);
@@ -48,9 +82,10 @@ static void set_root_export_version(CodeGen *g, Buf *version_buf, AstNode *node)
     }
 }
 
-TypeTableEntry *new_type_table_entry() {
+TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
     TypeTableEntry *entry = allocate<TypeTableEntry>(1);
     entry->arrays_by_size.init(2);
+    entry->id = id;
     return entry;
 }
 
@@ -61,7 +96,7 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
     if (*parent_pointer) {
         return *parent_pointer;
     } else {
-        TypeTableEntry *entry = new_type_table_entry();
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
         entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "*%s %s", is_const ? "const" : "mut", buf_ptr(&child_type->name));
@@ -80,7 +115,7 @@ static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, in
     if (existing_entry) {
         return existing_entry->value;
     } else {
-        TypeTableEntry *entry = new_type_table_entry();
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
         entry->type_ref = LLVMArrayType(child_type->type_ref, array_size);
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "[%s; %d]", buf_ptr(&child_type->name), array_size);
@@ -357,6 +392,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
         case NodeTypeFnCallExpr:
+        case NodeTypeArrayAccessExpr:
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeUnreachable:
@@ -466,7 +502,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                             // ignore void statements once we enter unreachable land.
                             continue;
                         }
-                        add_node_error(g, child, buf_sprintf("unreachable code"));
+                        add_node_error(g, first_executing_node(child), buf_sprintf("unreachable code"));
                         break;
                     }
                     return_type = analyze_expression(g, import, child_context, nullptr, child);
@@ -641,14 +677,21 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
         case NodeTypeFnCallExpr:
             {
-                Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
+                AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
+                if (fn_ref_expr->type != NodeTypeSymbol) {
+                    add_node_error(g, node,
+                            buf_sprintf("function pointers not allowed"));
+                    break;
+                }
+
+                Buf *name = &fn_ref_expr->data.symbol;
 
                 auto entry = import->fn_table.maybe_get(name);
                 if (!entry)
                     entry = g->fn_table.maybe_get(name);
 
                 if (!entry) {
-                    add_node_error(g, node,
+                    add_node_error(g, fn_ref_expr,
                             buf_sprintf("undefined function: '%s'", buf_ptr(name)));
                     // still analyze the parameters, even though we don't know what to expect
                     for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
@@ -691,6 +734,19 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 break;
             }
 
+        case NodeTypeArrayAccessExpr:
+            {
+                // here we are always reading the array
+                TypeTableEntry *lhs_type = analyze_expression(g, import, context, nullptr,
+                        node->data.array_access_expr.array_ref_expr);
+                if (lhs_type->id == TypeTableEntryIdArray) {
+                    zig_panic("TODO");
+                } else {
+                    add_node_error(g, node, buf_sprintf("array access of non-array"));
+                }
+
+                break;
+            }
         case NodeTypeNumberLiteral:
             // TODO: generic literal int type
             return_type = g->builtin_types.entry_i32;
@@ -897,6 +953,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
         case NodeTypeFnCallExpr:
+        case NodeTypeArrayAccessExpr:
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeUnreachable:

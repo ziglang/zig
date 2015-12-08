@@ -64,6 +64,8 @@ compromises backward compatibility.
  * main function with command line arguments
  * void pointer constant
  * sizeof
+ * address of operator
+ * global variables
  * static initializers
  * assert
  * function pointers
@@ -202,9 +204,13 @@ MultiplyOperator : token(Star) | token(Slash) | token(Percent)
 
 CastExpression : PrefixOpExpression token(as) Type | PrefixOpExpression
 
-PrefixOpExpression : PrefixOp FnCallExpression | FnCallExpression
+PrefixOpExpression : PrefixOp SuffixOpExpression | SuffixOpExpression
 
-FnCallExpression : PrimaryExpression token(LParen) list(Expression, token(Comma)) token(RParen) | PrimaryExpression
+SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression)
+
+FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
+
+ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 
 PrefixOp : token(Not) | token(Dash) | token(Tilde)
 
@@ -220,7 +226,7 @@ KeywordLiteral : token(Unreachable) | token(Void) | token(True) | token(False)
 ## Operator Precedence
 
 ```
-x()
+x() x[]
 !x -x ~x
 as
 * / %

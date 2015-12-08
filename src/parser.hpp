@@ -38,6 +38,7 @@ enum NodeType {
     NodeTypeSymbol,
     NodeTypePrefixOpExpr,
     NodeTypeFnCallExpr,
+    NodeTypeArrayAccessExpr,
     NodeTypeUse,
     NodeTypeVoid,
     NodeTypeBoolLiteral,
@@ -143,6 +144,11 @@ struct AstNodeFnCallExpr {
     ZigList<AstNode *> params;
 };
 
+struct AstNodeArrayAccessExpr {
+    AstNode *array_ref_expr;
+    AstNode *subscript;
+};
+
 struct AstNodeExternBlock {
     ZigList<AstNode *> *directives;
     ZigList<AstNode *> fn_decls;
@@ -219,6 +225,7 @@ struct AstNode {
         AstNodeCastExpr cast_expr;
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodeFnCallExpr fn_call_expr;
+        AstNodeArrayAccessExpr array_access_expr;
         AstNodeUse use;
         AstNodeIfExpr if_expr;
         AstNodeLabel label;

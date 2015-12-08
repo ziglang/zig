@@ -7,7 +7,7 @@
 
 #include "parser.hpp"
 #include "errmsg.hpp"
-#include "semantic_info.hpp"
+#include "analyze.hpp"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -70,6 +70,8 @@ const char *node_type_str(NodeType node_type) {
             return "BinOpExpr";
         case NodeTypeFnCallExpr:
             return "FnCallExpr";
+        case NodeTypeArrayAccessExpr:
+            return "ArrayAccessExpr";
         case NodeTypeExternBlock:
             return "ExternBlock";
         case NodeTypeDirective:
@@ -230,6 +232,11 @@ void ast_print(AstNode *node, int indent) {
                 AstNode *child = node->data.fn_call_expr.params.at(i);
                 ast_print(child, indent + 2);
             }
+            break;
+        case NodeTypeArrayAccessExpr:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            ast_print(node->data.array_access_expr.array_ref_expr, indent + 2);
+            ast_print(node->data.array_access_expr.subscript, indent + 2);
             break;
         case NodeTypeDirective:
             fprintf(stderr, "%s\n", node_type_str(node->type));
@@ -566,10 +573,6 @@ static void ast_parse_param_decl_list(ParseContext *pc, int token_index, int *ne
 static void ast_parse_fn_call_param_list(ParseContext *pc, int token_index, int *new_token_index,
         ZigList<AstNode*> *params)
 {
-    Token *l_paren = &pc->tokens->at(token_index);
-    token_index += 1;
-    ast_expect_token(pc, l_paren, TokenIdLParen);
-
     Token *token = &pc->tokens->at(token_index);
     if (token->id == TokenIdRParen) {
         token_index += 1;
@@ -680,22 +683,39 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-FnCallExpression : PrimaryExpression token(LParen) list(Expression, token(Comma)) token(RParen) | PrimaryExpression
+SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression)
+FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
+ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 */
-static AstNode *ast_parse_fn_call_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *primary_expr = ast_parse_primary_expr(pc, token_index, mandatory);
-    if (!primary_expr)
+    if (!primary_expr) {
         return nullptr;
+    }
 
-    Token *l_paren = &pc->tokens->at(*token_index);
-    if (l_paren->id != TokenIdLParen)
+    Token *token = &pc->tokens->at(*token_index);
+    if (token->id == TokenIdLParen) {
+        *token_index += 1;
+
+        AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, token);
+        node->data.fn_call_expr.fn_ref_expr = primary_expr;
+        ast_parse_fn_call_param_list(pc, *token_index, token_index, &node->data.fn_call_expr.params);
+        return node;
+    } else if (token->id == TokenIdLBracket) {
+        *token_index += 1;
+
+        AstNode *node = ast_create_node(pc, NodeTypeArrayAccessExpr, token);
+        node->data.array_access_expr.array_ref_expr = primary_expr;
+        node->data.array_access_expr.subscript = ast_parse_expression(pc, token_index, true);
+
+        Token *r_bracket = &pc->tokens->at(*token_index);
+        *token_index += 1;
+        ast_expect_token(pc, r_bracket, TokenIdRBracket);
+
+        return node;
+    } else {
         return primary_expr;
-
-    AstNode *node = ast_create_node_with_node(pc, NodeTypeFnCallExpr, primary_expr);
-    node->data.fn_call_expr.fn_ref_expr = primary_expr;
-    ast_parse_fn_call_param_list(pc, *token_index, token_index, &node->data.fn_call_expr.params);
-
-    return node;
+    }
 }
 
 static PrefixOp tok_to_prefix_op(Token *token) {
@@ -725,17 +745,17 @@ static PrefixOp ast_parse_prefix_op(ParseContext *pc, int *token_index, bool man
 }
 
 /*
-PrefixOpExpression : PrefixOp FnCallExpression | FnCallExpression
+PrefixOpExpression : PrefixOp SuffixOpExpression | SuffixOpExpression
 */
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
     PrefixOp prefix_op = ast_parse_prefix_op(pc, token_index, false);
     if (prefix_op == PrefixOpInvalid)
-        return ast_parse_fn_call_expr(pc, token_index, mandatory);
+        return ast_parse_suffix_op_expr(pc, token_index, mandatory);
 
-    AstNode *primary_expr = ast_parse_fn_call_expr(pc, token_index, true);
+    AstNode *prefix_op_expr = ast_parse_suffix_op_expr(pc, token_index, true);
     AstNode *node = ast_create_node(pc, NodeTypePrefixOpExpr, token);
-    node->data.prefix_op_expr.primary_expr = primary_expr;
+    node->data.prefix_op_expr.primary_expr = prefix_op_expr;
     node->data.prefix_op_expr.prefix_op = prefix_op;
 
     return node;
