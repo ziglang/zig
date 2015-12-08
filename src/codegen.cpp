@@ -170,7 +170,18 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeArrayAccessExpr);
 
-    zig_panic("TODO gen arary access");
+    LLVMValueRef array_ref_value = gen_expr(g, node->data.array_access_expr.array_ref_expr);
+    LLVMValueRef subscript_value = gen_expr(g, node->data.array_access_expr.subscript);
+
+    assert(array_ref_value);
+    assert(subscript_value);
+
+    LLVMValueRef indices[] = {
+        LLVMConstInt(LLVMInt32Type(), 0, false),
+        subscript_value
+    };
+    LLVMValueRef result_ptr = LLVMBuildInBoundsGEP(g->builder, array_ref_value, indices, 2, "");
+    return LLVMBuildLoad(g->builder, result_ptr, "");
 }
 
 static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
@@ -651,8 +662,12 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
                 if (variable->type == g->builtin_types.entry_void) {
                     return nullptr;
                 } else if (variable->is_ptr) {
-                    add_debug_source_node(g, node);
-                    return LLVMBuildLoad(g->builder, variable->value_ref, "");
+                    if (variable->type->id == TypeTableEntryIdArray) {
+                        return variable->value_ref;
+                    } else {
+                        add_debug_source_node(g, node);
+                        return LLVMBuildLoad(g->builder, variable->value_ref, "");
+                    }
                 } else {
                     return variable->value_ref;
                 }

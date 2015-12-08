@@ -124,6 +124,7 @@ static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, in
         entry->align_in_bits = child_type->align_in_bits;
         entry->di_type = LLVMZigCreateDebugArrayType(g->dbuilder, entry->size_in_bits,
                 entry->align_in_bits, child_type->di_type, array_size);
+        entry->data.array.child_type = child_type;
 
         g->type_table.put(&entry->name, entry);
         child_type->arrays_by_size.put(array_size, entry);
@@ -185,7 +186,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
                     size = parse_int(&size_node->data.number);
                 }
 
-                type_node->entry = get_array_type(g, child_type, size); // TODO
+                type_node->entry = get_array_type(g, child_type, size);
                 return type_node->entry;
             }
     }
@@ -737,12 +738,19 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeArrayAccessExpr:
             {
                 // here we are always reading the array
-                TypeTableEntry *lhs_type = analyze_expression(g, import, context, nullptr,
+                TypeTableEntry *array_type = analyze_expression(g, import, context, nullptr,
                         node->data.array_access_expr.array_ref_expr);
-                if (lhs_type->id == TypeTableEntryIdArray) {
-                    zig_panic("TODO");
+                if (array_type->id == TypeTableEntryIdArray) {
+                    TypeTableEntry *subscript_type = analyze_expression(g, import, context,
+                            nullptr, node->data.array_access_expr.subscript);
+                    if (subscript_type->id != TypeTableEntryIdInt) {
+                        add_node_error(g, node,
+                            buf_sprintf("array subscripts must be integers"));
+                    }
+                    return_type = array_type->data.array.child_type;
                 } else {
                     add_node_error(g, node, buf_sprintf("array access of non-array"));
+                    return_type = g->builtin_types.entry_invalid;
                 }
 
                 break;

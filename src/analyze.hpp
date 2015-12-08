@@ -26,6 +26,10 @@ struct TypeTableEntryInt {
     bool is_signed;
 };
 
+struct TypeTableEntryArray {
+    TypeTableEntry *child_type;
+};
+
 enum TypeTableEntryId {
     TypeTableEntryIdInvalid,
     TypeTableEntryIdVoid,
@@ -50,6 +54,7 @@ struct TypeTableEntry {
     union {
         TypeTableEntryPointer pointer;
         TypeTableEntryInt integral;
+        TypeTableEntryArray array;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
