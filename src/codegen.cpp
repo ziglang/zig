@@ -528,7 +528,15 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
                     return nullptr;
                 } else {
                     add_debug_source_node(g, node);
-                    return LLVMBuildStore(g->builder, value, variable->value_ref);
+                    variable->value_ref = LLVMBuildAlloca(g->builder,
+                            variable->type->type_ref, buf_ptr(&variable->name));
+                    LLVMValueRef store_instr = LLVMBuildStore(g->builder, value, variable->value_ref);
+
+                    LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(node->line + 1, node->column + 1,
+                            g->cur_block_context->di_scope);
+                    LLVMZigInsertDeclare(g->dbuilder, variable->value_ref, variable->di_loc_var,
+                            debug_loc, store_instr);
+                    return nullptr;
                 }
             }
         case NodeTypeCastExpr:
@@ -577,6 +585,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
                 if (variable->type == g->builtin_types.entry_void) {
                     return nullptr;
                 } else if (variable->is_ptr) {
+                    add_debug_source_node(g, node);
                     return LLVMBuildLoad(g->builder, variable->value_ref, "");
                 } else {
                     return variable->value_ref;
@@ -770,9 +779,6 @@ static void do_code_gen(CodeGen *g) {
                 } else {
                     tag = LLVMZigTag_DW_auto_variable();
                     arg_no = 0;
-
-                    add_debug_source_node(g, var->decl_node);
-                    var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
                 }
 
                 var->di_loc_var = LLVMZigCreateLocalVariable(g->dbuilder, tag,

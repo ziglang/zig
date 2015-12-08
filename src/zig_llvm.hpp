@@ -23,6 +23,7 @@ struct LLVMZigDILexicalBlock;
 struct LLVMZigDISubprogram;
 struct LLVMZigDISubroutineType;
 struct LLVMZigDILocalVariable;
+struct LLVMZigDILocation;
 struct LLVMZigInsertionPoint;
 
 void LLVMZigInitializeLoopStrengthReducePass(LLVMPassRegistryRef R);
@@ -90,6 +91,10 @@ void LLVMZigDIBuilderFinalize(LLVMZigDIBuilder *dibuilder);
 
 LLVMZigInsertionPoint *LLVMZigSaveInsertPoint(LLVMBuilderRef builder);
 void LLVMZigRestoreInsertPoint(LLVMBuilderRef builder, LLVMZigInsertionPoint *point);
+
+LLVMValueRef LLVMZigInsertDeclare(LLVMZigDIBuilder *dibuilder, LLVMValueRef storage,
+        LLVMZigDILocalVariable *var_info, LLVMZigDILocation *debug_loc, LLVMValueRef insert_before_instr);
+LLVMZigDILocation *LLVMZigGetDebugLoc(unsigned line, unsigned col, LLVMZigDIScope *scope);
 
 
 /*

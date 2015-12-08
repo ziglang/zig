@@ -304,6 +304,24 @@ void LLVMZigRestoreInsertPoint(LLVMBuilderRef builder, LLVMZigInsertionPoint *ip
     unwrap(builder)->restoreIP(*ip);
 }
 
+
+LLVMValueRef LLVMZigInsertDeclare(LLVMZigDIBuilder *dibuilder, LLVMValueRef storage,
+        LLVMZigDILocalVariable *var_info, LLVMZigDILocation *debug_loc, LLVMValueRef insert_before_instr)
+{
+    Instruction *result = reinterpret_cast<DIBuilder*>(dibuilder)->insertDeclare(
+            unwrap(storage),
+            reinterpret_cast<DILocalVariable *>(var_info),
+            reinterpret_cast<DIBuilder*>(dibuilder)->createExpression(),
+            reinterpret_cast<DILocation*>(debug_loc),
+            static_cast<Instruction*>(unwrap(insert_before_instr)));
+    return wrap(result);
+}
+
+LLVMZigDILocation *LLVMZigGetDebugLoc(unsigned line, unsigned col, LLVMZigDIScope *scope) {
+    DebugLoc debug_loc = DebugLoc::get(line, col, reinterpret_cast<DIScope*>(scope), nullptr);
+    return reinterpret_cast<LLVMZigDILocation*>(debug_loc.get());
+}
+
 //------------------------------------
 
 enum FloatAbi {
