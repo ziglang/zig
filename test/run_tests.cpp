@@ -520,6 +520,21 @@ fn f() {
     (let a = 0);
 }
     )SOURCE", 1, ".tmp_source.zig:3:6: error: invalid token: 'let'");
+
+    add_compile_fail_case("array access errors", R"SOURCE(
+fn f() {
+    let mut bad : bool;
+    i[i] = i[i];
+    bad[bad] = bad[bad];
+}
+    )SOURCE", 8, ".tmp_source.zig:4:5: error: use of undeclared identifier 'i'",
+                 ".tmp_source.zig:4:7: error: use of undeclared identifier 'i'",
+                 ".tmp_source.zig:4:12: error: use of undeclared identifier 'i'",
+                 ".tmp_source.zig:4:14: error: use of undeclared identifier 'i'",
+                 ".tmp_source.zig:5:8: error: array access of non-array",
+                 ".tmp_source.zig:5:8: error: array subscripts must be integers",
+                 ".tmp_source.zig:5:19: error: array access of non-array",
+                 ".tmp_source.zig:5:19: error: array subscripts must be integers");
 }
 
 static void print_compiler_invocation(TestCase *test_case, Buf *zig_stderr) {

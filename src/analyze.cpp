@@ -10,6 +10,9 @@
 #include "zig_llvm.hpp"
 #include "os.hpp"
 
+static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node);
+
 static AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
         case NodeTypeFnCallExpr:
@@ -476,6 +479,35 @@ LocalVariableTableEntry *find_local_variable(BlockContext *context, Buf *name) {
     }
 }
 
+static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        AstNode *node)
+{
+    TypeTableEntry *array_type = analyze_expression(g, import, context, nullptr,
+            node->data.array_access_expr.array_ref_expr);
+
+    TypeTableEntry *return_type;
+
+    if (array_type->id == TypeTableEntryIdArray) {
+        return_type = array_type->data.array.child_type;
+    } else {
+        if (array_type->id != TypeTableEntryIdInvalid) {
+            add_node_error(g, node, buf_sprintf("array access of non-array"));
+        }
+        return_type = g->builtin_types.entry_invalid;
+    }
+
+    TypeTableEntry *subscript_type = analyze_expression(g, import, context, nullptr,
+            node->data.array_access_expr.subscript);
+    if (subscript_type->id != TypeTableEntryIdInt &&
+        subscript_type->id != TypeTableEntryIdInvalid)
+    {
+        add_node_error(g, node,
+            buf_sprintf("array subscripts must be integers"));
+    }
+
+    return return_type;
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -593,6 +625,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     case BinOpTypeAssign:
                         {
                             AstNode *lhs_node = node->data.bin_op_expr.op1;
+                            TypeTableEntry *expected_rhs_type = nullptr;
                             if (lhs_node->type == NodeTypeSymbol) {
                                 Buf *name = &lhs_node->data.symbol;
                                 LocalVariableTableEntry *var = find_local_variable(context, name);
@@ -601,18 +634,19 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                                         add_node_error(g, lhs_node,
                                             buf_sprintf("cannot assign to constant variable"));
                                     } else {
-                                        analyze_expression(g, import, context, var->type,
-                                                node->data.bin_op_expr.op2);
+                                        expected_rhs_type = var->type;
                                     }
                                 } else {
                                     add_node_error(g, lhs_node,
                                             buf_sprintf("use of undeclared identifier '%s'", buf_ptr(name)));
                                 }
-
+                            } else if (lhs_node->type == NodeTypeArrayAccessExpr) {
+                                expected_rhs_type = analyze_array_access_expr(g, import, context, lhs_node);
                             } else {
                                 add_node_error(g, lhs_node,
                                         buf_sprintf("expected a bare identifier"));
                             }
+                            analyze_expression(g, import, context, expected_rhs_type, node->data.bin_op_expr.op2);
                             return_type = g->builtin_types.entry_void;
                             break;
                         }
@@ -736,25 +770,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             }
 
         case NodeTypeArrayAccessExpr:
-            {
-                // here we are always reading the array
-                TypeTableEntry *array_type = analyze_expression(g, import, context, nullptr,
-                        node->data.array_access_expr.array_ref_expr);
-                if (array_type->id == TypeTableEntryIdArray) {
-                    TypeTableEntry *subscript_type = analyze_expression(g, import, context,
-                            nullptr, node->data.array_access_expr.subscript);
-                    if (subscript_type->id != TypeTableEntryIdInt) {
-                        add_node_error(g, node,
-                            buf_sprintf("array subscripts must be integers"));
-                    }
-                    return_type = array_type->data.array.child_type;
-                } else {
-                    add_node_error(g, node, buf_sprintf("array access of non-array"));
-                    return_type = g->builtin_types.entry_invalid;
-                }
-
-                break;
-            }
+            // for reading array access; assignment handled elsewhere
+            return_type = analyze_array_access_expr(g, import, context, node);
+            break;
         case NodeTypeNumberLiteral:
             // TODO: generic literal int type
             return_type = g->builtin_types.entry_i32;

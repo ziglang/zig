@@ -167,7 +167,7 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     }
 }
 
-static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node) {
+static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeArrayAccessExpr);
 
     LLVMValueRef array_ref_value = gen_expr(g, node->data.array_access_expr.array_ref_expr);
@@ -180,8 +180,14 @@ static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node) {
         LLVMConstInt(LLVMInt32Type(), 0, false),
         subscript_value
     };
-    LLVMValueRef result_ptr = LLVMBuildInBoundsGEP(g->builder, array_ref_value, indices, 2, "");
-    return LLVMBuildLoad(g->builder, result_ptr, "");
+    return LLVMBuildInBoundsGEP(g->builder, array_ref_value, indices, 2, "");
+}
+
+static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeArrayAccessExpr);
+
+    LLVMValueRef ptr = gen_array_ptr(g, node);
+    return LLVMBuildLoad(g->builder, ptr, "");
 }
 
 static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
@@ -437,22 +443,32 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     return phi;
 }
 
+
 static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
-    AstNode *symbol_node = node->data.bin_op_expr.op1;
-    assert(symbol_node->type == NodeTypeSymbol);
+    AstNode *lhs_node = node->data.bin_op_expr.op1;
 
-    LocalVariableTableEntry *var = find_local_variable(node->codegen_node->expr_node.block_context,
-            &symbol_node->data.symbol);
+    if (lhs_node->type == NodeTypeSymbol) {
+        LocalVariableTableEntry *var = find_local_variable(node->codegen_node->expr_node.block_context,
+                &lhs_node->data.symbol);
 
-    // semantic checking ensures no variables are constant
-    assert(!var->is_const);
+        // semantic checking ensures no variables are constant
+        assert(!var->is_const);
 
-    LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
+        LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
 
-    add_debug_source_node(g, node);
-    return LLVMBuildStore(g->builder, value, var->value_ref);
+        add_debug_source_node(g, node);
+        return LLVMBuildStore(g->builder, value, var->value_ref);
+    } else if (lhs_node->type == NodeTypeArrayAccessExpr) {
+        LLVMValueRef ptr = gen_array_ptr(g, lhs_node);
+        LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
+        add_debug_source_node(g, node);
+        return LLVMBuildStore(g->builder, value, ptr);
+    } else {
+        zig_panic("bad assign target");
+    }
+
 }
 
 static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
