@@ -12,6 +12,11 @@
 
 #include <string.h>
 
+struct TypeDef {
+    Buf alias;
+    Buf target;
+};
+
 struct Arg {
     Buf name;
     Buf *type;
@@ -25,11 +30,26 @@ struct Fn {
     bool is_variadic;
 };
 
+struct Field {
+    Buf name;
+    Buf *type;
+};
+
+struct Struct {
+    Buf name;
+    ZigList<Field*> fields;
+    bool have_def;
+};
+
 struct ParseH {
     CXTranslationUnit tu;
     FILE *f;
     ZigList<Fn *> fn_list;
+    ZigList<Struct *> struct_list;
+    ZigList<TypeDef *> type_def_list;
+    ZigList<Struct *> incomplete_struct_list;
     Fn *cur_fn;
+    Struct *cur_struct;
     int arg_index;
     int cur_indent;
     CXSourceRange range;
@@ -37,6 +57,16 @@ struct ParseH {
 };
 
 static const int indent_size = 4;
+
+static bool have_struct_def(ParseH *p, Buf *name) {
+    for (int i = 0; i < p->struct_list.length; i += 1) {
+        Struct *struc = p->struct_list.at(i);
+        if (struc->fields.length > 0 && buf_eql_buf(&struc->name, name)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 static bool str_has_prefix(const char *str, const char *prefix) {
     while (*prefix) {
@@ -81,6 +111,24 @@ static void print_location(ParseH *p) {
     fprintf(stderr, "%s line %u, column %u\n", clang_getCString(file_name), line, column);
 }
 
+static bool resolves_to_void(ParseH *p, CXType raw_type) {
+    if (raw_type.kind == CXType_Unexposed) {
+        CXType canonical = clang_getCanonicalType(raw_type);
+        if (canonical.kind == CXType_Unexposed)
+            zig_panic("clang C api insufficient");
+        else
+            return resolves_to_void(p, canonical);
+    }
+    if (raw_type.kind == CXType_Void) {
+        return true;
+    } else if (raw_type.kind == CXType_Typedef) {
+        CXCursor typedef_cursor = clang_getTypeDeclaration(raw_type);
+        CXType underlying_type = clang_getTypedefDeclUnderlyingType(typedef_cursor);
+        return resolves_to_void(p, underlying_type);
+    }
+    return false;
+}
+
 static Buf *to_zig_type(ParseH *p, CXType raw_type) {
     if (raw_type.kind == CXType_Unexposed) {
         CXType canonical = clang_getCanonicalType(raw_type);
@@ -94,15 +142,16 @@ static Buf *to_zig_type(ParseH *p, CXType raw_type) {
         case CXType_Unexposed:
             zig_unreachable();
         case CXType_Void:
-            return buf_create_from_str("void");
+            zig_panic("void type encountered");
         case CXType_Bool:
             return buf_create_from_str("bool");
         case CXType_SChar:
-            return buf_create_from_str("i8");
+            return buf_create_from_str("c_schar");
+        case CXType_UChar:
+            return buf_create_from_str("c_uchar");
         case CXType_Char_U:
         case CXType_Char_S:
-        case CXType_UChar:
-            return buf_create_from_str("u8");
+            return buf_create_from_str("c_char");
         case CXType_WChar:
             print_location(p);
             zig_panic("TODO wchar");
@@ -153,7 +202,12 @@ static Buf *to_zig_type(ParseH *p, CXType raw_type) {
         case CXType_Pointer:
             {
                 CXType pointee_type = clang_getPointeeType(raw_type);
-                Buf *pointee_buf = to_zig_type(p, pointee_type);
+                Buf *pointee_buf;
+                if (resolves_to_void(p, pointee_type)) {
+                    pointee_buf = buf_create_from_str("u8");
+                } else {
+                    pointee_buf = to_zig_type(p, pointee_type);
+                }
                 if (clang_isConstQualifiedType(pointee_type)) {
                     return buf_sprintf("*const %s", buf_ptr(pointee_buf));
                 } else {
@@ -192,7 +246,11 @@ static Buf *to_zig_type(ParseH *p, CXType raw_type) {
                 } else {
                     CXCursor typedef_cursor = clang_getTypeDeclaration(raw_type);
                     CXType underlying_type = clang_getTypedefDeclUnderlyingType(typedef_cursor);
-                    return to_zig_type(p, underlying_type);
+                    if (resolves_to_void(p, underlying_type)) {
+                        return buf_create_from_str("u8");
+                    } else {
+                        return buf_create_from_str(name);
+                    }
                 }
             }
         case CXType_ConstantArray:
@@ -205,7 +263,7 @@ static Buf *to_zig_type(ParseH *p, CXType raw_type) {
         case CXType_FunctionProto:
             fprintf(stderr, "warning: TODO function proto\n");
             print_location(p);
-            return buf_create_from_str("*const u8");
+            return buf_create_from_str("u8");
         case CXType_FunctionNoProto:
             print_location(p);
             zig_panic("TODO function no proto");
@@ -277,6 +335,51 @@ static enum CXChildVisitResult visit_fn_children(CXCursor cursor, CXCursor paren
     }
 }
 
+static enum CXChildVisitResult visit_struct_children(CXCursor cursor, CXCursor parent, CXClientData client_data) {
+    ParseH *p = (ParseH*)client_data;
+    enum CXCursorKind kind = clang_getCursorKind(cursor);
+
+    switch (kind) {
+    case CXCursor_FieldDecl:
+        {
+            assert(p->cur_struct);
+            CXString name = clang_getCursorSpelling(cursor);
+            Field *field = allocate<Field>(1);
+            buf_init_from_str(&field->name, clang_getCString(name));
+            CXType cursor_type = clang_getCursorType(cursor);
+            field->type = to_zig_type(p, cursor_type);
+
+            p->cur_struct->fields.append(field);
+
+            return CXChildVisit_Continue;
+        }
+    default:
+        return CXChildVisit_Recurse;
+    }
+}
+
+static bool handle_struct_cursor(ParseH *p, CXCursor cursor, const char *name, bool expect_name) {
+    p->cur_struct = allocate<Struct>(1);
+
+    buf_init_from_str(&p->cur_struct->name, name);
+
+    bool got_name = (buf_len(&p->cur_struct->name) != 0);
+    if (expect_name != got_name)
+        return false;
+
+    clang_visitChildren(cursor, visit_struct_children, p);
+
+    if (p->cur_struct->fields.length > 0) {
+        p->struct_list.append(p->cur_struct);
+    } else {
+        p->incomplete_struct_list.append(p->cur_struct);
+    }
+
+    p->cur_struct = nullptr;
+
+    return true;
+}
+
 
 static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXClientData client_data) {
     ParseH *p = (ParseH*)client_data;
@@ -306,7 +409,9 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
             p->cur_fn->is_variadic = clang_isFunctionTypeVariadic(fn_type);
 
             CXType return_type = clang_getResultType(fn_type);
-            p->cur_fn->return_type = to_zig_type(p, return_type);
+            if (!resolves_to_void(p, return_type)) {
+                p->cur_fn->return_type = to_zig_type(p, return_type);
+            }
 
             buf_init_from_str(&p->cur_fn->name, clang_getCString(name));
 
@@ -330,7 +435,44 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
     case CXCursor_CompoundStmt:
     case CXCursor_FieldDecl:
     case CXCursor_TypedefDecl:
-        return CXChildVisit_Continue;
+        {
+            CXType underlying_type = clang_getTypedefDeclUnderlyingType(cursor);
+
+            if (resolves_to_void(p, underlying_type)) {
+                return CXChildVisit_Continue;
+            }
+
+            if (underlying_type.kind == CXType_Unexposed) {
+                underlying_type = clang_getCanonicalType(underlying_type);
+            }
+            bool skip_typedef;
+            if (underlying_type.kind == CXType_Unexposed) {
+                fprintf(stderr, "warning: unexposed type\n");
+                print_location(p);
+                skip_typedef = true;
+            } else if (underlying_type.kind == CXType_Record) {
+                CXCursor decl_cursor = clang_getTypeDeclaration(underlying_type);
+                skip_typedef = handle_struct_cursor(p, decl_cursor, clang_getCString(name), false);
+            } else {
+                skip_typedef = false;
+            }
+
+            if (!skip_typedef) {
+                CXType typedef_type = clang_getCursorType(cursor);
+                TypeDef *type_def = allocate<TypeDef>(1);
+                buf_init_from_str(&type_def->alias, prefixes_stripped(typedef_type));
+                buf_init_from_buf(&type_def->target, to_zig_type(p, underlying_type));
+                p->type_def_list.append(type_def);
+            }
+
+            return CXChildVisit_Continue;
+        }
+    case CXCursor_StructDecl:
+        {
+            handle_struct_cursor(p, cursor, clang_getCString(name), true);
+
+            return CXChildVisit_Continue;
+        }
     default:
         return CXChildVisit_Recurse;
     }
@@ -401,6 +543,44 @@ void parse_h_file(const char *target_path, ZigList<const char *> *clang_argv, FI
     CXCursor cursor = clang_getTranslationUnitCursor(p->tu);
     clang_visitChildren(cursor, fn_visitor, p);
 
+    for (int struct_i = 0; struct_i < p->struct_list.length; struct_i += 1) {
+        Struct *struc = p->struct_list.at(struct_i);
+        fprintf(f, "struct %s {\n", buf_ptr(&struc->name));
+        p->cur_indent += indent_size;
+        for (int field_i = 0; field_i < struc->fields.length; field_i += 1) {
+            Field *field = struc->fields.at(field_i);
+            print_indent(p);
+            fprintf(f, "%s: %s,\n", buf_ptr(&field->name), buf_ptr(field->type));
+        }
+
+        p->cur_indent -= indent_size;
+        fprintf(f, "}\n\n");
+    }
+
+    int total_typedef_count = p->type_def_list.length;
+    for (int i = 0; i < p->incomplete_struct_list.length; i += 1) {
+        Struct *struc = p->incomplete_struct_list.at(i);
+        struc->have_def = have_struct_def(p, &struc->name);
+        total_typedef_count += (int)!struc->have_def;
+    }
+
+    if (total_typedef_count) {
+        for (int i = 0; i < p->incomplete_struct_list.length; i += 1) {
+            Struct *struc = p->incomplete_struct_list.at(i);
+            if (struc->have_def)
+                continue;
+
+            fprintf(f, "struct %s;\n", buf_ptr(&struc->name));
+        }
+
+        for (int type_def_i = 0; type_def_i < p->type_def_list.length; type_def_i += 1) {
+            TypeDef *type_def = p->type_def_list.at(type_def_i);
+            fprintf(f, "type %s = %s;\n", buf_ptr(&type_def->alias), buf_ptr(&type_def->target));
+        }
+
+        fprintf(f, "\n");
+    }
+
     if (p->fn_list.length) {
         fprintf(f, "extern {\n");
         p->cur_indent += indent_size;
@@ -419,11 +599,12 @@ void parse_h_file(const char *target_path, ZigList<const char *> *clang_argv, FI
                 fprintf(p->f, "...");
             }
             fprintf(p->f, ")");
-            if (!buf_eql_str(fn->return_type, "void")) {
+            if (fn->return_type) {
                 fprintf(p->f, " -> %s", buf_ptr(fn->return_type));
             }
             fprintf(p->f, ";\n");
         }
+        p->cur_indent -= indent_size;
         fprintf(f, "}\n");
     }
 }
