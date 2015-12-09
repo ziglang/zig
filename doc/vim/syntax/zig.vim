@@ -7,8 +7,20 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn keyword zigKeyword fn return mut const extern unreachable export pub as use if else let void goto
+syn keyword zigKeyword fn return mut const extern unreachable export pub as use while
+syn keyword zigKeyword if else let void goto type enum struct continue break match
 syn keyword zigType bool i8 u8 i16 u16 i32 u32 i64 u64 isize usize f32 f64 f128
+
+syn keyword zigConstant null
+
+syn keyword zigBoolean true false
+
+syn match zigDecNumber display "\<[0-9][0-9_]*\%([iu]\%(size\|8\|16\|32\|64\)\)\="
+syn match zigHexNumber display "\<0x[a-fA-F0-9_]\+\%([iu]\%(size\|8\|16\|32\|64\)\)\="
+syn match zigOctNumber display "\<0o[0-7_]\+\%([iu]\%(size\|8\|16\|32\|64\)\)\="
+syn match zigBinNumber display "\<0b[01_]\+\%([iu]\%(size\|8\|16\|32\|64\)\)\="
+
+syn match zigShebang /\%^#![^[].*/
 
 syn region zigCommentLine start="//" end="$" contains=zigTodo,@Spell
 syn region zigCommentLineDoc start="//\%(//\@!\|!\)" end="$" contains=zigTodo,@Spell
@@ -30,8 +42,14 @@ syn region    zigString      start='b\?r\z(#*\)"' end='"\z1' contains=@Spell
 
 let b:current_syntax = "zig"
 
+hi def link zigDecNumber zigNumber
+hi def link zigHexNumber zigNumber
+hi def link zigOctNumber zigNumber
+hi def link zigBinNumber zigNumber
+
 hi def link zigKeyword Keyword
 hi def link zigType Type
+hi def link zigShebang Comment
 hi def link zigCommentLine Comment
 hi def link zigCommentLineDoc SpecialComment
 hi def link zigCommentBlock zigCommentLine
@@ -42,3 +60,6 @@ hi def link zigString String
 hi def link zigEscape Special
 hi def link zigEscapeUnicode zigEscape
 hi def link zigEscapeError Error
+hi def link zigBoolean Boolean
+hi def link zigConstant Constant
+hi def link zigNumber Number
