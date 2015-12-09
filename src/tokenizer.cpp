@@ -337,7 +337,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case '.':
                         t.state = TokenizeStateDotDot;
-                        t.cur_tok->id = TokenIdEllipse;
+                        t.cur_tok->id = TokenIdEllipsis;
                         break;
                     default:
                         t.pos -= 1;
@@ -672,7 +672,7 @@ static const char * token_name(Token *token) {
         case TokenIdSlash: return "Slash";
         case TokenIdPercent: return "Percent";
         case TokenIdDot: return "Dot";
-        case TokenIdEllipse: return "Ellipse";
+        case TokenIdEllipsis: return "Ellipsis";
     }
     return "(invalid token)";
 }

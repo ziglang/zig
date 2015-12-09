@@ -65,7 +65,7 @@ enum TokenId {
     TokenIdSlash,
     TokenIdPercent,
     TokenIdDot,
-    TokenIdEllipse,
+    TokenIdEllipsis,
 };
 
 struct Token {

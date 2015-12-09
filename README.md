@@ -146,7 +146,7 @@ FnDef : FnProto Block
 
 ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
 
-ParamDecl : token(Symbol) token(Colon) Type | token(Ellipse)
+ParamDecl : token(Symbol) token(Colon) Type | token(Ellipsis)
 
 Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType
 

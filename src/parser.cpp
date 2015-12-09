@@ -517,7 +517,7 @@ static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token
 }
 
 /*
-ParamDecl : token(Symbol) token(Colon) Type | token(Ellipse)
+ParamDecl : token(Symbol) token(Colon) Type | token(Ellipsis)
 */
 static AstNode *ast_parse_param_decl(ParseContext *pc, int token_index, int *new_token_index) {
     Token *param_name = &pc->tokens->at(token_index);
@@ -536,7 +536,7 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, int token_index, int *new
 
         *new_token_index = token_index;
         return node;
-    } else if (param_name->id == TokenIdEllipse) {
+    } else if (param_name->id == TokenIdEllipsis) {
         *new_token_index = token_index;
         return nullptr;
     } else {
