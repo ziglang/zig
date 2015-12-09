@@ -1,4 +1,12 @@
+/*
+ * Copyright (c) 2015 Andrew Kelley
+ *
+ * This file is part of zig, which is MIT licensed.
+ * See http://opensource.org/licenses/MIT
+ */
+
 #include "parseh.hpp"
+#include "config.h"
 
 #include <clang-c/Index.h>
 
@@ -14,6 +22,7 @@ struct Fn {
     Buf *return_type;
     Arg *args;
     int arg_count;
+    bool is_variadic;
 };
 
 struct ParseH {
@@ -254,7 +263,12 @@ static enum CXChildVisitResult visit_fn_children(CXCursor cursor, CXCursor paren
             assert(p->cur_fn);
             assert(p->arg_index < p->cur_fn->arg_count);
             CXString name = clang_getCursorSpelling(cursor);
-            buf_init_from_str(&p->cur_fn->args[p->arg_index].name, clang_getCString(name));
+            Buf *arg_name = &p->cur_fn->args[p->arg_index].name;
+            buf_init_from_str(arg_name, clang_getCString(name));
+            if (buf_len(arg_name) == 0) {
+                buf_appendf(arg_name, "arg%d", p->arg_index);
+            }
+
             p->arg_index += 1;
             return CXChildVisit_Continue;
         }
@@ -280,11 +294,6 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
                 return CXChildVisit_Continue;
 
             CXType fn_type = clang_getCursorType(cursor);
-            if (clang_isFunctionTypeVariadic(fn_type)) {
-                print_location(p);
-                fprintf(stderr, "warning: skipping variadic function, not yet supported\n");
-                return CXChildVisit_Continue;
-            }
             if (clang_getFunctionTypeCallingConv(fn_type) != CXCallingConv_C) {
                 print_location(p);
                 fprintf(stderr, "warning: skipping non c calling convention function, not yet supported\n");
@@ -293,6 +302,8 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
 
             assert(!p->cur_fn);
             p->cur_fn = allocate<Fn>(1);
+
+            p->cur_fn->is_variadic = clang_isFunctionTypeVariadic(fn_type);
 
             CXType return_type = clang_getResultType(fn_type);
             p->cur_fn->return_type = to_zig_type(p, return_type);
@@ -353,6 +364,8 @@ void parse_h_file(const char *target_path, ZigList<const char *> *clang_argv, FI
         buf_init_from_str(&tmp_buf, start);
         clang_argv->append(buf_ptr(buf_create_from_buf(&tmp_buf)));
     }
+    clang_argv->append("-isystem");
+    clang_argv->append(ZIG_HEADERS_DIR);
 
     clang_argv->append(nullptr);
 
@@ -398,9 +411,12 @@ void parse_h_file(const char *target_path, ZigList<const char *> *clang_argv, FI
             for (int arg_i = 0; arg_i < fn->arg_count; arg_i += 1) {
                 Arg *arg = &fn->args[arg_i];
                 fprintf(p->f, "%s: %s", buf_ptr(&arg->name), buf_ptr(arg->type));
-                if (arg_i + 1 < fn->arg_count) {
+                if (arg_i + 1 < fn->arg_count || fn->is_variadic) {
                     fprintf(p->f, ", ");
                 }
+            }
+            if (fn->is_variadic) {
+                fprintf(p->f, "...");
             }
             fprintf(p->f, ")");
             if (!buf_eql_str(fn->return_type, "void")) {

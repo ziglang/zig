@@ -46,7 +46,76 @@ set(TEST_SOURCES
     "${CMAKE_SOURCE_DIR}/test/run_tests.cpp"
 )
 
+set(C_HEADERS
+    "${CMAKE_SOURCE_DIR}/c_headers/adxintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/ammintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/arm_acle.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/avx2intrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/avx512bwintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/avx512cdintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/avx512dqintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/avx512erintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/avx512fintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/avx512vlbwintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/avx512vldqintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/avx512vlintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/avxintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/bmi2intrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/bmiintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/cpuid.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/cuda_builtin_vars.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/emmintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/f16cintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/float.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/fma4intrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/fmaintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/fxsrintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/htmintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/htmxlintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/ia32intrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/immintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/Intrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/inttypes.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/iso646.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/limits.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/lzcntintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/mm3dnow.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/mmintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/mm_malloc.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/nmmintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/pmmintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/popcntintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/prfchwintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/rdseedintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/rtmintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/s390intrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/shaintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/smmintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/stdalign.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/stdarg.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/stdatomic.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/stdbool.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/stddef.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/__stddef_max_align_t.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/stdint.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/stdnoreturn.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/tbmintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/tgmath.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/tmmintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/unwind.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/vadefs.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/varargs.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/vecintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/__wmmintrin_aes.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/wmmintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/__wmmintrin_pclmul.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/x86intrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/xmmintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/xopintrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/xtestintrin.h"
+)
 
+set(C_HEADERS_DEST "lib/zig/include")
 set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")
 configure_file (
     "${CMAKE_SOURCE_DIR}/src/config.h.in"
@@ -71,6 +140,8 @@ target_link_libraries(zig LINK_PUBLIC
     ${CLANG_LIBRARY}
 )
 install(TARGETS zig DESTINATION bin)
+
+install(FILES ${C_HEADERS} DESTINATION ${C_HEADERS_DEST})
 
 add_executable(run_tests ${TEST_SOURCES})
 target_link_libraries(run_tests)
