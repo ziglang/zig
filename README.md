@@ -109,9 +109,6 @@ zig          |        C equivalent | Description
         f128 |         long double | 128-bit IEE754 floating point
        isize |            intptr_t |   signed pointer sized integer
        usize |           uintptr_t | unsigned pointer sized integer
-      c_char |                char | for API compatibility with C
-     c_schar |         signed char | for API compatibility with C
-     c_uchar |       unsigned char | for API compatibility with C
      c_short |               short | for API compatibility with C
     c_ushort |      unsigned short | for API compatibility with C
        c_int |                 int | for API compatibility with C

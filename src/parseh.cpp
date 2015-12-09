@@ -58,6 +58,54 @@ struct ParseH {
 
 static const int indent_size = 4;
 
+struct TypeMapping {
+    const char *c_name;
+    const char *zig_name;
+};
+
+static const TypeMapping type_mappings[] = {
+    {
+        "int8_t",
+        "i8",
+    },
+    {
+        "uint8_t",
+        "u8",
+    },
+    {
+        "uint16_t",
+        "u16",
+    },
+    {
+        "uint32_t",
+        "u32",
+    },
+    {
+        "uint64_t",
+        "u64",
+    },
+    {
+        "int16_t",
+        "i16",
+    },
+    {
+        "int32_t",
+        "i32",
+    },
+    {
+        "int64_t",
+        "i64",
+    },
+    {
+        "intptr_t",
+        "isize",
+    },
+    {
+        "uintptr_t",
+        "usize",
+    },
+};
+
 static bool have_struct_def(ParseH *p, Buf *name) {
     for (int i = 0; i < p->struct_list.length; i += 1) {
         Struct *struc = p->struct_list.at(i);
@@ -66,6 +114,15 @@ static bool have_struct_def(ParseH *p, Buf *name) {
         }
     }
     return false;
+}
+
+static const char *c_to_zig_name(const char *name) {
+    for (int i = 0; i < array_length(type_mappings); i += 1) {
+        const TypeMapping *mapping = &type_mappings[i];
+        if (strcmp(mapping->c_name, name) == 0)
+            return mapping->zig_name;
+    }
+    return nullptr;
 }
 
 static bool str_has_prefix(const char *str, const char *prefix) {
@@ -146,12 +203,11 @@ static Buf *to_zig_type(ParseH *p, CXType raw_type) {
         case CXType_Bool:
             return buf_create_from_str("bool");
         case CXType_SChar:
-            return buf_create_from_str("c_schar");
+            return buf_create_from_str("i8");
         case CXType_UChar:
-            return buf_create_from_str("c_uchar");
         case CXType_Char_U:
         case CXType_Char_S:
-            return buf_create_from_str("c_char");
+            return buf_create_from_str("u8");
         case CXType_WChar:
             print_location(p);
             zig_panic("TODO wchar");
@@ -227,22 +283,9 @@ static Buf *to_zig_type(ParseH *p, CXType raw_type) {
         case CXType_Typedef:
             {
                 const char *name = prefixes_stripped(raw_type);
-                if (strcmp(name, "int8_t") == 0) {
-                    return buf_create_from_str("i8");
-                } else if (strcmp(name, "uint8_t") == 0) {
-                    return buf_create_from_str("u8");
-                } else if (strcmp(name, "uint16_t") == 0) {
-                    return buf_create_from_str("u16");
-                } else if (strcmp(name, "uint32_t") == 0) {
-                    return buf_create_from_str("u32");
-                } else if (strcmp(name, "uint64_t") == 0) {
-                    return buf_create_from_str("u64");
-                } else if (strcmp(name, "int16_t") == 0) {
-                    return buf_create_from_str("i16");
-                } else if (strcmp(name, "int32_t") == 0) {
-                    return buf_create_from_str("i32");
-                } else if (strcmp(name, "int64_t") == 0) {
-                    return buf_create_from_str("i64");
+                const char *zig_name = c_to_zig_name(name);
+                if (zig_name) {
+                    return buf_create_from_str(zig_name);
                 } else {
                     CXCursor typedef_cursor = clang_getTypeDeclaration(raw_type);
                     CXType underlying_type = clang_getTypedefDeclUnderlyingType(typedef_cursor);
@@ -461,10 +504,15 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
                 skip_typedef = false;
             }
 
+            CXType typedef_type = clang_getCursorType(cursor);
+            const char *name_str = prefixes_stripped(typedef_type);
+            if (!skip_typedef && c_to_zig_name(name_str)) {
+                skip_typedef = true;
+            }
+
             if (!skip_typedef) {
-                CXType typedef_type = clang_getCursorType(cursor);
                 TypeDef *type_def = allocate<TypeDef>(1);
-                buf_init_from_str(&type_def->alias, prefixes_stripped(typedef_type));
+                buf_init_from_str(&type_def->alias, name_str);
                 buf_init_from_buf(&type_def->target, to_zig_type(p, underlying_type));
                 p->type_def_list.append(type_def);
             }
