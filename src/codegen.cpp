@@ -138,19 +138,32 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         fn_table_entry = g->fn_table.get(name);
 
     assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
-    int expected_param_count = fn_table_entry->proto_node->data.fn_proto.params.length;
+    AstNodeFnProto *fn_proto_data = &fn_table_entry->proto_node->data.fn_proto;
+
+    int expected_param_count = fn_proto_data->params.length;
     int actual_param_count = node->data.fn_call_expr.params.length;
-    assert(expected_param_count == actual_param_count);
+    bool is_var_args = fn_proto_data->is_var_args;
+    assert((is_var_args && actual_param_count >= expected_param_count) ||
+            actual_param_count == expected_param_count);
 
     // don't really include void values
-    int gen_param_count = count_non_void_params(g, &fn_table_entry->proto_node->data.fn_proto.params);
+    int gen_param_count;
+    if (is_var_args) {
+        gen_param_count = actual_param_count;
+    } else {
+        gen_param_count = count_non_void_params(g, &fn_table_entry->proto_node->data.fn_proto.params);
+    }
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(gen_param_count);
 
+    int loop_end = max(gen_param_count, actual_param_count);
+
     int gen_param_index = 0;
-    for (int i = 0; i < actual_param_count; i += 1) {
+    for (int i = 0; i < loop_end; i += 1) {
         AstNode *expr_node = node->data.fn_call_expr.params.at(i);
         LLVMValueRef param_value = gen_expr(g, expr_node);
-        if (!is_param_decl_type_void(g, fn_table_entry->proto_node->data.fn_proto.params.at(i))) {
+        if (is_var_args ||
+            !is_param_decl_type_void(g, fn_table_entry->proto_node->data.fn_proto.params.at(i)))
+        {
             gen_param_values[gen_param_index] = param_value;
             gen_param_index += 1;
         }
@@ -773,7 +786,7 @@ static void do_code_gen(CodeGen *g) {
             param_types[gen_param_index] = to_llvm_type(type_node);
             gen_param_index += 1;
         }
-        LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, param_count, 0);
+        LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, param_count, fn_proto->is_var_args);
         LLVMValueRef fn = LLVMAddFunction(g->module, buf_ptr(&fn_proto->name), function_type);
 
         LLVMSetLinkage(fn, fn_table_entry->internal_linkage ? LLVMInternalLinkage : LLVMExternalLinkage);

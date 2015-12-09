@@ -104,6 +104,8 @@ enum TokenizeState {
     TokenizeStateBang,
     TokenizeStateLessThan,
     TokenizeStateGreaterThan,
+    TokenizeStateDot,
+    TokenizeStateDotDot,
     TokenizeStateError,
 };
 
@@ -323,8 +325,38 @@ void tokenize(Buf *buf, Tokenization *out) {
                         begin_token(&t, TokenIdCmpGreaterThan);
                         t.state = TokenizeStateGreaterThan;
                         break;
+                    case '.':
+                        begin_token(&t, TokenIdDot);
+                        t.state = TokenizeStateDot;
+                        break;
                     default:
                         tokenize_error(&t, "invalid character: '%c'", c);
+                }
+                break;
+            case TokenizeStateDot:
+                switch (c) {
+                    case '.':
+                        t.state = TokenizeStateDotDot;
+                        t.cur_tok->id = TokenIdEllipse;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateDotDot:
+                switch (c) {
+                    case '.':
+                        t.state = TokenizeStateStart;
+                        end_token(&t);
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
                 }
                 break;
             case TokenizeStateGreaterThan:
@@ -561,9 +593,11 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateBang:
         case TokenizeStateLessThan:
         case TokenizeStateGreaterThan:
+        case TokenizeStateDot:
             end_token(&t);
             break;
         case TokenizeStateSawSlash:
+        case TokenizeStateDotDot:
             tokenize_error(&t, "unexpected EOF");
             break;
         case TokenizeStateLineComment:
@@ -637,6 +671,8 @@ static const char * token_name(Token *token) {
         case TokenIdBitShiftRight: return "BitShiftRight";
         case TokenIdSlash: return "Slash";
         case TokenIdPercent: return "Percent";
+        case TokenIdDot: return "Dot";
+        case TokenIdEllipse: return "Ellipse";
     }
     return "(invalid token)";
 }

@@ -577,6 +577,11 @@ fn f() {
                  ".tmp_source.zig:5:8: error: array subscripts must be integers",
                  ".tmp_source.zig:5:19: error: array access of non-array",
                  ".tmp_source.zig:5:19: error: array subscripts must be integers");
+
+    add_compile_fail_case("variadic functions only allowed in extern", R"SOURCE(
+fn f(...) {}
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: variadic arguments only allowed in extern functions");
+
 }
 
 static void print_compiler_invocation(TestCase *test_case, Buf *zig_stderr) {

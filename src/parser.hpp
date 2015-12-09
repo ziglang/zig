@@ -63,6 +63,7 @@ struct AstNodeFnProto {
     Buf name;
     ZigList<AstNode *> params;
     AstNode *return_type;
+    bool is_var_args;
 };
 
 struct AstNodeFnDef {

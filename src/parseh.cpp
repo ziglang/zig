@@ -132,10 +132,10 @@ static bool resolves_to_void(ParseH *p, CXType raw_type) {
 static Buf *to_zig_type(ParseH *p, CXType raw_type) {
     if (raw_type.kind == CXType_Unexposed) {
         CXType canonical = clang_getCanonicalType(raw_type);
-        if (canonical.kind != CXType_Unexposed)
-            return to_zig_type(p, canonical);
-        else
+        if (canonical.kind == CXType_Unexposed)
             zig_panic("clang C api insufficient");
+        else
+            return to_zig_type(p, canonical);
     }
     switch (raw_type.kind) {
         case CXType_Invalid:
@@ -453,6 +453,10 @@ static enum CXChildVisitResult fn_visitor(CXCursor cursor, CXCursor parent, CXCl
             } else if (underlying_type.kind == CXType_Record) {
                 CXCursor decl_cursor = clang_getTypeDeclaration(underlying_type);
                 skip_typedef = handle_struct_cursor(p, decl_cursor, clang_getCString(name), false);
+            } else if (underlying_type.kind == CXType_Invalid) {
+                fprintf(stderr, "warning: invalid type\n");
+                print_location(p);
+                skip_typedef = true;
             } else {
                 skip_typedef = false;
             }

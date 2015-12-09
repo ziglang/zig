@@ -58,7 +58,6 @@ compromises backward compatibility.
  * structs
  * loops
  * enums
- * calling external variadic functions and exporting variadic functions
  * inline assembly and syscalls
  * conditional compilation and ability to check target platform and architecture
  * main function with command line arguments
@@ -69,6 +68,9 @@ compromises backward compatibility.
  * static initializers
  * assert
  * function pointers
+ * hex literal, binary literal, float literal, hex float literal
+ * += and -= operators
+ * fix a + b + c
  * running code at compile time
  * standard library print functions
  * panic! macro or statement that prints a stack trace to stderr in debug mode
@@ -144,7 +146,7 @@ FnDef : FnProto Block
 
 ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
 
-ParamDecl : token(Symbol) token(Colon) Type
+ParamDecl : token(Symbol) token(Colon) Type | token(Ellipse)
 
 Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType
 

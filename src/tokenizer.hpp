@@ -64,6 +64,8 @@ enum TokenId {
     TokenIdBitShiftRight,
     TokenIdSlash,
     TokenIdPercent,
+    TokenIdDot,
+    TokenIdEllipse,
 };
 
 struct Token {

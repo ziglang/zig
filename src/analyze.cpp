@@ -163,9 +163,12 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
             {
                 resolve_type(g, node->data.type.child_type);
                 TypeTableEntry *child_type = node->data.type.child_type->codegen_node->data.type_node.entry;
+                assert(child_type);
                 if (child_type == g->builtin_types.entry_unreachable) {
                     add_node_error(g, node,
                             buf_create_from_str("pointer to unreachable not allowed"));
+                } else if (child_type->id == TypeTableEntryIdInvalid) {
+                    return child_type;
                 }
                 type_node->entry = get_pointer_to_type(g, child_type, node->data.type.is_const);
                 return type_node->entry;
@@ -311,6 +314,10 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                         node->codegen_node->data.fn_def_node.skip = true;
                         skip = true;
                     }
+                }
+                if (proto_node->data.fn_proto.is_var_args) {
+                    add_node_error(g, node,
+                            buf_sprintf("variadic arguments only allowed in extern functions"));
                 }
                 if (!skip) {
                     FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
@@ -743,7 +750,13 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     // count parameters
                     int expected_param_count = fn_proto->params.length;
                     int actual_param_count = node->data.fn_call_expr.params.length;
-                    if (expected_param_count != actual_param_count) {
+                    if (fn_proto->is_var_args) {
+                        if (actual_param_count < expected_param_count) {
+                            add_node_error(g, node,
+                                    buf_sprintf("wrong number of arguments. Expected at least %d, got %d.",
+                                        expected_param_count, actual_param_count));
+                        }
+                    } else if (expected_param_count != actual_param_count) {
                         add_node_error(g, node,
                                 buf_sprintf("wrong number of arguments. Expected %d, got %d.",
                                     expected_param_count, actual_param_count));

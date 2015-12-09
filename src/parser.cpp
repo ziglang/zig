@@ -517,32 +517,39 @@ static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token
 }
 
 /*
-ParamDecl : token(Symbol) token(Colon) Type
+ParamDecl : token(Symbol) token(Colon) Type | token(Ellipse)
 */
 static AstNode *ast_parse_param_decl(ParseContext *pc, int token_index, int *new_token_index) {
     Token *param_name = &pc->tokens->at(token_index);
     token_index += 1;
-    ast_expect_token(pc, param_name, TokenIdSymbol);
 
-    AstNode *node = ast_create_node(pc, NodeTypeParamDecl, param_name);
+    if (param_name->id == TokenIdSymbol) {
+        AstNode *node = ast_create_node(pc, NodeTypeParamDecl, param_name);
 
+        ast_buf_from_token(pc, param_name, &node->data.param_decl.name);
 
-    ast_buf_from_token(pc, param_name, &node->data.param_decl.name);
+        Token *colon = &pc->tokens->at(token_index);
+        token_index += 1;
+        ast_expect_token(pc, colon, TokenIdColon);
 
-    Token *colon = &pc->tokens->at(token_index);
-    token_index += 1;
-    ast_expect_token(pc, colon, TokenIdColon);
+        node->data.param_decl.type = ast_parse_type(pc, token_index, &token_index);
 
-    node->data.param_decl.type = ast_parse_type(pc, token_index, &token_index);
-
-    *new_token_index = token_index;
-    return node;
+        *new_token_index = token_index;
+        return node;
+    } else if (param_name->id == TokenIdEllipse) {
+        *new_token_index = token_index;
+        return nullptr;
+    } else {
+        ast_invalid_token_error(pc, param_name);
+    }
 }
 
 
 static void ast_parse_param_decl_list(ParseContext *pc, int token_index, int *new_token_index,
-        ZigList<AstNode *> *params)
+        ZigList<AstNode *> *params, bool *is_var_args)
 {
+    *is_var_args = false;
+
     Token *l_paren = &pc->tokens->at(token_index);
     token_index += 1;
     ast_expect_token(pc, l_paren, TokenIdLParen);
@@ -556,13 +563,21 @@ static void ast_parse_param_decl_list(ParseContext *pc, int token_index, int *ne
 
     for (;;) {
         AstNode *param_decl_node = ast_parse_param_decl(pc, token_index, &token_index);
-        params->append(param_decl_node);
+        bool expect_end = false;
+        if (param_decl_node) {
+            params->append(param_decl_node);
+        } else {
+            *is_var_args = true;
+            expect_end = true;
+        }
 
         Token *token = &pc->tokens->at(token_index);
         token_index += 1;
         if (token->id == TokenIdRParen) {
             *new_token_index = token_index;
             return;
+        } else if (expect_end) {
+            ast_invalid_token_error(pc, token);
         } else {
             ast_expect_token(pc, token, TokenIdComma);
         }
@@ -1421,7 +1436,8 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
     ast_buf_from_token(pc, fn_name, &node->data.fn_proto.name);
 
 
-    ast_parse_param_decl_list(pc, *token_index, token_index, &node->data.fn_proto.params);
+    ast_parse_param_decl_list(pc, *token_index, token_index,
+            &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
 
     Token *arrow = &pc->tokens->at(*token_index);
     if (arrow->id == TokenIdArrow) {
