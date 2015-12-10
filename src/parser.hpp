@@ -16,6 +16,7 @@
 struct AstNode;
 struct CodeGenNode;
 struct ImportTableEntry;
+struct AsmToken;
 
 enum NodeType {
     NodeTypeRoot,
@@ -45,6 +46,7 @@ enum NodeType {
     NodeTypeIfExpr,
     NodeTypeLabel,
     NodeTypeGoto,
+    NodeTypeAsmExpr,
 };
 
 struct AstNodeRoot {
@@ -203,6 +205,12 @@ struct AstNodeGoto {
     Buf name;
 };
 
+struct AstNodeAsmExpr {
+    bool is_volatile;
+    Buf asm_template;
+    ZigList<AsmToken> token_list;
+};
+
 struct AstNode {
     enum NodeType type;
     int line;
@@ -231,11 +239,23 @@ struct AstNode {
         AstNodeIfExpr if_expr;
         AstNodeLabel label;
         AstNodeGoto go_to;
+        AstNodeAsmExpr asm_expr;
         Buf number;
         Buf string;
         Buf symbol;
         bool bool_literal;
     } data;
+};
+
+enum AsmTokenId {
+    AsmTokenIdTemplate,
+    AsmTokenIdPercent,
+};
+
+struct AsmToken {
+    enum AsmTokenId id;
+    int start;
+    int end;
 };
 
 __attribute__ ((format (printf, 2, 3)))

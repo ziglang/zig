@@ -609,6 +609,41 @@ static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *i
     return return_value;
 }
 
+static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeAsmExpr);
+
+    Buf *src_template = &node->data.asm_expr.asm_template;
+
+    Buf llvm_template = BUF_INIT;
+    buf_resize(&llvm_template, 0);
+
+    for (int token_i = 0; token_i < node->data.asm_expr.token_list.length; token_i += 1) {
+        AsmToken *asm_token = &node->data.asm_expr.token_list.at(token_i);
+        switch (asm_token->id) {
+            case AsmTokenIdTemplate:
+                for (int offset = asm_token->start; offset < asm_token->end; offset += 1) {
+                    uint8_t c = *((uint8_t*)(buf_ptr(src_template) + offset));
+                    if (c == '$') {
+                        buf_append_str(&llvm_template, "$$");
+                    } else {
+                        buf_append_char(&llvm_template, c);
+                    }
+                }
+                break;
+            case AsmTokenIdPercent:
+                buf_append_char(&llvm_template, '%');
+                break;
+        }
+    }
+
+    LLVMTypeRef function_type = LLVMFunctionType(LLVMVoidType(), nullptr, 0, false);
+
+    LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template), "", true, false);
+
+    add_debug_source_node(g, node);
+    return LLVMBuildCall(g->builder, asm_fn, nullptr, 0, "");
+}
+
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeBinOpExpr:
@@ -663,6 +698,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
                 return LLVMConstNull(LLVMInt1Type());
         case NodeTypeIfExpr:
             return gen_if_expr(g, node);
+        case NodeTypeAsmExpr:
+            return gen_asm_expr(g, node);
         case NodeTypeNumberLiteral:
             {
                 Buf *number_str = &node->data.number;
@@ -762,6 +799,16 @@ static LLVMZigDISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnPro
     return LLVMZigCreateSubroutineType(g->dbuilder, di_file, types, types_len, 0);
 }
 
+static LLVMAttribute to_llvm_fn_attr(FnAttrId attr_id) {
+    switch (attr_id) {
+        case FnAttrIdNaked:
+            return LLVMNakedAttribute;
+        case FnAttrIdAlwaysInline:
+            return LLVMAlwaysInlineAttribute;
+    }
+    zig_unreachable();
+}
+
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
@@ -788,6 +835,11 @@ static void do_code_gen(CodeGen *g) {
         }
         LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, param_count, fn_proto->is_var_args);
         LLVMValueRef fn = LLVMAddFunction(g->module, buf_ptr(&fn_proto->name), function_type);
+
+        for (int attr_i = 0; attr_i < fn_table_entry->fn_attr_list.length; attr_i += 1) {
+            FnAttrId attr_id = fn_table_entry->fn_attr_list.at(attr_i);
+            LLVMAddFunctionAttr(fn, to_llvm_fn_attr(attr_id));
+        }
 
         LLVMSetLinkage(fn, fn_table_entry->internal_linkage ? LLVMInternalLinkage : LLVMExternalLinkage);
 
@@ -967,6 +1019,19 @@ static void define_primitive_types(CodeGen *g) {
         g->builtin_types.entry_i32 = entry;
     }
     {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->type_ref = LLVMIntType(g->pointer_size_bytes * 8);
+        buf_init_from_str(&entry->name, "isize");
+        entry->size_in_bits = g->pointer_size_bytes * 8;
+        entry->align_in_bits = g->pointer_size_bytes * 8;
+        entry->data.integral.is_signed = true;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
+                LLVMZigEncoding_DW_ATE_signed());
+        g->type_table.put(&entry->name, entry);
+        g->builtin_types.entry_isize = entry;
+    }
+    {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
         entry->type_ref = LLVMFloatType();
         buf_init_from_str(&entry->name, "f32");
@@ -1121,20 +1186,30 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
     assert(import_entry->root->type == NodeTypeRoot);
     for (int decl_i = 0; decl_i < import_entry->root->data.root.top_level_decls.length; decl_i += 1) {
         AstNode *top_level_decl = import_entry->root->data.root.top_level_decls.at(decl_i);
-        if (top_level_decl->type != NodeTypeUse)
-            continue;
 
-        auto entry = g->import_table.maybe_get(&top_level_decl->data.use.path);
-        if (!entry) {
-            Buf full_path = BUF_INIT;
-            os_path_join(g->root_source_dir, &top_level_decl->data.use.path, &full_path);
-            Buf *import_code = buf_alloc();
-            if ((err = os_fetch_file_path(&full_path, import_code))) {
-                add_node_error(g, top_level_decl,
-                        buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));
-                break;
+        if (top_level_decl->type == NodeTypeUse) {
+            auto entry = g->import_table.maybe_get(&top_level_decl->data.use.path);
+            if (!entry) {
+                Buf full_path = BUF_INIT;
+                os_path_join(g->root_source_dir, &top_level_decl->data.use.path, &full_path);
+                Buf *import_code = buf_alloc();
+                if ((err = os_fetch_file_path(&full_path, import_code))) {
+                    add_node_error(g, top_level_decl,
+                            buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));
+                    break;
+                }
+                codegen_add_code(g, &top_level_decl->data.use.path, import_code);
             }
-            codegen_add_code(g, &top_level_decl->data.use.path, import_code);
+        } else if (top_level_decl->type == NodeTypeFnDef) {
+            AstNode *proto_node = top_level_decl->data.fn_def.fn_proto;
+            assert(proto_node->type == NodeTypeFnProto);
+            Buf *proto_name = &proto_node->data.fn_proto.name;
+
+            bool is_exported = (proto_node->data.fn_proto.visib_mod == FnProtoVisibModExport);
+
+            if (buf_eql_str(proto_name, "main") && is_exported) {
+                g->insert_bootstrap_code = true;
+            }
         }
     }
 
@@ -1145,6 +1220,17 @@ void codegen_add_root_code(CodeGen *g, Buf *source_path, Buf *source_code) {
     init(g, source_path);
 
     g->root_import = codegen_add_code(g, source_path, source_code);
+
+    if (g->insert_bootstrap_code) {
+        Buf *path_to_bootstrap_src = buf_sprintf("%s/bootstrap.zig", ZIG_STD_DIR);
+        Buf *import_code = buf_alloc();
+        int err;
+        if ((err = os_fetch_file_path(path_to_bootstrap_src, import_code))) {
+            zig_panic("unable to open '%s': %s", buf_ptr(path_to_bootstrap_src), err_str(err));
+        }
+
+        codegen_add_code(g, path_to_bootstrap_src, import_code);
+    }
 
     if (g->verbose) {
         fprintf(stderr, "\nSemantic Analysis:\n");
@@ -1185,6 +1271,9 @@ static void to_c_type(CodeGen *g, AstNode *type_node, Buf *out_buf) {
     } else if (type_entry == g->builtin_types.entry_i32) {
         g->c_stdint_used = true;
         buf_init_from_str(out_buf, "int32_t");
+    } else if (type_entry == g->builtin_types.entry_isize) {
+        g->c_stdint_used = true;
+        buf_init_from_str(out_buf, "intptr_t");
     } else if (type_entry == g->builtin_types.entry_f32) {
         buf_init_from_str(out_buf, "float");
     } else if (type_entry == g->builtin_types.entry_unreachable) {

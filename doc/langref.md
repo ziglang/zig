@@ -70,7 +70,15 @@ VariableDeclaration : token(Let) option(token(Mut)) token(Symbol) (token(Eq) Exp
 
 Expression : BlockExpression | NonBlockExpression
 
-NonBlockExpression : ReturnExpression | AssignmentExpression
+NonBlockExpression : ReturnExpression | AssignmentExpression | AsmExpression
+
+AsmExpression : token(Asm) option(token(Volatile)) token(LParen) token(String) option(AsmOutput) token(RParen)
+
+AsmOutput : token(Colon) list(AsmOutputItem, token(Comma)) option(AsmInput)
+
+AsmInput : token(Colon) list(AsmInputItem, token(Comma)) option(AsmClobbers)
+
+AsmClobbers: token(Colon) list(token(String), token(Comma))
 
 AssignmentExpression : BoolOrExpression token(Equal) BoolOrExpression | BoolOrExpression
 

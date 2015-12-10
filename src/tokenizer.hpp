@@ -30,6 +30,8 @@ enum TokenId {
     TokenIdKeywordIf,
     TokenIdKeywordElse,
     TokenIdKeywordGoto,
+    TokenIdKeywordAsm,
+    TokenIdKeywordVolatile,
     TokenIdLParen,
     TokenIdRParen,
     TokenIdComma,
@@ -89,5 +91,7 @@ struct Tokenization {
 void tokenize(Buf *buf, Tokenization *out_tokenization);
 
 void print_tokens(Buf *buf, ZigList<Token> *tokens);
+
+bool is_printable(uint8_t c);
 
 #endif

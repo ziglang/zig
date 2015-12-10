@@ -82,6 +82,11 @@ struct LabelTableEntry {
     bool entered_from_fallthrough;
 };
 
+enum FnAttrId {
+    FnAttrIdNaked,
+    FnAttrIdAlwaysInline,
+};
+
 struct FnTableEntry {
     LLVMValueRef fn_value;
     AstNode *proto_node;
@@ -90,6 +95,7 @@ struct FnTableEntry {
     bool internal_linkage;
     unsigned calling_convention;
     ImportTableEntry *import_entry;
+    ZigList<FnAttrId> fn_attr_list;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
@@ -113,6 +119,7 @@ struct CodeGen {
         TypeTableEntry *entry_bool;
         TypeTableEntry *entry_u8;
         TypeTableEntry *entry_i32;
+        TypeTableEntry *entry_isize;
         TypeTableEntry *entry_f32;
         TypeTableEntry *entry_string_literal;
         TypeTableEntry *entry_void;
@@ -124,6 +131,7 @@ struct CodeGen {
     unsigned pointer_size_bytes;
     bool is_static;
     bool strip_debug_symbols;
+    bool insert_bootstrap_code;
     CodeGenBuildType build_type;
     LLVMTargetMachineRef target_machine;
     bool is_native_target;

@@ -58,7 +58,6 @@ compromises backward compatibility.
  * structs
  * loops
  * enums
- * inline assembly and syscalls
  * conditional compilation and ability to check target platform and architecture
  * main function with command line arguments
  * void pointer constant
@@ -83,10 +82,23 @@ compromises backward compatibility.
 
 ## Building
 
+### Debug / Development Build
+
 ```
 mkdir build
 cd build
-cmake ..
+cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)
 make
+make install
 ./run_tests
+```
+
+### Release / Install Build
+
+```
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make
+sudo make install
 ```

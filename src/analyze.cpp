@@ -43,6 +43,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeIfExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
+        case NodeTypeAsmExpr:
             return node;
     }
     zig_panic("unreachable");
@@ -205,8 +206,26 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     for (int i = 0; i < node->data.fn_proto.directives->length; i += 1) {
         AstNode *directive_node = node->data.fn_proto.directives->at(i);
         Buf *name = &directive_node->data.directive.name;
-        add_node_error(g, directive_node,
-                buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+
+        if (buf_eql_str(name, "attribute")) {
+            Buf *attr_name = &directive_node->data.directive.param;
+            if (fn_table_entry->fn_def_node) {
+                if (buf_eql_str(attr_name, "naked")) {
+                    fn_table_entry->fn_attr_list.append(FnAttrIdNaked);
+                } else if (buf_eql_str(attr_name, "alwaysinline")) {
+                    fn_table_entry->fn_attr_list.append(FnAttrIdAlwaysInline);
+                } else {
+                    add_node_error(g, directive_node,
+                            buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
+                }
+            } else {
+                add_node_error(g, directive_node,
+                        buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
+            }
+        } else {
+            add_node_error(g, directive_node,
+                    buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+        }
     }
 
     for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
@@ -338,6 +357,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
 
                     resolve_function_proto(g, proto_node, fn_table_entry);
 
+
                     assert(!proto_node->codegen_node);
                     proto_node->codegen_node = allocate<CodeGenNode>(1);
                     proto_node->codegen_node->data.fn_proto_node.fn_table_entry = fn_table_entry;
@@ -415,6 +435,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeIfExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
+        case NodeTypeAsmExpr:
             zig_unreachable();
     }
 }
@@ -624,6 +645,11 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                             buf_sprintf("use of undeclared label '%s'", buf_ptr(&node->data.go_to.name)));
                 }
                 return_type = g->builtin_types.entry_unreachable;
+                break;
+            }
+        case NodeTypeAsmExpr:
+            {
+                return_type = g->builtin_types.entry_void;
                 break;
             }
         case NodeTypeBinOpExpr:
@@ -1004,6 +1030,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeIfExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
+        case NodeTypeAsmExpr:
             zig_unreachable();
     }
 }

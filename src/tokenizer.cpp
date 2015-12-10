@@ -197,6 +197,10 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordElse;
     } else if (mem_eql_str(token_mem, token_len, "goto")) {
         t->cur_tok->id = TokenIdKeywordGoto;
+    } else if (mem_eql_str(token_mem, token_len, "volatile")) {
+        t->cur_tok->id = TokenIdKeywordVolatile;
+    } else if (mem_eql_str(token_mem, token_len, "asm")) {
+        t->cur_tok->id = TokenIdKeywordAsm;
     }
 
     t->cur_tok = nullptr;
@@ -637,6 +641,8 @@ static const char * token_name(Token *token) {
         case TokenIdKeywordIf: return "If";
         case TokenIdKeywordElse: return "Else";
         case TokenIdKeywordGoto: return "Goto";
+        case TokenIdKeywordVolatile: return "Volatile";
+        case TokenIdKeywordAsm: return "Asm";
         case TokenIdLParen: return "LParen";
         case TokenIdRParen: return "RParen";
         case TokenIdComma: return "Comma";
@@ -687,3 +693,40 @@ void print_tokens(Buf *buf, ZigList<Token> *tokens) {
         fprintf(stderr, "\n");
     }
 }
+
+bool is_printable(uint8_t c) {
+    switch (c) {
+        default:
+            return false;
+        case DIGIT:
+        case ALPHA:
+        case '!':
+        case '#':
+        case '$':
+        case '%':
+        case '&':
+        case '\'':
+        case '(':
+        case ')':
+        case '*':
+        case '+':
+        case ',':
+        case '-':
+        case '.':
+        case '/':
+        case ':':
+        case ';':
+        case '<':
+        case '=':
+        case '>':
+        case '?':
+        case '@':
+        case '^':
+        case '_':
+        case '`':
+        case '~':
+        case ' ':
+            return true;
+    }
+}
+

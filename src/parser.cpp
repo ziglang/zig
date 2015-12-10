@@ -104,6 +104,8 @@ const char *node_type_str(NodeType node_type) {
             return "Label";
         case NodeTypeGoto:
             return "Label";
+        case NodeTypeAsmExpr:
+            return "AsmExpr";
     }
     zig_unreachable();
 }
@@ -290,6 +292,9 @@ void ast_print(AstNode *node, int indent) {
         case NodeTypeGoto:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.go_to.name));
             break;
+        case NodeTypeAsmExpr:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            break;
     }
 }
 
@@ -358,6 +363,71 @@ static AstNode *ast_create_void_type_node(ParseContext *pc, Token *token) {
 
 static void ast_buf_from_token(ParseContext *pc, Token *token, Buf *buf) {
     buf_init_from_mem(buf, buf_ptr(pc->buf) + token->start_pos, token->end_pos - token->start_pos);
+}
+
+static void parse_asm_template(ParseContext *pc, AstNode *node) {
+    Buf *asm_template = &node->data.asm_expr.asm_template;
+
+    enum State {
+        StateStart,
+        StatePercent,
+        StateTemplate,
+    };
+
+    ZigList<AsmToken> *tok_list = &node->data.asm_expr.token_list;
+    assert(tok_list->length == 0);
+
+    AsmToken *cur_tok = nullptr;
+
+    enum State state = StateStart;
+
+    for (int i = 0; i < buf_len(asm_template); i += 1) {
+        uint8_t c = *((uint8_t*)buf_ptr(asm_template) + i);
+        switch (state) {
+            case StateStart:
+                if (c == '%') {
+                    tok_list->add_one();
+                    cur_tok = &tok_list->last();
+                    cur_tok->id = AsmTokenIdPercent;
+                    cur_tok->start = i;
+                    state = StatePercent;
+                } else {
+                    tok_list->add_one();
+                    cur_tok = &tok_list->last();
+                    cur_tok->id = AsmTokenIdTemplate;
+                    cur_tok->start = i;
+                    state = StateTemplate;
+                }
+                break;
+            case StatePercent:
+                if (c == '%') {
+                    cur_tok->end = i;
+                    state = StateStart;
+                } else {
+                    zig_panic("TODO handle assembly tokenize error");
+                }
+                break;
+            case StateTemplate:
+                if (c == '%') {
+                    cur_tok->end = i;
+                    i -= 1;
+                    cur_tok = nullptr;
+                    state = StateStart;
+                }
+                break;
+        }
+    }
+
+    switch (state) {
+        case StateStart:
+            break;
+        case StatePercent:
+            zig_panic("TODO handle assembly tokenize error eof");
+            break;
+        case StateTemplate:
+            cur_tok->end = buf_len(asm_template);
+            break;
+    }
 }
 
 static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf) {
@@ -1264,7 +1334,50 @@ static AstNode *ast_parse_ass_expr(ParseContext *pc, int *token_index, bool mand
 }
 
 /*
-NonBlockExpression : ReturnExpression | AssignmentExpression
+AsmExpression : token(Asm) option(token(Volatile)) token(LParen) token(String) option(AsmOutput) token(RParen)
+*/
+static AstNode *ast_parse_asm_expr(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *asm_token = &pc->tokens->at(*token_index);
+
+    if (asm_token->id != TokenIdKeywordAsm) {
+        if (mandatory) {
+            ast_invalid_token_error(pc, asm_token);
+        } else {
+            return nullptr;
+        }
+    }
+
+    AstNode *node = ast_create_node(pc, NodeTypeAsmExpr, asm_token);
+
+    *token_index += 1;
+    Token *lparen_tok = &pc->tokens->at(*token_index);
+
+    if (lparen_tok->id == TokenIdKeywordVolatile) {
+        node->data.asm_expr.is_volatile = true;
+
+        *token_index += 1;
+        lparen_tok = &pc->tokens->at(*token_index);
+    }
+
+    ast_expect_token(pc, lparen_tok, TokenIdLParen);
+    *token_index += 1;
+
+    Token *template_tok = &pc->tokens->at(*token_index);
+    ast_expect_token(pc, template_tok, TokenIdStringLiteral);
+    *token_index += 1;
+
+    parse_string_literal(pc, template_tok, &node->data.asm_expr.asm_template);
+    parse_asm_template(pc, node);
+
+    Token *rparen_tok = &pc->tokens->at(*token_index);
+    ast_expect_token(pc, rparen_tok, TokenIdRParen);
+    *token_index += 1;
+
+    return node;
+}
+
+/*
+NonBlockExpression : ReturnExpression | AssignmentExpression | AsmExpression
 */
 static AstNode *ast_parse_non_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1276,6 +1389,10 @@ static AstNode *ast_parse_non_block_expr(ParseContext *pc, int *token_index, boo
     AstNode *ass_expr = ast_parse_ass_expr(pc, token_index, false);
     if (ass_expr)
         return ass_expr;
+
+    AstNode *asm_expr = ast_parse_asm_expr(pc, token_index, false);
+    if (asm_expr)
+        return asm_expr;
 
     if (mandatory)
         ast_invalid_token_error(pc, token);

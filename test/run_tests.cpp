@@ -397,6 +397,7 @@ loop_2_end:
     exit(0);
 }
     )SOURCE", "OK\n");
+
 }
 
 static void add_compile_failure_test_cases(void) {

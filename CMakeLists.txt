@@ -115,7 +115,12 @@ set(C_HEADERS
     "${CMAKE_SOURCE_DIR}/c_headers/xtestintrin.h"
 )
 
+set(ZIG_STD_SRC
+    "${CMAKE_SOURCE_DIR}/std/bootstrap.zig"
+)
+
 set(C_HEADERS_DEST "lib/zig/include")
+set(ZIG_STD_DEST "lib/zig/std")
 set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")
 configure_file (
     "${CMAKE_SOURCE_DIR}/src/config.h.in"
@@ -142,6 +147,7 @@ target_link_libraries(zig LINK_PUBLIC
 install(TARGETS zig DESTINATION bin)
 
 install(FILES ${C_HEADERS} DESTINATION ${C_HEADERS_DEST})
+install(FILES ${ZIG_STD_SRC} DESTINATION ${ZIG_STD_DEST})
 
 add_executable(run_tests ${TEST_SOURCES})
 target_link_libraries(run_tests)
