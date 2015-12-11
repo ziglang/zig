@@ -53,33 +53,6 @@ compromises backward compatibility.
  * The binaries produced by Zig have complete debugging information so you can,
    for example, use GDB to debug your software.
 
-### Roadmap
-
- * structs
- * loops
- * enums
- * conditional compilation and ability to check target platform and architecture
- * main function with command line arguments
- * void pointer constant
- * sizeof
- * address of operator
- * global variables
- * static initializers
- * assert
- * function pointers
- * hex literal, binary literal, float literal, hex float literal
- * += and -= operators
- * fix a + b + c
- * running code at compile time
- * standard library print functions
- * panic! macro or statement that prints a stack trace to stderr in debug mode
-   and calls abort() in release mode
- * unreachable codegen to panic("unreachable") in debug mode, and nothing in
-   release mode
- * implement a simple game using SDL2
- * implement a GUI with several types of widgets and investigate whether we need
-   any OOP features
-
 ## Building
 
 ### Debug / Development Build
