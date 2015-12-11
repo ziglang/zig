@@ -117,6 +117,7 @@ set(C_HEADERS
 
 set(ZIG_STD_SRC
     "${CMAKE_SOURCE_DIR}/std/bootstrap.zig"
+    "${CMAKE_SOURCE_DIR}/std/std.zig"
 )
 
 set(C_HEADERS_DEST "lib/zig/include")

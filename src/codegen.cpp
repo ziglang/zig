@@ -26,6 +26,7 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->import_table.init(32);
     g->build_type = CodeGenBuildTypeDebug;
     g->root_source_dir = root_source_dir;
+
     return g;
 }
 
@@ -1066,6 +1067,9 @@ static void define_primitive_types(CodeGen *g) {
 
 
 static void init(CodeGen *g, Buf *source_path) {
+    g->lib_search_paths.append(g->root_source_dir);
+    g->lib_search_paths.append(buf_create_from_str(ZIG_STD_DIR));
+
     LLVMInitializeAllTargets();
     LLVMInitializeAllTargetMCs();
     LLVMInitializeAllAsmPrinters();
@@ -1188,17 +1192,34 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
         AstNode *top_level_decl = import_entry->root->data.root.top_level_decls.at(decl_i);
 
         if (top_level_decl->type == NodeTypeUse) {
-            auto entry = g->import_table.maybe_get(&top_level_decl->data.use.path);
+            Buf *import_target_path = &top_level_decl->data.use.path;
+            auto entry = g->import_table.maybe_get(import_target_path);
             if (!entry) {
                 Buf full_path = BUF_INIT;
-                os_path_join(g->root_source_dir, &top_level_decl->data.use.path, &full_path);
                 Buf *import_code = buf_alloc();
-                if ((err = os_fetch_file_path(&full_path, import_code))) {
-                    add_node_error(g, top_level_decl,
-                            buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));
+                bool found_it = false;
+
+                for (int path_i = 0; path_i < g->lib_search_paths.length; path_i += 1) {
+                    Buf *search_path = g->lib_search_paths.at(path_i);
+                    os_path_join(search_path, import_target_path, &full_path);
+
+                    if ((err = os_fetch_file_path(&full_path, import_code))) {
+                        if (err == ErrorFileNotFound) {
+                            continue;
+                        } else {
+                            add_node_error(g, top_level_decl,
+                                    buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));
+                            goto done_looking_at_imports;
+                        }
+                    }
+                    codegen_add_code(g, &top_level_decl->data.use.path, import_code);
+                    found_it = true;
                     break;
                 }
-                codegen_add_code(g, &top_level_decl->data.use.path, import_code);
+                if (!found_it) {
+                    add_node_error(g, top_level_decl,
+                            buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
+                }
             }
         } else if (top_level_decl->type == NodeTypeFnDef) {
             AstNode *proto_node = top_level_decl->data.fn_def.fn_proto;
@@ -1212,6 +1233,8 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
             }
         }
     }
+
+done_looking_at_imports:
 
     return import_entry;
 }

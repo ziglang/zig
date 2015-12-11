@@ -461,7 +461,7 @@ export executable "test";
 
     add_compile_fail_case("bad import", R"SOURCE(
 use "bogus-does-not-exist.zig";
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: unable to open './bogus-does-not-exist.zig': file not found");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: unable to find 'bogus-does-not-exist.zig'");
 
     add_compile_fail_case("undeclared identifier", R"SOURCE(
 fn a() {
