@@ -232,12 +232,35 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeCastExpr);
 
-    LLVMValueRef expr = gen_expr(g, node->data.cast_expr.prefix_op_expr);
+    LLVMValueRef expr_val = gen_expr(g, node->data.cast_expr.expr);
 
-    if (!node->data.cast_expr.type)
-        return expr;
+    TypeTableEntry *actual_type = get_expr_type(node->data.cast_expr.expr);
+    TypeTableEntry *wanted_type = get_expr_type(node);
 
-    zig_panic("TODO cast expression");
+    // this asserts are here only because no other casting codegen is supported currently
+    assert(wanted_type == g->builtin_types.entry_isize);
+
+    if (wanted_type->id == TypeTableEntryIdPointer) {
+        return LLVMBuildIntToPtr(g->builder, expr_val, wanted_type->type_ref, "");
+    } else if (wanted_type->id == TypeTableEntryIdInt) {
+        if (actual_type->size_in_bits == wanted_type->size_in_bits) {
+            if (actual_type->id == TypeTableEntryIdPointer) {
+                return LLVMBuildPtrToInt(g->builder, expr_val, wanted_type->type_ref, "");
+            } else {
+                zig_panic("TODO gen_cast_expr");
+            }
+        } else if (actual_type->size_in_bits < wanted_type->size_in_bits) {
+            if (actual_type->data.integral.is_signed && wanted_type->data.integral.is_signed) {
+                return LLVMBuildSExt(g->builder, expr_val, wanted_type->type_ref, "");
+            } else {
+                zig_panic("TODO gen_cast_expr sign mismatch");
+            }
+        } else {
+            zig_panic("TODO gen_cast_expr");
+        }
+    } else {
+        zig_panic("TODO gen_cast_expr");
+    }
 }
 
 static LLVMValueRef gen_arithmetic_bin_op_expr(CodeGen *g, AstNode *node) {
@@ -610,16 +633,37 @@ static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *i
     return return_value;
 }
 
+static int find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok) {
+    const char *ptr = buf_ptr(&node->data.asm_expr.asm_template) + tok->start + 2;
+    int len = tok->end - tok->start - 2;
+    int result = 0;
+    for (int i = 0; i < node->data.asm_expr.output_list.length; i += 1, result += 1) {
+        AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
+        if (buf_eql_mem(&asm_output->asm_symbolic_name, ptr, len)) {
+            return result;
+        }
+    }
+    for (int i = 0; i < node->data.asm_expr.input_list.length; i += 1, result += 1) {
+        AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
+        if (buf_eql_mem(&asm_input->asm_symbolic_name, ptr, len)) {
+            return result;
+        }
+    }
+    return -1;
+}
+
 static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeAsmExpr);
 
-    Buf *src_template = &node->data.asm_expr.asm_template;
+    AstNodeAsmExpr *asm_expr = &node->data.asm_expr;
+
+    Buf *src_template = &asm_expr->asm_template;
 
     Buf llvm_template = BUF_INIT;
     buf_resize(&llvm_template, 0);
 
-    for (int token_i = 0; token_i < node->data.asm_expr.token_list.length; token_i += 1) {
-        AsmToken *asm_token = &node->data.asm_expr.token_list.at(token_i);
+    for (int token_i = 0; token_i < asm_expr->token_list.length; token_i += 1) {
+        AsmToken *asm_token = &asm_expr->token_list.at(token_i);
         switch (asm_token->id) {
             case AsmTokenIdTemplate:
                 for (int offset = asm_token->start; offset < asm_token->end; offset += 1) {
@@ -634,15 +678,69 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
             case AsmTokenIdPercent:
                 buf_append_char(&llvm_template, '%');
                 break;
+            case AsmTokenIdVar:
+                int index = find_asm_index(g, node, asm_token);
+                assert(index >= 0);
+                buf_appendf(&llvm_template, "$%d", index);
+                break;
         }
     }
 
-    LLVMTypeRef function_type = LLVMFunctionType(LLVMVoidType(), nullptr, 0, false);
+    Buf constraint_buf = BUF_INIT;
+    buf_resize(&constraint_buf, 0);
+    int total_constraint_count = asm_expr->output_list.length +
+                                 asm_expr->input_list.length +
+                                 asm_expr->clobber_list.length;
+    int input_and_output_count = asm_expr->output_list.length +
+                                 asm_expr->input_list.length;
+    int total_index = 0;
+    LLVMTypeRef *param_types = allocate<LLVMTypeRef>(input_and_output_count);
+    LLVMValueRef *param_values = allocate<LLVMValueRef>(input_and_output_count);
+    for (int i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
+        AsmOutput *asm_output = asm_expr->output_list.at(i);
+        if (buf_eql_str(&asm_output->constraint, "=m")) {
+            buf_append_str(&constraint_buf, "=*m");
+        } else {
+            zig_panic("TODO unable to handle anything other than '=m' for outputs");
+        }
+        if (total_index + 1 < total_constraint_count) {
+            buf_append_char(&constraint_buf, ',');
+        }
 
-    LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template), "", true, false);
+        LocalVariableTableEntry *variable = find_local_variable(
+                node->codegen_node->expr_node.block_context,
+                &asm_output->variable_name);
+        assert(variable);
+        param_types[total_index] = LLVMTypeOf(variable->value_ref);
+        param_values[total_index] = variable->value_ref;
+    }
+    for (int i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1) {
+        AsmInput *asm_input = asm_expr->input_list.at(i);
+        buf_append_buf(&constraint_buf, &asm_input->constraint);
+        if (total_index + 1 < total_constraint_count) {
+            buf_append_char(&constraint_buf, ',');
+        }
+
+        TypeTableEntry *expr_type = get_expr_type(asm_input->expr);
+        param_types[total_index] = expr_type->type_ref;
+        param_values[total_index] = gen_expr(g, asm_input->expr);
+    }
+    for (int i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
+        Buf *clobber_buf = asm_expr->clobber_list.at(i);
+        buf_appendf(&constraint_buf, "~{%s}", buf_ptr(clobber_buf));
+        if (total_index + 1 < total_constraint_count) {
+            buf_append_char(&constraint_buf, ',');
+        }
+    }
+
+    LLVMTypeRef function_type = LLVMFunctionType(LLVMVoidType(), param_types, input_and_output_count, false);
+
+    bool is_volatile = asm_expr->is_volatile || (asm_expr->output_list.length == 0);
+    LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
+            buf_ptr(&constraint_buf), is_volatile, false);
 
     add_debug_source_node(g, node);
-    return LLVMBuildCall(g->builder, asm_fn, nullptr, 0, "");
+    return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
 }
 
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {

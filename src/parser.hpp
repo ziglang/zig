@@ -169,8 +169,7 @@ struct AstNodeRootExportDecl {
 };
 
 struct AstNodeCastExpr {
-    AstNode *prefix_op_expr;
-    // if type is non-null, do cast, otherwise nothing
+    AstNode *expr;
     AstNode *type;
 };
 
@@ -205,10 +204,31 @@ struct AstNodeGoto {
     Buf name;
 };
 
+struct AsmOutput {
+    Buf asm_symbolic_name;
+    Buf constraint;
+    Buf variable_name;
+};
+
+struct AsmInput {
+    Buf asm_symbolic_name;
+    Buf constraint;
+    AstNode *expr;
+};
+
+struct SrcPos {
+    int line;
+    int column;
+};
+
 struct AstNodeAsmExpr {
     bool is_volatile;
     Buf asm_template;
+    ZigList<SrcPos> offset_map;
     ZigList<AsmToken> token_list;
+    ZigList<AsmOutput*> output_list;
+    ZigList<AsmInput*> input_list;
+    ZigList<Buf*> clobber_list;
 };
 
 struct AstNode {
@@ -250,6 +270,7 @@ struct AstNode {
 enum AsmTokenId {
     AsmTokenIdTemplate,
     AsmTokenIdPercent,
+    AsmTokenIdVar,
 };
 
 struct AsmToken {

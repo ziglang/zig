@@ -245,7 +245,7 @@ void ast_print(AstNode *node, int indent) {
             break;
         case NodeTypeCastExpr:
             fprintf(stderr, "%s\n", node_type_str(node->type));
-            ast_print(node->data.cast_expr.prefix_op_expr, indent + 2);
+            ast_print(node->data.cast_expr.expr, indent + 2);
             if (node->data.cast_expr.type)
                 ast_print(node->data.cast_expr.type, indent + 2);
             break;
@@ -306,6 +306,33 @@ struct ParseContext {
     ImportTableEntry *owner;
     ErrColor err_color;
 };
+
+__attribute__ ((format (printf, 4, 5)))
+__attribute__ ((noreturn))
+static void ast_asm_error(ParseContext *pc, AstNode *node, int offset, const char *format, ...) {
+    assert(node->type == NodeTypeAsmExpr);
+
+    ErrorMsg *err = allocate<ErrorMsg>(1);
+
+    SrcPos pos = node->data.asm_expr.offset_map.at(offset);
+
+    err->line_start = pos.line;
+    err->column_start = pos.column;
+    err->line_end = -1;
+    err->column_end = -1;
+
+    va_list ap;
+    va_start(ap, format);
+    err->msg = buf_vprintf(format, ap);
+    va_end(ap);
+
+    err->path = pc->owner->path;
+    err->source = pc->owner->source_code;
+    err->line_offsets = pc->owner->line_offsets;
+
+    print_err_msg(err, pc->err_color);
+    exit(EXIT_FAILURE);
+}
 
 __attribute__ ((format (printf, 3, 4)))
 __attribute__ ((noreturn))
@@ -372,6 +399,7 @@ static void parse_asm_template(ParseContext *pc, AstNode *node) {
         StateStart,
         StatePercent,
         StateTemplate,
+        StateVar,
     };
 
     ZigList<AsmToken> *tok_list = &node->data.asm_expr.token_list;
@@ -403,8 +431,11 @@ static void parse_asm_template(ParseContext *pc, AstNode *node) {
                 if (c == '%') {
                     cur_tok->end = i;
                     state = StateStart;
+                } else if (c == '[') {
+                    cur_tok->id = AsmTokenIdVar;
+                    state = StateVar;
                 } else {
-                    zig_panic("TODO handle assembly tokenize error");
+                    ast_asm_error(pc, node, i, "expected a '%%' or '['");
                 }
                 break;
             case StateTemplate:
@@ -415,6 +446,19 @@ static void parse_asm_template(ParseContext *pc, AstNode *node) {
                     state = StateStart;
                 }
                 break;
+            case StateVar:
+                if (c == ']') {
+                    cur_tok->end = i;
+                    state = StateStart;
+                } else if ((c >= 'a' && c <= 'z') ||
+                        (c >= '0' && c <= '9') ||
+                        (c == '_'))
+                {
+                    // do nothing
+                } else {
+                    ast_asm_error(pc, node, i, "invalid substitution character: '%c'", c);
+                }
+                break;
         }
     }
 
@@ -422,7 +466,8 @@ static void parse_asm_template(ParseContext *pc, AstNode *node) {
         case StateStart:
             break;
         case StatePercent:
-            zig_panic("TODO handle assembly tokenize error eof");
+        case StateVar:
+            ast_asm_error(pc, node, buf_len(asm_template), "unexpected end of assembly template");
             break;
         case StateTemplate:
             cur_tok->end = buf_len(asm_template);
@@ -430,40 +475,59 @@ static void parse_asm_template(ParseContext *pc, AstNode *node) {
     }
 }
 
-static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf) {
+static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, ZigList<SrcPos> *offset_map) {
     // skip the double quotes at beginning and end
     // convert escape sequences
 
     buf_resize(buf, 0);
     bool escape = false;
-    for (int i = token->start_pos + 1; i < token->end_pos - 1; i += 1) {
+    bool first = true;
+    SrcPos pos = {token->start_line, token->start_column};
+    for (int i = token->start_pos; i < token->end_pos - 1; i += 1) {
         uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
-        if (escape) {
-            switch (c) {
-                case '\\':
-                    buf_append_char(buf, '\\');
-                    break;
-                case 'r':
-                    buf_append_char(buf, '\r');
-                    break;
-                case 'n':
-                    buf_append_char(buf, '\n');
-                    break;
-                case 't':
-                    buf_append_char(buf, '\t');
-                    break;
-                case '"':
-                    buf_append_char(buf, '"');
-                    break;
-            }
-            escape = false;
-        } else if (c == '\\') {
-            escape = true;
+        if (first) {
+            first = false;
         } else {
-            buf_append_char(buf, c);
+            if (escape) {
+                switch (c) {
+                    case '\\':
+                        buf_append_char(buf, '\\');
+                        if (offset_map) offset_map->append(pos);
+                        break;
+                    case 'r':
+                        buf_append_char(buf, '\r');
+                        if (offset_map) offset_map->append(pos);
+                        break;
+                    case 'n':
+                        buf_append_char(buf, '\n');
+                        if (offset_map) offset_map->append(pos);
+                        break;
+                    case 't':
+                        buf_append_char(buf, '\t');
+                        if (offset_map) offset_map->append(pos);
+                        break;
+                    case '"':
+                        buf_append_char(buf, '"');
+                        if (offset_map) offset_map->append(pos);
+                        break;
+                }
+                escape = false;
+            } else if (c == '\\') {
+                escape = true;
+            } else {
+                buf_append_char(buf, c);
+                if (offset_map) offset_map->append(pos);
+            }
+        }
+        if (c == '\n') {
+            pos.line += 1;
+            pos.column = 0;
+        } else {
+            pos.column += 1;
         }
     }
     assert(!escape);
+    if (offset_map) offset_map->append(pos);
 }
 
 __attribute__ ((noreturn))
@@ -505,7 +569,7 @@ static AstNode *ast_parse_directive(ParseContext *pc, int token_index, int *new_
     token_index += 1;
     ast_expect_token(pc, param_str, TokenIdStringLiteral);
 
-    parse_string_literal(pc, param_str, &node->data.directive.param);
+    parse_string_literal(pc, param_str, &node->data.directive.param, nullptr);
 
     Token *r_paren = &pc->tokens->at(token_index);
     token_index += 1;
@@ -718,7 +782,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         return node;
     } else if (token->id == TokenIdStringLiteral) {
         AstNode *node = ast_create_node(pc, NodeTypeStringLiteral, token);
-        parse_string_literal(pc, token, &node->data.string);
+        parse_string_literal(pc, token, &node->data.string, nullptr);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordUnreachable) {
@@ -861,7 +925,7 @@ static AstNode *ast_parse_cast_expression(ParseContext *pc, int *token_index, bo
     *token_index += 1;
 
     AstNode *node = ast_create_node(pc, NodeTypeCastExpr, as_kw);
-    node->data.cast_expr.prefix_op_expr = prefix_op_expr;
+    node->data.cast_expr.expr = prefix_op_expr;
 
     node->data.cast_expr.type = ast_parse_type(pc, *token_index, token_index);
 
@@ -1333,6 +1397,141 @@ static AstNode *ast_parse_ass_expr(ParseContext *pc, int *token_index, bool mand
     return node;
 }
 
+static Token *ast_eat_token(ParseContext *pc, int *token_index, TokenId token_id) {
+    Token *token = &pc->tokens->at(*token_index);
+    ast_expect_token(pc, token, token_id);
+    *token_index += 1;
+    return token;
+}
+
+
+/*
+AsmInputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) Expression token(RParen)
+*/
+static void ast_parse_asm_input_item(ParseContext *pc, int *token_index, AstNode *node) {
+    ast_eat_token(pc, token_index, TokenIdLBracket);
+    Token *alias = ast_eat_token(pc, token_index, TokenIdSymbol);
+    ast_eat_token(pc, token_index, TokenIdRBracket);
+
+    Token *constraint = ast_eat_token(pc, token_index, TokenIdStringLiteral);
+
+    ast_eat_token(pc, token_index, TokenIdLParen);
+    AstNode *expr_node = ast_parse_expression(pc, token_index, true);
+    ast_eat_token(pc, token_index, TokenIdRParen);
+
+    AsmInput *asm_input = allocate<AsmInput>(1);
+    ast_buf_from_token(pc, alias, &asm_input->asm_symbolic_name);
+    parse_string_literal(pc, constraint, &asm_input->constraint, nullptr);
+    asm_input->expr = expr_node;
+    node->data.asm_expr.input_list.append(asm_input);
+}
+
+/*
+AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) token(Symbol) token(RParen)
+*/
+static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNode *node) {
+    ast_eat_token(pc, token_index, TokenIdLBracket);
+    Token *alias = ast_eat_token(pc, token_index, TokenIdSymbol);
+    ast_eat_token(pc, token_index, TokenIdRBracket);
+
+    Token *constraint = ast_eat_token(pc, token_index, TokenIdStringLiteral);
+
+    ast_eat_token(pc, token_index, TokenIdLParen);
+    Token *out_symbol = ast_eat_token(pc, token_index, TokenIdSymbol);
+    ast_eat_token(pc, token_index, TokenIdRParen);
+
+    AsmOutput *asm_output = allocate<AsmOutput>(1);
+    ast_buf_from_token(pc, alias, &asm_output->asm_symbolic_name);
+    parse_string_literal(pc, constraint, &asm_output->constraint, nullptr);
+    ast_buf_from_token(pc, out_symbol, &asm_output->variable_name);
+    node->data.asm_expr.output_list.append(asm_output);
+}
+
+/*
+AsmClobbers: token(Colon) list(token(String), token(Comma))
+*/
+static void ast_parse_asm_clobbers(ParseContext *pc, int *token_index, AstNode *node) {
+    Token *colon_tok = &pc->tokens->at(*token_index);
+
+    if (colon_tok->id != TokenIdColon)
+        return;
+
+    *token_index += 1;
+
+    for (;;) {
+        Token *string_tok = &pc->tokens->at(*token_index);
+        ast_expect_token(pc, string_tok, TokenIdStringLiteral);
+        *token_index += 1;
+
+        Buf *clobber_buf = buf_alloc();
+        parse_string_literal(pc, string_tok, clobber_buf, nullptr);
+        node->data.asm_expr.clobber_list.append(clobber_buf);
+
+        Token *comma = &pc->tokens->at(*token_index);
+
+        if (comma->id == TokenIdComma) {
+            *token_index += 1;
+            continue;
+        } else {
+            break;
+        }
+    }
+}
+
+/*
+AsmInput : token(Colon) list(AsmInputItem, token(Comma)) option(AsmClobbers)
+*/
+static void ast_parse_asm_input(ParseContext *pc, int *token_index, AstNode *node) {
+    Token *colon_tok = &pc->tokens->at(*token_index);
+
+    if (colon_tok->id != TokenIdColon)
+        return;
+
+    *token_index += 1;
+
+    for (;;) {
+        ast_parse_asm_input_item(pc, token_index, node);
+
+        Token *comma = &pc->tokens->at(*token_index);
+
+        if (comma->id == TokenIdComma) {
+            *token_index += 1;
+            continue;
+        } else {
+            break;
+        }
+    }
+
+    ast_parse_asm_clobbers(pc, token_index, node);
+}
+
+/*
+AsmOutput : token(Colon) list(AsmOutputItem, token(Comma)) option(AsmInput)
+*/
+static void ast_parse_asm_output(ParseContext *pc, int *token_index, AstNode *node) {
+    Token *colon_tok = &pc->tokens->at(*token_index);
+
+    if (colon_tok->id != TokenIdColon)
+        return;
+
+    *token_index += 1;
+
+    for (;;) {
+        ast_parse_asm_output_item(pc, token_index, node);
+
+        Token *comma = &pc->tokens->at(*token_index);
+
+        if (comma->id == TokenIdComma) {
+            *token_index += 1;
+            continue;
+        } else {
+            break;
+        }
+    }
+
+    ast_parse_asm_input(pc, token_index, node);
+}
+
 /*
 AsmExpression : token(Asm) option(token(Volatile)) token(LParen) token(String) option(AsmOutput) token(RParen)
 */
@@ -1366,8 +1565,11 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, int *token_index, bool mand
     ast_expect_token(pc, template_tok, TokenIdStringLiteral);
     *token_index += 1;
 
-    parse_string_literal(pc, template_tok, &node->data.asm_expr.asm_template);
+    parse_string_literal(pc, template_tok, &node->data.asm_expr.asm_template,
+            &node->data.asm_expr.offset_map);
     parse_asm_template(pc, node);
+
+    ast_parse_asm_output(pc, token_index, node);
 
     Token *rparen_tok = &pc->tokens->at(*token_index);
     ast_expect_token(pc, rparen_tok, TokenIdRParen);
@@ -1675,7 +1877,7 @@ static AstNode *ast_parse_root_export_decl(ParseContext *pc, int *token_index, b
     *token_index += 1;
     ast_expect_token(pc, export_name, TokenIdStringLiteral);
 
-    parse_string_literal(pc, export_name, &node->data.root_export_decl.name);
+    parse_string_literal(pc, export_name, &node->data.root_export_decl.name, nullptr);
 
     Token *semicolon = &pc->tokens->at(*token_index);
     *token_index += 1;
@@ -1705,7 +1907,7 @@ static AstNode *ast_parse_use(ParseContext *pc, int *token_index, bool mandatory
 
     AstNode *node = ast_create_node(pc, NodeTypeUse, use_kw);
 
-    parse_string_literal(pc, use_name, &node->data.use.path);
+    parse_string_literal(pc, use_name, &node->data.use.path, nullptr);
 
     node->data.use.directives = pc->directive_list;
     pc->directive_list = nullptr;

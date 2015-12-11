@@ -536,6 +536,20 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
     return return_type;
 }
 
+static TypeTableEntry *analyze_variable_name(CodeGen *g, BlockContext *context,
+        AstNode *node, Buf *variable_name)
+{
+    LocalVariableTableEntry *local_variable = find_local_variable(context, variable_name);
+    if (local_variable) {
+        return local_variable->type;
+    } else {
+        // TODO: check global variables also
+        add_node_error(g, node,
+                buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
+        return g->builtin_types.entry_invalid;
+    }
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -649,6 +663,15 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             }
         case NodeTypeAsmExpr:
             {
+                for (int i = 0; i < node->data.asm_expr.output_list.length; i += 1) {
+                    AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
+                    analyze_variable_name(g, context, node, &asm_output->variable_name);
+                }
+                for (int i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
+                    AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
+                    analyze_expression(g, import, context, nullptr, asm_input->expr);
+                }
+
                 return_type = g->builtin_types.entry_void;
                 break;
             }
@@ -835,22 +858,36 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
         case NodeTypeSymbol:
             {
-                Buf *symbol_name = &node->data.symbol;
-                LocalVariableTableEntry *local_variable = find_local_variable(context, symbol_name);
-                if (local_variable) {
-                    return_type = local_variable->type;
-                } else {
-                    // TODO: check global variables also
-                    add_node_error(g, node,
-                            buf_sprintf("use of undeclared identifier '%s'", buf_ptr(symbol_name)));
-                    return_type = g->builtin_types.entry_invalid;
-                }
+                return_type = analyze_variable_name(g, context, node, &node->data.symbol);
                 break;
             }
         case NodeTypeCastExpr:
-            zig_panic("TODO analyze_expression cast expr");
-            break;
+            {
+                TypeTableEntry *wanted_type = resolve_type(g, node->data.cast_expr.type);
+                TypeTableEntry *actual_type = analyze_expression(g, import, context, nullptr,
+                        node->data.cast_expr.expr);
 
+                if (wanted_type->id == TypeTableEntryIdInvalid ||
+                    actual_type->id == TypeTableEntryIdInvalid)
+                {
+                    return_type = g->builtin_types.entry_invalid;
+                    break;
+                }
+
+                // special casing this for now, TODO think about casting and do a general solution
+                if (wanted_type == g->builtin_types.entry_isize &&
+                    actual_type->id == TypeTableEntryIdPointer)
+                {
+                    return_type = wanted_type;
+                } else if (wanted_type == g->builtin_types.entry_isize &&
+                           actual_type->id == TypeTableEntryIdInt)
+                {
+                    return_type = wanted_type;
+                } else {
+                    zig_panic("TODO analyze_expression cast expr");
+                }
+                break;
+            }
         case NodeTypePrefixOpExpr:
             switch (node->data.prefix_op_expr.prefix_op) {
                 case PrefixOpBoolNot:

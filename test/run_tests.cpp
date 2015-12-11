@@ -398,6 +398,18 @@ loop_2_end:
 }
     )SOURCE", "OK\n");
 
+
+    add_simple_case("hello world without libc", R"SOURCE(
+use "std.zig";
+
+export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
+    print_str("Hello, world!\n", 14 as isize);
+    return 0;
+}
+    )SOURCE", "Hello, world!\n");
+
+
+
 }
 
 static void add_compile_failure_test_cases(void) {
