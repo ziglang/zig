@@ -43,7 +43,7 @@ compromises backward compatibility.
 ### Current Status
 
  * Core language features are lacking such as structs, enums, loops.
- * Only Linux is supported.
+ * Only Linux x86_64 is supported.
  * Only building for the native target is supported.
  * Have a look in the examples/ folder to see some code examples.
  * Optimized machine code that Zig produces is indistinguishable from
@@ -52,6 +52,7 @@ compromises backward compatibility.
    header files.
  * The binaries produced by Zig have complete debugging information so you can,
    for example, use GDB to debug your software.
+ * Inline assembly is supported.
 
 ## Building
 
