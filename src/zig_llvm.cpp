@@ -161,6 +161,31 @@ LLVMZigDIType *LLVMZigCreateDebugArrayType(LLVMZigDIBuilder *dibuilder, uint64_t
     return reinterpret_cast<LLVMZigDIType*>(di_type);
 }
 
+
+LLVMZigDIType *LLVMZigCreateDebugStructType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
+        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, unsigned flags, LLVMZigDIType *derived_from, 
+        LLVMZigDIType **types_array, int types_array_len, unsigned run_time_lang, LLVMZigDIType *vtable_holder,
+        const char *unique_id)
+{
+    SmallVector<Metadata *, 8> fields;
+    for (int i = 0; i < types_array_len; i += 1) {
+        DIType *ditype = reinterpret_cast<DIType*>(types_array[i]);
+        fields.push_back(ditype);
+    }
+    DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createStructType(
+            reinterpret_cast<DIScope*>(scope),
+            name,
+            reinterpret_cast<DIFile*>(file),
+            line_number, size_in_bits, align_in_bits, flags,
+            reinterpret_cast<DIType*>(derived_from),
+            reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(fields),
+            run_time_lang,
+            reinterpret_cast<DIType*>(vtable_holder),
+            unique_id);
+    return reinterpret_cast<LLVMZigDIType*>(di_type);
+}
+
 LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
         LLVMZigDIFile *file, LLVMZigDIType **types_array, int types_array_len, unsigned flags)
 {

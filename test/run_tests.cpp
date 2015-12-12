@@ -104,7 +104,7 @@ static void add_compiling_test_cases(void) {
         }
 
         export fn _start() -> unreachable {
-            puts("Hello, world!");
+            puts(c"Hello, world!");
             exit(0);
         }
     )SOURCE", "Hello, world!\n");
@@ -126,7 +126,7 @@ static void add_compiling_test_cases(void) {
         }
 
         fn this_is_a_function() -> unreachable {
-            puts("OK");
+            puts(c"OK");
             exit(0);
         }
     )SOURCE", "OK\n");
@@ -146,7 +146,7 @@ static void add_compiling_test_cases(void) {
         /// this is a documentation comment
         /// doc comment line 2
         export fn _start() -> unreachable {
-            puts(/* mid-line comment /* nested */ */ "OK");
+            puts(/* mid-line comment /* nested */ */ c"OK");
             exit(0);
         }
     )SOURCE", "OK\n");
@@ -180,7 +180,7 @@ static void add_compiling_test_cases(void) {
             // purposefully conflicting function with main source file
             // but it's private so it should be OK
             fn private_function() {
-                puts("OK");
+                puts(c"OK");
             }
 
             pub fn print_text() {
@@ -198,17 +198,17 @@ static void add_compiling_test_cases(void) {
 
         export fn _start() -> unreachable {
             if 1 != 0 {
-                puts("1 is true");
+                puts(c"1 is true");
             } else {
-                puts("1 is false");
+                puts(c"1 is false");
             }
             if 0 != 0 {
-                puts("0 is true");
+                puts(c"0 is true");
             } else if 1 - 1 != 0 {
-                puts("1 - 1 is true");
+                puts(c"1 - 1 is true");
             }
             if !(0 != 0) {
-                puts("!0 is true");
+                puts(c"!0 is true");
             }
             exit(0);
         }
@@ -227,7 +227,7 @@ static void add_compiling_test_cases(void) {
 
         export fn _start() -> unreachable {
             if add(22, 11) == 33 {
-                puts("pass");
+                puts(c"pass");
             }
             exit(0);
         }
@@ -244,7 +244,7 @@ static void add_compiling_test_cases(void) {
             if a == 0 {
                 goto done;
             }
-            puts("loop");
+            puts(c"loop");
             loop(a - 1);
 
         done:
@@ -268,7 +268,7 @@ export fn _start() -> unreachable {
     let a : i32 = 1;
     let b = 2;
     if (a + b == 3) {
-        puts("OK");
+        puts(c"OK");
     }
     exit(0);
 }
@@ -282,10 +282,10 @@ extern {
 }
 
 export fn _start() -> unreachable {
-    if (true)   { puts("OK 1"); }
-    if (false)  { puts("BAD 1"); }
-    if (!true)  { puts("BAD 2"); }
-    if (!false) { puts("OK 2"); }
+    if (true)   { puts(c"OK 1"); }
+    if (false)  { puts(c"BAD 1"); }
+    if (!true)  { puts(c"BAD 2"); }
+    if (!false) { puts(c"OK 2"); }
     exit(0);
 }
     )SOURCE", "OK 1\nOK 2\n");
@@ -300,14 +300,14 @@ extern {
 export fn _start() -> unreachable {
     if (true) {
         let no_conflict = 5;
-        if (no_conflict == 5) { puts("OK 1"); }
+        if (no_conflict == 5) { puts(c"OK 1"); }
     }
 
     let c = {
         let no_conflict = 10;
         no_conflict
     };
-    if (c == 10) { puts("OK 2"); }
+    if (c == 10) { puts(c"OK 2"); }
     exit(0);
 }
     )SOURCE", "OK 1\nOK 2\n");
@@ -327,7 +327,7 @@ export fn _start() -> unreachable {
 fn void_fun(a : i32, b : void, c : i32) {
     let v = b;
     let vv : void = if (a == 1) {v} else {};
-    if (a + c == 3) { puts("OK"); }
+    if (a + c == 3) { puts(c"OK"); }
     return vv;
 }
     )SOURCE", "OK\n");
@@ -341,14 +341,14 @@ extern {
 
 export fn _start() -> unreachable {
     let mut zero : i32;
-    if (zero == 0) { puts("zero"); }
+    if (zero == 0) { puts(c"zero"); }
 
     let mut i = 0;
 loop_start:
     if i == 3 {
         goto done;
     }
-    puts("loop");
+    puts(c"loop");
     i = i + 1;
     goto loop_start;
 done:
@@ -391,7 +391,7 @@ loop_2_start:
 loop_2_end:
 
     if accumulator == 15 {
-        puts("OK");
+        puts(c"OK");
     }
 
     exit(0);
@@ -403,7 +403,7 @@ loop_2_end:
 use "std.zig";
 
 export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
-    print_str("Hello, world!\n", 14 as isize);
+    print_str(c"Hello, world!\n", 14 as isize);
     return 0;
 }
     )SOURCE", "Hello, world!\n");
@@ -430,11 +430,11 @@ fn a() {}
 
     add_compile_fail_case("unreachable with return", R"SOURCE(
 fn a() -> unreachable {return;}
-    )SOURCE", 1, ".tmp_source.zig:2:24: error: type mismatch. expected unreachable. got void");
+    )SOURCE", 1, ".tmp_source.zig:2:24: error: expected type 'unreachable', got 'void'");
 
     add_compile_fail_case("control reaches end of non-void function", R"SOURCE(
 fn a() -> i32 {}
-    )SOURCE", 1, ".tmp_source.zig:2:15: error: type mismatch. expected i32. got void");
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: expected type 'i32', got 'void'");
 
     add_compile_fail_case("undefined function call", R"SOURCE(
 fn a() {
@@ -514,16 +514,16 @@ fn f(a : i32) {
 
     add_compile_fail_case("variable has wrong type", R"SOURCE(
 fn f() -> i32 {
-    let a = "a";
+    let a = c"a";
     a
 }
-    )SOURCE", 1, ".tmp_source.zig:2:15: error: type mismatch. expected i32. got *const u8");
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: expected type 'i32', got '*const u8'");
 
     add_compile_fail_case("if condition is bool, not int", R"SOURCE(
 fn f() {
     if (0) {}
 }
-    )SOURCE", 1, ".tmp_source.zig:3:9: error: type mismatch. expected bool. got i32");
+    )SOURCE", 1, ".tmp_source.zig:3:9: error: expected type 'bool', got 'i32'");
 
     add_compile_fail_case("assign unreachable", R"SOURCE(
 fn f() {
@@ -551,11 +551,11 @@ a_label:
 }
     )SOURCE", 1, ".tmp_source.zig:3:1: error: label 'a_label' defined but not used");
 
-    add_compile_fail_case("expected bare identifier", R"SOURCE(
+    add_compile_fail_case("bad assignment target", R"SOURCE(
 fn f() {
     3 = 3;
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: expected a bare identifier");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: assignment target must be variable, field, or array element");
 
     add_compile_fail_case("assign to constant variable", R"SOURCE(
 fn f() {

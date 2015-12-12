@@ -32,6 +32,7 @@ enum TokenId {
     TokenIdKeywordGoto,
     TokenIdKeywordAsm,
     TokenIdKeywordVolatile,
+    TokenIdKeywordStruct,
     TokenIdLParen,
     TokenIdRParen,
     TokenIdComma,

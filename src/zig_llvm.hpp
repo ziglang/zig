@@ -49,6 +49,11 @@ LLVMZigDIType *LLVMZigCreateDebugArrayType(LLVMZigDIBuilder *dibuilder,
         uint64_t size_in_bits, uint64_t align_in_bits, LLVMZigDIType *elem_type,
         int elem_count);
 
+LLVMZigDIType *LLVMZigCreateDebugStructType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
+        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, unsigned flags, LLVMZigDIType *derived_from, 
+        LLVMZigDIType **types_array, int types_array_len, unsigned run_time_lang, LLVMZigDIType *vtable_holder,
+        const char *unique_id);
 
 LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
         LLVMZigDIFile *file, LLVMZigDIType **types_array, int types_array_len, unsigned flags);

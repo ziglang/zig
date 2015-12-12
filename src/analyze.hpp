@@ -28,6 +28,18 @@ struct TypeTableEntryInt {
 
 struct TypeTableEntryArray {
     TypeTableEntry *child_type;
+    uint64_t len;
+};
+
+struct TypeStructField {
+    Buf *name;
+    TypeTableEntry *type_entry;
+};
+
+struct TypeTableEntryStruct {
+    bool is_packed;
+    int field_count;
+    TypeStructField *fields;
 };
 
 enum TypeTableEntryId {
@@ -39,6 +51,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdFloat,
     TypeTableEntryIdPointer,
     TypeTableEntryIdArray,
+    TypeTableEntryIdStruct,
 };
 
 struct TypeTableEntry {
@@ -55,6 +68,7 @@ struct TypeTableEntry {
         TypeTableEntryPointer pointer;
         TypeTableEntryInt integral;
         TypeTableEntryArray array;
+        TypeTableEntryStruct structure;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
@@ -122,8 +136,10 @@ struct CodeGen {
         TypeTableEntry *entry_u8;
         TypeTableEntry *entry_i32;
         TypeTableEntry *entry_isize;
+        TypeTableEntry *entry_usize;
         TypeTableEntry *entry_f32;
-        TypeTableEntry *entry_string_literal;
+        TypeTableEntry *entry_c_string_literal;
+        TypeTableEntry *entry_string;
         TypeTableEntry *entry_void;
         TypeTableEntry *entry_unreachable;
         TypeTableEntry *entry_invalid;
@@ -211,6 +227,10 @@ struct BlockNode {
     BlockContext *block_context;
 };
 
+struct StructDeclNode {
+    TypeTableEntry *type_entry;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
@@ -219,6 +239,7 @@ struct CodeGenNode {
         LabelTableEntry *label_entry; // for NodeTypeGoto and NodeTypeLabel
         AssignNode assign_node; // for NodeTypeBinOpExpr where op is BinOpTypeAssign
         BlockNode block_node; // for NodeTypeBlock
+        StructDeclNode struct_decl_node; // for NodeTypeStructDecl
     } data;
     ExprNode expr_node; // for all the expression nodes
 };

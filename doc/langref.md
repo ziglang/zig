@@ -32,7 +32,11 @@ zig          |        C equivalent    | Description
 ```
 Root : many(TopLevelDecl) token(EOF)
 
-TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use
+TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use | StructDecl
+
+StructDecl : many(Directive) token(Struct) token(Symbol) token(LBrace) many(StructField) token(RBrace)
+
+StructField : token(Symbol) token(Colon) Type token(Comma)
 
 Use : many(Directive) token(Use) token(String) token(Semicolon)
 
@@ -126,7 +130,9 @@ CastExpression : PrefixOpExpression token(as) Type | PrefixOpExpression
 
 PrefixOpExpression : PrefixOp SuffixOpExpression | SuffixOpExpression
 
-SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression)
+SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression)
+
+FieldAccessExpression : token(Dot) token(Symbol)
 
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 
@@ -146,7 +152,7 @@ KeywordLiteral : token(Unreachable) | token(Void) | token(True) | token(False)
 ## Operator Precedence
 
 ```
-x() x[]
+x() x[] x.y
 !x -x ~x
 as
 * / %
@@ -165,11 +171,11 @@ as
 
 ### Characters and Strings
 
-                 | Example     | Characters  | Escapes        | Null Terminated
--------------------------------------------------------------------------------
- Byte            | 'H'         | All ASCII   | Byte           | No
- UTF-8 Bytes     | "hello"     | All Unicode | Byte & Unicode | No
- UTF-8 C string  | c"hello"    | All Unicode | Byte & Unicode | Yes
+                | Example  | Characters  | Escapes        | Null Term | Type
+---------------------------------------------------------------------------------
+ Byte           | 'H'      | All ASCII   | Byte           | No        | u8
+ UTF-8 Bytes    | "hello"  | All Unicode | Byte & Unicode | No        | [5; u8]
+ UTF-8 C string | c"hello" | All Unicode | Byte & Unicode | Yes       | *const u8
 
 ### Byte Escapes
 

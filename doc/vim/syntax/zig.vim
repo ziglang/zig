@@ -9,7 +9,7 @@ endif
 
 syn keyword zigKeyword fn return mut const extern unreachable export pub as use while asm
 syn keyword zigKeyword if else let void goto type enum struct continue break match volatile
-syn keyword zigType bool i8 u8 i16 u16 i32 u32 i64 u64 isize usize f32 f64 f128
+syn keyword zigType bool i8 u8 i16 u16 i32 u32 i64 u64 isize usize f32 f64 f128 string
 
 syn keyword zigConstant null
 

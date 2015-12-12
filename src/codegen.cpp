@@ -106,12 +106,12 @@ static void add_debug_source_node(CodeGen *g, AstNode *node) {
             g->cur_block_context->di_scope);
 }
 
-static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str) {
+static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str, bool c) {
     auto entry = g->str_table.maybe_get(str);
     if (entry) {
         return entry->value;
     }
-    LLVMValueRef text = LLVMConstString(buf_ptr(str), buf_len(str), false);
+    LLVMValueRef text = LLVMConstString(buf_ptr(str), buf_len(str), !c);
     LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(text), "");
     LLVMSetLinkage(global_value, LLVMPrivateLinkage);
     LLVMSetInitializer(global_value, text);
@@ -202,6 +202,28 @@ static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node) {
 
     LLVMValueRef ptr = gen_array_ptr(g, node);
     return LLVMBuildLoad(g->builder, ptr, "");
+}
+
+static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeFieldAccessExpr);
+
+    TypeTableEntry *struct_type = get_expr_type(node->data.field_access_expr.struct_expr);
+    LLVMValueRef struct_ptr = gen_expr(g, node->data.field_access_expr.struct_expr);
+    Buf *name = &node->data.field_access_expr.field_name;
+
+    // TODO add struct support
+    (void)struct_ptr;
+
+    if (struct_type->id == TypeTableEntryIdArray) {
+        if (buf_eql_str(name, "len")) {
+            return LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+                    struct_type->data.array.len, false);
+        } else {
+            zig_panic("gen_field_access_expr bad array field");
+        }
+    } else {
+        zig_panic("gen_field_access_expr bad struct type");
+    }
 }
 
 static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
@@ -785,6 +807,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_fn_call_expr(g, node);
         case NodeTypeArrayAccessExpr:
             return gen_array_access_expr(g, node);
+        case NodeTypeFieldAccessExpr:
+            return gen_field_access_expr(g, node);
         case NodeTypeUnreachable:
             add_debug_source_node(g, node);
             return LLVMBuildUnreachable(g->builder);
@@ -809,8 +833,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             }
         case NodeTypeStringLiteral:
             {
-                Buf *str = &node->data.string;
-                LLVMValueRef str_val = find_or_create_string(g, str);
+                Buf *str = &node->data.string_literal.buf;
+                LLVMValueRef str_val = find_or_create_string(g, str, node->data.string_literal.c);
                 LLVMValueRef indices[] = {
                     LLVMConstInt(LLVMInt32Type(), 0, false),
                     LLVMConstInt(LLVMInt32Type(), 0, false)
@@ -864,6 +888,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeExternBlock:
         case NodeTypeDirective:
         case NodeTypeUse:
+        case NodeTypeStructDecl:
+        case NodeTypeStructField:
             zig_unreachable();
     }
     zig_unreachable();
@@ -1072,7 +1098,7 @@ static void do_code_gen(CodeGen *g) {
 #endif
 }
 
-static void define_primitive_types(CodeGen *g) {
+static void define_builtin_types(CodeGen *g) {
     {
         // if this type is anywhere in the AST, we should never hit codegen.
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInvalid);
@@ -1103,7 +1129,7 @@ static void define_primitive_types(CodeGen *g) {
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_u8 = entry;
     }
-    g->builtin_types.entry_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    g->builtin_types.entry_c_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMInt32Type();
@@ -1129,6 +1155,19 @@ static void define_primitive_types(CodeGen *g) {
                 LLVMZigEncoding_DW_ATE_signed());
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_isize = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->type_ref = LLVMIntType(g->pointer_size_bytes * 8);
+        buf_init_from_str(&entry->name, "usize");
+        entry->size_in_bits = g->pointer_size_bytes * 8;
+        entry->align_in_bits = g->pointer_size_bytes * 8;
+        entry->data.integral.is_signed = false;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
+                LLVMZigEncoding_DW_ATE_unsigned());
+        g->type_table.put(&entry->name, entry);
+        g->builtin_types.entry_usize = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
@@ -1159,6 +1198,43 @@ static void define_primitive_types(CodeGen *g) {
         entry->di_type = g->builtin_types.entry_void->di_type;
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_unreachable = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
+
+        TypeTableEntry *const_pointer_to_u8 = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+
+        unsigned element_count = 2;
+        LLVMTypeRef element_types[] = {
+            const_pointer_to_u8->type_ref,
+            g->builtin_types.entry_usize->type_ref
+        };
+        entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), "string");
+        LLVMStructSetBody(entry->type_ref, element_types, element_count, false);
+
+        buf_init_from_str(&entry->name, "string");
+        entry->size_in_bits = g->pointer_size_bytes * 2 * 8;
+        entry->align_in_bits = g->pointer_size_bytes;
+        entry->data.structure.is_packed = false;
+        entry->data.structure.field_count = element_count;
+        entry->data.structure.fields = allocate<TypeStructField>(element_count);
+        entry->data.structure.fields[0].name = buf_create_from_str("ptr");
+        entry->data.structure.fields[0].type_entry = const_pointer_to_u8;
+        entry->data.structure.fields[1].name = buf_create_from_str("len");
+        entry->data.structure.fields[1].type_entry = g->builtin_types.entry_usize;
+
+        LLVMZigDIType *di_element_types[] = {
+            const_pointer_to_u8->di_type,
+            g->builtin_types.entry_usize->di_type
+        };
+        LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
+        LLVMZigDIFile *difile = nullptr; // TODO make sure this ok
+        entry->di_type = LLVMZigCreateDebugStructType(g->dbuilder, compile_unit_scope,
+                "string", difile, 0, entry->size_in_bits, entry->align_in_bits, 0,
+                nullptr, di_element_types, element_count, 0, nullptr, "");
+
+        g->type_table.put(&entry->name, entry);
+        g->builtin_types.entry_string = entry;
     }
 }
 
@@ -1213,8 +1289,6 @@ static void init(CodeGen *g, Buf *source_path) {
     LLVMZigSetFastMath(g->builder, true);
 
 
-    define_primitive_types(g);
-
     Buf *producer = buf_sprintf("zig %s", ZIG_VERSION_STRING);
     bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
     const char *flags = "";
@@ -1224,6 +1298,7 @@ static void init(CodeGen *g, Buf *source_path) {
             buf_ptr(producer), is_optimized, flags, runtime_version,
             "", 0, !g->strip_debug_symbols);
 
+    define_builtin_types(g);
 
 }
 

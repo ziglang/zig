@@ -28,10 +28,9 @@
     case '8': \
     case '9'
 
-#define ALPHA \
+#define ALPHA_EXCEPT_C \
     'a': \
     case 'b': \
-    case 'c': \
     case 'd': \
     case 'e': \
     case 'f': \
@@ -82,6 +81,10 @@
     case 'Y': \
     case 'Z'
 
+#define ALPHA \
+    ALPHA_EXCEPT_C: \
+    case 'c'
+
 #define SYMBOL_CHAR \
     ALPHA: \
     case DIGIT: \
@@ -90,6 +93,7 @@
 enum TokenizeState {
     TokenizeStateStart,
     TokenizeStateSymbol,
+    TokenizeStateSymbolFirst,
     TokenizeStateNumber,
     TokenizeStateString,
     TokenizeStateSawDash,
@@ -201,6 +205,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordVolatile;
     } else if (mem_eql_str(token_mem, token_len, "asm")) {
         t->cur_tok->id = TokenIdKeywordAsm;
+    } else if (mem_eql_str(token_mem, token_len, "struct")) {
+        t->cur_tok->id = TokenIdKeywordStruct;
     }
 
     t->cur_tok = nullptr;
@@ -224,7 +230,11 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case WHITESPACE:
                         break;
-                    case ALPHA:
+                    case 'c':
+                        t.state = TokenizeStateSymbolFirst;
+                        begin_token(&t, TokenIdSymbol);
+                        break;
+                    case ALPHA_EXCEPT_C:
                     case '_':
                         t.state = TokenizeStateSymbol;
                         begin_token(&t, TokenIdSymbol);
@@ -526,6 +536,22 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                 }
                 break;
+            case TokenizeStateSymbolFirst:
+                switch (c) {
+                    case '"':
+                        t.cur_tok->id = TokenIdStringLiteral;
+                        t.state = TokenizeStateString;
+                        break;
+                    case SYMBOL_CHAR:
+                        t.state = TokenizeStateSymbol;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
             case TokenizeStateSymbol:
                 switch (c) {
                     case SYMBOL_CHAR:
@@ -589,6 +615,7 @@ void tokenize(Buf *buf, Tokenization *out) {
             tokenize_error(&t, "unterminated string");
             break;
         case TokenizeStateSymbol:
+        case TokenizeStateSymbolFirst:
         case TokenizeStateNumber:
         case TokenizeStateSawDash:
         case TokenizeStatePipe:
@@ -643,6 +670,7 @@ static const char * token_name(Token *token) {
         case TokenIdKeywordGoto: return "Goto";
         case TokenIdKeywordVolatile: return "Volatile";
         case TokenIdKeywordAsm: return "Asm";
+        case TokenIdKeywordStruct: return "Struct";
         case TokenIdLParen: return "LParen";
         case TokenIdRParen: return "RParen";
         case TokenIdComma: return "Comma";

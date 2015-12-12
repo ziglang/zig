@@ -40,6 +40,7 @@ enum NodeType {
     NodeTypePrefixOpExpr,
     NodeTypeFnCallExpr,
     NodeTypeArrayAccessExpr,
+    NodeTypeFieldAccessExpr,
     NodeTypeUse,
     NodeTypeVoid,
     NodeTypeBoolLiteral,
@@ -47,6 +48,8 @@ enum NodeType {
     NodeTypeLabel,
     NodeTypeGoto,
     NodeTypeAsmExpr,
+    NodeTypeStructDecl,
+    NodeTypeStructField,
 };
 
 struct AstNodeRoot {
@@ -152,6 +155,11 @@ struct AstNodeArrayAccessExpr {
     AstNode *subscript;
 };
 
+struct AstNodeFieldAccessExpr {
+    AstNode *struct_expr;
+    Buf field_name;
+};
+
 struct AstNodeExternBlock {
     ZigList<AstNode *> *directives;
     ZigList<AstNode *> fn_decls;
@@ -231,6 +239,22 @@ struct AstNodeAsmExpr {
     ZigList<Buf*> clobber_list;
 };
 
+struct AstNodeStructDecl {
+    Buf name;
+    ZigList<AstNode *> fields;
+    ZigList<AstNode *> *directives;
+};
+
+struct AstNodeStructField {
+    Buf name;
+    AstNode *type;
+};
+
+struct AstNodeStringLiteral {
+    Buf buf;
+    bool c;
+};
+
 struct AstNode {
     enum NodeType type;
     int line;
@@ -260,8 +284,11 @@ struct AstNode {
         AstNodeLabel label;
         AstNodeGoto go_to;
         AstNodeAsmExpr asm_expr;
+        AstNodeFieldAccessExpr field_access_expr;
+        AstNodeStructDecl struct_decl;
+        AstNodeStructField struct_field;
+        AstNodeStringLiteral string_literal;
         Buf number;
-        Buf string;
         Buf symbol;
         bool bool_literal;
     } data;
