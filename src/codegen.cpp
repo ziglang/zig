@@ -194,6 +194,7 @@ static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
         LLVMConstInt(LLVMInt32Type(), 0, false),
         subscript_value
     };
+    add_debug_source_node(g, node);
     return LLVMBuildInBoundsGEP(g->builder, array_ref_value, indices, 2, "");
 }
 
@@ -206,6 +207,7 @@ static LLVMValueRef gen_field_val(CodeGen *g, AstNode *node) {
     FieldAccessNode *codegen_field_access = &node->codegen_node->data.field_access_node;
     assert(codegen_field_access->field_index >= 0);
 
+    add_debug_source_node(g, node);
     return LLVMBuildExtractValue(g->builder, struct_val, codegen_field_access->field_index, "");
 }
 
@@ -221,11 +223,7 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node) {
 
     assert(codegen_field_access->field_index >= 0);
 
-    LLVMValueRef indices[] = {
-        LLVMConstInt(LLVMInt32Type(), 0, false),
-        LLVMConstInt(LLVMInt32Type(), codegen_field_access->field_index, false)
-    };
-    return LLVMBuildStructGEP(g->builder, struct_ptr, indices, 2, "");
+    return LLVMBuildStructGEP(g->builder, struct_ptr, codegen_field_access->field_index, "");
 }
 */
 
@@ -233,6 +231,7 @@ static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeArrayAccessExpr);
 
     LLVMValueRef ptr = gen_array_ptr(g, node);
+    add_debug_source_node(g, node);
     return LLVMBuildLoad(g->builder, ptr, "");
 }
 
@@ -564,6 +563,21 @@ static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
         LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
         add_debug_source_node(g, node);
         return LLVMBuildStore(g->builder, value, ptr);
+    } else if (lhs_node->type == NodeTypeFieldAccessExpr) {
+        /*
+        LLVMValueRef ptr = gen_field_ptr(g, lhs_node);
+        LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
+        add_debug_source_node(g, node);
+        return LLVMBuildStore(g->builder, value, ptr);
+        */
+        LLVMValueRef struct_val = gen_expr(g, lhs_node->data.field_access_expr.struct_expr);
+        assert(struct_val);
+        FieldAccessNode *codegen_field_access = &lhs_node->codegen_node->data.field_access_node;
+        assert(codegen_field_access->field_index >= 0);
+
+        LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
+        add_debug_source_node(g, node);
+        return LLVMBuildInsertValue(g->builder, struct_val, value, codegen_field_access->field_index, "");
     } else {
         zig_panic("bad assign target");
     }

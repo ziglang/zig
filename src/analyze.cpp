@@ -422,6 +422,9 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 type_entry->data.structure.fields = allocate<TypeStructField>(field_count);
 
                 LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
+                LLVMZigDIType **di_element_types = allocate<LLVMZigDIType*>(field_count);
+
+                uint64_t total_size_in_bits = 0;
 
                 for (int i = 0; i < field_count; i += 1) {
                     AstNode *field_node = node->data.struct_decl.fields.at(i);
@@ -429,11 +432,21 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                     type_struct_field->name = &field_node->data.struct_field.name;
                     type_struct_field->type_entry = resolve_type(g, field_node->data.struct_field.type);
 
+                    total_size_in_bits = type_struct_field->type_entry->size_in_bits;
+                    di_element_types[i] = type_struct_field->type_entry->di_type;
+
                     element_types[i] = type_struct_field->type_entry->type_ref;
                 }
-                // TODO align_in_bits and size_in_bits
-                // TODO set up ditype for the struct
                 LLVMStructSetBody(type_entry->type_ref, element_types, field_count, false);
+
+                // TODO re-evaluate this align in bits and size in bits
+                type_entry->align_in_bits = 0;
+                type_entry->size_in_bits = total_size_in_bits;
+                type_entry->di_type = LLVMZigCreateDebugStructType(g->dbuilder,
+                        LLVMZigFileToScope(import->di_file),
+                        buf_ptr(&node->data.struct_decl.name),
+                        import->di_file, node->line + 1, type_entry->size_in_bits, type_entry->align_in_bits, 0,
+                        nullptr, di_element_types, field_count, 0, nullptr, "");
 
                 break;
             }
@@ -621,7 +634,9 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
     TypeTableEntry *return_type;
 
     if (struct_type->id == TypeTableEntryIdStruct) {
+        assert(node->codegen_node);
         FieldAccessNode *codegen_field_access = &node->codegen_node->data.field_access_node;
+        assert(codegen_field_access);
 
         Buf *field_name = &node->data.field_access_expr.field_name;
 
@@ -847,6 +862,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                             } else if (lhs_node->type == NodeTypeArrayAccessExpr) {
                                 expected_rhs_type = analyze_array_access_expr(g, import, context, lhs_node);
                             } else if (lhs_node->type == NodeTypeFieldAccessExpr) {
+                                alloc_codegen_node(lhs_node);
                                 expected_rhs_type = analyze_field_access_expr(g, import, context, lhs_node);
                             } else {
                                 add_node_error(g, lhs_node,
