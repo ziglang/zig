@@ -599,14 +599,17 @@ LocalVariableTableEntry *find_local_variable(BlockContext *context, Buf *name) {
     }
 }
 
-static TypeStructField *get_struct_field(TypeTableEntry *struct_type, Buf *name) {
+static void get_struct_field(TypeTableEntry *struct_type, Buf *name, TypeStructField **out_tsf, int *out_i) {
     for (int i = 0; i < struct_type->data.structure.field_count; i += 1) {
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         if (buf_eql_buf(type_struct_field->name, name)) {
-            return type_struct_field;
+            *out_tsf = type_struct_field;
+            *out_i = i;
+            return;
         }
     }
-    return nullptr;
+    *out_tsf = nullptr;
+    *out_i = -1;
 }
 
 static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -618,10 +621,15 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
     TypeTableEntry *return_type;
 
     if (struct_type->id == TypeTableEntryIdStruct) {
+        FieldAccessNode *codegen_field_access = &node->codegen_node->data.field_access_node;
+
         Buf *field_name = &node->data.field_access_expr.field_name;
-        TypeStructField *type_struct_field = get_struct_field(struct_type, field_name);
-        if (type_struct_field) {
-            return_type = type_struct_field->type_entry;
+
+        get_struct_field(struct_type, field_name,
+                &codegen_field_access->type_struct_field,
+                &codegen_field_access->field_index);
+        if (codegen_field_access->type_struct_field) {
+            return_type = codegen_field_access->type_struct_field->type_entry;
         } else {
             add_node_error(g, node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name), buf_ptr(&struct_type->name)));
@@ -1022,14 +1030,24 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     break;
                 }
 
+                CastNode *cast_node = &node->codegen_node->data.cast_node;
+
                 // special casing this for now, TODO think about casting and do a general solution
                 if (wanted_type == g->builtin_types.entry_isize &&
                     actual_type->id == TypeTableEntryIdPointer)
                 {
+                    cast_node->op = CastOpPtrToInt;
                     return_type = wanted_type;
-                } else if (wanted_type == g->builtin_types.entry_isize &&
+                } else if (wanted_type->id == TypeTableEntryIdInt &&
                            actual_type->id == TypeTableEntryIdInt)
                 {
+                    cast_node->op = CastOpIntWidenOrShorten;
+                    return_type = wanted_type;
+                } else if (wanted_type == g->builtin_types.entry_string &&
+                           actual_type->id == TypeTableEntryIdArray &&
+                           actual_type->data.array.child_type == g->builtin_types.entry_u8)
+                {
+                    cast_node->op = CastOpArrayToString;
                     return_type = wanted_type;
                 } else {
                     add_node_error(g, node,

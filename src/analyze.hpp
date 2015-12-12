@@ -231,6 +231,21 @@ struct StructDeclNode {
     TypeTableEntry *type_entry;
 };
 
+struct FieldAccessNode {
+    int field_index;
+    TypeStructField *type_struct_field;
+};
+
+enum CastOp {
+    CastOpPtrToInt,
+    CastOpIntWidenOrShorten,
+    CastOpArrayToString,
+};
+
+struct CastNode {
+    CastOp op;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
@@ -240,6 +255,8 @@ struct CodeGenNode {
         AssignNode assign_node; // for NodeTypeBinOpExpr where op is BinOpTypeAssign
         BlockNode block_node; // for NodeTypeBlock
         StructDeclNode struct_decl_node; // for NodeTypeStructDecl
+        FieldAccessNode field_access_node; // for NodeTypeFieldAccessExpr
+        CastNode cast_node; // for NodeTypeCastExpr
     } data;
     ExprNode expr_node; // for all the expression nodes
 };

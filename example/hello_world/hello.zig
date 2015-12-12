@@ -1,12 +1,9 @@
 export executable "hello";
 
-#link("c")
-extern {
-    fn printf(__format: *const u8, ...) -> i32;
-    fn exit(__status: i32) -> unreachable;
-}
+use "std.zig";
 
-export fn _start() -> unreachable {
-    printf("Hello, world!\n");
-    exit(0);
+export fn main(argc: isize, argv: *mut *mut u8, env: *mut *mut u8) -> i32 {
+    // TODO implicit coercion from array to string
+    print_str("Hello, world!\n" as string);
+    return 0;
 }

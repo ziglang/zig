@@ -403,7 +403,7 @@ loop_2_end:
 use "std.zig";
 
 export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
-    print_str(c"Hello, world!\n", 14 as isize);
+    print_str("Hello, world!\n" as string);
     return 0;
 }
     )SOURCE", "Hello, world!\n");
