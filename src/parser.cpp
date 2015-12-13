@@ -14,26 +14,38 @@
 
 static const char *bin_op_str(BinOpType bin_op) {
     switch (bin_op) {
-        case BinOpTypeInvalid:        return "(invalid)";
-        case BinOpTypeBoolOr:         return "||";
-        case BinOpTypeBoolAnd:        return "&&";
-        case BinOpTypeCmpEq:          return "==";
-        case BinOpTypeCmpNotEq:       return "!=";
-        case BinOpTypeCmpLessThan:    return "<";
-        case BinOpTypeCmpGreaterThan: return ">";
-        case BinOpTypeCmpLessOrEq:    return "<=";
-        case BinOpTypeCmpGreaterOrEq: return ">=";
-        case BinOpTypeBinOr:          return "|";
-        case BinOpTypeBinXor:         return "^";
-        case BinOpTypeBinAnd:         return "&";
-        case BinOpTypeBitShiftLeft:   return "<<";
-        case BinOpTypeBitShiftRight:  return ">>";
-        case BinOpTypeAdd:            return "+";
-        case BinOpTypeSub:            return "-";
-        case BinOpTypeMult:           return "*";
-        case BinOpTypeDiv:            return "/";
-        case BinOpTypeMod:            return "%";
-        case BinOpTypeAssign:         return "=";
+        case BinOpTypeInvalid:             return "(invalid)";
+        case BinOpTypeBoolOr:              return "||";
+        case BinOpTypeBoolAnd:             return "&&";
+        case BinOpTypeCmpEq:               return "==";
+        case BinOpTypeCmpNotEq:            return "!=";
+        case BinOpTypeCmpLessThan:         return "<";
+        case BinOpTypeCmpGreaterThan:      return ">";
+        case BinOpTypeCmpLessOrEq:         return "<=";
+        case BinOpTypeCmpGreaterOrEq:      return ">=";
+        case BinOpTypeBinOr:               return "|";
+        case BinOpTypeBinXor:              return "^";
+        case BinOpTypeBinAnd:              return "&";
+        case BinOpTypeBitShiftLeft:        return "<<";
+        case BinOpTypeBitShiftRight:       return ">>";
+        case BinOpTypeAdd:                 return "+";
+        case BinOpTypeSub:                 return "-";
+        case BinOpTypeMult:                return "*";
+        case BinOpTypeDiv:                 return "/";
+        case BinOpTypeMod:                 return "%";
+        case BinOpTypeAssign:              return "=";
+        case BinOpTypeAssignTimes:         return "*=";
+        case BinOpTypeAssignDiv:           return "/=";
+        case BinOpTypeAssignMod:           return "%=";
+        case BinOpTypeAssignPlus:          return "+=";
+        case BinOpTypeAssignMinus:         return "-=";
+        case BinOpTypeAssignBitShiftLeft:  return "<<=";
+        case BinOpTypeAssignBitShiftRight: return ">>=";
+        case BinOpTypeAssignBitAnd:        return "&=";
+        case BinOpTypeAssignBitXor:        return "^=";
+        case BinOpTypeAssignBitOr:         return "|=";
+        case BinOpTypeAssignBoolAnd:       return "&&=";
+        case BinOpTypeAssignBoolOr:        return "||=";
     }
     zig_unreachable();
 }
@@ -103,7 +115,7 @@ const char *node_type_str(NodeType node_type) {
         case NodeTypeLabel:
             return "Label";
         case NodeTypeGoto:
-            return "Label";
+            return "Goto";
         case NodeTypeAsmExpr:
             return "AsmExpr";
         case NodeTypeFieldAccessExpr:
@@ -1448,24 +1460,60 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool ma
     return nullptr;
 }
 
+static BinOpType tok_to_ass_op(Token *token) {
+    switch (token->id) {
+        case TokenIdEq: return BinOpTypeAssign;
+        case TokenIdTimesEq: return BinOpTypeAssignTimes;
+        case TokenIdDivEq: return BinOpTypeAssignDiv;
+        case TokenIdModEq: return BinOpTypeAssignMod;
+        case TokenIdPlusEq: return BinOpTypeAssignPlus;
+        case TokenIdMinusEq: return BinOpTypeAssignMinus;
+        case TokenIdBitShiftLeftEq: return BinOpTypeAssignBitShiftLeft;
+        case TokenIdBitShiftRightEq: return BinOpTypeAssignBitShiftRight;
+        case TokenIdBitAndEq: return BinOpTypeAssignBitAnd;
+        case TokenIdBitXorEq: return BinOpTypeAssignBitXor;
+        case TokenIdBitOrEq: return BinOpTypeAssignBitOr;
+        case TokenIdBoolAndEq: return BinOpTypeAssignBoolAnd;
+        case TokenIdBoolOrEq: return BinOpTypeAssignBoolOr;
+        default: return BinOpTypeInvalid;
+    }
+}
+
 /*
-AssignmentExpression : BoolOrExpression token(Equal) BoolOrExpression | BoolOrExpression
+AssignmentOperator : token(Eq) | token(TimesEq) | token(DivEq) | token(ModEq) | token(PlusEq) | token(MinusEq) | token(BitShiftLeftEq) | token(BitShiftRightEq) | token(BitAndEq) | token(BitXorEq) | token(BitOrEq) | token(BoolAndEq) | token(BoolOrEq)
+*/
+static BinOpType ast_parse_ass_op(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *token = &pc->tokens->at(*token_index);
+    BinOpType result = tok_to_ass_op(token);
+    if (result == BinOpTypeInvalid) {
+        if (mandatory) {
+            ast_invalid_token_error(pc, token);
+        } else {
+            return BinOpTypeInvalid;
+        }
+    }
+    *token_index += 1;
+    return result;
+}
+
+/*
+AssignmentExpression : BoolOrExpression AssignmentOperator BoolOrExpression | BoolOrExpression
 */
 static AstNode *ast_parse_ass_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *lhs = ast_parse_bool_or_expr(pc, token_index, mandatory);
     if (!lhs)
-        return lhs;
+        return nullptr;
 
     Token *token = &pc->tokens->at(*token_index);
-    if (token->id != TokenIdEq)
+    BinOpType ass_op = ast_parse_ass_op(pc, token_index, false);
+    if (ass_op == BinOpTypeInvalid)
         return lhs;
-    *token_index += 1;
 
     AstNode *rhs = ast_parse_bool_or_expr(pc, token_index, true);
 
     AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
     node->data.bin_op_expr.op1 = lhs;
-    node->data.bin_op_expr.bin_op = BinOpTypeAssign;
+    node->data.bin_op_expr.bin_op = ass_op;
     node->data.bin_op_expr.op2 = rhs;
 
     return node;

@@ -714,6 +714,50 @@ static TypeTableEntry *analyze_variable_name(CodeGen *g, BlockContext *context,
     }
 }
 
+static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
+    switch (op) {
+        case BinOpTypeAssign:
+            return true;
+        case BinOpTypeAssignTimes:
+        case BinOpTypeAssignDiv:
+        case BinOpTypeAssignMod:
+        case BinOpTypeAssignPlus:
+        case BinOpTypeAssignMinus:
+            return type->id == TypeTableEntryIdInt || type->id == TypeTableEntryIdFloat;
+        case BinOpTypeAssignBitShiftLeft:
+        case BinOpTypeAssignBitShiftRight:
+        case BinOpTypeAssignBitAnd:
+        case BinOpTypeAssignBitXor:
+        case BinOpTypeAssignBitOr:
+            return type->id == TypeTableEntryIdInt;
+        case BinOpTypeAssignBoolAnd:
+        case BinOpTypeAssignBoolOr:
+            return type->id == TypeTableEntryIdBool;
+
+        case BinOpTypeInvalid:
+        case BinOpTypeBoolOr:
+        case BinOpTypeBoolAnd:
+        case BinOpTypeCmpEq:
+        case BinOpTypeCmpNotEq:
+        case BinOpTypeCmpLessThan:
+        case BinOpTypeCmpGreaterThan:
+        case BinOpTypeCmpLessOrEq:
+        case BinOpTypeCmpGreaterOrEq:
+        case BinOpTypeBinOr:
+        case BinOpTypeBinXor:
+        case BinOpTypeBinAnd:
+        case BinOpTypeBitShiftLeft:
+        case BinOpTypeBitShiftRight:
+        case BinOpTypeAdd:
+        case BinOpTypeSub:
+        case BinOpTypeMult:
+        case BinOpTypeDiv:
+        case BinOpTypeMod:
+            zig_unreachable();
+    }
+    zig_unreachable();
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -842,6 +886,18 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             {
                 switch (node->data.bin_op_expr.bin_op) {
                     case BinOpTypeAssign:
+                    case BinOpTypeAssignTimes:
+                    case BinOpTypeAssignDiv:
+                    case BinOpTypeAssignMod:
+                    case BinOpTypeAssignPlus:
+                    case BinOpTypeAssignMinus:
+                    case BinOpTypeAssignBitShiftLeft:
+                    case BinOpTypeAssignBitShiftRight:
+                    case BinOpTypeAssignBitAnd:
+                    case BinOpTypeAssignBitXor:
+                    case BinOpTypeAssignBitOr:
+                    case BinOpTypeAssignBoolAnd:
+                    case BinOpTypeAssignBoolOr:
                         {
                             AstNode *lhs_node = node->data.bin_op_expr.op1;
                             TypeTableEntry *expected_rhs_type = nullptr;
@@ -853,7 +909,12 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                                         add_node_error(g, lhs_node,
                                             buf_sprintf("cannot assign to constant variable"));
                                     } else {
-                                        expected_rhs_type = var->type;
+                                        if (!is_op_allowed(var->type, node->data.bin_op_expr.bin_op)) {
+                                            add_node_error(g, lhs_node,
+                                                buf_sprintf("operator not allowed for type '%s'", buf_ptr(&var->type->name)));
+                                        } else {
+                                            expected_rhs_type = var->type;
+                                        }
                                     }
                                 } else {
                                     add_node_error(g, lhs_node,

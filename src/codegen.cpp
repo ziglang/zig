@@ -409,6 +409,18 @@ static LLVMValueRef gen_arithmetic_bin_op_expr(CodeGen *g, AstNode *node) {
         case BinOpTypeCmpGreaterOrEq:
         case BinOpTypeInvalid:
         case BinOpTypeAssign:
+        case BinOpTypeAssignTimes:
+        case BinOpTypeAssignDiv:
+        case BinOpTypeAssignMod:
+        case BinOpTypeAssignPlus:
+        case BinOpTypeAssignMinus:
+        case BinOpTypeAssignBitShiftLeft:
+        case BinOpTypeAssignBitShiftRight:
+        case BinOpTypeAssignBitAnd:
+        case BinOpTypeAssignBitXor:
+        case BinOpTypeAssignBitOr:
+        case BinOpTypeAssignBoolAnd:
+        case BinOpTypeAssignBoolOr:
             zig_unreachable();
     }
     zig_unreachable();
@@ -543,6 +555,11 @@ static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
 
     AstNode *lhs_node = node->data.bin_op_expr.op1;
 
+    bool is_read_first = node->data.bin_op_expr.bin_op != BinOpTypeAssign;
+    if (is_read_first) {
+        zig_panic("TODO: implement modify assignment ops");
+    }
+
     if (lhs_node->type == NodeTypeSymbol) {
         LocalVariableTableEntry *var = find_local_variable(node->codegen_node->expr_node.block_context,
                 &lhs_node->data.symbol);
@@ -577,15 +594,26 @@ static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
     } else {
         zig_panic("bad assign target");
     }
-
 }
 
 static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
     switch (node->data.bin_op_expr.bin_op) {
-        case BinOpTypeAssign:
-            return gen_assign_expr(g, node);
         case BinOpTypeInvalid:
             zig_unreachable();
+        case BinOpTypeAssign:
+        case BinOpTypeAssignTimes:
+        case BinOpTypeAssignDiv:
+        case BinOpTypeAssignMod:
+        case BinOpTypeAssignPlus:
+        case BinOpTypeAssignMinus:
+        case BinOpTypeAssignBitShiftLeft:
+        case BinOpTypeAssignBitShiftRight:
+        case BinOpTypeAssignBitAnd:
+        case BinOpTypeAssignBitXor:
+        case BinOpTypeAssignBitOr:
+        case BinOpTypeAssignBoolAnd:
+        case BinOpTypeAssignBoolOr:
+            return gen_assign_expr(g, node);
         case BinOpTypeBoolOr:
             return gen_bool_or_expr(g, node);
         case BinOpTypeBoolAnd:
