@@ -454,6 +454,29 @@ export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
 }
     )SOURCE", "OK 1\nOK 2\nOK 3\nOK 4\n");
 
+    add_simple_case("modify operators", R"SOURCE(
+use "std.zig";
+
+export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
+    let mut i : i32 = 0;
+    i += 5;  if i != 5  { print_str("BAD +=\n" as string); }
+    i -= 2;  if i != 3  { print_str("BAD -=\n" as string); }
+    i *= 20; if i != 60 { print_str("BAD *=\n" as string); }
+    i /= 3;  if i != 20 { print_str("BAD /=\n" as string); }
+    i %= 11; if i != 9  { print_str("BAD %=\n" as string); }
+    i <<= 1; if i != 18 { print_str("BAD <<=\n" as string); }
+    i >>= 2; if i != 4  { print_str("BAD >>=\n" as string); }
+    i = 6;
+    i &= 5;  if i != 4  { print_str("BAD &=\n" as string); }
+    i ^= 6;  if i != 2  { print_str("BAD ^=\n" as string); }
+    i = 6;
+    i |= 3;  if i != 7  { print_str("BAD |=\n" as string); }
+
+    print_str("OK\n" as string);
+    return 0;
+}
+    )SOURCE", "OK\n");
+
 }
 
 static void add_compile_failure_test_cases(void) {

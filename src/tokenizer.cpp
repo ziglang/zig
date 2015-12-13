@@ -402,6 +402,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.cur_tok->id = TokenIdBitShiftRightEq;
                         end_token(&t);
                         t.state = TokenizeStateStart;
+                        break;
                     default:
                         t.pos -= 1;
                         end_token(&t);
@@ -415,6 +416,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.cur_tok->id = TokenIdCmpLessOrEq;
                         end_token(&t);
                         t.state = TokenizeStateStart;
+                        break;
                     case '<':
                         t.cur_tok->id = TokenIdBitShiftLeft;
                         t.state = TokenizeStateSawLessThanLessThan;
@@ -432,6 +434,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.cur_tok->id = TokenIdBitShiftLeftEq;
                         end_token(&t);
                         t.state = TokenizeStateStart;
+                        break;
                     default:
                         t.pos -= 1;
                         end_token(&t);
