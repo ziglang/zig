@@ -193,6 +193,7 @@ struct BlockContext {
     BlockContext *root; // always points to the BlockContext with the NodeTypeFnDef
     BlockContext *parent; // nullptr when this is the root
     HashMap<Buf *, LocalVariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
+    ZigList<AstNode *> cast_expr_alloca_list;
     LLVMZigDIScope *di_scope;
 };
 
@@ -244,6 +245,9 @@ enum CastOp {
 
 struct CastNode {
     CastOp op;
+    // if op is CastOpArrayToString, this will be a pointer to
+    // the string struct on the stack
+    LLVMValueRef ptr;
 };
 
 struct CodeGenNode {

@@ -2,8 +2,6 @@ export executable "structs";
 
 use "std.zig";
 
-// Note: this example is not working because codegen is confused about
-// how byvalue structs which are in memory on the stack work
 export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
     let mut foo : Foo;
 

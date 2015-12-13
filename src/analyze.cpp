@@ -758,6 +758,47 @@ static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
     zig_unreachable();
 }
 
+static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    TypeTableEntry *wanted_type = resolve_type(g, node->data.cast_expr.type);
+    TypeTableEntry *actual_type = analyze_expression(g, import, context, nullptr, node->data.cast_expr.expr);
+
+    if (wanted_type->id == TypeTableEntryIdInvalid ||
+        actual_type->id == TypeTableEntryIdInvalid)
+    {
+        return g->builtin_types.entry_invalid;
+    }
+
+    CastNode *cast_node = &node->codegen_node->data.cast_node;
+
+    // special casing this for now, TODO think about casting and do a general solution
+    if (wanted_type == g->builtin_types.entry_isize &&
+        actual_type->id == TypeTableEntryIdPointer)
+    {
+        cast_node->op = CastOpPtrToInt;
+        return wanted_type;
+    } else if (wanted_type->id == TypeTableEntryIdInt &&
+                actual_type->id == TypeTableEntryIdInt)
+    {
+        cast_node->op = CastOpIntWidenOrShorten;
+        return wanted_type;
+    } else if (wanted_type == g->builtin_types.entry_string &&
+                actual_type->id == TypeTableEntryIdArray &&
+                actual_type->data.array.child_type == g->builtin_types.entry_u8)
+    {
+        cast_node->op = CastOpArrayToString;
+        context->cast_expr_alloca_list.append(node);
+        return wanted_type;
+    } else {
+        add_node_error(g, node,
+            buf_sprintf("invalid cast from type '%s' to '%s'",
+                buf_ptr(&actual_type->name),
+                buf_ptr(&wanted_type->name)));
+        return g->builtin_types.entry_invalid;
+    }
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -1100,45 +1141,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 break;
             }
         case NodeTypeCastExpr:
-            {
-                TypeTableEntry *wanted_type = resolve_type(g, node->data.cast_expr.type);
-                TypeTableEntry *actual_type = analyze_expression(g, import, context, nullptr,
-                        node->data.cast_expr.expr);
-
-                if (wanted_type->id == TypeTableEntryIdInvalid ||
-                    actual_type->id == TypeTableEntryIdInvalid)
-                {
-                    return_type = g->builtin_types.entry_invalid;
-                    break;
-                }
-
-                CastNode *cast_node = &node->codegen_node->data.cast_node;
-
-                // special casing this for now, TODO think about casting and do a general solution
-                if (wanted_type == g->builtin_types.entry_isize &&
-                    actual_type->id == TypeTableEntryIdPointer)
-                {
-                    cast_node->op = CastOpPtrToInt;
-                    return_type = wanted_type;
-                } else if (wanted_type->id == TypeTableEntryIdInt &&
-                           actual_type->id == TypeTableEntryIdInt)
-                {
-                    cast_node->op = CastOpIntWidenOrShorten;
-                    return_type = wanted_type;
-                } else if (wanted_type == g->builtin_types.entry_string &&
-                           actual_type->id == TypeTableEntryIdArray &&
-                           actual_type->data.array.child_type == g->builtin_types.entry_u8)
-                {
-                    cast_node->op = CastOpArrayToString;
-                    return_type = wanted_type;
-                } else {
-                    add_node_error(g, node,
-                        buf_sprintf("TODO handle cast from '%s' to '%s'",
-                            buf_ptr(&actual_type->name), buf_ptr(&wanted_type->name)));
-                    return_type = g->builtin_types.entry_invalid;
-                }
-                break;
-            }
+            return_type = analyze_cast_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypePrefixOpExpr:
             switch (node->data.prefix_op_expr.prefix_op) {
                 case PrefixOpBoolNot:
