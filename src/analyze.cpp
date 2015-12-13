@@ -173,7 +173,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
                 resolve_type(g, node->data.type.child_type);
                 TypeTableEntry *child_type = node->data.type.child_type->codegen_node->data.type_node.entry;
                 assert(child_type);
-                if (child_type == g->builtin_types.entry_unreachable) {
+                if (child_type->id == TypeTableEntryIdUnreachable) {
                     add_node_error(g, node,
                             buf_create_from_str("pointer to unreachable not allowed"));
                 } else if (child_type->id == TypeTableEntryIdInvalid) {
@@ -186,7 +186,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
             {
                 resolve_type(g, node->data.type.child_type);
                 TypeTableEntry *child_type = node->data.type.child_type->codegen_node->data.type_node.entry;
-                if (child_type == g->builtin_types.entry_unreachable) {
+                if (child_type->id == TypeTableEntryIdUnreachable) {
                     add_node_error(g, node,
                             buf_create_from_str("array of unreachable not allowed"));
                 }
@@ -240,10 +240,10 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         AstNode *child = node->data.fn_proto.params.at(i);
         assert(child->type == NodeTypeParamDecl);
         TypeTableEntry *type_entry = resolve_type(g, child->data.param_decl.type);
-        if (type_entry == g->builtin_types.entry_unreachable) {
+        if (type_entry->id == TypeTableEntryIdUnreachable) {
             add_node_error(g, child->data.param_decl.type,
                 buf_sprintf("parameter of type 'unreachable' not allowed"));
-        } else if (type_entry == g->builtin_types.entry_void) {
+        } else if (type_entry->id == TypeTableEntryIdVoid) {
             if (node->data.fn_proto.visib_mod == FnProtoVisibModExport) {
                 add_node_error(g, child->data.param_decl.type,
                     buf_sprintf("parameter of type 'void' not allowed on exported functions"));
@@ -570,9 +570,9 @@ static void check_type_compatibility(CodeGen *g, AstNode *node,
         return; // anything will do
     if (expected_type == actual_type)
         return; // match
-    if (expected_type == g->builtin_types.entry_invalid || actual_type == g->builtin_types.entry_invalid)
+    if (expected_type->id == TypeTableEntryIdInvalid || actual_type->id == TypeTableEntryIdInvalid)
         return; // already complained
-    if (actual_type == g->builtin_types.entry_unreachable)
+    if (actual_type->id == TypeTableEntryIdUnreachable)
         return; // sorry toots; gotta run. good luck with that expected type.
 
     add_node_error(g, node,
@@ -815,11 +815,11 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     if (child->type == NodeTypeLabel) {
                         LabelTableEntry *label_entry = child->codegen_node->data.label_entry;
                         assert(label_entry);
-                        label_entry->entered_from_fallthrough = (return_type != g->builtin_types.entry_unreachable);
+                        label_entry->entered_from_fallthrough = (return_type->id != TypeTableEntryIdUnreachable);
                         return_type = g->builtin_types.entry_void;
                         continue;
                     }
-                    if (return_type == g->builtin_types.entry_unreachable) {
+                    if (return_type->id == TypeTableEntryIdUnreachable) {
                         if (child->type == NodeTypeVoid) {
                             // {unreachable;void;void} is allowed.
                             // ignore void statements once we enter unreachable land.
@@ -843,7 +843,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     actual_return_type = g->builtin_types.entry_void;
                 }
 
-                if (actual_return_type == g->builtin_types.entry_unreachable) {
+                if (actual_return_type->id == TypeTableEntryIdUnreachable) {
                     // "return exit(0)" should just be "exit(0)".
                     add_node_error(g, node, buf_sprintf("returning is unreachable"));
                     actual_return_type = g->builtin_types.entry_invalid;
@@ -857,18 +857,22 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             {
                 AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;;
 
-                TypeTableEntry *explicit_type = variable_declaration->type != nullptr ?
-                    resolve_type(g, variable_declaration->type) : nullptr;
-                if (explicit_type == g->builtin_types.entry_unreachable) {
-                    add_node_error(g, variable_declaration->type,
-                        buf_sprintf("variable of type 'unreachable' not allowed"));
+                TypeTableEntry *explicit_type = nullptr;
+                if (variable_declaration->type != nullptr) {
+                    explicit_type = resolve_type(g, variable_declaration->type);
+                    if (explicit_type->id == TypeTableEntryIdUnreachable) {
+                        add_node_error(g, variable_declaration->type,
+                            buf_sprintf("variable of type 'unreachable' not allowed"));
+                    }
                 }
 
-                TypeTableEntry *implicit_type = variable_declaration->expr != nullptr ?
-                    analyze_expression(g, import, context, explicit_type, variable_declaration->expr) : nullptr;
-                if (implicit_type == g->builtin_types.entry_unreachable) {
-                    add_node_error(g, node,
-                        buf_sprintf("variable initialization is unreachable"));
+                TypeTableEntry *implicit_type = nullptr;
+                if (variable_declaration->expr != nullptr) {
+                    implicit_type = analyze_expression(g, import, context, explicit_type, variable_declaration->expr);
+                    if (implicit_type->id == TypeTableEntryIdUnreachable) {
+                        add_node_error(g, node,
+                            buf_sprintf("variable initialization is unreachable"));
+                    }
                 }
 
                 if (implicit_type == nullptr && variable_declaration->is_const) {
@@ -1185,7 +1189,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
                 TypeTableEntry *primary_type;
                 TypeTableEntry *other_type;
-                if (then_type == g->builtin_types.entry_unreachable) {
+                if (then_type->id == TypeTableEntryIdUnreachable) {
                     primary_type = else_type;
                     other_type = then_type;
                 } else {

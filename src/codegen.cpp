@@ -85,12 +85,12 @@ static LLVMZigDIType *to_llvm_debug_type(CodeGen *g, AstNode *type_node) {
 
 
 static bool type_is_unreachable(CodeGen *g, AstNode *type_node) {
-    return get_type_for_type_node(g, type_node) == g->builtin_types.entry_unreachable;
+    return get_type_for_type_node(g, type_node)->id == TypeTableEntryIdUnreachable;
 }
 
 static bool is_param_decl_type_void(CodeGen *g, AstNode *param_decl_node) {
     assert(param_decl_node->type == NodeTypeParamDecl);
-    return get_type_for_type_node(g, param_decl_node->data.param_decl.type) == g->builtin_types.entry_void;
+    return get_type_for_type_node(g, param_decl_node->data.param_decl.type)->id == TypeTableEntryIdVoid;
 }
 
 static int count_non_void_params(CodeGen *g, ZigList<AstNode *> *params) {
@@ -656,8 +656,8 @@ static LLVMValueRef gen_if_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef cond_value = gen_expr(g, node->data.if_expr.condition);
 
     TypeTableEntry *then_type = get_expr_type(node->data.if_expr.then_block);
-    bool use_expr_value = (then_type != g->builtin_types.entry_unreachable &&
-                           then_type != g->builtin_types.entry_void);
+    bool use_expr_value = (then_type->id != TypeTableEntryIdUnreachable &&
+                           then_type->id != TypeTableEntryIdVoid);
 
     if (node->data.if_expr.else_node) {
         LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Then");
@@ -668,12 +668,12 @@ static LLVMValueRef gen_if_expr(CodeGen *g, AstNode *node) {
 
         LLVMPositionBuilderAtEnd(g->builder, then_block);
         LLVMValueRef then_expr_result = gen_expr(g, node->data.if_expr.then_block);
-        if (get_expr_type(node->data.if_expr.then_block) != g->builtin_types.entry_unreachable)
+        if (get_expr_type(node->data.if_expr.then_block)->id != TypeTableEntryIdUnreachable)
             LLVMBuildBr(g->builder, endif_block);
 
         LLVMPositionBuilderAtEnd(g->builder, else_block);
         LLVMValueRef else_expr_result = gen_expr(g, node->data.if_expr.else_node);
-        if (get_expr_type(node->data.if_expr.else_node) != g->builtin_types.entry_unreachable)
+        if (get_expr_type(node->data.if_expr.else_node)->id != TypeTableEntryIdUnreachable)
             LLVMBuildBr(g->builder, endif_block);
 
         LLVMPositionBuilderAtEnd(g->builder, endif_block);
@@ -698,7 +698,7 @@ static LLVMValueRef gen_if_expr(CodeGen *g, AstNode *node) {
 
     LLVMPositionBuilderAtEnd(g->builder, then_block);
     gen_expr(g, node->data.if_expr.then_block);
-    if (get_expr_type(node->data.if_expr.then_block) != g->builtin_types.entry_unreachable)
+    if (get_expr_type(node->data.if_expr.then_block)->id != TypeTableEntryIdUnreachable)
         LLVMBuildBr(g->builder, endif_block);
 
     LLVMPositionBuilderAtEnd(g->builder, endif_block);
@@ -719,9 +719,9 @@ static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *i
 
     if (implicit_return_type) {
         add_debug_source_node(g, block_node);
-        if (implicit_return_type == g->builtin_types.entry_void) {
+        if (implicit_return_type->id == TypeTableEntryIdVoid) {
             LLVMBuildRetVoid(g->builder);
-        } else if (implicit_return_type != g->builtin_types.entry_unreachable) {
+        } else if (implicit_return_type->id != TypeTableEntryIdUnreachable) {
             LLVMBuildRet(g->builder, return_value);
         }
     }
@@ -862,7 +862,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
                 } else {
                     value = LLVMConstNull(variable->type->type_ref);
                 }
-                if (variable->type == g->builtin_types.entry_void) {
+                if (variable->type->id == TypeTableEntryIdVoid) {
                     return nullptr;
                 } else {
                     add_debug_source_node(g, node);
@@ -924,7 +924,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
                         node->codegen_node->expr_node.block_context,
                         &node->data.symbol);
                 assert(variable);
-                if (variable->type == g->builtin_types.entry_void) {
+                if (variable->type->id == TypeTableEntryIdVoid) {
                     return nullptr;
                 } else if (variable->is_ptr) {
                     if (variable->type->id == TypeTableEntryIdArray) {
@@ -1133,7 +1133,7 @@ static void do_code_gen(CodeGen *g) {
                     break;
 
                 LocalVariableTableEntry *var = entry->value;
-                if (var->type == g->builtin_types.entry_void)
+                if (var->type->id == TypeTableEntryIdVoid)
                     continue;
 
                 unsigned tag;
