@@ -88,7 +88,9 @@ AsmInputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token
 
 AsmClobbers: token(Colon) list(token(String), token(Comma))
 
-AssignmentExpression : BoolOrExpression token(Equal) BoolOrExpression | BoolOrExpression
+AssignmentExpression : BoolOrExpression AssignmentOperator BoolOrExpression | BoolOrExpression
+
+AssignmentOperator : token(Eq) | token(TimesEq) | token(DivEq) | token(ModEq) | token(PlusEq) | token(MinusEq) | token(BitShiftLeftEq) | token(BitShiftRightEq) | token(BitAndEq) | token(BitXorEq) | token(BitOrEq) | token(BoolAndEq) | token(BoolOrEq) 
 
 BlockExpression : IfExpression | Block
 
@@ -164,7 +166,7 @@ as
 == != < > <= >=
 &&
 ||
-= += -=
+= *= /= %= += -= <<= >>= &= ^= |= &&= ||=
 ```
 
 ## Literals
