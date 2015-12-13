@@ -140,7 +140,7 @@ ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 
 PrefixOp : token(Not) | token(Dash) | token(Tilde)
 
-PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | token(Symbol) | Goto
+PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | token(Symbol) | Goto | BlockExpression
 
 Goto: token(Goto) token(Symbol)
 

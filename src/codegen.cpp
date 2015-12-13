@@ -478,8 +478,8 @@ static LLVMValueRef gen_bool_and_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
     LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
+    LLVMBasicBlockRef post_val1_block = LLVMGetInsertBlock(g->builder);
 
-    LLVMBasicBlockRef orig_block = LLVMGetInsertBlock(g->builder);
     // block for when val1 == true
     LLVMBasicBlockRef true_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolAndTrue");
     // block for when val1 == false (don't even evaluate the second part)
@@ -490,6 +490,8 @@ static LLVMValueRef gen_bool_and_expr(CodeGen *g, AstNode *node) {
 
     LLVMPositionBuilderAtEnd(g->builder, true_block);
     LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
+    LLVMBasicBlockRef post_val2_block = LLVMGetInsertBlock(g->builder);
+
     add_debug_source_node(g, node);
     LLVMBuildBr(g->builder, false_block);
 
@@ -497,7 +499,7 @@ static LLVMValueRef gen_bool_and_expr(CodeGen *g, AstNode *node) {
     add_debug_source_node(g, node);
     LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMInt1Type(), "");
     LLVMValueRef incoming_values[2] = {val1, val2};
-    LLVMBasicBlockRef incoming_blocks[2] = {orig_block, true_block};
+    LLVMBasicBlockRef incoming_blocks[2] = {post_val1_block, post_val2_block};
     LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
 
     return phi;
@@ -507,8 +509,7 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     assert(expr_node->type == NodeTypeBinOpExpr);
 
     LLVMValueRef val1 = gen_expr(g, expr_node->data.bin_op_expr.op1);
-
-    LLVMBasicBlockRef orig_block = LLVMGetInsertBlock(g->builder);
+    LLVMBasicBlockRef post_val1_block = LLVMGetInsertBlock(g->builder);
 
     // block for when val1 == false
     LLVMBasicBlockRef false_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolOrFalse");
@@ -520,6 +521,9 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
 
     LLVMPositionBuilderAtEnd(g->builder, false_block);
     LLVMValueRef val2 = gen_expr(g, expr_node->data.bin_op_expr.op2);
+
+    LLVMBasicBlockRef post_val2_block = LLVMGetInsertBlock(g->builder);
+
     add_debug_source_node(g, expr_node);
     LLVMBuildBr(g->builder, true_block);
 
@@ -527,7 +531,7 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     add_debug_source_node(g, expr_node);
     LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMInt1Type(), "");
     LLVMValueRef incoming_values[2] = {val1, val2};
-    LLVMBasicBlockRef incoming_blocks[2] = {orig_block, false_block};
+    LLVMBasicBlockRef incoming_blocks[2] = {post_val1_block, post_val2_block};
     LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
 
     return phi;

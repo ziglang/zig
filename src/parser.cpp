@@ -572,6 +572,7 @@ static void ast_invalid_token_error(ParseContext *pc, Token *token) {
 static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool mandatory);
 static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandatory);
 static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool mandatory);
+static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool mandatory);
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
     if (token->id != token_id) {
@@ -809,7 +810,7 @@ static AstNode *ast_parse_grouped_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-PrimaryExpression : token(Number) | token(String) | token(Unreachable) | GroupedExpression | token(Symbol) | Goto
+PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | token(Symbol) | Goto | BlockExpression
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -862,6 +863,11 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
     AstNode *grouped_expr_node = ast_parse_grouped_expr(pc, token_index, false);
     if (grouped_expr_node) {
         return grouped_expr_node;
+    }
+
+    AstNode *block_expr_node = ast_parse_block_expr(pc, token_index, false);
+    if (block_expr_node) {
+        return block_expr_node;
     }
 
     if (!mandatory)

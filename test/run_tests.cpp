@@ -431,6 +431,29 @@ export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
 }
     )SOURCE", "OK\n");
 
+    add_simple_case("short circuit", R"SOURCE(
+use "std.zig";
+
+export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
+    if true || { print_str("BAD 1\n" as string); false } {
+      print_str("OK 1\n" as string);
+    }
+    if false || { print_str("OK 2\n" as string); false } {
+      print_str("BAD 2\n" as string);
+    }
+
+    if true && { print_str("OK 3\n" as string); false } {
+      print_str("BAD 3\n" as string);
+    }
+    if false && { print_str("BAD 4\n" as string); false } {
+    } else {
+      print_str("OK 4\n" as string);
+    }
+
+    return 0;
+}
+    )SOURCE", "OK 1\nOK 2\nOK 3\nOK 4\n");
+
 }
 
 static void add_compile_failure_test_cases(void) {
