@@ -144,7 +144,7 @@ static int build(const char *arg0, int argc, char **argv) {
         codegen_set_out_name(g, buf_create_from_str(b.out_name));
     codegen_set_verbose(g, b.verbose);
     codegen_set_errmsg_color(g, b.color);
-    codegen_add_root_code(g, &root_source_name, &root_source_code);
+    codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);
     codegen_link(g, b.out_file);
 
     return 0;

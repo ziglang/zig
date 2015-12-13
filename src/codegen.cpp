@@ -1316,9 +1316,8 @@ static void define_builtin_types(CodeGen *g) {
             g->builtin_types.entry_usize->di_type
         };
         LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
-        LLVMZigDIFile *difile = nullptr; // TODO make sure this ok
         entry->di_type = LLVMZigCreateDebugStructType(g->dbuilder, compile_unit_scope,
-                "string", difile, 0, entry->size_in_bits, entry->align_in_bits, 0,
+                "string", g->dummy_di_file, 0, entry->size_in_bits, entry->align_in_bits, 0,
                 nullptr, di_element_types, element_count, 0, nullptr, "");
 
         g->type_table.put(&entry->name, entry);
@@ -1386,21 +1385,20 @@ static void init(CodeGen *g, Buf *source_path) {
             buf_ptr(producer), is_optimized, flags, runtime_version,
             "", 0, !g->strip_debug_symbols);
 
+    // This is for debug stuff that doesn't have a real file.
+    g->dummy_di_file = nullptr; //LLVMZigCreateFile(g->dbuilder, "", "");
+
     define_builtin_types(g);
 
 }
 
-static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *source_code) {
+static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code) {
     int err;
-    Buf full_path = BUF_INIT;
-    os_path_join(g->root_source_dir, source_path, &full_path);
-
-    Buf dirname = BUF_INIT;
-    Buf basename = BUF_INIT;
-    os_path_split(&full_path, &dirname, &basename);
+    Buf *full_path = buf_alloc();
+    os_path_join(src_dirname, src_basename, full_path);
 
     if (g->verbose) {
-        fprintf(stderr, "\nOriginal Source (%s):\n", buf_ptr(source_path));
+        fprintf(stderr, "\nOriginal Source (%s):\n", buf_ptr(full_path));
         fprintf(stderr, "----------------\n");
         fprintf(stderr, "%s\n", buf_ptr(source_code));
 
@@ -1418,7 +1416,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
         err->line_end = -1;
         err->column_end = -1;
         err->msg = tokenization.err;
-        err->path = source_path;
+        err->path = full_path;
         err->source = source_code;
         err->line_offsets = tokenization.line_offsets;
 
@@ -1436,7 +1434,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
     ImportTableEntry *import_entry = allocate<ImportTableEntry>(1);
     import_entry->source_code = source_code;
     import_entry->line_offsets = tokenization.line_offsets;
-    import_entry->path = source_path;
+    import_entry->path = full_path;
     import_entry->fn_table.init(32);
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);
@@ -1444,8 +1442,8 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
         ast_print(import_entry->root, 0);
     }
 
-    import_entry->di_file = LLVMZigCreateFile(g->dbuilder, buf_ptr(&basename), buf_ptr(&dirname));
-    g->import_table.put(source_path, import_entry);
+    import_entry->di_file = LLVMZigCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
+    g->import_table.put(full_path, import_entry);
 
 
     assert(import_entry->root->type == NodeTypeRoot);
@@ -1473,7 +1471,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *source_path, Buf *sou
                             goto done_looking_at_imports;
                         }
                     }
-                    codegen_add_code(g, &top_level_decl->data.use.path, import_code);
+                    codegen_add_code(g, search_path, &top_level_decl->data.use.path, import_code);
                     found_it = true;
                     break;
                 }
@@ -1500,20 +1498,25 @@ done_looking_at_imports:
     return import_entry;
 }
 
-void codegen_add_root_code(CodeGen *g, Buf *source_path, Buf *source_code) {
-    init(g, source_path);
+void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *source_code) {
+    Buf source_path = BUF_INIT;
+    os_path_join(src_dir, src_basename, &source_path);
+    init(g, &source_path);
 
-    g->root_import = codegen_add_code(g, source_path, source_code);
+    g->root_import = codegen_add_code(g, src_dir, src_basename, source_code);
 
     if (g->insert_bootstrap_code) {
-        Buf *path_to_bootstrap_src = buf_sprintf("%s/bootstrap.zig", ZIG_STD_DIR);
+        Buf *bootstrap_dir = buf_create_from_str(ZIG_STD_DIR);
+        Buf *bootstrap_basename = buf_create_from_str("bootstrap.zig");
+        Buf path_to_bootstrap_src = BUF_INIT;
+        os_path_join(bootstrap_dir, bootstrap_basename, &path_to_bootstrap_src);
         Buf *import_code = buf_alloc();
         int err;
-        if ((err = os_fetch_file_path(path_to_bootstrap_src, import_code))) {
-            zig_panic("unable to open '%s': %s", buf_ptr(path_to_bootstrap_src), err_str(err));
+        if ((err = os_fetch_file_path(&path_to_bootstrap_src, import_code))) {
+            zig_panic("unable to open '%s': %s", buf_ptr(&path_to_bootstrap_src), err_str(err));
         }
 
-        codegen_add_code(g, path_to_bootstrap_src, import_code);
+        codegen_add_code(g, bootstrap_dir, bootstrap_basename, import_code);
     }
 
     if (g->verbose) {
