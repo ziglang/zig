@@ -894,20 +894,24 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                         return_type = g->builtin_types.entry_bool;
                         break;
                     case BinOpTypeBinOr:
-                        zig_panic("TODO bin or type");
-                        break;
                     case BinOpTypeBinXor:
-                        zig_panic("TODO bin xor type");
-                        break;
                     case BinOpTypeBinAnd:
-                        zig_panic("TODO bin and type");
-                        break;
+                        {
+                            // TODO: don't require i32
+                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
+                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
+                            return_type = g->builtin_types.entry_i32;
+                            break;
+                        }
                     case BinOpTypeBitShiftLeft:
-                        zig_panic("TODO bit shift left type");
-                        break;
                     case BinOpTypeBitShiftRight:
-                        zig_panic("TODO bit shift right type");
-                        break;
+                        {
+                            // TODO: don't require i32
+                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
+                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
+                            return_type = g->builtin_types.entry_i32;
+                            break;
+                        }
                     case BinOpTypeAdd:
                     case BinOpTypeSub:
                         // TODO think how should type checking for these work?
@@ -918,14 +922,15 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                         return_type = g->builtin_types.entry_i32;
                         break;
                     case BinOpTypeMult:
-                        zig_panic("TODO mult type");
-                        break;
                     case BinOpTypeDiv:
-                        zig_panic("TODO div type");
-                        break;
                     case BinOpTypeMod:
-                        zig_panic("TODO modulus type");
-                        break;
+                        {
+                            // TODO: don't require i32
+                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
+                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
+                            return_type = g->builtin_types.entry_i32;
+                            break;
+                        }
                     case BinOpTypeInvalid:
                         zig_unreachable();
                 }
@@ -1081,11 +1086,19 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     return_type = g->builtin_types.entry_bool;
                     break;
                 case PrefixOpBinNot:
-                    zig_panic("TODO type check bin not");
-                    break;
+                    {
+                        // TODO: don't require i32
+                        analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.prefix_op_expr.primary_expr);
+                        return_type = g->builtin_types.entry_i32;
+                        break;
+                    }
                 case PrefixOpNegation:
-                    zig_panic("TODO type check negation");
-                    break;
+                    {
+                        // TODO: don't require i32
+                        analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.prefix_op_expr.primary_expr);
+                        return_type = g->builtin_types.entry_i32;
+                        break;
+                    }
                 case PrefixOpInvalid:
                     zig_unreachable();
             }

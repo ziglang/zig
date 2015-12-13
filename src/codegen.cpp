@@ -485,22 +485,18 @@ static LLVMValueRef gen_bool_and_expr(CodeGen *g, AstNode *node) {
     // block for when val1 == false (don't even evaluate the second part)
     LLVMBasicBlockRef false_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolAndFalse");
 
-    LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(val1));
     add_debug_source_node(g, node);
-    LLVMValueRef val1_i1 = LLVMBuildICmp(g->builder, LLVMIntEQ, val1, zero, "");
-    LLVMBuildCondBr(g->builder, val1_i1, false_block, true_block);
+    LLVMBuildCondBr(g->builder, val1, true_block, false_block);
 
     LLVMPositionBuilderAtEnd(g->builder, true_block);
     LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
     add_debug_source_node(g, node);
-    LLVMValueRef val2_i1 = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
     LLVMBuildBr(g->builder, false_block);
 
     LLVMPositionBuilderAtEnd(g->builder, false_block);
     add_debug_source_node(g, node);
     LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMInt1Type(), "");
-    LLVMValueRef one_i1 = LLVMConstAllOnes(LLVMInt1Type());
-    LLVMValueRef incoming_values[2] = {one_i1, val2_i1};
+    LLVMValueRef incoming_values[2] = {val1, val2};
     LLVMBasicBlockRef incoming_blocks[2] = {orig_block, true_block};
     LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
 
@@ -519,22 +515,18 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     // block for when val1 == true (don't even evaluate the second part)
     LLVMBasicBlockRef true_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolOrTrue");
 
-    LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(val1));
     add_debug_source_node(g, expr_node);
-    LLVMValueRef val1_i1 = LLVMBuildICmp(g->builder, LLVMIntEQ, val1, zero, "");
-    LLVMBuildCondBr(g->builder, val1_i1, false_block, true_block);
+    LLVMBuildCondBr(g->builder, val1, true_block, false_block);
 
     LLVMPositionBuilderAtEnd(g->builder, false_block);
     LLVMValueRef val2 = gen_expr(g, expr_node->data.bin_op_expr.op2);
     add_debug_source_node(g, expr_node);
-    LLVMValueRef val2_i1 = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
     LLVMBuildBr(g->builder, true_block);
 
     LLVMPositionBuilderAtEnd(g->builder, true_block);
     add_debug_source_node(g, expr_node);
     LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMInt1Type(), "");
-    LLVMValueRef one_i1 = LLVMConstAllOnes(LLVMInt1Type());
-    LLVMValueRef incoming_values[2] = {one_i1, val2_i1};
+    LLVMValueRef incoming_values[2] = {val1, val2};
     LLVMBasicBlockRef incoming_blocks[2] = {orig_block, false_block};
     LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
 

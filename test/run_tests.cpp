@@ -409,6 +409,27 @@ export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
     )SOURCE", "Hello, world!\n");
 
 
+    add_simple_case("a + b + c", R"SOURCE(
+use "std.zig";
+
+export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
+    if false || false || false { print_str("BAD 1\n" as string); }
+    if true && true && false   { print_str("BAD 2\n" as string); }
+    if 1 | 2 | 4 != 7          { print_str("BAD 3\n" as string); }
+    if 3 ^ 6 ^ 8 != 13         { print_str("BAD 4\n" as string); }
+    if 7 & 14 & 28 != 4        { print_str("BAD 5\n" as string); }
+    if 9  << 1 << 2 != 9  << 3 { print_str("BAD 6\n" as string); }
+    if 90 >> 1 >> 2 != 90 >> 3 { print_str("BAD 7\n" as string); }
+    if 100 - 1 + 1000 != 1099  { print_str("BAD 8\n" as string); }
+    if 5 * 4 / 2 % 3 != 1      { print_str("BAD 9\n" as string); }
+    if 5 as i32 as i32 != 5    { print_str("BAD 10\n" as string); }
+    if !!false                 { print_str("BAD 11\n" as string); }
+    if 7 != --7                { print_str("BAD 12\n" as string); }
+
+    print_str("OK\n" as string);
+    return 0;
+}
+    )SOURCE", "OK\n");
 
 }
 

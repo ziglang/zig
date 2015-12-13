@@ -478,9 +478,10 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.multi_line_comment_count = 1;
                         break;
                     default:
+                        t.pos -= 1;
                         end_token(&t);
                         t.state = TokenizeStateStart;
-                        break;
+                        continue;
                 }
                 break;
             case TokenizeStateLineComment:
@@ -592,9 +593,10 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateStart;
                         break;
                     default:
+                        t.pos -= 1;
                         end_token(&t);
                         t.state = TokenizeStateStart;
-                        break;
+                        continue;
                 }
                 break;
         }

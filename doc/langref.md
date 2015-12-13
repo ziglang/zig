@@ -92,7 +92,7 @@ AssignmentExpression : BoolOrExpression token(Equal) BoolOrExpression | BoolOrEx
 
 BlockExpression : IfExpression | Block
 
-BoolOrExpression : BoolAndExpression token(BoolOr) BoolAndExpression | BoolAndExpression
+BoolOrExpression : BoolAndExpression token(BoolOr) BoolOrExpression | BoolAndExpression
 
 ReturnExpression : token(Return) option(Expression)
 
@@ -102,33 +102,33 @@ ElseIf : token(Else) IfExpression
 
 Else : token(Else) Block
 
-BoolAndExpression : ComparisonExpression token(BoolAnd) ComparisonExpression | ComparisonExpression
+BoolAndExpression : ComparisonExpression token(BoolAnd) BoolAndExpression | ComparisonExpression
 
 ComparisonExpression : BinaryOrExpression ComparisonOperator BinaryOrExpression | BinaryOrExpression
 
 ComparisonOperator : token(BoolEq) | token(BoolNotEq) | token(BoolLessThan) | token(BoolGreaterThan) | token(BoolLessEqual) | token(BoolGreaterEqual)
 
-BinaryOrExpression : BinaryXorExpression token(BinOr) BinaryXorExpression | BinaryXorExpression
+BinaryOrExpression : BinaryXorExpression token(BinOr) BinaryOrExpression | BinaryXorExpression
 
-BinaryXorExpression : BinaryAndExpression token(BinXor) BinaryAndExpression | BinaryAndExpression
+BinaryXorExpression : BinaryAndExpression token(BinXor) BinaryXorExpression | BinaryAndExpression
 
-BinaryAndExpression : BitShiftExpression token(BinAnd) BitShiftExpression | BitShiftExpression
+BinaryAndExpression : BitShiftExpression token(BinAnd) BinaryAndExpression | BitShiftExpression
 
-BitShiftExpression : AdditionExpression BitShiftOperator AdditionExpression | AdditionExpression
+BitShiftExpression : AdditionExpression BitShiftOperator BitShiftExpression | AdditionExpression
 
-BitShiftOperator : token(BitShiftLeft | token(BitShiftRight)
+BitShiftOperator : token(BitShiftLeft) | token(BitShiftRight)
 
-AdditionExpression : MultiplyExpression AdditionOperator MultiplyExpression | MultiplyExpression
+AdditionExpression : MultiplyExpression AdditionOperator AdditionExpression | MultiplyExpression
 
 AdditionOperator : token(Plus) | token(Minus)
 
-MultiplyExpression : CastExpression MultiplyOperator CastExpression | CastExpression
+MultiplyExpression : CastExpression MultiplyOperator MultiplyExpression | CastExpression
 
 MultiplyOperator : token(Star) | token(Slash) | token(Percent)
 
-CastExpression : PrefixOpExpression token(as) Type | PrefixOpExpression
+CastExpression : CastExpression token(as) Type | PrefixOpExpression
 
-PrefixOpExpression : PrefixOp SuffixOpExpression | SuffixOpExpression
+PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
 
 SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression)
 

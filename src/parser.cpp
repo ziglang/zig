@@ -944,7 +944,7 @@ static PrefixOp ast_parse_prefix_op(ParseContext *pc, int *token_index, bool man
 }
 
 /*
-PrefixOpExpression : PrefixOp SuffixOpExpression | SuffixOpExpression
+PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
 */
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -952,7 +952,7 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, boo
     if (prefix_op == PrefixOpInvalid)
         return ast_parse_suffix_op_expr(pc, token_index, mandatory);
 
-    AstNode *prefix_op_expr = ast_parse_suffix_op_expr(pc, token_index, true);
+    AstNode *prefix_op_expr = ast_parse_prefix_op_expr(pc, token_index, true);
     AstNode *node = ast_create_node(pc, NodeTypePrefixOpExpr, token);
     node->data.prefix_op_expr.primary_expr = prefix_op_expr;
     node->data.prefix_op_expr.prefix_op = prefix_op;
@@ -962,24 +962,26 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, boo
 
 
 /*
-CastExpression : PrefixOpExpression token(as) Type | PrefixOpExpression
+CastExpression : CastExpression token(as) Type | PrefixOpExpression
 */
 static AstNode *ast_parse_cast_expression(ParseContext *pc, int *token_index, bool mandatory) {
-    AstNode *prefix_op_expr = ast_parse_prefix_op_expr(pc, token_index, mandatory);
-    if (!prefix_op_expr)
+    AstNode *operand_1 = ast_parse_prefix_op_expr(pc, token_index, mandatory);
+    if (!operand_1)
         return nullptr;
 
-    Token *as_kw = &pc->tokens->at(*token_index);
-    if (as_kw->id != TokenIdKeywordAs)
-        return prefix_op_expr;
-    *token_index += 1;
+    while (true) {
+        Token *as_kw = &pc->tokens->at(*token_index);
+        if (as_kw->id != TokenIdKeywordAs)
+            return operand_1;
+        *token_index += 1;
 
-    AstNode *node = ast_create_node(pc, NodeTypeCastExpr, as_kw);
-    node->data.cast_expr.expr = prefix_op_expr;
+        AstNode *node = ast_create_node(pc, NodeTypeCastExpr, as_kw);
+        node->data.cast_expr.expr = operand_1;
 
-    node->data.cast_expr.type = ast_parse_type(pc, *token_index, token_index);
+        node->data.cast_expr.type = ast_parse_type(pc, *token_index, token_index);
 
-    return node;
+        operand_1 = node;
+    }
 }
 
 static BinOpType tok_to_mult_op(Token *token) {
@@ -1009,26 +1011,28 @@ static BinOpType ast_parse_mult_op(ParseContext *pc, int *token_index, bool mand
 }
 
 /*
-MultiplyExpression : CastExpression MultiplyOperator CastExpression | CastExpression
+MultiplyExpression : CastExpression MultiplyOperator MultiplyExpression | CastExpression
 */
 static AstNode *ast_parse_mult_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_cast_expression(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
 
-    Token *token = &pc->tokens->at(*token_index);
-    BinOpType mult_op = ast_parse_mult_op(pc, token_index, false);
-    if (mult_op == BinOpTypeInvalid)
-        return operand_1;
+    while (true) {
+        Token *token = &pc->tokens->at(*token_index);
+        BinOpType mult_op = ast_parse_mult_op(pc, token_index, false);
+        if (mult_op == BinOpTypeInvalid)
+            return operand_1;
 
-    AstNode *operand_2 = ast_parse_cast_expression(pc, token_index, true);
+        AstNode *operand_2 = ast_parse_cast_expression(pc, token_index, true);
 
-    AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
-    node->data.bin_op_expr.op1 = operand_1;
-    node->data.bin_op_expr.bin_op = mult_op;
-    node->data.bin_op_expr.op2 = operand_2;
+        AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+        node->data.bin_op_expr.op1 = operand_1;
+        node->data.bin_op_expr.bin_op = mult_op;
+        node->data.bin_op_expr.op2 = operand_2;
 
-    return node;
+        operand_1 = node;
+    }
 }
 
 static BinOpType tok_to_add_op(Token *token) {
@@ -1057,26 +1061,28 @@ static BinOpType ast_parse_add_op(ParseContext *pc, int *token_index, bool manda
 }
 
 /*
-AdditionExpression : MultiplyExpression AdditionOperator MultiplyExpression | MultiplyExpression
+AdditionExpression : MultiplyExpression AdditionOperator AdditionExpression | MultiplyExpression
 */
 static AstNode *ast_parse_add_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_mult_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
 
-    Token *token = &pc->tokens->at(*token_index);
-    BinOpType add_op = ast_parse_add_op(pc, token_index, false);
-    if (add_op == BinOpTypeInvalid)
-        return operand_1;
+    while (true) {
+        Token *token = &pc->tokens->at(*token_index);
+        BinOpType add_op = ast_parse_add_op(pc, token_index, false);
+        if (add_op == BinOpTypeInvalid)
+            return operand_1;
 
-    AstNode *operand_2 = ast_parse_mult_expr(pc, token_index, true);
+        AstNode *operand_2 = ast_parse_mult_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
-    node->data.bin_op_expr.op1 = operand_1;
-    node->data.bin_op_expr.bin_op = add_op;
-    node->data.bin_op_expr.op2 = operand_2;
+        AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+        node->data.bin_op_expr.op1 = operand_1;
+        node->data.bin_op_expr.bin_op = add_op;
+        node->data.bin_op_expr.op2 = operand_2;
 
-    return node;
+        operand_1 = node;
+    }
 }
 
 static BinOpType tok_to_bit_shift_op(Token *token) {
@@ -1088,7 +1094,7 @@ static BinOpType tok_to_bit_shift_op(Token *token) {
 }
 
 /*
-BitShiftOperator : token(BitShiftLeft | token(BitShiftRight)
+BitShiftOperator : token(BitShiftLeft) | token(BitShiftRight)
 */
 static BinOpType ast_parse_bit_shift_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1105,96 +1111,104 @@ static BinOpType ast_parse_bit_shift_op(ParseContext *pc, int *token_index, bool
 }
 
 /*
-BitShiftExpression : AdditionExpression BitShiftOperator AdditionExpression | AdditionExpression
+BitShiftExpression : AdditionExpression BitShiftOperator BitShiftExpression | AdditionExpression
 */
 static AstNode *ast_parse_bit_shift_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_add_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
 
-    Token *token = &pc->tokens->at(*token_index);
-    BinOpType bit_shift_op = ast_parse_bit_shift_op(pc, token_index, false);
-    if (bit_shift_op == BinOpTypeInvalid)
-        return operand_1;
+    while (true) {
+        Token *token = &pc->tokens->at(*token_index);
+        BinOpType bit_shift_op = ast_parse_bit_shift_op(pc, token_index, false);
+        if (bit_shift_op == BinOpTypeInvalid)
+            return operand_1;
 
-    AstNode *operand_2 = ast_parse_add_expr(pc, token_index, true);
+        AstNode *operand_2 = ast_parse_add_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
-    node->data.bin_op_expr.op1 = operand_1;
-    node->data.bin_op_expr.bin_op = bit_shift_op;
-    node->data.bin_op_expr.op2 = operand_2;
+        AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+        node->data.bin_op_expr.op1 = operand_1;
+        node->data.bin_op_expr.bin_op = bit_shift_op;
+        node->data.bin_op_expr.op2 = operand_2;
 
-    return node;
+        operand_1 = node;
+    }
 }
 
 
 /*
-BinaryAndExpression : BitShiftExpression token(BinAnd) BitShiftExpression | BitShiftExpression
+BinaryAndExpression : BitShiftExpression token(BinAnd) BinaryAndExpression | BitShiftExpression
 */
 static AstNode *ast_parse_bin_and_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_bit_shift_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
 
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id != TokenIdBinAnd)
-        return operand_1;
-    *token_index += 1;
+    while (true) {
+        Token *token = &pc->tokens->at(*token_index);
+        if (token->id != TokenIdBinAnd)
+            return operand_1;
+        *token_index += 1;
 
-    AstNode *operand_2 = ast_parse_bit_shift_expr(pc, token_index, true);
+        AstNode *operand_2 = ast_parse_bit_shift_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
-    node->data.bin_op_expr.op1 = operand_1;
-    node->data.bin_op_expr.bin_op = BinOpTypeBinAnd;
-    node->data.bin_op_expr.op2 = operand_2;
+        AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+        node->data.bin_op_expr.op1 = operand_1;
+        node->data.bin_op_expr.bin_op = BinOpTypeBinAnd;
+        node->data.bin_op_expr.op2 = operand_2;
 
-    return node;
+        operand_1 = node;
+    }
 }
 
 /*
-BinaryXorExpression : BinaryAndExpression token(BinXor) BinaryAndExpression | BinaryAndExpression
+BinaryXorExpression : BinaryAndExpression token(BinXor) BinaryXorExpression | BinaryAndExpression
 */
 static AstNode *ast_parse_bin_xor_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_bin_and_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
 
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id != TokenIdBinXor)
-        return operand_1;
-    *token_index += 1;
+    while (true) {
+        Token *token = &pc->tokens->at(*token_index);
+        if (token->id != TokenIdBinXor)
+            return operand_1;
+        *token_index += 1;
 
-    AstNode *operand_2 = ast_parse_bin_and_expr(pc, token_index, true);
+        AstNode *operand_2 = ast_parse_bin_and_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
-    node->data.bin_op_expr.op1 = operand_1;
-    node->data.bin_op_expr.bin_op = BinOpTypeBinXor;
-    node->data.bin_op_expr.op2 = operand_2;
+        AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+        node->data.bin_op_expr.op1 = operand_1;
+        node->data.bin_op_expr.bin_op = BinOpTypeBinXor;
+        node->data.bin_op_expr.op2 = operand_2;
 
-    return node;
+        operand_1 = node;
+    }
 }
 
 /*
-BinaryOrExpression : BinaryXorExpression token(BinOr) BinaryXorExpression | BinaryXorExpression
+BinaryOrExpression : BinaryXorExpression token(BinOr) BinaryOrExpression | BinaryXorExpression
 */
 static AstNode *ast_parse_bin_or_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_bin_xor_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
 
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id != TokenIdBinOr)
-        return operand_1;
-    *token_index += 1;
+    while (true) {
+        Token *token = &pc->tokens->at(*token_index);
+        if (token->id != TokenIdBinOr)
+            return operand_1;
+        *token_index += 1;
 
-    AstNode *operand_2 = ast_parse_bin_xor_expr(pc, token_index, true);
+        AstNode *operand_2 = ast_parse_bin_xor_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
-    node->data.bin_op_expr.op1 = operand_1;
-    node->data.bin_op_expr.bin_op = BinOpTypeBinOr;
-    node->data.bin_op_expr.op2 = operand_2;
+        AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+        node->data.bin_op_expr.op1 = operand_1;
+        node->data.bin_op_expr.bin_op = BinOpTypeBinOr;
+        node->data.bin_op_expr.op2 = operand_2;
 
-    return node;
+        operand_1 = node;
+    }
 }
 
 static BinOpType tok_to_cmp_op(Token *token) {
@@ -1247,26 +1261,28 @@ static AstNode *ast_parse_comparison_expr(ParseContext *pc, int *token_index, bo
 }
 
 /*
-BoolAndExpression : ComparisonExpression token(BoolAnd) ComparisonExpression | ComparisonExpression
+BoolAndExpression : ComparisonExpression token(BoolAnd) BoolAndExpression | ComparisonExpression
  */
 static AstNode *ast_parse_bool_and_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_comparison_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
 
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id != TokenIdBoolAnd)
-        return operand_1;
-    *token_index += 1;
+    while (true) {
+        Token *token = &pc->tokens->at(*token_index);
+        if (token->id != TokenIdBoolAnd)
+            return operand_1;
+        *token_index += 1;
 
-    AstNode *operand_2 = ast_parse_comparison_expr(pc, token_index, true);
+        AstNode *operand_2 = ast_parse_comparison_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
-    node->data.bin_op_expr.op1 = operand_1;
-    node->data.bin_op_expr.bin_op = BinOpTypeBoolAnd;
-    node->data.bin_op_expr.op2 = operand_2;
+        AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+        node->data.bin_op_expr.op1 = operand_1;
+        node->data.bin_op_expr.bin_op = BinOpTypeBoolAnd;
+        node->data.bin_op_expr.op2 = operand_2;
 
-    return node;
+        operand_1 = node;
+    }
 }
 
 /*
@@ -1382,26 +1398,28 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token
 }
 
 /*
-BoolOrExpression : BoolAndExpression token(BoolOr) BoolAndExpression | BoolAndExpression
+BoolOrExpression : BoolAndExpression token(BoolOr) BoolOrExpression | BoolAndExpression
 */
 static AstNode *ast_parse_bool_or_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_bool_and_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
 
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id != TokenIdBoolOr)
-        return operand_1;
-    *token_index += 1;
+    while (true) {
+        Token *token = &pc->tokens->at(*token_index);
+        if (token->id != TokenIdBoolOr)
+            return operand_1;
+        *token_index += 1;
 
-    AstNode *operand_2 = ast_parse_bool_and_expr(pc, token_index, true);
+        AstNode *operand_2 = ast_parse_bool_and_expr(pc, token_index, true);
 
-    AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
-    node->data.bin_op_expr.op1 = operand_1;
-    node->data.bin_op_expr.bin_op = BinOpTypeBoolOr;
-    node->data.bin_op_expr.op2 = operand_2;
+        AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+        node->data.bin_op_expr.op1 = operand_1;
+        node->data.bin_op_expr.bin_op = BinOpTypeBoolOr;
+        node->data.bin_op_expr.op2 = operand_2;
 
-    return node;
+        operand_1 = node;
+    }
 }
 
 /*
