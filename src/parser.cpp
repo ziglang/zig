@@ -12,6 +12,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+
 static const char *bin_op_str(BinOpType bin_op) {
     switch (bin_op) {
         case BinOpTypeInvalid:             return "(invalid)";
@@ -273,9 +274,19 @@ void ast_print(AstNode *node, int indent) {
             ast_print(node->data.prefix_op_expr.primary_expr, indent + 2);
             break;
         case NodeTypeNumberLiteral:
-            fprintf(stderr, "NumberLiteral %s\n",
-                    buf_ptr(&node->data.number));
-            break;
+            {
+                NumLit num_lit = node->data.number_literal.kind;
+                const char *name = node_type_str(node->type);
+                const char *kind_str = num_lit_str(num_lit);
+                if (is_num_lit_signed(num_lit)) {
+                    fprintf(stderr, "%s %s %" PRId64 "\n", name, kind_str, node->data.number_literal.data.x_int);
+                } else if (is_num_lit_unsigned(num_lit)) {
+                    fprintf(stderr, "%s %s %" PRIu64 "\n", name, kind_str, node->data.number_literal.data.x_uint);
+                } else {
+                    fprintf(stderr, "%s %s %f\n", name, kind_str, node->data.number_literal.data.x_float);
+                }
+                break;
+            }
         case NodeTypeStringLiteral:
             {
                 const char *c = node->data.string_literal.c ? "c" : "";
@@ -574,6 +585,186 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
     if (offset_map) offset_map->append(pos);
 }
 
+enum ParseNumLitState {
+    ParseNumLitStateStart,
+    ParseNumLitStateBase,
+    ParseNumLitStateDigits,
+    ParseNumLitStateExpectFirstDigit,
+    ParseNumLitStateDecimal,
+    ParseNumLitStateESign,
+    ParseNumLitStateEDigit,
+};
+
+static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLiteral *num_lit) {
+    ParseNumLitState state = ParseNumLitStateStart;
+    unsigned long long base = 10;
+    bool negative = false;
+    int digits_start;
+    int digits_end;
+    int decimal_start = -1;
+    int decimal_end;
+    bool e_present = false;
+    bool e_positive;
+    int e_digit_start;
+    int e_digit_end;
+
+    for (int i = token->start_pos; i < token->end_pos; i += 1) {
+        uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
+        switch (state) {
+            case ParseNumLitStateStart:
+                if (c == '-') {
+                    negative = true;
+                } else if (c == '0') {
+                    state = ParseNumLitStateBase;
+                } else if (c >= '1' && c <= '9') {
+                    digits_start = i;
+                    state = ParseNumLitStateDigits;
+                } else {
+                    zig_unreachable();
+                }
+                break;
+            case ParseNumLitStateBase:
+                if (c == 'x') {
+                    base = 16;
+                    state = ParseNumLitStateExpectFirstDigit;
+                } else if (c == 'o') {
+                    base = 8;
+                    state = ParseNumLitStateExpectFirstDigit;
+                } else if (c == 'b') {
+                    base = 2;
+                    state = ParseNumLitStateExpectFirstDigit;
+                } else {
+                    zig_unreachable();
+                }
+                break;
+
+            case ParseNumLitStateExpectFirstDigit:
+                state = ParseNumLitStateDigits;
+                break;
+
+            case ParseNumLitStateDigits:
+                if (c == '.') {
+                    assert(base == 10);
+                    digits_end = i;
+                    decimal_start = i + 1;
+                    state = ParseNumLitStateDecimal;
+                }
+                break;
+            case ParseNumLitStateDecimal:
+                if (c == 'E') {
+                    e_present = false;
+                    decimal_end = i;
+                    state = ParseNumLitStateESign;
+                }
+                break;
+            case ParseNumLitStateESign:
+                if (c == '+') {
+                    e_positive = true;
+                    e_digit_start = i + 1;
+                    state = ParseNumLitStateEDigit;
+                } else if (c == '-') {
+                    e_positive = false;
+                    e_digit_start = i + 1;
+                    state = ParseNumLitStateEDigit;
+                } else {
+                    zig_unreachable();
+                }
+                break;
+            case ParseNumLitStateEDigit:
+                assert(c >= '0' && c <= '9');
+                break;
+        }
+    }
+
+    switch (state) {
+        case ParseNumLitStateDigits:
+            digits_end = token->end_pos;
+            break;
+        case ParseNumLitStateDecimal:
+            decimal_end = token->end_pos;
+            break;
+        case ParseNumLitStateEDigit:
+            e_digit_end = token->end_pos;
+            break;
+        case ParseNumLitStateBase:
+            num_lit->kind = NumLitU8;
+            num_lit->data.x_uint = 0;
+            return;
+        case ParseNumLitStateESign:
+        case ParseNumLitStateExpectFirstDigit:
+        case ParseNumLitStateStart:
+            zig_unreachable();
+    }
+
+    if (decimal_start >= 0) {
+        // float
+        double x;
+
+        (void)x;
+        zig_panic("TODO parse float");
+    } else {
+        // integer
+        unsigned long long x = 0;
+
+        unsigned long long mult = 1;
+        for (int i = digits_end - 1; ; i -= 1) {
+            uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
+            unsigned long long digit = (c - '0');
+
+            // digit *= mult
+            if (__builtin_umulll_overflow(digit, mult, &digit)) {
+                num_lit->overflow = true;
+                return;
+            }
+
+            // x += digit
+            if (__builtin_uaddll_overflow(x, digit, &x)) {
+                num_lit->overflow = true;
+                return;
+            }
+
+            if (i == digits_start)
+                break;
+
+            // mult *= base
+            if (__builtin_umulll_overflow(mult, base, &mult)) {
+                num_lit->overflow = true;
+                return;
+            }
+        }
+
+        if (negative) {
+            if (x <= 128ull) {
+                num_lit->kind = NumLitI8;
+            } else if (x <= 32768ull) {
+                num_lit->kind = NumLitI16;
+            } else if (x <= 2147483648ull) {
+                num_lit->kind = NumLitI32;
+            } else if (x <= 9223372036854775808ull) {
+                num_lit->kind = NumLitI64;
+            } else {
+                num_lit->overflow = true;
+                return;
+            }
+
+            num_lit->data.x_int = -((int64_t)x);
+        } else {
+            num_lit->data.x_uint = x;
+
+            if (x <= UINT8_MAX) {
+                num_lit->kind = NumLitU8;
+            } else if (x <= UINT16_MAX) {
+                num_lit->kind = NumLitU16;
+            } else if (x <= UINT32_MAX) {
+                num_lit->kind = NumLitU32;
+            } else {
+                num_lit->kind = NumLitU64;
+            }
+        }
+    }
+}
+
+
 __attribute__ ((noreturn))
 static void ast_invalid_token_error(ParseContext *pc, Token *token) {
     Buf token_value = BUF_INIT;
@@ -829,7 +1020,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
 
     if (token->id == TokenIdNumberLiteral) {
         AstNode *node = ast_create_node(pc, NodeTypeNumberLiteral, token);
-        ast_buf_from_token(pc, token, &node->data.number);
+        parse_number_literal(pc, token, &node->data.number_literal);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdStringLiteral) {
@@ -2151,4 +2342,122 @@ AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner, Er
     int token_index = 0;
     pc.root = ast_parse_root(&pc, &token_index);
     return pc.root;
+}
+
+const char *num_lit_str(NumLit num_lit) {
+    switch (num_lit) {
+        case NumLitF32:
+            return "f32";
+        case NumLitF64:
+            return "f64";
+        case NumLitF128:
+            return "f128";
+        case NumLitI8:
+            return "i8";
+        case NumLitI16:
+            return "i16";
+        case NumLitI32:
+            return "i32";
+        case NumLitI64:
+            return "i64";
+        case NumLitU8:
+            return "u8";
+        case NumLitU16:
+            return "u16";
+        case NumLitU32:
+            return "u32";
+        case NumLitU64:
+            return "u64";
+        case NumLitCount:
+            zig_unreachable();
+    }
+    zig_unreachable();
+}
+
+bool is_num_lit_signed(NumLit num_lit) {
+    switch (num_lit) {
+        case NumLitI8:
+        case NumLitI16:
+        case NumLitI32:
+        case NumLitI64:
+            return true;
+
+        case NumLitF32:
+        case NumLitF64:
+        case NumLitF128:
+        case NumLitU8:
+        case NumLitU16:
+        case NumLitU32:
+        case NumLitU64:
+            return false;
+        case NumLitCount:
+            zig_unreachable();
+    }
+    zig_unreachable();
+}
+
+bool is_num_lit_unsigned(NumLit num_lit) {
+    switch (num_lit) {
+        case NumLitF32:
+        case NumLitF64:
+        case NumLitF128:
+        case NumLitI8:
+        case NumLitI16:
+        case NumLitI32:
+        case NumLitI64:
+            return false;
+        case NumLitU8:
+        case NumLitU16:
+        case NumLitU32:
+        case NumLitU64:
+            return true;
+        case NumLitCount:
+            zig_unreachable();
+    }
+    zig_unreachable();
+}
+
+bool is_num_lit_float(NumLit num_lit) {
+    switch (num_lit) {
+        case NumLitF32:
+        case NumLitF64:
+        case NumLitF128:
+            return true;
+        case NumLitI8:
+        case NumLitI16:
+        case NumLitI32:
+        case NumLitI64:
+        case NumLitU8:
+        case NumLitU16:
+        case NumLitU32:
+        case NumLitU64:
+            return false;
+        case NumLitCount:
+            zig_unreachable();
+    }
+    zig_unreachable();
+}
+
+uint64_t num_lit_bit_count(NumLit num_lit) {
+    switch (num_lit) {
+        case NumLitI8:
+        case NumLitU8:
+            return 8;
+        case NumLitI16:
+        case NumLitU16:
+            return 16;
+        case NumLitI32:
+        case NumLitU32:
+        case NumLitF32:
+            return 32;
+        case NumLitI64:
+        case NumLitU64:
+        case NumLitF64:
+            return 64;
+        case NumLitF128:
+            return 128;
+        case NumLitCount:
+            zig_unreachable();
+    }
+    zig_unreachable();
 }

@@ -122,7 +122,7 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
     }
 }
 
-static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, int array_size) {
+static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size) {
     auto existing_entry = child_type->arrays_by_size.maybe_get(array_size);
     if (existing_entry) {
         return existing_entry->value;
@@ -130,7 +130,7 @@ static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, in
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
         entry->type_ref = LLVMArrayType(child_type->type_ref, array_size);
         buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "[%s; %d]", buf_ptr(&child_type->name), array_size);
+        buf_appendf(&entry->name, "[%s; %" PRIu64 "]", buf_ptr(&child_type->name), array_size);
 
         entry->size_in_bits = child_type->size_in_bits * array_size;
         entry->align_in_bits = child_type->align_in_bits;
@@ -143,11 +143,6 @@ static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, in
         child_type->arrays_by_size.put(array_size, entry);
         return entry;
     }
-}
-
-static int parse_int(Buf *number) {
-    // TODO: think about integer size of array sizes
-    return atoi(buf_ptr(number));
 }
 
 static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
@@ -192,16 +187,15 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
                 }
 
                 AstNode *size_node = node->data.type.array_size;
-                int size; // TODO: think about integer size of array sizes
-                if (size_node->type != NodeTypeNumberLiteral) {
-                    add_node_error(g, size_node,
-                        buf_create_from_str("array size must be literal number"));
-                    size = -1;
+                if (size_node->type == NodeTypeNumberLiteral &&
+                    is_num_lit_unsigned(size_node->data.number_literal.kind))
+                {
+                    type_node->entry = get_array_type(g, child_type, size_node->data.number_literal.data.x_uint);
                 } else {
-                    size = parse_int(&size_node->data.number);
+                    add_node_error(g, size_node,
+                        buf_create_from_str("array size must be literal unsigned integer"));
+                    type_node->entry = g->builtin_types.entry_invalid;
                 }
-
-                type_node->entry = get_array_type(g, child_type, size);
                 return type_node->entry;
             }
     }
@@ -625,6 +619,44 @@ static void get_struct_field(TypeTableEntry *struct_type, Buf *name, TypeStructF
     *out_i = -1;
 }
 
+static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type, TypeTableEntry *other_type) {
+    NumLit num_lit = literal_type->data.num_lit.kind;
+    uint64_t lit_size_in_bits = num_lit_bit_count(num_lit);
+
+    switch (other_type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdNumberLiteral:
+            zig_unreachable();
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+            return false;
+        case TypeTableEntryIdInt:
+            if (is_num_lit_signed(num_lit)) {
+                if (!other_type->data.integral.is_signed) {
+                    return false;
+                }
+
+                return lit_size_in_bits <= other_type->size_in_bits;
+            } else if (is_num_lit_unsigned(num_lit)) {
+
+                return lit_size_in_bits <= other_type->size_in_bits;
+            } else {
+                return false;
+            }
+        case TypeTableEntryIdFloat:
+            if (is_num_lit_float(num_lit)) {
+                return lit_size_in_bits <= other_type->size_in_bits;
+            } else {
+                return false;
+            }
+    }
+}
+
+
 static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         AstNode *node)
 {
@@ -790,12 +822,330 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         cast_node->op = CastOpArrayToString;
         context->cast_expr_alloca_list.append(node);
         return wanted_type;
+    } else if (actual_type->id == TypeTableEntryIdNumberLiteral &&
+               num_lit_fits_in_other_type(g, actual_type, wanted_type))
+    {
+        AstNode *literal_node = node->data.cast_expr.expr;
+        assert(literal_node->codegen_node);
+        NumberLiteralNode *codegen_num_lit = &literal_node->codegen_node->data.num_lit_node;
+        assert(!codegen_num_lit->resolved_type);
+        codegen_num_lit->resolved_type = wanted_type;
+        cast_node->op = CastOpNothing;
+        return wanted_type;
     } else {
         add_node_error(g, node,
             buf_sprintf("invalid cast from type '%s' to '%s'",
                 buf_ptr(&actual_type->name),
                 buf_ptr(&wanted_type->name)));
         return g->builtin_types.entry_invalid;
+    }
+}
+
+static TypeTableEntry * resolve_rhs_number_literal(CodeGen *g, AstNode *non_literal_node,
+        TypeTableEntry *non_literal_type, AstNode *literal_node, TypeTableEntry *literal_type)
+{
+    assert(literal_node->codegen_node);
+    NumberLiteralNode *codegen_num_lit = &literal_node->codegen_node->data.num_lit_node;
+
+    if (num_lit_fits_in_other_type(g, literal_type, non_literal_type)) {
+        assert(!codegen_num_lit->resolved_type);
+        codegen_num_lit->resolved_type = non_literal_type;
+        return non_literal_type;
+    } else {
+        return nullptr;
+    }
+}
+
+static TypeTableEntry * resolve_number_literals(CodeGen *g, AstNode *node1, AstNode *node2) {
+    TypeTableEntry *type1 = node1->codegen_node->expr_node.type_entry;
+    TypeTableEntry *type2 = node2->codegen_node->expr_node.type_entry;
+
+    if (type1->id == TypeTableEntryIdNumberLiteral &&
+        type2->id == TypeTableEntryIdNumberLiteral)
+    {
+        assert(node1->codegen_node);
+        assert(node2->codegen_node);
+
+        NumberLiteralNode *codegen_num_lit_1 = &node1->codegen_node->data.num_lit_node;
+        NumberLiteralNode *codegen_num_lit_2 = &node2->codegen_node->data.num_lit_node;
+
+        assert(!codegen_num_lit_1->resolved_type);
+        assert(!codegen_num_lit_2->resolved_type);
+
+        if (is_num_lit_float(type1->data.num_lit.kind) &&
+            is_num_lit_float(type2->data.num_lit.kind))
+        {
+            codegen_num_lit_1->resolved_type = g->builtin_types.entry_f64;
+            codegen_num_lit_2->resolved_type = g->builtin_types.entry_f64;
+            return g->builtin_types.entry_f64;
+        } else if (is_num_lit_signed(type1->data.num_lit.kind) &&
+                   is_num_lit_signed(type2->data.num_lit.kind))
+        {
+            codegen_num_lit_1->resolved_type = g->builtin_types.entry_i64;
+            codegen_num_lit_2->resolved_type = g->builtin_types.entry_i64;
+            return g->builtin_types.entry_i64;
+        } else if (is_num_lit_unsigned(type1->data.num_lit.kind) &&
+                   is_num_lit_unsigned(type2->data.num_lit.kind))
+        {
+            codegen_num_lit_1->resolved_type = g->builtin_types.entry_u64;
+            codegen_num_lit_2->resolved_type = g->builtin_types.entry_u64;
+            return g->builtin_types.entry_u64;
+        } else {
+            return nullptr;
+        }
+    } else if (type1->id == TypeTableEntryIdNumberLiteral) {
+        return resolve_rhs_number_literal(g, node2, type2, node1, type1);
+    } else {
+        assert(type2->id == TypeTableEntryIdNumberLiteral);
+        return resolve_rhs_number_literal(g, node1, type1, node2, type2);
+    }
+}
+
+static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    switch (node->data.bin_op_expr.bin_op) {
+        case BinOpTypeAssign:
+        case BinOpTypeAssignTimes:
+        case BinOpTypeAssignDiv:
+        case BinOpTypeAssignMod:
+        case BinOpTypeAssignPlus:
+        case BinOpTypeAssignMinus:
+        case BinOpTypeAssignBitShiftLeft:
+        case BinOpTypeAssignBitShiftRight:
+        case BinOpTypeAssignBitAnd:
+        case BinOpTypeAssignBitXor:
+        case BinOpTypeAssignBitOr:
+        case BinOpTypeAssignBoolAnd:
+        case BinOpTypeAssignBoolOr:
+            {
+                AstNode *lhs_node = node->data.bin_op_expr.op1;
+                TypeTableEntry *expected_rhs_type = nullptr;
+                if (lhs_node->type == NodeTypeSymbol) {
+                    Buf *name = &lhs_node->data.symbol;
+                    LocalVariableTableEntry *var = find_local_variable(context, name);
+                    if (var) {
+                        if (var->is_const) {
+                            add_node_error(g, lhs_node,
+                                buf_sprintf("cannot assign to constant variable"));
+                        } else {
+                            if (!is_op_allowed(var->type, node->data.bin_op_expr.bin_op)) {
+                                if (var->type->id != TypeTableEntryIdInvalid) {
+                                    add_node_error(g, lhs_node,
+                                        buf_sprintf("operator not allowed for type '%s'",
+                                            buf_ptr(&var->type->name)));
+                                }
+                            } else {
+                                expected_rhs_type = var->type;
+                            }
+                        }
+                    } else {
+                        add_node_error(g, lhs_node,
+                                buf_sprintf("use of undeclared identifier '%s'", buf_ptr(name)));
+                    }
+                } else if (lhs_node->type == NodeTypeArrayAccessExpr) {
+                    expected_rhs_type = analyze_array_access_expr(g, import, context, lhs_node);
+                } else if (lhs_node->type == NodeTypeFieldAccessExpr) {
+                    alloc_codegen_node(lhs_node);
+                    expected_rhs_type = analyze_field_access_expr(g, import, context, lhs_node);
+                } else {
+                    add_node_error(g, lhs_node,
+                            buf_sprintf("assignment target must be variable, field, or array element"));
+                }
+                analyze_expression(g, import, context, expected_rhs_type, node->data.bin_op_expr.op2);
+                return g->builtin_types.entry_void;
+            }
+        case BinOpTypeBoolOr:
+        case BinOpTypeBoolAnd:
+            analyze_expression(g, import, context, g->builtin_types.entry_bool,
+                    node->data.bin_op_expr.op1);
+            analyze_expression(g, import, context, g->builtin_types.entry_bool,
+                    node->data.bin_op_expr.op2);
+            return g->builtin_types.entry_bool;
+        case BinOpTypeCmpEq:
+        case BinOpTypeCmpNotEq:
+        case BinOpTypeCmpLessThan:
+        case BinOpTypeCmpGreaterThan:
+        case BinOpTypeCmpLessOrEq:
+        case BinOpTypeCmpGreaterOrEq:
+            {
+                AstNode *op1 = node->data.bin_op_expr.op1;
+                AstNode *op2 = node->data.bin_op_expr.op2;
+                TypeTableEntry *lhs_type = analyze_expression(g, import, context, nullptr, op1);
+                TypeTableEntry *rhs_type = analyze_expression(g, import, context, nullptr, op2);
+                bool cmp_ok = false;
+                if (lhs_type->id == TypeTableEntryIdInvalid || rhs_type->id == TypeTableEntryIdInvalid) {
+                    cmp_ok = true;
+                } else if (lhs_type->id == TypeTableEntryIdNumberLiteral ||
+                           rhs_type->id == TypeTableEntryIdNumberLiteral)
+                {
+                    cmp_ok = resolve_number_literals(g, op1, op2);
+                } else if (lhs_type->id == TypeTableEntryIdInt) {
+                    if (rhs_type->id == TypeTableEntryIdInt &&
+                        lhs_type->data.integral.is_signed == rhs_type->data.integral.is_signed &&
+                        lhs_type->size_in_bits == rhs_type->size_in_bits)
+                    {
+                        cmp_ok = true;
+                    }
+                } else if (lhs_type->id == TypeTableEntryIdFloat) {
+                    if (rhs_type->id == TypeTableEntryIdFloat &&
+                        lhs_type->size_in_bits == rhs_type->size_in_bits)
+                    {
+                        cmp_ok = true;
+                    }
+                }
+                if (!cmp_ok) {
+                    add_node_error(g, node, buf_sprintf("unable to compare '%s' with '%s'",
+                            buf_ptr(&lhs_type->name), buf_ptr(&rhs_type->name)));
+                }
+                return g->builtin_types.entry_bool;
+            }
+        case BinOpTypeBinOr:
+        case BinOpTypeBinXor:
+        case BinOpTypeBinAnd:
+            {
+                // TODO: don't require i32
+                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
+                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
+                return g->builtin_types.entry_i32;
+            }
+        case BinOpTypeBitShiftLeft:
+        case BinOpTypeBitShiftRight:
+            {
+                // TODO: don't require i32
+                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
+                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
+                return g->builtin_types.entry_i32;
+            }
+        case BinOpTypeAdd:
+        case BinOpTypeSub:
+            {
+                AstNode *op1 = node->data.bin_op_expr.op1;
+                AstNode *op2 = node->data.bin_op_expr.op2;
+                TypeTableEntry *lhs_type = analyze_expression(g, import, context, nullptr, op1);
+                TypeTableEntry *rhs_type = analyze_expression(g, import, context, nullptr, op2);
+
+                TypeTableEntry *return_type = nullptr;
+
+                if (lhs_type->id == TypeTableEntryIdInvalid || rhs_type->id == TypeTableEntryIdInvalid) {
+                    return_type = g->builtin_types.entry_invalid;
+                } else if (lhs_type->id == TypeTableEntryIdNumberLiteral ||
+                           rhs_type->id == TypeTableEntryIdNumberLiteral)
+                {
+                    return_type = resolve_number_literals(g, op1, op2);
+                } else if (lhs_type->id == TypeTableEntryIdInt &&
+                           lhs_type == rhs_type)
+                {
+                    return_type = lhs_type;
+                } else if (lhs_type->id == TypeTableEntryIdFloat &&
+                           lhs_type == rhs_type)
+                {
+                    return_type = lhs_type;
+                }
+                if (!return_type) {
+                    if (node->data.bin_op_expr.bin_op == BinOpTypeAdd) {
+                        add_node_error(g, node, buf_sprintf("unable to add '%s' and '%s'",
+                                buf_ptr(&lhs_type->name), buf_ptr(&rhs_type->name)));
+                    } else {
+                        add_node_error(g, node, buf_sprintf("unable to subtract '%s' and '%s'",
+                                buf_ptr(&lhs_type->name), buf_ptr(&rhs_type->name)));
+                    }
+                    return g->builtin_types.entry_invalid;
+                }
+                return return_type;
+            }
+        case BinOpTypeMult:
+        case BinOpTypeDiv:
+        case BinOpTypeMod:
+            {
+                // TODO: don't require i32
+                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
+                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
+                return g->builtin_types.entry_i32;
+            }
+        case BinOpTypeInvalid:
+            zig_unreachable();
+    }
+    zig_unreachable();
+}
+
+static TypeTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
+
+    TypeTableEntry *explicit_type = nullptr;
+    if (variable_declaration->type != nullptr) {
+        explicit_type = resolve_type(g, variable_declaration->type);
+        if (explicit_type->id == TypeTableEntryIdUnreachable) {
+            add_node_error(g, variable_declaration->type,
+                buf_sprintf("variable of type 'unreachable' not allowed"));
+            explicit_type = g->builtin_types.entry_invalid;
+        }
+    }
+
+    TypeTableEntry *implicit_type = nullptr;
+    if (variable_declaration->expr != nullptr) {
+        implicit_type = analyze_expression(g, import, context, explicit_type, variable_declaration->expr);
+        if (implicit_type->id == TypeTableEntryIdUnreachable) {
+            add_node_error(g, node,
+                buf_sprintf("variable initialization is unreachable"));
+            implicit_type = g->builtin_types.entry_invalid;
+        } else if (implicit_type->id == TypeTableEntryIdNumberLiteral) {
+            add_node_error(g, node,
+                buf_sprintf("unable to infer variable type"));
+            implicit_type = g->builtin_types.entry_invalid;
+        }
+    }
+
+    if (implicit_type == nullptr && variable_declaration->is_const) {
+        add_node_error(g, node, buf_sprintf("variables must have initial values or be declared 'mut'."));
+        implicit_type = g->builtin_types.entry_invalid;
+    }
+
+    TypeTableEntry *type = explicit_type != nullptr ? explicit_type : implicit_type;
+    assert(type != nullptr); // should have been caught by the parser
+
+    LocalVariableTableEntry *existing_variable = find_local_variable(context, &variable_declaration->symbol);
+    if (existing_variable) {
+        add_node_error(g, node,
+            buf_sprintf("redeclaration of variable '%s'", buf_ptr(&variable_declaration->symbol)));
+    } else {
+        LocalVariableTableEntry *variable_entry = allocate<LocalVariableTableEntry>(1);
+        buf_init_from_buf(&variable_entry->name, &variable_declaration->symbol);
+        variable_entry->type = type;
+        variable_entry->is_const = variable_declaration->is_const;
+        variable_entry->is_ptr = true;
+        variable_entry->decl_node = node;
+        context->variable_table.put(&variable_entry->name, variable_entry);
+    }
+    return g->builtin_types.entry_void;
+}
+
+static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    TypeTableEntry *num_lit_type = g->num_lit_types[node->data.number_literal.kind];
+    if (node->data.number_literal.overflow) {
+        add_node_error(g, node,
+                buf_sprintf("number literal too large to be represented in any type"));
+        return g->builtin_types.entry_invalid;
+    } else if (expected_type) {
+        if (expected_type->id == TypeTableEntryIdInvalid) {
+            return g->builtin_types.entry_invalid;
+        } else if (num_lit_fits_in_other_type(g, num_lit_type, expected_type)) {
+            NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
+            assert(!codegen_num_lit->resolved_type);
+            codegen_num_lit->resolved_type = expected_type;
+
+            return expected_type;
+        } else {
+            add_node_error(g, node, buf_sprintf("expected type '%s', got '%s'",
+                        buf_ptr(&expected_type->name), buf_ptr(&num_lit_type->name)));
+            return g->builtin_types.entry_invalid;
+        }
+    } else {
+        return num_lit_type;
     }
 }
 
@@ -854,51 +1204,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 break;
             }
         case NodeTypeVariableDeclaration:
-            {
-                AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;;
-
-                TypeTableEntry *explicit_type = nullptr;
-                if (variable_declaration->type != nullptr) {
-                    explicit_type = resolve_type(g, variable_declaration->type);
-                    if (explicit_type->id == TypeTableEntryIdUnreachable) {
-                        add_node_error(g, variable_declaration->type,
-                            buf_sprintf("variable of type 'unreachable' not allowed"));
-                    }
-                }
-
-                TypeTableEntry *implicit_type = nullptr;
-                if (variable_declaration->expr != nullptr) {
-                    implicit_type = analyze_expression(g, import, context, explicit_type, variable_declaration->expr);
-                    if (implicit_type->id == TypeTableEntryIdUnreachable) {
-                        add_node_error(g, node,
-                            buf_sprintf("variable initialization is unreachable"));
-                    }
-                }
-
-                if (implicit_type == nullptr && variable_declaration->is_const) {
-                    add_node_error(g, node, buf_sprintf("variables must have initial values or be declared 'mut'."));
-                }
-
-                TypeTableEntry *type = explicit_type != nullptr ? explicit_type : implicit_type;
-                assert(type != nullptr); // should have been caught by the parser
-
-                LocalVariableTableEntry *existing_variable = find_local_variable(context, &variable_declaration->symbol);
-                if (existing_variable) {
-                    add_node_error(g, node,
-                        buf_sprintf("redeclaration of variable '%s'", buf_ptr(&variable_declaration->symbol)));
-                } else {
-                    LocalVariableTableEntry *variable_entry = allocate<LocalVariableTableEntry>(1);
-                    buf_init_from_buf(&variable_entry->name, &variable_declaration->symbol);
-                    variable_entry->type = type;
-                    variable_entry->is_const = variable_declaration->is_const;
-                    variable_entry->is_ptr = true;
-                    variable_entry->decl_node = node;
-                    context->variable_table.put(&variable_entry->name, variable_entry);
-                }
-                return_type = g->builtin_types.entry_void;
-                break;
-            }
-
+            return_type = analyze_variable_declaration(g, import, context, expected_type, node);
+            break;
         case NodeTypeGoto:
             {
                 FnTableEntry *fn_table_entry = get_context_fn_entry(context);
@@ -928,120 +1235,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 break;
             }
         case NodeTypeBinOpExpr:
-            {
-                switch (node->data.bin_op_expr.bin_op) {
-                    case BinOpTypeAssign:
-                    case BinOpTypeAssignTimes:
-                    case BinOpTypeAssignDiv:
-                    case BinOpTypeAssignMod:
-                    case BinOpTypeAssignPlus:
-                    case BinOpTypeAssignMinus:
-                    case BinOpTypeAssignBitShiftLeft:
-                    case BinOpTypeAssignBitShiftRight:
-                    case BinOpTypeAssignBitAnd:
-                    case BinOpTypeAssignBitXor:
-                    case BinOpTypeAssignBitOr:
-                    case BinOpTypeAssignBoolAnd:
-                    case BinOpTypeAssignBoolOr:
-                        {
-                            AstNode *lhs_node = node->data.bin_op_expr.op1;
-                            TypeTableEntry *expected_rhs_type = nullptr;
-                            if (lhs_node->type == NodeTypeSymbol) {
-                                Buf *name = &lhs_node->data.symbol;
-                                LocalVariableTableEntry *var = find_local_variable(context, name);
-                                if (var) {
-                                    if (var->is_const) {
-                                        add_node_error(g, lhs_node,
-                                            buf_sprintf("cannot assign to constant variable"));
-                                    } else {
-                                        if (!is_op_allowed(var->type, node->data.bin_op_expr.bin_op)) {
-                                            add_node_error(g, lhs_node,
-                                                buf_sprintf("operator not allowed for type '%s'", buf_ptr(&var->type->name)));
-                                        } else {
-                                            expected_rhs_type = var->type;
-                                        }
-                                    }
-                                } else {
-                                    add_node_error(g, lhs_node,
-                                            buf_sprintf("use of undeclared identifier '%s'", buf_ptr(name)));
-                                }
-                            } else if (lhs_node->type == NodeTypeArrayAccessExpr) {
-                                expected_rhs_type = analyze_array_access_expr(g, import, context, lhs_node);
-                            } else if (lhs_node->type == NodeTypeFieldAccessExpr) {
-                                alloc_codegen_node(lhs_node);
-                                expected_rhs_type = analyze_field_access_expr(g, import, context, lhs_node);
-                            } else {
-                                add_node_error(g, lhs_node,
-                                        buf_sprintf("assignment target must be variable, field, or array element"));
-                            }
-                            analyze_expression(g, import, context, expected_rhs_type, node->data.bin_op_expr.op2);
-                            return_type = g->builtin_types.entry_void;
-                            break;
-                        }
-                    case BinOpTypeBoolOr:
-                    case BinOpTypeBoolAnd:
-                        analyze_expression(g, import, context, g->builtin_types.entry_bool,
-                                node->data.bin_op_expr.op1);
-                        analyze_expression(g, import, context, g->builtin_types.entry_bool,
-                                node->data.bin_op_expr.op2);
-                        return_type = g->builtin_types.entry_bool;
-                        break;
-                    case BinOpTypeCmpEq:
-                    case BinOpTypeCmpNotEq:
-                    case BinOpTypeCmpLessThan:
-                    case BinOpTypeCmpGreaterThan:
-                    case BinOpTypeCmpLessOrEq:
-                    case BinOpTypeCmpGreaterOrEq:
-                        // TODO think how should type checking for these work?
-                        analyze_expression(g, import, context, g->builtin_types.entry_i32,
-                                node->data.bin_op_expr.op1);
-                        analyze_expression(g, import, context, g->builtin_types.entry_i32,
-                                node->data.bin_op_expr.op2);
-                        return_type = g->builtin_types.entry_bool;
-                        break;
-                    case BinOpTypeBinOr:
-                    case BinOpTypeBinXor:
-                    case BinOpTypeBinAnd:
-                        {
-                            // TODO: don't require i32
-                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
-                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
-                            return_type = g->builtin_types.entry_i32;
-                            break;
-                        }
-                    case BinOpTypeBitShiftLeft:
-                    case BinOpTypeBitShiftRight:
-                        {
-                            // TODO: don't require i32
-                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
-                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
-                            return_type = g->builtin_types.entry_i32;
-                            break;
-                        }
-                    case BinOpTypeAdd:
-                    case BinOpTypeSub:
-                        // TODO think how should type checking for these work?
-                        analyze_expression(g, import, context, g->builtin_types.entry_i32,
-                                node->data.bin_op_expr.op1);
-                        analyze_expression(g, import, context, g->builtin_types.entry_i32,
-                                node->data.bin_op_expr.op2);
-                        return_type = g->builtin_types.entry_i32;
-                        break;
-                    case BinOpTypeMult:
-                    case BinOpTypeDiv:
-                    case BinOpTypeMod:
-                        {
-                            // TODO: don't require i32
-                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
-                            analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
-                            return_type = g->builtin_types.entry_i32;
-                            break;
-                        }
-                    case BinOpTypeInvalid:
-                        zig_unreachable();
-                }
-                break;
-            }
+            return_type = analyze_bin_op_expr(g, import, context, expected_type, node);
+            break;
 
         case NodeTypeFnCallExpr:
             {
@@ -1116,10 +1311,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             return_type = analyze_field_access_expr(g, import, context, node);
             break;
         case NodeTypeNumberLiteral:
-            // TODO: generic literal int type
-            return_type = g->builtin_types.entry_i32;
+            return_type = analyze_number_literal_expr(g, import, context, expected_type, node);
             break;
-
         case NodeTypeStringLiteral:
             if (node->data.string_literal.c) {
                 return_type = g->builtin_types.entry_c_string_literal;

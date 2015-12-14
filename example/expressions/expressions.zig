@@ -14,19 +14,19 @@ fn other_exit() -> unreachable {
 
 export fn _start() -> unreachable {
     let a : i32 = 1;
-    let b = 2;
+    let b = 2 as i32;
     // let c : i32; // not yet support for const variables
     // let d; // parse error
     if (a + b == 3) {
-        let no_conflict = 5;
-        if (no_conflict == 5) { puts("OK 1"); }
+        let no_conflict : i32 = 5;
+        if (no_conflict == 5) { puts(c"OK 1"); }
     }
 
     let c = {
-        let no_conflict = 10;
+        let no_conflict : i32 = 10;
         no_conflict
     };
-    if (c == 10) { puts("OK 2"); }
+    if (c == 10) { puts(c"OK 2"); }
 
     void_fun(1, void, 2);
 
@@ -44,12 +44,12 @@ fn void_fun(a : i32, b : void, c : i32) -> void {
 }
 
 fn test_mutable_vars() {
-    let mut i = 0;
+    let mut i : i32 = 0;
 loop_start:
     if i == 3 {
         goto done;
     }
-    puts("loop");
+    puts(c"loop");
     i = i + 1;
     goto loop_start;
 done:

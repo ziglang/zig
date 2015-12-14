@@ -200,10 +200,11 @@ as
 
 ### Numbers
 
- Number literals | Example     | Exponentiation
--------------------------------------------
- Decimal integer | 98222       | N/A
- Hex integer     | 0xff        | N/A
- Octal integer   | 0o77        | N/A
- Binary integer  | 0b11110000  | N/A
- Floating-point  | 123.0E+77   | Optional
+ Number literals    | Example     | Exponentiation
+--------------------------------------------------
+ Decimal integer    | 98222       | N/A
+ Hex integer        | 0xff        | N/A
+ Octal integer      | 0o77        | N/A
+ Binary integer     | 0b11110000  | N/A
+ Floating-point     | 123.0E+77   | Optional
+ Hex floating point | TODO        | TODO

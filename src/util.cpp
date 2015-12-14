@@ -21,8 +21,16 @@ void zig_panic(const char *format, ...) {
 }
 
 uint32_t int_hash(int i) {
-    return *reinterpret_cast<uint32_t*>(&i);
+    return (uint32_t)(i % UINT32_MAX);
 }
 bool int_eq(int a, int b) {
+    return a == b;
+}
+
+uint32_t uint64_hash(uint64_t i) {
+    return (uint32_t)(i % UINT32_MAX);
+}
+
+bool uint64_eq(uint64_t a, uint64_t b) {
     return a == b;
 }

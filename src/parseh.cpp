@@ -544,7 +544,7 @@ void parse_h_file(const char *target_path, ZigList<const char *> *clang_argv, FI
 
     char *ZIG_PARSEH_CFLAGS = getenv("ZIG_PARSEH_CFLAGS");
     if (ZIG_PARSEH_CFLAGS) {
-        Buf tmp_buf = {0};
+        Buf tmp_buf = BUF_INIT;
         char *start = ZIG_PARSEH_CFLAGS;
         char *space = strstr(start, " ");
         while (space) {

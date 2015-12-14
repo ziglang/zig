@@ -22,6 +22,6 @@ struct Foo {
 
 fn test_foo(foo : Foo) {
     if foo.b {
-        print_str("OK" as string);
+        print_str("OK\n" as string);
     }
 }

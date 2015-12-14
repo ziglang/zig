@@ -81,5 +81,7 @@ static inline bool mem_eql_str(const char *mem, size_t mem_len, const char *str)
 
 uint32_t int_hash(int i);
 bool int_eq(int a, int b);
+uint32_t uint64_hash(uint64_t i);
+bool uint64_eq(uint64_t a, uint64_t b);
 
 #endif

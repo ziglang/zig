@@ -42,6 +42,10 @@ struct TypeTableEntryStruct {
     TypeStructField *fields;
 };
 
+struct TypeTableEntryNumLit {
+    NumLit kind;
+};
+
 enum TypeTableEntryId {
     TypeTableEntryIdInvalid,
     TypeTableEntryIdVoid,
@@ -52,6 +56,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdPointer,
     TypeTableEntryIdArray,
     TypeTableEntryIdStruct,
+    TypeTableEntryIdNumberLiteral,
 };
 
 struct TypeTableEntry {
@@ -69,12 +74,13 @@ struct TypeTableEntry {
         TypeTableEntryInt integral;
         TypeTableEntryArray array;
         TypeTableEntryStruct structure;
+        TypeTableEntryNumLit num_lit;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
     TypeTableEntry *pointer_const_parent;
     TypeTableEntry *pointer_mut_parent;
-    HashMap<int, TypeTableEntry *, int_hash, int_eq> arrays_by_size;
+    HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
 
 };
 
@@ -134,16 +140,21 @@ struct CodeGen {
     struct {
         TypeTableEntry *entry_bool;
         TypeTableEntry *entry_u8;
+        TypeTableEntry *entry_u64;
         TypeTableEntry *entry_i32;
+        TypeTableEntry *entry_i64;
         TypeTableEntry *entry_isize;
         TypeTableEntry *entry_usize;
         TypeTableEntry *entry_f32;
+        TypeTableEntry *entry_f64;
         TypeTableEntry *entry_c_string_literal;
         TypeTableEntry *entry_string;
         TypeTableEntry *entry_void;
         TypeTableEntry *entry_unreachable;
         TypeTableEntry *entry_invalid;
     } builtin_types;
+
+    TypeTableEntry *num_lit_types[NumLitCount];
 
     LLVMTargetDataRef target_data_ref;
     unsigned pointer_size_bytes;
@@ -242,6 +253,7 @@ enum CastOp {
     CastOpPtrToInt,
     CastOpIntWidenOrShorten,
     CastOpArrayToString,
+    CastOpNothing,
 };
 
 struct CastNode {
@@ -249,6 +261,10 @@ struct CastNode {
     // if op is CastOpArrayToString, this will be a pointer to
     // the string struct on the stack
     LLVMValueRef ptr;
+};
+
+struct NumberLiteralNode {
+    TypeTableEntry *resolved_type;
 };
 
 struct CodeGenNode {
@@ -262,6 +278,7 @@ struct CodeGenNode {
         StructDeclNode struct_decl_node; // for NodeTypeStructDecl
         FieldAccessNode field_access_node; // for NodeTypeFieldAccessExpr
         CastNode cast_node; // for NodeTypeCastExpr
+        NumberLiteralNode num_lit_node; // for NodeTypeNumberLiteral
     } data;
     ExprNode expr_node; // for all the expression nodes
 };

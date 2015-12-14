@@ -279,6 +279,8 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
     CastNode *cast_node = &node->codegen_node->data.cast_node;
 
     switch (cast_node->op) {
+        case CastOpNothing:
+            return expr_val;
         case CastOpPtrToInt:
             return LLVMBuildPtrToInt(g->builder, expr_val, wanted_type->type_ref, "");
         case CastOpIntWidenOrShorten:
@@ -901,11 +903,29 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_asm_expr(g, node);
         case NodeTypeNumberLiteral:
             {
-                Buf *number_str = &node->data.number;
-                LLVMTypeRef number_type = LLVMInt32Type();
-                LLVMValueRef number_val = LLVMConstIntOfStringAndSize(number_type,
-                        buf_ptr(number_str), buf_len(number_str), 10);
-                return number_val;
+                NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
+                assert(codegen_num_lit);
+                TypeTableEntry *type_entry = codegen_num_lit->resolved_type;
+                assert(type_entry);
+
+                // TODO this is kinda iffy. make sure josh is on board with this
+                node->codegen_node->expr_node.type_entry = type_entry;
+
+                if (type_entry->id == TypeTableEntryIdInt) {
+                    // here the union has int64_t and uint64_t and we purposefully read
+                    // the uint64_t value in either case, because we want the twos
+                    // complement representation
+
+                    return LLVMConstInt(type_entry->type_ref,
+                            node->data.number_literal.data.x_uint,
+                            type_entry->data.integral.is_signed);
+                } else if (type_entry->id == TypeTableEntryIdFloat) {
+
+                    return LLVMConstReal(type_entry->type_ref,
+                            node->data.number_literal.data.x_float);
+                } else {
+                    zig_panic("bad number literal type");
+                }
             }
         case NodeTypeStringLiteral:
             {
@@ -1186,6 +1206,20 @@ static void do_code_gen(CodeGen *g) {
 #endif
 }
 
+static const NumLit num_lit_kinds[] = {
+    NumLitF32,
+    NumLitF64,
+    NumLitF128,
+    NumLitI8,
+    NumLitU8,
+    NumLitI16,
+    NumLitU16,
+    NumLitI32,
+    NumLitU32,
+    NumLitI64,
+    NumLitU64,
+};
+
 static void define_builtin_types(CodeGen *g) {
     {
         // if this type is anywhere in the AST, we should never hit codegen.
@@ -1193,6 +1227,19 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "(invalid)");
         g->builtin_types.entry_invalid = entry;
     }
+
+    assert(NumLitCount == array_length(num_lit_kinds));
+    for (int i = 0; i < NumLitCount; i += 1) {
+        NumLit num_lit_kind = num_lit_kinds[i];
+        // This type should just create a constant with whatever actual number
+        // type is expected at the time.
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumberLiteral);
+        buf_resize(&entry->name, 0);
+        buf_appendf(&entry->name, "(%s literal)", num_lit_str(num_lit_kind));
+        entry->data.num_lit.kind = num_lit_kind;
+        g->num_lit_types[i] = entry;
+    }
+
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBool);
         entry->type_ref = LLVMInt1Type();
@@ -1217,6 +1264,19 @@ static void define_builtin_types(CodeGen *g) {
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_u8 = entry;
     }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->type_ref = LLVMInt64Type();
+        buf_init_from_str(&entry->name, "u64");
+        entry->size_in_bits = 64;
+        entry->align_in_bits = 64;
+        entry->data.integral.is_signed = false;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
+                LLVMZigEncoding_DW_ATE_unsigned());
+        g->type_table.put(&entry->name, entry);
+        g->builtin_types.entry_u64 = entry;
+    }
     g->builtin_types.entry_c_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -1230,6 +1290,19 @@ static void define_builtin_types(CodeGen *g) {
                 LLVMZigEncoding_DW_ATE_signed());
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_i32 = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->type_ref = LLVMInt64Type();
+        buf_init_from_str(&entry->name, "i64");
+        entry->size_in_bits = 64;
+        entry->align_in_bits = 64;
+        entry->data.integral.is_signed = true;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
+                LLVMZigEncoding_DW_ATE_signed());
+        g->type_table.put(&entry->name, entry);
+        g->builtin_types.entry_i64 = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -1268,6 +1341,18 @@ static void define_builtin_types(CodeGen *g) {
                 LLVMZigEncoding_DW_ATE_float());
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_f32 = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
+        entry->type_ref = LLVMFloatType();
+        buf_init_from_str(&entry->name, "f64");
+        entry->size_in_bits = 64;
+        entry->align_in_bits = 64;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
+                LLVMZigEncoding_DW_ATE_float());
+        g->type_table.put(&entry->name, entry);
+        g->builtin_types.entry_f64 = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);

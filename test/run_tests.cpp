@@ -266,7 +266,7 @@ extern {
 
 export fn _start() -> unreachable {
     let a : i32 = 1;
-    let b = 2;
+    let b = 2 as i32;
     if (a + b == 3) {
         puts(c"OK");
     }
@@ -299,12 +299,12 @@ extern {
 
 export fn _start() -> unreachable {
     if (true) {
-        let no_conflict = 5;
+        let no_conflict : i32 = 5;
         if (no_conflict == 5) { puts(c"OK 1"); }
     }
 
     let c = {
-        let no_conflict = 10;
+        let no_conflict = 10 as i32;
         no_conflict
     };
     if (c == 10) { puts(c"OK 2"); }
@@ -343,7 +343,7 @@ export fn _start() -> unreachable {
     let mut zero : i32;
     if (zero == 0) { puts(c"zero"); }
 
-    let mut i = 0;
+    let mut i = 0 as i32;
 loop_start:
     if i == 3 {
         goto done;
@@ -366,7 +366,7 @@ extern {
 export fn _start() -> unreachable {
     let mut array : [i32; 5];
 
-    let mut i = 0;
+    let mut i : i32 = 0;
 loop_start:
     if i == 5 {
         goto loop_end;
@@ -378,7 +378,7 @@ loop_start:
 loop_end:
 
     i = 0;
-    let mut accumulator = 0;
+    let mut accumulator = 0 as i32;
 loop_2_start:
     if i == 5 {
         goto loop_2_end;
@@ -611,7 +611,7 @@ fn f() -> i32 {
 fn f() {
     if (0) {}
 }
-    )SOURCE", 1, ".tmp_source.zig:3:9: error: expected type 'bool', got 'i32'");
+    )SOURCE", 1, ".tmp_source.zig:3:9: error: expected type 'bool', got '(u8 literal)'");
 
     add_compile_fail_case("assign unreachable", R"SOURCE(
 fn f() {
@@ -685,13 +685,12 @@ fn f(...) {}
 
 }
 
-static void print_compiler_invocation(TestCase *test_case, Buf *zig_stderr) {
+static void print_compiler_invocation(TestCase *test_case) {
     printf("%s", zig_exe);
     for (int i = 0; i < test_case->compiler_args.length; i += 1) {
         printf(" %s", test_case->compiler_args.at(i));
     }
     printf("\n");
-    printf("%s\n", buf_ptr(zig_stderr));
 }
 
 static void run_test(TestCase *test_case) {
@@ -716,21 +715,24 @@ static void run_test(TestCase *test_case) {
                     printf("========= Expected this compile error: =========\n");
                     printf("%s\n", err_text);
                     printf("================================================\n");
-                    print_compiler_invocation(test_case, &zig_stderr);
+                    print_compiler_invocation(test_case);
+                    printf("%s\n", buf_ptr(&zig_stderr));
                     exit(1);
                 }
             }
             return; // success
         } else {
             printf("\nCompile failed with return code 0 (Expected failure):\n");
-            print_compiler_invocation(test_case, &zig_stderr);
+            print_compiler_invocation(test_case);
+            printf("%s\n", buf_ptr(&zig_stderr));
             exit(1);
         }
     }
 
     if (return_code != 0) {
         printf("\nCompile failed with return code %d:\n", return_code);
-        print_compiler_invocation(test_case, &zig_stderr);
+        print_compiler_invocation(test_case);
+        printf("%s\n", buf_ptr(&zig_stderr));
         exit(1);
     }
 
@@ -740,6 +742,7 @@ static void run_test(TestCase *test_case) {
 
     if (return_code != 0) {
         printf("\nProgram exited with return code %d:\n", return_code);
+        print_compiler_invocation(test_case);
         printf("%s", tmp_exe_path);
         for (int i = 0; i < test_case->program_args.length; i += 1) {
             printf(" %s", test_case->program_args.at(i));
@@ -750,6 +753,12 @@ static void run_test(TestCase *test_case) {
     }
 
     if (!buf_eql_str(&program_stdout, test_case->output)) {
+        printf("\n");
+        print_compiler_invocation(test_case);
+        printf("%s", tmp_exe_path);
+        for (int i = 0; i < test_case->program_args.length; i += 1) {
+            printf(" %s", test_case->program_args.at(i));
+        }
         printf("\n");
         printf("==== Test failed. Expected output: ====\n");
         printf("%s\n", test_case->output);

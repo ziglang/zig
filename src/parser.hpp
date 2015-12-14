@@ -267,6 +267,36 @@ struct AstNodeStringLiteral {
     bool c;
 };
 
+enum NumLit {
+    NumLitF32,
+    NumLitF64,
+    NumLitF128,
+    NumLitI8,
+    NumLitU8,
+    NumLitI16,
+    NumLitU16,
+    NumLitI32,
+    NumLitU32,
+    NumLitI64,
+    NumLitU64,
+
+    NumLitCount
+};
+
+struct AstNodeNumberLiteral {
+    NumLit kind;
+
+    // overflow is true if when parsing the number, we discovered it would not
+    // fit without losing data in a uint64_t, int64_t, or double
+    bool overflow;
+
+    union {
+        uint64_t x_uint;
+        int64_t x_int;
+        double x_float;
+    } data;
+};
+
 struct AstNode {
     enum NodeType type;
     int line;
@@ -300,7 +330,7 @@ struct AstNode {
         AstNodeStructDecl struct_decl;
         AstNodeStructField struct_field;
         AstNodeStringLiteral string_literal;
-        Buf number;
+        AstNodeNumberLiteral number_literal;
         Buf symbol;
         bool bool_literal;
     } data;
@@ -328,5 +358,12 @@ AstNode * ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner, E
 const char *node_type_str(NodeType node_type);
 
 void ast_print(AstNode *node, int indent);
+
+const char *num_lit_str(NumLit num_lit);
+bool is_num_lit_signed(NumLit num_lit);
+bool is_num_lit_unsigned(NumLit num_lit);
+bool is_num_lit_float(NumLit num_lit);
+uint64_t num_lit_bit_count(NumLit num_lit);
+
 
 #endif

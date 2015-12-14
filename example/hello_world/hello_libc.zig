@@ -7,6 +7,6 @@ extern {
 }
 
 export fn _start() -> unreachable {
-    printf("Hello, world!\n");
+    printf(c"Hello, world!\n");
     exit(0);
 }
