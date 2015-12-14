@@ -654,6 +654,7 @@ static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type,
                 return false;
             }
     }
+    zig_unreachable();
 }
 
 

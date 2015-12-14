@@ -701,6 +701,11 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
         double x;
 
         (void)x;
+        (void)decimal_end;
+        (void)e_present;
+        (void)e_positive;
+        (void)e_digit_start;
+        (void)e_digit_end;
         zig_panic("TODO parse float");
     } else {
         // integer
