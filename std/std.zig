@@ -13,11 +13,15 @@ fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
     return result;
 }
 
+// TODO constants for SYS_write and stdout_fileno
+pub fn write(fd: isize, buf: *const u8, count: usize) -> isize {
+    let SYS_write : isize = 1;
+    return syscall3(SYS_write, fd, buf as isize, count as isize);
+}
+
 // TODO error handling
 // TODO handle buffering and flushing
-// TODO constants for SYS_write and stdout_fileno
 pub fn print_str(str : string) -> isize {
-    let SYS_write : isize = 1;
     let stdout_fileno : isize = 1;
-    return syscall3(SYS_write, stdout_fileno, str.ptr as isize, str.len as isize);
+    return write(stdout_fileno, str.ptr, str.len);
 }
