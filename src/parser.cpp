@@ -796,34 +796,33 @@ static Token *ast_eat_token(ParseContext *pc, int *token_index, TokenId token_id
 }
 
 
-static AstNode *ast_parse_directive(ParseContext *pc, int token_index, int *new_token_index) {
-    Token *number_sign = &pc->tokens->at(token_index);
-    token_index += 1;
+static AstNode *ast_parse_directive(ParseContext *pc, int *token_index) {
+    Token *number_sign = &pc->tokens->at(*token_index);
+    *token_index += 1;
     ast_expect_token(pc, number_sign, TokenIdNumberSign);
 
     AstNode *node = ast_create_node(pc, NodeTypeDirective, number_sign);
 
-    Token *name_symbol = &pc->tokens->at(token_index);
-    token_index += 1;
+    Token *name_symbol = &pc->tokens->at(*token_index);
+    *token_index += 1;
     ast_expect_token(pc, name_symbol, TokenIdSymbol);
 
     ast_buf_from_token(pc, name_symbol, &node->data.directive.name);
 
-    Token *l_paren = &pc->tokens->at(token_index);
-    token_index += 1;
+    Token *l_paren = &pc->tokens->at(*token_index);
+    *token_index += 1;
     ast_expect_token(pc, l_paren, TokenIdLParen);
 
-    Token *param_str = &pc->tokens->at(token_index);
-    token_index += 1;
+    Token *param_str = &pc->tokens->at(*token_index);
+    *token_index += 1;
     ast_expect_token(pc, param_str, TokenIdStringLiteral);
 
     parse_string_literal(pc, param_str, &node->data.directive.param, nullptr, nullptr);
 
-    Token *r_paren = &pc->tokens->at(token_index);
-    token_index += 1;
+    Token *r_paren = &pc->tokens->at(*token_index);
+    *token_index += 1;
     ast_expect_token(pc, r_paren, TokenIdRParen);
 
-    *new_token_index = token_index;
     return node;
 }
 
@@ -833,7 +832,7 @@ static void ast_parse_directives(ParseContext *pc, int *token_index,
     for (;;) {
         Token *token = &pc->tokens->at(*token_index);
         if (token->id == TokenIdNumberSign) {
-            AstNode *directive_node = ast_parse_directive(pc, *token_index, token_index);
+            AstNode *directive_node = ast_parse_directive(pc, token_index);
             directives->append(directive_node);
         } else {
             return;
@@ -848,9 +847,9 @@ Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayTyp
 PointerType : token(Star) (token(Const) | token(Mut)) Type
 ArrayType : token(LBracket) Type token(Semicolon) token(Number) token(RBracket)
 */
-static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token_index) {
-    Token *token = &pc->tokens->at(token_index);
-    token_index += 1;
+static AstNode *ast_parse_type(ParseContext *pc, int *token_index) {
+    Token *token = &pc->tokens->at(*token_index);
+    *token_index += 1;
 
     AstNode *node = ast_create_node(pc, NodeTypeType, token);
 
@@ -865,8 +864,8 @@ static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token
         ast_buf_from_token(pc, token, &node->data.type.primitive_name);
     } else if (token->id == TokenIdStar) {
         node->data.type.type = AstNodeTypeTypePointer;
-        Token *const_or_mut = &pc->tokens->at(token_index);
-        token_index += 1;
+        Token *const_or_mut = &pc->tokens->at(*token_index);
+        *token_index += 1;
         if (const_or_mut->id == TokenIdKeywordMut) {
             node->data.type.is_const = false;
         } else if (const_or_mut->id == TokenIdKeywordConst) {
@@ -875,51 +874,48 @@ static AstNode *ast_parse_type(ParseContext *pc, int token_index, int *new_token
             ast_invalid_token_error(pc, const_or_mut);
         }
 
-        node->data.type.child_type = ast_parse_type(pc, token_index, &token_index);
+        node->data.type.child_type = ast_parse_type(pc, token_index);
     } else if (token->id == TokenIdLBracket) {
         node->data.type.type = AstNodeTypeTypeArray;
 
-        node->data.type.child_type = ast_parse_type(pc, token_index, &token_index);
+        node->data.type.child_type = ast_parse_type(pc, token_index);
 
-        Token *semicolon_token = &pc->tokens->at(token_index);
-        token_index += 1;
+        Token *semicolon_token = &pc->tokens->at(*token_index);
+        *token_index += 1;
         ast_expect_token(pc, semicolon_token, TokenIdSemicolon);
 
-        node->data.type.array_size = ast_parse_expression(pc, &token_index, true);
+        node->data.type.array_size = ast_parse_expression(pc, token_index, true);
 
-        Token *rbracket_token = &pc->tokens->at(token_index);
-        token_index += 1;
+        Token *rbracket_token = &pc->tokens->at(*token_index);
+        *token_index += 1;
         ast_expect_token(pc, rbracket_token, TokenIdRBracket);
     } else {
         ast_invalid_token_error(pc, token);
     }
 
-    *new_token_index = token_index;
     return node;
 }
 
 /*
 ParamDecl : token(Symbol) token(Colon) Type | token(Ellipsis)
 */
-static AstNode *ast_parse_param_decl(ParseContext *pc, int token_index, int *new_token_index) {
-    Token *param_name = &pc->tokens->at(token_index);
-    token_index += 1;
+static AstNode *ast_parse_param_decl(ParseContext *pc, int *token_index) {
+    Token *param_name = &pc->tokens->at(*token_index);
+    *token_index += 1;
 
     if (param_name->id == TokenIdSymbol) {
         AstNode *node = ast_create_node(pc, NodeTypeParamDecl, param_name);
 
         ast_buf_from_token(pc, param_name, &node->data.param_decl.name);
 
-        Token *colon = &pc->tokens->at(token_index);
-        token_index += 1;
+        Token *colon = &pc->tokens->at(*token_index);
+        *token_index += 1;
         ast_expect_token(pc, colon, TokenIdColon);
 
-        node->data.param_decl.type = ast_parse_type(pc, token_index, &token_index);
+        node->data.param_decl.type = ast_parse_type(pc, token_index);
 
-        *new_token_index = token_index;
         return node;
     } else if (param_name->id == TokenIdEllipsis) {
-        *new_token_index = token_index;
         return nullptr;
     } else {
         ast_invalid_token_error(pc, param_name);
@@ -927,24 +923,23 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, int token_index, int *new
 }
 
 
-static void ast_parse_param_decl_list(ParseContext *pc, int token_index, int *new_token_index,
+static void ast_parse_param_decl_list(ParseContext *pc, int *token_index,
         ZigList<AstNode *> *params, bool *is_var_args)
 {
     *is_var_args = false;
 
-    Token *l_paren = &pc->tokens->at(token_index);
-    token_index += 1;
+    Token *l_paren = &pc->tokens->at(*token_index);
+    *token_index += 1;
     ast_expect_token(pc, l_paren, TokenIdLParen);
 
-    Token *token = &pc->tokens->at(token_index);
+    Token *token = &pc->tokens->at(*token_index);
     if (token->id == TokenIdRParen) {
-        token_index += 1;
-        *new_token_index = token_index;
+        *token_index += 1;
         return;
     }
 
     for (;;) {
-        AstNode *param_decl_node = ast_parse_param_decl(pc, token_index, &token_index);
+        AstNode *param_decl_node = ast_parse_param_decl(pc, token_index);
         bool expect_end = false;
         if (param_decl_node) {
             params->append(param_decl_node);
@@ -953,10 +948,9 @@ static void ast_parse_param_decl_list(ParseContext *pc, int token_index, int *ne
             expect_end = true;
         }
 
-        Token *token = &pc->tokens->at(token_index);
-        token_index += 1;
+        Token *token = &pc->tokens->at(*token_index);
+        *token_index += 1;
         if (token->id == TokenIdRParen) {
-            *new_token_index = token_index;
             return;
         } else if (expect_end) {
             ast_invalid_token_error(pc, token);
@@ -967,24 +961,20 @@ static void ast_parse_param_decl_list(ParseContext *pc, int token_index, int *ne
     zig_unreachable();
 }
 
-static void ast_parse_fn_call_param_list(ParseContext *pc, int token_index, int *new_token_index,
-        ZigList<AstNode*> *params)
-{
-    Token *token = &pc->tokens->at(token_index);
+static void ast_parse_fn_call_param_list(ParseContext *pc, int *token_index, ZigList<AstNode*> *params) {
+    Token *token = &pc->tokens->at(*token_index);
     if (token->id == TokenIdRParen) {
-        token_index += 1;
-        *new_token_index = token_index;
+        *token_index += 1;
         return;
     }
 
     for (;;) {
-        AstNode *expr = ast_parse_expression(pc, &token_index, true);
+        AstNode *expr = ast_parse_expression(pc, token_index, true);
         params->append(expr);
 
-        Token *token = &pc->tokens->at(token_index);
-        token_index += 1;
+        Token *token = &pc->tokens->at(*token_index);
+        *token_index += 1;
         if (token->id == TokenIdRParen) {
-            *new_token_index = token_index;
             return;
         } else {
             ast_expect_token(pc, token, TokenIdComma);
@@ -1102,7 +1092,7 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, int *token_index, boo
 
         AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, token);
         node->data.fn_call_expr.fn_ref_expr = primary_expr;
-        ast_parse_fn_call_param_list(pc, *token_index, token_index, &node->data.fn_call_expr.params);
+        ast_parse_fn_call_param_list(pc, token_index, &node->data.fn_call_expr.params);
         return node;
     } else if (token->id == TokenIdLBracket) {
         *token_index += 1;
@@ -1192,7 +1182,7 @@ static AstNode *ast_parse_cast_expression(ParseContext *pc, int *token_index, bo
         AstNode *node = ast_create_node(pc, NodeTypeCastExpr, as_kw);
         node->data.cast_expr.expr = operand_1;
 
-        node->data.cast_expr.type = ast_parse_type(pc, *token_index, token_index);
+        node->data.cast_expr.type = ast_parse_type(pc, token_index);
 
         operand_1 = node;
     }
@@ -1592,7 +1582,7 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token
             node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
             return node;
         } else if (eq_or_colon->id == TokenIdColon) {
-            node->data.variable_declaration.type = ast_parse_type(pc, *token_index, token_index);
+            node->data.variable_declaration.type = ast_parse_type(pc, token_index);
 
             Token *eq_token = &pc->tokens->at(*token_index);
             if (eq_token->id == TokenIdEq) {
@@ -2065,13 +2055,12 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
     ast_buf_from_token(pc, fn_name, &node->data.fn_proto.name);
 
 
-    ast_parse_param_decl_list(pc, *token_index, token_index,
-            &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
+    ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
 
     Token *arrow = &pc->tokens->at(*token_index);
     if (arrow->id == TokenIdArrow) {
         *token_index += 1;
-        node->data.fn_proto.return_type = ast_parse_type(pc, *token_index, token_index);
+        node->data.fn_proto.return_type = ast_parse_type(pc, token_index);
     } else {
         node->data.fn_proto.return_type = ast_create_void_type_node(pc, arrow);
     }
@@ -2097,17 +2086,16 @@ static AstNode *ast_parse_fn_def(ParseContext *pc, int *token_index, bool mandat
 /*
 FnDecl : FnProto token(Semicolon)
 */
-static AstNode *ast_parse_fn_decl(ParseContext *pc, int token_index, int *new_token_index) {
-    AstNode *fn_proto = ast_parse_fn_proto(pc, &token_index, true);
+static AstNode *ast_parse_fn_decl(ParseContext *pc, int *token_index) {
+    AstNode *fn_proto = ast_parse_fn_proto(pc, token_index, true);
     AstNode *node = ast_create_node_with_node(pc, NodeTypeFnDecl, fn_proto);
 
     node->data.fn_decl.fn_proto = fn_proto;
 
-    Token *semicolon = &pc->tokens->at(token_index);
-    token_index += 1;
+    Token *semicolon = &pc->tokens->at(*token_index);
+    *token_index += 1;
     ast_expect_token(pc, semicolon, TokenIdSemicolon);
 
-    *new_token_index = token_index;
     return node;
 }
 
@@ -2152,7 +2140,7 @@ static AstNode *ast_parse_extern_block(ParseContext *pc, int *token_index, bool 
             *token_index += 1;
             return node;
         } else {
-            AstNode *child = ast_parse_fn_decl(pc, *token_index, token_index);
+            AstNode *child = ast_parse_fn_decl(pc, token_index);
             node->data.extern_block.fn_decls.append(child);
         }
     }
@@ -2256,7 +2244,7 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
 
             ast_eat_token(pc, token_index, TokenIdColon);
 
-            field_node->data.struct_field.type = ast_parse_type(pc, *token_index, token_index);
+            field_node->data.struct_field.type = ast_parse_type(pc, token_index);
 
             ast_eat_token(pc, token_index, TokenIdComma);
 
