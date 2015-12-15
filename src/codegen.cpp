@@ -805,14 +805,12 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef *param_values = allocate<LLVMValueRef>(input_and_output_count);
     for (int i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
         AsmOutput *asm_output = asm_expr->output_list.at(i);
-        bool is_return = false;
-        if (buf_eql_str(&asm_output->constraint, "=m")) {
-            buf_append_str(&constraint_buf, "=*m");
-        } else if (buf_eql_str(&asm_output->constraint, "=r")) {
-            buf_append_str(&constraint_buf, "=r");
-            is_return = true;
+        bool is_return = (asm_output->return_type != nullptr);
+        assert(*buf_ptr(&asm_output->constraint) == '=');
+        if (is_return) {
+            buf_appendf(&constraint_buf, "=%s", buf_ptr(&asm_output->constraint) + 1);
         } else {
-            zig_panic("TODO unable to handle anything other than '=m' and '=r' for outputs");
+            buf_appendf(&constraint_buf, "=*%s", buf_ptr(&asm_output->constraint) + 1);
         }
         if (total_index + 1 < total_constraint_count) {
             buf_append_char(&constraint_buf, ',');
