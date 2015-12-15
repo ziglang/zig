@@ -585,10 +585,13 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
 }
 
 static unsigned long long parse_int_digits(ParseContext *pc, int digits_start, int digits_end, int radix,
-    unsigned long long initial_value, bool *overflow) {
-    unsigned long long x = initial_value;
+    int skip_index, bool *overflow)
+{
+    unsigned long long x = 0;
 
     for (int i = digits_start; i < digits_end; i++) {
+        if (i == skip_index)
+            continue;
         uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
         unsigned long long digit = get_digit_value(c);
 
@@ -625,7 +628,7 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
     if (token->decimal_point_pos == token->end_pos) {
         // integer
         unsigned long long whole_number = parse_int_digits(pc, whole_number_start, whole_number_end,
-            token->radix, 0, &num_lit->overflow);
+            token->radix, -1, &num_lit->overflow);
         if (num_lit->overflow) return;
 
         num_lit->data.x_uint = whole_number;
@@ -641,12 +644,6 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
         }
     } else {
         // float
-        // TODO: trim leading and trailing zeros in the significand digit sequence
-        unsigned long long significand_as_int = parse_int_digits(pc, whole_number_start, whole_number_end,
-            token->radix, 0, &num_lit->overflow);
-        if (num_lit->overflow) return;
-
-        int exponent = 0;
         if (token->decimal_point_pos < token->exponent_marker_pos) {
             // fraction
             int fraction_start = token->decimal_point_pos + 1;
@@ -655,15 +652,44 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
                 // TODO: error for empty fraction part
                 return;
             }
+        }
 
-            // TODO: check for where the fraction got too precise instead of just saying overflow
-            significand_as_int = parse_int_digits(pc, fraction_start, fraction_end,
-                    token->radix, significand_as_int, &num_lit->overflow);
-            if (num_lit->overflow) return;
+        // trim leading and trailing zeros in the significand digit sequence
+        int significand_start = whole_number_start;
+        for (; significand_start < token->exponent_marker_pos; significand_start++) {
+            if (significand_start == token->decimal_point_pos)
+                continue;
+            uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + significand_start);
+            if (c != '0')
+                break;
+        }
+        int significand_end = token->exponent_marker_pos;
+        for (; significand_end - 1 > significand_start; significand_end--) {
+            if (significand_end - 1 <= token->decimal_point_pos) {
+                significand_end = token->decimal_point_pos;
+                break;
+            }
+            uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + significand_end - 1);
+            if (c != '0')
+                break;
+        }
 
-            // adjust the exponent to compensate for us effectively moving
-            // the decimal point all the way to the right
-            exponent = -(fraction_end - fraction_start);
+        unsigned long long significand_as_int = parse_int_digits(pc, significand_start, significand_end,
+            token->radix, token->decimal_point_pos, &num_lit->overflow);
+        if (num_lit->overflow) return;
+
+        int exponent_in_bin_or_dec = 0;
+        if (significand_end > token->decimal_point_pos) {
+            exponent_in_bin_or_dec = token->decimal_point_pos + 1 - significand_end;
+            if (token->radix == 2) {
+                // already good
+            } else if (token->radix == 8) {
+                exponent_in_bin_or_dec *= 3;
+            } else if (token->radix == 10) {
+                // already good
+            } else if (token->radix == 16) {
+                exponent_in_bin_or_dec *= 4;
+            } else zig_unreachable();
         }
 
         if (token->exponent_marker_pos < token->end_pos) {
@@ -674,7 +700,6 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
                 // TODO: error for empty exponent part
                 return;
             }
-
             bool is_exponent_negative = false;
             uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + exponent_start);
             if (c == '+') {
@@ -690,16 +715,17 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
             }
 
             unsigned long long specified_exponent = parse_int_digits(pc, exponent_start, exponent_end,
-                10, 0, &num_lit->overflow);
+                10, -1, &num_lit->overflow);
             // TODO: this check is a little silly
             if (specified_exponent >= LONG_LONG_MAX) {
                 num_lit->overflow = true;
                 return;
             }
+
             if (is_exponent_negative) {
-                exponent -= specified_exponent;
+                exponent_in_bin_or_dec -= specified_exponent;
             } else {
-                exponent += specified_exponent;
+                exponent_in_bin_or_dec += specified_exponent;
             }
         }
 
@@ -707,16 +733,20 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
         uint64_t exponent_bits;
         if (significand_as_int != 0) {
             // normalize the significand
-            int significand_magnitude = __builtin_clzll(1) - __builtin_clzll(significand_as_int);
-            exponent += significand_magnitude;
-            if (!(-1023 <= exponent && exponent < 1023)) {
-                num_lit->overflow = true;
-                return;
-            }
+            if (token->radix == 10) {
+                zig_panic("TODO: decimal floats");
+            } else {
+                int significand_magnitude_in_bin = __builtin_clzll(1) - __builtin_clzll(significand_as_int);
+                exponent_in_bin_or_dec += significand_magnitude_in_bin;
+                if (!(-1023 <= exponent_in_bin_or_dec && exponent_in_bin_or_dec < 1023)) {
+                    num_lit->overflow = true;
+                    return;
+                }
 
-            // this should chop off exactly one 1 bit from the top.
-            significand_bits = ((uint64_t)significand_as_int << (52 - significand_magnitude)) & 0xfffffffffffffULL;
-            exponent_bits = exponent + 1023;
+                // this should chop off exactly one 1 bit from the top.
+                significand_bits = ((uint64_t)significand_as_int << (52 - significand_magnitude_in_bin)) & 0xfffffffffffffULL;
+                exponent_bits = exponent_in_bin_or_dec + 1023;
+            }
         } else {
             // 0 is all 0's
             significand_bits = 0;
