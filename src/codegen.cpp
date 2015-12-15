@@ -292,10 +292,16 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
                 if (actual_type->data.integral.is_signed && wanted_type->data.integral.is_signed) {
                     return LLVMBuildSExt(g->builder, expr_val, wanted_type->type_ref, "");
                 } else {
-                    zig_panic("TODO gen_cast_expr sign mismatch");
+                    zig_panic("TODO gen_cast_expr widen unsigned");
                 }
             } else {
-                zig_panic("TODO gen_cast_expr");
+                assert(actual_type->size_in_bits > wanted_type->size_in_bits);
+
+                if (actual_type->data.integral.is_signed && wanted_type->data.integral.is_signed) {
+                    return LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
+                } else {
+                    zig_panic("TODO gen_cast_expr shorten unsigned");
+                }
             }
         case CastOpArrayToString:
             {
