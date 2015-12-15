@@ -3,20 +3,17 @@ const SYS_exit : isize = 60;
 const stdout_fileno : isize = 1;
 
 fn syscall1(number: isize, arg1: isize) -> isize {
-    var result : isize;
     asm volatile ("
         mov %[number], %%rax
         mov %[arg1], %%rdi
         syscall
         mov %%rax, %[ret]"
-        : [ret] "=m" (result)
+        : [ret] "=r" (return isize)
         : [number] "r" (number), [arg1] "r" (arg1)
-        : "rcx", "r11", "rax", "rdi");
-    return result;
+        : "rcx", "r11", "rax", "rdi")
 }
 
 fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
-    var result : isize;
     asm volatile ("
         mov %[number], %%rax
         mov %[arg1], %%rdi
@@ -24,10 +21,9 @@ fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
         mov %[arg3], %%rdx
         syscall
         mov %%rax, %[ret]"
-        : [ret] "=m" (result)
+        : [ret] "=r" (return isize)
         : [number] "r" (number), [arg1] "r" (arg1), [arg2] "r" (arg2), [arg3] "r" (arg3)
-        : "rcx", "r11", "rax", "rdi", "rsi", "rdx");
-    return result;
+        : "rcx", "r11", "rax", "rdi", "rsi", "rdx")
 }
 
 pub fn write(fd: isize, buf: &const u8, count: usize) -> isize {

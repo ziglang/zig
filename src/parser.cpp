@@ -1731,7 +1731,7 @@ static void ast_parse_asm_input_item(ParseContext *pc, int *token_index, AstNode
 }
 
 /*
-AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) token(Symbol) token(RParen)
+AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Return) Type) token(RParen)
 */
 static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNode *node) {
     ast_eat_token(pc, token_index, TokenIdLBracket);
@@ -1740,14 +1740,24 @@ static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNod
 
     Token *constraint = ast_eat_token(pc, token_index, TokenIdStringLiteral);
 
+    AsmOutput *asm_output = allocate<AsmOutput>(1);
+
     ast_eat_token(pc, token_index, TokenIdLParen);
-    Token *out_symbol = ast_eat_token(pc, token_index, TokenIdSymbol);
+
+    Token *token = &pc->tokens->at(*token_index);
+    *token_index += 1;
+    if (token->id == TokenIdSymbol) {
+        ast_buf_from_token(pc, token, &asm_output->variable_name);
+    } else if (token->id == TokenIdKeywordReturn) {
+        asm_output->return_type = ast_parse_type(pc, token_index);
+    } else {
+        ast_invalid_token_error(pc, token);
+    }
+
     ast_eat_token(pc, token_index, TokenIdRParen);
 
-    AsmOutput *asm_output = allocate<AsmOutput>(1);
     ast_buf_from_token(pc, alias, &asm_output->asm_symbolic_name);
     parse_string_literal(pc, constraint, &asm_output->constraint, nullptr, nullptr);
-    ast_buf_from_token(pc, out_symbol, &asm_output->variable_name);
     node->data.asm_expr.output_list.append(asm_output);
 }
 

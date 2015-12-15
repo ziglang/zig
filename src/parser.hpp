@@ -228,6 +228,7 @@ struct AsmOutput {
     Buf asm_symbolic_name;
     Buf constraint;
     Buf variable_name;
+    AstNode *return_type; // null unless "=r" and return
 };
 
 struct AsmInput {
@@ -249,6 +250,7 @@ struct AstNodeAsmExpr {
     ZigList<AsmOutput*> output_list;
     ZigList<AsmInput*> input_list;
     ZigList<Buf*> clobber_list;
+    int return_count; // populated by analyze
 };
 
 struct AstNodeStructDecl {

@@ -790,33 +790,45 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
 
     Buf constraint_buf = BUF_INIT;
     buf_resize(&constraint_buf, 0);
+
+    assert(asm_expr->return_count == 0 || asm_expr->return_count == 1);
+
     int total_constraint_count = asm_expr->output_list.length +
                                  asm_expr->input_list.length +
                                  asm_expr->clobber_list.length;
     int input_and_output_count = asm_expr->output_list.length +
-                                 asm_expr->input_list.length;
+                                 asm_expr->input_list.length -
+                                 asm_expr->return_count;
     int total_index = 0;
+    int param_index = 0;
     LLVMTypeRef *param_types = allocate<LLVMTypeRef>(input_and_output_count);
     LLVMValueRef *param_values = allocate<LLVMValueRef>(input_and_output_count);
     for (int i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
         AsmOutput *asm_output = asm_expr->output_list.at(i);
+        bool is_return = false;
         if (buf_eql_str(&asm_output->constraint, "=m")) {
             buf_append_str(&constraint_buf, "=*m");
+        } else if (buf_eql_str(&asm_output->constraint, "=r")) {
+            buf_append_str(&constraint_buf, "=r");
+            is_return = true;
         } else {
-            zig_panic("TODO unable to handle anything other than '=m' for outputs");
+            zig_panic("TODO unable to handle anything other than '=m' and '=r' for outputs");
         }
         if (total_index + 1 < total_constraint_count) {
             buf_append_char(&constraint_buf, ',');
         }
 
-        VariableTableEntry *variable = find_variable(
-                node->codegen_node->expr_node.block_context,
-                &asm_output->variable_name);
-        assert(variable);
-        param_types[total_index] = LLVMTypeOf(variable->value_ref);
-        param_values[total_index] = variable->value_ref;
+        if (!is_return) {
+            VariableTableEntry *variable = find_variable(
+                    node->codegen_node->expr_node.block_context,
+                    &asm_output->variable_name);
+            assert(variable);
+            param_types[param_index] = LLVMTypeOf(variable->value_ref);
+            param_values[param_index] = variable->value_ref;
+            param_index += 1;
+        }
     }
-    for (int i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1) {
+    for (int i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1, param_index += 1) {
         AsmInput *asm_input = asm_expr->input_list.at(i);
         buf_append_buf(&constraint_buf, &asm_input->constraint);
         if (total_index + 1 < total_constraint_count) {
@@ -824,8 +836,8 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
         }
 
         TypeTableEntry *expr_type = get_expr_type(asm_input->expr);
-        param_types[total_index] = expr_type->type_ref;
-        param_values[total_index] = gen_expr(g, asm_input->expr);
+        param_types[param_index] = expr_type->type_ref;
+        param_values[param_index] = gen_expr(g, asm_input->expr);
     }
     for (int i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
         Buf *clobber_buf = asm_expr->clobber_list.at(i);
@@ -835,7 +847,13 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
         }
     }
 
-    LLVMTypeRef function_type = LLVMFunctionType(LLVMVoidType(), param_types, input_and_output_count, false);
+    LLVMTypeRef ret_type;
+    if (asm_expr->return_count == 0) {
+        ret_type = LLVMVoidType();
+    } else {
+        ret_type = get_expr_type(node)->type_ref;
+    }
+    LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, input_and_output_count, false);
 
     bool is_volatile = asm_expr->is_volatile || (asm_expr->output_list.length == 0);
     LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),

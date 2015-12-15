@@ -1233,16 +1233,27 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             }
         case NodeTypeAsmExpr:
             {
+                node->data.asm_expr.return_count = 0;
+                return_type = g->builtin_types.entry_void;
                 for (int i = 0; i < node->data.asm_expr.output_list.length; i += 1) {
                     AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
-                    analyze_variable_name(g, import, context, node, &asm_output->variable_name);
+                    if (asm_output->return_type) {
+                        node->data.asm_expr.return_count += 1;
+                        return_type = resolve_type(g, asm_output->return_type);
+                        if (node->data.asm_expr.return_count > 1) {
+                            add_node_error(g, node,
+                                buf_sprintf("inline assembly allows up to one output value"));
+                            break;
+                        }
+                    } else {
+                        analyze_variable_name(g, import, context, node, &asm_output->variable_name);
+                    }
                 }
                 for (int i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
                     AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
                     analyze_expression(g, import, context, nullptr, asm_input->expr);
                 }
 
-                return_type = g->builtin_types.entry_void;
                 break;
             }
         case NodeTypeBinOpExpr:
