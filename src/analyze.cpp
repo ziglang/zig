@@ -640,13 +640,7 @@ static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type,
         case TypeTableEntryIdStruct:
             return false;
         case TypeTableEntryIdInt:
-            if (is_num_lit_signed(num_lit)) {
-                if (!other_type->data.integral.is_signed) {
-                    return false;
-                }
-
-                return lit_size_in_bits <= other_type->size_in_bits;
-            } else if (is_num_lit_unsigned(num_lit)) {
+            if (is_num_lit_unsigned(num_lit)) {
 
                 return lit_size_in_bits <= other_type->size_in_bits;
             } else {
@@ -883,12 +877,6 @@ static TypeTableEntry * resolve_number_literals(CodeGen *g, AstNode *node1, AstN
             codegen_num_lit_1->resolved_type = g->builtin_types.entry_f64;
             codegen_num_lit_2->resolved_type = g->builtin_types.entry_f64;
             return g->builtin_types.entry_f64;
-        } else if (is_num_lit_signed(type1->data.num_lit.kind) &&
-                   is_num_lit_signed(type2->data.num_lit.kind))
-        {
-            codegen_num_lit_1->resolved_type = g->builtin_types.entry_i64;
-            codegen_num_lit_2->resolved_type = g->builtin_types.entry_i64;
-            return g->builtin_types.entry_i64;
         } else if (is_num_lit_unsigned(type1->data.num_lit.kind) &&
                    is_num_lit_unsigned(type2->data.num_lit.kind))
         {

@@ -11,6 +11,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <limits.h>
 
 
 static const char *bin_op_str(BinOpType bin_op) {
@@ -278,9 +279,7 @@ void ast_print(AstNode *node, int indent) {
                 NumLit num_lit = node->data.number_literal.kind;
                 const char *name = node_type_str(node->type);
                 const char *kind_str = num_lit_str(num_lit);
-                if (is_num_lit_signed(num_lit)) {
-                    fprintf(stderr, "%s %s %" PRId64 "\n", name, kind_str, node->data.number_literal.data.x_int);
-                } else if (is_num_lit_unsigned(num_lit)) {
+                if (is_num_lit_unsigned(num_lit)) {
                     fprintf(stderr, "%s %s %" PRIu64 "\n", name, kind_str, node->data.number_literal.data.x_uint);
                 } else {
                     fprintf(stderr, "%s %s %f\n", name, kind_str, node->data.number_literal.data.x_float);
@@ -585,187 +584,152 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
     if (offset_map) offset_map->append(pos);
 }
 
-enum ParseNumLitState {
-    ParseNumLitStateStart,
-    ParseNumLitStateBase,
-    ParseNumLitStateDigits,
-    ParseNumLitStateExpectFirstDigit,
-    ParseNumLitStateDecimal,
-    ParseNumLitStateESign,
-    ParseNumLitStateEDigit,
-};
+static unsigned long long parse_int_digits(ParseContext *pc, int digits_start, int digits_end, int radix,
+    unsigned long long initial_value, bool *overflow) {
+    unsigned long long x = initial_value;
+
+    for (int i = digits_start; i < digits_end; i++) {
+        uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
+        unsigned long long digit = get_digit_value(c);
+
+        // x *= radix;
+        if (__builtin_umulll_overflow(x, radix, &x)) {
+            *overflow = true;
+            return 0;
+        }
+
+        // x += digit
+        if (__builtin_uaddll_overflow(x, digit, &x)) {
+            *overflow = true;
+            return 0;
+        }
+    }
+    return x;
+}
 
 static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLiteral *num_lit) {
-    ParseNumLitState state = ParseNumLitStateStart;
-    unsigned long long base = 10;
-    bool negative = false;
-    int digits_start;
-    int digits_end;
-    int decimal_start = -1;
-    int decimal_end;
-    bool e_present = false;
-    bool e_positive;
-    int e_digit_start;
-    int e_digit_end;
+    assert(token->id == TokenIdNumberLiteral);
 
-    for (int i = token->start_pos; i < token->end_pos; i += 1) {
-        uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
-        switch (state) {
-            case ParseNumLitStateStart:
-                if (c == '-') {
-                    negative = true;
-                } else if (c == '0') {
-                    state = ParseNumLitStateBase;
-                } else if (c >= '1' && c <= '9') {
-                    digits_start = i;
-                    state = ParseNumLitStateDigits;
-                } else {
-                    zig_unreachable();
-                }
-                break;
-            case ParseNumLitStateBase:
-                if (c == 'x') {
-                    base = 16;
-                    state = ParseNumLitStateExpectFirstDigit;
-                } else if (c == 'o') {
-                    base = 8;
-                    state = ParseNumLitStateExpectFirstDigit;
-                } else if (c == 'b') {
-                    base = 2;
-                    state = ParseNumLitStateExpectFirstDigit;
-                } else {
-                    zig_unreachable();
-                }
-                break;
-
-            case ParseNumLitStateExpectFirstDigit:
-                state = ParseNumLitStateDigits;
-                break;
-
-            case ParseNumLitStateDigits:
-                if (c == '.') {
-                    assert(base == 10);
-                    digits_end = i;
-                    decimal_start = i + 1;
-                    state = ParseNumLitStateDecimal;
-                }
-                break;
-            case ParseNumLitStateDecimal:
-                if (c == 'E') {
-                    e_present = false;
-                    decimal_end = i;
-                    state = ParseNumLitStateESign;
-                }
-                break;
-            case ParseNumLitStateESign:
-                if (c == '+') {
-                    e_positive = true;
-                    e_digit_start = i + 1;
-                    state = ParseNumLitStateEDigit;
-                } else if (c == '-') {
-                    e_positive = false;
-                    e_digit_start = i + 1;
-                    state = ParseNumLitStateEDigit;
-                } else {
-                    zig_unreachable();
-                }
-                break;
-            case ParseNumLitStateEDigit:
-                assert(c >= '0' && c <= '9');
-                break;
-        }
+    int whole_number_start = token->start_pos;
+    if (token->radix != 10) {
+        // skip the "0x"
+        whole_number_start += 2;
     }
 
-    switch (state) {
-        case ParseNumLitStateDigits:
-            digits_end = token->end_pos;
-            break;
-        case ParseNumLitStateDecimal:
-            decimal_end = token->end_pos;
-            break;
-        case ParseNumLitStateEDigit:
-            e_digit_end = token->end_pos;
-            break;
-        case ParseNumLitStateBase:
-            num_lit->kind = NumLitU8;
-            num_lit->data.x_uint = 0;
-            return;
-        case ParseNumLitStateESign:
-        case ParseNumLitStateExpectFirstDigit:
-        case ParseNumLitStateStart:
-            zig_unreachable();
+    int whole_number_end = token->decimal_point_pos;
+    if (whole_number_end <= whole_number_start) {
+        // TODO: error for empty whole number part
+        return;
     }
 
-    if (decimal_start >= 0) {
-        // float
-        double x;
-
-        (void)x;
-        (void)decimal_end;
-        (void)e_present;
-        (void)e_positive;
-        (void)e_digit_start;
-        (void)e_digit_end;
-        zig_panic("TODO parse float");
-    } else {
+    if (token->decimal_point_pos == token->end_pos) {
         // integer
-        unsigned long long x = 0;
+        unsigned long long whole_number = parse_int_digits(pc, whole_number_start, whole_number_end,
+            token->radix, 0, &num_lit->overflow);
+        if (num_lit->overflow) return;
 
-        unsigned long long mult = 1;
-        for (int i = digits_end - 1; ; i -= 1) {
-            uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
-            unsigned long long digit = (c - '0');
+        num_lit->data.x_uint = whole_number;
 
-            // digit *= mult
-            if (__builtin_umulll_overflow(digit, mult, &digit)) {
-                num_lit->overflow = true;
-                return;
-            }
-
-            // x += digit
-            if (__builtin_uaddll_overflow(x, digit, &x)) {
-                num_lit->overflow = true;
-                return;
-            }
-
-            if (i == digits_start)
-                break;
-
-            // mult *= base
-            if (__builtin_umulll_overflow(mult, base, &mult)) {
-                num_lit->overflow = true;
-                return;
-            }
-        }
-
-        if (negative) {
-            if (x <= 128ull) {
-                num_lit->kind = NumLitI8;
-            } else if (x <= 32768ull) {
-                num_lit->kind = NumLitI16;
-            } else if (x <= 2147483648ull) {
-                num_lit->kind = NumLitI32;
-            } else if (x <= 9223372036854775808ull) {
-                num_lit->kind = NumLitI64;
-            } else {
-                num_lit->overflow = true;
-                return;
-            }
-
-            num_lit->data.x_int = -((int64_t)x);
+        if (whole_number <= UINT8_MAX) {
+            num_lit->kind = NumLitU8;
+        } else if (whole_number <= UINT16_MAX) {
+            num_lit->kind = NumLitU16;
+        } else if (whole_number <= UINT32_MAX) {
+            num_lit->kind = NumLitU32;
         } else {
-            num_lit->data.x_uint = x;
+            num_lit->kind = NumLitU64;
+        }
+    } else {
+        // float
+        // TODO: trim leading and trailing zeros in the significand digit sequence
+        unsigned long long significand_as_int = parse_int_digits(pc, whole_number_start, whole_number_end,
+            token->radix, 0, &num_lit->overflow);
+        if (num_lit->overflow) return;
 
-            if (x <= UINT8_MAX) {
-                num_lit->kind = NumLitU8;
-            } else if (x <= UINT16_MAX) {
-                num_lit->kind = NumLitU16;
-            } else if (x <= UINT32_MAX) {
-                num_lit->kind = NumLitU32;
+        int exponent = 0;
+        if (token->decimal_point_pos < token->exponent_marker_pos) {
+            // fraction
+            int fraction_start = token->decimal_point_pos + 1;
+            int fraction_end = token->exponent_marker_pos;
+            if (fraction_end <= fraction_start) {
+                // TODO: error for empty fraction part
+                return;
+            }
+
+            // TODO: check for where the fraction got too precise instead of just saying overflow
+            significand_as_int = parse_int_digits(pc, fraction_start, fraction_end,
+                    token->radix, significand_as_int, &num_lit->overflow);
+            if (num_lit->overflow) return;
+
+            // adjust the exponent to compensate for us effectively moving
+            // the decimal point all the way to the right
+            exponent = -(fraction_end - fraction_start);
+        }
+
+        if (token->exponent_marker_pos < token->end_pos) {
+            // exponent
+            int exponent_start = token->exponent_marker_pos + 1;
+            int exponent_end = token->end_pos;
+            if (exponent_end <= exponent_start) {
+                // TODO: error for empty exponent part
+                return;
+            }
+
+            bool is_exponent_negative = false;
+            uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + exponent_start);
+            if (c == '+') {
+                exponent_start += 1;
+            } else if (c == '-') {
+                exponent_start += 1;
+                is_exponent_negative = true;
+            }
+
+            if (exponent_end <= exponent_start) {
+                // TODO: error for empty exponent part
+                return;
+            }
+
+            unsigned long long specified_exponent = parse_int_digits(pc, exponent_start, exponent_end,
+                10, 0, &num_lit->overflow);
+            // TODO: this check is a little silly
+            if (specified_exponent >= LONG_LONG_MAX) {
+                num_lit->overflow = true;
+                return;
+            }
+            if (is_exponent_negative) {
+                exponent -= specified_exponent;
             } else {
-                num_lit->kind = NumLitU64;
+                exponent += specified_exponent;
             }
         }
+
+        uint64_t significand_bits;
+        uint64_t exponent_bits;
+        if (significand_as_int != 0) {
+            // normalize the significand
+            int significand_magnitude = __builtin_clzll(1) - __builtin_clzll(significand_as_int);
+            exponent += significand_magnitude;
+            if (!(-1023 <= exponent && exponent < 1023)) {
+                num_lit->overflow = true;
+                return;
+            }
+
+            // this should chop off exactly one 1 bit from the top.
+            significand_bits = ((uint64_t)significand_as_int << (52 - significand_magnitude)) & 0xfffffffffffffULL;
+            exponent_bits = exponent + 1023;
+        } else {
+            // 0 is all 0's
+            significand_bits = 0;
+            exponent_bits = 0;
+        }
+
+        uint64_t double_bits = (exponent_bits << 52) | significand_bits;
+        // TODO: check and swap endian
+        double x = *(double *)&double_bits;
+
+        num_lit->data.x_float = x;
+        // TODO: see if we can store it in f32
+        num_lit->kind = NumLitF64;
     }
 }
 
@@ -2366,14 +2330,6 @@ const char *num_lit_str(NumLit num_lit) {
             return "f64";
         case NumLitF128:
             return "f128";
-        case NumLitI8:
-            return "i8";
-        case NumLitI16:
-            return "i16";
-        case NumLitI32:
-            return "i32";
-        case NumLitI64:
-            return "i64";
         case NumLitU8:
             return "u8";
         case NumLitU16:
@@ -2388,37 +2344,11 @@ const char *num_lit_str(NumLit num_lit) {
     zig_unreachable();
 }
 
-bool is_num_lit_signed(NumLit num_lit) {
-    switch (num_lit) {
-        case NumLitI8:
-        case NumLitI16:
-        case NumLitI32:
-        case NumLitI64:
-            return true;
-
-        case NumLitF32:
-        case NumLitF64:
-        case NumLitF128:
-        case NumLitU8:
-        case NumLitU16:
-        case NumLitU32:
-        case NumLitU64:
-            return false;
-        case NumLitCount:
-            zig_unreachable();
-    }
-    zig_unreachable();
-}
-
 bool is_num_lit_unsigned(NumLit num_lit) {
     switch (num_lit) {
         case NumLitF32:
         case NumLitF64:
         case NumLitF128:
-        case NumLitI8:
-        case NumLitI16:
-        case NumLitI32:
-        case NumLitI64:
             return false;
         case NumLitU8:
         case NumLitU16:
@@ -2437,10 +2367,6 @@ bool is_num_lit_float(NumLit num_lit) {
         case NumLitF64:
         case NumLitF128:
             return true;
-        case NumLitI8:
-        case NumLitI16:
-        case NumLitI32:
-        case NumLitI64:
         case NumLitU8:
         case NumLitU16:
         case NumLitU32:
@@ -2454,17 +2380,13 @@ bool is_num_lit_float(NumLit num_lit) {
 
 uint64_t num_lit_bit_count(NumLit num_lit) {
     switch (num_lit) {
-        case NumLitI8:
         case NumLitU8:
             return 8;
-        case NumLitI16:
         case NumLitU16:
             return 16;
-        case NumLitI32:
         case NumLitU32:
         case NumLitF32:
             return 32;
-        case NumLitI64:
         case NumLitU64:
         case NumLitF64:
             return 64;

@@ -167,6 +167,9 @@ static void begin_token(Tokenize *t, TokenId id) {
     token->start_column = t->column;
     token->id = id;
     token->start_pos = t->pos;
+    token->radix = 0;
+    token->decimal_point_pos = 0;
+    token->exponent_marker_pos = 0;
     t->cur_tok = token;
 }
 
@@ -242,7 +245,8 @@ static bool is_exponent_signifier(uint8_t c, int radix) {
         return c == 'e' || c == 'E';
     }
 }
-static int get_digit_value(uint8_t c) {
+
+int get_digit_value(uint8_t c) {
     if ('0' <= c && c <= '9') {
         return c - '0';
     }

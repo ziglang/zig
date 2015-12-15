@@ -273,13 +273,9 @@ enum NumLit {
     NumLitF32,
     NumLitF64,
     NumLitF128,
-    NumLitI8,
     NumLitU8,
-    NumLitI16,
     NumLitU16,
-    NumLitI32,
     NumLitU32,
-    NumLitI64,
     NumLitU64,
 
     NumLitCount
@@ -294,7 +290,6 @@ struct AstNodeNumberLiteral {
 
     union {
         uint64_t x_uint;
-        int64_t x_int;
         double x_float;
     } data;
 };
@@ -362,7 +357,6 @@ const char *node_type_str(NodeType node_type);
 void ast_print(AstNode *node, int indent);
 
 const char *num_lit_str(NumLit num_lit);
-bool is_num_lit_signed(NumLit num_lit);
 bool is_num_lit_unsigned(NumLit num_lit);
 bool is_num_lit_float(NumLit num_lit);
 uint64_t num_lit_bit_count(NumLit num_lit);

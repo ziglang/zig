@@ -1254,13 +1254,9 @@ static const NumLit num_lit_kinds[] = {
     NumLitF32,
     NumLitF64,
     NumLitF128,
-    NumLitI8,
     NumLitU8,
-    NumLitI16,
     NumLitU16,
-    NumLitI32,
     NumLitU32,
-    NumLitI64,
     NumLitU64,
 };
 
@@ -1388,7 +1384,7 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->type_ref = LLVMFloatType();
+        entry->type_ref = LLVMDoubleType();
         buf_init_from_str(&entry->name, "f64");
         entry->size_in_bits = 64;
         entry->align_in_bits = 64;

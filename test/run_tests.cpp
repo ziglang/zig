@@ -477,6 +477,19 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 }
     )SOURCE", "OK\n");
 
+    add_simple_case("number literals", R"SOURCE(
+#link("c")
+extern {
+    fn printf(__format: &const u8, ...) -> i32;
+    fn exit(__status: i32) -> unreachable;
+}
+
+export fn _start() -> unreachable {
+    printf(c"0=%d\n", 0 as i32); // TODO: more tests
+    exit(0);
+}
+    )SOURCE", "0=0\n");
+
     add_simple_case("structs", R"SOURCE(
 use "std.zig";
 
