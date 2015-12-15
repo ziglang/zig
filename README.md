@@ -58,6 +58,9 @@ compromises backward compatibility.
 
 ### Debug / Development Build
 
+If you have gcc or clang installed, you can find out what `ZIG_LIBC_DIR` should
+be set to with: `dirname $(cc -print-file-name=crt1.o)`.
+
 ```
 mkdir build
 cd build
