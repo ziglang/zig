@@ -558,7 +558,7 @@ static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef target_ref;
     TypeTableEntry *op1_type;
     if (lhs_node->type == NodeTypeSymbol) {
-        LocalVariableTableEntry *var = find_local_variable(node->codegen_node->expr_node.block_context,
+        VariableTableEntry *var = find_variable(node->codegen_node->expr_node.block_context,
                 &lhs_node->data.symbol);
 
         // semantic checking ensures no variables are constant
@@ -807,7 +807,7 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
             buf_append_char(&constraint_buf, ',');
         }
 
-        LocalVariableTableEntry *variable = find_local_variable(
+        VariableTableEntry *variable = find_variable(
                 node->codegen_node->expr_node.block_context,
                 &asm_output->variable_name);
         assert(variable);
@@ -851,7 +851,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_return_expr(g, node);
         case NodeTypeVariableDeclaration:
             {
-                LocalVariableTableEntry *variable = find_local_variable(
+                VariableTableEntry *variable = find_variable(
                         node->codegen_node->expr_node.block_context,
                         &node->data.variable_declaration.symbol);
 
@@ -940,13 +940,14 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             }
         case NodeTypeSymbol:
             {
-                LocalVariableTableEntry *variable = find_local_variable(
+                VariableTableEntry *variable = find_variable(
                         node->codegen_node->expr_node.block_context,
                         &node->data.symbol);
                 assert(variable);
                 if (variable->type->id == TypeTableEntryIdVoid) {
                     return nullptr;
                 } else if (variable->is_ptr) {
+                    assert(variable->value_ref);
                     if (variable->type->id == TypeTableEntryIdArray) {
                         return variable->value_ref;
                     } else if (variable->type->id == TypeTableEntryIdStruct) {
@@ -1035,9 +1036,25 @@ static LLVMAttribute to_llvm_fn_attr(FnAttrId attr_id) {
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
+    // Generate module level variables
+    for (int i = 0; i < g->global_vars.length; i += 1) {
+        VariableTableEntry *var = g->global_vars.at(i);
+
+        LLVMValueRef init_val = gen_expr(g, var->decl_node->data.variable_declaration.expr);
+
+        // TODO if the global is exported, set external linkage
+        LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_val), "");
+        LLVMSetLinkage(global_value, LLVMPrivateLinkage);
+        LLVMSetInitializer(global_value, init_val);
+        LLVMSetGlobalConstant(global_value, var->is_const);
+        LLVMSetUnnamedAddr(global_value, true);
+
+        var->value_ref = global_value;
+    }
+
     // Generate function prototypes
-    for (int i = 0; i < g->fn_protos.length; i += 1) {
-        FnTableEntry *fn_table_entry = g->fn_protos.at(i);
+    for (int fn_proto_i = 0; fn_proto_i < g->fn_protos.length; fn_proto_i += 1) {
+        FnTableEntry *fn_table_entry = g->fn_protos.at(fn_proto_i);
 
         AstNode *proto_node = fn_table_entry->proto_node;
         assert(proto_node->type == NodeTypeFnProto);
@@ -1090,14 +1107,13 @@ static void do_code_gen(CodeGen *g) {
         AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
         // Add debug info.
-        LLVMZigDIScope *fn_scope = LLVMZigFileToScope(import->di_file);
         unsigned line_number = fn_def_node->line + 1;
         unsigned scope_line = line_number;
         bool is_definition = true;
         unsigned flags = 0;
         bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
         LLVMZigDISubprogram *subprogram = LLVMZigCreateFunction(g->dbuilder,
-            fn_scope, buf_ptr(&fn_proto->name), "", import->di_file, line_number,
+            import->block_context->di_scope, buf_ptr(&fn_proto->name), "", import->di_file, line_number,
             create_di_function_type(g, fn_proto, import->di_file), fn_table_entry->internal_linkage, 
             is_definition, scope_line, flags, is_optimized, fn);
 
@@ -1123,7 +1139,7 @@ static void do_code_gen(CodeGen *g) {
             assert(param_decl->type == NodeTypeParamDecl);
             if (is_param_decl_type_void(g, param_decl))
                 continue;
-            LocalVariableTableEntry *parameter_variable = fn_def_node->codegen_node->data.fn_def_node.block_context->variable_table.get(&param_decl->data.param_decl.name);
+            VariableTableEntry *parameter_variable = fn_def_node->codegen_node->data.fn_def_node.block_context->variable_table.get(&param_decl->data.param_decl.name);
             parameter_variable->value_ref = params[non_void_index];
             non_void_index += 1;
         }
@@ -1135,7 +1151,7 @@ static void do_code_gen(CodeGen *g) {
         for (int bc_i = 0; bc_i < fn_table_entry->all_block_contexts.length; bc_i += 1) {
             BlockContext *block_context = fn_table_entry->all_block_contexts.at(bc_i);
 
-            if (block_context->parent) {
+            if (!block_context->di_scope) {
                 LLVMZigDILexicalBlock *di_block = LLVMZigCreateLexicalBlock(g->dbuilder,
                     block_context->parent->di_scope,
                     import->di_file,
@@ -1152,7 +1168,7 @@ static void do_code_gen(CodeGen *g) {
                 if (!entry)
                     break;
 
-                LocalVariableTableEntry *var = entry->value;
+                VariableTableEntry *var = entry->value;
                 if (var->type->id == TypeTableEntryIdVoid)
                     continue;
 
@@ -1530,7 +1546,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *src_dirname, Buf *src
     import_entry->di_file = LLVMZigCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
     g->import_table.put(full_path, import_entry);
 
-    import_entry->block_context = new_block_context(nullptr, nullptr);
+    import_entry->block_context = new_block_context(import_entry->root, nullptr);
     import_entry->block_context->di_scope = LLVMZigFileToScope(import_entry->di_file);
 
 

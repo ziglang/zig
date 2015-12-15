@@ -16,6 +16,7 @@
 struct FnTableEntry;
 struct BlockContext;
 struct TypeTableEntry;
+struct VariableTableEntry;
 
 struct TypeTableEntryPointer {
     TypeTableEntry *pointer_child;
@@ -177,6 +178,7 @@ struct CodeGen {
     // The function prototypes this module includes. In the case of external declarations,
     // there will not be a corresponding fn_defs entry.
     ZigList<FnTableEntry *> fn_protos;
+    ZigList<VariableTableEntry *> global_vars;
 
     OutType out_type;
     FnTableEntry *cur_fn;
@@ -192,7 +194,7 @@ struct CodeGen {
     ImportTableEntry *root_import;
 };
 
-struct LocalVariableTableEntry {
+struct VariableTableEntry {
     Buf name;
     TypeTableEntry *type;
     LLVMValueRef value_ref;
@@ -204,10 +206,10 @@ struct LocalVariableTableEntry {
 };
 
 struct BlockContext {
-    AstNode *node; // either NodeTypeFnDef or NodeTypeBlock or null for module scope
+    AstNode *node; // either NodeTypeFnDef or NodeTypeBlock or NodeTypeRoot
     FnTableEntry *fn_entry; // null at the module scope
     BlockContext *parent; // null when this is the root
-    HashMap<Buf *, LocalVariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
+    HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
     ZigList<AstNode *> cast_expr_alloca_list;
     LLVMZigDIScope *di_scope;
 };
@@ -234,7 +236,7 @@ struct ExprNode {
 };
 
 struct AssignNode {
-    LocalVariableTableEntry *var_entry;
+    VariableTableEntry *var_entry;
 };
 
 struct BlockNode {
@@ -295,7 +297,7 @@ void semantic_analyze(CodeGen *g);
 void add_node_error(CodeGen *g, AstNode *node, Buf *msg);
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id);
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
-LocalVariableTableEntry *find_local_variable(BlockContext *context, Buf *name);
+VariableTableEntry *find_variable(BlockContext *context, Buf *name);
 BlockContext *new_block_context(AstNode *node, BlockContext *parent);
 
 #endif
