@@ -77,7 +77,9 @@ void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
 
 void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
     buf_init_from_buf(out_full_path, dirname);
-    buf_append_char(out_full_path, '/');
+    uint8_t c = *(buf_ptr(out_full_path) + buf_len(out_full_path) - 1);
+    if (c != '/')
+        buf_append_char(out_full_path, '/');
     buf_append_buf(out_full_path, basename);
 }
 

@@ -29,6 +29,7 @@ static int usage(const char *arg0) {
         "  --output [file]        override destination path\n"
         "  --verbose              turn on compiler debug output\n"
         "  --color [auto|off|on]  enable or disable colored error messages\n"
+        "  --libc-path [path]     set the C compiler data path\n"
         "Command: parseh target\n"
         "  -isystem [dir]         add additional search path for other .h files\n"
         "  -dirafter [dir]        same as -isystem but do it last\n"
@@ -52,6 +53,7 @@ struct Build {
     const char *out_name;
     bool verbose;
     ErrColor color;
+    const char *libc_path;
 };
 
 static int build(const char *arg0, int argc, char **argv) {
@@ -99,6 +101,8 @@ static int build(const char *arg0, int argc, char **argv) {
                     }
                 } else if (strcmp(arg, "--name") == 0) {
                     b.out_name = argv[i];
+                } else if (strcmp(arg, "--libc-path") == 0) {
+                    b.libc_path = argv[i];
                 } else {
                     return usage(arg0);
                 }
@@ -142,6 +146,8 @@ static int build(const char *arg0, int argc, char **argv) {
         codegen_set_out_type(g, b.out_type);
     if (b.out_name)
         codegen_set_out_name(g, buf_create_from_str(b.out_name));
+    if (b.libc_path)
+        codegen_set_libc_path(g, buf_create_from_str(b.libc_path));
     codegen_set_verbose(g, b.verbose);
     codegen_set_errmsg_color(g, b.color);
     codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);

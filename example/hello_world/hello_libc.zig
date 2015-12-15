@@ -6,7 +6,7 @@ extern {
     fn exit(__status: i32) -> unreachable;
 }
 
-export fn _start() -> unreachable {
+export fn main(argc: i32, argv: &&u8, env: &&u8) -> i32 {
     printf(c"Hello, world!\n");
-    exit(0);
+    return 0;
 }

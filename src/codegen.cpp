@@ -58,6 +58,10 @@ void codegen_set_out_name(CodeGen *g, Buf *out_name) {
     g->root_out_name = out_name;
 }
 
+void codegen_set_libc_path(CodeGen *g, Buf *libc_path) {
+    g->libc_path = libc_path;
+}
+
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node);
     
 
@@ -1517,6 +1521,18 @@ static void init(CodeGen *g, Buf *source_path) {
 
 }
 
+static bool directives_contains_link_libc(ZigList<AstNode*> *directives) {
+    for (int i = 0; i < directives->length; i += 1) {
+        AstNode *directive_node = directives->at(i);
+        if (buf_eql_str(&directive_node->data.directive.name, "link") &&
+            buf_eql_str(&directive_node->data.directive.param, "c"))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code) {
     int err;
     Buf *full_path = buf_alloc();
@@ -1613,11 +1629,13 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *src_dirname, Buf *src
             assert(proto_node->type == NodeTypeFnProto);
             Buf *proto_name = &proto_node->data.fn_proto.name;
 
-            bool is_exported = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModPrivate);
+            bool is_private = (proto_node->data.fn_proto.visib_mod == FnProtoVisibModPrivate);
 
-            if (buf_eql_str(proto_name, "main") && is_exported) {
-                g->insert_bootstrap_code = true;
+            if (buf_eql_str(proto_name, "main") && !is_private) {
+                g->have_exported_main = true;
             }
+        } else if (top_level_decl->type == NodeTypeExternBlock) {
+            g->link_libc = directives_contains_link_libc(top_level_decl->data.extern_block.directives);
         }
     }
 
@@ -1633,7 +1651,7 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
 
     g->root_import = codegen_add_code(g, src_dir, src_basename, source_code);
 
-    if (g->insert_bootstrap_code) {
+    if (g->have_exported_main && !g->link_libc && g->out_type != OutTypeLib) {
         Buf *bootstrap_dir = buf_create_from_str(ZIG_STD_DIR);
         Buf *bootstrap_basename = buf_create_from_str("bootstrap.zig");
         Buf path_to_bootstrap_src = BUF_INIT;
@@ -1788,6 +1806,22 @@ static void generate_h_file(CodeGen *g) {
         zig_panic("unable to close h file: %s", strerror(errno));
 }
 
+static void find_libc_path(CodeGen *g) {
+    if (g->libc_path && buf_len(g->libc_path))
+        return;
+    g->libc_path = buf_create_from_str(ZIG_LIBC_DIR);
+    if (g->libc_path && buf_len(g->libc_path))
+        return;
+    fprintf(stderr, "Unable to determine libc path. Consider using `--libc-path [path]`\n");
+    exit(1);
+}
+
+static const char *get_libc_file(CodeGen *g, const char *file) {
+    Buf *out_buf = buf_alloc();
+    os_path_join(g->libc_path, buf_create_from_str(file), out_buf);
+    return buf_ptr(out_buf);
+}
+
 void codegen_link(CodeGen *g, const char *out_file) {
     bool is_optimized = (g->build_type == CodeGenBuildTypeRelease);
     if (is_optimized) {
@@ -1826,6 +1860,9 @@ void codegen_link(CodeGen *g, const char *out_file) {
     }
 
     if (g->out_type == OutTypeObj) {
+        if (g->verbose) {
+            fprintf(stderr, "OK\n");
+        }
         return;
     }
 
@@ -1840,8 +1877,12 @@ void codegen_link(CodeGen *g, const char *out_file) {
 
     // invoke `ld`
     ZigList<const char *> args = {0};
+    const char *crt1o;
     if (g->is_static) {
         args.append("-static");
+        crt1o = "crt1.o";
+    } else {
+        crt1o = "Scrt1.o";
     }
 
     char *ZIG_NATIVE_DYNAMIC_LINKER = getenv("ZIG_NATIVE_DYNAMIC_LINKER");
@@ -1868,7 +1909,20 @@ void codegen_link(CodeGen *g, const char *out_file) {
     args.append("-o");
     args.append(out_file);
 
+    bool link_in_crt = (g->link_libc && g->out_type == OutTypeExe);
+
+    if (link_in_crt) {
+        find_libc_path(g);
+
+        args.append(get_libc_file(g, crt1o));
+        args.append(get_libc_file(g, "crti.o"));
+    }
+
     args.append((const char *)buf_ptr(&out_file_o));
+
+    if (link_in_crt) {
+        args.append(get_libc_file(g, "crtn.o"));
+    }
 
     auto it = g->link_table.entry_iterator();
     for (;;) {
@@ -1880,7 +1934,24 @@ void codegen_link(CodeGen *g, const char *out_file) {
         args.append(buf_ptr(arg));
     }
 
-    os_spawn_process("ld", args, false);
+    if (g->verbose) {
+        fprintf(stderr, "ld");
+        for (int i = 0; i < args.length; i += 1) {
+            fprintf(stderr, " %s", args.at(i));
+        }
+        fprintf(stderr, "\n");
+    }
+
+    int return_code;
+    Buf ld_stderr = BUF_INIT;
+    Buf ld_stdout = BUF_INIT;
+    os_exec_process("ld", args, &return_code, &ld_stderr, &ld_stdout);
+
+    if (return_code != 0) {
+        fprintf(stderr, "ld failed with return code %d\n", return_code);
+        fprintf(stderr, "%s\n", buf_ptr(&ld_stderr));
+        exit(1);
+    }
 
     if (g->out_type == OutTypeLib) {
         generate_h_file(g);

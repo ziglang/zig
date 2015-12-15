@@ -61,7 +61,7 @@ compromises backward compatibility.
 ```
 mkdir build
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)
+cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_DIR=path/to/libc/dir
 make
 make install
 ./run_tests
@@ -72,7 +72,7 @@ make install
 ```
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake .. -DCMAKE_BUILD_TYPE=Release -DZIG_LIBC_DIR=path/to/libc/dir
 make
 sudo make install
 ```

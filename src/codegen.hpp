@@ -33,6 +33,7 @@ void codegen_set_verbose(CodeGen *codegen, bool verbose);
 void codegen_set_errmsg_color(CodeGen *codegen, ErrColor err_color);
 void codegen_set_out_type(CodeGen *codegen, OutType out_type);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
+void codegen_set_libc_path(CodeGen *codegen, Buf *libc_path);
 
 void codegen_add_root_code(CodeGen *g, Buf *source_dir, Buf *source_basename, Buf *source_code);
 

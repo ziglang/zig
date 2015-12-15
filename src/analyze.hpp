@@ -164,7 +164,9 @@ struct CodeGen {
     unsigned pointer_size_bytes;
     bool is_static;
     bool strip_debug_symbols;
-    bool insert_bootstrap_code;
+    bool have_exported_main;
+    bool link_libc;
+    Buf *libc_path;
     CodeGenBuildType build_type;
     LLVMTargetMachineRef target_machine;
     LLVMZigDIFile *dummy_di_file;

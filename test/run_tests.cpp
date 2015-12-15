@@ -100,43 +100,34 @@ static void add_compiling_test_cases(void) {
         #link("c")
         extern {
             fn puts(s: &const u8) -> i32;
-            fn exit(code: i32) -> unreachable;
         }
 
-        export fn _start() -> unreachable {
+        export fn main(argc: i32, argv: &&u8, env: &&u8) -> i32 {
             puts(c"Hello, world!");
-            exit(0);
+            return 0;
         }
     )SOURCE", "Hello, world!\n");
 
     add_simple_case("function call", R"SOURCE(
-        #link("c")
-        extern {
-            fn puts(s: &const u8) -> i32;
-            fn exit(code: i32) -> unreachable;
-        }
+        use "std.zig";
 
         fn empty_function_1() {}
         fn empty_function_2() { return; }
 
-        export fn _start() -> unreachable {
+        pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
             empty_function_1();
             empty_function_2();
             this_is_a_function();
         }
 
         fn this_is_a_function() -> unreachable {
-            puts(c"OK");
+            print_str("OK\n" as string);
             exit(0);
         }
     )SOURCE", "OK\n");
 
     add_simple_case("comments", R"SOURCE(
-        #link("c")
-        extern {
-            fn puts(s: &const u8) -> i32;
-            fn exit(code: i32) -> unreachable;
-        }
+        use "std.zig";
 
         /**
          * multi line doc comment
@@ -145,9 +136,9 @@ static void add_compiling_test_cases(void) {
 
         /// this is a documentation comment
         /// doc comment line 2
-        export fn _start() -> unreachable {
-            puts(/* mid-line comment /* nested */ */ c"OK");
-            exit(0);
+        pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+            print_str(/* mid-line comment /* nested */ */ "OK\n" as string);
+            return 0;
         }
     )SOURCE", "OK\n");
 
@@ -156,7 +147,7 @@ static void add_compiling_test_cases(void) {
             use "libc.zig";
             use "foo.zig";
 
-            export fn _start() -> unreachable {
+            export fn main(argc: i32, argv: &&u8, env: &&u8) -> i32 {
                 private_function();
             }
 
@@ -190,180 +181,144 @@ static void add_compiling_test_cases(void) {
     }
 
     add_simple_case("if statements", R"SOURCE(
-        #link("c")
-        extern {
-            fn puts(s: &const u8) -> i32;
-            fn exit(code: i32) -> unreachable;
-        }
+        use "std.zig";
 
-        export fn _start() -> unreachable {
+        pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
             if 1 != 0 {
-                puts(c"1 is true");
+                print_str("1 is true\n" as string);
             } else {
-                puts(c"1 is false");
+                print_str("1 is false\n" as string);
             }
             if 0 != 0 {
-                puts(c"0 is true");
+                print_str("0 is true\n" as string);
             } else if 1 - 1 != 0 {
-                puts(c"1 - 1 is true");
+                print_str("1 - 1 is true\n" as string);
             }
             if !(0 != 0) {
-                puts(c"!0 is true");
+                print_str("!0 is true\n" as string);
             }
-            exit(0);
+            return 0;
         }
     )SOURCE", "1 is true\n!0 is true\n");
 
     add_simple_case("params", R"SOURCE(
-        #link("c")
-        extern {
-            fn puts(s: &const u8) -> i32;
-            fn exit(code: i32) -> unreachable;
-        }
+        use "std.zig";
 
         fn add(a: i32, b: i32) -> i32 {
             a + b
         }
 
-        export fn _start() -> unreachable {
+        pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
             if add(22, 11) == 33 {
-                puts(c"pass");
+                print_str("pass\n" as string);
             }
-            exit(0);
+            return 0;
         }
     )SOURCE", "pass\n");
 
     add_simple_case("goto", R"SOURCE(
-        #link("c")
-        extern {
-            fn puts(s: &const u8) -> i32;
-            fn exit(code: i32) -> unreachable;
-        }
+        use "std.zig";
 
         fn loop(a : i32) {
             if a == 0 {
                 goto done;
             }
-            puts(c"loop");
+            print_str("loop\n" as string);
             loop(a - 1);
 
         done:
             return;
         }
 
-        export fn _start() -> unreachable {
+        pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
             loop(3);
-            exit(0);
+            return 0;
         }
     )SOURCE", "loop\nloop\nloop\n");
 
     add_simple_case("local variables", R"SOURCE(
-#link("c")
-extern {
-    fn puts(s: &const u8) -> i32;
-    fn exit(code: i32) -> unreachable;
-}
+use "std.zig";
 
-export fn _start() -> unreachable {
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     const a : i32 = 1;
     const b = 2 as i32;
     if (a + b == 3) {
-        puts(c"OK");
+        print_str("OK\n" as string);
     }
-    exit(0);
+    return 0;
 }
     )SOURCE", "OK\n");
 
     add_simple_case("bool literals", R"SOURCE(
-#link("c")
-extern {
-    fn puts(s: &const u8) -> i32;
-    fn exit(code: i32) -> unreachable;
-}
+use "std.zig";
 
-export fn _start() -> unreachable {
-    if (true)   { puts(c"OK 1"); }
-    if (false)  { puts(c"BAD 1"); }
-    if (!true)  { puts(c"BAD 2"); }
-    if (!false) { puts(c"OK 2"); }
-    exit(0);
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    if (true)   { print_str("OK 1\n" as string); }
+    if (false)  { print_str("BAD 1\n" as string); }
+    if (!true)  { print_str("BAD 2\n" as string); }
+    if (!false) { print_str("OK 2\n" as string); }
+    return 0;
 }
     )SOURCE", "OK 1\nOK 2\n");
 
     add_simple_case("separate block scopes", R"SOURCE(
-#link("c")
-extern {
-    fn puts(s: &const u8) -> i32;
-    fn exit(code: i32) -> unreachable;
-}
+use "std.zig";
 
-export fn _start() -> unreachable {
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     if (true) {
         const no_conflict : i32 = 5;
-        if (no_conflict == 5) { puts(c"OK 1"); }
+        if (no_conflict == 5) { print_str("OK 1\n" as string); }
     }
 
     const c = {
         const no_conflict = 10 as i32;
         no_conflict
     };
-    if (c == 10) { puts(c"OK 2"); }
-    exit(0);
+    if (c == 10) { print_str("OK 2\n" as string); }
+    return 0;
 }
     )SOURCE", "OK 1\nOK 2\n");
 
     add_simple_case("void parameters", R"SOURCE(
-#link("c")
-extern {
-    fn puts(s: &const u8) -> i32;
-    fn exit(code: i32) -> unreachable;
-}
+use "std.zig";
 
-export fn _start() -> unreachable {
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     void_fun(1, void, 2);
-    exit(0);
+    return 0;
 }
 
 fn void_fun(a : i32, b : void, c : i32) {
     const v = b;
     const vv : void = if (a == 1) {v} else {};
-    if (a + c == 3) { puts(c"OK"); }
+    if (a + c == 3) { print_str("OK\n" as string); }
     return vv;
 }
     )SOURCE", "OK\n");
 
     add_simple_case("mutable local variables", R"SOURCE(
-#link("c")
-extern {
-    fn puts(s: &const u8) -> i32;
-    fn exit(code: i32) -> unreachable;
-}
+use "std.zig";
 
-export fn _start() -> unreachable {
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     var zero : i32;
-    if (zero == 0) { puts(c"zero"); }
+    if (zero == 0) { print_str("zero\n" as string); }
 
     var i = 0 as i32;
 loop_start:
     if i == 3 {
         goto done;
     }
-    puts(c"loop");
+    print_str("loop\n" as string);
     i = i + 1;
     goto loop_start;
 done:
-    exit(0);
+    return 0;
 }
     )SOURCE", "zero\nloop\nloop\nloop\n");
 
     add_simple_case("arrays", R"SOURCE(
-#link("c")
-extern {
-    fn puts(s: &const u8) -> i32;
-    fn exit(code: i32) -> unreachable;
-}
+use "std.zig";
 
-export fn _start() -> unreachable {
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     var array : [i32; 5];
 
     var i : i32 = 0;
@@ -391,10 +346,10 @@ loop_2_start:
 loop_2_end:
 
     if accumulator == 15 {
-        puts(c"OK");
+        print_str("OK\n" as string);
     }
 
-    exit(0);
+    return 0;
 }
     )SOURCE", "OK\n");
 
@@ -481,12 +436,11 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 #link("c")
 extern {
     fn printf(__format: &const u8, ...) -> i32;
-    fn exit(__status: i32) -> unreachable;
 }
 
-export fn _start() -> unreachable {
+export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     printf(c"0=%d\n", 0 as i32); // TODO: more tests
-    exit(0);
+    return 0;
 }
     )SOURCE", "0=0\n");
 
