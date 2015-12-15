@@ -12,7 +12,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <limits.h>
-
+#include <errno.h>
 
 static const char *bin_op_str(BinOpType bin_op) {
     switch (bin_op) {
@@ -622,6 +622,7 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
     int whole_number_end = token->decimal_point_pos;
     if (whole_number_end <= whole_number_start) {
         // TODO: error for empty whole number part
+        num_lit->overflow = true;
         return;
     }
 
@@ -644,12 +645,31 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
         }
     } else {
         // float
+
+        if (token->radix == 10) {
+            // use a third-party base-10 float parser
+            char *str_begin = buf_ptr(pc->buf) + whole_number_start;
+            char *str_end;
+            errno = 0;
+            double x = strtod(str_begin, &str_end);
+            if (errno) {
+                // TODO: forward error to user
+                num_lit->overflow = true;
+                return;
+            }
+            assert(str_end == buf_ptr(pc->buf) + token->end_pos);
+            num_lit->data.x_float = x;
+            num_lit->kind = NumLitF64;
+            return;
+        }
+
         if (token->decimal_point_pos < token->exponent_marker_pos) {
             // fraction
             int fraction_start = token->decimal_point_pos + 1;
             int fraction_end = token->exponent_marker_pos;
             if (fraction_end <= fraction_start) {
                 // TODO: error for empty fraction part
+                num_lit->overflow = true;
                 return;
             }
         }
@@ -698,6 +718,7 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
             int exponent_end = token->end_pos;
             if (exponent_end <= exponent_start) {
                 // TODO: error for empty exponent part
+                num_lit->overflow = true;
                 return;
             }
             bool is_exponent_negative = false;
@@ -711,6 +732,7 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
 
             if (exponent_end <= exponent_start) {
                 // TODO: error for empty exponent part
+                num_lit->overflow = true;
                 return;
             }
 
@@ -754,7 +776,6 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
         }
 
         uint64_t double_bits = (exponent_bits << 52) | significand_bits;
-        // TODO: check and swap endian
         double x = *(double *)&double_bits;
 
         num_lit->data.x_float = x;
