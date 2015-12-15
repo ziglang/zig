@@ -1,10 +1,6 @@
 export executable "expressions";
 
-#link("c")
-extern {
-    fn puts(s: &const u8) -> i32;
-    fn exit(code: i32) -> unreachable;
-}
+use "std.zig";
 
 fn other_exit() -> unreachable {
     if (true) { exit(0); }
@@ -12,21 +8,21 @@ fn other_exit() -> unreachable {
     unreachable;
 }
 
-export fn _start() -> unreachable {
+export fn main(argc: isize, argv: &&u8, env: &&u8) -> unreachable {
     const a : i32 = 1;
     const b = 2 as i32;
     // const c : i32; // not yet support for const variables
     // const d; // parse error
     if (a + b == 3) {
         const no_conflict : i32 = 5;
-        if (no_conflict == 5) { puts(c"OK 1"); }
+        if (no_conflict == 5) { print_str("OK 1\n" as string); }
     }
 
     const c = {
         const no_conflict : i32 = 10;
         no_conflict
     };
-    if (c == 10) { puts(c"OK 2"); }
+    if (c == 10) { print_str("OK 2\n" as string); }
 
     void_fun(1, void, 2);
 
@@ -49,7 +45,7 @@ loop_start:
     if i == 3 {
         goto done;
     }
-    puts(c"loop");
+    print_str("loop\n" as string);
     i = i + 1;
     goto loop_start;
 done:

@@ -1,5 +1,19 @@
 const SYS_write : isize = 1;
+const SYS_exit : isize = 60;
 const stdout_fileno : isize = 1;
+
+fn syscall1(number: isize, arg1: isize) -> isize {
+    var result : isize;
+    asm volatile ("
+        mov %[number], %%rax
+        mov %[arg1], %%rdi
+        syscall
+        mov %%rax, %[ret]"
+        : [ret] "=m" (result)
+        : [number] "r" (number), [arg1] "r" (arg1)
+        : "rcx", "r11", "rax", "rdi");
+    return result;
+}
 
 fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
     var result : isize;
@@ -18,6 +32,11 @@ fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
 
 pub fn write(fd: isize, buf: &const u8, count: usize) -> isize {
     return syscall3(SYS_write, fd, buf as isize, count as isize);
+}
+
+pub fn exit(status: i32) -> unreachable {
+    syscall1(SYS_exit, status as isize);
+    unreachable;
 }
 
 // TODO error handling
