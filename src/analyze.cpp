@@ -315,7 +315,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 auto entry = import->fn_table.maybe_get(proto_name);
                 bool skip = false;
                 bool is_internal = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModExport);
-                bool is_pub = (proto_node->data.fn_proto.visib_mod == FnProtoVisibModPub);
+                bool is_pub = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModPrivate);
                 if (entry) {
                     add_node_error(g, node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));

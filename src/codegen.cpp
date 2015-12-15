@@ -1611,7 +1611,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *src_dirname, Buf *src
             assert(proto_node->type == NodeTypeFnProto);
             Buf *proto_name = &proto_node->data.fn_proto.name;
 
-            bool is_exported = (proto_node->data.fn_proto.visib_mod == FnProtoVisibModExport);
+            bool is_exported = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModPrivate);
 
             if (buf_eql_str(proto_name, "main") && is_exported) {
                 g->insert_bootstrap_code = true;
