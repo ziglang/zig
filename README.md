@@ -59,18 +59,21 @@ compromises backward compatibility.
 ### Debug / Development Build
 
 If you have gcc or clang installed, you can find out what `ZIG_LIBC_DIR` should
-be set to with: `dirname $(cc -print-file-name=crt1.o)`.
+be set to (example below).
 
 ```
 mkdir build
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_DIR=path/to/libc/dir
+cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_DIR=$(dirname $(cc -print-file-name=crt1.o))
 make
 make install
 ./run_tests
 ```
 
 ### Release / Install Build
+
+Once installed, `ZIG_LIBC_DIR` can be overridden by the `--libc-path` parameter
+to the zig binary.
 
 ```
 mkdir build
