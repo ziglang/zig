@@ -2,7 +2,7 @@ export executable "arrays";
 
 use "std.zig";
 
-export fn main(argc: isize, argv: *mut *mut u8, env: *mut *mut u8) -> i32 {
+export fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     let mut array : [i32; 5];
 
     let mut i : i32 = 0;
@@ -30,7 +30,7 @@ loop_2_start:
 loop_2_end:
 
     if accumulator == 15 {
-        print_str("OK" as string);
+        print_str("OK\n" as string);
     }
 
 

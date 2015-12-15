@@ -320,7 +320,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateSawDash;
                         break;
                     case '&':
-                        begin_token(&t, TokenIdBinAnd);
+                        begin_token(&t, TokenIdAmpersand);
                         t.state = TokenizeStateSawAmpersand;
                         break;
                     case '^':
@@ -832,7 +832,7 @@ static const char * token_name(Token *token) {
         case TokenIdDash: return "Dash";
         case TokenIdNumberSign: return "NumberSign";
         case TokenIdBinOr: return "BinOr";
-        case TokenIdBinAnd: return "BinAnd";
+        case TokenIdAmpersand: return "Ampersand";
         case TokenIdBinXor: return "BinXor";
         case TokenIdBoolOr: return "BoolOr";
         case TokenIdBoolAnd: return "BoolAnd";

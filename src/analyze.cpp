@@ -111,7 +111,7 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
         entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
         buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "*%s %s", is_const ? "const" : "mut", buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "&%s%s", is_const ? "const " : "", buf_ptr(&child_type->name));
         entry->size_in_bits = g->pointer_size_bytes * 8;
         entry->align_in_bits = g->pointer_size_bytes * 8;
         entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type->di_type,

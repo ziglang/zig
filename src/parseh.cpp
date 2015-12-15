@@ -250,9 +250,9 @@ static Buf *to_zig_type(ParseH *p, CXType raw_type) {
                 CXType pointee_type = clang_getArrayElementType(raw_type);
                 Buf *pointee_buf = to_zig_type(p, pointee_type);
                 if (clang_isConstQualifiedType(pointee_type)) {
-                    return buf_sprintf("*const %s", buf_ptr(pointee_buf));
+                    return buf_sprintf("&const %s", buf_ptr(pointee_buf));
                 } else {
-                    return buf_sprintf("*mut %s", buf_ptr(pointee_buf));
+                    return buf_sprintf("&%s", buf_ptr(pointee_buf));
                 }
             }
         case CXType_Pointer:
@@ -265,9 +265,9 @@ static Buf *to_zig_type(ParseH *p, CXType raw_type) {
                     pointee_buf = to_zig_type(p, pointee_type);
                 }
                 if (clang_isConstQualifiedType(pointee_type)) {
-                    return buf_sprintf("*const %s", buf_ptr(pointee_buf));
+                    return buf_sprintf("&const %s", buf_ptr(pointee_buf));
                 } else {
-                    return buf_sprintf("*mut %s", buf_ptr(pointee_buf));
+                    return buf_sprintf("&%s", buf_ptr(pointee_buf));
                 }
             }
         case CXType_Record:

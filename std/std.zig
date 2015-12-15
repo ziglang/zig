@@ -14,7 +14,7 @@ fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
 }
 
 // TODO constants for SYS_write and stdout_fileno
-pub fn write(fd: isize, buf: *const u8, count: usize) -> isize {
+pub fn write(fd: isize, buf: &const u8, count: usize) -> isize {
     let SYS_write : isize = 1;
     return syscall3(SYS_write, fd, buf as isize, count as isize);
 }

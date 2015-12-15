@@ -2,7 +2,7 @@ export executable "expressions";
 
 #link("c")
 extern {
-    fn puts(s: *const u8) -> i32;
+    fn puts(s: &const u8) -> i32;
     fn exit(code: i32) -> unreachable;
 }
 

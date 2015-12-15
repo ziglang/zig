@@ -2,7 +2,7 @@ export executable "hello";
 
 #link("c")
 extern {
-    fn printf(__format: *const u8, ...) -> i32;
+    fn printf(__format: &const u8, ...) -> i32;
     fn exit(__status: i32) -> unreachable;
 }
 

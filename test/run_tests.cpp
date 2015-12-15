@@ -99,7 +99,7 @@ static void add_compiling_test_cases(void) {
     add_simple_case("hello world with libc", R"SOURCE(
         #link("c")
         extern {
-            fn puts(s: *const u8) -> i32;
+            fn puts(s: &const u8) -> i32;
             fn exit(code: i32) -> unreachable;
         }
 
@@ -112,7 +112,7 @@ static void add_compiling_test_cases(void) {
     add_simple_case("function call", R"SOURCE(
         #link("c")
         extern {
-            fn puts(s: *const u8) -> i32;
+            fn puts(s: &const u8) -> i32;
             fn exit(code: i32) -> unreachable;
         }
 
@@ -134,7 +134,7 @@ static void add_compiling_test_cases(void) {
     add_simple_case("comments", R"SOURCE(
         #link("c")
         extern {
-            fn puts(s: *const u8) -> i32;
+            fn puts(s: &const u8) -> i32;
             fn exit(code: i32) -> unreachable;
         }
 
@@ -169,7 +169,7 @@ static void add_compiling_test_cases(void) {
         add_source_file(tc, "libc.zig", R"SOURCE(
             #link("c")
             extern {
-                pub fn puts(s: *const u8) -> i32;
+                pub fn puts(s: &const u8) -> i32;
                 pub fn exit(code: i32) -> unreachable;
             }
         )SOURCE");
@@ -192,7 +192,7 @@ static void add_compiling_test_cases(void) {
     add_simple_case("if statements", R"SOURCE(
         #link("c")
         extern {
-            fn puts(s: *const u8) -> i32;
+            fn puts(s: &const u8) -> i32;
             fn exit(code: i32) -> unreachable;
         }
 
@@ -217,7 +217,7 @@ static void add_compiling_test_cases(void) {
     add_simple_case("params", R"SOURCE(
         #link("c")
         extern {
-            fn puts(s: *const u8) -> i32;
+            fn puts(s: &const u8) -> i32;
             fn exit(code: i32) -> unreachable;
         }
 
@@ -236,7 +236,7 @@ static void add_compiling_test_cases(void) {
     add_simple_case("goto", R"SOURCE(
         #link("c")
         extern {
-            fn puts(s: *const u8) -> i32;
+            fn puts(s: &const u8) -> i32;
             fn exit(code: i32) -> unreachable;
         }
 
@@ -260,7 +260,7 @@ static void add_compiling_test_cases(void) {
     add_simple_case("local variables", R"SOURCE(
 #link("c")
 extern {
-    fn puts(s: *const u8) -> i32;
+    fn puts(s: &const u8) -> i32;
     fn exit(code: i32) -> unreachable;
 }
 
@@ -277,7 +277,7 @@ export fn _start() -> unreachable {
     add_simple_case("bool literals", R"SOURCE(
 #link("c")
 extern {
-    fn puts(s: *const u8) -> i32;
+    fn puts(s: &const u8) -> i32;
     fn exit(code: i32) -> unreachable;
 }
 
@@ -293,7 +293,7 @@ export fn _start() -> unreachable {
     add_simple_case("separate block scopes", R"SOURCE(
 #link("c")
 extern {
-    fn puts(s: *const u8) -> i32;
+    fn puts(s: &const u8) -> i32;
     fn exit(code: i32) -> unreachable;
 }
 
@@ -315,7 +315,7 @@ export fn _start() -> unreachable {
     add_simple_case("void parameters", R"SOURCE(
 #link("c")
 extern {
-    fn puts(s: *const u8) -> i32;
+    fn puts(s: &const u8) -> i32;
     fn exit(code: i32) -> unreachable;
 }
 
@@ -335,7 +335,7 @@ fn void_fun(a : i32, b : void, c : i32) {
     add_simple_case("mutable local variables", R"SOURCE(
 #link("c")
 extern {
-    fn puts(s: *const u8) -> i32;
+    fn puts(s: &const u8) -> i32;
     fn exit(code: i32) -> unreachable;
 }
 
@@ -359,7 +359,7 @@ done:
     add_simple_case("arrays", R"SOURCE(
 #link("c")
 extern {
-    fn puts(s: *const u8) -> i32;
+    fn puts(s: &const u8) -> i32;
     fn exit(code: i32) -> unreachable;
 }
 
@@ -402,7 +402,7 @@ loop_2_end:
     add_simple_case("hello world without libc", R"SOURCE(
 use "std.zig";
 
-export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
+export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     print_str("Hello, world!\n" as string);
     return 0;
 }
@@ -412,7 +412,7 @@ export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
     add_simple_case("a + b + c", R"SOURCE(
 use "std.zig";
 
-export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
+export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     if false || false || false { print_str("BAD 1\n" as string); }
     if true && true && false   { print_str("BAD 2\n" as string); }
     if 1 | 2 | 4 != 7          { print_str("BAD 3\n" as string); }
@@ -434,7 +434,7 @@ export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
     add_simple_case("short circuit", R"SOURCE(
 use "std.zig";
 
-export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
+export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     if true || { print_str("BAD 1\n" as string); false } {
       print_str("OK 1\n" as string);
     }
@@ -457,7 +457,7 @@ export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
     add_simple_case("modify operators", R"SOURCE(
 use "std.zig";
 
-export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
+export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     let mut i : i32 = 0;
     i += 5;  if i != 5  { print_str("BAD +=\n" as string); }
     i -= 2;  if i != 3  { print_str("BAD -=\n" as string); }
@@ -480,7 +480,7 @@ export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
     add_simple_case("structs", R"SOURCE(
 use "std.zig";
 
-export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
+export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     let mut foo : Foo;
     foo.a = foo.a + 1;
     foo.b = foo.a == 1;
@@ -542,7 +542,7 @@ fn a() -> bogus {}
     )SOURCE", 1, ".tmp_source.zig:2:11: error: invalid type name: 'bogus'");
 
     add_compile_fail_case("pointer to unreachable", R"SOURCE(
-fn a() -> *mut unreachable {}
+fn a() -> &unreachable {}
     )SOURCE", 1, ".tmp_source.zig:2:11: error: pointer to unreachable not allowed");
 
     add_compile_fail_case("unreachable code", R"SOURCE(
@@ -605,7 +605,7 @@ fn f() -> i32 {
     let a = c"a";
     a
 }
-    )SOURCE", 1, ".tmp_source.zig:2:15: error: expected type 'i32', got '*const u8'");
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: expected type 'i32', got '&const u8'");
 
     add_compile_fail_case("if condition is bool, not int", R"SOURCE(
 fn f() {
@@ -682,7 +682,6 @@ fn f() {
     add_compile_fail_case("variadic functions only allowed in extern", R"SOURCE(
 fn f(...) {}
     )SOURCE", 1, ".tmp_source.zig:2:1: error: variadic arguments only allowed in extern functions");
-
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

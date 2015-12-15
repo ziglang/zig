@@ -60,7 +60,7 @@ ParamDecl : token(Symbol) token(Colon) Type | token(Ellipsis)
 
 Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType
 
-PointerType : token(Star) (token(Const) | token(Mut)) Type
+PointerType : token(Ampersand) option(token(Const)) Type
 
 ArrayType : token(LBracket) Type token(Semicolon) Expression token(RBracket)
 
@@ -114,7 +114,7 @@ BinaryOrExpression : BinaryXorExpression token(BinOr) BinaryOrExpression | Binar
 
 BinaryXorExpression : BinaryAndExpression token(BinXor) BinaryXorExpression | BinaryAndExpression
 
-BinaryAndExpression : BitShiftExpression token(BinAnd) BinaryAndExpression | BitShiftExpression
+BinaryAndExpression : BitShiftExpression token(Ampersand) BinaryAndExpression | BitShiftExpression
 
 BitShiftExpression : AdditionExpression BitShiftOperator BitShiftExpression | AdditionExpression
 

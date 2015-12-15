@@ -52,7 +52,7 @@ enum TokenId {
     TokenIdBoolOr,
     TokenIdBoolAnd,
     TokenIdBinOr,
-    TokenIdBinAnd,
+    TokenIdAmpersand,
     TokenIdBinXor,
     TokenIdEq,
     TokenIdTimesEq,

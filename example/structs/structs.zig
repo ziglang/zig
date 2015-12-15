@@ -2,7 +2,7 @@ export executable "structs";
 
 use "std.zig";
 
-export fn main(argc : isize, argv : *mut *mut u8, env : *mut *mut u8) -> i32 {
+export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     let mut foo : Foo;
 
     foo.a = foo.a + 1;

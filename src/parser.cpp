@@ -781,6 +781,7 @@ static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool ma
 static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandatory);
 static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool mandatory);
 static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool mandatory);
+static AstNode *ast_parse_type(ParseContext *pc, int *token_index);
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
     if (token->id != token_id) {
@@ -841,10 +842,21 @@ static void ast_parse_directives(ParseContext *pc, int *token_index,
     zig_unreachable();
 }
 
+static void ast_parse_type_assume_amp(ParseContext *pc, int *token_index, AstNode *node) {
+    node->data.type.type = AstNodeTypeTypePointer;
+    Token *first_type_token = &pc->tokens->at(*token_index);
+    if (first_type_token->id == TokenIdKeywordConst) {
+        node->data.type.is_const = true;
+        *token_index += 1;
+        first_type_token = &pc->tokens->at(*token_index);
+    }
+
+    node->data.type.child_type = ast_parse_type(pc, token_index);
+}
 
 /*
 Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType
-PointerType : token(Star) (token(Const) | token(Mut)) Type
+PointerType : token(Ampersand) option(token(Const)) Type
 ArrayType : token(LBracket) Type token(Semicolon) token(Number) token(RBracket)
 */
 static AstNode *ast_parse_type(ParseContext *pc, int *token_index) {
@@ -862,19 +874,17 @@ static AstNode *ast_parse_type(ParseContext *pc, int *token_index) {
     } else if (token->id == TokenIdSymbol) {
         node->data.type.type = AstNodeTypeTypePrimitive;
         ast_buf_from_token(pc, token, &node->data.type.primitive_name);
-    } else if (token->id == TokenIdStar) {
+    } else if (token->id == TokenIdAmpersand) {
+        ast_parse_type_assume_amp(pc, token_index, node);
+    } else if (token->id == TokenIdBoolAnd) {
+        // Pretend that we got 2 ampersand tokens
         node->data.type.type = AstNodeTypeTypePointer;
-        Token *const_or_mut = &pc->tokens->at(*token_index);
-        *token_index += 1;
-        if (const_or_mut->id == TokenIdKeywordMut) {
-            node->data.type.is_const = false;
-        } else if (const_or_mut->id == TokenIdKeywordConst) {
-            node->data.type.is_const = true;
-        } else {
-            ast_invalid_token_error(pc, const_or_mut);
-        }
 
-        node->data.type.child_type = ast_parse_type(pc, token_index);
+        node->data.type.child_type = ast_create_node_no_line_info(pc, NodeTypeType);
+        node->data.type.child_type->line = token->start_line;
+        node->data.type.child_type->column = token->start_column + 1;
+
+        ast_parse_type_assume_amp(pc, token_index, node->data.type.child_type);
     } else if (token->id == TokenIdLBracket) {
         node->data.type.type = AstNodeTypeTypeArray;
 
@@ -1341,7 +1351,7 @@ static AstNode *ast_parse_bit_shift_expr(ParseContext *pc, int *token_index, boo
 
 
 /*
-BinaryAndExpression : BitShiftExpression token(BinAnd) BinaryAndExpression | BitShiftExpression
+BinaryAndExpression : BitShiftExpression token(Ampersand) BinaryAndExpression | BitShiftExpression
 */
 static AstNode *ast_parse_bin_and_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_bit_shift_expr(pc, token_index, mandatory);
@@ -1350,7 +1360,7 @@ static AstNode *ast_parse_bin_and_expr(ParseContext *pc, int *token_index, bool 
 
     while (true) {
         Token *token = &pc->tokens->at(*token_index);
-        if (token->id != TokenIdBinAnd)
+        if (token->id != TokenIdAmpersand)
             return operand_1;
         *token_index += 1;
 
