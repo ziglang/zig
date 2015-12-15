@@ -2266,7 +2266,7 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
 }
 
 /*
-TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use | StructDecl
+TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use | StructDecl | VariableDeclaration
 */
 static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigList<AstNode *> *top_level_decls) {
     for (;;) {
@@ -2309,6 +2309,13 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
             ast_error(pc, directive_token, "invalid directive");
         }
         pc->directive_list = nullptr;
+
+        AstNode *var_decl_node = ast_parse_variable_declaration_expr(pc, token_index, false);
+        if (var_decl_node) {
+            ast_eat_token(pc, token_index, TokenIdSemicolon);
+            top_level_decls->append(var_decl_node);
+            continue;
+        }
 
         return;
     }

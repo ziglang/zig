@@ -1132,8 +1132,8 @@ static void do_code_gen(CodeGen *g) {
 
         // Set up debug info for blocks and variables and
         // allocate all local variables
-        for (int bc_i = 0; bc_i < codegen_fn_def->all_block_contexts.length; bc_i += 1) {
-            BlockContext *block_context = codegen_fn_def->all_block_contexts.at(bc_i);
+        for (int bc_i = 0; bc_i < fn_table_entry->all_block_contexts.length; bc_i += 1) {
+            BlockContext *block_context = fn_table_entry->all_block_contexts.at(bc_i);
 
             if (block_context->parent) {
                 LLVMZigDILexicalBlock *di_block = LLVMZigCreateLexicalBlock(g->dbuilder,
@@ -1529,6 +1529,9 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *src_dirname, Buf *src
 
     import_entry->di_file = LLVMZigCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
     g->import_table.put(full_path, import_entry);
+
+    import_entry->block_context = new_block_context(nullptr, nullptr);
+    import_entry->block_context->di_scope = LLVMZigFileToScope(import_entry->di_file);
 
 
     assert(import_entry->root->type == NodeTypeRoot);

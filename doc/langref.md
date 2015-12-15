@@ -32,7 +32,9 @@ zig          |        C equivalent    | Description
 ```
 Root : many(TopLevelDecl) token(EOF)
 
-TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use | StructDecl
+TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use | StructDecl | VariableDeclaration
+
+VariableDeclaration : (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
 
 StructDecl : many(Directive) token(Struct) token(Symbol) token(LBrace) many(StructField) token(RBrace)
 

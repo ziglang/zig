@@ -445,6 +445,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 break;
             }
         case NodeTypeUse:
+        case NodeTypeVariableDeclaration:
             // nothing to do here
             break;
         case NodeTypeDirective:
@@ -453,7 +454,6 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeType:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
-        case NodeTypeVariableDeclaration:
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
@@ -505,6 +505,7 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeFnDef:
         case NodeTypeRootExportDecl:
         case NodeTypeUse:
+        case NodeTypeVariableDeclaration:
             // nothing to do
             break;
         case NodeTypeDirective:
@@ -513,7 +514,6 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeType:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
-        case NodeTypeVariableDeclaration:
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
@@ -537,24 +537,18 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     }
 }
 
-static TypeTableEntry * get_return_type(BlockContext *context) {
-    AstNode *fn_def_node = context->root->node;
-    assert(fn_def_node->type == NodeTypeFnDef);
-    AstNode *fn_proto_node = fn_def_node->data.fn_def.fn_proto;
+static FnTableEntry *get_context_fn_entry(BlockContext *context) {
+    assert(context->fn_entry);
+    return context->fn_entry;
+}
+
+static TypeTableEntry *get_return_type(BlockContext *context) {
+    FnTableEntry *fn_entry = get_context_fn_entry(context);
+    AstNode *fn_proto_node = fn_entry->proto_node;
     assert(fn_proto_node->type == NodeTypeFnProto);
     AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
     assert(return_type_node->codegen_node);
     return return_type_node->codegen_node->data.type_node.entry;
-}
-
-static FnTableEntry *get_context_fn_entry(BlockContext *context) {
-    AstNode *fn_def_node = context->root->node;
-    assert(fn_def_node->type == NodeTypeFnDef);
-    AstNode *fn_proto_node = fn_def_node->data.fn_def.fn_proto;
-    assert(fn_proto_node->type == NodeTypeFnProto);
-    assert(fn_proto_node->codegen_node);
-    assert(fn_proto_node->codegen_node->data.fn_proto_node.fn_table_entry);
-    return fn_proto_node->codegen_node->data.fn_proto_node.fn_table_entry;
 }
 
 static void check_type_compatibility(CodeGen *g, AstNode *node,
@@ -575,21 +569,22 @@ static void check_type_compatibility(CodeGen *g, AstNode *node,
             buf_ptr(&actual_type->name)));
 }
 
-static BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
+BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     BlockContext *context = allocate<BlockContext>(1);
     context->node = node;
     context->parent = parent;
-    if (parent != nullptr)
-        context->root = parent->root;
-    else
-        context->root = context;
     context->variable_table.init(8);
 
-    AstNode *fn_def_node = context->root->node;
-    assert(fn_def_node->type == NodeTypeFnDef);
-    assert(fn_def_node->codegen_node);
-    FnDefNode *fn_def_info = &fn_def_node->codegen_node->data.fn_def_node;
-    fn_def_info->all_block_contexts.append(context);
+    if (parent) {
+        context->fn_entry = parent->fn_entry;
+    } else if (node && node->type == NodeTypeFnDef) {
+        AstNode *fn_proto_node = node->data.fn_def.fn_proto;
+        context->fn_entry = fn_proto_node->codegen_node->data.fn_proto_node.fn_table_entry;
+    }
+
+    if (context->fn_entry) {
+        context->fn_entry->all_block_contexts.append(context);
+    }
 
     return context;
 }
@@ -1509,13 +1504,15 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeStructDecl:
             // nothing to do
             break;
+        case NodeTypeVariableDeclaration:
+            analyze_variable_declaration(g, import, import->block_context, nullptr, node);
+            break;
         case NodeTypeDirective:
         case NodeTypeParamDecl:
         case NodeTypeFnProto:
         case NodeTypeType:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
-        case NodeTypeVariableDeclaration:
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:

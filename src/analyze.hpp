@@ -90,6 +90,7 @@ struct ImportTableEntry {
     LLVMZigDIFile *di_file;
     Buf *source_code;
     ZigList<int> *line_offsets;
+    BlockContext *block_context;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
@@ -116,6 +117,8 @@ struct FnTableEntry {
     unsigned calling_convention;
     ImportTableEntry *import_entry;
     ZigList<FnAttrId> fn_attr_list;
+    // Required to be a pre-order traversal of the AST. (parents must come before children)
+    ZigList<BlockContext *> all_block_contexts;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
@@ -201,9 +204,9 @@ struct LocalVariableTableEntry {
 };
 
 struct BlockContext {
-    AstNode *node; // either NodeTypeFnDef or NodeTypeBlock
-    BlockContext *root; // always points to the BlockContext with the NodeTypeFnDef
-    BlockContext *parent; // nullptr when this is the root
+    AstNode *node; // either NodeTypeFnDef or NodeTypeBlock or null for module scope
+    FnTableEntry *fn_entry; // null at the module scope
+    BlockContext *parent; // null when this is the root
     HashMap<Buf *, LocalVariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
     ZigList<AstNode *> cast_expr_alloca_list;
     LLVMZigDIScope *di_scope;
@@ -221,8 +224,6 @@ struct FnDefNode {
     TypeTableEntry *implicit_return_type;
     BlockContext *block_context;
     bool skip;
-    // Required to be a pre-order traversal of the AST. (parents must come before children)
-    ZigList<BlockContext *> all_block_contexts;
 };
 
 struct ExprNode {
@@ -295,5 +296,6 @@ void add_node_error(CodeGen *g, AstNode *node, Buf *msg);
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id);
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
 LocalVariableTableEntry *find_local_variable(BlockContext *context, Buf *name);
+BlockContext *new_block_context(AstNode *node, BlockContext *parent);
 
 #endif
