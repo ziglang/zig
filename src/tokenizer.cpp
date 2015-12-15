@@ -13,12 +13,11 @@
 #include <stdio.h>
 
 #define WHITESPACE \
-    ' ': \
+         ' ': \
     case '\n'
 
-#define DIGIT \
-    '0': \
-    case '1': \
+#define DIGIT_NON_ZERO \
+         '1': \
     case '2': \
     case '3': \
     case '4': \
@@ -27,10 +26,14 @@
     case '7': \
     case '8': \
     case '9'
+#define DIGIT \
+         '0': \
+    case DIGIT_NON_ZERO
 
 #define ALPHA_EXCEPT_C \
-    'a': \
+         'a': \
     case 'b': \
+  /*case 'c':*/ \
     case 'd': \
     case 'e': \
     case 'f': \
@@ -94,7 +97,11 @@ enum TokenizeState {
     TokenizeStateStart,
     TokenizeStateSymbol,
     TokenizeStateSymbolFirst,
-    TokenizeStateNumber,
+    TokenizeStateZero, // "0", which might lead to "0x"
+    TokenizeStateNumber, // "123", "0x123"
+    TokenizeStateFloatFraction, // "123.456", "0x123.456"
+    TokenizeStateFloatExponentUnsigned, // "123.456e", "123e", "0x123p"
+    TokenizeStateFloatExponentNumber, // "123.456e-", "123.456e5", "123.456e5e-5"
     TokenizeStateString,
     TokenizeStateSawStar,
     TokenizeStateSawSlash,
@@ -172,6 +179,16 @@ static void end_token(Tokenize *t) {
     assert(t->cur_tok);
     t->cur_tok->end_pos = t->pos + 1;
 
+    // normalize number literal parsing stuff
+    if (t->cur_tok->id == TokenIdNumberLiteral) {
+        if (t->cur_tok->exponent_marker_pos == 0) {
+            t->cur_tok->exponent_marker_pos = t->cur_tok->end_pos;
+        }
+        if (t->cur_tok->decimal_point_pos == 0) {
+            t->cur_tok->decimal_point_pos = t->cur_tok->exponent_marker_pos;
+        }
+    }
+
     char *token_mem = buf_ptr(t->buf) + t->cur_tok->start_pos;
     int token_len = t->cur_tok->end_pos - t->cur_tok->start_pos;
 
@@ -218,6 +235,26 @@ static void end_token(Tokenize *t) {
     t->cur_tok = nullptr;
 }
 
+static bool is_exponent_signifier(uint8_t c, int radix) {
+    if (radix == 16) {
+        return c == 'p' || c == 'P';
+    } else {
+        return c == 'e' || c == 'E';
+    }
+}
+static int get_digit_value(uint8_t c) {
+    if ('0' <= c && c <= '9') {
+        return c - '0';
+    }
+    if ('A' <= c && c <= 'Z') {
+        return c - 'A' + 10;
+    }
+    if ('a' <= c && c <= 'z') {
+        return c - 'a' + 10;
+    }
+    return -1;
+}
+
 void tokenize(Buf *buf, Tokenization *out) {
     Tokenize t = {0};
     t.out = out;
@@ -245,9 +282,15 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateSymbol;
                         begin_token(&t, TokenIdSymbol);
                         break;
-                    case DIGIT:
+                    case '0':
+                        t.state = TokenizeStateZero;
+                        begin_token(&t, TokenIdNumberLiteral);
+                        t.cur_tok->radix = 10;
+                        break;
+                    case DIGIT_NON_ZERO:
                         t.state = TokenizeStateNumber;
                         begin_token(&t, TokenIdNumberLiteral);
+                        t.cur_tok->radix = 10;
                         break;
                     case '"':
                         begin_token(&t, TokenIdStringLiteral);
@@ -701,9 +744,101 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                 }
                 break;
+            case TokenizeStateZero:
+                switch (c) {
+                    case 'b':
+                        t.cur_tok->radix = 2;
+                        break;
+                    case 'o':
+                        t.cur_tok->radix = 8;
+                        break;
+                    case 'x':
+                        t.cur_tok->radix = 16;
+                        break;
+                    default:
+                        // reinterpret as normal number
+                        t.pos -= 1;
+                        t.state = TokenizeStateNumber;
+                        continue;
+                }
+                break;
             case TokenizeStateNumber:
+                {
+                    if (c == '.') {
+                        t.cur_tok->decimal_point_pos = t.pos;
+                        t.state = TokenizeStateFloatFraction;
+                        break;
+                    }
+                    if (is_exponent_signifier(c, t.cur_tok->radix)) {
+                        t.cur_tok->exponent_marker_pos = t.pos;
+                        t.state = TokenizeStateFloatExponentUnsigned;
+                        break;
+                    }
+                    if (c == '_') {
+                        tokenize_error(&t, "invalid character: '%c'", c);
+                        break;
+                    }
+                    int digit_value = get_digit_value(c);
+                    if (digit_value >= 0) {
+                        if (digit_value >= t.cur_tok->radix) {
+                            tokenize_error(&t, "invalid character: '%c'", c);
+                        }
+                        // normal digit
+                    } else {
+                        // not my char
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                    }
+                    break;
+                }
+            case TokenizeStateFloatFraction:
+                {
+                    if (is_exponent_signifier(c, t.cur_tok->radix)) {
+                        t.cur_tok->exponent_marker_pos = t.pos;
+                        t.state = TokenizeStateFloatExponentUnsigned;
+                        break;
+                    }
+                    if (c == '_') {
+                        tokenize_error(&t, "invalid character: '%c'", c);
+                        break;
+                    }
+                    int digit_value = get_digit_value(c);
+                    if (digit_value >= 0) {
+                        if (digit_value >= t.cur_tok->radix) {
+                            tokenize_error(&t, "invalid character: '%c'", c);
+                        }
+                        // normal digit
+                    } else {
+                        // not my char
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                    }
+                    break;
+                }
+            case TokenizeStateFloatExponentUnsigned:
+                switch (c) {
+                    case '+':
+                    case '-':
+                        t.state = TokenizeStateFloatExponentNumber;
+                        break;
+                    default:
+                        // reinterpret as normal exponent number
+                        t.pos -= 1;
+                        t.state = TokenizeStateFloatExponentNumber;
+                        continue;
+                }
+                break;
+            case TokenizeStateFloatExponentNumber:
                 switch (c) {
                     case DIGIT:
+                        break;
+                    case ALPHA:
+                    case '_':
+                        tokenize_error(&t, "invalid character: '%c'", c);
                         break;
                     default:
                         t.pos -= 1;
@@ -750,7 +885,11 @@ void tokenize(Buf *buf, Tokenization *out) {
             break;
         case TokenizeStateSymbol:
         case TokenizeStateSymbolFirst:
+        case TokenizeStateZero:
         case TokenizeStateNumber:
+        case TokenizeStateFloatFraction:
+        case TokenizeStateFloatExponentUnsigned:
+        case TokenizeStateFloatExponentNumber:
         case TokenizeStateSawStar:
         case TokenizeStateSawSlash:
         case TokenizeStateSawPercent:

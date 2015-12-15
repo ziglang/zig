@@ -88,6 +88,11 @@ struct Token {
     int end_pos;
     int start_line;
     int start_column;
+
+    // for id == TokenIdNumberLiteral
+    int radix; // if != 10, then skip the first 2 characters
+    int decimal_point_pos; // either exponent_marker_pos or the position of the '.'
+    int exponent_marker_pos; // either end_pos or the position of the 'e'/'p'
 };
 
 struct Tokenization {
