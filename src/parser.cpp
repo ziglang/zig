@@ -1561,53 +1561,47 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index, bool m
 }
 
 /*
-VariableDeclaration : token(Let) option(token(Mut)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
+VariableDeclaration : (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
 */
 static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token_index, bool mandatory) {
-    Token *let_tok = &pc->tokens->at(*token_index);
-    if (let_tok->id == TokenIdKeywordLet) {
-        *token_index += 1;
-        AstNode *node = ast_create_node(pc, NodeTypeVariableDeclaration, let_tok);
+    Token *var_or_const_tok = &pc->tokens->at(*token_index);
 
-        Token *name_token;
-        Token *token = &pc->tokens->at(*token_index);
-        if (token->id == TokenIdKeywordMut) {
-            node->data.variable_declaration.is_const = false;
-            *token_index += 1;
-            name_token = &pc->tokens->at(*token_index);
-            ast_expect_token(pc, name_token, TokenIdSymbol);
-        } else if (token->id == TokenIdSymbol) {
-            node->data.variable_declaration.is_const = true;
-            name_token = token;
-        } else {
-            ast_invalid_token_error(pc, token);
-        }
-
-        *token_index += 1;
-        ast_buf_from_token(pc, name_token, &node->data.variable_declaration.symbol);
-
-        Token *eq_or_colon = &pc->tokens->at(*token_index);
-        *token_index += 1;
-        if (eq_or_colon->id == TokenIdEq) {
-            node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
-            return node;
-        } else if (eq_or_colon->id == TokenIdColon) {
-            node->data.variable_declaration.type = ast_parse_type(pc, token_index);
-
-            Token *eq_token = &pc->tokens->at(*token_index);
-            if (eq_token->id == TokenIdEq) {
-                *token_index += 1;
-
-                node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
-            }
-            return node;
-        } else {
-            ast_invalid_token_error(pc, eq_or_colon);
-        }
+    bool is_const;
+    if (var_or_const_tok->id == TokenIdKeywordVar) {
+        is_const = false;
+    } else if (var_or_const_tok->id == TokenIdKeywordConst) {
+        is_const = true;
     } else if (mandatory) {
-        ast_invalid_token_error(pc, let_tok);
+        ast_invalid_token_error(pc, var_or_const_tok);
     } else {
         return nullptr;
+    }
+
+    *token_index += 1;
+    AstNode *node = ast_create_node(pc, NodeTypeVariableDeclaration, var_or_const_tok);
+
+    node->data.variable_declaration.is_const = is_const;
+
+    Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
+    ast_buf_from_token(pc, name_token, &node->data.variable_declaration.symbol);
+
+    Token *eq_or_colon = &pc->tokens->at(*token_index);
+    *token_index += 1;
+    if (eq_or_colon->id == TokenIdEq) {
+        node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
+        return node;
+    } else if (eq_or_colon->id == TokenIdColon) {
+        node->data.variable_declaration.type = ast_parse_type(pc, token_index);
+
+        Token *eq_token = &pc->tokens->at(*token_index);
+        if (eq_token->id == TokenIdEq) {
+            *token_index += 1;
+
+            node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
+        }
+        return node;
+    } else {
+        ast_invalid_token_error(pc, eq_or_colon);
     }
 }
 

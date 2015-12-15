@@ -265,8 +265,8 @@ extern {
 }
 
 export fn _start() -> unreachable {
-    let a : i32 = 1;
-    let b = 2 as i32;
+    const a : i32 = 1;
+    const b = 2 as i32;
     if (a + b == 3) {
         puts(c"OK");
     }
@@ -299,12 +299,12 @@ extern {
 
 export fn _start() -> unreachable {
     if (true) {
-        let no_conflict : i32 = 5;
+        const no_conflict : i32 = 5;
         if (no_conflict == 5) { puts(c"OK 1"); }
     }
 
-    let c = {
-        let no_conflict = 10 as i32;
+    const c = {
+        const no_conflict = 10 as i32;
         no_conflict
     };
     if (c == 10) { puts(c"OK 2"); }
@@ -325,8 +325,8 @@ export fn _start() -> unreachable {
 }
 
 fn void_fun(a : i32, b : void, c : i32) {
-    let v = b;
-    let vv : void = if (a == 1) {v} else {};
+    const v = b;
+    const vv : void = if (a == 1) {v} else {};
     if (a + c == 3) { puts(c"OK"); }
     return vv;
 }
@@ -340,10 +340,10 @@ extern {
 }
 
 export fn _start() -> unreachable {
-    let mut zero : i32;
+    var zero : i32;
     if (zero == 0) { puts(c"zero"); }
 
-    let mut i = 0 as i32;
+    var i = 0 as i32;
 loop_start:
     if i == 3 {
         goto done;
@@ -364,9 +364,9 @@ extern {
 }
 
 export fn _start() -> unreachable {
-    let mut array : [i32; 5];
+    var array : [i32; 5];
 
-    let mut i : i32 = 0;
+    var i : i32 = 0;
 loop_start:
     if i == 5 {
         goto loop_end;
@@ -378,7 +378,7 @@ loop_start:
 loop_end:
 
     i = 0;
-    let mut accumulator = 0 as i32;
+    var accumulator = 0 as i32;
 loop_2_start:
     if i == 5 {
         goto loop_2_end;
@@ -458,7 +458,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 use "std.zig";
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
-    let mut i : i32 = 0;
+    var i : i32 = 0;
     i += 5;  if i != 5  { print_str("BAD +=\n" as string); }
     i -= 2;  if i != 3  { print_str("BAD -=\n" as string); }
     i *= 20; if i != 60 { print_str("BAD *=\n" as string); }
@@ -481,7 +481,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 use "std.zig";
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
-    let mut foo : Foo;
+    var foo : Foo;
     foo.a = foo.a + 1;
     foo.b = foo.a == 1;
     test_foo(foo);
@@ -589,20 +589,20 @@ fn f(a : i32, a : i32) {
 
     add_compile_fail_case("local variable redeclaration", R"SOURCE(
 fn f() {
-    let a : i32 = 0;
-    let a = 0;
+    const a : i32 = 0;
+    const a = 0;
 }
     )SOURCE", 1, ".tmp_source.zig:4:5: error: redeclaration of variable 'a'");
 
     add_compile_fail_case("local variable redeclares parameter", R"SOURCE(
 fn f(a : i32) {
-    let a = 0;
+    const a = 0;
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: redeclaration of variable 'a'");
 
     add_compile_fail_case("variable has wrong type", R"SOURCE(
 fn f() -> i32 {
-    let a = c"a";
+    const a = c"a";
     a
 }
     )SOURCE", 1, ".tmp_source.zig:2:15: error: expected type 'i32', got '&const u8'");
@@ -615,15 +615,15 @@ fn f() {
 
     add_compile_fail_case("assign unreachable", R"SOURCE(
 fn f() {
-    let a = return;
+    const a = return;
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: variable initialization is unreachable");
 
     add_compile_fail_case("unreachable variable", R"SOURCE(
 fn f() {
-    let a : unreachable = return;
+    const a : unreachable = return;
 }
-    )SOURCE", 1, ".tmp_source.zig:3:13: error: variable of type 'unreachable' not allowed");
+    )SOURCE", 1, ".tmp_source.zig:3:15: error: variable of type 'unreachable' not allowed");
 
     add_compile_fail_case("unreachable parameter", R"SOURCE(
 fn f(a : unreachable) {}
@@ -647,7 +647,7 @@ fn f() {
 
     add_compile_fail_case("assign to constant variable", R"SOURCE(
 fn f() {
-    let a = 3;
+    const a = 3;
     a = 4;
 }
     )SOURCE", 1, ".tmp_source.zig:4:5: error: cannot assign to constant variable");
@@ -658,15 +658,15 @@ fn f() {
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: use of undeclared identifier 'b'");
 
-    add_compile_fail_case("let is a statement, not an expression", R"SOURCE(
+    add_compile_fail_case("const is a statement, not an expression", R"SOURCE(
 fn f() {
-    (let a = 0);
+    (const a = 0);
 }
-    )SOURCE", 1, ".tmp_source.zig:3:6: error: invalid token: 'let'");
+    )SOURCE", 1, ".tmp_source.zig:3:6: error: invalid token: 'const'");
 
     add_compile_fail_case("array access errors", R"SOURCE(
 fn f() {
-    let mut bad : bool;
+    var bad : bool;
     i[i] = i[i];
     bad[bad] = bad[bad];
 }

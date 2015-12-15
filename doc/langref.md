@@ -70,7 +70,7 @@ Statement : Label | VariableDeclaration token(Semicolon) | NonBlockExpression to
 
 Label: token(Symbol) token(Colon)
 
-VariableDeclaration : token(Let) option(token(Mut)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
+VariableDeclaration : (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
 
 Expression : BlockExpression | NonBlockExpression
 

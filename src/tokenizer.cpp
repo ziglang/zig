@@ -179,10 +179,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordFn;
     } else if (mem_eql_str(token_mem, token_len, "return")) {
         t->cur_tok->id = TokenIdKeywordReturn;
-    } else if (mem_eql_str(token_mem, token_len, "let")) {
-        t->cur_tok->id = TokenIdKeywordLet;
-    } else if (mem_eql_str(token_mem, token_len, "mut")) {
-        t->cur_tok->id = TokenIdKeywordMut;
+    } else if (mem_eql_str(token_mem, token_len, "var")) {
+        t->cur_tok->id = TokenIdKeywordVar;
     } else if (mem_eql_str(token_mem, token_len, "const")) {
         t->cur_tok->id = TokenIdKeywordConst;
     } else if (mem_eql_str(token_mem, token_len, "extern")) {
@@ -797,9 +795,8 @@ static const char * token_name(Token *token) {
         case TokenIdSymbol: return "Symbol";
         case TokenIdKeywordFn: return "Fn";
         case TokenIdKeywordConst: return "Const";
-        case TokenIdKeywordMut: return "Mut";
+        case TokenIdKeywordVar: return "Var";
         case TokenIdKeywordReturn: return "Return";
-        case TokenIdKeywordLet: return "Let";
         case TokenIdKeywordExtern: return "Extern";
         case TokenIdKeywordUnreachable: return "Unreachable";
         case TokenIdKeywordPub: return "Pub";
