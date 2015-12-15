@@ -103,6 +103,8 @@ static int count_non_void_params(CodeGen *g, ZigList<AstNode *> *params) {
 }
 
 static void add_debug_source_node(CodeGen *g, AstNode *node) {
+    if (!g->cur_block_context)
+        return;
     LLVMZigSetCurrentDebugLocation(g->builder, node->line + 1, node->column + 1,
             g->cur_block_context->di_scope);
 }
@@ -1040,12 +1042,16 @@ static void do_code_gen(CodeGen *g) {
     for (int i = 0; i < g->global_vars.length; i += 1) {
         VariableTableEntry *var = g->global_vars.at(i);
 
-        LLVMValueRef init_val = gen_expr(g, var->decl_node->data.variable_declaration.expr);
-
         // TODO if the global is exported, set external linkage
-        LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_val), "");
+        LLVMValueRef global_value = LLVMAddGlobal(g->module, var->type->type_ref, "");
         LLVMSetLinkage(global_value, LLVMPrivateLinkage);
-        LLVMSetInitializer(global_value, init_val);
+
+        if (var->is_const) {
+            LLVMValueRef init_val = gen_expr(g, var->decl_node->data.variable_declaration.expr);
+            LLVMSetInitializer(global_value, init_val);
+        } else {
+            LLVMSetInitializer(global_value, LLVMConstNull(var->type->type_ref));
+        }
         LLVMSetGlobalConstant(global_value, var->is_const);
         LLVMSetUnnamedAddr(global_value, true);
 

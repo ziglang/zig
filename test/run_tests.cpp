@@ -498,6 +498,21 @@ fn test_foo(foo : Foo) {
     }
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("global variables", R"SOURCE(
+use "std.zig";
+
+const g1 : i32 = 1233 + 1;
+var g2 : i32;
+
+export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+    if g2 != 0 { print_str("BAD\n" as string); }
+    g2 = g1;
+    if g2 != 1234 { print_str("BAD\n" as string); }
+    print_str("OK\n" as string);
+    return 0;
+}
+    )SOURCE", "OK\n");
 }
 
 static void add_compile_failure_test_cases(void) {
@@ -682,6 +697,13 @@ fn f() {
     add_compile_fail_case("variadic functions only allowed in extern", R"SOURCE(
 fn f(...) {}
     )SOURCE", 1, ".tmp_source.zig:2:1: error: variadic arguments only allowed in extern functions");
+
+    add_compile_fail_case("write to const global variable", R"SOURCE(
+const x : i32 = 99;
+fn f() {
+    x = 1;
+}
+    )SOURCE", 1, ".tmp_source.zig:4:5: error: cannot assign to constant variable");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

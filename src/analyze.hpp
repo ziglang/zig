@@ -270,6 +270,10 @@ struct NumberLiteralNode {
     TypeTableEntry *resolved_type;
 };
 
+struct VarDeclNode {
+    TypeTableEntry *type;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
@@ -282,6 +286,7 @@ struct CodeGenNode {
         FieldAccessNode field_access_node; // for NodeTypeFieldAccessExpr
         CastNode cast_node; // for NodeTypeCastExpr
         NumberLiteralNode num_lit_node; // for NodeTypeNumberLiteral
+        VarDeclNode var_decl_node; // for NodeTypeVariableDeclaration
     } data;
     ExprNode expr_node; // for all the expression nodes
 };

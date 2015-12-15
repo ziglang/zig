@@ -1027,8 +1027,8 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
             {
                 AstNode *op1 = node->data.bin_op_expr.op1;
                 AstNode *op2 = node->data.bin_op_expr.op2;
-                TypeTableEntry *lhs_type = analyze_expression(g, import, context, nullptr, op1);
-                TypeTableEntry *rhs_type = analyze_expression(g, import, context, nullptr, op2);
+                TypeTableEntry *lhs_type = analyze_expression(g, import, context, expected_type, op1);
+                TypeTableEntry *rhs_type = analyze_expression(g, import, context, expected_type, op2);
 
                 TypeTableEntry *return_type = nullptr;
 
@@ -1191,21 +1191,25 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
         case NodeTypeReturnExpr:
             {
-                TypeTableEntry *expected_return_type = get_return_type(context);
-                TypeTableEntry *actual_return_type;
-                if (node->data.return_expr.expr) {
-                    actual_return_type = analyze_expression(g, import, context, expected_return_type, node->data.return_expr.expr);
+                if (context->fn_entry) {
+                    TypeTableEntry *expected_return_type = get_return_type(context);
+                    TypeTableEntry *actual_return_type;
+                    if (node->data.return_expr.expr) {
+                        actual_return_type = analyze_expression(g, import, context, expected_return_type, node->data.return_expr.expr);
+                    } else {
+                        actual_return_type = g->builtin_types.entry_void;
+                    }
+
+                    if (actual_return_type->id == TypeTableEntryIdUnreachable) {
+                        // "return exit(0)" should just be "exit(0)".
+                        add_node_error(g, node, buf_sprintf("returning is unreachable"));
+                        actual_return_type = g->builtin_types.entry_invalid;
+                    }
+
+                    check_type_compatibility(g, node, expected_return_type, actual_return_type);
                 } else {
-                    actual_return_type = g->builtin_types.entry_void;
+                    add_node_error(g, node, buf_sprintf("return expression outside function definition"));
                 }
-
-                if (actual_return_type->id == TypeTableEntryIdUnreachable) {
-                    // "return exit(0)" should just be "exit(0)".
-                    add_node_error(g, node, buf_sprintf("returning is unreachable"));
-                    actual_return_type = g->builtin_types.entry_invalid;
-                }
-
-                check_type_compatibility(g, node, expected_return_type, actual_return_type);
                 return_type = g->builtin_types.entry_unreachable;
                 break;
             }
