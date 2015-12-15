@@ -7,13 +7,21 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn keyword zigKeyword fn return mut const extern unreachable export pub as use while asm
-syn keyword zigKeyword if else let void goto type enum struct continue break match volatile
+syn keyword zigOperator as
+syn keyword zigStorage const var extern volatile export pub
+syn keyword zigStructure struct enum type
+syn keyword zigStatement goto break return continue asm
+syn keyword zigConditional if else match
+syn keyword zigRepeat while for
+
+syn keyword zigKeyword fn unreachable use void
 syn keyword zigType bool i8 u8 i16 u16 i32 u32 i64 u64 isize usize f32 f64 f128 string
 
-syn keyword zigConstant null
-
 syn keyword zigBoolean true false
+
+syn match zigOperator display "\%(+\|-\|/\|*\|=\|\^\|&\||\|!\|>\|<\|%\)=\?"
+syn match zigOperator display "&&\|||"
+syn match zigArrowCharacter display "->"
 
 syn match zigDecNumber display "\<[0-9][0-9_]*\%([iu]\%(size\|8\|16\|32\|64\)\)\="
 syn match zigHexNumber display "\<0x[a-fA-F0-9_]\+\%([iu]\%(size\|8\|16\|32\|64\)\)\="
@@ -36,8 +44,7 @@ syn match     zigEscape        display contained /\\\([nrt0\\'"]\|x\x\{2}\)/
 syn match     zigEscapeUnicode display contained /\\\(u\x\{4}\|U\x\{8}\)/
 syn match     zigEscapeUnicode display contained /\\u{\x\{1,6}}/
 syn match     zigStringContinuation display contained /\\\n\s*/
-syn region    zigString      start=+b"+ skip=+\\\\\|\\"+ end=+"+ contains=zigEscape,zigEscapeError,zigStringContinuation
-syn region    zigString      start=+"+ skip=+\\\\\|\\"+ end=+"+ contains=zigEscape,zigEscapeUnicode,zigEscapeError,zigStringContinuation,@Spell
+syn region    zigString      start=+c\?"+ skip=+\\\\\|\\"+ end=+"+ contains=zigEscape,zigEscapeUnicode,zigEscapeError,zigStringContinuation,@Spell
 syn region    zigString      start='b\?r\z(#*\)"' end='"\z1' contains=@Spell
 
 let b:current_syntax = "zig"
@@ -63,3 +70,10 @@ hi def link zigEscapeError Error
 hi def link zigBoolean Boolean
 hi def link zigConstant Constant
 hi def link zigNumber Number
+hi def link zigArrowCharacter zigOperator
+hi def link zigOperator Operator
+hi def link zigStorage StorageClass
+hi def link zigStructure Structure
+hi def link zigStatement Statement
+hi def link zigConditional Conditional
+hi def link zigRepeat Repeat
