@@ -551,42 +551,6 @@ static TypeTableEntry *get_return_type(BlockContext *context) {
     return return_type_node->codegen_node->data.type_node.entry;
 }
 
-static TypeTableEntry *determine_peer_type_compatibility(CodeGen *g, AstNode *node,
-        TypeTableEntry *type1, TypeTableEntry *type2)
-{
-    if (type1->id == TypeTableEntryIdInvalid ||
-        type2->id == TypeTableEntryIdInvalid)
-    {
-        return type1;
-    } else if (type1->id == TypeTableEntryIdUnreachable) {
-        return type2;
-    } else if (type2->id == TypeTableEntryIdUnreachable) {
-        return type1;
-    } else if (type1->id == TypeTableEntryIdInt &&
-        type2->id == TypeTableEntryIdInt &&
-        type1->data.integral.is_signed == type2->data.integral.is_signed)
-    {
-        return (type1->size_in_bits > type2->size_in_bits) ? type1 : type2;
-    } else if (type1->id == TypeTableEntryIdFloat &&
-               type2->id == TypeTableEntryIdFloat)
-    {
-        return (type1->size_in_bits > type2->size_in_bits) ? type1 : type2;
-    } else if (type1->id == TypeTableEntryIdArray &&
-               type2->id == TypeTableEntryIdArray &&
-               type1 == type2)
-    {
-        return type1;
-    } else if (type1 == type2) {
-        return type1;
-    }
-
-    add_node_error(g, node,
-        buf_sprintf("ambiguous expression type: '%s' vs '%s'",
-            buf_ptr(&type1->name), buf_ptr(&type2->name)));
-
-    return g->builtin_types.entry_invalid;
-}
-
 static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type, TypeTableEntry *other_type) {
     NumLit num_lit = literal_type->data.num_lit.kind;
     uint64_t lit_size_in_bits = num_lit_bit_count(num_lit);
@@ -616,6 +580,101 @@ static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type,
             }
     }
     zig_unreachable();
+}
+
+static TypeTableEntry * resolve_rhs_number_literal(CodeGen *g, AstNode *non_literal_node,
+        TypeTableEntry *non_literal_type, AstNode *literal_node, TypeTableEntry *literal_type)
+{
+    assert(literal_node->codegen_node);
+    NumberLiteralNode *codegen_num_lit = &literal_node->codegen_node->data.num_lit_node;
+
+    if (num_lit_fits_in_other_type(g, literal_type, non_literal_type)) {
+        assert(!codegen_num_lit->resolved_type);
+        codegen_num_lit->resolved_type = non_literal_type;
+        return non_literal_type;
+    } else {
+        return nullptr;
+    }
+}
+
+static TypeTableEntry * resolve_number_literals(CodeGen *g, AstNode *node1, AstNode *node2,
+        TypeTableEntry *type1, TypeTableEntry *type2)
+{
+    if (type1->id == TypeTableEntryIdNumberLiteral &&
+        type2->id == TypeTableEntryIdNumberLiteral)
+    {
+        assert(node1->codegen_node);
+        assert(node2->codegen_node);
+
+        NumberLiteralNode *codegen_num_lit_1 = &node1->codegen_node->data.num_lit_node;
+        NumberLiteralNode *codegen_num_lit_2 = &node2->codegen_node->data.num_lit_node;
+
+        assert(!codegen_num_lit_1->resolved_type);
+        assert(!codegen_num_lit_2->resolved_type);
+
+        if (is_num_lit_float(type1->data.num_lit.kind) &&
+            is_num_lit_float(type2->data.num_lit.kind))
+        {
+            codegen_num_lit_1->resolved_type = g->builtin_types.entry_f64;
+            codegen_num_lit_2->resolved_type = g->builtin_types.entry_f64;
+            return g->builtin_types.entry_f64;
+        } else if (is_num_lit_unsigned(type1->data.num_lit.kind) &&
+                   is_num_lit_unsigned(type2->data.num_lit.kind))
+        {
+            codegen_num_lit_1->resolved_type = g->builtin_types.entry_u64;
+            codegen_num_lit_2->resolved_type = g->builtin_types.entry_u64;
+            return g->builtin_types.entry_u64;
+        } else {
+            return nullptr;
+        }
+    } else if (type1->id == TypeTableEntryIdNumberLiteral) {
+        return resolve_rhs_number_literal(g, node2, type2, node1, type1);
+    } else {
+        assert(type2->id == TypeTableEntryIdNumberLiteral);
+        return resolve_rhs_number_literal(g, node1, type1, node2, type2);
+    }
+}
+
+static TypeTableEntry *determine_peer_type_compatibility(CodeGen *g, AstNode *node,
+        TypeTableEntry *type1, TypeTableEntry *type2, AstNode *node1, AstNode *node2)
+{
+    if (type1->id == TypeTableEntryIdInvalid ||
+        type2->id == TypeTableEntryIdInvalid)
+    {
+        return type1;
+    } else if (type1->id == TypeTableEntryIdUnreachable) {
+        return type2;
+    } else if (type2->id == TypeTableEntryIdUnreachable) {
+        return type1;
+    } else if (type1->id == TypeTableEntryIdInt &&
+        type2->id == TypeTableEntryIdInt &&
+        type1->data.integral.is_signed == type2->data.integral.is_signed)
+    {
+        return (type1->size_in_bits > type2->size_in_bits) ? type1 : type2;
+    } else if (type1->id == TypeTableEntryIdFloat &&
+               type2->id == TypeTableEntryIdFloat)
+    {
+        return (type1->size_in_bits > type2->size_in_bits) ? type1 : type2;
+    } else if (type1->id == TypeTableEntryIdArray &&
+               type2->id == TypeTableEntryIdArray &&
+               type1 == type2)
+    {
+        return type1;
+    } else if (type1->id == TypeTableEntryIdNumberLiteral ||
+               type2->id == TypeTableEntryIdNumberLiteral)
+    {
+        TypeTableEntry *resolved_type = resolve_number_literals(g, node1, node2, type1, type2);
+        if (resolved_type)
+            return resolved_type;
+    } else if (type1 == type2) {
+        return type1;
+    }
+
+    add_node_error(g, node,
+        buf_sprintf("incompatible types: '%s' and '%s'",
+            buf_ptr(&type1->name), buf_ptr(&type2->name)));
+
+    return g->builtin_types.entry_invalid;
 }
 
 static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *context, AstNode *node,
@@ -676,7 +735,7 @@ static TypeTableEntry *resolve_peer_type_compatibility(CodeGen *g, BlockContext 
     assert(type1);
     assert(type2);
 
-    TypeTableEntry *parent_type = determine_peer_type_compatibility(g, parent_node, type1, type2);
+    TypeTableEntry *parent_type = determine_peer_type_compatibility(g, parent_node, type1, type2, child1, child2);
 
     if (parent_type->id == TypeTableEntryIdInvalid) {
         return parent_type;
@@ -928,60 +987,6 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     }
 }
 
-static TypeTableEntry * resolve_rhs_number_literal(CodeGen *g, AstNode *non_literal_node,
-        TypeTableEntry *non_literal_type, AstNode *literal_node, TypeTableEntry *literal_type)
-{
-    assert(literal_node->codegen_node);
-    NumberLiteralNode *codegen_num_lit = &literal_node->codegen_node->data.num_lit_node;
-
-    if (num_lit_fits_in_other_type(g, literal_type, non_literal_type)) {
-        assert(!codegen_num_lit->resolved_type);
-        codegen_num_lit->resolved_type = non_literal_type;
-        return non_literal_type;
-    } else {
-        return nullptr;
-    }
-}
-
-static TypeTableEntry * resolve_number_literals(CodeGen *g, AstNode *node1, AstNode *node2) {
-    TypeTableEntry *type1 = node1->codegen_node->expr_node.type_entry;
-    TypeTableEntry *type2 = node2->codegen_node->expr_node.type_entry;
-
-    if (type1->id == TypeTableEntryIdNumberLiteral &&
-        type2->id == TypeTableEntryIdNumberLiteral)
-    {
-        assert(node1->codegen_node);
-        assert(node2->codegen_node);
-
-        NumberLiteralNode *codegen_num_lit_1 = &node1->codegen_node->data.num_lit_node;
-        NumberLiteralNode *codegen_num_lit_2 = &node2->codegen_node->data.num_lit_node;
-
-        assert(!codegen_num_lit_1->resolved_type);
-        assert(!codegen_num_lit_2->resolved_type);
-
-        if (is_num_lit_float(type1->data.num_lit.kind) &&
-            is_num_lit_float(type2->data.num_lit.kind))
-        {
-            codegen_num_lit_1->resolved_type = g->builtin_types.entry_f64;
-            codegen_num_lit_2->resolved_type = g->builtin_types.entry_f64;
-            return g->builtin_types.entry_f64;
-        } else if (is_num_lit_unsigned(type1->data.num_lit.kind) &&
-                   is_num_lit_unsigned(type2->data.num_lit.kind))
-        {
-            codegen_num_lit_1->resolved_type = g->builtin_types.entry_u64;
-            codegen_num_lit_2->resolved_type = g->builtin_types.entry_u64;
-            return g->builtin_types.entry_u64;
-        } else {
-            return nullptr;
-        }
-    } else if (type1->id == TypeTableEntryIdNumberLiteral) {
-        return resolve_rhs_number_literal(g, node2, type2, node1, type1);
-    } else {
-        assert(type2->id == TypeTableEntryIdNumberLiteral);
-        return resolve_rhs_number_literal(g, node1, type1, node2, type2);
-    }
-}
-
 static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -1052,31 +1057,9 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                 AstNode *op2 = node->data.bin_op_expr.op2;
                 TypeTableEntry *lhs_type = analyze_expression(g, import, context, nullptr, op1);
                 TypeTableEntry *rhs_type = analyze_expression(g, import, context, nullptr, op2);
-                bool cmp_ok = false;
-                if (lhs_type->id == TypeTableEntryIdInvalid || rhs_type->id == TypeTableEntryIdInvalid) {
-                    cmp_ok = true;
-                } else if (lhs_type->id == TypeTableEntryIdNumberLiteral ||
-                           rhs_type->id == TypeTableEntryIdNumberLiteral)
-                {
-                    cmp_ok = resolve_number_literals(g, op1, op2);
-                } else if (lhs_type->id == TypeTableEntryIdInt) {
-                    if (rhs_type->id == TypeTableEntryIdInt &&
-                        lhs_type->data.integral.is_signed == rhs_type->data.integral.is_signed &&
-                        lhs_type->size_in_bits == rhs_type->size_in_bits)
-                    {
-                        cmp_ok = true;
-                    }
-                } else if (lhs_type->id == TypeTableEntryIdFloat) {
-                    if (rhs_type->id == TypeTableEntryIdFloat &&
-                        lhs_type->size_in_bits == rhs_type->size_in_bits)
-                    {
-                        cmp_ok = true;
-                    }
-                }
-                if (!cmp_ok) {
-                    add_node_error(g, node, buf_sprintf("unable to compare '%s' with '%s'",
-                            buf_ptr(&lhs_type->name), buf_ptr(&rhs_type->name)));
-                }
+
+                resolve_peer_type_compatibility(g, context, node, op1, op2, lhs_type, rhs_type);
+
                 return g->builtin_types.entry_bool;
             }
         case BinOpTypeBinOr:
@@ -1104,34 +1087,7 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                 TypeTableEntry *lhs_type = analyze_expression(g, import, context, expected_type, op1);
                 TypeTableEntry *rhs_type = analyze_expression(g, import, context, expected_type, op2);
 
-                TypeTableEntry *return_type = nullptr;
-
-                if (lhs_type->id == TypeTableEntryIdInvalid || rhs_type->id == TypeTableEntryIdInvalid) {
-                    return_type = g->builtin_types.entry_invalid;
-                } else if (lhs_type->id == TypeTableEntryIdNumberLiteral ||
-                           rhs_type->id == TypeTableEntryIdNumberLiteral)
-                {
-                    return_type = resolve_number_literals(g, op1, op2);
-                } else if (lhs_type->id == TypeTableEntryIdInt &&
-                           lhs_type == rhs_type)
-                {
-                    return_type = lhs_type;
-                } else if (lhs_type->id == TypeTableEntryIdFloat &&
-                           lhs_type == rhs_type)
-                {
-                    return_type = lhs_type;
-                }
-                if (!return_type) {
-                    if (node->data.bin_op_expr.bin_op == BinOpTypeAdd) {
-                        add_node_error(g, node, buf_sprintf("unable to add '%s' and '%s'",
-                                buf_ptr(&lhs_type->name), buf_ptr(&rhs_type->name)));
-                    } else {
-                        add_node_error(g, node, buf_sprintf("unable to subtract '%s' and '%s'",
-                                buf_ptr(&lhs_type->name), buf_ptr(&rhs_type->name)));
-                    }
-                    return g->builtin_types.entry_invalid;
-                }
-                return return_type;
+                return resolve_peer_type_compatibility(g, context, node, op1, op2, lhs_type, rhs_type);
             }
         case BinOpTypeMult:
         case BinOpTypeDiv:

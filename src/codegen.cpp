@@ -130,7 +130,8 @@ static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str, bool c) {
 }
 
 static TypeTableEntry *get_expr_type(AstNode *node) {
-    return node->codegen_node->expr_node.type_entry;
+    TypeTableEntry *cast_type = node->codegen_node->expr_node.implicit_cast.type;
+    return cast_type ? cast_type : node->codegen_node->expr_node.type_entry;
 }
 
 static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
@@ -288,8 +289,10 @@ static LLVMValueRef gen_bare_cast(CodeGen *g, AstNode *node, LLVMValueRef expr_v
             } else if (actual_type->size_in_bits < wanted_type->size_in_bits) {
                 if (actual_type->data.integral.is_signed && wanted_type->data.integral.is_signed) {
                     return LLVMBuildSExt(g->builder, expr_val, wanted_type->type_ref, "");
+                } else if (!actual_type->data.integral.is_signed && !wanted_type->data.integral.is_signed) {
+                    return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
                 } else {
-                    zig_panic("TODO gen_cast_expr widen unsigned");
+                    zig_panic("TODO gen_cast_expr mixing of signness");
                 }
             } else {
                 assert(actual_type->size_in_bits > wanted_type->size_in_bits);
@@ -1327,6 +1330,19 @@ static void define_builtin_types(CodeGen *g) {
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_u8 = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->type_ref = LLVMInt32Type();
+        buf_init_from_str(&entry->name, "u32");
+        entry->size_in_bits = 32;
+        entry->align_in_bits = 32;
+        entry->data.integral.is_signed = false;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
+                LLVMZigEncoding_DW_ATE_unsigned());
+        g->type_table.put(&entry->name, entry);
+        g->builtin_types.entry_u32 = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);

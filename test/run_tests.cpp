@@ -796,7 +796,7 @@ fn f() {
     const y = if true { 1 as i32 };
 }
     )SOURCE", 2, ".tmp_source.zig:3:21: error: expected type 'i32', got 'void'",
-                 ".tmp_source.zig:4:15: error: ambiguous expression type: 'i32' vs 'void'");
+                 ".tmp_source.zig:4:15: error: incompatible types: 'i32' and 'void'");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

@@ -157,6 +157,7 @@ KeywordLiteral : token(Unreachable) | token(Void) | token(True) | token(False)
 
 ```
 x() x[] x.y
+&x
 !x -x ~x
 as
 * / %
