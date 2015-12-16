@@ -142,7 +142,7 @@ FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 
-PrefixOp : token(Not) | token(Dash) | token(Tilde)
+PrefixOp : token(Not) | token(Dash) | token(Tilde) | (token(Ampersand) option(token(Const)))
 
 PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | token(Symbol) | Goto | BlockExpression
 
@@ -157,8 +157,7 @@ KeywordLiteral : token(Unreachable) | token(Void) | token(True) | token(False)
 
 ```
 x() x[] x.y
-&x
-!x -x ~x
+!x -x ~x &x &const x
 as
 * / %
 + -

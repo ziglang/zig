@@ -987,6 +987,50 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     }
 }
 
+enum LValPurpose {
+    LValPurposeAssign,
+    LValPurposeAddressOf,
+};
+
+static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, BlockContext *block_context,
+        AstNode *lhs_node, LValPurpose purpose, bool is_ptr_const)
+{
+    TypeTableEntry *expected_rhs_type = nullptr;
+    if (lhs_node->type == NodeTypeSymbol) {
+        Buf *name = &lhs_node->data.symbol;
+        VariableTableEntry *var = find_variable(block_context, name);
+        if (var) {
+            if (purpose == LValPurposeAssign && var->is_const) {
+                add_node_error(g, lhs_node,
+                    buf_sprintf("cannot assign to constant"));
+            } else if (purpose == LValPurposeAddressOf && var->is_const && !is_ptr_const) {
+                add_node_error(g, lhs_node,
+                    buf_sprintf("must use &const to get address of constant"));
+            } else {
+                expected_rhs_type = var->type;
+            }
+        } else {
+            add_node_error(g, lhs_node,
+                    buf_sprintf("use of undeclared identifier '%s'", buf_ptr(name)));
+        }
+    } else if (lhs_node->type == NodeTypeArrayAccessExpr) {
+        expected_rhs_type = analyze_array_access_expr(g, import, block_context, lhs_node);
+    } else if (lhs_node->type == NodeTypeFieldAccessExpr) {
+        alloc_codegen_node(lhs_node);
+        expected_rhs_type = analyze_field_access_expr(g, import, block_context, lhs_node);
+    } else {
+        if (purpose == LValPurposeAssign) {
+            add_node_error(g, lhs_node,
+                    buf_sprintf("assignment target must be variable, field, or array element"));
+        } else if (purpose == LValPurposeAddressOf) {
+            add_node_error(g, lhs_node,
+                    buf_sprintf("addressof target must be variable, field, or array element"));
+        }
+        expected_rhs_type = g->builtin_types.entry_invalid;
+    }
+    return expected_rhs_type;
+}
+
 static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -1006,38 +1050,17 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
         case BinOpTypeAssignBoolOr:
             {
                 AstNode *lhs_node = node->data.bin_op_expr.op1;
-                TypeTableEntry *expected_rhs_type = nullptr;
-                if (lhs_node->type == NodeTypeSymbol) {
-                    Buf *name = &lhs_node->data.symbol;
-                    VariableTableEntry *var = find_variable(context, name);
-                    if (var) {
-                        if (var->is_const) {
-                            add_node_error(g, lhs_node,
-                                buf_sprintf("cannot assign to constant variable"));
-                        } else {
-                            if (!is_op_allowed(var->type, node->data.bin_op_expr.bin_op)) {
-                                if (var->type->id != TypeTableEntryIdInvalid) {
-                                    add_node_error(g, lhs_node,
-                                        buf_sprintf("operator not allowed for type '%s'",
-                                            buf_ptr(&var->type->name)));
-                                }
-                            } else {
-                                expected_rhs_type = var->type;
-                            }
-                        }
-                    } else {
+
+                TypeTableEntry *expected_rhs_type = analyze_lvalue(g, import, context, lhs_node,
+                        LValPurposeAssign, false);
+                if (!is_op_allowed(expected_rhs_type, node->data.bin_op_expr.bin_op)) {
+                    if (expected_rhs_type->id != TypeTableEntryIdInvalid) {
                         add_node_error(g, lhs_node,
-                                buf_sprintf("use of undeclared identifier '%s'", buf_ptr(name)));
+                            buf_sprintf("operator not allowed for type '%s'",
+                                buf_ptr(&expected_rhs_type->name)));
                     }
-                } else if (lhs_node->type == NodeTypeArrayAccessExpr) {
-                    expected_rhs_type = analyze_array_access_expr(g, import, context, lhs_node);
-                } else if (lhs_node->type == NodeTypeFieldAccessExpr) {
-                    alloc_codegen_node(lhs_node);
-                    expected_rhs_type = analyze_field_access_expr(g, import, context, lhs_node);
-                } else {
-                    add_node_error(g, lhs_node,
-                            buf_sprintf("assignment target must be variable, field, or array element"));
                 }
+
                 analyze_expression(g, import, context, expected_rhs_type, node->data.bin_op_expr.op2);
                 return g->builtin_types.entry_void;
             }
@@ -1388,6 +1411,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             break;
         case NodeTypePrefixOpExpr:
             switch (node->data.prefix_op_expr.prefix_op) {
+                case PrefixOpInvalid:
+                    zig_unreachable();
                 case PrefixOpBoolNot:
                     analyze_expression(g, import, context, g->builtin_types.entry_bool,
                             node->data.prefix_op_expr.primary_expr);
@@ -1407,8 +1432,22 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                         return_type = g->builtin_types.entry_i32;
                         break;
                     }
-                case PrefixOpInvalid:
-                    zig_unreachable();
+                case PrefixOpAddressOf:
+                case PrefixOpConstAddressOf:
+                    {
+                        bool is_const = (node->data.prefix_op_expr.prefix_op == PrefixOpConstAddressOf);
+
+                        TypeTableEntry *child_type = analyze_lvalue(g, import, context,
+                                node->data.prefix_op_expr.primary_expr, LValPurposeAddressOf, is_const);
+
+                        if (child_type->id == TypeTableEntryIdInvalid) {
+                            return_type = g->builtin_types.entry_invalid;
+                            break;
+                        }
+
+                        return_type = get_pointer_to_type(g, child_type, is_const);
+                        break;
+                    }
             }
             break;
         case NodeTypeIfExpr:

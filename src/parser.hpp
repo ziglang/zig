@@ -198,6 +198,8 @@ enum PrefixOp {
     PrefixOpBoolNot,
     PrefixOpBinNot,
     PrefixOpNegation,
+    PrefixOpAddressOf,
+    PrefixOpConstAddressOf,
 };
 
 struct AstNodePrefixOpExpr {

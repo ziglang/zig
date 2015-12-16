@@ -206,7 +206,7 @@ static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
     return LLVMBuildInBoundsGEP(g->builder, array_ref_value, indices, 2, "");
 }
 
-static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node) {
+static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **out_type_entry) {
     assert(node->type == NodeTypeFieldAccessExpr);
 
     LLVMValueRef struct_ptr = gen_expr(g, node->data.field_access_expr.struct_expr);
@@ -216,6 +216,8 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node) {
     FieldAccessNode *codegen_field_access = &node->codegen_node->data.field_access_node;
 
     assert(codegen_field_access->field_index >= 0);
+
+    *out_type_entry = codegen_field_access->type_struct_field->type_entry;
 
     add_debug_source_node(g, node);
     return LLVMBuildStructGEP(g->builder, struct_ptr, codegen_field_access->field_index, "");
@@ -243,34 +245,78 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node) {
             zig_panic("gen_field_access_expr bad array field");
         }
     } else if (struct_type->id == TypeTableEntryIdStruct) {
-        LLVMValueRef ptr = gen_field_ptr(g, node);
+        TypeTableEntry *type_entry;
+        LLVMValueRef ptr = gen_field_ptr(g, node, &type_entry);
         return LLVMBuildLoad(g->builder, ptr, "");
     } else {
         zig_panic("gen_field_access_expr bad struct type");
     }
 }
 
+static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *parent_node, AstNode *node,
+        TypeTableEntry **out_type_entry)
+{
+    LLVMValueRef target_ref;
+
+    if (node->type == NodeTypeSymbol) {
+        VariableTableEntry *var = find_variable(parent_node->codegen_node->expr_node.block_context,
+                &node->data.symbol);
+
+        // semantic checking ensures no variables are constant
+        assert(!var->is_const);
+
+        *out_type_entry = var->type;
+        target_ref = var->value_ref;
+    } else if (node->type == NodeTypeArrayAccessExpr) {
+        TypeTableEntry *array_type = get_expr_type(node->data.array_access_expr.array_ref_expr);
+        assert(array_type->id == TypeTableEntryIdArray);
+        *out_type_entry = array_type->data.array.child_type;
+        target_ref = gen_array_ptr(g, node);
+    } else if (node->type == NodeTypeFieldAccessExpr) {
+        target_ref = gen_field_ptr(g, node, out_type_entry);
+    } else {
+        zig_panic("bad assign target");
+    }
+
+    return target_ref;
+}
+
 static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypePrefixOpExpr);
     assert(node->data.prefix_op_expr.primary_expr);
 
-    LLVMValueRef expr = gen_expr(g, node->data.prefix_op_expr.primary_expr);
+    AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
 
     switch (node->data.prefix_op_expr.prefix_op) {
+        case PrefixOpInvalid:
+            zig_unreachable();
         case PrefixOpNegation:
-            add_debug_source_node(g, node);
-            return LLVMBuildNeg(g->builder, expr, "");
+            {
+                LLVMValueRef expr = gen_expr(g, expr_node);
+                add_debug_source_node(g, node);
+                return LLVMBuildNeg(g->builder, expr, "");
+            }
         case PrefixOpBoolNot:
             {
+                LLVMValueRef expr = gen_expr(g, expr_node);
                 LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(expr));
                 add_debug_source_node(g, node);
                 return LLVMBuildICmp(g->builder, LLVMIntEQ, expr, zero, "");
             }
         case PrefixOpBinNot:
-            add_debug_source_node(g, node);
-            return LLVMBuildNot(g->builder, expr, "");
-        case PrefixOpInvalid:
-            zig_unreachable();
+            {
+                LLVMValueRef expr = gen_expr(g, expr_node);
+                add_debug_source_node(g, node);
+                return LLVMBuildNot(g->builder, expr, "");
+            }
+        case PrefixOpAddressOf:
+        case PrefixOpConstAddressOf:
+            {
+                add_debug_source_node(g, node);
+                TypeTableEntry *lvalue_type;
+                return gen_lvalue(g, node, expr_node, &lvalue_type);
+            }
+
     }
     zig_unreachable();
 }
@@ -571,33 +617,14 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     return phi;
 }
 
-
 static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
     AstNode *lhs_node = node->data.bin_op_expr.op1;
 
-    LLVMValueRef target_ref;
     TypeTableEntry *op1_type;
-    if (lhs_node->type == NodeTypeSymbol) {
-        VariableTableEntry *var = find_variable(node->codegen_node->expr_node.block_context,
-                &lhs_node->data.symbol);
+    LLVMValueRef target_ref = gen_lvalue(g, node, lhs_node, &op1_type);
 
-        // semantic checking ensures no variables are constant
-        assert(!var->is_const);
-
-        op1_type = var->type;
-        target_ref = var->value_ref;
-    } else if (lhs_node->type == NodeTypeArrayAccessExpr) {
-        TypeTableEntry *array_type = get_expr_type(lhs_node->data.array_access_expr.array_ref_expr);
-        assert(array_type->id == TypeTableEntryIdArray);
-        op1_type = array_type->data.array.child_type;
-        target_ref = gen_array_ptr(g, lhs_node);
-    } else if (lhs_node->type == NodeTypeFieldAccessExpr) {
-        target_ref = gen_field_ptr(g, lhs_node);
-    } else {
-        zig_panic("bad assign target");
-    }
     LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
 
     if (node->data.bin_op_expr.bin_op == BinOpTypeAssign) {

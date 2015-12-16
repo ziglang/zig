@@ -58,6 +58,8 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpNegation: return "-";
         case PrefixOpBoolNot: return "!";
         case PrefixOpBinNot: return "~";
+        case PrefixOpAddressOf: return "&";
+        case PrefixOpConstAddressOf: return "&const";
     }
     zig_unreachable();
 }

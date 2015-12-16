@@ -566,7 +566,7 @@ use "std.zig";
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var foo : Foo;
-    foo.a = foo.a + 1;
+    foo.a += 1;
     foo.b = foo.a == 1;
     test_foo(foo);
     return 0;
@@ -749,7 +749,7 @@ fn f() {
     const a = 3;
     a = 4;
 }
-    )SOURCE", 1, ".tmp_source.zig:4:5: error: cannot assign to constant variable");
+    )SOURCE", 1, ".tmp_source.zig:4:5: error: cannot assign to constant");
 
     add_compile_fail_case("use of undeclared identifier", R"SOURCE(
 fn f() {
@@ -787,7 +787,7 @@ const x : i32 = 99;
 fn f() {
     x = 1;
 }
-    )SOURCE", 1, ".tmp_source.zig:4:5: error: cannot assign to constant variable");
+    )SOURCE", 1, ".tmp_source.zig:4:5: error: cannot assign to constant");
 
 
     add_compile_fail_case("missing else clause", R"SOURCE(
