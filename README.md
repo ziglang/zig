@@ -39,6 +39,8 @@ compromises backward compatibility.
    provide a tag or sha1).
  * Include documentation generator.
  * Shebang line OK so language can be used for "scripting" as well.
+ * No null pointer. Convenient syntax for dealing with a maybe type so that
+   null pointer is not missed.
 
 ### Current Status
 

@@ -145,6 +145,7 @@ struct CodeGen {
         TypeTableEntry *entry_bool;
         TypeTableEntry *entry_u8;
         TypeTableEntry *entry_u64;
+        TypeTableEntry *entry_i8;
         TypeTableEntry *entry_i32;
         TypeTableEntry *entry_i64;
         TypeTableEntry *entry_isize;
@@ -230,12 +231,6 @@ struct FnDefNode {
     bool skip;
 };
 
-struct ExprNode {
-    TypeTableEntry *type_entry;
-    // the context in which this expression is evaluated.
-    // for blocks, this points to the containing scope, not the block's own scope for its children.
-    BlockContext *block_context;
-};
 
 struct AssignNode {
     VariableTableEntry *var_entry;
@@ -266,6 +261,17 @@ struct CastNode {
     // if op is CastOpArrayToString, this will be a pointer to
     // the string struct on the stack
     LLVMValueRef ptr;
+};
+
+struct ExprNode {
+    TypeTableEntry *type_entry;
+    // the context in which this expression is evaluated.
+    // for blocks, this points to the containing scope, not the block's own scope for its children.
+    BlockContext *block_context;
+
+    // may be null for no cast
+    TypeTableEntry *cast_type;
+    CastNode implicit_cast;
 };
 
 struct NumberLiteralNode {

@@ -274,16 +274,9 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
     zig_unreachable();
 }
 
-static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeCastExpr);
-
-    LLVMValueRef expr_val = gen_expr(g, node->data.cast_expr.expr);
-
-    TypeTableEntry *actual_type = get_expr_type(node->data.cast_expr.expr);
-    TypeTableEntry *wanted_type = get_expr_type(node);
-
-    CastNode *cast_node = &node->codegen_node->data.cast_node;
-
+static LLVMValueRef gen_bare_cast(CodeGen *g, AstNode *node, LLVMValueRef expr_val,
+        TypeTableEntry *actual_type, TypeTableEntry *wanted_type, CastNode *cast_node)
+{
     switch (cast_node->op) {
         case CastOpNothing:
             return expr_val;
@@ -325,6 +318,20 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
             }
     }
     zig_unreachable();
+}
+
+static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeCastExpr);
+
+    LLVMValueRef expr_val = gen_expr(g, node->data.cast_expr.expr);
+
+    TypeTableEntry *actual_type = get_expr_type(node->data.cast_expr.expr);
+    TypeTableEntry *wanted_type = get_expr_type(node);
+
+    CastNode *cast_node = &node->codegen_node->data.cast_node;
+
+    return gen_bare_cast(g, node, expr_val, actual_type, wanted_type, cast_node);
+
 }
 
 static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g,
@@ -871,7 +878,7 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
     return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
 }
 
-static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
+static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeBinOpExpr:
             return gen_bin_op_expr(g, node);
@@ -1020,6 +1027,22 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             zig_unreachable();
     }
     zig_unreachable();
+}
+
+static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
+    LLVMValueRef val = gen_expr_no_cast(g, node);
+
+    if (node->type == NodeTypeVoid) {
+        return val;
+    }
+
+    assert(node->codegen_node);
+
+    TypeTableEntry *actual_type = node->codegen_node->expr_node.type_entry;
+    TypeTableEntry *cast_type = node->codegen_node->expr_node.cast_type;
+
+    return cast_type ? gen_bare_cast(g, node, val, actual_type, cast_type,
+            &node->codegen_node->expr_node.implicit_cast) : val;
 }
 
 static void build_label_blocks(CodeGen *g, AstNode *block_node) {
@@ -1322,6 +1345,19 @@ static void define_builtin_types(CodeGen *g) {
         g->builtin_types.entry_u64 = entry;
     }
     g->builtin_types.entry_c_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->type_ref = LLVMInt8Type();
+        buf_init_from_str(&entry->name, "i8");
+        entry->size_in_bits = 8;
+        entry->align_in_bits = 8;
+        entry->data.integral.is_signed = true;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
+                LLVMZigEncoding_DW_ATE_signed());
+        g->type_table.put(&entry->name, entry);
+        g->builtin_types.entry_i8 = entry;
+    }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMInt32Type();
@@ -1951,6 +1987,8 @@ void codegen_link(CodeGen *g, const char *out_file) {
         fprintf(stderr, "ld failed with return code %d\n", return_code);
         fprintf(stderr, "%s\n", buf_ptr(&ld_stderr));
         exit(1);
+    } else if (buf_len(&ld_stderr)) {
+        fprintf(stderr, "%s\n", buf_ptr(&ld_stderr));
     }
 
     if (g->out_type == OutTypeLib) {

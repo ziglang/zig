@@ -56,7 +56,7 @@ static TestCase *add_simple_case(const char *case_name, const char *source, cons
     test_case->compiler_args.append(tmp_exe_path);
     test_case->compiler_args.append("--release");
     test_case->compiler_args.append("--strip");
-    test_case->compiler_args.append("--verbose");
+    //test_case->compiler_args.append("--verbose");
     test_case->compiler_args.append("--color");
     test_case->compiler_args.append("on");
 
@@ -86,7 +86,7 @@ static TestCase *add_compile_fail_case(const char *case_name, const char *source
     test_case->compiler_args.append(tmp_exe_path);
     test_case->compiler_args.append("--release");
     test_case->compiler_args.append("--strip");
-    test_case->compiler_args.append("--verbose");
+    //test_case->compiler_args.append("--verbose");
 
     test_cases.append(test_case);
 
@@ -788,6 +788,15 @@ fn f() {
     x = 1;
 }
     )SOURCE", 1, ".tmp_source.zig:4:5: error: cannot assign to constant variable");
+
+
+    add_compile_fail_case("missing else clause", R"SOURCE(
+fn f() {
+    const x : i32 = if true { 1 };
+    const y = if true { 1 as i32 };
+}
+    )SOURCE", 2, ".tmp_source.zig:3:21: error: expected type 'i32', got 'void'",
+                 ".tmp_source.zig:4:15: error: ambiguous expression type: 'i32' vs 'void'");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
