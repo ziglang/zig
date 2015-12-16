@@ -618,7 +618,7 @@ static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type,
     zig_unreachable();
 }
 
-static TypeTableEntry *resolve_type_compatibility(CodeGen *g, AstNode *node,
+static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *context, AstNode *node,
         TypeTableEntry *expected_type, TypeTableEntry *actual_type)
 {
     if (expected_type == nullptr)
@@ -642,8 +642,21 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, AstNode *node,
         expected_type->data.integral.is_signed == actual_type->data.integral.is_signed &&
         expected_type->size_in_bits > actual_type->size_in_bits)
     {
-        node->codegen_node->expr_node.cast_type = expected_type;
+        node->codegen_node->expr_node.implicit_cast.type = expected_type;
         node->codegen_node->expr_node.implicit_cast.op = CastOpIntWidenOrShorten;
+        node->codegen_node->expr_node.implicit_cast.source_node = node;
+        return expected_type;
+    }
+
+    // implicit constant sized array to string conversion
+    if (expected_type == g->builtin_types.entry_string &&
+        actual_type->id == TypeTableEntryIdArray &&
+        actual_type->data.array.child_type == g->builtin_types.entry_u8)
+    {
+        node->codegen_node->expr_node.implicit_cast.type = expected_type;
+        node->codegen_node->expr_node.implicit_cast.op = CastOpArrayToString;
+        node->codegen_node->expr_node.implicit_cast.source_node = node;
+        context->cast_expr_alloca_list.append(&node->codegen_node->expr_node.implicit_cast);
         return expected_type;
     }
 
@@ -655,7 +668,8 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, AstNode *node,
     return g->builtin_types.entry_invalid;
 }
 
-static TypeTableEntry *resolve_peer_type_compatibility(CodeGen *g, AstNode *parent_node,
+static TypeTableEntry *resolve_peer_type_compatibility(CodeGen *g, BlockContext *block_context,
+        AstNode *parent_node,
         AstNode *child1, AstNode *child2,
         TypeTableEntry *type1, TypeTableEntry *type2)
 {
@@ -668,8 +682,8 @@ static TypeTableEntry *resolve_peer_type_compatibility(CodeGen *g, AstNode *pare
         return parent_type;
     }
 
-    resolve_type_compatibility(g, child1, parent_type, type1);
-    resolve_type_compatibility(g, child2, parent_type, type2);
+    resolve_type_compatibility(g, block_context, child1, parent_type, type1);
+    resolve_type_compatibility(g, block_context, child2, parent_type, type2);
 
     return parent_type;
 }
@@ -874,6 +888,8 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     }
 
     CastNode *cast_node = &node->codegen_node->data.cast_node;
+    cast_node->source_node = node;
+    cast_node->type = wanted_type;
 
     // special casing this for now, TODO think about casting and do a general solution
     if (wanted_type == g->builtin_types.entry_isize &&
@@ -891,7 +907,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
                 actual_type->data.array.child_type == g->builtin_types.entry_u8)
     {
         cast_node->op = CastOpArrayToString;
-        context->cast_expr_alloca_list.append(node);
+        context->cast_expr_alloca_list.append(cast_node);
         return wanted_type;
     } else if (actual_type->id == TypeTableEntryIdNumberLiteral &&
                num_lit_fits_in_other_type(g, actual_type, wanted_type))
@@ -1022,10 +1038,8 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
             }
         case BinOpTypeBoolOr:
         case BinOpTypeBoolAnd:
-            analyze_expression(g, import, context, g->builtin_types.entry_bool,
-                    node->data.bin_op_expr.op1);
-            analyze_expression(g, import, context, g->builtin_types.entry_bool,
-                    node->data.bin_op_expr.op2);
+            analyze_expression(g, import, context, g->builtin_types.entry_bool, node->data.bin_op_expr.op1);
+            analyze_expression(g, import, context, g->builtin_types.entry_bool, node->data.bin_op_expr.op2);
             return g->builtin_types.entry_bool;
         case BinOpTypeCmpEq:
         case BinOpTypeCmpNotEq:
@@ -1188,8 +1202,8 @@ static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableE
     return nullptr;
 }
 
-static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        TypeTableEntry *expected_type, AstNode *node)
+static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry *import,
+        BlockContext *block_context, TypeTableEntry *expected_type, AstNode *node)
 {
     TypeTableEntry *num_lit_type = g->num_lit_types[node->data.number_literal.kind];
     if (node->data.number_literal.overflow) {
@@ -1199,7 +1213,7 @@ static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry 
     } else if (expected_type) {
         NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
         assert(!codegen_num_lit->resolved_type);
-        codegen_num_lit->resolved_type = resolve_type_compatibility(g, node, expected_type, num_lit_type);
+        codegen_num_lit->resolved_type = resolve_type_compatibility(g, block_context, node, expected_type, num_lit_type);
         return codegen_num_lit->resolved_type;
     } else {
         return num_lit_type;
@@ -1260,7 +1274,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                         actual_return_type = g->builtin_types.entry_invalid;
                     }
 
-                    resolve_type_compatibility(g, node, expected_return_type, actual_return_type);
+                    resolve_type_compatibility(g, context, node, expected_return_type, actual_return_type);
                 } else {
                     add_node_error(g, node, buf_sprintf("return expression outside function definition"));
                 }
@@ -1453,14 +1467,14 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     else_type = analyze_expression(g, import, context, expected_type, node->data.if_expr.else_node);
                 } else {
                     else_type = g->builtin_types.entry_void;
-                    else_type = resolve_type_compatibility(g, node, expected_type, else_type);
+                    else_type = resolve_type_compatibility(g, context, node, expected_type, else_type);
                 }
 
 
                 if (expected_type) {
                     return_type = (then_type->id == TypeTableEntryIdUnreachable) ? else_type : then_type;
                 } else {
-                    return_type = resolve_peer_type_compatibility(g, node,
+                    return_type = resolve_peer_type_compatibility(g, context, node,
                             node->data.if_expr.then_block, node->data.if_expr.else_node,
                             then_type, else_type);
                 }
@@ -1482,7 +1496,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             zig_unreachable();
     }
     assert(return_type);
-    resolve_type_compatibility(g, node, expected_type, return_type);
+    resolve_type_compatibility(g, context, node, expected_type, return_type);
 
     node->codegen_node->expr_node.type_entry = return_type;
     node->codegen_node->expr_node.block_context = context;

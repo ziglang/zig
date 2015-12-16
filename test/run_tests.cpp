@@ -121,7 +121,7 @@ static void add_compiling_test_cases(void) {
         }
 
         fn this_is_a_function() -> unreachable {
-            print_str("OK\n" as string);
+            print_str("OK\n");
             exit(0);
         }
     )SOURCE", "OK\n");
@@ -137,7 +137,7 @@ static void add_compiling_test_cases(void) {
         /// this is a documentation comment
         /// doc comment line 2
         pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-            print_str(/* mid-line comment /* nested */ */ "OK\n" as string);
+            print_str(/* mid-line comment /* nested */ */ "OK\n");
             return 0;
         }
     )SOURCE", "OK\n");
@@ -185,17 +185,17 @@ static void add_compiling_test_cases(void) {
 
         pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
             if 1 != 0 {
-                print_str("1 is true\n" as string);
+                print_str("1 is true\n");
             } else {
-                print_str("1 is false\n" as string);
+                print_str("1 is false\n");
             }
             if 0 != 0 {
-                print_str("0 is true\n" as string);
+                print_str("0 is true\n");
             } else if 1 - 1 != 0 {
-                print_str("1 - 1 is true\n" as string);
+                print_str("1 - 1 is true\n");
             }
             if !(0 != 0) {
-                print_str("!0 is true\n" as string);
+                print_str("!0 is true\n");
             }
             return 0;
         }
@@ -210,7 +210,7 @@ static void add_compiling_test_cases(void) {
 
         pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
             if add(22, 11) == 33 {
-                print_str("pass\n" as string);
+                print_str("pass\n");
             }
             return 0;
         }
@@ -223,7 +223,7 @@ static void add_compiling_test_cases(void) {
             if a == 0 {
                 goto done;
             }
-            print_str("loop\n" as string);
+            print_str("loop\n");
             loop(a - 1);
 
         done:
@@ -243,7 +243,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     const a : i32 = 1;
     const b = 2 as i32;
     if (a + b == 3) {
-        print_str("OK\n" as string);
+        print_str("OK\n");
     }
     return 0;
 }
@@ -253,10 +253,10 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
 use "std.zig";
 
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-    if (true)   { print_str("OK 1\n" as string); }
-    if (false)  { print_str("BAD 1\n" as string); }
-    if (!true)  { print_str("BAD 2\n" as string); }
-    if (!false) { print_str("OK 2\n" as string); }
+    if (true)   { print_str("OK 1\n"); }
+    if (false)  { print_str("BAD 1\n"); }
+    if (!true)  { print_str("BAD 2\n"); }
+    if (!false) { print_str("OK 2\n"); }
     return 0;
 }
     )SOURCE", "OK 1\nOK 2\n");
@@ -267,14 +267,14 @@ use "std.zig";
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     if (true) {
         const no_conflict : i32 = 5;
-        if (no_conflict == 5) { print_str("OK 1\n" as string); }
+        if (no_conflict == 5) { print_str("OK 1\n"); }
     }
 
     const c = {
         const no_conflict = 10 as i32;
         no_conflict
     };
-    if (c == 10) { print_str("OK 2\n" as string); }
+    if (c == 10) { print_str("OK 2\n"); }
     return 0;
 }
     )SOURCE", "OK 1\nOK 2\n");
@@ -290,7 +290,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
 fn void_fun(a : i32, b : void, c : i32) {
     const v = b;
     const vv : void = if (a == 1) {v} else {};
-    if (a + c == 3) { print_str("OK\n" as string); }
+    if (a + c == 3) { print_str("OK\n"); }
     return vv;
 }
     )SOURCE", "OK\n");
@@ -300,14 +300,14 @@ use "std.zig";
 
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     var zero : i32;
-    if (zero == 0) { print_str("zero\n" as string); }
+    if (zero == 0) { print_str("zero\n"); }
 
     var i = 0 as i32;
 loop_start:
     if i == 3 {
         goto done;
     }
-    print_str("loop\n" as string);
+    print_str("loop\n");
     i = i + 1;
     goto loop_start;
 done:
@@ -346,7 +346,7 @@ loop_2_start:
 loop_2_end:
 
     if accumulator == 15 {
-        print_str("OK\n" as string);
+        print_str("OK\n");
     }
 
     return 0;
@@ -358,7 +358,7 @@ loop_2_end:
 use "std.zig";
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
-    print_str("Hello, world!\n" as string);
+    print_str("Hello, world!\n");
     return 0;
 }
     )SOURCE", "Hello, world!\n");
@@ -368,20 +368,20 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 use "std.zig";
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
-    if false || false || false { print_str("BAD 1\n" as string); }
-    if true && true && false   { print_str("BAD 2\n" as string); }
-    if 1 | 2 | 4 != 7          { print_str("BAD 3\n" as string); }
-    if 3 ^ 6 ^ 8 != 13         { print_str("BAD 4\n" as string); }
-    if 7 & 14 & 28 != 4        { print_str("BAD 5\n" as string); }
-    if 9  << 1 << 2 != 9  << 3 { print_str("BAD 6\n" as string); }
-    if 90 >> 1 >> 2 != 90 >> 3 { print_str("BAD 7\n" as string); }
-    if 100 - 1 + 1000 != 1099  { print_str("BAD 8\n" as string); }
-    if 5 * 4 / 2 % 3 != 1      { print_str("BAD 9\n" as string); }
-    if 5 as i32 as i32 != 5    { print_str("BAD 10\n" as string); }
-    if !!false                 { print_str("BAD 11\n" as string); }
-    if 7 != --7                { print_str("BAD 12\n" as string); }
+    if false || false || false { print_str("BAD 1\n"); }
+    if true && true && false   { print_str("BAD 2\n"); }
+    if 1 | 2 | 4 != 7          { print_str("BAD 3\n"); }
+    if 3 ^ 6 ^ 8 != 13         { print_str("BAD 4\n"); }
+    if 7 & 14 & 28 != 4        { print_str("BAD 5\n"); }
+    if 9  << 1 << 2 != 9  << 3 { print_str("BAD 6\n"); }
+    if 90 >> 1 >> 2 != 90 >> 3 { print_str("BAD 7\n"); }
+    if 100 - 1 + 1000 != 1099  { print_str("BAD 8\n"); }
+    if 5 * 4 / 2 % 3 != 1      { print_str("BAD 9\n"); }
+    if 5 as i32 as i32 != 5    { print_str("BAD 10\n"); }
+    if !!false                 { print_str("BAD 11\n"); }
+    if 7 != --7                { print_str("BAD 12\n"); }
 
-    print_str("OK\n" as string);
+    print_str("OK\n");
     return 0;
 }
     )SOURCE", "OK\n");
@@ -390,19 +390,19 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 use "std.zig";
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
-    if true || { print_str("BAD 1\n" as string); false } {
-      print_str("OK 1\n" as string);
+    if true || { print_str("BAD 1\n"); false } {
+      print_str("OK 1\n");
     }
-    if false || { print_str("OK 2\n" as string); false } {
-      print_str("BAD 2\n" as string);
+    if false || { print_str("OK 2\n"); false } {
+      print_str("BAD 2\n");
     }
 
-    if true && { print_str("OK 3\n" as string); false } {
-      print_str("BAD 3\n" as string);
+    if true && { print_str("OK 3\n"); false } {
+      print_str("BAD 3\n");
     }
-    if false && { print_str("BAD 4\n" as string); false } {
+    if false && { print_str("BAD 4\n"); false } {
     } else {
-      print_str("OK 4\n" as string);
+      print_str("OK 4\n");
     }
 
     return 0;
@@ -414,20 +414,20 @@ use "std.zig";
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var i : i32 = 0;
-    i += 5;  if i != 5  { print_str("BAD +=\n" as string); }
-    i -= 2;  if i != 3  { print_str("BAD -=\n" as string); }
-    i *= 20; if i != 60 { print_str("BAD *=\n" as string); }
-    i /= 3;  if i != 20 { print_str("BAD /=\n" as string); }
-    i %= 11; if i != 9  { print_str("BAD %=\n" as string); }
-    i <<= 1; if i != 18 { print_str("BAD <<=\n" as string); }
-    i >>= 2; if i != 4  { print_str("BAD >>=\n" as string); }
+    i += 5;  if i != 5  { print_str("BAD +=\n"); }
+    i -= 2;  if i != 3  { print_str("BAD -=\n"); }
+    i *= 20; if i != 60 { print_str("BAD *=\n"); }
+    i /= 3;  if i != 20 { print_str("BAD /=\n"); }
+    i %= 11; if i != 9  { print_str("BAD %=\n"); }
+    i <<= 1; if i != 18 { print_str("BAD <<=\n"); }
+    i >>= 2; if i != 4  { print_str("BAD >>=\n"); }
     i = 6;
-    i &= 5;  if i != 4  { print_str("BAD &=\n" as string); }
-    i ^= 6;  if i != 2  { print_str("BAD ^=\n" as string); }
+    i &= 5;  if i != 4  { print_str("BAD &=\n"); }
+    i ^= 6;  if i != 2  { print_str("BAD ^=\n"); }
     i = 6;
-    i |= 3;  if i != 7  { print_str("BAD |=\n" as string); }
+    i |= 3;  if i != 7  { print_str("BAD |=\n"); }
 
-    print_str("OK\n" as string);
+    print_str("OK\n");
     return 0;
 }
     )SOURCE", "OK\n");
@@ -578,7 +578,7 @@ struct Foo {
 }
 fn test_foo(foo : Foo) {
     if foo.b {
-        print_str("OK\n" as string);
+        print_str("OK\n");
     }
 }
     )SOURCE", "OK\n");
@@ -590,10 +590,10 @@ const g1 : i32 = 1233 + 1;
 var g2 : i32;
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
-    if g2 != 0 { print_str("BAD\n" as string); }
+    if g2 != 0 { print_str("BAD\n"); }
     g2 = g1;
-    if g2 != 1234 { print_str("BAD\n" as string); }
-    print_str("OK\n" as string);
+    if g2 != 1234 { print_str("BAD\n"); }
+    print_str("OK\n");
     return 0;
 }
     )SOURCE", "OK\n");

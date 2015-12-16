@@ -1039,7 +1039,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
     assert(node->codegen_node);
 
     TypeTableEntry *actual_type = node->codegen_node->expr_node.type_entry;
-    TypeTableEntry *cast_type = node->codegen_node->expr_node.cast_type;
+    TypeTableEntry *cast_type = node->codegen_node->expr_node.implicit_cast.type;
 
     return cast_type ? gen_bare_cast(g, node, val, actual_type, cast_type,
             &node->codegen_node->expr_node.implicit_cast) : val;
@@ -1248,12 +1248,9 @@ static void do_code_gen(CodeGen *g) {
 
             // allocate structs which are the result of casts
             for (int cea_i = 0; cea_i < block_context->cast_expr_alloca_list.length; cea_i += 1) {
-                AstNode *cast_expr_node = block_context->cast_expr_alloca_list.at(cea_i);
-                assert(cast_expr_node->type == NodeTypeCastExpr);
-                CastNode *cast_codegen = &cast_expr_node->codegen_node->data.cast_node;
-                TypeTableEntry *type_entry = get_type_for_type_node(g, cast_expr_node->data.cast_expr.type);
-                add_debug_source_node(g, cast_expr_node);
-                cast_codegen->ptr = LLVMBuildAlloca(g->builder, type_entry->type_ref, "");
+                CastNode *cast_node = block_context->cast_expr_alloca_list.at(cea_i);
+                add_debug_source_node(g, cast_node->source_node);
+                cast_node->ptr = LLVMBuildAlloca(g->builder, cast_node->type->type_ref, "");
             }
         }
 

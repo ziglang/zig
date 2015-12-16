@@ -17,6 +17,7 @@ struct FnTableEntry;
 struct BlockContext;
 struct TypeTableEntry;
 struct VariableTableEntry;
+struct CastNode;
 
 struct TypeTableEntryPointer {
     TypeTableEntry *pointer_child;
@@ -213,7 +214,7 @@ struct BlockContext {
     FnTableEntry *fn_entry; // null at the module scope
     BlockContext *parent; // null when this is the root
     HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
-    ZigList<AstNode *> cast_expr_alloca_list;
+    ZigList<CastNode *> cast_expr_alloca_list;
     LLVMZigDIScope *di_scope;
 };
 
@@ -261,6 +262,8 @@ struct CastNode {
     // if op is CastOpArrayToString, this will be a pointer to
     // the string struct on the stack
     LLVMValueRef ptr;
+    TypeTableEntry *type;
+    AstNode *source_node;
 };
 
 struct ExprNode {
@@ -270,7 +273,6 @@ struct ExprNode {
     BlockContext *block_context;
 
     // may be null for no cast
-    TypeTableEntry *cast_type;
     CastNode implicit_cast;
 };
 
