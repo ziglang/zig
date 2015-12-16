@@ -1113,38 +1113,41 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, int *token_index, boo
         return nullptr;
     }
 
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id == TokenIdLParen) {
-        *token_index += 1;
+    while (true) {
+        Token *token = &pc->tokens->at(*token_index);
+        if (token->id == TokenIdLParen) {
+            *token_index += 1;
 
-        AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, token);
-        node->data.fn_call_expr.fn_ref_expr = primary_expr;
-        ast_parse_fn_call_param_list(pc, token_index, &node->data.fn_call_expr.params);
-        return node;
-    } else if (token->id == TokenIdLBracket) {
-        *token_index += 1;
+            AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, token);
+            node->data.fn_call_expr.fn_ref_expr = primary_expr;
+            ast_parse_fn_call_param_list(pc, token_index, &node->data.fn_call_expr.params);
 
-        AstNode *node = ast_create_node(pc, NodeTypeArrayAccessExpr, token);
-        node->data.array_access_expr.array_ref_expr = primary_expr;
-        node->data.array_access_expr.subscript = ast_parse_expression(pc, token_index, true);
+            primary_expr = node;
+        } else if (token->id == TokenIdLBracket) {
+            *token_index += 1;
 
-        Token *r_bracket = &pc->tokens->at(*token_index);
-        *token_index += 1;
-        ast_expect_token(pc, r_bracket, TokenIdRBracket);
+            AstNode *node = ast_create_node(pc, NodeTypeArrayAccessExpr, token);
+            node->data.array_access_expr.array_ref_expr = primary_expr;
+            node->data.array_access_expr.subscript = ast_parse_expression(pc, token_index, true);
 
-        return node;
-    } else if (token->id == TokenIdDot) {
-        *token_index += 1;
+            Token *r_bracket = &pc->tokens->at(*token_index);
+            *token_index += 1;
+            ast_expect_token(pc, r_bracket, TokenIdRBracket);
 
-        Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
+            primary_expr = node;
+        } else if (token->id == TokenIdDot) {
+            *token_index += 1;
 
-        AstNode *node = ast_create_node(pc, NodeTypeFieldAccessExpr, token);
-        node->data.field_access_expr.struct_expr = primary_expr;
-        ast_buf_from_token(pc, name_token, &node->data.field_access_expr.field_name);
+            Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
 
-        return node;
-    } else {
-        return primary_expr;
+            AstNode *node = ast_create_node(pc, NodeTypeFieldAccessExpr, token);
+            node->data.field_access_expr.struct_expr = primary_expr;
+            ast_buf_from_token(pc, name_token, &node->data.field_access_expr.field_name);
+
+            primary_expr = node;
+        } else {
+            return primary_expr;
+        }
     }
 }
 

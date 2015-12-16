@@ -83,6 +83,25 @@ void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
     buf_append_buf(out_full_path, basename);
 }
 
+int os_path_real(Buf *rel_path, Buf *out_abs_path) {
+    buf_resize(out_abs_path, PATH_MAX + 1);
+    char *result = realpath(buf_ptr(rel_path), buf_ptr(out_abs_path));
+    if (!result) {
+        int err = errno;
+        if (err == EACCES) {
+            return ErrorAccess;
+        } else if (err == ENOENT) {
+            return ErrorFileNotFound;
+        } else if (err == ENOMEM) {
+            return ErrorNoMem;
+        } else {
+            return ErrorFileSystem;
+        }
+    }
+    buf_resize(out_abs_path, strlen(buf_ptr(out_abs_path)));
+    return ErrorNone;
+}
+
 void os_exec_process(const char *exe, ZigList<const char *> &args,
         int *return_code, Buf *out_stderr, Buf *out_stdout)
 {

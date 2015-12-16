@@ -209,9 +209,16 @@ static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **out_type_entry) {
     assert(node->type == NodeTypeFieldAccessExpr);
 
+    //TypeTableEntry *struct_type = get_expr_type(node->data.field_access_expr.struct_expr);
     LLVMValueRef struct_ptr = gen_expr(g, node->data.field_access_expr.struct_expr);
-
     assert(struct_ptr);
+
+    /*
+    if (struct_type->id == TypeTableEntryIdPointer) {
+        add_debug_source_node(g, node);
+        struct_ptr = LLVMBuildLoad(g->builder, struct_ptr, "");
+    }
+    */
 
     FieldAccessNode *codegen_field_access = &node->codegen_node->data.field_access_node;
 
@@ -244,12 +251,12 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node) {
         } else {
             zig_panic("gen_field_access_expr bad array field");
         }
-    } else if (struct_type->id == TypeTableEntryIdStruct) {
+    } else if (struct_type->id == TypeTableEntryIdStruct || (struct_type->id == TypeTableEntryIdPointer &&
+               struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct))
+    {
         TypeTableEntry *type_entry;
         LLVMValueRef ptr = gen_field_ptr(g, node, &type_entry);
         return LLVMBuildLoad(g->builder, ptr, "");
-    } else if (struct_type->id == TypeTableEntryIdPointer) {
-        zig_panic("TODO struct pointer access");
     } else {
         zig_panic("gen_field_access_expr bad struct type");
     }
@@ -1611,7 +1618,9 @@ static bool directives_contains_link_libc(ZigList<AstNode*> *directives) {
     return false;
 }
 
-static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code) {
+static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
+        Buf *src_dirname, Buf *src_basename, Buf *source_code)
+{
     int err;
     Buf *full_path = buf_alloc();
     os_path_join(src_dirname, src_basename, full_path);
@@ -1662,7 +1671,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *src_dirname, Buf *src
     }
 
     import_entry->di_file = LLVMZigCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
-    g->import_table.put(full_path, import_entry);
+    g->import_table.put(abs_full_path, import_entry);
 
     import_entry->block_context = new_block_context(import_entry->root, nullptr);
     import_entry->block_context->di_scope = LLVMZigFileToScope(import_entry->di_file);
@@ -1674,17 +1683,30 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *src_dirname, Buf *src
 
         if (top_level_decl->type == NodeTypeUse) {
             Buf *import_target_path = &top_level_decl->data.use.path;
-            auto entry = g->import_table.maybe_get(import_target_path);
-            if (!entry) {
-                Buf full_path = BUF_INIT;
-                Buf *import_code = buf_alloc();
-                bool found_it = false;
+            Buf full_path = BUF_INIT;
+            Buf *import_code = buf_alloc();
+            bool found_it = false;
 
-                for (int path_i = 0; path_i < g->lib_search_paths.length; path_i += 1) {
-                    Buf *search_path = g->lib_search_paths.at(path_i);
-                    os_path_join(search_path, import_target_path, &full_path);
+            for (int path_i = 0; path_i < g->lib_search_paths.length; path_i += 1) {
+                Buf *search_path = g->lib_search_paths.at(path_i);
+                os_path_join(search_path, import_target_path, &full_path);
 
-                    if ((err = os_fetch_file_path(&full_path, import_code))) {
+                Buf *abs_full_path = buf_alloc();
+                if ((err = os_path_real(&full_path, abs_full_path))) {
+                    if (err == ErrorFileNotFound) {
+                        continue;
+                    } else {
+                        add_node_error(g, top_level_decl,
+                                buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));
+                        goto done_looking_at_imports;
+                    }
+                }
+
+                auto entry = g->import_table.maybe_get(abs_full_path);
+                if (entry) {
+                    found_it = true;
+                } else {
+                    if ((err = os_fetch_file_path(abs_full_path, import_code))) {
                         if (err == ErrorFileNotFound) {
                             continue;
                         } else {
@@ -1693,14 +1715,14 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *src_dirname, Buf *src
                             goto done_looking_at_imports;
                         }
                     }
-                    codegen_add_code(g, search_path, &top_level_decl->data.use.path, import_code);
+                    codegen_add_code(g, abs_full_path, search_path, &top_level_decl->data.use.path, import_code);
                     found_it = true;
-                    break;
                 }
-                if (!found_it) {
-                    add_node_error(g, top_level_decl,
-                            buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
-                }
+                break;
+            }
+            if (!found_it) {
+                add_node_error(g, top_level_decl,
+                        buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
             }
         } else if (top_level_decl->type == NodeTypeFnDef) {
             AstNode *proto_node = top_level_decl->data.fn_def.fn_proto;
@@ -1727,20 +1749,30 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
     os_path_join(src_dir, src_basename, &source_path);
     init(g, &source_path);
 
-    g->root_import = codegen_add_code(g, src_dir, src_basename, source_code);
+    Buf *abs_full_path = buf_alloc();
+    int err;
+    if ((err = os_path_real(&source_path, abs_full_path))) {
+        zig_panic("unable to open '%s': %s", buf_ptr(&source_path), err_str(err));
+    }
+
+    g->root_import = codegen_add_code(g, abs_full_path, src_dir, src_basename, source_code);
 
     if (g->have_exported_main && !g->link_libc && g->out_type != OutTypeLib) {
         Buf *bootstrap_dir = buf_create_from_str(ZIG_STD_DIR);
         Buf *bootstrap_basename = buf_create_from_str("bootstrap.zig");
         Buf path_to_bootstrap_src = BUF_INIT;
         os_path_join(bootstrap_dir, bootstrap_basename, &path_to_bootstrap_src);
+        Buf *abs_full_path = buf_alloc();
+        if ((err = os_path_real(&path_to_bootstrap_src, abs_full_path))) {
+            zig_panic("unable to open '%s': %s", buf_ptr(&path_to_bootstrap_src), err_str(err));
+        }
         Buf *import_code = buf_alloc();
         int err;
-        if ((err = os_fetch_file_path(&path_to_bootstrap_src, import_code))) {
+        if ((err = os_fetch_file_path(abs_full_path, import_code))) {
             zig_panic("unable to open '%s': %s", buf_ptr(&path_to_bootstrap_src), err_str(err));
         }
 
-        codegen_add_code(g, bootstrap_dir, bootstrap_basename, import_code);
+        codegen_add_code(g, abs_full_path, bootstrap_dir, bootstrap_basename, import_code);
     }
 
     if (g->verbose) {
@@ -1963,6 +1995,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
         crt1o = "Scrt1.o";
     }
 
+    // TODO don't pass this parameter unless linking with libc
     char *ZIG_NATIVE_DYNAMIC_LINKER = getenv("ZIG_NATIVE_DYNAMIC_LINKER");
     if (g->is_native_target && ZIG_NATIVE_DYNAMIC_LINKER) {
         if (ZIG_NATIVE_DYNAMIC_LINKER[0] != 0) {

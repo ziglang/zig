@@ -19,6 +19,7 @@ void os_exec_process(const char *exe, ZigList<const char *> &args,
 
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename);
 void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path);
+int os_path_real(Buf *rel_path, Buf *out_abs_path);
 
 void os_write_file(Buf *full_path, Buf *contents);
 
