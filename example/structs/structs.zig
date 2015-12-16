@@ -11,6 +11,13 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 
     test_foo(foo);
 
+    modify_foo(&foo);
+
+    if foo.c != 100 {
+        print_str("BAD\n");
+    }
+
+    print_str("OK\n");
     return 0;
 }
 
@@ -21,7 +28,11 @@ struct Foo {
 }
 
 fn test_foo(foo : Foo) {
-    if foo.b {
-        print_str("OK\n" as string);
+    if !foo.b {
+        print_str("BAD\n");
     }
+}
+
+fn modify_foo(foo : &Foo) {
+    foo.c = 100;
 }

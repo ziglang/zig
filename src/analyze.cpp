@@ -116,6 +116,9 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
         entry->align_in_bits = g->pointer_size_bytes * 8;
         entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type->di_type,
                 entry->size_in_bits, entry->align_in_bits, buf_ptr(&entry->name));
+        entry->data.pointer.child_type = child_type;
+        entry->data.pointer.is_const = is_const;
+
         g->type_table.put(&entry->name, entry);
         *parent_pointer = entry;
         return entry;
@@ -575,6 +578,10 @@ static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type,
         case TypeTableEntryIdFloat:
             if (is_num_lit_float(num_lit)) {
                 return lit_size_in_bits <= other_type->size_in_bits;
+            } else if (other_type->size_in_bits == 32) {
+                return lit_size_in_bits < 24;
+            } else if (other_type->size_in_bits == 64) {
+                return lit_size_in_bits < 53;
             } else {
                 return false;
             }
@@ -810,14 +817,19 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
 
     TypeTableEntry *return_type;
 
-    if (struct_type->id == TypeTableEntryIdStruct) {
+    if (struct_type->id == TypeTableEntryIdStruct || (struct_type->id == TypeTableEntryIdPointer &&
+         struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct))
+    {
         assert(node->codegen_node);
         FieldAccessNode *codegen_field_access = &node->codegen_node->data.field_access_node;
         assert(codegen_field_access);
 
         Buf *field_name = &node->data.field_access_expr.field_name;
 
-        get_struct_field(struct_type, field_name,
+        TypeTableEntry *bare_struct_type = (struct_type->id == TypeTableEntryIdStruct) ?
+            struct_type : struct_type->data.pointer.child_type;
+
+        get_struct_field(bare_struct_type, field_name,
                 &codegen_field_access->type_struct_field,
                 &codegen_field_access->field_index);
         if (codegen_field_access->type_struct_field) {

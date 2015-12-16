@@ -20,8 +20,8 @@ struct VariableTableEntry;
 struct CastNode;
 
 struct TypeTableEntryPointer {
-    TypeTableEntry *pointer_child;
-    bool pointer_is_const;
+    TypeTableEntry *child_type;
+    bool is_const;
 };
 
 struct TypeTableEntryInt {

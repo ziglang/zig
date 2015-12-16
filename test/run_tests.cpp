@@ -569,6 +569,11 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     foo.a += 1;
     foo.b = foo.a == 1;
     test_foo(foo);
+    test_mutation(&foo);
+    if foo.c != 100 {
+        print_str("BAD\n");
+    }
+    print_str("OK\n");
     return 0;
 }
 struct Foo {
@@ -577,9 +582,12 @@ struct Foo {
     c : f32,
 }
 fn test_foo(foo : Foo) {
-    if foo.b {
-        print_str("OK\n");
+    if !foo.b {
+        print_str("BAD\n");
     }
+}
+fn test_mutation(foo : &Foo) {
+    foo.c = 100;
 }
     )SOURCE", "OK\n");
 

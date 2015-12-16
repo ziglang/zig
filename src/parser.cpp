@@ -1153,12 +1153,13 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdBang: return PrefixOpBoolNot;
         case TokenIdDash: return PrefixOpNegation;
         case TokenIdTilde: return PrefixOpBinNot;
+        case TokenIdAmpersand: return PrefixOpAddressOf;
         default: return PrefixOpInvalid;
     }
 }
 
 /*
-PrefixOp : token(Not) | token(Dash) | token(Tilde)
+PrefixOp : token(Not) | token(Dash) | token(Tilde) | (token(Ampersand) option(token(Const)))
 */
 static PrefixOp ast_parse_prefix_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1171,6 +1172,15 @@ static PrefixOp ast_parse_prefix_op(ParseContext *pc, int *token_index, bool man
         }
     }
     *token_index += 1;
+
+    if (result == PrefixOpAddressOf) {
+        Token *token = &pc->tokens->at(*token_index);
+        if (token->id == TokenIdKeywordConst) {
+            *token_index += 1;
+            result = PrefixOpConstAddressOf;
+        }
+    }
+
     return result;
 }
 

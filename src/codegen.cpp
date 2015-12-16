@@ -248,6 +248,8 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node) {
         TypeTableEntry *type_entry;
         LLVMValueRef ptr = gen_field_ptr(g, node, &type_entry);
         return LLVMBuildLoad(g->builder, ptr, "");
+    } else if (struct_type->id == TypeTableEntryIdPointer) {
+        zig_panic("TODO struct pointer access");
     } else {
         zig_panic("gen_field_access_expr bad struct type");
     }
