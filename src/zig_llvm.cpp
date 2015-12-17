@@ -161,6 +161,18 @@ LLVMZigDIType *LLVMZigCreateDebugArrayType(LLVMZigDIBuilder *dibuilder, uint64_t
     return reinterpret_cast<LLVMZigDIType*>(di_type);
 }
 
+LLVMZigDIType *LLVMZigCreateDebugMemberType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
+        const char *name, LLVMZigDIFile *file, unsigned line, uint64_t size_in_bits,
+        uint64_t align_in_bits, uint64_t offset_in_bits, unsigned flags, LLVMZigDIType *type)
+{
+    DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createMemberType(
+            reinterpret_cast<DIScope*>(scope),
+            name,
+            reinterpret_cast<DIFile*>(file),
+            line, size_in_bits, align_in_bits, offset_in_bits, flags,
+            reinterpret_cast<DIType*>(type));
+    return reinterpret_cast<LLVMZigDIType*>(di_type);
+}
 
 LLVMZigDIType *LLVMZigCreateDebugStructType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
         const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
@@ -184,6 +196,39 @@ LLVMZigDIType *LLVMZigCreateDebugStructType(LLVMZigDIBuilder *dibuilder, LLVMZig
             reinterpret_cast<DIType*>(vtable_holder),
             unique_id);
     return reinterpret_cast<LLVMZigDIType*>(di_type);
+}
+
+LLVMZigDIType *LLVMZigCreateReplaceableCompositeType(LLVMZigDIBuilder *dibuilder, unsigned tag,
+        const char *name, LLVMZigDIScope *scope, LLVMZigDIFile *file, unsigned line)
+{
+    DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createReplaceableCompositeType(
+            tag, name,
+            reinterpret_cast<DIScope*>(scope),
+            reinterpret_cast<DIFile*>(file),
+            line);
+    return reinterpret_cast<LLVMZigDIType*>(di_type);
+}
+
+void LLVMZigReplaceTemporary(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
+        LLVMZigDIType *replacement)
+{
+    reinterpret_cast<DIBuilder*>(dibuilder)->replaceTemporary(
+            TempDIType(reinterpret_cast<DIType*>(type)),
+            reinterpret_cast<DIType*>(replacement));
+}
+
+void LLVMZigReplaceDebugArrays(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
+        LLVMZigDIType **types_array, int types_array_len)
+{
+    SmallVector<Metadata *, 8> fields;
+    for (int i = 0; i < types_array_len; i += 1) {
+        DIType *ditype = reinterpret_cast<DIType*>(types_array[i]);
+        fields.push_back(ditype);
+    }
+    DICompositeType *composite_type = (DICompositeType*)reinterpret_cast<DIType*>(type);
+    reinterpret_cast<DIBuilder*>(dibuilder)->replaceArrays(
+            composite_type,
+            reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(fields));
 }
 
 LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
@@ -224,6 +269,10 @@ unsigned LLVMZigTag_DW_auto_variable(void) {
 
 unsigned LLVMZigTag_DW_arg_variable(void) {
     return dwarf::DW_TAG_arg_variable;
+}
+
+unsigned LLVMZigTag_DW_structure_type(void) {
+    return dwarf::DW_TAG_structure_type;
 }
 
 LLVMZigDIBuilder *LLVMZigCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved) {
@@ -283,6 +332,11 @@ LLVMZigDIScope *LLVMZigFileToScope(LLVMZigDIFile *difile) {
 
 LLVMZigDIScope *LLVMZigSubprogramToScope(LLVMZigDISubprogram *subprogram) {
     DIScope *scope = reinterpret_cast<DISubprogram*>(subprogram);
+    return reinterpret_cast<LLVMZigDIScope*>(scope);
+}
+
+LLVMZigDIScope *LLVMZigTypeToScope(LLVMZigDIType *type) {
+    DIScope *scope = reinterpret_cast<DIType*>(type);
     return reinterpret_cast<LLVMZigDIScope*>(scope);
 }
 

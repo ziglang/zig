@@ -215,8 +215,7 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
 
     /*
     if (struct_type->id == TypeTableEntryIdPointer) {
-        add_debug_source_node(g, node);
-        struct_ptr = LLVMBuildLoad(g->builder, struct_ptr, "");
+        zig_panic("TODO pointer field struct access");
     }
     */
 

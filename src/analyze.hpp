@@ -39,6 +39,7 @@ struct TypeStructField {
 };
 
 struct TypeTableEntryStruct {
+    AstNode *decl_node;
     bool is_packed;
     int field_count;
     TypeStructField *fields;

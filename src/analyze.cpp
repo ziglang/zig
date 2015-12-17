@@ -114,6 +114,7 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
         buf_appendf(&entry->name, "&%s%s", is_const ? "const " : "", buf_ptr(&child_type->name));
         entry->size_in_bits = g->pointer_size_bytes * 8;
         entry->align_in_bits = g->pointer_size_bytes * 8;
+        assert(child_type->di_type);
         entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type->di_type,
                 entry->size_in_bits, entry->align_in_bits, buf_ptr(&entry->name));
         entry->data.pointer.child_type = child_type;
@@ -269,6 +270,70 @@ static void preview_function_labels(CodeGen *g, AstNode *node, FnTableEntry *fn_
     }
 }
 
+static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type) {
+    assert(struct_type->id == TypeTableEntryIdStruct);
+
+    AstNode *decl_node = struct_type->data.structure.decl_node;
+
+    assert(struct_type->di_type);
+    assert(!struct_type->data.structure.fields);
+
+    int field_count = decl_node->data.struct_decl.fields.length;
+    struct_type->data.structure.field_count = field_count;
+    struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
+
+    LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
+    LLVMZigDIType **di_element_types = allocate<LLVMZigDIType*>(field_count);
+
+    uint64_t total_size_in_bits = 0;
+    uint64_t first_field_align_in_bits = 0;
+    uint64_t offset_in_bits = 0;
+
+    for (int i = 0; i < field_count; i += 1) {
+        AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
+        TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+        type_struct_field->name = &field_node->data.struct_field.name;
+        type_struct_field->type_entry = resolve_type(g, field_node->data.struct_field.type);
+
+        if (type_struct_field->type_entry->id == TypeTableEntryIdStruct) {
+            resolve_struct_type(g, import, type_struct_field->type_entry);
+        }
+
+        di_element_types[i] = LLVMZigCreateDebugMemberType(g->dbuilder,
+                LLVMZigTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
+                import->di_file, field_node->line + 1,
+                type_struct_field->type_entry->size_in_bits,
+                type_struct_field->type_entry->align_in_bits,
+                offset_in_bits, 0, type_struct_field->type_entry->di_type);
+
+        element_types[i] = type_struct_field->type_entry->type_ref;
+        assert(di_element_types[i]);
+        assert(element_types[i]);
+
+        total_size_in_bits += type_struct_field->type_entry->size_in_bits;
+        if (first_field_align_in_bits == 0) {
+            first_field_align_in_bits = type_struct_field->type_entry->align_in_bits;
+        }
+        offset_in_bits += type_struct_field->type_entry->size_in_bits;
+
+    }
+
+    LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
+
+    struct_type->align_in_bits = first_field_align_in_bits;
+    struct_type->size_in_bits = total_size_in_bits;
+
+    LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
+            LLVMZigFileToScope(import->di_file),
+            buf_ptr(&decl_node->data.struct_decl.name),
+            import->di_file, decl_node->line + 1, struct_type->size_in_bits, struct_type->align_in_bits, 0,
+            nullptr, di_element_types, field_count, 0, nullptr, "");
+
+    LLVMZigReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
+    struct_type->di_type = replacement_di_type;
+}
+
+
 static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeExternBlock:
@@ -414,37 +479,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 StructDeclNode *struct_codegen = &node->codegen_node->data.struct_decl_node;
                 TypeTableEntry *type_entry = struct_codegen->type_entry;
 
-                int field_count = node->data.struct_decl.fields.length;;
-                type_entry->data.structure.field_count = field_count;
-                type_entry->data.structure.fields = allocate<TypeStructField>(field_count);
-
-                LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
-                LLVMZigDIType **di_element_types = allocate<LLVMZigDIType*>(field_count);
-
-                uint64_t total_size_in_bits = 0;
-
-                for (int i = 0; i < field_count; i += 1) {
-                    AstNode *field_node = node->data.struct_decl.fields.at(i);
-                    TypeStructField *type_struct_field = &type_entry->data.structure.fields[i];
-                    type_struct_field->name = &field_node->data.struct_field.name;
-                    type_struct_field->type_entry = resolve_type(g, field_node->data.struct_field.type);
-
-                    total_size_in_bits = type_struct_field->type_entry->size_in_bits;
-                    di_element_types[i] = type_struct_field->type_entry->di_type;
-
-                    element_types[i] = type_struct_field->type_entry->type_ref;
-                }
-                LLVMStructSetBody(type_entry->type_ref, element_types, field_count, false);
-
-                // TODO re-evaluate this align in bits and size in bits
-                type_entry->align_in_bits = 0;
-                type_entry->size_in_bits = total_size_in_bits;
-                type_entry->di_type = LLVMZigCreateDebugStructType(g->dbuilder,
-                        LLVMZigFileToScope(import->di_file),
-                        buf_ptr(&node->data.struct_decl.name),
-                        import->di_file, node->line + 1, type_entry->size_in_bits, type_entry->align_in_bits, 0,
-                        nullptr, di_element_types, field_count, 0, nullptr, "");
-
+                resolve_struct_type(g, import, type_entry);
                 break;
             }
         case NodeTypeUse:
@@ -496,6 +531,11 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
                 } else {
                     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
                     entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(name));
+                    entry->data.structure.decl_node = node;
+                    entry->di_type = LLVMZigCreateReplaceableCompositeType(g->dbuilder,
+                        LLVMZigTag_DW_structure_type(), buf_ptr(&node->data.struct_decl.name),
+                        LLVMZigFileToScope(import->di_file), import->di_file, node->line + 1);
+
                     buf_init_from_buf(&entry->name, name);
                     // put off adding the debug type until we do the full struct body
                     // this type is incomplete until we do another pass

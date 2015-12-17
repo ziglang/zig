@@ -55,6 +55,19 @@ LLVMZigDIType *LLVMZigCreateDebugStructType(LLVMZigDIBuilder *dibuilder, LLVMZig
         LLVMZigDIType **types_array, int types_array_len, unsigned run_time_lang, LLVMZigDIType *vtable_holder,
         const char *unique_id);
 
+LLVMZigDIType *LLVMZigCreateDebugMemberType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
+        const char *name, LLVMZigDIFile *file, unsigned line, uint64_t size_in_bits,
+        uint64_t align_in_bits, uint64_t offset_in_bits, unsigned flags, LLVMZigDIType *type);
+
+LLVMZigDIType *LLVMZigCreateReplaceableCompositeType(LLVMZigDIBuilder *dibuilder, unsigned tag,
+        const char *name, LLVMZigDIScope *scope, LLVMZigDIFile *file, unsigned line);
+
+void LLVMZigReplaceTemporary(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
+        LLVMZigDIType *replacement);
+
+void LLVMZigReplaceDebugArrays(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
+        LLVMZigDIType **types_array, int types_array_len);
+
 LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
         LLVMZigDIFile *file, LLVMZigDIType **types_array, int types_array_len, unsigned flags);
 
@@ -64,6 +77,7 @@ unsigned LLVMZigEncoding_DW_ATE_float(void);
 unsigned LLVMZigLang_DW_LANG_C99(void);
 unsigned LLVMZigTag_DW_auto_variable(void);
 unsigned LLVMZigTag_DW_arg_variable(void);
+unsigned LLVMZigTag_DW_structure_type(void);
 
 LLVMZigDIBuilder *LLVMZigCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
 
@@ -73,6 +87,7 @@ LLVMZigDIScope *LLVMZigLexicalBlockToScope(LLVMZigDILexicalBlock *lexical_block)
 LLVMZigDIScope *LLVMZigCompileUnitToScope(LLVMZigDICompileUnit *compile_unit);
 LLVMZigDIScope *LLVMZigFileToScope(LLVMZigDIFile *difile);
 LLVMZigDIScope *LLVMZigSubprogramToScope(LLVMZigDISubprogram *subprogram);
+LLVMZigDIScope *LLVMZigTypeToScope(LLVMZigDIType *type);
 
 LLVMZigDILocalVariable *LLVMZigCreateLocalVariable(LLVMZigDIBuilder *dbuilder, unsigned tag,
         LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
