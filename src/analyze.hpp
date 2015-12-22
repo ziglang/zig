@@ -43,6 +43,9 @@ struct TypeTableEntryStruct {
     bool is_packed;
     int field_count;
     TypeStructField *fields;
+
+    // set this flag temporarily to detect infinite loops
+    bool embedded_in_current;
 };
 
 struct TypeTableEntryNumLit {

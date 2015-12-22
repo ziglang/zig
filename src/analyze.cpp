@@ -273,12 +273,19 @@ static void preview_function_labels(CodeGen *g, AstNode *node, FnTableEntry *fn_
 static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type) {
     assert(struct_type->id == TypeTableEntryIdStruct);
 
+    AstNode *decl_node = struct_type->data.structure.decl_node;
+
+    if (struct_type->data.structure.embedded_in_current) {
+        add_node_error(g, decl_node,
+                buf_sprintf("struct has infinite size"));
+        return;
+    }
+
     if (struct_type->data.structure.fields) {
         // we already resolved this type. skip
         return;
     }
 
-    AstNode *decl_node = struct_type->data.structure.decl_node;
 
     assert(struct_type->di_type);
 
@@ -292,6 +299,9 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     uint64_t total_size_in_bits = 0;
     uint64_t first_field_align_in_bits = 0;
     uint64_t offset_in_bits = 0;
+
+    // this field should be set to true only during the recursive calls to resolve_struct_type
+    struct_type->data.structure.embedded_in_current = true;
 
     for (int i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
@@ -321,6 +331,7 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
         offset_in_bits += type_struct_field->type_entry->size_in_bits;
 
     }
+    struct_type->data.structure.embedded_in_current = false;
 
     LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
 

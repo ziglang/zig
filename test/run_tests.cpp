@@ -828,6 +828,16 @@ fn f() {
 }
     )SOURCE", 2, ".tmp_source.zig:3:21: error: expected type 'i32', got 'void'",
                  ".tmp_source.zig:4:15: error: incompatible types: 'i32' and 'void'");
+
+    add_compile_fail_case("direct struct loop", R"SOURCE(
+struct A { a : A, }
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: struct has infinite size");
+
+    add_compile_fail_case("indirect struct loop", R"SOURCE(
+struct A { b : B, }
+struct B { c : C, }
+struct C { a : A, }
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: struct has infinite size");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
