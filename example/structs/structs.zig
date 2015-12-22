@@ -2,7 +2,7 @@ export executable "structs";
 
 use "std.zig";
 
-export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var foo : Foo;
 
     foo.a = foo.a + 1;
@@ -30,8 +30,12 @@ struct Foo {
 }
 
 struct Node {
-    val: i32,
+    val: Val,
     next: &Node,
+}
+
+struct Val {
+    x: i32,
 }
 
 fn test_foo(foo : Foo) {
@@ -46,13 +50,15 @@ fn modify_foo(foo : &Foo) {
 
 fn test_point_to_self() {
     var root : Node;
-    root.val = 1;
+    root.val.x = 1;
 
     var node : Node;
     node.next = &root;
-    node.val = 2;
+    node.val.x = 2;
 
-    if node.next.val != 1 {
+    root.next = &node;
+
+    if node.next.next.next.val.x != 1 {
         print_str("BAD\n");
     }
 }

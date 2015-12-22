@@ -273,10 +273,14 @@ static void preview_function_labels(CodeGen *g, AstNode *node, FnTableEntry *fn_
 static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type) {
     assert(struct_type->id == TypeTableEntryIdStruct);
 
+    if (struct_type->data.structure.fields) {
+        // we already resolved this type. skip
+        return;
+    }
+
     AstNode *decl_node = struct_type->data.structure.decl_node;
 
     assert(struct_type->di_type);
-    assert(!struct_type->data.structure.fields);
 
     int field_count = decl_node->data.struct_decl.fields.length;
     struct_type->data.structure.field_count = field_count;
