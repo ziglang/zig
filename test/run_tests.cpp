@@ -838,6 +838,17 @@ struct A { b : B, }
 struct B { c : C, }
 struct C { a : A, }
     )SOURCE", 1, ".tmp_source.zig:2:1: error: struct has infinite size");
+
+    add_compile_fail_case("invalid struct field", R"SOURCE(
+struct A { x : i32, }
+fn f() {
+    var a : A;
+    a.foo = 1;
+    const y = a.bar;
+}
+    )SOURCE", 2,
+            ".tmp_source.zig:5:6: error: no member named 'foo' in 'A'",
+            ".tmp_source.zig:6:16: error: no member named 'bar' in 'A'");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
