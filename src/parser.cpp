@@ -1761,7 +1761,7 @@ static void ast_parse_asm_input_item(ParseContext *pc, int *token_index, AstNode
 }
 
 /*
-AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Return) Type) token(RParen)
+AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Arrow) Type) token(RParen)
 */
 static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNode *node) {
     ast_eat_token(pc, token_index, TokenIdLBracket);
@@ -1778,7 +1778,7 @@ static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNod
     *token_index += 1;
     if (token->id == TokenIdSymbol) {
         ast_buf_from_token(pc, token, &asm_output->variable_name);
-    } else if (token->id == TokenIdKeywordReturn) {
+    } else if (token->id == TokenIdArrow) {
         asm_output->return_type = ast_parse_type(pc, token_index);
     } else {
         ast_invalid_token_error(pc, token);

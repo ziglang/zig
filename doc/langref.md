@@ -84,7 +84,7 @@ AsmOutput : token(Colon) list(AsmOutputItem, token(Comma)) option(AsmInput)
 
 AsmInput : token(Colon) list(AsmInputItem, token(Comma)) option(AsmClobbers)
 
-AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Return) Type) token(RParen)
+AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Arrow) Type) token(RParen)
 
 AsmInputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) Expression token(RParen)
 

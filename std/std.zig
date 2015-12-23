@@ -4,14 +4,14 @@ const stdout_fileno : isize = 1;
 
 fn syscall1(number: isize, arg1: isize) -> isize {
     asm volatile ("syscall"
-        : [ret] "={rax}" (return isize)
+        : [ret] "={rax}" (-> isize)
         : [number] "{rax}" (number), [arg1] "{rdi}" (arg1)
         : "rcx", "r11")
 }
 
 fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
     asm volatile ("syscall"
-        : [ret] "={rax}" (return isize)
+        : [ret] "={rax}" (-> isize)
         : [number] "{rax}" (number), [arg1] "{rdi}" (arg1), [arg2] "{rsi}" (arg2), [arg3] "{rdx}" (arg3)
         : "rcx", "r11")
 }
