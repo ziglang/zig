@@ -574,6 +574,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
         print_str("BAD\n");
     }
     test_point_to_self();
+    test_byval_assign();
     print_str("OK\n");
     return 0;
 }
@@ -611,6 +612,18 @@ fn test_point_to_self() {
     if node.next.next.next.val.x != 1 {
         print_str("BAD\n");
     }
+}
+fn test_byval_assign() {
+    var foo1 : Foo;
+    var foo2 : Foo;
+
+    foo1.a = 1234;
+
+    if foo2.a != 0 { print_str("BAD\n"); }
+
+    foo2 = foo1;
+
+    if foo2.a != 1234 { print_str("BAD - byval assignment failed\n"); }
 }
     )SOURCE", "OK\n");
 

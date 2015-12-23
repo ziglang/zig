@@ -276,8 +276,11 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     AstNode *decl_node = struct_type->data.structure.decl_node;
 
     if (struct_type->data.structure.embedded_in_current) {
-        add_node_error(g, decl_node,
-                buf_sprintf("struct has infinite size"));
+        if (!struct_type->data.structure.reported_infinite_err) {
+            struct_type->data.structure.reported_infinite_err = true;
+            add_node_error(g, decl_node,
+                    buf_sprintf("struct has infinite size"));
+        }
         return;
     }
 

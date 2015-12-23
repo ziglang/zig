@@ -666,15 +666,36 @@ static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
 
     LLVMValueRef target_ref = gen_lvalue(g, node, lhs_node, &op1_type);
 
+    TypeTableEntry *op2_type = get_expr_type(node->data.bin_op_expr.op2);
+
     LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
 
-    if (node->data.bin_op_expr.bin_op == BinOpTypeAssign) {
-        // value is ready as is
-    } else {
+    if (op1_type->id == TypeTableEntryIdStruct) {
+        assert(op2_type->id == TypeTableEntryIdStruct);
+        assert(op1_type == op2_type);
+        assert(node->data.bin_op_expr.bin_op == BinOpTypeAssign);
+
+        LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+
+        add_debug_source_node(g, node);
+        LLVMValueRef src_ptr = LLVMBuildBitCast(g->builder, value, ptr_u8, "");
+        LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, target_ref, ptr_u8, "");
+
+        LLVMValueRef params[] = {
+            dest_ptr, // dest pointer
+            src_ptr, // source pointer
+            LLVMConstInt(LLVMIntType(g->pointer_size_bytes * 8), op1_type->size_in_bits / 8, false), // byte count
+            LLVMConstInt(LLVMInt32Type(), op1_type->align_in_bits / 8, false), // align in bits
+            LLVMConstNull(LLVMInt1Type()), // is volatile
+        };
+
+        return LLVMBuildCall(g->builder, g->memcpy_fn_val, params, 5, "");
+    }
+
+    if (node->data.bin_op_expr.bin_op != BinOpTypeAssign) {
         add_debug_source_node(g, node->data.bin_op_expr.op1);
         LLVMValueRef left_value = LLVMBuildLoad(g->builder, target_ref, "");
 
-        TypeTableEntry *op2_type = get_expr_type(node->data.bin_op_expr.op2);
         value = gen_arithmetic_bin_op(g, left_value, value, op1_type, op2_type, node);
     }
 
@@ -1158,6 +1179,20 @@ static LLVMAttribute to_llvm_fn_attr(FnAttrId attr_id) {
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
+    {
+        LLVMTypeRef param_types[] = {
+            LLVMPointerType(LLVMInt8Type(), 0),
+            LLVMPointerType(LLVMInt8Type(), 0),
+            LLVMIntType(g->pointer_size_bytes * 8),
+            LLVMInt32Type(),
+            LLVMInt1Type(),
+        };
+        LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 5, false);
+        Buf *name = buf_sprintf("llvm.memcpy.p0i8.p0i8.i%d", g->pointer_size_bytes * 8);
+        g->memcpy_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+        assert(LLVMGetIntrinsicID(g->memcpy_fn_val));
+    }
+
     // Generate module level variables
     for (int i = 0; i < g->global_vars.length; i += 1) {
         VariableTableEntry *var = g->global_vars.at(i);
@@ -1379,7 +1414,7 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBool);
         entry->type_ref = LLVMInt1Type();
         buf_init_from_str(&entry->name, "bool");
-        entry->size_in_bits = 1;
+        entry->size_in_bits = 8;
         entry->align_in_bits = 8;
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,

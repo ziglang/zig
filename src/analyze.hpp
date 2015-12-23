@@ -43,9 +43,11 @@ struct TypeTableEntryStruct {
     bool is_packed;
     int field_count;
     TypeStructField *fields;
+    uint64_t size_bytes;
 
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;
+    bool reported_infinite_err;
 };
 
 struct TypeTableEntryNumLit {
@@ -201,6 +203,7 @@ struct CodeGen {
     bool verbose;
     ErrColor err_color;
     ImportTableEntry *root_import;
+    LLVMValueRef memcpy_fn_val;
 };
 
 struct VariableTableEntry {
