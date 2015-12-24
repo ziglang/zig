@@ -907,6 +907,21 @@ fn f() {
     };
 }
     )SOURCE", 1, ".tmp_source.zig:8:15: error: missing field: 'x'");
+
+    add_compile_fail_case("invalid field in struct value expression", R"SOURCE(
+struct A {
+    x : i32,
+    y : i32,
+    z : i32,
+}
+fn f() {
+    const a = A {
+        .z = 4,
+        .y = 2,
+        .foo = 42,
+    };
+}
+    )SOURCE", 1, ".tmp_source.zig:11:9: error: no member named 'foo' in 'A'");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
