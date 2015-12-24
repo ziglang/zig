@@ -658,6 +658,21 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     return 0;
 }
     )SOURCE", "loop\nloop\nloop\nloop\n");
+
+    add_simple_case("break out of while loop", R"SOURCE(
+use "std.zig";
+export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+    var i : i32 = 0;
+    while true {
+        if i >= 4 {
+            break;
+        }
+        print_str("loop\n");
+        i += 1;
+    }
+    return 0;
+}
+    )SOURCE", "loop\nloop\nloop\nloop\n");
 }
 
 static void add_compile_failure_test_cases(void) {

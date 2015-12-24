@@ -48,6 +48,7 @@ enum NodeType {
     NodeTypeWhileExpr,
     NodeTypeLabel,
     NodeTypeGoto,
+    NodeTypeBreak,
     NodeTypeAsmExpr,
     NodeTypeStructDecl,
     NodeTypeStructField,

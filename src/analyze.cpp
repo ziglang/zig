@@ -48,6 +48,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeIfExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
+        case NodeTypeBreak:
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructDecl:
@@ -530,6 +531,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeWhileExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
+        case NodeTypeBreak:
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
@@ -598,6 +600,7 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeWhileExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
+        case NodeTypeBreak:
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
@@ -1360,6 +1363,12 @@ static TypeTableEntry *analyze_while_expr(CodeGen *g, ImportTableEntry *import, 
     return g->builtin_types.entry_void;
 }
 
+static TypeTableEntry *analyze_break_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    return g->builtin_types.entry_unreachable;
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -1439,6 +1448,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 return_type = g->builtin_types.entry_unreachable;
                 break;
             }
+        case NodeTypeBreak:
+            return_type = analyze_break_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeAsmExpr:
             {
                 node->data.asm_expr.return_count = 0;
@@ -1792,6 +1804,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeWhileExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
+        case NodeTypeBreak:
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:

@@ -196,6 +196,7 @@ struct CodeGen {
     FnTableEntry *cur_fn;
     LLVMBasicBlockRef cur_basic_block;
     BlockContext *cur_block_context;
+    LLVMBasicBlockRef cur_break_block;
     bool c_stdint_used;
     AstNode *root_export_decl;
     int version_major;
