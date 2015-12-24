@@ -867,6 +867,11 @@ fn f() {
     )SOURCE", 2,
             ".tmp_source.zig:5:6: error: no member named 'foo' in 'A'",
             ".tmp_source.zig:6:16: error: no member named 'bar' in 'A'");
+
+    add_compile_fail_case("redefinition of struct", R"SOURCE(
+struct A { x : i32, }
+struct A { y : i32, }
+    )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of 'A'");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

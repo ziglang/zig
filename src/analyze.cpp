@@ -1066,7 +1066,6 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
 enum LValPurpose {
     LValPurposeAssign,
     LValPurposeAddressOf,
-    LValPurposeNotLVal,
 };
 
 static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, BlockContext *block_context,
