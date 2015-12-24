@@ -1653,6 +1653,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                 node->codegen_node->data.fn_def_node.block_context = context;
 
                 AstNodeFnProto *fn_proto = &fn_proto_node->data.fn_proto;
+                bool is_exported = (fn_proto->visib_mod == FnProtoVisibModExport);
                 for (int i = 0; i < fn_proto->params.length; i += 1) {
                     AstNode *param_decl_node = fn_proto->params.at(i);
                     assert(param_decl_node->type == NodeTypeParamDecl);
@@ -1661,6 +1662,11 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                     AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
                     assert(param_decl->type->type == NodeTypeType);
                     TypeTableEntry *type = param_decl->type->codegen_node->data.type_node.entry;
+
+                    if (is_exported && type->id == TypeTableEntryIdStruct) {
+                        add_node_error(g, param_decl_node,
+                            buf_sprintf("byvalue struct parameters not yet supported on exported functions"));
+                    }
 
                     VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
                     buf_init_from_buf(&variable_entry->name, &param_decl->name);
