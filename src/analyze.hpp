@@ -197,6 +197,7 @@ struct CodeGen {
     LLVMBasicBlockRef cur_basic_block;
     BlockContext *cur_block_context;
     ZigList<LLVMBasicBlockRef> break_block_stack;
+    ZigList<LLVMBasicBlockRef> continue_block_stack;
     bool c_stdint_used;
     AstNode *root_export_decl;
     int version_major;

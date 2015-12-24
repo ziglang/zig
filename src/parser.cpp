@@ -124,6 +124,8 @@ const char *node_type_str(NodeType node_type) {
             return "Goto";
         case NodeTypeBreak:
             return "Break";
+        case NodeTypeContinue:
+            return "Continue";
         case NodeTypeAsmExpr:
             return "AsmExpr";
         case NodeTypeFieldAccessExpr:
@@ -339,6 +341,9 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.go_to.name));
             break;
         case NodeTypeBreak:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            break;
+        case NodeTypeContinue:
             fprintf(stderr, "%s\n", node_type_str(node->type));
             break;
         case NodeTypeAsmExpr:
@@ -1107,7 +1112,7 @@ static AstNode *ast_parse_struct_val_expr(ParseContext *pc, int *token_index) {
 }
 
 /*
-PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | Goto | Break | BlockExpression | token(Symbol) | StructValueExpression
+PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1163,6 +1168,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         return node;
     } else if (token->id == TokenIdKeywordBreak) {
         AstNode *node = ast_create_node(pc, NodeTypeBreak, token);
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordContinue) {
+        AstNode *node = ast_create_node(pc, NodeTypeContinue, token);
         *token_index += 1;
         return node;
     }

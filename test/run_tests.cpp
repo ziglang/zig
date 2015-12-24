@@ -659,17 +659,15 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 }
     )SOURCE", "loop\nloop\nloop\nloop\n");
 
-    add_simple_case("break out of while loop", R"SOURCE(
+    add_simple_case("continue and break", R"SOURCE(
 use "std.zig";
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var i : i32 = 0;
     while true {
-        while true {
-            if i >= 4 {
-                break;
-            }
-            print_str("loop\n");
-            i += 1;
+        print_str("loop\n");
+        i += 1;
+        if i < 4 {
+            continue;
         }
         break;
     }
@@ -677,6 +675,8 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 }
     )SOURCE", "loop\nloop\nloop\nloop\n");
 }
+
+////////////////////////////////////////////////////////////////////////////////////
 
 static void add_compile_failure_test_cases(void) {
     add_compile_fail_case("multiple function definitions", R"SOURCE(
@@ -958,6 +958,12 @@ fn f() {
     break;
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: 'break' expression not in loop");
+
+    add_compile_fail_case("invalid continue expression", R"SOURCE(
+fn f() {
+    continue;
+}
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: 'continue' expression not in loop");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

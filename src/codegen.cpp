@@ -1025,8 +1025,10 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
 
     LLVMPositionBuilderAtEnd(g->builder, body_block);
     g->break_block_stack.append(end_block);
+    g->continue_block_stack.append(cond_block);
     gen_expr(g, node->data.while_expr.body);
     g->break_block_stack.pop();
+    g->continue_block_stack.pop();
     if (get_expr_type(node->data.while_expr.body)->id != TypeTableEntryIdUnreachable) {
         LLVMBuildBr(g->builder, cond_block);
     }
@@ -1038,6 +1040,14 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_break(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeBreak);
     LLVMBasicBlockRef dest_block = g->break_block_stack.last();
+
+    add_debug_source_node(g, node);
+    return LLVMBuildBr(g->builder, dest_block);
+}
+
+static LLVMValueRef gen_continue(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeContinue);
+    LLVMBasicBlockRef dest_block = g->continue_block_stack.last();
 
     add_debug_source_node(g, node);
     return LLVMBuildBr(g->builder, dest_block);
@@ -1174,6 +1184,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
             return LLVMBuildBr(g->builder, node->codegen_node->data.label_entry->basic_block);
         case NodeTypeBreak:
             return gen_break(g, node);
+        case NodeTypeContinue:
+            return gen_continue(g, node);
         case NodeTypeLabel:
             {
                 LabelTableEntry *label_entry = node->codegen_node->data.label_entry;

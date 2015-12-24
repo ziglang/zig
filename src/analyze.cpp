@@ -49,6 +49,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
+        case NodeTypeContinue:
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructDecl:
@@ -532,6 +533,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
+        case NodeTypeContinue:
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
@@ -601,6 +603,7 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
+        case NodeTypeContinue:
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
@@ -1381,6 +1384,16 @@ static TypeTableEntry *analyze_break_expr(CodeGen *g, ImportTableEntry *import, 
     return g->builtin_types.entry_unreachable;
 }
 
+static TypeTableEntry *analyze_continue_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    if (!context->break_allowed) {
+        add_node_error(g, node,
+                buf_sprintf("'continue' expression not in loop"));
+    }
+    return g->builtin_types.entry_unreachable;
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -1462,6 +1475,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             }
         case NodeTypeBreak:
             return_type = analyze_break_expr(g, import, context, expected_type, node);
+            break;
+        case NodeTypeContinue:
+            return_type = analyze_continue_expr(g, import, context, expected_type, node);
             break;
         case NodeTypeAsmExpr:
             {
@@ -1817,6 +1833,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
+        case NodeTypeContinue:
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
