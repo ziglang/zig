@@ -1309,7 +1309,11 @@ static TypeTableEntry *analyze_struct_val_expr(CodeGen *g, ImportTableEntry *imp
     node->codegen_node->data.struct_val_expr_node.source_node = node;
     context->struct_val_expr_alloca_list.append(&node->codegen_node->data.struct_val_expr_node);
 
-    for (int i = 0; i < struct_val_expr->fields.length; i += 1) {
+    int expr_field_count = struct_val_expr->fields.length;
+    int actual_field_count = type_entry->data.structure.field_count;
+
+    int *field_use_counts = allocate<int>(actual_field_count);
+    for (int i = 0; i < expr_field_count; i += 1) {
         AstNode *val_field_node = struct_val_expr->fields.at(i);
         int field_index;
         TypeStructField *type_field = find_struct_type_field(type_entry,
@@ -1317,7 +1321,14 @@ static TypeTableEntry *analyze_struct_val_expr(CodeGen *g, ImportTableEntry *imp
 
         if (!type_field) {
             add_node_error(g, val_field_node,
-                buf_sprintf("type '%s' is not a struct", buf_ptr(&type_entry->name)));
+                buf_sprintf("no member named '%s' in '%s'",
+                    buf_ptr(&val_field_node->data.struct_val_field.name), buf_ptr(&type_entry->name)));
+            continue;
+        }
+
+        field_use_counts[field_index] += 1;
+        if (field_use_counts[field_index] > 1) {
+            add_node_error(g, val_field_node, buf_sprintf("duplicate field"));
             continue;
         }
 
@@ -1326,6 +1337,13 @@ static TypeTableEntry *analyze_struct_val_expr(CodeGen *g, ImportTableEntry *imp
 
         analyze_expression(g, import, context, type_field->type_entry,
                 val_field_node->data.struct_val_field.expr);
+    }
+
+    for (int i = 0; i < actual_field_count; i += 1) {
+        if (field_use_counts[i] == 0) {
+            add_node_error(g, node,
+                buf_sprintf("missing field: '%s'", buf_ptr(type_entry->data.structure.fields[i].name)));
+        }
     }
 
     return type_entry;

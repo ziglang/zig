@@ -877,6 +877,36 @@ struct A { y : i32, }
 struct A { x : i32, }
 export fn f(a : A) {}
     )SOURCE", 1, ".tmp_source.zig:3:13: error: byvalue struct parameters not yet supported on exported functions");
+
+    add_compile_fail_case("duplicate field in struct value expression", R"SOURCE(
+struct A {
+    x : i32,
+    y : i32,
+    z : i32,
+}
+fn f() {
+    const a = A {
+        .z = 1,
+        .y = 2,
+        .x = 3,
+        .z = 4,
+    };
+}
+    )SOURCE", 1, ".tmp_source.zig:12:9: error: duplicate field");
+
+    add_compile_fail_case("missing field in struct value expression", R"SOURCE(
+struct A {
+    x : i32,
+    y : i32,
+    z : i32,
+}
+fn f() {
+    const a = A {
+        .z = 4,
+        .y = 2,
+    };
+}
+    )SOURCE", 1, ".tmp_source.zig:8:15: error: missing field: 'x'");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
