@@ -664,11 +664,14 @@ use "std.zig";
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var i : i32 = 0;
     while true {
-        if i >= 4 {
-            break;
+        while true {
+            if i >= 4 {
+                break;
+            }
+            print_str("loop\n");
+            i += 1;
         }
-        print_str("loop\n");
-        i += 1;
+        break;
     }
     return 0;
 }
@@ -949,6 +952,12 @@ fn f() {
     };
 }
     )SOURCE", 1, ".tmp_source.zig:11:9: error: no member named 'foo' in 'A'");
+
+    add_compile_fail_case("invalid break expression", R"SOURCE(
+fn f() {
+    break;
+}
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: 'break' expression not in loop");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

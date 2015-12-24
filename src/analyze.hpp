@@ -196,7 +196,7 @@ struct CodeGen {
     FnTableEntry *cur_fn;
     LLVMBasicBlockRef cur_basic_block;
     BlockContext *cur_block_context;
-    LLVMBasicBlockRef cur_break_block;
+    ZigList<LLVMBasicBlockRef> break_block_stack;
     bool c_stdint_used;
     AstNode *root_export_decl;
     int version_major;
@@ -226,6 +226,8 @@ struct BlockContext {
     HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
     ZigList<CastNode *> cast_expr_alloca_list;
     ZigList<StructValExprNode *> struct_val_expr_alloca_list;
+    bool break_allowed;
+    bool next_child_break_allowed;
     LLVMZigDIScope *di_scope;
 };
 

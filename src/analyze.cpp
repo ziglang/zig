@@ -830,6 +830,11 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     context->parent = parent;
     context->variable_table.init(8);
 
+    if (parent) {
+        context->break_allowed = parent->break_allowed || parent->next_child_break_allowed;
+        parent->next_child_break_allowed = false;
+    }
+
     if (node && node->type == NodeTypeFnDef) {
         AstNode *fn_proto_node = node->data.fn_def.fn_proto;
         context->fn_entry = fn_proto_node->codegen_node->data.fn_proto_node.fn_table_entry;
@@ -1359,13 +1364,20 @@ static TypeTableEntry *analyze_while_expr(CodeGen *g, ImportTableEntry *import, 
         TypeTableEntry *expected_type, AstNode *node)
 {
     analyze_expression(g, import, context, g->builtin_types.entry_bool, node->data.while_expr.condition);
+
+    context->next_child_break_allowed = true;
     analyze_expression(g, import, context, g->builtin_types.entry_void, node->data.while_expr.body);
+
     return g->builtin_types.entry_void;
 }
 
 static TypeTableEntry *analyze_break_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
+    if (!context->break_allowed) {
+        add_node_error(g, node,
+                buf_sprintf("'break' expression not in loop"));
+    }
     return g->builtin_types.entry_unreachable;
 }
 
