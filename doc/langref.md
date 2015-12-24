@@ -94,7 +94,9 @@ AssignmentExpression : BoolOrExpression AssignmentOperator BoolOrExpression | Bo
 
 AssignmentOperator : token(Eq) | token(TimesEq) | token(DivEq) | token(ModEq) | token(PlusEq) | token(MinusEq) | token(BitShiftLeftEq) | token(BitShiftRightEq) | token(BitAndEq) | token(BitXorEq) | token(BitOrEq) | token(BoolAndEq) | token(BoolOrEq) 
 
-BlockExpression : IfExpression | Block
+BlockExpression : IfExpression | Block | WhileExpression
+
+WhileExpression : token(While) Expression Block
 
 BoolOrExpression : BoolAndExpression token(BoolOr) BoolOrExpression | BoolAndExpression
 

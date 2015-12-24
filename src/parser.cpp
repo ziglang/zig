@@ -116,6 +116,8 @@ const char *node_type_str(NodeType node_type) {
             return "BoolLiteral";
         case NodeTypeIfExpr:
             return "IfExpr";
+        case NodeTypeWhileExpr:
+            return "WhileExpr";
         case NodeTypeLabel:
             return "Label";
         case NodeTypeGoto:
@@ -322,6 +324,11 @@ void ast_print(AstNode *node, int indent) {
             ast_print(node->data.if_expr.then_block, indent + 2);
             if (node->data.if_expr.else_node)
                 ast_print(node->data.if_expr.else_node, indent + 2);
+            break;
+        case NodeTypeWhileExpr:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            ast_print(node->data.while_expr.condition, indent + 2);
+            ast_print(node->data.while_expr.body, indent + 2);
             break;
         case NodeTypeLabel:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.label.name));
@@ -1727,7 +1734,30 @@ static AstNode *ast_parse_bool_or_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-BlockExpression : IfExpression | Block
+WhileExpression : token(While) Expression Block
+*/
+static AstNode *ast_parse_while_expr(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id != TokenIdKeywordWhile) {
+        if (mandatory) {
+            ast_invalid_token_error(pc, token);
+        } else {
+            return nullptr;
+        }
+    }
+    *token_index += 1;
+
+    AstNode *node = ast_create_node(pc, NodeTypeWhileExpr, token);
+
+    node->data.while_expr.condition = ast_parse_expression(pc, token_index, true);
+    node->data.while_expr.body = ast_parse_block(pc, token_index, true);
+
+    return node;
+}
+
+/*
+BlockExpression : IfExpression | Block | WhileExpression
 */
 static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1739,6 +1769,10 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool ma
     AstNode *block = ast_parse_block(pc, token_index, false);
     if (block)
         return block;
+
+    AstNode *while_expr = ast_parse_while_expr(pc, token_index, false);
+    if (while_expr)
+        return while_expr;
 
     if (mandatory)
         ast_invalid_token_error(pc, token);

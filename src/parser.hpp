@@ -45,6 +45,7 @@ enum NodeType {
     NodeTypeVoid,
     NodeTypeBoolLiteral,
     NodeTypeIfExpr,
+    NodeTypeWhileExpr,
     NodeTypeLabel,
     NodeTypeGoto,
     NodeTypeAsmExpr,
@@ -220,6 +221,11 @@ struct AstNodeIfExpr {
     AstNode *else_node; // null, block node, or other if expr node
 };
 
+struct AstNodeWhileExpr {
+    AstNode *condition;
+    AstNode *body;
+};
+
 struct AstNodeLabel {
     Buf name;
 };
@@ -334,6 +340,7 @@ struct AstNode {
         AstNodeArrayAccessExpr array_access_expr;
         AstNodeUse use;
         AstNodeIfExpr if_expr;
+        AstNodeWhileExpr while_expr;
         AstNodeLabel label;
         AstNodeGoto go_to;
         AstNodeAsmExpr asm_expr;

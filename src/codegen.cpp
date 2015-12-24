@@ -1006,6 +1006,31 @@ static LLVMValueRef gen_struct_val_expr(CodeGen *g, AstNode *node) {
     return tmp_struct_ptr;
 }
 
+static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeWhileExpr);
+    assert(node->data.while_expr.condition);
+    assert(node->data.while_expr.body);
+
+    LLVMBasicBlockRef cond_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileCond");
+    LLVMBasicBlockRef body_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileBody");
+    LLVMBasicBlockRef end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileEnd");
+
+    add_debug_source_node(g, node);
+    LLVMBuildBr(g->builder, cond_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, cond_block);
+    LLVMValueRef cond_val = gen_expr(g, node->data.while_expr.condition);
+    add_debug_source_node(g, node->data.while_expr.condition);
+    LLVMBuildCondBr(g->builder, cond_val, body_block, end_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, body_block);
+    gen_expr(g, node->data.while_expr.body);
+    LLVMBuildBr(g->builder, cond_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, end_block);
+    return nullptr;
+}
+
 static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeBinOpExpr:
@@ -1067,6 +1092,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
                 return LLVMConstNull(LLVMInt1Type());
         case NodeTypeIfExpr:
             return gen_if_expr(g, node);
+        case NodeTypeWhileExpr:
+            return gen_while_expr(g, node);
         case NodeTypeAsmExpr:
             return gen_asm_expr(g, node);
         case NodeTypeNumberLiteral:

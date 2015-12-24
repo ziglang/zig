@@ -54,6 +54,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeStructField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
+        case NodeTypeWhileExpr:
             return node;
     }
     zig_panic("unreachable");
@@ -526,6 +527,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfExpr:
+        case NodeTypeWhileExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeAsmExpr:
@@ -593,6 +595,7 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfExpr:
+        case NodeTypeWhileExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeAsmExpr:
@@ -1349,6 +1352,14 @@ static TypeTableEntry *analyze_struct_val_expr(CodeGen *g, ImportTableEntry *imp
     return type_entry;
 }
 
+static TypeTableEntry *analyze_while_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    analyze_expression(g, import, context, g->builtin_types.entry_bool, node->data.while_expr.condition);
+    analyze_expression(g, import, context, g->builtin_types.entry_void, node->data.while_expr.body);
+    return g->builtin_types.entry_void;
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -1625,6 +1636,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 }
                 break;
             }
+        case NodeTypeWhileExpr:
+            return_type = analyze_while_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeStructValueExpr:
             return_type = analyze_struct_val_expr(g, import, context, expected_type, node);
             break;
@@ -1775,6 +1789,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfExpr:
+        case NodeTypeWhileExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeAsmExpr:

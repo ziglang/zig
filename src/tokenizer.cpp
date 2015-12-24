@@ -233,6 +233,12 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordAsm;
     } else if (mem_eql_str(token_mem, token_len, "struct")) {
         t->cur_tok->id = TokenIdKeywordStruct;
+    } else if (mem_eql_str(token_mem, token_len, "while")) {
+        t->cur_tok->id = TokenIdKeywordWhile;
+    } else if (mem_eql_str(token_mem, token_len, "continue")) {
+        t->cur_tok->id = TokenIdKeywordContinue;
+    } else if (mem_eql_str(token_mem, token_len, "break")) {
+        t->cur_tok->id = TokenIdKeywordBreak;
     }
 
     t->cur_tok = nullptr;
@@ -955,6 +961,9 @@ static const char * token_name(Token *token) {
         case TokenIdKeywordVolatile: return "Volatile";
         case TokenIdKeywordAsm: return "Asm";
         case TokenIdKeywordStruct: return "Struct";
+        case TokenIdKeywordWhile: return "While";
+        case TokenIdKeywordContinue: return "Continue";
+        case TokenIdKeywordBreak: return "Break";
         case TokenIdLParen: return "LParen";
         case TokenIdRParen: return "RParen";
         case TokenIdComma: return "Comma";
