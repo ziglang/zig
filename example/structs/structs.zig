@@ -21,6 +21,8 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 
     test_byval_assign();
 
+    test_initializer();
+
     print_str("OK\n");
     return 0;
 }
@@ -77,4 +79,9 @@ fn test_byval_assign() {
 
     if foo2.a != 1234 { print_str("BAD - byval assignment failed\n"); }
 
+}
+
+fn test_initializer() {
+    const val = Val { .x = 42 };
+    if val.x != 42 { print_str("BAD\n"); }
 }

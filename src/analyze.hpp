@@ -18,6 +18,7 @@ struct BlockContext;
 struct TypeTableEntry;
 struct VariableTableEntry;
 struct CastNode;
+struct StructValExprNode;
 
 struct TypeTableEntryPointer {
     TypeTableEntry *child_type;
@@ -223,6 +224,7 @@ struct BlockContext {
     BlockContext *parent; // null when this is the root
     HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
     ZigList<CastNode *> cast_expr_alloca_list;
+    ZigList<StructValExprNode *> struct_val_expr_alloca_list;
     LLVMZigDIScope *di_scope;
 };
 
@@ -292,6 +294,16 @@ struct VarDeclNode {
     TypeTableEntry *type;
 };
 
+struct StructValFieldNode {
+    int index;
+};
+
+struct StructValExprNode {
+    TypeTableEntry *type_entry;
+    LLVMValueRef ptr;
+    AstNode *source_node;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
@@ -305,6 +317,8 @@ struct CodeGenNode {
         CastNode cast_node; // for NodeTypeCastExpr
         NumberLiteralNode num_lit_node; // for NodeTypeNumberLiteral
         VarDeclNode var_decl_node; // for NodeTypeVariableDeclaration
+        StructValFieldNode struct_val_field_node; // for NodeTypeStructValueField
+        StructValExprNode struct_val_expr_node; // for NodeTypeStructValueExpr
     } data;
     ExprNode expr_node; // for all the expression nodes
 };

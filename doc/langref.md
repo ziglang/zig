@@ -144,7 +144,11 @@ ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 
 PrefixOp : token(Not) | token(Dash) | token(Tilde) | (token(Ampersand) option(token(Const)))
 
-PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | token(Symbol) | Goto | BlockExpression
+PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | Goto | BlockExpression | token(Symbol) | StructValueExpression
+
+StructValueExpression : token(Type) token(LBrace) list(StructValueExpressionField, token(Comma)) token(RBrace)
+
+StructValueExpressionField : token(Dot) token(Symbol) token(Eq) Expression
 
 Goto: token(Goto) token(Symbol)
 

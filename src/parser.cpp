@@ -128,6 +128,10 @@ const char *node_type_str(NodeType node_type) {
             return "StructDecl";
         case NodeTypeStructField:
             return "StructField";
+        case NodeTypeStructValueExpr:
+            return "StructValueExpr";
+        case NodeTypeStructValueField:
+            return "StructValueField";
     }
     zig_unreachable();
 }
@@ -340,6 +344,18 @@ void ast_print(AstNode *node, int indent) {
         case NodeTypeStructField:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.struct_field.name));
             ast_print(node->data.struct_field.type, indent + 2);
+            break;
+        case NodeTypeStructValueExpr:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            ast_print(node->data.struct_val_expr.type, indent + 2);
+            for (int i = 0; i < node->data.struct_val_expr.fields.length; i += 1) {
+                AstNode *child = node->data.struct_val_expr.fields.at(i);
+                ast_print(child, indent + 2);
+            }
+            break;
+        case NodeTypeStructValueField:
+            fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.struct_val_field.name));
+            ast_print(node->data.struct_val_field.expr, indent + 2);
             break;
     }
 }
@@ -1035,7 +1051,51 @@ static AstNode *ast_parse_grouped_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | token(Symbol) | Goto | BlockExpression
+StructValueExpression : token(Symbol) token(LBrace) list(StructValueExpressionField, token(Comma)) token(RBrace)
+StructValueExpressionField : token(Dot) token(Symbol) token(Eq) Expression
+*/
+static AstNode *ast_parse_struct_val_expr(ParseContext *pc, int *token_index) {
+    Token *first_token = &pc->tokens->at(*token_index);
+    AstNode *node = ast_create_node(pc, NodeTypeStructValueExpr, first_token);
+
+    node->data.struct_val_expr.type = ast_parse_type(pc, token_index);
+
+    ast_eat_token(pc, token_index, TokenIdLBrace);
+
+    for (;;) {
+        Token *token = &pc->tokens->at(*token_index);
+        *token_index += 1;
+
+        if (token->id == TokenIdRBrace) {
+            return node;
+        } else if (token->id == TokenIdDot) {
+            Token *field_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+            ast_eat_token(pc, token_index, TokenIdEq);
+
+            AstNode *field_node = ast_create_node(pc, NodeTypeStructValueField, token);
+
+            ast_buf_from_token(pc, field_name_tok, &field_node->data.struct_val_field.name);
+            field_node->data.struct_val_field.expr = ast_parse_expression(pc, token_index, true);
+
+            node->data.struct_val_expr.fields.append(field_node);
+
+            Token *comma_tok = &pc->tokens->at(*token_index);
+            if (comma_tok->id == TokenIdComma) {
+                *token_index += 1;
+            } else if (comma_tok->id != TokenIdRBrace) {
+                ast_invalid_token_error(pc, comma_tok);
+            } else {
+                *token_index += 1;
+                return node;
+            }
+        } else {
+            ast_invalid_token_error(pc, token);
+        }
+    }
+}
+
+/*
+PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | Goto | BlockExpression | token(Symbol) | StructValueExpression
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1069,10 +1129,16 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdSymbol) {
-        AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
-        ast_buf_from_token(pc, token, &node->data.symbol);
-        *token_index += 1;
-        return node;
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+
+        if (next_token->id == TokenIdLBrace) {
+            return ast_parse_struct_val_expr(pc, token_index);
+        } else {
+            *token_index += 1;
+            AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
+            ast_buf_from_token(pc, token, &node->data.symbol);
+            return node;
+        }
     } else if (token->id == TokenIdKeywordGoto) {
         AstNode *node = ast_create_node(pc, NodeTypeGoto, token);
         *token_index += 1;

@@ -52,6 +52,8 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
+        case NodeTypeStructValueExpr:
+        case NodeTypeStructValueField:
             return node;
     }
     zig_panic("unreachable");
@@ -529,6 +531,8 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
+        case NodeTypeStructValueExpr:
+        case NodeTypeStructValueField:
             zig_unreachable();
     }
 }
@@ -594,6 +598,8 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
+        case NodeTypeStructValueExpr:
+        case NodeTypeStructValueField:
             zig_unreachable();
     }
 }
@@ -1060,6 +1066,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
 enum LValPurpose {
     LValPurposeAssign,
     LValPurposeAddressOf,
+    LValPurposeNotLVal,
 };
 
 static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, BlockContext *block_context,
@@ -1267,6 +1274,62 @@ static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry 
     } else {
         return num_lit_type;
     }
+}
+
+static TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name, int *index) {
+    assert(type_entry->id == TypeTableEntryIdStruct);
+    for (int i = 0; i < type_entry->data.structure.field_count; i += 1) {
+        TypeStructField *field = &type_entry->data.structure.fields[i];
+        if (buf_eql_buf(field->name, name)) {
+            *index = i;
+            return field;
+        }
+    }
+    return nullptr;
+}
+
+static TypeTableEntry *analyze_struct_val_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    assert(node->type == NodeTypeStructValueExpr);
+
+    AstNodeStructValueExpr *struct_val_expr = &node->data.struct_val_expr;
+
+    TypeTableEntry *type_entry = resolve_type(g, struct_val_expr->type);
+
+    if (type_entry->id == TypeTableEntryIdInvalid) {
+        return g->builtin_types.entry_invalid;
+    } else if (type_entry->id != TypeTableEntryIdStruct) {
+        add_node_error(g, node,
+            buf_sprintf("type '%s' is not a struct", buf_ptr(&type_entry->name)));
+        return g->builtin_types.entry_invalid;
+    }
+
+    assert(node->codegen_node);
+    node->codegen_node->data.struct_val_expr_node.type_entry = type_entry;
+    node->codegen_node->data.struct_val_expr_node.source_node = node;
+    context->struct_val_expr_alloca_list.append(&node->codegen_node->data.struct_val_expr_node);
+
+    for (int i = 0; i < struct_val_expr->fields.length; i += 1) {
+        AstNode *val_field_node = struct_val_expr->fields.at(i);
+        int field_index;
+        TypeStructField *type_field = find_struct_type_field(type_entry,
+                &val_field_node->data.struct_val_field.name, &field_index);
+
+        if (!type_field) {
+            add_node_error(g, val_field_node,
+                buf_sprintf("type '%s' is not a struct", buf_ptr(&type_entry->name)));
+            continue;
+        }
+
+        alloc_codegen_node(val_field_node);
+        val_field_node->codegen_node->data.struct_val_field_node.index = field_index;
+
+        analyze_expression(g, import, context, type_field->type_entry,
+                val_field_node->data.struct_val_field.expr);
+    }
+
+    return type_entry;
 }
 
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -1545,6 +1608,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 }
                 break;
             }
+        case NodeTypeStructValueExpr:
+            return_type = analyze_struct_val_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeDirective:
         case NodeTypeFnDecl:
         case NodeTypeFnProto:
@@ -1558,6 +1624,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeLabel:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
+        case NodeTypeStructValueField:
             zig_unreachable();
     }
     assert(return_type);
@@ -1690,6 +1757,8 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
+        case NodeTypeStructValueExpr:
+        case NodeTypeStructValueField:
             zig_unreachable();
     }
 }

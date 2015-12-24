@@ -657,6 +657,28 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     return phi;
 }
 
+static LLVMValueRef gen_struct_memcpy(CodeGen *g, AstNode *source_node, LLVMValueRef src, LLVMValueRef dest,
+        TypeTableEntry *type_entry)
+{
+    assert(type_entry->id == TypeTableEntryIdStruct);
+
+    LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+
+    add_debug_source_node(g, source_node);
+    LLVMValueRef src_ptr = LLVMBuildBitCast(g->builder, src, ptr_u8, "");
+    LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, dest, ptr_u8, "");
+
+    LLVMValueRef params[] = {
+        dest_ptr, // dest pointer
+        src_ptr, // source pointer
+        LLVMConstInt(LLVMIntType(g->pointer_size_bytes * 8), type_entry->size_in_bits / 8, false), // byte count
+        LLVMConstInt(LLVMInt32Type(), type_entry->align_in_bits / 8, false), // align in bytes
+        LLVMConstNull(LLVMInt1Type()), // is volatile
+    };
+
+    return LLVMBuildCall(g->builder, g->memcpy_fn_val, params, 5, "");
+}
+
 static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
@@ -675,21 +697,7 @@ static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
         assert(op1_type == op2_type);
         assert(node->data.bin_op_expr.bin_op == BinOpTypeAssign);
 
-        LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-
-        add_debug_source_node(g, node);
-        LLVMValueRef src_ptr = LLVMBuildBitCast(g->builder, value, ptr_u8, "");
-        LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, target_ref, ptr_u8, "");
-
-        LLVMValueRef params[] = {
-            dest_ptr, // dest pointer
-            src_ptr, // source pointer
-            LLVMConstInt(LLVMIntType(g->pointer_size_bytes * 8), op1_type->size_in_bits / 8, false), // byte count
-            LLVMConstInt(LLVMInt32Type(), op1_type->align_in_bits / 8, false), // align in bits
-            LLVMConstNull(LLVMInt1Type()), // is volatile
-        };
-
-        return LLVMBuildCall(g->builder, g->memcpy_fn_val, params, 5, "");
+        return gen_struct_memcpy(g, node, value, target_ref, op1_type);
     }
 
     if (node->data.bin_op_expr.bin_op != BinOpTypeAssign) {
@@ -970,6 +978,34 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
     return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
 }
 
+static LLVMValueRef gen_struct_val_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeStructValueExpr);
+
+    TypeTableEntry *type_entry = get_expr_type(node);
+
+    assert(type_entry->id == TypeTableEntryIdStruct);
+
+    int field_count = type_entry->data.structure.field_count;
+    assert(field_count == node->data.struct_val_expr.fields.length);
+
+    StructValExprNode *struct_val_expr_node = &node->codegen_node->data.struct_val_expr_node;
+    LLVMValueRef tmp_struct_ptr = struct_val_expr_node->ptr;
+
+    for (int i = 0; i < field_count; i += 1) {
+        AstNode *field_node = node->data.struct_val_expr.fields.at(i);
+        int index = field_node->codegen_node->data.struct_val_field_node.index;
+        TypeStructField *type_struct_field = &type_entry->data.structure.fields[index];
+        assert(buf_eql_buf(type_struct_field->name, &field_node->data.struct_val_field.name));
+
+        add_debug_source_node(g, field_node);
+        LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, index, "");
+        LLVMValueRef value = gen_expr(g, field_node->data.struct_val_field.expr);
+        LLVMBuildStore(g->builder, value, field_ptr);
+    }
+
+    return tmp_struct_ptr;
+}
+
 static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeBinOpExpr:
@@ -994,8 +1030,13 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
                 if (variable->type->id == TypeTableEntryIdVoid) {
                     return nullptr;
                 } else {
-                    add_debug_source_node(g, node);
-                    LLVMValueRef store_instr = LLVMBuildStore(g->builder, value, variable->value_ref);
+                    LLVMValueRef store_instr;
+                    if (variable->type->id == TypeTableEntryIdStruct && node->data.variable_declaration.expr) {
+                        store_instr = gen_struct_memcpy(g, node, value, variable->value_ref, variable->type);
+                    } else {
+                        add_debug_source_node(g, node);
+                        store_instr = LLVMBuildStore(g->builder, value, variable->value_ref);
+                    }
 
                     LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(node->line + 1, node->column + 1,
                             g->cur_block_context->di_scope);
@@ -1035,7 +1076,7 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
                 TypeTableEntry *type_entry = codegen_num_lit->resolved_type;
                 assert(type_entry);
 
-                // TODO this is kinda iffy. make sure josh is on board with this
+                // override the expression type for number literals
                 node->codegen_node->expr_node.type_entry = type_entry;
 
                 if (type_entry->id == TypeTableEntryIdInt) {
@@ -1104,6 +1145,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
                 LLVMPositionBuilderAtEnd(g->builder, basic_block);
                 return nullptr;
             }
+        case NodeTypeStructValueExpr:
+            return gen_struct_val_expr(g, node);
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -1116,6 +1159,7 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
         case NodeTypeUse:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
+        case NodeTypeStructValueField:
             zig_unreachable();
     }
     zig_unreachable();
@@ -1357,6 +1401,14 @@ static void do_code_gen(CodeGen *g) {
                 CastNode *cast_node = block_context->cast_expr_alloca_list.at(cea_i);
                 add_debug_source_node(g, cast_node->source_node);
                 cast_node->ptr = LLVMBuildAlloca(g->builder, cast_node->type->type_ref, "");
+            }
+
+            // allocate structs which are struct value expressions
+            for (int alloca_i = 0; alloca_i < block_context->struct_val_expr_alloca_list.length; alloca_i += 1) {
+                StructValExprNode *struct_val_expr_node = block_context->struct_val_expr_alloca_list.at(alloca_i);
+                add_debug_source_node(g, struct_val_expr_node->source_node);
+                struct_val_expr_node->ptr = LLVMBuildAlloca(g->builder,
+                        struct_val_expr_node->type_entry->type_ref, "");
             }
         }
 
