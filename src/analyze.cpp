@@ -661,6 +661,8 @@ static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type,
             } else {
                 return false;
             }
+        case TypeTableEntryIdMaybe:
+            return num_lit_fits_in_other_type(g, literal_type, other_type->data.maybe.child_type);
     }
     zig_unreachable();
 }
@@ -1220,11 +1222,11 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
     zig_unreachable();
 }
 
-static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableEntry *import,
-        BlockContext *context, TypeTableEntry *expected_type, AstNode *node)
+static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *source_node,
+        AstNodeVariableDeclaration *variable_declaration,
+        bool expr_is_maybe)
 {
-    AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
-
     TypeTableEntry *explicit_type = nullptr;
     if (variable_declaration->type != nullptr) {
         explicit_type = resolve_type(g, variable_declaration->type);
@@ -1238,19 +1240,28 @@ static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableE
     TypeTableEntry *implicit_type = nullptr;
     if (variable_declaration->expr != nullptr) {
         implicit_type = analyze_expression(g, import, context, explicit_type, variable_declaration->expr);
-        if (implicit_type->id == TypeTableEntryIdUnreachable) {
-            add_node_error(g, node,
+        if (implicit_type->id == TypeTableEntryIdInvalid) {
+            // ignore the poison value
+        } else if (expr_is_maybe) {
+            if (implicit_type->id == TypeTableEntryIdMaybe) {
+                implicit_type = implicit_type->data.maybe.child_type;
+            } else {
+                add_node_error(g, source_node, buf_sprintf("expected maybe type"));
+                implicit_type = g->builtin_types.entry_invalid;
+            }
+        } else if (implicit_type->id == TypeTableEntryIdUnreachable) {
+            add_node_error(g, source_node,
                 buf_sprintf("variable initialization is unreachable"));
             implicit_type = g->builtin_types.entry_invalid;
         } else if (implicit_type->id == TypeTableEntryIdNumberLiteral) {
-            add_node_error(g, node,
+            add_node_error(g, source_node,
                 buf_sprintf("unable to infer variable type"));
             implicit_type = g->builtin_types.entry_invalid;
         }
     }
 
     if (implicit_type == nullptr && variable_declaration->is_const) {
-        add_node_error(g, node, buf_sprintf("variables must have initial values or be declared 'mut'."));
+        add_node_error(g, source_node, buf_sprintf("variables must have initial values or be declared 'mut'."));
         implicit_type = g->builtin_types.entry_invalid;
     }
 
@@ -1259,7 +1270,7 @@ static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableE
 
     VariableTableEntry *existing_variable = find_local_variable(context, &variable_declaration->symbol);
     if (existing_variable) {
-        add_node_error(g, node,
+        add_node_error(g, source_node,
             buf_sprintf("redeclaration of variable '%s'", buf_ptr(&variable_declaration->symbol)));
     } else {
         VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
@@ -1267,11 +1278,18 @@ static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableE
         variable_entry->type = type;
         variable_entry->is_const = variable_declaration->is_const;
         variable_entry->is_ptr = true;
-        variable_entry->decl_node = node;
+        variable_entry->decl_node = source_node;
         context->variable_table.put(&variable_entry->name, variable_entry);
         return variable_entry;
     }
     return nullptr;
+}
+
+static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, TypeTableEntry *expected_type, AstNode *node)
+{
+    AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
+    return analyze_variable_declaration_raw(g, import, context, node, variable_declaration, false);
 }
 
 static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry *import,
@@ -1397,37 +1415,51 @@ static TypeTableEntry *analyze_continue_expr(CodeGen *g, ImportTableEntry *impor
     return g->builtin_types.entry_unreachable;
 }
 
-static TypeTableEntry *analyze_if_bool_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        TypeTableEntry *expected_type, AstNode *node)
+static TypeTableEntry *analyze_if_then_else(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *then_block, AstNode *else_node, AstNode *parent_node)
 {
-    analyze_expression(g, import, context, g->builtin_types.entry_bool, node->data.if_bool_expr.condition);
-
-    TypeTableEntry *then_type = analyze_expression(g, import, context, expected_type,
-            node->data.if_bool_expr.then_block);
+    TypeTableEntry *then_type = analyze_expression(g, import, context, expected_type, then_block);
 
     TypeTableEntry *else_type;
-    if (node->data.if_bool_expr.else_node) {
-        else_type = analyze_expression(g, import, context, expected_type, node->data.if_bool_expr.else_node);
+    if (else_node) {
+        else_type = analyze_expression(g, import, context, expected_type, else_node);
     } else {
         else_type = g->builtin_types.entry_void;
-        else_type = resolve_type_compatibility(g, context, node, expected_type, else_type);
+        else_type = resolve_type_compatibility(g, context, parent_node, expected_type, else_type);
     }
 
 
     if (expected_type) {
         return (then_type->id == TypeTableEntryIdUnreachable) ? else_type : then_type;
     } else {
-        return resolve_peer_type_compatibility(g, context, node,
-                node->data.if_bool_expr.then_block, node->data.if_bool_expr.else_node,
+        return resolve_peer_type_compatibility(g, context, parent_node,
+                then_block, else_node,
                 then_type, else_type);
     }
+}
+
+static TypeTableEntry *analyze_if_bool_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    analyze_expression(g, import, context, g->builtin_types.entry_bool, node->data.if_bool_expr.condition);
+
+    return analyze_if_then_else(g, import, context, expected_type,
+            node->data.if_bool_expr.then_block,
+            node->data.if_bool_expr.else_node,
+            node);
 }
 
 static TypeTableEntry *analyze_if_var_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
     assert(node->type == NodeTypeIfVarExpr);
-    zig_panic("TODO analyze_if_var_expr");
+
+    BlockContext *child_context = new_block_context(node, context);
+
+    analyze_variable_declaration_raw(g, import, child_context, node, &node->data.if_var_expr.var_decl, true);
+
+    return analyze_if_then_else(g, import, child_context, expected_type,
+            node->data.if_var_expr.then_block, node->data.if_var_expr.else_node, node);
 }
 
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,

@@ -55,6 +55,10 @@ struct TypeTableEntryNumLit {
     NumLit kind;
 };
 
+struct TypeTableEntryMaybe {
+    TypeTableEntry *child_type;
+};
+
 enum TypeTableEntryId {
     TypeTableEntryIdInvalid,
     TypeTableEntryIdVoid,
@@ -66,6 +70,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdArray,
     TypeTableEntryIdStruct,
     TypeTableEntryIdNumberLiteral,
+    TypeTableEntryIdMaybe,
 };
 
 struct TypeTableEntry {
@@ -84,6 +89,7 @@ struct TypeTableEntry {
         TypeTableEntryArray array;
         TypeTableEntryStruct structure;
         TypeTableEntryNumLit num_lit;
+        TypeTableEntryMaybe maybe;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type

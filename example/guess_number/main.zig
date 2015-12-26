@@ -12,7 +12,7 @@ fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     const answer = rand_int(&rand_state, 0, 100) + 1;
 
     while true {
-        line = readline("\nGuess a number between 1 and 100: ");
+        const line = readline("\nGuess a number between 1 and 100: ");
 
         if const guess ?= parse_number(line) {
             if (guess > answer) {
