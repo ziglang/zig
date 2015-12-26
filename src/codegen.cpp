@@ -769,18 +769,18 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
     }
 }
 
-static LLVMValueRef gen_if_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeIfExpr);
-    assert(node->data.if_expr.condition);
-    assert(node->data.if_expr.then_block);
+static LLVMValueRef gen_if_bool_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeIfBoolExpr);
+    assert(node->data.if_bool_expr.condition);
+    assert(node->data.if_bool_expr.then_block);
 
-    LLVMValueRef cond_value = gen_expr(g, node->data.if_expr.condition);
+    LLVMValueRef cond_value = gen_expr(g, node->data.if_bool_expr.condition);
 
-    TypeTableEntry *then_type = get_expr_type(node->data.if_expr.then_block);
+    TypeTableEntry *then_type = get_expr_type(node->data.if_bool_expr.then_block);
     bool use_expr_value = (then_type->id != TypeTableEntryIdUnreachable &&
                            then_type->id != TypeTableEntryIdVoid);
 
-    if (node->data.if_expr.else_node) {
+    if (node->data.if_bool_expr.else_node) {
         LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Then");
         LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Else");
         LLVMBasicBlockRef endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
@@ -788,13 +788,13 @@ static LLVMValueRef gen_if_expr(CodeGen *g, AstNode *node) {
         LLVMBuildCondBr(g->builder, cond_value, then_block, else_block);
 
         LLVMPositionBuilderAtEnd(g->builder, then_block);
-        LLVMValueRef then_expr_result = gen_expr(g, node->data.if_expr.then_block);
-        if (get_expr_type(node->data.if_expr.then_block)->id != TypeTableEntryIdUnreachable)
+        LLVMValueRef then_expr_result = gen_expr(g, node->data.if_bool_expr.then_block);
+        if (get_expr_type(node->data.if_bool_expr.then_block)->id != TypeTableEntryIdUnreachable)
             LLVMBuildBr(g->builder, endif_block);
 
         LLVMPositionBuilderAtEnd(g->builder, else_block);
-        LLVMValueRef else_expr_result = gen_expr(g, node->data.if_expr.else_node);
-        if (get_expr_type(node->data.if_expr.else_node)->id != TypeTableEntryIdUnreachable)
+        LLVMValueRef else_expr_result = gen_expr(g, node->data.if_bool_expr.else_node);
+        if (get_expr_type(node->data.if_bool_expr.else_node)->id != TypeTableEntryIdUnreachable)
             LLVMBuildBr(g->builder, endif_block);
 
         LLVMPositionBuilderAtEnd(g->builder, endif_block);
@@ -818,12 +818,17 @@ static LLVMValueRef gen_if_expr(CodeGen *g, AstNode *node) {
     LLVMBuildCondBr(g->builder, cond_value, then_block, endif_block);
 
     LLVMPositionBuilderAtEnd(g->builder, then_block);
-    gen_expr(g, node->data.if_expr.then_block);
-    if (get_expr_type(node->data.if_expr.then_block)->id != TypeTableEntryIdUnreachable)
+    gen_expr(g, node->data.if_bool_expr.then_block);
+    if (get_expr_type(node->data.if_bool_expr.then_block)->id != TypeTableEntryIdUnreachable)
         LLVMBuildBr(g->builder, endif_block);
 
     LLVMPositionBuilderAtEnd(g->builder, endif_block);
     return nullptr;
+}
+
+static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeIfVarExpr);
+    zig_panic("TODO gen_if_var_expr");
 }
 
 static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *implicit_return_type) {
@@ -1112,8 +1117,10 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
                 return LLVMConstAllOnes(LLVMInt1Type());
             else
                 return LLVMConstNull(LLVMInt1Type());
-        case NodeTypeIfExpr:
-            return gen_if_expr(g, node);
+        case NodeTypeIfBoolExpr:
+            return gen_if_bool_expr(g, node);
+        case NodeTypeIfVarExpr:
+            return gen_if_var_expr(g, node);
         case NodeTypeWhileExpr:
             return gen_while_expr(g, node);
         case NodeTypeAsmExpr:

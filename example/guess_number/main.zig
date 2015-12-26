@@ -12,17 +12,16 @@ fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     const answer = rand_int(&rand_state, 0, 100) + 1;
 
     while true {
-        Buffer line = readline("\nGuess a number between 1 and 100: ");
+        line = readline("\nGuess a number between 1 and 100: ");
 
-        (const err, const guess) = parse_number(line);
-        if err == Error.None {
-            if guess == answer {
-                print_str("You win!\n");
-                return 0;
-            } else if guess < answer {
+        if const guess ?= parse_number(line) {
+            if (guess > answer) {
+                print_str("Guess lower.\n");
+            } else if (guess < answer) {
                 print_str("Guess higher.\n");
             } else {
-                print_str("Guess lower.\n");
+                print_str("You win!\n");
+                return 0;
             }
         } else {
             print_str("Invalid number format.\n");

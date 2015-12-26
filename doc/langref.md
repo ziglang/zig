@@ -102,7 +102,11 @@ BoolOrExpression : BoolAndExpression token(BoolOr) BoolOrExpression | BoolAndExp
 
 ReturnExpression : token(Return) option(Expression)
 
-IfExpression : token(If) Expression Block option(Else | ElseIf)
+IfExpression : IfVarExpression | IfBoolExpression
+
+IfBoolExpression : token(If) option((token) Expression Block option(Else | ElseIf)
+
+IfVarExpression : token(If) (token(Const) | token(Var)) token(Symbol) option(token(Colon) Type) Token(MaybeAssign) Expression Block Option(Else | ElseIf)
 
 ElseIf : token(Else) IfExpression
 

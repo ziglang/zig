@@ -44,7 +44,8 @@ enum NodeType {
     NodeTypeUse,
     NodeTypeVoid,
     NodeTypeBoolLiteral,
-    NodeTypeIfExpr,
+    NodeTypeIfBoolExpr,
+    NodeTypeIfVarExpr,
     NodeTypeWhileExpr,
     NodeTypeLabel,
     NodeTypeGoto,
@@ -217,8 +218,14 @@ struct AstNodeUse {
     ZigList<AstNode *> *directives;
 };
 
-struct AstNodeIfExpr {
+struct AstNodeIfBoolExpr {
     AstNode *condition;
+    AstNode *then_block;
+    AstNode *else_node; // null, block node, or other if expr node
+};
+
+struct AstNodeIfVarExpr {
+    AstNodeVariableDeclaration var_decl;
     AstNode *then_block;
     AstNode *else_node; // null, block node, or other if expr node
 };
@@ -341,7 +348,8 @@ struct AstNode {
         AstNodeFnCallExpr fn_call_expr;
         AstNodeArrayAccessExpr array_access_expr;
         AstNodeUse use;
-        AstNodeIfExpr if_expr;
+        AstNodeIfBoolExpr if_bool_expr;
+        AstNodeIfVarExpr if_var_expr;
         AstNodeWhileExpr while_expr;
         AstNodeLabel label;
         AstNodeGoto go_to;

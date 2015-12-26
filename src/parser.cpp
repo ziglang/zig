@@ -114,8 +114,10 @@ const char *node_type_str(NodeType node_type) {
             return "Void";
         case NodeTypeBoolLiteral:
             return "BoolLiteral";
-        case NodeTypeIfExpr:
-            return "IfExpr";
+        case NodeTypeIfBoolExpr:
+            return "IfBoolExpr";
+        case NodeTypeIfVarExpr:
+            return "IfVarExpr";
         case NodeTypeWhileExpr:
             return "WhileExpr";
         case NodeTypeLabel:
@@ -321,14 +323,27 @@ void ast_print(AstNode *node, int indent) {
         case NodeTypeBoolLiteral:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), node->data.bool_literal ? "true" : "false");
             break;
-        case NodeTypeIfExpr:
+        case NodeTypeIfBoolExpr:
             fprintf(stderr, "%s\n", node_type_str(node->type));
-            if (node->data.if_expr.condition)
-                ast_print(node->data.if_expr.condition, indent + 2);
-            ast_print(node->data.if_expr.then_block, indent + 2);
-            if (node->data.if_expr.else_node)
-                ast_print(node->data.if_expr.else_node, indent + 2);
+            if (node->data.if_bool_expr.condition)
+                ast_print(node->data.if_bool_expr.condition, indent + 2);
+            ast_print(node->data.if_bool_expr.then_block, indent + 2);
+            if (node->data.if_bool_expr.else_node)
+                ast_print(node->data.if_bool_expr.else_node, indent + 2);
             break;
+        case NodeTypeIfVarExpr:
+            {
+                Buf *name_buf = &node->data.if_var_expr.var_decl.symbol;
+                fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
+                if (node->data.if_var_expr.var_decl.type)
+                    ast_print(node->data.if_var_expr.var_decl.type, indent + 2);
+                if (node->data.if_var_expr.var_decl.expr)
+                    ast_print(node->data.if_var_expr.var_decl.expr, indent + 2);
+                ast_print(node->data.if_var_expr.then_block, indent + 2);
+                if (node->data.if_var_expr.else_node)
+                    ast_print(node->data.if_var_expr.else_node, indent + 2);
+                break;
+            }
         case NodeTypeWhileExpr:
             fprintf(stderr, "%s\n", node_type_str(node->type));
             ast_print(node->data.while_expr.condition, indent + 2);
@@ -1644,7 +1659,9 @@ static AstNode *ast_parse_else_or_else_if(ParseContext *pc, int *token_index, bo
 }
 
 /*
-IfExpression : token(If) Expression Block option(Else | ElseIf)
+IfExpression : IfVarExpression | IfBoolExpression
+IfBoolExpression : token(If) option((token) Expression Block option(Else | ElseIf)
+IfVarExpression : token(If) (token(Const) | token(Var)) token(Symbol) option(token(Colon) Type) Token(Eq) Expression Block Option(Else | ElseIf)
 */
 static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *if_tok = &pc->tokens->at(*token_index);
@@ -1657,11 +1674,37 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool manda
     }
     *token_index += 1;
 
-    AstNode *node = ast_create_node(pc, NodeTypeIfExpr, if_tok);
-    node->data.if_expr.condition = ast_parse_expression(pc, token_index, true);
-    node->data.if_expr.then_block = ast_parse_block(pc, token_index, true);
-    node->data.if_expr.else_node = ast_parse_else_or_else_if(pc, token_index, false);
-    return node;
+    Token *token = &pc->tokens->at(*token_index);
+    if (token->id == TokenIdKeywordConst || token->id == TokenIdKeywordVar) {
+        AstNode *node = ast_create_node(pc, NodeTypeIfVarExpr, if_tok);
+        node->data.if_var_expr.var_decl.is_const = (token->id == TokenIdKeywordConst);
+        *token_index += 1;
+
+        Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
+        ast_buf_from_token(pc, name_token, &node->data.if_var_expr.var_decl.symbol);
+
+        Token *eq_or_colon = &pc->tokens->at(*token_index);
+        *token_index += 1;
+        if (eq_or_colon->id == TokenIdMaybeAssign) {
+            node->data.if_var_expr.var_decl.expr = ast_parse_expression(pc, token_index, true);
+        } else if (eq_or_colon->id == TokenIdColon) {
+            node->data.if_var_expr.var_decl.type = ast_parse_type(pc, token_index);
+
+            ast_eat_token(pc, token_index, TokenIdMaybeAssign);
+            node->data.if_var_expr.var_decl.expr = ast_parse_expression(pc, token_index, true);
+        } else {
+            ast_invalid_token_error(pc, eq_or_colon);
+        }
+        node->data.if_var_expr.then_block = ast_parse_block(pc, token_index, true);
+        node->data.if_var_expr.else_node = ast_parse_else_or_else_if(pc, token_index, false);
+        return node;
+    } else {
+        AstNode *node = ast_create_node(pc, NodeTypeIfBoolExpr, if_tok);
+        node->data.if_bool_expr.condition = ast_parse_expression(pc, token_index, true);
+        node->data.if_bool_expr.then_block = ast_parse_block(pc, token_index, true);
+        node->data.if_bool_expr.else_node = ast_parse_else_or_else_if(pc, token_index, false);
+        return node;
+    }
 }
 
 /*

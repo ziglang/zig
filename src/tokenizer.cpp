@@ -125,6 +125,7 @@ enum TokenizeState {
     TokenizeStateSawGreaterThanGreaterThan,
     TokenizeStateSawDot,
     TokenizeStateSawDotDot,
+    TokenizeStateSawQuestionMark,
     TokenizeStateError,
 };
 
@@ -402,8 +403,26 @@ void tokenize(Buf *buf, Tokenization *out) {
                         begin_token(&t, TokenIdDot);
                         t.state = TokenizeStateSawDot;
                         break;
+                    case '?':
+                        begin_token(&t, TokenIdMaybe);
+                        t.state = TokenizeStateSawQuestionMark;
+                        break;
                     default:
                         tokenize_error(&t, "invalid character: '%c'", c);
+                }
+                break;
+            case TokenizeStateSawQuestionMark:
+                switch (c) {
+                    case '=':
+                        t.cur_tok->id = TokenIdMaybeAssign;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
                 }
                 break;
             case TokenizeStateSawDot:
@@ -917,6 +936,7 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawGreaterThan:
         case TokenizeStateSawGreaterThanGreaterThan:
         case TokenizeStateSawDot:
+        case TokenizeStateSawQuestionMark:
             end_token(&t);
             break;
         case TokenizeStateSawDotDot:
@@ -1012,6 +1032,8 @@ static const char * token_name(Token *token) {
         case TokenIdPercent: return "Percent";
         case TokenIdDot: return "Dot";
         case TokenIdEllipsis: return "Ellipsis";
+        case TokenIdMaybe: return "Maybe";
+        case TokenIdMaybeAssign: return "MaybeAssign";
     }
     return "(invalid token)";
 }

@@ -83,6 +83,8 @@ enum TokenId {
     TokenIdPercent,
     TokenIdDot,
     TokenIdEllipsis,
+    TokenIdMaybe,
+    TokenIdMaybeAssign,
 };
 
 struct Token {

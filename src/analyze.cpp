@@ -45,7 +45,8 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeUse:
         case NodeTypeVoid:
         case NodeTypeBoolLiteral:
-        case NodeTypeIfExpr:
+        case NodeTypeIfBoolExpr:
+        case NodeTypeIfVarExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
@@ -528,7 +529,8 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
-        case NodeTypeIfExpr:
+        case NodeTypeIfBoolExpr:
+        case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
@@ -598,7 +600,8 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
-        case NodeTypeIfExpr:
+        case NodeTypeIfBoolExpr:
+        case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
@@ -1394,6 +1397,39 @@ static TypeTableEntry *analyze_continue_expr(CodeGen *g, ImportTableEntry *impor
     return g->builtin_types.entry_unreachable;
 }
 
+static TypeTableEntry *analyze_if_bool_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    analyze_expression(g, import, context, g->builtin_types.entry_bool, node->data.if_bool_expr.condition);
+
+    TypeTableEntry *then_type = analyze_expression(g, import, context, expected_type,
+            node->data.if_bool_expr.then_block);
+
+    TypeTableEntry *else_type;
+    if (node->data.if_bool_expr.else_node) {
+        else_type = analyze_expression(g, import, context, expected_type, node->data.if_bool_expr.else_node);
+    } else {
+        else_type = g->builtin_types.entry_void;
+        else_type = resolve_type_compatibility(g, context, node, expected_type, else_type);
+    }
+
+
+    if (expected_type) {
+        return (then_type->id == TypeTableEntryIdUnreachable) ? else_type : then_type;
+    } else {
+        return resolve_peer_type_compatibility(g, context, node,
+                node->data.if_bool_expr.then_block, node->data.if_bool_expr.else_node,
+                then_type, else_type);
+    }
+}
+
+static TypeTableEntry *analyze_if_var_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    assert(node->type == NodeTypeIfVarExpr);
+    zig_panic("TODO analyze_if_var_expr");
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -1651,31 +1687,12 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     }
             }
             break;
-        case NodeTypeIfExpr:
-            {
-                analyze_expression(g, import, context, g->builtin_types.entry_bool, node->data.if_expr.condition);
-
-                TypeTableEntry *then_type = analyze_expression(g, import, context, expected_type,
-                        node->data.if_expr.then_block);
-
-                TypeTableEntry *else_type;
-                if (node->data.if_expr.else_node) {
-                    else_type = analyze_expression(g, import, context, expected_type, node->data.if_expr.else_node);
-                } else {
-                    else_type = g->builtin_types.entry_void;
-                    else_type = resolve_type_compatibility(g, context, node, expected_type, else_type);
-                }
-
-
-                if (expected_type) {
-                    return_type = (then_type->id == TypeTableEntryIdUnreachable) ? else_type : then_type;
-                } else {
-                    return_type = resolve_peer_type_compatibility(g, context, node,
-                            node->data.if_expr.then_block, node->data.if_expr.else_node,
-                            then_type, else_type);
-                }
-                break;
-            }
+        case NodeTypeIfBoolExpr:
+            return_type = analyze_if_bool_expr(g, import, context, expected_type, node);
+            break;
+        case NodeTypeIfVarExpr:
+            return_type = analyze_if_var_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeWhileExpr:
             return_type = analyze_while_expr(g, import, context, expected_type, node);
             break;
@@ -1828,7 +1845,8 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
-        case NodeTypeIfExpr:
+        case NodeTypeIfBoolExpr:
+        case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
