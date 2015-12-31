@@ -225,6 +225,12 @@ void ast_print(AstNode *node, int indent) {
                         ast_print(node->data.type.array_size, indent + 2);
                         break;
                     }
+                case AstNodeTypeTypeMaybe:
+                    {
+                        fprintf(stderr, "MaybeType\n");
+                        ast_print(node->data.type.child_type, indent + 2);
+                        break;
+                    }
             }
             break;
         case NodeTypeReturnExpr:
@@ -920,7 +926,7 @@ static void ast_parse_type_assume_amp(ParseContext *pc, int *token_index, AstNod
 }
 
 /*
-Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType
+Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType | MaybeType
 PointerType : token(Ampersand) option(token(Const)) Type
 ArrayType : token(LBracket) Type token(Semicolon) token(Number) token(RBracket)
 */
@@ -941,6 +947,9 @@ static AstNode *ast_parse_type(ParseContext *pc, int *token_index) {
         ast_buf_from_token(pc, token, &node->data.type.primitive_name);
     } else if (token->id == TokenIdAmpersand) {
         ast_parse_type_assume_amp(pc, token_index, node);
+    } else if (token->id == TokenIdMaybe) {
+        node->data.type.type = AstNodeTypeTypeMaybe;
+        node->data.type.child_type = ast_parse_type(pc, token_index);
     } else if (token->id == TokenIdBoolAnd) {
         // Pretend that we got 2 ampersand tokens
         node->data.type.type = AstNodeTypeTypePointer;
@@ -1636,10 +1645,9 @@ static AstNode *ast_parse_bool_and_expr(ParseContext *pc, int *token_index, bool
 }
 
 /*
-ElseIf : token(Else) IfExpression
-Else : token(Else) Block
+Else : token(Else) Expression
 */
-static AstNode *ast_parse_else_or_else_if(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_else(ParseContext *pc, int *token_index, bool mandatory) {
     Token *else_token = &pc->tokens->at(*token_index);
 
     if (else_token->id != TokenIdKeywordElse) {
@@ -1651,17 +1659,13 @@ static AstNode *ast_parse_else_or_else_if(ParseContext *pc, int *token_index, bo
     }
     *token_index += 1;
 
-    AstNode *if_expr = ast_parse_if_expr(pc, token_index, false);
-    if (if_expr)
-        return if_expr;
-
-    return ast_parse_block(pc, token_index, true);
+    return ast_parse_expression(pc, token_index, true);
 }
 
 /*
 IfExpression : IfVarExpression | IfBoolExpression
-IfBoolExpression : token(If) option((token) Expression Block option(Else | ElseIf)
-IfVarExpression : token(If) (token(Const) | token(Var)) token(Symbol) option(token(Colon) Type) Token(Eq) Expression Block Option(Else | ElseIf)
+IfBoolExpression : token(If) token(LParen) Expression token(RParen) Expression option(Else)
+IfVarExpression : token(If) token(LParen) (token(Const) | token(Var)) token(Symbol) option(token(Colon) Type) Token(MaybeAssign) Expression token(RParen) Expression Option(Else)
 */
 static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *if_tok = &pc->tokens->at(*token_index);
@@ -1673,6 +1677,8 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool manda
         }
     }
     *token_index += 1;
+
+    ast_eat_token(pc, token_index, TokenIdLParen);
 
     Token *token = &pc->tokens->at(*token_index);
     if (token->id == TokenIdKeywordConst || token->id == TokenIdKeywordVar) {
@@ -1695,14 +1701,16 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool manda
         } else {
             ast_invalid_token_error(pc, eq_or_colon);
         }
-        node->data.if_var_expr.then_block = ast_parse_block(pc, token_index, true);
-        node->data.if_var_expr.else_node = ast_parse_else_or_else_if(pc, token_index, false);
+        ast_eat_token(pc, token_index, TokenIdRParen);
+        node->data.if_var_expr.then_block = ast_parse_expression(pc, token_index, true);
+        node->data.if_var_expr.else_node = ast_parse_else(pc, token_index, false);
         return node;
     } else {
         AstNode *node = ast_create_node(pc, NodeTypeIfBoolExpr, if_tok);
         node->data.if_bool_expr.condition = ast_parse_expression(pc, token_index, true);
-        node->data.if_bool_expr.then_block = ast_parse_block(pc, token_index, true);
-        node->data.if_bool_expr.else_node = ast_parse_else_or_else_if(pc, token_index, false);
+        ast_eat_token(pc, token_index, TokenIdRParen);
+        node->data.if_bool_expr.then_block = ast_parse_expression(pc, token_index, true);
+        node->data.if_bool_expr.else_node = ast_parse_else(pc, token_index, false);
         return node;
     }
 }
@@ -1795,7 +1803,7 @@ static AstNode *ast_parse_bool_or_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-WhileExpression : token(While) Expression Block
+WhileExpression : token(While) token(LParen) Expression token(RParen) Expression
 */
 static AstNode *ast_parse_while_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1811,8 +1819,13 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, int *token_index, bool ma
 
     AstNode *node = ast_create_node(pc, NodeTypeWhileExpr, token);
 
+    ast_eat_token(pc, token_index, TokenIdLParen);
     node->data.while_expr.condition = ast_parse_expression(pc, token_index, true);
-    node->data.while_expr.body = ast_parse_block(pc, token_index, true);
+    ast_eat_token(pc, token_index, TokenIdRParen);
+
+    node->data.while_expr.body = ast_parse_expression(pc, token_index, true);
+
+
 
     return node;
 }

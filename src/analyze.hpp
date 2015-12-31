@@ -96,6 +96,7 @@ struct TypeTableEntry {
     TypeTableEntry *pointer_const_parent;
     TypeTableEntry *pointer_mut_parent;
     HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
+    TypeTableEntry *maybe_parent;
 
 };
 

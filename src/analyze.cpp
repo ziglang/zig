@@ -132,6 +132,26 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
     }
 }
 
+static TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
+    if (child_type->maybe_parent) {
+        return child_type->maybe_parent;
+    } else {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
+        // TODO entry->type_ref
+        buf_resize(&entry->name, 0);
+        buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
+        // TODO entry->size_in_bits
+        // TODO entry->align_in_bits
+        assert(child_type->di_type);
+        // TODO entry->di_type
+        entry->data.maybe.child_type = child_type;
+
+        g->type_table.put(&entry->name, entry);
+        child_type->maybe_parent = entry;
+        return entry;
+    }
+}
+
 static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size) {
     auto existing_entry = child_type->arrays_by_size.maybe_get(array_size);
     if (existing_entry) {
@@ -206,6 +226,20 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
                         buf_create_from_str("array size must be literal unsigned integer"));
                     type_node->entry = g->builtin_types.entry_invalid;
                 }
+                return type_node->entry;
+            }
+        case AstNodeTypeTypeMaybe:
+            {
+                resolve_type(g, node->data.type.child_type);
+                TypeTableEntry *child_type = node->data.type.child_type->codegen_node->data.type_node.entry;
+                assert(child_type);
+                if (child_type->id == TypeTableEntryIdUnreachable) {
+                    add_node_error(g, node,
+                            buf_create_from_str("maybe unreachable type not allowed"));
+                } else if (child_type->id == TypeTableEntryIdInvalid) {
+                    return child_type;
+                }
+                type_node->entry = get_maybe_type(g, child_type);
                 return type_node->entry;
             }
     }

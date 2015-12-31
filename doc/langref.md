@@ -60,9 +60,11 @@ ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
 
 ParamDecl : token(Symbol) token(Colon) Type | token(Ellipsis)
 
-Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType
+Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType | MaybeType
 
 PointerType : token(Ampersand) option(token(Const)) Type
+
+MaybeType : token(Question) Type
 
 ArrayType : token(LBracket) Type token(Semicolon) Expression token(RBracket)
 
@@ -96,7 +98,7 @@ AssignmentOperator : token(Eq) | token(TimesEq) | token(DivEq) | token(ModEq) | 
 
 BlockExpression : IfExpression | Block | WhileExpression
 
-WhileExpression : token(While) Expression Block
+WhileExpression : token(While) token(LParen) Expression token(RParen) Expression
 
 BoolOrExpression : BoolAndExpression token(BoolOr) BoolOrExpression | BoolAndExpression
 
@@ -104,13 +106,11 @@ ReturnExpression : token(Return) option(Expression)
 
 IfExpression : IfVarExpression | IfBoolExpression
 
-IfBoolExpression : token(If) option((token) Expression Block option(Else | ElseIf)
+IfBoolExpression : token(If) token(LParen) Expression token(RParen) Expression option(Else)
 
-IfVarExpression : token(If) (token(Const) | token(Var)) token(Symbol) option(token(Colon) Type) Token(MaybeAssign) Expression Block Option(Else | ElseIf)
+IfVarExpression : token(If) token(LParen) (token(Const) | token(Var)) token(Symbol) option(token(Colon) Type) Token(MaybeAssign) Expression token(RParen) Expression Option(Else)
 
-ElseIf : token(Else) IfExpression
-
-Else : token(Else) Block
+Else : token(Else) Expression
 
 BoolAndExpression : ComparisonExpression token(BoolAnd) BoolAndExpression | ComparisonExpression
 

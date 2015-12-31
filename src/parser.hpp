@@ -95,6 +95,7 @@ enum AstNodeTypeType {
     AstNodeTypeTypePrimitive,
     AstNodeTypeTypePointer,
     AstNodeTypeTypeArray,
+    AstNodeTypeTypeMaybe,
 };
 
 struct AstNodeType {

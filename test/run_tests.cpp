@@ -184,17 +184,17 @@ static void add_compiling_test_cases(void) {
         use "std.zig";
 
         pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-            if 1 != 0 {
+            if (1 != 0) {
                 print_str("1 is true\n");
             } else {
                 print_str("1 is false\n");
             }
-            if 0 != 0 {
+            if (0 != 0) {
                 print_str("0 is true\n");
-            } else if 1 - 1 != 0 {
+            } else if (1 - 1 != 0) {
                 print_str("1 - 1 is true\n");
             }
-            if !(0 != 0) {
+            if (!(0 != 0)) {
                 print_str("!0 is true\n");
             }
             return 0;
@@ -209,7 +209,7 @@ static void add_compiling_test_cases(void) {
         }
 
         pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-            if add(22, 11) == 33 {
+            if (add(22, 11) == 33) {
                 print_str("pass\n");
             }
             return 0;
@@ -220,7 +220,7 @@ static void add_compiling_test_cases(void) {
         use "std.zig";
 
         fn loop(a : i32) {
-            if a == 0 {
+            if (a == 0) {
                 goto done;
             }
             print_str("loop\n");
@@ -304,7 +304,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
 
     var i = 0 as i32;
 loop_start:
-    if i == 3 {
+    if (i == 3) {
         goto done;
     }
     print_str("loop\n");
@@ -323,7 +323,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
 
     var i : i32 = 0;
 loop_start:
-    if i == 5 {
+    if (i == 5) {
         goto loop_end;
     }
     array[i] = i + 1;
@@ -335,7 +335,7 @@ loop_end:
     i = 0;
     var accumulator = 0 as i32;
 loop_2_start:
-    if i == 5 {
+    if (i == 5) {
         goto loop_2_end;
     }
 
@@ -345,7 +345,7 @@ loop_2_start:
     goto loop_2_start;
 loop_2_end:
 
-    if accumulator == 15 {
+    if (accumulator == 15) {
         print_str("OK\n");
     }
 
@@ -368,18 +368,18 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 use "std.zig";
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
-    if false || false || false { print_str("BAD 1\n"); }
-    if true && true && false   { print_str("BAD 2\n"); }
-    if 1 | 2 | 4 != 7          { print_str("BAD 3\n"); }
-    if 3 ^ 6 ^ 8 != 13         { print_str("BAD 4\n"); }
-    if 7 & 14 & 28 != 4        { print_str("BAD 5\n"); }
-    if 9  << 1 << 2 != 9  << 3 { print_str("BAD 6\n"); }
-    if 90 >> 1 >> 2 != 90 >> 3 { print_str("BAD 7\n"); }
-    if 100 - 1 + 1000 != 1099  { print_str("BAD 8\n"); }
-    if 5 * 4 / 2 % 3 != 1      { print_str("BAD 9\n"); }
-    if 5 as i32 as i32 != 5    { print_str("BAD 10\n"); }
-    if !!false                 { print_str("BAD 11\n"); }
-    if 7 != --7                { print_str("BAD 12\n"); }
+    if (false || false || false) { print_str("BAD 1\n"); }
+    if (true && true && false)   { print_str("BAD 2\n"); }
+    if (1 | 2 | 4 != 7)          { print_str("BAD 3\n"); }
+    if (3 ^ 6 ^ 8 != 13)         { print_str("BAD 4\n"); }
+    if (7 & 14 & 28 != 4)        { print_str("BAD 5\n"); }
+    if (9  << 1 << 2 != 9  << 3) { print_str("BAD 6\n"); }
+    if (90 >> 1 >> 2 != 90 >> 3) { print_str("BAD 7\n"); }
+    if (100 - 1 + 1000 != 1099)  { print_str("BAD 8\n"); }
+    if (5 * 4 / 2 % 3 != 1)      { print_str("BAD 9\n"); }
+    if (5 as i32 as i32 != 5)    { print_str("BAD 10\n"); }
+    if (!!false)                 { print_str("BAD 11\n"); }
+    if (7 != --7)                { print_str("BAD 12\n"); }
 
     print_str("OK\n");
     return 0;
@@ -390,17 +390,17 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 use "std.zig";
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
-    if true || { print_str("BAD 1\n"); false } {
+    if (true || { print_str("BAD 1\n"); false }) {
       print_str("OK 1\n");
     }
-    if false || { print_str("OK 2\n"); false } {
+    if (false || { print_str("OK 2\n"); false }) {
       print_str("BAD 2\n");
     }
 
-    if true && { print_str("OK 3\n"); false } {
+    if (true && { print_str("OK 3\n"); false }) {
       print_str("BAD 3\n");
     }
-    if false && { print_str("BAD 4\n"); false } {
+    if (false && { print_str("BAD 4\n"); false }) {
     } else {
       print_str("OK 4\n");
     }
@@ -414,18 +414,18 @@ use "std.zig";
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var i : i32 = 0;
-    i += 5;  if i != 5  { print_str("BAD +=\n"); }
-    i -= 2;  if i != 3  { print_str("BAD -=\n"); }
-    i *= 20; if i != 60 { print_str("BAD *=\n"); }
-    i /= 3;  if i != 20 { print_str("BAD /=\n"); }
-    i %= 11; if i != 9  { print_str("BAD %=\n"); }
-    i <<= 1; if i != 18 { print_str("BAD <<=\n"); }
-    i >>= 2; if i != 4  { print_str("BAD >>=\n"); }
+    i += 5;  if (i != 5)  { print_str("BAD +=\n"); }
+    i -= 2;  if (i != 3)  { print_str("BAD -=\n"); }
+    i *= 20; if (i != 60) { print_str("BAD *=\n"); }
+    i /= 3;  if (i != 20) { print_str("BAD /=\n"); }
+    i %= 11; if (i != 9)  { print_str("BAD %=\n"); }
+    i <<= 1; if (i != 18) { print_str("BAD <<=\n"); }
+    i >>= 2; if (i != 4)  { print_str("BAD >>=\n"); }
     i = 6;
-    i &= 5;  if i != 4  { print_str("BAD &=\n"); }
-    i ^= 6;  if i != 2  { print_str("BAD ^=\n"); }
+    i &= 5;  if (i != 4)  { print_str("BAD &=\n"); }
+    i ^= 6;  if (i != 2)  { print_str("BAD ^=\n"); }
     i = 6;
-    i |= 3;  if i != 7  { print_str("BAD |=\n"); }
+    i |= 3;  if (i != 7)  { print_str("BAD |=\n"); }
 
     print_str("OK\n");
     return 0;
@@ -570,7 +570,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     foo.b = foo.a == 1;
     test_foo(foo);
     test_mutation(&foo);
-    if foo.c != 100 {
+    if (foo.c != 100) {
         print_str("BAD\n");
     }
     test_point_to_self();
@@ -585,7 +585,7 @@ struct Foo {
     c : f32,
 }
 fn test_foo(foo : Foo) {
-    if !foo.b {
+    if (!foo.b) {
         print_str("BAD\n");
     }
 }
@@ -610,7 +610,7 @@ fn test_point_to_self() {
 
     root.next = &node;
 
-    if node.next.next.next.val.x != 1 {
+    if (node.next.next.next.val.x != 1) {
         print_str("BAD\n");
     }
 }
@@ -620,15 +620,15 @@ fn test_byval_assign() {
 
     foo1.a = 1234;
 
-    if foo2.a != 0 { print_str("BAD\n"); }
+    if (foo2.a != 0) { print_str("BAD\n"); }
 
     foo2 = foo1;
 
-    if foo2.a != 1234 { print_str("BAD - byval assignment failed\n"); }
+    if (foo2.a != 1234) { print_str("BAD - byval assignment failed\n"); }
 }
 fn test_initializer() {
     const val = Val { .x = 42 };
-    if val.x != 42 { print_str("BAD\n"); }
+    if (val.x != 42) { print_str("BAD\n"); }
 }
     )SOURCE", "OK\n");
 
@@ -639,9 +639,9 @@ const g1 : i32 = 1233 + 1;
 var g2 : i32;
 
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
-    if g2 != 0 { print_str("BAD\n"); }
+    if (g2 != 0) { print_str("BAD\n"); }
     g2 = g1;
-    if g2 != 1234 { print_str("BAD\n"); }
+    if (g2 != 1234) { print_str("BAD\n"); }
     print_str("OK\n");
     return 0;
 }
@@ -651,7 +651,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 use "std.zig";
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var i : i32 = 0;
-    while i < 4 {
+    while (i < 4) {
         print_str("loop\n");
         i += 1;
     }
@@ -663,10 +663,10 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 use "std.zig";
 export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var i : i32 = 0;
-    while true {
+    while (true) {
         print_str("loop\n");
         i += 1;
-        if i < 4 {
+        if (i < 4) {
             continue;
         }
         break;
@@ -871,8 +871,8 @@ fn f() {
 
     add_compile_fail_case("missing else clause", R"SOURCE(
 fn f() {
-    const x : i32 = if true { 1 };
-    const y = if true { 1 as i32 };
+    const x : i32 = if (true) { 1 };
+    const y = if (true) { 1 as i32 };
 }
     )SOURCE", 2, ".tmp_source.zig:3:21: error: expected type 'i32', got 'void'",
                  ".tmp_source.zig:4:15: error: incompatible types: 'i32' and 'void'");
