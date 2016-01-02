@@ -982,6 +982,12 @@ fn f() {
     continue;
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: 'continue' expression not in loop");
+
+    add_compile_fail_case("invalid maybe type", R"SOURCE(
+fn f() {
+    if (const x ?= true) { }
+}
+    )SOURCE", 1, ".tmp_source.zig:3:20: error: expected maybe type");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

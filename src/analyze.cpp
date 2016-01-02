@@ -1333,7 +1333,7 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
             if (implicit_type->id == TypeTableEntryIdMaybe) {
                 implicit_type = implicit_type->data.maybe.child_type;
             } else {
-                add_node_error(g, source_node, buf_sprintf("expected maybe type"));
+                add_node_error(g, variable_declaration->expr, buf_sprintf("expected maybe type"));
                 implicit_type = g->builtin_types.entry_invalid;
             }
         } else if (implicit_type->id == TypeTableEntryIdUnreachable) {
