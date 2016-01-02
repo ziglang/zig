@@ -390,6 +390,8 @@ static LLVMValueRef gen_bare_cast(CodeGen *g, AstNode *node, LLVMValueRef expr_v
             }
         case CastOpPtrToInt:
             return LLVMBuildPtrToInt(g->builder, expr_val, wanted_type->type_ref, "");
+        case CastOpPointerReinterpret:
+            return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");
         case CastOpIntWidenOrShorten:
             if (actual_type->size_in_bits == wanted_type->size_in_bits) {
                 return expr_val;
@@ -1236,6 +1238,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
                 LLVMValueRef ptr_val = LLVMBuildInBoundsGEP(g->builder, str_val, indices, 2, "");
                 return ptr_val;
             }
+        case NodeTypeCharLiteral:
+            return LLVMConstInt(LLVMInt8Type(), node->data.char_literal.value, false);
         case NodeTypeSymbol:
             {
                 VariableTableEntry *variable = find_variable(

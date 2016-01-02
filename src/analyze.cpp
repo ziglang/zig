@@ -38,6 +38,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeCastExpr:
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
+        case NodeTypeCharLiteral:
         case NodeTypeUnreachable:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
@@ -588,6 +589,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeArrayAccessExpr:
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
+        case NodeTypeCharLiteral:
         case NodeTypeUnreachable:
         case NodeTypeVoid:
         case NodeTypeBoolLiteral:
@@ -659,6 +661,7 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeArrayAccessExpr:
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
+        case NodeTypeCharLiteral:
         case NodeTypeUnreachable:
         case NodeTypeVoid:
         case NodeTypeBoolLiteral:
@@ -891,6 +894,17 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
         return expected_type;
     }
 
+    // implicit non-const to const
+    if (expected_type->id == TypeTableEntryIdPointer &&
+        actual_type->id == TypeTableEntryIdPointer &&
+        expected_type->data.pointer.is_const &&
+        !actual_type->data.pointer.is_const)
+    {
+        return resolve_type_compatibility(g, context, node,
+                expected_type->data.pointer.child_type,
+                actual_type->data.pointer.child_type);
+    }
+
     add_node_error(g, node,
         buf_sprintf("expected type '%s', got '%s'",
             buf_ptr(&expected_type->name),
@@ -1013,6 +1027,9 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
         Buf *name = &node->data.field_access_expr.field_name;
         if (buf_eql_str(name, "len")) {
             return_type = g->builtin_types.entry_usize;
+        } else if (buf_eql_str(name, "ptr")) {
+            // TODO determine whether the pointer should be const
+            return_type = get_pointer_to_type(g, struct_type->data.array.child_type, false);
         } else {
             add_node_error(g, node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(name),
@@ -1160,6 +1177,11 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         codegen_num_lit->resolved_type = wanted_type;
         cast_node->op = CastOpNothing;
         return wanted_type;
+    } else if (actual_type->id == TypeTableEntryIdPointer &&
+               wanted_type->id == TypeTableEntryIdPointer)
+    {
+        cast_node->op = CastOpPointerReinterpret;
+        return wanted_type;
     } else {
         add_node_error(g, node,
             buf_sprintf("invalid cast from type '%s' to '%s'",
@@ -1286,6 +1308,9 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
             }
         case BinOpTypeAdd:
         case BinOpTypeSub:
+        case BinOpTypeMult:
+        case BinOpTypeDiv:
+        case BinOpTypeMod:
             {
                 AstNode *op1 = node->data.bin_op_expr.op1;
                 AstNode *op2 = node->data.bin_op_expr.op2;
@@ -1293,15 +1318,6 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                 TypeTableEntry *rhs_type = analyze_expression(g, import, context, expected_type, op2);
 
                 return resolve_peer_type_compatibility(g, context, node, op1, op2, lhs_type, rhs_type);
-            }
-        case BinOpTypeMult:
-        case BinOpTypeDiv:
-        case BinOpTypeMod:
-            {
-                // TODO: don't require i32
-                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
-                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
-                return g->builtin_types.entry_i32;
             }
         case BinOpTypeInvalid:
             zig_unreachable();
@@ -1746,6 +1762,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 return_type = get_array_type(g, g->builtin_types.entry_u8, buf_len(&node->data.string_literal.buf));
             }
             break;
+        case NodeTypeCharLiteral:
+            return_type = g->builtin_types.entry_u8;
+            break;
         case NodeTypeUnreachable:
             return_type = g->builtin_types.entry_unreachable;
             break;
@@ -1959,6 +1978,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeArrayAccessExpr:
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
+        case NodeTypeCharLiteral:
         case NodeTypeUnreachable:
         case NodeTypeVoid:
         case NodeTypeBoolLiteral:

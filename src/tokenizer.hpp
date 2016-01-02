@@ -44,6 +44,7 @@ enum TokenId {
     TokenIdLBracket,
     TokenIdRBracket,
     TokenIdStringLiteral,
+    TokenIdCharLiteral,
     TokenIdSemicolon,
     TokenIdNumberLiteral,
     TokenIdPlus,

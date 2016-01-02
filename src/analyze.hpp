@@ -277,6 +277,7 @@ enum CastOp {
     CastOpIntWidenOrShorten,
     CastOpArrayToString,
     CastOpMaybeWrap,
+    CastOpPointerReinterpret,
 };
 
 struct CastNode {

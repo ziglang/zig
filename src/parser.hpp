@@ -35,6 +35,7 @@ enum NodeType {
     NodeTypeCastExpr,
     NodeTypeNumberLiteral,
     NodeTypeStringLiteral,
+    NodeTypeCharLiteral,
     NodeTypeUnreachable,
     NodeTypeSymbol,
     NodeTypePrefixOpExpr,
@@ -289,6 +290,10 @@ struct AstNodeStringLiteral {
     bool c;
 };
 
+struct AstNodeCharLiteral {
+    uint8_t value;
+};
+
 enum NumLit {
     NumLitF32,
     NumLitF64,
@@ -359,6 +364,7 @@ struct AstNode {
         AstNodeStructDecl struct_decl;
         AstNodeStructField struct_field;
         AstNodeStringLiteral string_literal;
+        AstNodeCharLiteral char_literal;
         AstNodeNumberLiteral number_literal;
         AstNodeStructValueExpr struct_val_expr;
         AstNodeStructValueField struct_val_field;

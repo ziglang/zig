@@ -102,6 +102,8 @@ const char *node_type_str(NodeType node_type) {
             return "NumberLiteral";
         case NodeTypeStringLiteral:
             return "StringLiteral";
+        case NodeTypeCharLiteral:
+            return "CharLiteral";
         case NodeTypeUnreachable:
             return "Unreachable";
         case NodeTypeSymbol:
@@ -311,6 +313,11 @@ void ast_print(AstNode *node, int indent) {
                 const char *c = node->data.string_literal.c ? "c" : "";
                 fprintf(stderr, "StringLiteral %s'%s'\n", c,
                         buf_ptr(&node->data.string_literal.buf));
+                break;
+            }
+        case NodeTypeCharLiteral:
+            {
+                fprintf(stderr, "%s '%c'\n", node_type_str(node->type), node->data.char_literal.value);
                 break;
             }
         case NodeTypeUnreachable:
@@ -575,6 +582,55 @@ static void parse_asm_template(ParseContext *pc, AstNode *node) {
     }
 }
 
+static uint8_t parse_char_literal(ParseContext *pc, Token *token) {
+    // skip the single quotes at beginning and end
+    // convert escape sequences
+    bool escape = false;
+    int return_count = 0;
+    uint8_t return_value;
+    for (int i = token->start_pos + 1; i < token->end_pos - 1; i += 1) {
+        uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
+        if (escape) {
+            switch (c) {
+                case '\\':
+                    return_value = '\\';
+                    return_count += 1;
+                    break;
+                case 'r':
+                    return_value = '\r';
+                    return_count += 1;
+                    break;
+                case 'n':
+                    return_value = '\n';
+                    return_count += 1;
+                    break;
+                case 't':
+                    return_value = '\t';
+                    return_count += 1;
+                    break;
+                case '\'':
+                    return_value = '\'';
+                    return_count += 1;
+                    break;
+                default:
+                    ast_error(pc, token, "invalid escape character");
+            }
+            escape = false;
+        } else if (c == '\\') {
+            escape = true;
+        } else {
+            return_value = c;
+            return_count += 1;
+        }
+    }
+    if (return_count == 0) {
+        ast_error(pc, token, "character literal too short");
+    } else if (return_count > 1) {
+        ast_error(pc, token, "character literal too long");
+    }
+    return return_count;
+}
+
 static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool *out_c_str,
         ZigList<SrcPos> *offset_map)
 {
@@ -619,6 +675,9 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
                     case '"':
                         buf_append_char(buf, '"');
                         if (offset_map) offset_map->append(pos);
+                        break;
+                    default:
+                        ast_error(pc, token, "invalid escape character");
                         break;
                 }
                 escape = false;
@@ -1136,7 +1195,7 @@ static AstNode *ast_parse_struct_val_expr(ParseContext *pc, int *token_index) {
 }
 
 /*
-PrimaryExpression : token(Number) | token(String) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression
+PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1149,6 +1208,11 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
     } else if (token->id == TokenIdStringLiteral) {
         AstNode *node = ast_create_node(pc, NodeTypeStringLiteral, token);
         parse_string_literal(pc, token, &node->data.string_literal.buf, &node->data.string_literal.c, nullptr);
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdCharLiteral) {
+        AstNode *node = ast_create_node(pc, NodeTypeCharLiteral, token);
+        node->data.char_literal.value = parse_char_literal(pc, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordUnreachable) {
@@ -1733,7 +1797,7 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index, bool m
 }
 
 /*
-VariableDeclaration : (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
+VariableDeclaration : option(FnVisibleMod) (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
 */
 static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *var_or_const_tok = &pc->tokens->at(*token_index);

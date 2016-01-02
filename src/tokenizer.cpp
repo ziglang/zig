@@ -103,6 +103,7 @@ enum TokenizeState {
     TokenizeStateFloatExponentUnsigned, // "123.456e", "123e", "0x123p"
     TokenizeStateFloatExponentNumber, // "123.456e-", "123.456e5", "123.456e5e-5"
     TokenizeStateString,
+    TokenizeStateCharLiteral,
     TokenizeStateSawStar,
     TokenizeStateSawSlash,
     TokenizeStateSawPercent,
@@ -306,6 +307,10 @@ void tokenize(Buf *buf, Tokenization *out) {
                     case '"':
                         begin_token(&t, TokenIdStringLiteral);
                         t.state = TokenizeStateString;
+                        break;
+                    case '\'':
+                        begin_token(&t, TokenIdCharLiteral);
+                        t.state = TokenizeStateCharLiteral;
                         break;
                     case '(':
                         begin_token(&t, TokenIdLParen);
@@ -773,6 +778,16 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                 }
                 break;
+            case TokenizeStateCharLiteral:
+                switch (c) {
+                    case '\'':
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        break;
+                }
+                break;
             case TokenizeStateZero:
                 switch (c) {
                     case 'b':
@@ -912,6 +927,9 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateString:
             tokenize_error(&t, "unterminated string");
             break;
+        case TokenizeStateCharLiteral:
+            tokenize_error(&t, "unterminated character literal");
+            break;
         case TokenizeStateSymbol:
         case TokenizeStateSymbolFirst:
         case TokenizeStateZero:
@@ -993,6 +1011,7 @@ static const char * token_name(Token *token) {
         case TokenIdLBracket: return "LBracket";
         case TokenIdRBracket: return "RBracket";
         case TokenIdStringLiteral: return "StringLiteral";
+        case TokenIdCharLiteral: return "CharLiteral";
         case TokenIdSemicolon: return "Semicolon";
         case TokenIdNumberLiteral: return "NumberLiteral";
         case TokenIdPlus: return "Plus";
