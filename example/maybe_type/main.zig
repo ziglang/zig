@@ -2,7 +2,7 @@ export executable "maybe_type";
 
 use "std.zig";
 
-fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     const x : ?bool = true;
 
     if (const y ?= x) {

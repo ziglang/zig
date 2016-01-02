@@ -674,6 +674,24 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     return 0;
 }
     )SOURCE", "loop\nloop\nloop\nloop\n");
+
+    add_simple_case("maybe type", R"SOURCE(
+use "std.zig";
+export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+    const x : ?bool = true;
+
+    if (const y ?= x) {
+        if (y) {
+            print_str("x is true\n");
+        } else {
+            print_str("x is false\n");
+        }
+    } else {
+        print_str("x is none\n");
+    }
+    return 0;
+}
+    )SOURCE", "x is true\n");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////

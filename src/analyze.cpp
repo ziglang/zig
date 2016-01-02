@@ -137,13 +137,44 @@ static TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         return child_type->maybe_parent;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
-        // TODO entry->type_ref
+        // create a struct with a boolean whether this is the null value
+        assert(child_type->type_ref);
+        LLVMTypeRef elem_types[] = {
+            child_type->type_ref,
+            LLVMInt1Type(),
+        };
+        entry->type_ref = LLVMStructType(elem_types, 2, false);
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
-        // TODO entry->size_in_bits
-        // TODO entry->align_in_bits
+        entry->size_in_bits = child_type->size_in_bits + 8;
+        entry->align_in_bits = child_type->align_in_bits;
         assert(child_type->di_type);
-        // TODO entry->di_type
+
+
+        LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
+        LLVMZigDIFile *di_file = nullptr;
+        unsigned line = 0;
+        entry->di_type = LLVMZigCreateReplaceableCompositeType(g->dbuilder,
+            LLVMZigTag_DW_structure_type(), buf_ptr(&entry->name),
+            compile_unit_scope, di_file, line);
+
+        LLVMZigDIType *di_element_types[] = {
+            LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
+                    "val", di_file, line, child_type->size_in_bits, child_type->align_in_bits, 0, 0,
+                    child_type->di_type),
+            LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
+                    "maybe", di_file, line, 8, 8, 8, 0,
+                    child_type->di_type),
+        };
+        LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
+                compile_unit_scope,
+                buf_ptr(&entry->name),
+                di_file, line, entry->size_in_bits, entry->align_in_bits, 0,
+                nullptr, di_element_types, 2, 0, nullptr, "");
+
+        LLVMZigReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
+        entry->di_type = replacement_di_type;
+
         entry->data.maybe.child_type = child_type;
 
         g->type_table.put(&entry->name, entry);
@@ -814,13 +845,35 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
         return expected_type;
     }
 
+    if (expected_type->id == TypeTableEntryIdMaybe &&
+        actual_type->id == TypeTableEntryIdMaybe)
+    {
+        TypeTableEntry *expected_child = expected_type->data.maybe.child_type;
+        TypeTableEntry *actual_child = actual_type->data.maybe.child_type;
+        return resolve_type_compatibility(g, context, node, expected_child, actual_child);
+    }
+
+    // implicit conversion from non maybe type to maybe type
+    if (expected_type->id == TypeTableEntryIdMaybe) {
+        TypeTableEntry *resolved_type = resolve_type_compatibility(g, context, node,
+                expected_type->data.maybe.child_type, actual_type);
+        if (resolved_type->id == TypeTableEntryIdInvalid) {
+            return resolved_type;
+        }
+        node->codegen_node->expr_node.implicit_maybe_cast.op = CastOpMaybeWrap;
+        node->codegen_node->expr_node.implicit_maybe_cast.after_type = expected_type;
+        node->codegen_node->expr_node.implicit_maybe_cast.source_node = node;
+        context->cast_expr_alloca_list.append(&node->codegen_node->expr_node.implicit_maybe_cast);
+        return expected_type;
+    }
+
     // implicit widening conversion
     if (expected_type->id == TypeTableEntryIdInt &&
         actual_type->id == TypeTableEntryIdInt &&
         expected_type->data.integral.is_signed == actual_type->data.integral.is_signed &&
         expected_type->size_in_bits > actual_type->size_in_bits)
     {
-        node->codegen_node->expr_node.implicit_cast.type = expected_type;
+        node->codegen_node->expr_node.implicit_cast.after_type = expected_type;
         node->codegen_node->expr_node.implicit_cast.op = CastOpIntWidenOrShorten;
         node->codegen_node->expr_node.implicit_cast.source_node = node;
         return expected_type;
@@ -831,7 +884,7 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
         actual_type->id == TypeTableEntryIdArray &&
         actual_type->data.array.child_type == g->builtin_types.entry_u8)
     {
-        node->codegen_node->expr_node.implicit_cast.type = expected_type;
+        node->codegen_node->expr_node.implicit_cast.after_type = expected_type;
         node->codegen_node->expr_node.implicit_cast.op = CastOpArrayToString;
         node->codegen_node->expr_node.implicit_cast.source_node = node;
         context->cast_expr_alloca_list.append(&node->codegen_node->expr_node.implicit_cast);
@@ -1077,7 +1130,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
 
     CastNode *cast_node = &node->codegen_node->data.cast_node;
     cast_node->source_node = node;
-    cast_node->type = wanted_type;
+    cast_node->after_type = wanted_type;
 
     // special casing this for now, TODO think about casting and do a general solution
     if (wanted_type == g->builtin_types.entry_isize &&
@@ -1489,6 +1542,7 @@ static TypeTableEntry *analyze_if_var_expr(CodeGen *g, ImportTableEntry *import,
     assert(node->type == NodeTypeIfVarExpr);
 
     BlockContext *child_context = new_block_context(node, context);
+    node->codegen_node->data.if_var_node.block_context = child_context;
 
     analyze_variable_declaration_raw(g, import, child_context, node, &node->data.if_var_expr.var_decl, true);
 

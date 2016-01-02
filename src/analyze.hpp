@@ -272,10 +272,11 @@ struct FieldAccessNode {
 };
 
 enum CastOp {
+    CastOpNothing,
     CastOpPtrToInt,
     CastOpIntWidenOrShorten,
     CastOpArrayToString,
-    CastOpNothing,
+    CastOpMaybeWrap,
 };
 
 struct CastNode {
@@ -283,7 +284,7 @@ struct CastNode {
     // if op is CastOpArrayToString, this will be a pointer to
     // the string struct on the stack
     LLVMValueRef ptr;
-    TypeTableEntry *type;
+    TypeTableEntry *after_type;
     AstNode *source_node;
 };
 
@@ -294,7 +295,8 @@ struct ExprNode {
     BlockContext *block_context;
 
     // may be null for no cast
-    CastNode implicit_cast;
+    CastNode implicit_cast; // happens first
+    CastNode implicit_maybe_cast; // happens second
 };
 
 struct NumberLiteralNode {
@@ -315,6 +317,10 @@ struct StructValExprNode {
     AstNode *source_node;
 };
 
+struct IfVarNode {
+    BlockContext *block_context;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
@@ -330,6 +336,7 @@ struct CodeGenNode {
         VarDeclNode var_decl_node; // for NodeTypeVariableDeclaration
         StructValFieldNode struct_val_field_node; // for NodeTypeStructValueField
         StructValExprNode struct_val_expr_node; // for NodeTypeStructValueExpr
+        IfVarNode if_var_node; // for NodeTypeStructValueExpr
     } data;
     ExprNode expr_node; // for all the expression nodes
 };
