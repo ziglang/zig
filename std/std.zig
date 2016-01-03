@@ -1,9 +1,6 @@
 const SYS_write : usize = 1;
 const SYS_exit : usize = 60;
-const SYS_getrandom : usize = 278;
-
-const stdout_fileno : isize = 1;
-const stderr_fileno : isize = 2;
+const SYS_getrandom : usize = 318;
 
 fn syscall1(number: usize, arg1: usize) -> usize {
     asm volatile ("syscall"
@@ -19,32 +16,37 @@ fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> usize {
         : "rcx", "r11")
 }
 
-pub fn getrandom(buf: &u8, count: usize, flags: u32) -> i32 {
-    return syscall3(SYS_getrandom, buf as usize, count, flags as usize) as i32;
-}
-
 pub fn write(fd: isize, buf: &const u8, count: usize) -> isize {
-    return syscall3(SYS_write, fd as usize, buf as usize, count) as isize;
+    syscall3(SYS_write, fd as usize, buf as usize, count) as isize
 }
 
 pub fn exit(status: i32) -> unreachable {
     syscall1(SYS_exit, status as usize);
-    unreachable;
+    unreachable
 }
 
+pub fn getrandom(buf: &u8, count: usize, flags: u32) -> isize {
+    syscall3(SYS_getrandom, buf as usize, count, flags as usize) as isize
+}
+
+const stdout_fileno : isize = 1;
+const stderr_fileno : isize = 2;
+
 // TODO error handling
-pub fn os_get_random_bytes(buf: &u8, count: usize) -> i32 {
-    return getrandom(buf, count, 0);
+pub fn os_get_random_bytes(buf: &u8, count: usize) -> isize {
+    getrandom(buf, count, 0)
 }
 
 // TODO error handling
 // TODO handle buffering and flushing (mutex protected)
-pub fn print_str(str: string) -> isize { fprint_str(stdout_fileno, str) }
+pub fn print_str(str: string) -> isize {
+    fprint_str(stdout_fileno, str)
+}
 
 // TODO error handling
 // TODO handle buffering and flushing (mutex protected)
 pub fn fprint_str(fd: isize, str: string) -> isize {
-    return write(fd, str.ptr, str.len);
+    write(fd, str.ptr, str.len)
 }
 
 // TODO handle buffering and flushing (mutex protected)
@@ -56,7 +58,9 @@ pub fn print_u64(x: u64) -> isize {
     return write(stdout_fileno, buf.ptr, len);
 }
 
-fn digit_to_char(digit: u64) -> u8 { '0' + (digit as u8) }
+fn digit_to_char(digit: u64) -> u8 {
+    '0' + (digit as u8)
+}
 
 const max_u64_base10_digits: usize = 20;
 

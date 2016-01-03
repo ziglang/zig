@@ -1570,6 +1570,7 @@ static void do_code_gen(CodeGen *g) {
 
                     add_debug_source_node(g, var->decl_node);
                     var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
+                    LLVMSetAlignment(var->value_ref, var->type->align_in_bits / 8);
                 }
 
                 var->di_loc_var = LLVMZigCreateLocalVariable(g->dbuilder, tag,

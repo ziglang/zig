@@ -196,6 +196,7 @@ static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, ui
 
         entry->size_in_bits = child_type->size_in_bits * array_size;
         entry->align_in_bits = child_type->align_in_bits;
+
         entry->di_type = LLVMZigCreateDebugArrayType(g->dbuilder, entry->size_in_bits,
                 entry->align_in_bits, child_type->di_type, array_size);
         entry->data.array.child_type = child_type;

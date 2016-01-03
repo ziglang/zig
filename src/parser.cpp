@@ -628,7 +628,7 @@ static uint8_t parse_char_literal(ParseContext *pc, Token *token) {
     } else if (return_count > 1) {
         ast_error(pc, token, "character literal too long");
     }
-    return return_count;
+    return return_value;
 }
 
 static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool *out_c_str,
