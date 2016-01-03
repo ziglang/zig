@@ -682,6 +682,21 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     return 0;
 }
     )SOURCE", "x is true\n");
+
+    add_simple_case("implicit cast after unreachable", R"SOURCE(
+use "std.zig";
+export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+    const x = outer();
+    if (x == 1234) {
+        print_str("OK\n");
+    }
+    return 0;
+}
+fn inner() -> i32 { 1234 }
+fn outer() -> isize {
+    return inner();
+}
+    )SOURCE", "OK\n");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -978,6 +993,12 @@ fn f() {
     if (const x ?= true) { }
 }
     )SOURCE", 1, ".tmp_source.zig:3:20: error: expected maybe type");
+
+    add_compile_fail_case("cast unreachable", R"SOURCE(
+fn f() -> i32 {
+    (return 1) as i32
+}
+    )SOURCE", 1, ".tmp_source.zig:3:16: error: invalid cast from type 'unreachable' to 'i32'");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

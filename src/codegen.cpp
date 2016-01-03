@@ -203,21 +203,6 @@ static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
     AstNode *array_expr_node = node->data.array_access_expr.array_ref_expr;
 
     LLVMValueRef array_ptr = gen_expr(g, array_expr_node);
-    /*
-    if (array_expr_node->type == NodeTypeSymbol) {
-        VariableTableEntry *var = find_variable(array_expr_node->codegen_node->expr_node.block_context,
-                &array_expr_node->data.symbol);
-        assert(var);
-
-        array_ptr = var->value_ref;
-    } else if (array_expr_node->type == NodeTypeFieldAccessExpr) {
-        zig_panic("TODO gen array ptr field access expr");
-    } else if (array_expr_node->type == NodeTypeArrayAccessExpr) {
-        zig_panic("TODO gen array ptr array access expr");
-    } else {
-        array_ptr = gen_expr(g, array_expr_node);
-    }
-    */
 
     LLVMValueRef subscript_value = gen_expr(g, node->data.array_access_expr.subscript);
 
@@ -1363,6 +1348,9 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
 
     {
         TypeTableEntry *before_type = node->codegen_node->expr_node.type_entry;
+        if (before_type && before_type->id == TypeTableEntryIdUnreachable) {
+            return val;
+        }
         val = gen_cast_node(g, node, val, before_type, &node->codegen_node->expr_node.implicit_cast);
     }
 

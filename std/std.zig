@@ -19,8 +19,8 @@ fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> usize {
         : "rcx", "r11")
 }
 
-pub fn getrandom(buf: &u8, count: usize, flags: u32) -> isize {
-    return syscall3(SYS_getrandom, buf as usize, count, flags as usize) as isize;
+pub fn getrandom(buf: &u8, count: usize, flags: u32) -> i32 {
+    return syscall3(SYS_getrandom, buf as usize, count, flags as usize) as i32;
 }
 
 pub fn write(fd: isize, buf: &const u8, count: usize) -> isize {
@@ -30,6 +30,30 @@ pub fn write(fd: isize, buf: &const u8, count: usize) -> isize {
 pub fn exit(status: i32) -> unreachable {
     syscall1(SYS_exit, status as usize);
     unreachable;
+}
+
+// TODO error handling
+pub fn os_get_random_bytes(buf: &u8, count: usize) -> i32 {
+    return getrandom(buf, count, 0);
+}
+
+// TODO error handling
+// TODO handle buffering and flushing (mutex protected)
+pub fn print_str(str: string) -> isize { fprint_str(stdout_fileno, str) }
+
+// TODO error handling
+// TODO handle buffering and flushing (mutex protected)
+pub fn fprint_str(fd: isize, str: string) -> isize {
+    return write(fd, str.ptr, str.len);
+}
+
+// TODO handle buffering and flushing (mutex protected)
+// TODO error handling
+pub fn print_u64(x: u64) -> isize {
+    // TODO use max_u64_base10_digits instead of hardcoding 20
+    var buf: [u8; 20];
+    const len = buf_print_u64(buf.ptr, x);
+    return write(stdout_fileno, buf.ptr, len);
 }
 
 fn digit_to_char(digit: u64) -> u8 { '0' + (digit as u8) }
@@ -63,26 +87,3 @@ fn buf_print_u64(out_buf: &u8, x: u64) -> usize {
     return len;
 }
 
-// TODO error handling
-// TODO handle buffering and flushing (mutex protected)
-pub fn print_str(str: string) -> isize { fprint_str(stdout_fileno, str) }
-
-// TODO error handling
-// TODO handle buffering and flushing (mutex protected)
-pub fn fprint_str(fd: isize, str: string) -> isize {
-    return write(fd, str.ptr, str.len);
-}
-
-// TODO handle buffering and flushing (mutex protected)
-// TODO error handling
-pub fn print_u64(x: u64) -> isize {
-    // TODO use max_u64_base10_digits instead of hardcoding 20
-    var buf: [u8; 20];
-    const len = buf_print_u64(buf.ptr, x);
-    return write(stdout_fileno, buf.ptr, len);
-}
-
-// TODO error handling
-pub fn os_get_random_bytes(buf: &u8, count: usize) -> isize {
-    return getrandom(buf, count, 0);
-}
