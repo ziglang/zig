@@ -1,40 +1,37 @@
-const SYS_write : isize = 1;
-const SYS_exit : isize = 60;
-const SYS_getrandom : isize = 278;
+const SYS_write : usize = 1;
+const SYS_exit : usize = 60;
+const SYS_getrandom : usize = 278;
 
 const stdout_fileno : isize = 1;
 const stderr_fileno : isize = 2;
 
-fn syscall1(number: isize, arg1: isize) -> isize {
+fn syscall1(number: usize, arg1: usize) -> usize {
     asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
+        : [ret] "={rax}" (-> usize)
         : [number] "{rax}" (number), [arg1] "{rdi}" (arg1)
         : "rcx", "r11")
 }
 
-fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
+fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> usize {
     asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
+        : [ret] "={rax}" (-> usize)
         : [number] "{rax}" (number), [arg1] "{rdi}" (arg1), [arg2] "{rsi}" (arg2), [arg3] "{rdx}" (arg3)
         : "rcx", "r11")
 }
 
-/*
 pub fn getrandom(buf: &u8, count: usize, flags: u32) -> isize {
-    return syscall3(SYS_getrandom, buf as isize, count as isize, flags as isize);
+    return syscall3(SYS_getrandom, buf as usize, count, flags as usize) as isize;
 }
-*/
 
 pub fn write(fd: isize, buf: &const u8, count: usize) -> isize {
-    return syscall3(SYS_write, fd, buf as isize, count as isize);
+    return syscall3(SYS_write, fd as usize, buf as usize, count) as isize;
 }
 
 pub fn exit(status: i32) -> unreachable {
-    syscall1(SYS_exit, status as isize);
+    syscall1(SYS_exit, status as usize);
     unreachable;
 }
 
-/*
 fn digit_to_char(digit: u64) -> u8 { '0' + (digit as u8) }
 
 const max_u64_base10_digits: usize = 20;
@@ -66,17 +63,6 @@ fn buf_print_u64(out_buf: &u8, x: u64) -> usize {
     return len;
 }
 
-// TODO handle buffering and flushing (mutex protected)
-// TODO error handling
-pub fn print_u64(x: u64) -> isize {
-    // TODO use max_u64_base10_digits instead of hardcoding 20
-    var buf: [u8; 20];
-    const len = buf_print_u64(buf.ptr, x);
-    return write(stdout_fileno, buf.ptr, len);
-}
-*/
-
-
 // TODO error handling
 // TODO handle buffering and flushing (mutex protected)
 pub fn print_str(str: string) -> isize { fprint_str(stdout_fileno, str) }
@@ -87,9 +73,16 @@ pub fn fprint_str(fd: isize, str: string) -> isize {
     return write(fd, str.ptr, str.len);
 }
 
-/*
+// TODO handle buffering and flushing (mutex protected)
+// TODO error handling
+pub fn print_u64(x: u64) -> isize {
+    // TODO use max_u64_base10_digits instead of hardcoding 20
+    var buf: [u8; 20];
+    const len = buf_print_u64(buf.ptr, x);
+    return write(stdout_fileno, buf.ptr, len);
+}
+
 // TODO error handling
 pub fn os_get_random_bytes(buf: &u8, count: usize) -> isize {
     return getrandom(buf, count, 0);
 }
-*/

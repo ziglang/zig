@@ -1057,6 +1057,8 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
 
     if (array_type->id == TypeTableEntryIdArray) {
         return_type = array_type->data.array.child_type;
+    } else if (array_type->id == TypeTableEntryIdPointer) {
+        return_type = array_type->data.pointer.child_type;
     } else {
         if (array_type->id != TypeTableEntryIdInvalid) {
             add_node_error(g, node, buf_sprintf("array access of non-array"));
@@ -1064,14 +1066,7 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
         return_type = g->builtin_types.entry_invalid;
     }
 
-    TypeTableEntry *subscript_type = analyze_expression(g, import, context, nullptr,
-            node->data.array_access_expr.subscript);
-    if (subscript_type->id != TypeTableEntryIdInt &&
-        subscript_type->id != TypeTableEntryIdInvalid)
-    {
-        add_node_error(g, node,
-            buf_sprintf("array subscripts must be integers"));
-    }
+    analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.array_access_expr.subscript);
 
     return return_type;
 }
@@ -1150,7 +1145,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     cast_node->after_type = wanted_type;
 
     // special casing this for now, TODO think about casting and do a general solution
-    if (wanted_type == g->builtin_types.entry_isize &&
+    if ((wanted_type == g->builtin_types.entry_isize || wanted_type == g->builtin_types.entry_usize) &&
         actual_type->id == TypeTableEntryIdPointer)
     {
         cast_node->op = CastOpPtrToInt;

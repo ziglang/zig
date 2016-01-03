@@ -2,37 +2,26 @@ export executable "arrays";
 
 use "std.zig";
 
-export fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-    var array : [i32; 5];
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    var array : [u32; 5];
 
-    var i : i32 = 0;
-loop_start:
-    if i == 5 {
-        goto loop_end;
+    var i : u32 = 0;
+    while (i < 5) {
+        array[i] = i + 1;
+        i = array[i];
     }
-    array[i] = i + 1;
-    i = array[i];
-    goto loop_start;
-
-loop_end:
 
     i = 0;
-    var accumulator : i32 = 0;
-loop_2_start:
-    if i == 5 {
-        goto loop_2_end;
+    var accumulator : u32 = 0;
+    while (i < 5) {
+        accumulator += array[i];
+
+        i += 1;
     }
 
-    accumulator += array[i];
-
-    i = i + 1;
-    goto loop_2_start;
-loop_2_end:
-
-    if accumulator == 15 {
-        print_str("OK\n" as string);
+    if (accumulator == 15) {
+        print_str("OK\n");
     }
-
 
     return 0;
 }

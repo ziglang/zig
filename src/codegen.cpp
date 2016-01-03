@@ -199,19 +199,48 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeArrayAccessExpr);
 
-    // TODO gen_lvalue
-    LLVMValueRef array_ref_value = gen_expr(g, node->data.array_access_expr.array_ref_expr);
+    TypeTableEntry *type_entry = get_expr_type(node->data.array_access_expr.array_ref_expr);
+    AstNode *array_expr_node = node->data.array_access_expr.array_ref_expr;
+
+    LLVMValueRef array_ptr = gen_expr(g, array_expr_node);
+    /*
+    if (array_expr_node->type == NodeTypeSymbol) {
+        VariableTableEntry *var = find_variable(array_expr_node->codegen_node->expr_node.block_context,
+                &array_expr_node->data.symbol);
+        assert(var);
+
+        array_ptr = var->value_ref;
+    } else if (array_expr_node->type == NodeTypeFieldAccessExpr) {
+        zig_panic("TODO gen array ptr field access expr");
+    } else if (array_expr_node->type == NodeTypeArrayAccessExpr) {
+        zig_panic("TODO gen array ptr array access expr");
+    } else {
+        array_ptr = gen_expr(g, array_expr_node);
+    }
+    */
+
     LLVMValueRef subscript_value = gen_expr(g, node->data.array_access_expr.subscript);
 
-    assert(array_ref_value);
+    assert(array_ptr);
     assert(subscript_value);
 
-    LLVMValueRef indices[] = {
-        LLVMConstInt(LLVMInt32Type(), 0, false),
-        subscript_value
-    };
-    add_debug_source_node(g, node);
-    return LLVMBuildInBoundsGEP(g->builder, array_ref_value, indices, 2, "");
+    if (type_entry->id == TypeTableEntryIdArray) {
+        LLVMValueRef indices[] = {
+            LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+            subscript_value
+        };
+        add_debug_source_node(g, node);
+        return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
+    } else if (type_entry->id == TypeTableEntryIdPointer) {
+        assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
+        LLVMValueRef indices[] = {
+            subscript_value
+        };
+        add_debug_source_node(g, node);
+        return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 1, "");
+    } else {
+        zig_unreachable();
+    }
 }
 
 static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **out_type_entry) {
@@ -279,6 +308,14 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
         if (buf_eql_str(name, "len")) {
             return LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                     struct_type->data.array.len, false);
+        } else if (buf_eql_str(name, "ptr")) {
+            LLVMValueRef array_val = gen_expr(g, node->data.field_access_expr.struct_expr);
+            LLVMValueRef indices[] = {
+                LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+                LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+            };
+            add_debug_source_node(g, node);
+            return LLVMBuildInBoundsGEP(g->builder, array_val, indices, 2, "");
         } else {
             zig_panic("gen_field_access_expr bad array field");
         }
@@ -314,9 +351,15 @@ static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *expr_node, AstNode *node,
         target_ref = var->value_ref;
     } else if (node->type == NodeTypeArrayAccessExpr) {
         TypeTableEntry *array_type = get_expr_type(node->data.array_access_expr.array_ref_expr);
-        assert(array_type->id == TypeTableEntryIdArray);
-        *out_type_entry = array_type->data.array.child_type;
-        target_ref = gen_array_ptr(g, node);
+        if (array_type->id == TypeTableEntryIdArray) {
+            *out_type_entry = array_type->data.array.child_type;
+            target_ref = gen_array_ptr(g, node);
+        } else if (array_type->id == TypeTableEntryIdPointer) {
+            *out_type_entry = array_type->data.pointer.child_type;
+            target_ref = gen_array_ptr(g, node);
+        } else {
+            zig_unreachable();
+        }
     } else if (node->type == NodeTypeFieldAccessExpr) {
         target_ref = gen_field_ptr(g, node, out_type_entry);
     } else {
@@ -389,28 +432,26 @@ static LLVMValueRef gen_bare_cast(CodeGen *g, AstNode *node, LLVMValueRef expr_v
                 return cast_node->ptr;
             }
         case CastOpPtrToInt:
+            add_debug_source_node(g, node);
             return LLVMBuildPtrToInt(g->builder, expr_val, wanted_type->type_ref, "");
         case CastOpPointerReinterpret:
+            add_debug_source_node(g, node);
             return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");
         case CastOpIntWidenOrShorten:
             if (actual_type->size_in_bits == wanted_type->size_in_bits) {
                 return expr_val;
             } else if (actual_type->size_in_bits < wanted_type->size_in_bits) {
-                if (actual_type->data.integral.is_signed && wanted_type->data.integral.is_signed) {
+                if (actual_type->data.integral.is_signed) {
+                    add_debug_source_node(g, node);
                     return LLVMBuildSExt(g->builder, expr_val, wanted_type->type_ref, "");
-                } else if (!actual_type->data.integral.is_signed && !wanted_type->data.integral.is_signed) {
-                    return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
                 } else {
-                    zig_panic("TODO gen_cast_expr mixing of signness");
+                    add_debug_source_node(g, node);
+                    return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
                 }
             } else {
                 assert(actual_type->size_in_bits > wanted_type->size_in_bits);
-
-                if (actual_type->data.integral.is_signed && wanted_type->data.integral.is_signed) {
-                    return LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
-                } else {
-                    zig_panic("TODO gen_cast_expr shorten unsigned");
-                }
+                add_debug_source_node(g, node);
+                return LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
             }
         case CastOpArrayToString:
             {
@@ -1232,8 +1273,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
                 Buf *str = &node->data.string_literal.buf;
                 LLVMValueRef str_val = find_or_create_string(g, str, node->data.string_literal.c);
                 LLVMValueRef indices[] = {
-                    LLVMConstInt(LLVMInt32Type(), 0, false),
-                    LLVMConstInt(LLVMInt32Type(), 0, false)
+                    LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+                    LLVMConstNull(g->builtin_types.entry_usize->type_ref),
                 };
                 LLVMValueRef ptr_val = LLVMBuildInBoundsGEP(g->builder, str_val, indices, 2, "");
                 return ptr_val;

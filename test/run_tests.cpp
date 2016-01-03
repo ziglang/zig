@@ -319,31 +319,21 @@ done:
 use "std.zig";
 
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-    var array : [i32; 5];
+    var array : [u32; 5];
 
-    var i : i32 = 0;
-loop_start:
-    if (i == 5) {
-        goto loop_end;
+    var i : u32 = 0;
+    while (i < 5) {
+        array[i] = i + 1;
+        i = array[i];
     }
-    array[i] = i + 1;
-    i = array[i];
-    goto loop_start;
-
-loop_end:
 
     i = 0;
-    var accumulator = 0 as i32;
-loop_2_start:
-    if (i == 5) {
-        goto loop_2_end;
+    var accumulator = 0 as u32;
+    while (i < 5) {
+        accumulator += array[i];
+
+        i += 1;
     }
-
-    accumulator = accumulator + array[i];
-
-    i = i + 1;
-    goto loop_2_start;
-loop_2_end:
 
     if (accumulator == 15) {
         print_str("OK\n");
@@ -871,9 +861,9 @@ fn f() {
                  ".tmp_source.zig:4:12: error: use of undeclared identifier 'i'",
                  ".tmp_source.zig:4:14: error: use of undeclared identifier 'i'",
                  ".tmp_source.zig:5:8: error: array access of non-array",
-                 ".tmp_source.zig:5:8: error: array subscripts must be integers",
+                 ".tmp_source.zig:5:9: error: expected type 'usize', got 'bool'",
                  ".tmp_source.zig:5:19: error: array access of non-array",
-                 ".tmp_source.zig:5:19: error: array subscripts must be integers");
+                 ".tmp_source.zig:5:20: error: expected type 'usize', got 'bool'");
 
     add_compile_fail_case("variadic functions only allowed in extern", R"SOURCE(
 fn f(...) {}
