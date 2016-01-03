@@ -18,19 +18,19 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
         return 1;
     }
 
-    print_str("Seed: ");
-    print_u64(seed);
+    var rand_state = rand_init(seed);
+
+    const answer = rand_u64(&rand_state, 0, 100) + 1;
+
+    print_str("Answer: ");
+    print_u64(answer);
     print_str("\n");
 
     /*
-    var rand_state = rand_init(seed);
-
-    const answer = rand_int(&rand_state, 0, 100) + 1;
-
     while (true) {
         const line = readline("\nGuess a number between 1 and 100: ");
 
-        if (const guess ?= parse_number(line)) {
+        if (const guess ?= parse_u64(line)) {
             if (guess > answer) {
                 print_str("Guess lower.\n");
             } else if (guess < answer) {
