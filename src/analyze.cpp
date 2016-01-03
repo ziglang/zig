@@ -1898,6 +1898,9 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                     variable_entry->decl_node = param_decl_node;
                     variable_entry->arg_index = i;
 
+                    alloc_codegen_node(param_decl_node);
+                    param_decl_node->codegen_node->data.param_decl_node.variable = variable_entry;
+
                     VariableTableEntry *existing_entry = find_local_variable(context, &variable_entry->name);
                     if (!existing_entry) {
                         // unique definition

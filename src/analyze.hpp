@@ -322,6 +322,10 @@ struct IfVarNode {
     BlockContext *block_context;
 };
 
+struct ParamDeclNode {
+    VariableTableEntry *variable;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
@@ -338,6 +342,7 @@ struct CodeGenNode {
         StructValFieldNode struct_val_field_node; // for NodeTypeStructValueField
         StructValExprNode struct_val_expr_node; // for NodeTypeStructValueExpr
         IfVarNode if_var_node; // for NodeTypeStructValueExpr
+        ParamDeclNode param_decl_node; // for NodeTypeParamDecl
     } data;
     ExprNode expr_node; // for all the expression nodes
 };

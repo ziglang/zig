@@ -1530,7 +1530,8 @@ static void do_code_gen(CodeGen *g) {
             non_void_index += 1;
         }
 
-        build_label_blocks(g, fn_def_node->data.fn_def.body);
+        AstNode *body_node = fn_def_node->data.fn_def.body;
+        build_label_blocks(g, body_node);
 
         // Set up debug info for blocks and variables and
         // allocate all local variables
@@ -1591,6 +1592,22 @@ static void do_code_gen(CodeGen *g) {
                 struct_val_expr_node->ptr = LLVMBuildAlloca(g->builder,
                         struct_val_expr_node->type_entry->type_ref, "");
             }
+        }
+
+        // create debug variable declarations for parameters
+        for (int param_i = 0; param_i < fn_proto->params.length; param_i += 1) {
+            AstNode *param_decl = fn_proto->params.at(param_i);
+            assert(param_decl->type == NodeTypeParamDecl);
+
+            if (is_param_decl_type_void(g, param_decl))
+                continue;
+
+            VariableTableEntry *variable = param_decl->codegen_node->data.param_decl_node.variable;
+
+            LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(param_decl->line + 1, param_decl->column + 1,
+                    codegen_fn_def->block_context->di_scope);
+            LLVMZigInsertDeclareAtEnd(g->dbuilder, variable->value_ref, variable->di_loc_var, debug_loc,
+                    entry_block);
         }
 
         TypeTableEntry *implicit_return_type = codegen_fn_def->implicit_return_type;

@@ -387,6 +387,17 @@ void LLVMZigRestoreInsertPoint(LLVMBuilderRef builder, LLVMZigInsertionPoint *ip
     unwrap(builder)->restoreIP(*ip);
 }
 
+LLVMValueRef LLVMZigInsertDeclareAtEnd(LLVMZigDIBuilder *dibuilder, LLVMValueRef storage,
+        LLVMZigDILocalVariable *var_info, LLVMZigDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref)
+{
+    Instruction *result = reinterpret_cast<DIBuilder*>(dibuilder)->insertDeclare(
+            unwrap(storage),
+            reinterpret_cast<DILocalVariable *>(var_info),
+            reinterpret_cast<DIBuilder*>(dibuilder)->createExpression(),
+            reinterpret_cast<DILocation*>(debug_loc),
+            static_cast<BasicBlock*>(unwrap(basic_block_ref)));
+    return wrap(result);
+}
 
 LLVMValueRef LLVMZigInsertDeclare(LLVMZigDIBuilder *dibuilder, LLVMValueRef storage,
         LLVMZigDILocalVariable *var_info, LLVMZigDILocation *debug_loc, LLVMValueRef insert_before_instr)
