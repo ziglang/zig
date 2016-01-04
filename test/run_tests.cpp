@@ -144,39 +144,32 @@ static void add_compiling_test_cases(void) {
 
     {
         TestCase *tc = add_simple_case("multiple files with private function", R"SOURCE(
-            use "libc.zig";
-            use "foo.zig";
+use "std.zig";
+use "foo.zig";
 
-            export fn main(argc: i32, argv: &&u8, env: &&u8) -> i32 {
-                private_function();
-            }
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    private_function();
+    print_str("OK 2\n");
+    return 0;
+}
 
-            fn private_function() -> unreachable {
-                print_text();
-                exit(0);
-            }
-        )SOURCE", "OK\n");
-
-        add_source_file(tc, "libc.zig", R"SOURCE(
-            #link("c")
-            extern {
-                pub fn puts(s: &const u8) -> i32;
-                pub fn exit(code: i32) -> unreachable;
-            }
-        )SOURCE");
+fn private_function() {
+    print_text();
+}
+        )SOURCE", "OK 1\nOK 2\n");
 
         add_source_file(tc, "foo.zig", R"SOURCE(
-            use "libc.zig";
+use "std.zig";
 
-            // purposefully conflicting function with main source file
-            // but it's private so it should be OK
-            fn private_function() {
-                puts(c"OK");
-            }
+// purposefully conflicting function with main.zig
+// but it's private so it should be OK
+fn private_function() {
+    print_str("OK 1\n");
+}
 
-            pub fn print_text() {
-                private_function();
-            }
+pub fn print_text() {
+    private_function();
+}
         )SOURCE");
     }
 

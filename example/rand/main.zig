@@ -82,13 +82,13 @@ struct Rand {
 }
 
 /// Initialize random state with the given seed.
-pub fn rand_init(seed: u32) -> (out: Rand) {
-    out.index = 0;
-    out.array[0] = seed;
+pub fn rand_init(r: &Rand, seed: u32) {
+    r.index = 0;
+    r.array[0] = seed;
     var i : #typeof(ARRAY_SIZE) = 1;
     while (i < ARRAY_SIZE) {
-        const prev_value : u64 = out.array[i - 1];
-        out.array[i] = ((previous_value ^ (previous_value << 30)) * 0x6c078965 + i) as u32;
+        const prev_value : u64 = r.array[i - 1];
+        r.array[i] = ((previous_value ^ (previous_value << 30)) * 0x6c078965 + i) as u32;
         i += 1;
     }
 }
