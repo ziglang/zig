@@ -19,7 +19,6 @@
 
 CodeGen *codegen_create(Buf *root_source_dir) {
     CodeGen *g = allocate<CodeGen>(1);
-    g->fn_table.init(32);
     g->str_table.init(32);
     g->type_table.init(32);
     g->link_table.init(32);
@@ -146,12 +145,7 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
 
     Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
 
-    FnTableEntry *fn_table_entry;
-    auto entry = g->cur_fn->import_entry->fn_table.maybe_get(name);
-    if (entry)
-        fn_table_entry = entry->value;
-    else
-        fn_table_entry = g->fn_table.get(name);
+    FnTableEntry *fn_table_entry = g->cur_fn->import_entry->fn_table.get(name);
 
     assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto_data = &fn_table_entry->proto_node->data.fn_proto;
@@ -2062,6 +2056,8 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
             Buf *import_code = buf_alloc();
             bool found_it = false;
 
+            alloc_codegen_node(top_level_decl);
+
             for (int path_i = 0; path_i < g->lib_search_paths.length; path_i += 1) {
                 Buf *search_path = g->lib_search_paths.at(path_i);
                 os_path_join(search_path, import_target_path, &full_path);
@@ -2071,6 +2067,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
                     if (err == ErrorFileNotFound) {
                         continue;
                     } else {
+                        g->error_during_imports = true;
                         add_node_error(g, top_level_decl,
                                 buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));
                         goto done_looking_at_imports;
@@ -2080,22 +2077,26 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
                 auto entry = g->import_table.maybe_get(abs_full_path);
                 if (entry) {
                     found_it = true;
+                    top_level_decl->codegen_node->data.import_node.import = entry->value;
                 } else {
                     if ((err = os_fetch_file_path(abs_full_path, import_code))) {
                         if (err == ErrorFileNotFound) {
                             continue;
                         } else {
+                            g->error_during_imports = true;
                             add_node_error(g, top_level_decl,
                                     buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));
                             goto done_looking_at_imports;
                         }
                     }
-                    codegen_add_code(g, abs_full_path, search_path, &top_level_decl->data.use.path, import_code);
+                    top_level_decl->codegen_node->data.import_node.import = codegen_add_code(g,
+                            abs_full_path, search_path, &top_level_decl->data.use.path, import_code);
                     found_it = true;
                 }
                 break;
             }
             if (!found_it) {
+                g->error_during_imports = true;
                 add_node_error(g, top_level_decl,
                         buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
             }
@@ -2147,14 +2148,16 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
             zig_panic("unable to open '%s': %s", buf_ptr(&path_to_bootstrap_src), err_str(err));
         }
 
-        codegen_add_code(g, abs_full_path, bootstrap_dir, bootstrap_basename, import_code);
+        g->bootstrap_import = codegen_add_code(g, abs_full_path, bootstrap_dir, bootstrap_basename, import_code);
     }
 
     if (g->verbose) {
         fprintf(stderr, "\nSemantic Analysis:\n");
         fprintf(stderr, "--------------------\n");
     }
-    semantic_analyze(g);
+    if (!g->error_during_imports) {
+        semantic_analyze(g);
+    }
 
     if (g->errors.length == 0) {
         if (g->verbose) {

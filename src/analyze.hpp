@@ -150,7 +150,6 @@ struct CodeGen {
     ZigList<Buf *> lib_search_paths;
 
     // reminder: hash tables must be initialized before use
-    HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
     HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> link_table;
@@ -215,7 +214,9 @@ struct CodeGen {
     bool verbose;
     ErrColor err_color;
     ImportTableEntry *root_import;
+    ImportTableEntry *bootstrap_import;
     LLVMValueRef memcpy_fn_val;
+    bool error_during_imports;
 };
 
 struct VariableTableEntry {
@@ -328,6 +329,10 @@ struct ParamDeclNode {
     VariableTableEntry *variable;
 };
 
+struct ImportNode {
+    ImportTableEntry *import;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
@@ -345,6 +350,7 @@ struct CodeGenNode {
         StructValExprNode struct_val_expr_node; // for NodeTypeStructValueExpr
         IfVarNode if_var_node; // for NodeTypeStructValueExpr
         ParamDeclNode param_decl_node; // for NodeTypeParamDecl
+        ImportNode import_node; // for NodeTypeUse
     } data;
     ExprNode expr_node; // for all the expression nodes
 };
@@ -358,6 +364,7 @@ static inline Buf *hack_get_fn_call_name(CodeGen *g, AstNode *node) {
 
 void semantic_analyze(CodeGen *g);
 void add_node_error(CodeGen *g, AstNode *node, Buf *msg);
+void alloc_codegen_node(AstNode *node);
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id);
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
 VariableTableEntry *find_variable(BlockContext *context, Buf *name);

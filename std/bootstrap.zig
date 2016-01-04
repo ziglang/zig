@@ -1,5 +1,8 @@
 use "std.zig";
 
+// The compiler treats this file special by implicitly importing the function `main`
+// from the root source file.
+
 #attribute("naked")
 export fn _start() -> unreachable {
     const argc = asm("mov (%%rsp), %[argc]" : [argc] "=r" (-> isize));

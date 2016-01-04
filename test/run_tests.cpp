@@ -173,6 +173,44 @@ pub fn print_text() {
         )SOURCE");
     }
 
+    {
+        TestCase *tc = add_simple_case("import segregation", R"SOURCE(
+use "foo.zig";
+use "bar.zig";
+
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    foo_function();
+    bar_function();
+    return 0;
+}
+        )SOURCE", "OK\nOK\n");
+
+        add_source_file(tc, "foo.zig", R"SOURCE(
+use "std.zig";
+pub fn foo_function() {
+    print_str("OK\n");
+}
+        )SOURCE");
+
+        add_source_file(tc, "bar.zig", R"SOURCE(
+use "other.zig";
+use "std.zig";
+
+pub fn bar_function() {
+    if (foo_function()) {
+        print_str("OK\n");
+    }
+}
+        )SOURCE");
+
+        add_source_file(tc, "other.zig", R"SOURCE(
+pub fn foo_function() -> bool {
+    // this one conflicts with the one from foo
+    return true;
+}
+        )SOURCE");
+    }
+
     add_simple_case("if statements", R"SOURCE(
         use "std.zig";
 

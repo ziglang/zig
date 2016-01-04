@@ -13,15 +13,18 @@
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node);
 
-static void alloc_codegen_node(AstNode *node) {
-    assert(!node->codegen_node);
-    node->codegen_node = allocate<CodeGenNode>(1);
-}
-
 static AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
         case NodeTypeFnCallExpr:
             return first_executing_node(node->data.fn_call_expr.fn_ref_expr);
+        case NodeTypeBinOpExpr:
+            return first_executing_node(node->data.bin_op_expr.op1);
+        case NodeTypeArrayAccessExpr:
+            return first_executing_node(node->data.array_access_expr.array_ref_expr);
+        case NodeTypeFieldAccessExpr:
+            return first_executing_node(node->data.field_access_expr.struct_expr);
+        case NodeTypeCastExpr:
+            return first_executing_node(node->data.cast_expr.expr);
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -34,15 +37,12 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeDirective:
         case NodeTypeReturnExpr:
         case NodeTypeVariableDeclaration:
-        case NodeTypeBinOpExpr:
-        case NodeTypeCastExpr:
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
         case NodeTypeUnreachable:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
-        case NodeTypeArrayAccessExpr:
         case NodeTypeUse:
         case NodeTypeVoid:
         case NodeTypeBoolLiteral:
@@ -53,7 +53,6 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeBreak:
         case NodeTypeContinue:
         case NodeTypeAsmExpr:
-        case NodeTypeFieldAccessExpr:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueExpr:
@@ -476,7 +475,6 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 AstNode *fn_decl = node->data.extern_block.fn_decls.at(fn_decl_i);
                 assert(fn_decl->type == NodeTypeFnDecl);
                 AstNode *fn_proto = fn_decl->data.fn_decl.fn_proto;
-                bool is_pub = (fn_proto->data.fn_proto.visib_mod == FnProtoVisibModPub);
 
                 FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
                 fn_table_entry->proto_node = fn_proto;
@@ -490,9 +488,6 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 Buf *name = &fn_proto->data.fn_proto.name;
                 g->fn_protos.append(fn_table_entry);
                 import->fn_table.put(name, fn_table_entry);
-                if (is_pub) {
-                    g->fn_table.put(name, fn_table_entry);
-                }
 
                 alloc_codegen_node(fn_proto);
                 fn_proto->codegen_node->data.fn_proto_node.fn_table_entry = fn_table_entry;
@@ -514,7 +509,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                     node->codegen_node->data.fn_def_node.skip = true;
                     skip = true;
                 } else if (is_pub) {
-                    auto entry = g->fn_table.maybe_get(proto_name);
+                    auto entry = import->fn_table.maybe_get(proto_name);
                     if (entry) {
                         add_node_error(g, node,
                                 buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
@@ -540,8 +535,9 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                     g->fn_defs.append(fn_table_entry);
 
                     import->fn_table.put(proto_name, fn_table_entry);
-                    if (is_pub) {
-                        g->fn_table.put(proto_name, fn_table_entry);
+
+                    if (g->bootstrap_import && import == g->root_import && buf_eql_str(proto_name, "main")) {
+                        g->bootstrap_import->fn_table.put(proto_name, fn_table_entry);
                     }
 
                     resolve_function_proto(g, proto_node, fn_table_entry, import);
@@ -1748,8 +1744,6 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                 Buf *name = &fn_ref_expr->data.symbol;
 
                 auto entry = import->fn_table.maybe_get(name);
-                if (!entry)
-                    entry = g->fn_table.maybe_get(name);
 
                 if (!entry) {
                     add_node_error(g, fn_ref_expr,
@@ -2011,13 +2005,41 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
             // already looked at these in the preview pass
             break;
         case NodeTypeUse:
-            for (int i = 0; i < node->data.use.directives->length; i += 1) {
-                AstNode *directive_node = node->data.use.directives->at(i);
-                Buf *name = &directive_node->data.directive.name;
-                add_node_error(g, directive_node,
-                        buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+            {
+                for (int i = 0; i < node->data.use.directives->length; i += 1) {
+                    AstNode *directive_node = node->data.use.directives->at(i);
+                    Buf *name = &directive_node->data.directive.name;
+                    add_node_error(g, directive_node,
+                            buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+                }
+
+                ImportTableEntry *target_import = node->codegen_node->data.import_node.import;
+                assert(target_import);
+
+                // import all the public functions
+                {
+                    auto it = target_import->fn_table.entry_iterator();
+                    for (;;) {
+                        auto *entry = it.next();
+                        if (!entry)
+                            break;
+
+                        FnTableEntry *fn_entry = entry->value;
+                        bool is_pub = (fn_entry->proto_node->data.fn_proto.visib_mod != FnProtoVisibModPrivate);
+                        if (is_pub) {
+                            auto existing_entry = import->fn_table.maybe_get(entry->key);
+                            if (existing_entry) {
+                                add_node_error(g, node,
+                                    buf_sprintf("import of function '%s' overrides existing definition",
+                                        buf_ptr(&fn_entry->proto_node->data.fn_proto.name)));
+                            } else {
+                                import->fn_table.put(entry->key, entry->value);
+                            }
+                        }
+                    }
+                }
+                break;
             }
-            break;
         case NodeTypeStructDecl:
             // nothing to do
             break;
@@ -2118,6 +2140,7 @@ void semantic_analyze(CodeGen *g) {
             find_function_declarations_root(g, import, import->root);
         }
     }
+
     {
         auto it = g->import_table.entry_iterator();
         for (;;) {
@@ -2139,3 +2162,9 @@ void semantic_analyze(CodeGen *g) {
                 buf_sprintf("missing export declaration and export type not provided"));
     }
 }
+
+void alloc_codegen_node(AstNode *node) {
+    assert(!node->codegen_node);
+    node->codegen_node = allocate<CodeGenNode>(1);
+}
+
