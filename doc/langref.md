@@ -60,7 +60,9 @@ ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
 
 ParamDecl : token(Symbol) token(Colon) Type | token(Ellipsis)
 
-Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType | MaybeType
+Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType | MaybeType | CompileTimeFnCall
+
+CompileTimeFnCall : token(NumberSign) token(Symbol) token(LParen) Expression token(RParen)
 
 PointerType : token(Ampersand) option(token(Const)) Type
 

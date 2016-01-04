@@ -347,7 +347,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     add_simple_case("hello world without libc", R"SOURCE(
 use "std.zig";
 
-export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     print_str("Hello, world!\n");
     return 0;
 }
@@ -357,7 +357,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     add_simple_case("a + b + c", R"SOURCE(
 use "std.zig";
 
-export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     if (false || false || false) { print_str("BAD 1\n"); }
     if (true && true && false)   { print_str("BAD 2\n"); }
     if (1 | 2 | 4 != 7)          { print_str("BAD 3\n"); }
@@ -379,7 +379,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     add_simple_case("short circuit", R"SOURCE(
 use "std.zig";
 
-export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     if (true || { print_str("BAD 1\n"); false }) {
       print_str("OK 1\n");
     }
@@ -402,7 +402,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     add_simple_case("modify operators", R"SOURCE(
 use "std.zig";
 
-export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var i : i32 = 0;
     i += 5;  if (i != 5)  { print_str("BAD +=\n"); }
     i -= 2;  if (i != 3)  { print_str("BAD -=\n"); }
@@ -554,7 +554,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     add_simple_case("structs", R"SOURCE(
 use "std.zig";
 
-export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var foo : Foo;
     foo.a += 1;
     foo.b = foo.a == 1;
@@ -628,7 +628,7 @@ use "std.zig";
 const g1 : i32 = 1233 + 1;
 var g2 : i32;
 
-export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     if (g2 != 0) { print_str("BAD\n"); }
     g2 = g1;
     if (g2 != 1234) { print_str("BAD\n"); }
@@ -639,7 +639,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 
     add_simple_case("while loop", R"SOURCE(
 use "std.zig";
-export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var i : i32 = 0;
     while (i < 4) {
         print_str("loop\n");
@@ -651,7 +651,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 
     add_simple_case("continue and break", R"SOURCE(
 use "std.zig";
-export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var i : i32 = 0;
     while (true) {
         print_str("loop\n");
@@ -667,7 +667,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 
     add_simple_case("maybe type", R"SOURCE(
 use "std.zig";
-export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     const x : ?bool = true;
 
     if (const y ?= x) {
@@ -685,7 +685,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 
     add_simple_case("implicit cast after unreachable", R"SOURCE(
 use "std.zig";
-export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     const x = outer();
     if (x == 1234) {
         print_str("OK\n");
@@ -695,6 +695,17 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
 fn inner() -> i32 { 1234 }
 fn outer() -> isize {
     return inner();
+}
+    )SOURCE", "OK\n");
+
+    add_simple_case("#typeof()", R"SOURCE(
+use "std.zig";
+const x: u16 = 13;
+const z: #typeof(x) = 19;
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+    const y: #typeof(x) = 120;
+    print_str("OK\n");
+    return 0;
 }
     )SOURCE", "OK\n");
 }
@@ -999,6 +1010,11 @@ fn f() -> i32 {
     (return 1) as i32
 }
     )SOURCE", 1, ".tmp_source.zig:3:16: error: invalid cast from type 'unreachable' to 'i32'");
+
+    add_compile_fail_case("invalid compiler fn", R"SOURCE(
+fn f() -> #bogus(foo) {
+}
+    )SOURCE", 1, ".tmp_source.zig:2:11: error: invalid compiler function: 'bogus'");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

@@ -2,7 +2,7 @@
 const ARRAY_SIZE : u16 = 624;
 
 /// Use `rand_init` to initialize this state.
-pub struct Rand {
+struct Rand {
     array: [u32; ARRAY_SIZE],
     index: #typeof(ARRAY_SIZE),
 

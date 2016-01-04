@@ -159,9 +159,11 @@ struct CodeGen {
     struct {
         TypeTableEntry *entry_bool;
         TypeTableEntry *entry_u8;
+        TypeTableEntry *entry_u16;
         TypeTableEntry *entry_u32;
         TypeTableEntry *entry_u64;
         TypeTableEntry *entry_i8;
+        TypeTableEntry *entry_i16;
         TypeTableEntry *entry_i32;
         TypeTableEntry *entry_i64;
         TypeTableEntry *entry_isize;

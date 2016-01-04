@@ -1326,6 +1326,7 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
+        case NodeTypeCompilerFnCall:
             zig_unreachable();
     }
     zig_unreachable();
@@ -1687,6 +1688,19 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->type_ref = LLVMInt16Type();
+        buf_init_from_str(&entry->name, "u16");
+        entry->size_in_bits = 16;
+        entry->align_in_bits = 16;
+        entry->data.integral.is_signed = false;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
+                LLVMZigEncoding_DW_ATE_unsigned());
+        g->type_table.put(&entry->name, entry);
+        g->builtin_types.entry_u16 = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMInt32Type();
         buf_init_from_str(&entry->name, "u32");
         entry->size_in_bits = 32;
@@ -1724,6 +1738,19 @@ static void define_builtin_types(CodeGen *g) {
                 LLVMZigEncoding_DW_ATE_signed());
         g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_i8 = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->type_ref = LLVMInt16Type();
+        buf_init_from_str(&entry->name, "i16");
+        entry->size_in_bits = 16;
+        entry->align_in_bits = 16;
+        entry->data.integral.is_signed = true;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
+                LLVMZigEncoding_DW_ATE_signed());
+        g->type_table.put(&entry->name, entry);
+        g->builtin_types.entry_i16 = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);

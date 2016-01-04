@@ -59,6 +59,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
         case NodeTypeWhileExpr:
+        case NodeTypeCompilerFnCall:
             return node;
     }
     zig_panic("unreachable");
@@ -208,7 +209,7 @@ static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, ui
     }
 }
 
-static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
+static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry *import, BlockContext *context) {
     assert(node->type == NodeTypeType);
     alloc_codegen_node(node);
     TypeNode *type_node = &node->codegen_node->data.type_node;
@@ -228,7 +229,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
             }
         case AstNodeTypeTypePointer:
             {
-                resolve_type(g, node->data.type.child_type);
+                resolve_type(g, node->data.type.child_type, import, context);
                 TypeTableEntry *child_type = node->data.type.child_type->codegen_node->data.type_node.entry;
                 assert(child_type);
                 if (child_type->id == TypeTableEntryIdUnreachable) {
@@ -242,7 +243,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
             }
         case AstNodeTypeTypeArray:
             {
-                resolve_type(g, node->data.type.child_type);
+                resolve_type(g, node->data.type.child_type, import, context);
                 TypeTableEntry *child_type = node->data.type.child_type->codegen_node->data.type_node.entry;
                 if (child_type->id == TypeTableEntryIdUnreachable) {
                     add_node_error(g, node,
@@ -263,7 +264,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
             }
         case AstNodeTypeTypeMaybe:
             {
-                resolve_type(g, node->data.type.child_type);
+                resolve_type(g, node->data.type.child_type, import, context);
                 TypeTableEntry *child_type = node->data.type.child_type->codegen_node->data.type_node.entry;
                 assert(child_type);
                 if (child_type->id == TypeTableEntryIdUnreachable) {
@@ -275,11 +276,26 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
                 type_node->entry = get_maybe_type(g, child_type);
                 return type_node->entry;
             }
+        case AstNodeTypeTypeCompilerExpr:
+            {
+                AstNode *compiler_expr_node = node->data.type.compiler_expr;
+                Buf *fn_name = &compiler_expr_node->data.compiler_fn_call.name;
+                if (buf_eql_str(fn_name, "typeof")) {
+                    return analyze_expression(g, import, context, nullptr,
+                            compiler_expr_node->data.compiler_fn_call.expr);
+                } else {
+                    add_node_error(g, node,
+                            buf_sprintf("invalid compiler function: '%s'", buf_ptr(fn_name)));
+                    return g->builtin_types.entry_invalid;
+                }
+            }
     }
     zig_unreachable();
 }
 
-static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_table_entry) {
+static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_table_entry,
+        ImportTableEntry *import)
+{
     assert(node->type == NodeTypeFnProto);
 
     for (int i = 0; i < node->data.fn_proto.directives->length; i += 1) {
@@ -310,7 +326,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
         AstNode *child = node->data.fn_proto.params.at(i);
         assert(child->type == NodeTypeParamDecl);
-        TypeTableEntry *type_entry = resolve_type(g, child->data.param_decl.type);
+        TypeTableEntry *type_entry = resolve_type(g, child->data.param_decl.type, import, import->block_context);
         if (type_entry->id == TypeTableEntryIdUnreachable) {
             add_node_error(g, child->data.param_decl.type,
                 buf_sprintf("parameter of type 'unreachable' not allowed"));
@@ -322,7 +338,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         }
     }
 
-    resolve_type(g, node->data.fn_proto.return_type);
+    resolve_type(g, node->data.fn_proto.return_type, import, import->block_context);
 }
 
 static void preview_function_labels(CodeGen *g, AstNode *node, FnTableEntry *fn_table_entry) {
@@ -383,7 +399,7 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
         AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         type_struct_field->name = &field_node->data.struct_field.name;
-        type_struct_field->type_entry = resolve_type(g, field_node->data.struct_field.type);
+        type_struct_field->type_entry = resolve_type(g, field_node->data.struct_field.type, import, import->block_context);
 
         if (type_struct_field->type_entry->id == TypeTableEntryIdStruct) {
             resolve_struct_type(g, import, type_struct_field->type_entry);
@@ -453,7 +469,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 fn_table_entry->import_entry = import;
                 fn_table_entry->label_table.init(8);
 
-                resolve_function_proto(g, fn_proto, fn_table_entry);
+                resolve_function_proto(g, fn_proto, fn_table_entry, import);
 
                 Buf *name = &fn_proto->data.fn_proto.name;
                 g->fn_protos.append(fn_table_entry);
@@ -512,7 +528,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                         g->fn_table.put(proto_name, fn_table_entry);
                     }
 
-                    resolve_function_proto(g, proto_node, fn_table_entry);
+                    resolve_function_proto(g, proto_node, fn_table_entry, import);
 
 
                     alloc_codegen_node(proto_node);
@@ -609,6 +625,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeStructField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
+        case NodeTypeCompilerFnCall:
             zig_unreachable();
     }
 }
@@ -681,6 +698,7 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeStructField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
+        case NodeTypeCompilerFnCall:
             zig_unreachable();
     }
 }
@@ -1132,7 +1150,7 @@ static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
 static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    TypeTableEntry *wanted_type = resolve_type(g, node->data.cast_expr.type);
+    TypeTableEntry *wanted_type = resolve_type(g, node->data.cast_expr.type, import, context);
     TypeTableEntry *actual_type = analyze_expression(g, import, context, nullptr, node->data.cast_expr.expr);
 
     if (wanted_type->id == TypeTableEntryIdInvalid ||
@@ -1328,7 +1346,7 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
 {
     TypeTableEntry *explicit_type = nullptr;
     if (variable_declaration->type != nullptr) {
-        explicit_type = resolve_type(g, variable_declaration->type);
+        explicit_type = resolve_type(g, variable_declaration->type, import, context);
         if (explicit_type->id == TypeTableEntryIdUnreachable) {
             add_node_error(g, variable_declaration->type,
                 buf_sprintf("variable of type 'unreachable' not allowed"));
@@ -1428,7 +1446,7 @@ static TypeTableEntry *analyze_struct_val_expr(CodeGen *g, ImportTableEntry *imp
 
     AstNodeStructValueExpr *struct_val_expr = &node->data.struct_val_expr;
 
-    TypeTableEntry *type_entry = resolve_type(g, struct_val_expr->type);
+    TypeTableEntry *type_entry = resolve_type(g, struct_val_expr->type, import, context);
 
     if (type_entry->id == TypeTableEntryIdInvalid) {
         return g->builtin_types.entry_invalid;
@@ -1655,7 +1673,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
                     if (asm_output->return_type) {
                         node->data.asm_expr.return_count += 1;
-                        return_type = resolve_type(g, asm_output->return_type);
+                        return_type = resolve_type(g, asm_output->return_type, import, context);
                         if (node->data.asm_expr.return_count > 1) {
                             add_node_error(g, node,
                                 buf_sprintf("inline assembly allows up to one output value"));
@@ -1848,6 +1866,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
+        case NodeTypeCompilerFnCall:
             zig_unreachable();
     }
     assert(return_type);
@@ -1996,6 +2015,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeStructField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
+        case NodeTypeCompilerFnCall:
             zig_unreachable();
     }
 }
