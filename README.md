@@ -23,15 +23,15 @@ compromises backward compatibility.
  * Generics so that one can write efficient data structures that work for any
    data type.
  * Ability to run arbitrary code at compile time and generate code.
+ * No null pointer. Convenient syntax for dealing with a maybe type so that
+   null pointer is not missed.
  * A type which represents an error and has some convenience syntax with
    regards to resources.
  * Defer statement.
- * Memory zeroed by default, unless you explicitly ask for uninitialized memory.
  * Eliminate the need for configure, make, cmake, etc.
  * Eliminate the need for header files (when using zig internally).
  * Tagged union enum type.
  * Resilient to parsing errors to make IDE integration work well.
- * Source code is UTF-8.
  * Ability to mark functions as test and automatically run them in test mode.
    This mode should automatically provide test coverage.
  * Friendly toward package maintainers.
@@ -39,14 +39,12 @@ compromises backward compatibility.
    provide a tag or sha1).
  * Include documentation generator.
  * Shebang line OK so language can be used for "scripting" as well.
- * No null pointer. Convenient syntax for dealing with a maybe type so that
-   null pointer is not missed.
 
 ### Current Status
 
  * Have a look in the examples/ folder to see some code examples.
  * Some language features available such as loops, inline assembly, expressions,
-   literals, functions.
+   literals, functions, importing other files.
  * Only Linux x86_64 is supported.
  * Only building for the native target is supported.
  * Optimized machine code that Zig produces is indistinguishable from
@@ -55,7 +53,6 @@ compromises backward compatibility.
    header files.
  * The binaries produced by Zig have complete debugging information so you can,
    for example, use GDB to debug your software.
- * Inline assembly is supported.
 
 ## Building
 
