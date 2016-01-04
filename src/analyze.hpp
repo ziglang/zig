@@ -45,6 +45,8 @@ struct TypeTableEntryStruct {
     int field_count;
     TypeStructField *fields;
     uint64_t size_bytes;
+    // reminder: hash tables must be initialized before use
+    HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
 
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;

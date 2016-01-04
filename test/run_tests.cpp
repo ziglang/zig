@@ -56,7 +56,6 @@ static TestCase *add_simple_case(const char *case_name, const char *source, cons
     test_case->compiler_args.append(tmp_exe_path);
     test_case->compiler_args.append("--release");
     test_case->compiler_args.append("--strip");
-    //test_case->compiler_args.append("--verbose");
     test_case->compiler_args.append("--color");
     test_case->compiler_args.append("on");
 
@@ -740,6 +739,24 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     return 0;
 }
     )SOURCE", "2\n");
+
+    add_simple_case("member functions", R"SOURCE(
+use "std.zig";
+struct Rand {
+    seed: u32,
+    pub fn get_seed(r: Rand) -> u32 {
+        r.seed
+    }
+}
+pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
+    const r = Rand {.seed = 1234};
+    if (r.get_seed() != 1234) {
+        print_str("BAD seed\n");
+    }
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////

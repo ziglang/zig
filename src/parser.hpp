@@ -281,12 +281,14 @@ struct AstNodeAsmExpr {
 struct AstNodeStructDecl {
     Buf name;
     ZigList<AstNode *> fields;
+    ZigList<AstNode *> fns;
     ZigList<AstNode *> *directives;
 };
 
 struct AstNodeStructField {
     Buf name;
     AstNode *type;
+    ZigList<AstNode *> *directives;
 };
 
 struct AstNodeStringLiteral {

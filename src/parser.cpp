@@ -395,6 +395,14 @@ void ast_print(AstNode *node, int indent) {
         case NodeTypeStructDecl:
             fprintf(stderr, "%s '%s'\n",
                     node_type_str(node->type), buf_ptr(&node->data.struct_decl.name));
+            for (int i = 0; i < node->data.struct_decl.fields.length; i += 1) {
+                AstNode *child = node->data.struct_decl.fields.at(i);
+                ast_print(child, indent + 2);
+            }
+            for (int i = 0; i < node->data.struct_decl.fns.length; i += 1) {
+                AstNode *child = node->data.struct_decl.fns.at(i);
+                ast_print(child, indent + 2);
+            }
             break;
         case NodeTypeStructField:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.struct_field.name));
@@ -2572,7 +2580,8 @@ static AstNode *ast_parse_use(ParseContext *pc, int *token_index) {
 }
 
 /*
-StructDecl : many(Directive) token(Struct) token(Symbol) token(LBrace) many(StructField) token(RBrace)
+StructDecl : many(Directive) token(Struct) token(Symbol) token(LBrace) many(StructMember) token(RBrace)
+StructMember: StructField | FnDecl
 StructField : token(Symbol) token(Colon) Type token(Comma)
 */
 static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
@@ -2590,15 +2599,37 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
 
     ast_eat_token(pc, token_index, TokenIdLBrace);
 
+    node->data.struct_decl.directives = pc->directive_list;
+    pc->directive_list = nullptr;
+
     for (;;) {
+        assert(!pc->directive_list);
+        pc->directive_list = allocate<ZigList<AstNode*>>(1);
+        Token *directive_token = &pc->tokens->at(*token_index);
+        ast_parse_directives(pc, token_index, pc->directive_list);
+
+        AstNode *fn_def_node = ast_parse_fn_def(pc, token_index, false);
+        if (fn_def_node) {
+            node->data.struct_decl.fns.append(fn_def_node);
+            continue;
+        }
+
         Token *token = &pc->tokens->at(*token_index);
 
         if (token->id == TokenIdRBrace) {
+            if (pc->directive_list->length > 0) {
+                ast_error(pc, directive_token, "invalid directive");
+            }
+            pc->directive_list = nullptr;
+
             *token_index += 1;
             break;
         } else if (token->id == TokenIdSymbol) {
             AstNode *field_node = ast_create_node(pc, NodeTypeStructField, token);
             *token_index += 1;
+
+            field_node->data.struct_field.directives = pc->directive_list;
+            pc->directive_list = nullptr;
 
             ast_buf_from_token(pc, token, &field_node->data.struct_field.name);
 
@@ -2614,9 +2645,6 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
         }
     }
 
-
-    node->data.struct_decl.directives = pc->directive_list;
-    pc->directive_list = nullptr;
 
     return node;
 }

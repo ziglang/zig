@@ -106,6 +106,11 @@ TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
     TypeTableEntry *entry = allocate<TypeTableEntry>(1);
     entry->arrays_by_size.init(2);
     entry->id = id;
+
+    if (id == TypeTableEntryIdStruct) {
+        entry->data.structure.fn_table.init(8);
+    }
+
     return entry;
 }
 
@@ -461,6 +466,68 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     struct_type->di_type = replacement_di_type;
 }
 
+static void preview_fn_def(CodeGen *g, ImportTableEntry *import, AstNode *node, TypeTableEntry *struct_type) {
+    assert(node->type == NodeTypeFnDef);
+    AstNode *proto_node = node->data.fn_def.fn_proto;
+    assert(proto_node->type == NodeTypeFnProto);
+    Buf *proto_name = &proto_node->data.fn_proto.name;
+
+    auto fn_table = struct_type ? &struct_type->data.structure.fn_table : &import->fn_table;
+
+    auto entry = fn_table->maybe_get(proto_name);
+    bool skip = false;
+    bool is_internal = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModExport);
+    bool is_pub = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModPrivate);
+    if (entry) {
+        add_node_error(g, node,
+                buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
+        alloc_codegen_node(node);
+        node->codegen_node->data.fn_def_node.skip = true;
+        skip = true;
+    } else if (is_pub) {
+        auto entry = fn_table->maybe_get(proto_name);
+        if (entry) {
+            add_node_error(g, node,
+                    buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
+            alloc_codegen_node(node);
+            node->codegen_node->data.fn_def_node.skip = true;
+            skip = true;
+        }
+    }
+    if (proto_node->data.fn_proto.is_var_args) {
+        add_node_error(g, node,
+                buf_sprintf("variadic arguments only allowed in extern functions"));
+    }
+    if (!skip) {
+        FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
+        fn_table_entry->import_entry = import;
+        fn_table_entry->proto_node = proto_node;
+        fn_table_entry->fn_def_node = node;
+        fn_table_entry->internal_linkage = is_internal;
+        fn_table_entry->calling_convention = is_internal ? LLVMFastCallConv : LLVMCCallConv;
+        fn_table_entry->label_table.init(8);
+
+        g->fn_protos.append(fn_table_entry);
+        g->fn_defs.append(fn_table_entry);
+
+        fn_table->put(proto_name, fn_table_entry);
+
+        if (!struct_type &&
+            g->bootstrap_import &&
+            import == g->root_import && buf_eql_str(proto_name, "main"))
+        {
+            g->bootstrap_import->fn_table.put(proto_name, fn_table_entry);
+        }
+
+        resolve_function_proto(g, proto_node, fn_table_entry, import);
+
+
+        alloc_codegen_node(proto_node);
+        proto_node->codegen_node->data.fn_proto_node.fn_table_entry = fn_table_entry;
+
+        preview_function_labels(g, node->data.fn_def.body, fn_table_entry);
+    }
+}
 
 static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
@@ -500,61 +567,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
             }
             break;
         case NodeTypeFnDef:
-            {
-                AstNode *proto_node = node->data.fn_def.fn_proto;
-                assert(proto_node->type == NodeTypeFnProto);
-                Buf *proto_name = &proto_node->data.fn_proto.name;
-                auto entry = import->fn_table.maybe_get(proto_name);
-                bool skip = false;
-                bool is_internal = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModExport);
-                bool is_pub = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModPrivate);
-                if (entry) {
-                    add_node_error(g, node,
-                            buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
-                    alloc_codegen_node(node);
-                    node->codegen_node->data.fn_def_node.skip = true;
-                    skip = true;
-                } else if (is_pub) {
-                    auto entry = import->fn_table.maybe_get(proto_name);
-                    if (entry) {
-                        add_node_error(g, node,
-                                buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
-                        alloc_codegen_node(node);
-                        node->codegen_node->data.fn_def_node.skip = true;
-                        skip = true;
-                    }
-                }
-                if (proto_node->data.fn_proto.is_var_args) {
-                    add_node_error(g, node,
-                            buf_sprintf("variadic arguments only allowed in extern functions"));
-                }
-                if (!skip) {
-                    FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
-                    fn_table_entry->import_entry = import;
-                    fn_table_entry->proto_node = proto_node;
-                    fn_table_entry->fn_def_node = node;
-                    fn_table_entry->internal_linkage = is_internal;
-                    fn_table_entry->calling_convention = is_internal ? LLVMFastCallConv : LLVMCCallConv;
-                    fn_table_entry->label_table.init(8);
-
-                    g->fn_protos.append(fn_table_entry);
-                    g->fn_defs.append(fn_table_entry);
-
-                    import->fn_table.put(proto_name, fn_table_entry);
-
-                    if (g->bootstrap_import && import == g->root_import && buf_eql_str(proto_name, "main")) {
-                        g->bootstrap_import->fn_table.put(proto_name, fn_table_entry);
-                    }
-
-                    resolve_function_proto(g, proto_node, fn_table_entry, import);
-
-
-                    alloc_codegen_node(proto_node);
-                    proto_node->codegen_node->data.fn_proto_node.fn_table_entry = fn_table_entry;
-
-                    preview_function_labels(g, node->data.fn_def.body, fn_table_entry);
-                }
-            }
+            preview_fn_def(g, import, node, nullptr);
             break;
         case NodeTypeRootExportDecl:
             if (import == g->root_import) {
@@ -605,6 +618,11 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 TypeTableEntry *type_entry = struct_codegen->type_entry;
 
                 resolve_struct_type(g, import, type_entry);
+
+                for (int i = 0; i < node->data.struct_decl.fns.length; i += 1) {
+                    AstNode *fn_def_node = node->data.struct_decl.fns.at(i);
+                    preview_fn_def(g, import, fn_def_node, type_entry);
+                }
                 break;
             }
         case NodeTypeUse:
@@ -1624,6 +1642,94 @@ static TypeTableEntry *analyze_compiler_fn_type(CodeGen *g, ImportTableEntry *im
     }
 }
 
+static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
+    TypeTableEntry *struct_type = nullptr;
+    HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> *fn_table = &import->fn_table;
+    AstNode *first_param_expr = nullptr;
+    Buf *name;
+
+    if (fn_ref_expr->type == NodeTypeFieldAccessExpr) {
+        first_param_expr = fn_ref_expr->data.field_access_expr.struct_expr;
+        struct_type = analyze_expression(g, import, context, nullptr, first_param_expr);
+        name = &fn_ref_expr->data.field_access_expr.field_name;
+        if (struct_type->id == TypeTableEntryIdStruct) {
+            fn_table = &struct_type->data.structure.fn_table;
+        } else if (struct_type->id == TypeTableEntryIdInvalid) {
+            return struct_type;
+        } else {
+            add_node_error(g, fn_ref_expr->data.field_access_expr.struct_expr,
+                    buf_sprintf("member reference base type not struct or enum"));
+            return g->builtin_types.entry_invalid;
+        }
+    } else if (fn_ref_expr->type == NodeTypeSymbol) {
+        name = &fn_ref_expr->data.symbol;
+    } else {
+        add_node_error(g, node,
+                buf_sprintf("function pointers not yet supported"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    auto entry = fn_table->maybe_get(name);
+
+    if (!entry) {
+        add_node_error(g, fn_ref_expr,
+                buf_sprintf("undefined function: '%s'", buf_ptr(name)));
+        // still analyze the parameters, even though we don't know what to expect
+        for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
+            AstNode *child = node->data.fn_call_expr.params.at(i);
+            analyze_expression(g, import, context, nullptr, child);
+        }
+
+        return g->builtin_types.entry_invalid;
+    } else {
+        FnTableEntry *fn_table_entry = entry->value;
+        assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
+        AstNodeFnProto *fn_proto = &fn_table_entry->proto_node->data.fn_proto;
+
+        // count parameters
+        int expected_param_count = fn_proto->params.length;
+        int actual_param_count = node->data.fn_call_expr.params.length;
+
+        if (struct_type) {
+            actual_param_count += 1;
+        }
+
+        if (fn_proto->is_var_args) {
+            if (actual_param_count < expected_param_count) {
+                add_node_error(g, node,
+                        buf_sprintf("wrong number of arguments. Expected at least %d, got %d.",
+                            expected_param_count, actual_param_count));
+            }
+        } else if (expected_param_count != actual_param_count) {
+            add_node_error(g, node,
+                    buf_sprintf("wrong number of arguments. Expected %d, got %d.",
+                        expected_param_count, actual_param_count));
+        }
+
+        // analyze each parameter. in the case of a method, we already analyzed the
+        // first parameter in order to figure out which struct we were calling a method on.
+        for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
+            AstNode *child = node->data.fn_call_expr.params.at(i);
+            // determine the expected type for each parameter
+            TypeTableEntry *expected_param_type = nullptr;
+            int fn_proto_i = i + (struct_type ? 1 : 0);
+            if (fn_proto_i < fn_proto->params.length) {
+                AstNode *param_decl_node = fn_proto->params.at(fn_proto_i);
+                assert(param_decl_node->type == NodeTypeParamDecl);
+                AstNode *param_type_node = param_decl_node->data.param_decl.type;
+                if (param_type_node->codegen_node)
+                    expected_param_type = param_type_node->codegen_node->data.type_node.entry;
+            }
+            analyze_expression(g, import, context, expected_param_type, child);
+        }
+
+        return fn_proto->return_type->codegen_node->data.type_node.entry;
+    }
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -1739,67 +1845,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             break;
 
         case NodeTypeFnCallExpr:
-            {
-                AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
-                if (fn_ref_expr->type != NodeTypeSymbol) {
-                    add_node_error(g, node,
-                            buf_sprintf("function pointers not allowed"));
-                    break;
-                }
-
-                Buf *name = &fn_ref_expr->data.symbol;
-
-                auto entry = import->fn_table.maybe_get(name);
-
-                if (!entry) {
-                    add_node_error(g, fn_ref_expr,
-                            buf_sprintf("undefined function: '%s'", buf_ptr(name)));
-                    // still analyze the parameters, even though we don't know what to expect
-                    for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
-                        AstNode *child = node->data.fn_call_expr.params.at(i);
-                        analyze_expression(g, import, context, nullptr, child);
-                    }
-
-                    return_type = g->builtin_types.entry_invalid;
-                } else {
-                    FnTableEntry *fn_table_entry = entry->value;
-                    assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
-                    AstNodeFnProto *fn_proto = &fn_table_entry->proto_node->data.fn_proto;
-
-                    // count parameters
-                    int expected_param_count = fn_proto->params.length;
-                    int actual_param_count = node->data.fn_call_expr.params.length;
-                    if (fn_proto->is_var_args) {
-                        if (actual_param_count < expected_param_count) {
-                            add_node_error(g, node,
-                                    buf_sprintf("wrong number of arguments. Expected at least %d, got %d.",
-                                        expected_param_count, actual_param_count));
-                        }
-                    } else if (expected_param_count != actual_param_count) {
-                        add_node_error(g, node,
-                                buf_sprintf("wrong number of arguments. Expected %d, got %d.",
-                                    expected_param_count, actual_param_count));
-                    }
-
-                    // analyze each parameter
-                    for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
-                        AstNode *child = node->data.fn_call_expr.params.at(i);
-                        // determine the expected type for each parameter
-                        TypeTableEntry *expected_param_type = nullptr;
-                        if (i < fn_proto->params.length) {
-                            AstNode *param_decl_node = fn_proto->params.at(i);
-                            assert(param_decl_node->type == NodeTypeParamDecl);
-                            AstNode *param_type_node = param_decl_node->data.param_decl.type;
-                            if (param_type_node->codegen_node)
-                                expected_param_type = param_type_node->codegen_node->data.type_node.entry;
-                        }
-                        analyze_expression(g, import, context, expected_param_type, child);
-                    }
-
-                    return_type = fn_proto->return_type->codegen_node->data.type_node.entry;
-                }
-                break;
-            }
+            return_type = analyze_fn_call_expr(g, import, context, expected_type, node);
+            break;
 
         case NodeTypeArrayAccessExpr:
             // for reading array access; assignment handled elsewhere
@@ -1924,89 +1971,92 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
     return return_type;
 }
 
+static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+    assert(node->type == NodeTypeFnDef);
+
+    if (node->codegen_node && node->codegen_node->data.fn_def_node.skip) {
+        // we detected an error with this function definition which prevents us
+        // from further analyzing it.
+        return;
+    }
+
+    AstNode *fn_proto_node = node->data.fn_def.fn_proto;
+    assert(fn_proto_node->type == NodeTypeFnProto);
+
+    alloc_codegen_node(node);
+    BlockContext *context = new_block_context(node, import->block_context);
+    node->codegen_node->data.fn_def_node.block_context = context;
+
+    AstNodeFnProto *fn_proto = &fn_proto_node->data.fn_proto;
+    bool is_exported = (fn_proto->visib_mod == FnProtoVisibModExport);
+    for (int i = 0; i < fn_proto->params.length; i += 1) {
+        AstNode *param_decl_node = fn_proto->params.at(i);
+        assert(param_decl_node->type == NodeTypeParamDecl);
+
+        // define local variables for parameters
+        AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
+        assert(param_decl->type->type == NodeTypeType);
+        TypeTableEntry *type = param_decl->type->codegen_node->data.type_node.entry;
+
+        if (is_exported && type->id == TypeTableEntryIdStruct) {
+            add_node_error(g, param_decl_node,
+                buf_sprintf("byvalue struct parameters not yet supported on exported functions"));
+        }
+
+        VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
+        buf_init_from_buf(&variable_entry->name, &param_decl->name);
+        variable_entry->type = type;
+        variable_entry->is_const = true;
+        variable_entry->decl_node = param_decl_node;
+        variable_entry->arg_index = i;
+
+        alloc_codegen_node(param_decl_node);
+        param_decl_node->codegen_node->data.param_decl_node.variable = variable_entry;
+
+        VariableTableEntry *existing_entry = find_local_variable(context, &variable_entry->name);
+        if (!existing_entry) {
+            // unique definition
+            context->variable_table.put(&variable_entry->name, variable_entry);
+        } else {
+            add_node_error(g, node,
+                buf_sprintf("redeclaration of parameter '%s'.", buf_ptr(&existing_entry->name)));
+            if (existing_entry->type == variable_entry->type) {
+                // types agree, so the type is probably good enough for the rest of analysis
+            } else {
+                // types disagree. don't trust either one of them.
+                existing_entry->type = g->builtin_types.entry_invalid;;
+            }
+        }
+    }
+
+    TypeTableEntry *expected_type = fn_proto->return_type->codegen_node->data.type_node.entry;
+    TypeTableEntry *block_return_type = analyze_expression(g, import, context, expected_type, node->data.fn_def.body);
+
+    node->codegen_node->data.fn_def_node.implicit_return_type = block_return_type;
+
+    {
+        FnTableEntry *fn_table_entry = fn_proto_node->codegen_node->data.fn_proto_node.fn_table_entry;
+        auto it = fn_table_entry->label_table.entry_iterator();
+        for (;;) {
+            auto *entry = it.next();
+            if (!entry)
+                break;
+
+            LabelTableEntry *label_entry = entry->value;
+            if (!label_entry->used) {
+                add_node_error(g, label_entry->label_node,
+                    buf_sprintf("label '%s' defined but not used",
+                        buf_ptr(&label_entry->label_node->data.label.name)));
+            }
+        }
+    }
+}
+
 static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeFnDef:
-            {
-                if (node->codegen_node && node->codegen_node->data.fn_def_node.skip) {
-                    // we detected an error with this function definition which prevents us
-                    // from further analyzing it.
-                    break;
-                }
-
-                AstNode *fn_proto_node = node->data.fn_def.fn_proto;
-                assert(fn_proto_node->type == NodeTypeFnProto);
-
-                alloc_codegen_node(node);
-                BlockContext *context = new_block_context(node, import->block_context);
-                node->codegen_node->data.fn_def_node.block_context = context;
-
-                AstNodeFnProto *fn_proto = &fn_proto_node->data.fn_proto;
-                bool is_exported = (fn_proto->visib_mod == FnProtoVisibModExport);
-                for (int i = 0; i < fn_proto->params.length; i += 1) {
-                    AstNode *param_decl_node = fn_proto->params.at(i);
-                    assert(param_decl_node->type == NodeTypeParamDecl);
-
-                    // define local variables for parameters
-                    AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
-                    assert(param_decl->type->type == NodeTypeType);
-                    TypeTableEntry *type = param_decl->type->codegen_node->data.type_node.entry;
-
-                    if (is_exported && type->id == TypeTableEntryIdStruct) {
-                        add_node_error(g, param_decl_node,
-                            buf_sprintf("byvalue struct parameters not yet supported on exported functions"));
-                    }
-
-                    VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
-                    buf_init_from_buf(&variable_entry->name, &param_decl->name);
-                    variable_entry->type = type;
-                    variable_entry->is_const = true;
-                    variable_entry->decl_node = param_decl_node;
-                    variable_entry->arg_index = i;
-
-                    alloc_codegen_node(param_decl_node);
-                    param_decl_node->codegen_node->data.param_decl_node.variable = variable_entry;
-
-                    VariableTableEntry *existing_entry = find_local_variable(context, &variable_entry->name);
-                    if (!existing_entry) {
-                        // unique definition
-                        context->variable_table.put(&variable_entry->name, variable_entry);
-                    } else {
-                        add_node_error(g, node,
-                            buf_sprintf("redeclaration of parameter '%s'.", buf_ptr(&existing_entry->name)));
-                        if (existing_entry->type == variable_entry->type) {
-                            // types agree, so the type is probably good enough for the rest of analysis
-                        } else {
-                            // types disagree. don't trust either one of them.
-                            existing_entry->type = g->builtin_types.entry_invalid;;
-                        }
-                    }
-                }
-
-                TypeTableEntry *expected_type = fn_proto->return_type->codegen_node->data.type_node.entry;
-                TypeTableEntry *block_return_type = analyze_expression(g, import, context, expected_type, node->data.fn_def.body);
-
-                node->codegen_node->data.fn_def_node.implicit_return_type = block_return_type;
-
-                {
-                    FnTableEntry *fn_table_entry = fn_proto_node->codegen_node->data.fn_proto_node.fn_table_entry;
-                    auto it = fn_table_entry->label_table.entry_iterator();
-                    for (;;) {
-                        auto *entry = it.next();
-                        if (!entry)
-                            break;
-
-                        LabelTableEntry *label_entry = entry->value;
-                        if (!label_entry->used) {
-                            add_node_error(g, label_entry->label_node,
-                                buf_sprintf("label '%s' defined but not used",
-                                    buf_ptr(&label_entry->label_node->data.label.name)));
-                        }
-                    }
-                }
-            }
+            analyze_top_level_fn_def(g, import, node);
             break;
-
         case NodeTypeRootExportDecl:
         case NodeTypeExternBlock:
             // already looked at these in the preview pass
@@ -2048,8 +2098,13 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                 break;
             }
         case NodeTypeStructDecl:
-            // nothing to do
-            break;
+            {
+                for (int i = 0; i < node->data.struct_decl.fns.length; i += 1) {
+                    AstNode *fn_def_node = node->data.struct_decl.fns.at(i);
+                    analyze_top_level_fn_def(g, import, fn_def_node);
+                }
+                break;
+            }
         case NodeTypeVariableDeclaration:
             {
                 VariableTableEntry *var = analyze_variable_declaration(g, import, import->block_context,

@@ -142,15 +142,31 @@ static TypeTableEntry *get_expr_type(AstNode *node) {
 static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
-    Buf *name = hack_get_fn_call_name(g, node->data.fn_call_expr.fn_ref_expr);
+    FnTableEntry *fn_table_entry;
+    AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
+    TypeTableEntry *struct_type;
+    AstNode *first_param_expr;
+    if (fn_ref_expr->type == NodeTypeFieldAccessExpr) {
+        Buf *name = &fn_ref_expr->data.field_access_expr.field_name;
+        first_param_expr = fn_ref_expr->data.field_access_expr.struct_expr;
+        struct_type = get_expr_type(first_param_expr);
+        fn_table_entry = struct_type->data.structure.fn_table.get(name);
+    } else if (fn_ref_expr->type == NodeTypeSymbol) {
+        Buf *name = hack_get_fn_call_name(g, fn_ref_expr);
+        struct_type = nullptr;
+        first_param_expr = nullptr;
+        fn_table_entry = g->cur_fn->import_entry->fn_table.get(name);
+    } else {
+        zig_unreachable();
+    }
 
-    FnTableEntry *fn_table_entry = g->cur_fn->import_entry->fn_table.get(name);
 
     assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto_data = &fn_table_entry->proto_node->data.fn_proto;
 
     int expected_param_count = fn_proto_data->params.length;
-    int actual_param_count = node->data.fn_call_expr.params.length;
+    int fn_call_param_count = node->data.fn_call_expr.params.length;
+    int actual_param_count = fn_call_param_count + (struct_type ? 1 : 0);
     bool is_var_args = fn_proto_data->is_var_args;
     assert((is_var_args && actual_param_count >= expected_param_count) ||
             actual_param_count == expected_param_count);
@@ -164,10 +180,13 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     }
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(gen_param_count);
 
-    int loop_end = max(gen_param_count, actual_param_count);
-
     int gen_param_index = 0;
-    for (int i = 0; i < loop_end; i += 1) {
+    if (struct_type) {
+        gen_param_values[gen_param_index] = gen_expr(g, first_param_expr);
+        gen_param_index += 1;
+    }
+
+    for (int i = 0; i < fn_call_param_count; i += 1) {
         AstNode *expr_node = node->data.fn_call_expr.params.at(i);
         LLVMValueRef param_value = gen_expr(g, expr_node);
         if (is_var_args ||
