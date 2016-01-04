@@ -142,15 +142,16 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
         entry->data.pointer.child_type = child_type;
         entry->data.pointer.is_const = is_const;
 
-        g->type_table.put(&entry->name, entry);
         *parent_pointer = entry;
         return entry;
     }
 }
 
-static TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
+static TypeTableEntry *get_maybe_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *child_type) {
     if (child_type->maybe_parent) {
-        return child_type->maybe_parent;
+        TypeTableEntry *entry = child_type->maybe_parent;
+        import->type_table.put(&entry->name, entry);
+        return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
         // create a struct with a boolean whether this is the null value
@@ -193,16 +194,20 @@ static TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
 
         entry->data.maybe.child_type = child_type;
 
-        g->type_table.put(&entry->name, entry);
+        import->type_table.put(&entry->name, entry);
         child_type->maybe_parent = entry;
         return entry;
     }
 }
 
-static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size) {
+static TypeTableEntry *get_array_type(CodeGen *g, ImportTableEntry *import,
+        TypeTableEntry *child_type, uint64_t array_size)
+{
     auto existing_entry = child_type->arrays_by_size.maybe_get(array_size);
     if (existing_entry) {
-        return existing_entry->value;
+        TypeTableEntry *entry = existing_entry->value;
+        import->type_table.put(&entry->name, entry);
+        return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
         entry->type_ref = LLVMArrayType(child_type->type_ref, array_size);
@@ -217,7 +222,7 @@ static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, ui
         entry->data.array.child_type = child_type;
         entry->data.array.len = array_size;
 
-        g->type_table.put(&entry->name, entry);
+        import->type_table.put(&entry->name, entry);
         child_type->arrays_by_size.put(array_size, entry);
         return entry;
     }
@@ -231,7 +236,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
         case AstNodeTypeTypePrimitive:
             {
                 Buf *name = &node->data.type.primitive_name;
-                auto table_entry = g->type_table.maybe_get(name);
+                auto table_entry = import->type_table.maybe_get(name);
                 if (table_entry) {
                     type_node->entry = table_entry->value;
                 } else {
@@ -268,7 +273,8 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
                 if (size_node->type == NodeTypeNumberLiteral &&
                     is_num_lit_unsigned(size_node->data.number_literal.kind))
                 {
-                    type_node->entry = get_array_type(g, child_type, size_node->data.number_literal.data.x_uint);
+                    type_node->entry = get_array_type(g, import, child_type,
+                            size_node->data.number_literal.data.x_uint);
                 } else {
                     add_node_error(g, size_node,
                         buf_create_from_str("array size must be literal unsigned integer"));
@@ -287,7 +293,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
                 } else if (child_type->id == TypeTableEntryIdInvalid) {
                     return child_type;
                 }
-                type_node->entry = get_maybe_type(g, child_type);
+                type_node->entry = get_maybe_type(g, import, child_type);
                 return type_node->entry;
             }
         case AstNodeTypeTypeCompilerExpr:
@@ -651,7 +657,7 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
                 StructDeclNode *struct_codegen = &node->codegen_node->data.struct_decl_node;
 
                 Buf *name = &node->data.struct_decl.name;
-                auto table_entry = g->type_table.maybe_get(name);
+                auto table_entry = import->type_table.maybe_get(name);
                 if (table_entry) {
                     struct_codegen->type_entry = table_entry->value;
                     add_node_error(g, node,
@@ -667,7 +673,7 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
                     buf_init_from_buf(&entry->name, name);
                     // put off adding the debug type until we do the full struct body
                     // this type is incomplete until we do another pass
-                    g->type_table.put(&entry->name, entry);
+                    import->type_table.put(&entry->name, entry);
                     struct_codegen->type_entry = entry;
                 }
                 break;
@@ -1809,7 +1815,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             if (node->data.string_literal.c) {
                 return_type = g->builtin_types.entry_c_string_literal;
             } else {
-                return_type = get_array_type(g, g->builtin_types.entry_u8, buf_len(&node->data.string_literal.buf));
+                return_type = get_array_type(g, import, g->builtin_types.entry_u8,
+                        buf_len(&node->data.string_literal.buf));
             }
             break;
         case NodeTypeCharLiteral:

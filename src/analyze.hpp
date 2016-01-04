@@ -110,6 +110,7 @@ struct ImportTableEntry {
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
 };
 
 struct LabelTableEntry {
@@ -151,7 +152,6 @@ struct CodeGen {
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
-    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> link_table;
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
 

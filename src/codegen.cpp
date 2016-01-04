@@ -20,7 +20,6 @@
 CodeGen *codegen_create(Buf *root_source_dir) {
     CodeGen *g = allocate<CodeGen>(1);
     g->str_table.init(32);
-    g->type_table.init(32);
     g->link_table.init(32);
     g->import_table.init(32);
     g->build_type = CodeGenBuildTypeDebug;
@@ -1695,7 +1694,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_bool = entry;
     }
     {
@@ -1707,7 +1705,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_u8 = entry;
     }
     {
@@ -1720,7 +1717,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_u16 = entry;
     }
     {
@@ -1733,7 +1729,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_u32 = entry;
     }
     {
@@ -1746,7 +1741,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_u64 = entry;
     }
     g->builtin_types.entry_c_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
@@ -1760,7 +1754,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_i8 = entry;
     }
     {
@@ -1773,7 +1766,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_i16 = entry;
     }
     {
@@ -1786,7 +1778,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_i32 = entry;
     }
     {
@@ -1799,7 +1790,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_i64 = entry;
     }
     {
@@ -1812,7 +1802,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_isize = entry;
     }
     {
@@ -1825,7 +1814,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_usize = entry;
     }
     {
@@ -1837,7 +1825,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_float());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_f32 = entry;
     }
     {
@@ -1849,7 +1836,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_float());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_f64 = entry;
     }
     {
@@ -1859,7 +1845,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_void = entry;
     }
     {
@@ -1867,7 +1852,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->type_ref = LLVMVoidType();
         buf_init_from_str(&entry->name, "unreachable");
         entry->di_type = g->builtin_types.entry_void->di_type;
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_unreachable = entry;
     }
     {
@@ -1903,7 +1887,6 @@ static void define_builtin_types(CodeGen *g) {
                 "string", g->dummy_di_file, 0, entry->size_in_bits, entry->align_in_bits, 0,
                 nullptr, di_element_types, element_count, 0, nullptr, "");
 
-        g->type_table.put(&entry->name, entry);
         g->builtin_types.entry_string = entry;
     }
 }
@@ -2033,6 +2016,24 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
     import_entry->line_offsets = tokenization.line_offsets;
     import_entry->path = full_path;
     import_entry->fn_table.init(32);
+    import_entry->type_table.init(32);
+    import_entry->type_table.put(&g->builtin_types.entry_bool->name, g->builtin_types.entry_bool);
+    import_entry->type_table.put(&g->builtin_types.entry_u8->name, g->builtin_types.entry_u8);
+    import_entry->type_table.put(&g->builtin_types.entry_u16->name, g->builtin_types.entry_u16);
+    import_entry->type_table.put(&g->builtin_types.entry_u32->name, g->builtin_types.entry_u32);
+    import_entry->type_table.put(&g->builtin_types.entry_u64->name, g->builtin_types.entry_u64);
+    import_entry->type_table.put(&g->builtin_types.entry_i8->name, g->builtin_types.entry_i8);
+    import_entry->type_table.put(&g->builtin_types.entry_i16->name, g->builtin_types.entry_i16);
+    import_entry->type_table.put(&g->builtin_types.entry_i32->name, g->builtin_types.entry_i32);
+    import_entry->type_table.put(&g->builtin_types.entry_i64->name, g->builtin_types.entry_i64);
+    import_entry->type_table.put(&g->builtin_types.entry_isize->name, g->builtin_types.entry_isize);
+    import_entry->type_table.put(&g->builtin_types.entry_usize->name, g->builtin_types.entry_usize);
+    import_entry->type_table.put(&g->builtin_types.entry_f32->name, g->builtin_types.entry_f32);
+    import_entry->type_table.put(&g->builtin_types.entry_f64->name, g->builtin_types.entry_f64);
+    import_entry->type_table.put(&g->builtin_types.entry_void->name, g->builtin_types.entry_void);
+    import_entry->type_table.put(&g->builtin_types.entry_unreachable->name, g->builtin_types.entry_unreachable);
+    import_entry->type_table.put(&g->builtin_types.entry_string->name, g->builtin_types.entry_string);
+
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);
     if (g->verbose) {
