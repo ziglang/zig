@@ -698,16 +698,17 @@ fn outer() -> isize {
 }
     )SOURCE", "OK\n");
 
-    add_simple_case("#typeof()", R"SOURCE(
+    add_simple_case("#sizeof() and #typeof()", R"SOURCE(
 use "std.zig";
 const x: u16 = 13;
 const z: #typeof(x) = 19;
 pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     const y: #typeof(x) = 120;
-    print_str("OK\n");
+    print_u64(#sizeof(#typeof(y)));
+    print_str("\n");
     return 0;
 }
-    )SOURCE", "OK\n");
+    )SOURCE", "2\n");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////

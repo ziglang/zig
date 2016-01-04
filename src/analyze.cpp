@@ -59,7 +59,8 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
         case NodeTypeWhileExpr:
-        case NodeTypeCompilerFnCall:
+        case NodeTypeCompilerFnExpr:
+        case NodeTypeCompilerFnType:
             return node;
     }
     zig_panic("unreachable");
@@ -107,6 +108,20 @@ TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
     entry->arrays_by_size.init(2);
     entry->id = id;
     return entry;
+}
+
+static TypeTableEntry *get_number_literal_type_unsigned(CodeGen *g, uint64_t x) {
+    NumLit kind;
+    if (x <= UINT8_MAX) {
+        kind = NumLitU8;
+    } else if (x <= UINT16_MAX) {
+        kind = NumLitU16;
+    } else if (x <= UINT32_MAX) {
+        kind = NumLitU32;
+    } else {
+        kind = NumLitU64;
+    }
+    return g->num_lit_types[kind];
 }
 
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
@@ -279,15 +294,16 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
         case AstNodeTypeTypeCompilerExpr:
             {
                 AstNode *compiler_expr_node = node->data.type.compiler_expr;
-                Buf *fn_name = &compiler_expr_node->data.compiler_fn_call.name;
+                Buf *fn_name = &compiler_expr_node->data.compiler_fn_expr.name;
                 if (buf_eql_str(fn_name, "typeof")) {
-                    return analyze_expression(g, import, context, nullptr,
-                            compiler_expr_node->data.compiler_fn_call.expr);
+                    type_node->entry = analyze_expression(g, import, context, nullptr,
+                            compiler_expr_node->data.compiler_fn_expr.expr);
                 } else {
                     add_node_error(g, node,
                             buf_sprintf("invalid compiler function: '%s'", buf_ptr(fn_name)));
-                    return g->builtin_types.entry_invalid;
+                    type_node->entry = g->builtin_types.entry_invalid;
                 }
+                return type_node->entry;
             }
     }
     zig_unreachable();
@@ -625,7 +641,8 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeStructField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
-        case NodeTypeCompilerFnCall:
+        case NodeTypeCompilerFnExpr:
+        case NodeTypeCompilerFnType:
             zig_unreachable();
     }
 }
@@ -698,7 +715,8 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeStructField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
-        case NodeTypeCompilerFnCall:
+        case NodeTypeCompilerFnExpr:
+        case NodeTypeCompilerFnType:
             zig_unreachable();
     }
 }
@@ -1580,6 +1598,30 @@ static TypeTableEntry *analyze_if_var_expr(CodeGen *g, ImportTableEntry *import,
             node->data.if_var_expr.then_block, node->data.if_var_expr.else_node, node);
 }
 
+static TypeTableEntry *analyze_compiler_fn_type(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    assert(node->type == NodeTypeCompilerFnType);
+
+    Buf *name = &node->data.compiler_fn_type.name;
+    if (buf_eql_str(name, "sizeof")) {
+        TypeTableEntry *type_entry = resolve_type(g, node->data.compiler_fn_type.type, import, context);
+        uint64_t size_in_bytes = type_entry->size_in_bits / 8;
+
+        TypeTableEntry *num_lit_type = get_number_literal_type_unsigned(g, size_in_bytes);
+
+        NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
+        assert(!codegen_num_lit->resolved_type);
+        codegen_num_lit->resolved_type = resolve_type_compatibility(g, context, node, expected_type, num_lit_type);
+
+        return num_lit_type;
+    } else {
+        add_node_error(g, node,
+                buf_sprintf("invalid compiler function: '%s'", buf_ptr(name)));
+        return g->builtin_types.entry_invalid;
+    }
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -1852,6 +1894,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeStructValueExpr:
             return_type = analyze_struct_val_expr(g, import, context, expected_type, node);
             break;
+        case NodeTypeCompilerFnType:
+            return_type = analyze_compiler_fn_type(g, import, context, expected_type, node);
+            break;
         case NodeTypeDirective:
         case NodeTypeFnDecl:
         case NodeTypeFnProto:
@@ -1866,7 +1911,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
-        case NodeTypeCompilerFnCall:
+        case NodeTypeCompilerFnExpr:
             zig_unreachable();
     }
     assert(return_type);
@@ -2015,7 +2060,8 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeStructField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
-        case NodeTypeCompilerFnCall:
+        case NodeTypeCompilerFnExpr:
+        case NodeTypeCompilerFnType:
             zig_unreachable();
     }
 }

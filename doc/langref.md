@@ -60,9 +60,11 @@ ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
 
 ParamDecl : token(Symbol) token(Colon) Type | token(Ellipsis)
 
-Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType | MaybeType | CompileTimeFnCall
+Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType | MaybeType | CompilerFnExpr
 
-CompileTimeFnCall : token(NumberSign) token(Symbol) token(LParen) Expression token(RParen)
+CompilerFnExpr : token(NumberSign) token(Symbol) token(LParen) Expression token(RParen)
+
+CompilerFnType : token(NumberSign) token(Symbol) token(LParen) Type token(RParen)
 
 PointerType : token(Ampersand) option(token(Const)) Type
 
@@ -152,7 +154,7 @@ ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 
 PrefixOp : token(Not) | token(Dash) | token(Tilde) | (token(Ampersand) option(token(Const)))
 
-PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression
+PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression | CompilerFnType
 
 StructValueExpression : token(Type) token(LBrace) list(StructValueExpressionField, token(Comma)) token(RBrace)
 

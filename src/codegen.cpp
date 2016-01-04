@@ -1191,6 +1191,58 @@ static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
             node->codegen_node->expr_node.block_context, false, &init_val);
 }
 
+static LLVMValueRef gen_number_literal_raw(CodeGen *g, AstNode *source_node,
+        NumberLiteralNode *codegen_num_lit, AstNodeNumberLiteral *num_lit_node)
+{
+    TypeTableEntry *type_entry = codegen_num_lit->resolved_type;
+    assert(type_entry);
+
+    // override the expression type for number literals
+    source_node->codegen_node->expr_node.type_entry = type_entry;
+
+    if (type_entry->id == TypeTableEntryIdInt) {
+        // here the union has int64_t and uint64_t and we purposefully read
+        // the uint64_t value in either case, because we want the twos
+        // complement representation
+
+        return LLVMConstInt(type_entry->type_ref,
+                num_lit_node->data.x_uint,
+                type_entry->data.integral.is_signed);
+    } else if (type_entry->id == TypeTableEntryIdFloat) {
+
+        return LLVMConstReal(type_entry->type_ref,
+                num_lit_node->data.x_float);
+    } else {
+        zig_panic("bad number literal type");
+    }
+}
+
+static LLVMValueRef gen_compiler_fn_type(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeCompilerFnType);
+
+    Buf *name = &node->data.compiler_fn_type.name;
+    if (buf_eql_str(name, "sizeof")) {
+        TypeTableEntry *type_entry = get_type_for_type_node(g, node->data.compiler_fn_type.type);
+        NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
+        AstNodeNumberLiteral num_lit_node;
+        num_lit_node.kind = type_entry->data.num_lit.kind;
+        num_lit_node.overflow = false;
+        num_lit_node.data.x_uint = type_entry->size_in_bits / 8;
+        return gen_number_literal_raw(g, node, codegen_num_lit, &num_lit_node);
+    } else {
+        zig_unreachable();
+    }
+}
+
+static LLVMValueRef gen_number_literal(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeNumberLiteral);
+
+    NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
+    assert(codegen_num_lit);
+
+    return gen_number_literal_raw(g, node, codegen_num_lit, &node->data.number_literal);
+}
+
 static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeBinOpExpr:
@@ -1228,31 +1280,7 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
         case NodeTypeAsmExpr:
             return gen_asm_expr(g, node);
         case NodeTypeNumberLiteral:
-            {
-                NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
-                assert(codegen_num_lit);
-                TypeTableEntry *type_entry = codegen_num_lit->resolved_type;
-                assert(type_entry);
-
-                // override the expression type for number literals
-                node->codegen_node->expr_node.type_entry = type_entry;
-
-                if (type_entry->id == TypeTableEntryIdInt) {
-                    // here the union has int64_t and uint64_t and we purposefully read
-                    // the uint64_t value in either case, because we want the twos
-                    // complement representation
-
-                    return LLVMConstInt(type_entry->type_ref,
-                            node->data.number_literal.data.x_uint,
-                            type_entry->data.integral.is_signed);
-                } else if (type_entry->id == TypeTableEntryIdFloat) {
-
-                    return LLVMConstReal(type_entry->type_ref,
-                            node->data.number_literal.data.x_float);
-                } else {
-                    zig_panic("bad number literal type");
-                }
-            }
+            return gen_number_literal(g, node);
         case NodeTypeStringLiteral:
             {
                 Buf *str = &node->data.string_literal.buf;
@@ -1313,6 +1341,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
             }
         case NodeTypeStructValueExpr:
             return gen_struct_val_expr(g, node);
+        case NodeTypeCompilerFnType:
+            return gen_compiler_fn_type(g, node);
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -1326,7 +1356,7 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
-        case NodeTypeCompilerFnCall:
+        case NodeTypeCompilerFnExpr:
             zig_unreachable();
     }
     zig_unreachable();

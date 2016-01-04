@@ -57,7 +57,8 @@ enum NodeType {
     NodeTypeStructField,
     NodeTypeStructValueExpr,
     NodeTypeStructValueField,
-    NodeTypeCompilerFnCall,
+    NodeTypeCompilerFnExpr,
+    NodeTypeCompilerFnType,
 };
 
 struct AstNodeRoot {
@@ -332,9 +333,14 @@ struct AstNodeStructValueExpr {
     ZigList<AstNode *> fields;
 };
 
-struct AstNodeCompilerFnCall {
+struct AstNodeCompilerFnExpr {
     Buf name;
     AstNode *expr;
+};
+
+struct AstNodeCompilerFnType {
+    Buf name;
+    AstNode *type;
 };
 
 struct AstNode {
@@ -376,7 +382,8 @@ struct AstNode {
         AstNodeNumberLiteral number_literal;
         AstNodeStructValueExpr struct_val_expr;
         AstNodeStructValueField struct_val_field;
-        AstNodeCompilerFnCall compiler_fn_call;
+        AstNodeCompilerFnExpr compiler_fn_expr;
+        AstNodeCompilerFnType compiler_fn_type;
         Buf symbol;
         bool bool_literal;
     } data;

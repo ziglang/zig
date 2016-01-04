@@ -142,8 +142,10 @@ const char *node_type_str(NodeType node_type) {
             return "StructValueExpr";
         case NodeTypeStructValueField:
             return "StructValueField";
-        case NodeTypeCompilerFnCall:
-            return "CompilerFnCall";
+        case NodeTypeCompilerFnExpr:
+            return "CompilerFnExpr";
+        case NodeTypeCompilerFnType:
+            return "CompilerFnType";
     }
     zig_unreachable();
 }
@@ -410,7 +412,10 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.struct_val_field.name));
             ast_print(node->data.struct_val_field.expr, indent + 2);
             break;
-        case NodeTypeCompilerFnCall:
+        case NodeTypeCompilerFnExpr:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            break;
+        case NodeTypeCompilerFnType:
             fprintf(stderr, "%s\n", node_type_str(node->type));
             break;
     }
@@ -996,7 +1001,32 @@ static void ast_parse_type_assume_amp(ParseContext *pc, int *token_index, AstNod
 }
 
 /*
-CompileTimeFnCall : token(NumberSign) token(Symbol) token(LParen) Expression token(RParen)
+CompilerFnType : token(NumberSign) token(Symbol) token(LParen) Expression token(RParen)
+*/
+static AstNode *ast_parse_compiler_fn_type(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id == TokenIdNumberSign) {
+        *token_index += 1;
+    } else if (mandatory) {
+        ast_invalid_token_error(pc, token);
+    } else {
+        return nullptr;
+    }
+
+    Token *name_symbol = ast_eat_token(pc, token_index, TokenIdSymbol);
+    ast_eat_token(pc, token_index, TokenIdLParen);
+
+    AstNode *node = ast_create_node(pc, NodeTypeCompilerFnType, token);
+    ast_buf_from_token(pc, name_symbol, &node->data.compiler_fn_type.name);
+    node->data.compiler_fn_type.type = ast_parse_type(pc, token_index);
+
+    ast_eat_token(pc, token_index, TokenIdRParen);
+    return node;
+}
+
+/*
+CompilerFnExpr : token(NumberSign) token(Symbol) token(LParen) Expression token(RParen)
 */
 static AstNode *ast_parse_compiler_fn_call(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1012,16 +1042,16 @@ static AstNode *ast_parse_compiler_fn_call(ParseContext *pc, int *token_index, b
     Token *name_symbol = ast_eat_token(pc, token_index, TokenIdSymbol);
     ast_eat_token(pc, token_index, TokenIdLParen);
 
-    AstNode *node = ast_create_node(pc, NodeTypeCompilerFnCall, token);
-    ast_buf_from_token(pc, name_symbol, &node->data.compiler_fn_call.name);
-    node->data.compiler_fn_call.expr = ast_parse_expression(pc, token_index, true);
+    AstNode *node = ast_create_node(pc, NodeTypeCompilerFnExpr, token);
+    ast_buf_from_token(pc, name_symbol, &node->data.compiler_fn_expr.name);
+    node->data.compiler_fn_expr.expr = ast_parse_expression(pc, token_index, true);
 
     ast_eat_token(pc, token_index, TokenIdRParen);
     return node;
 }
 
 /*
-Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType | MaybeType | CompileTimeFnCall
+Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType | MaybeType | CompilerFnExpr
 PointerType : token(Ampersand) option(token(Const)) Type
 ArrayType : token(LBracket) Type token(Semicolon) token(Number) token(RBracket)
 */
@@ -1029,10 +1059,10 @@ static AstNode *ast_parse_type(ParseContext *pc, int *token_index) {
     Token *token = &pc->tokens->at(*token_index);
     AstNode *node = ast_create_node(pc, NodeTypeType, token);
 
-    AstNode *compiler_fn_call = ast_parse_compiler_fn_call(pc, token_index, false);
-    if (compiler_fn_call) {
+    AstNode *compiler_fn_expr = ast_parse_compiler_fn_call(pc, token_index, false);
+    if (compiler_fn_expr) {
         node->data.type.type = AstNodeTypeTypeCompilerExpr;
-        node->data.type.compiler_expr = compiler_fn_call;
+        node->data.type.compiler_expr = compiler_fn_expr;
         return node;
     }
 
@@ -1238,7 +1268,7 @@ static AstNode *ast_parse_struct_val_expr(ParseContext *pc, int *token_index) {
 }
 
 /*
-PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression
+PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression | CompilerFnType
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1315,6 +1345,11 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
     AstNode *block_expr_node = ast_parse_block_expr(pc, token_index, false);
     if (block_expr_node) {
         return block_expr_node;
+    }
+
+    AstNode *compiler_fn_type = ast_parse_compiler_fn_type(pc, token_index, false);
+    if (compiler_fn_type) {
+        return compiler_fn_type;
     }
 
     if (!mandatory)
