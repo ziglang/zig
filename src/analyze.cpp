@@ -1382,20 +1382,8 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
         case BinOpTypeBinOr:
         case BinOpTypeBinXor:
         case BinOpTypeBinAnd:
-            {
-                // TODO: don't require i32
-                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
-                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
-                return g->builtin_types.entry_i32;
-            }
         case BinOpTypeBitShiftLeft:
         case BinOpTypeBitShiftRight:
-            {
-                // TODO: don't require i32
-                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op1);
-                analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.bin_op_expr.op2);
-                return g->builtin_types.entry_i32;
-            }
         case BinOpTypeAdd:
         case BinOpTypeSub:
         case BinOpTypeMult:
