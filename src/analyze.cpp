@@ -114,18 +114,20 @@ TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
     return entry;
 }
 
-static TypeTableEntry *get_number_literal_type_unsigned(CodeGen *g, uint64_t x) {
-    NumLit kind;
+static NumLit get_number_literal_kind_unsigned(uint64_t x) {
     if (x <= UINT8_MAX) {
-        kind = NumLitU8;
+        return NumLitU8;
     } else if (x <= UINT16_MAX) {
-        kind = NumLitU16;
+        return NumLitU16;
     } else if (x <= UINT32_MAX) {
-        kind = NumLitU32;
+        return NumLitU32;
     } else {
-        kind = NumLitU64;
+        return NumLitU64;
     }
-    return g->num_lit_types[kind];
+}
+
+static TypeTableEntry *get_number_literal_type_unsigned(CodeGen *g, uint64_t x) {
+    return g->num_lit_types[get_number_literal_kind_unsigned(x)];
 }
 
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
@@ -243,6 +245,26 @@ static TypeTableEntry *eval_const_expr(CodeGen *g, BlockContext *context,
         case NodeTypeBinOpExpr:
             zig_panic("TODO eval_const_expr bin op expr");
             break;
+        case NodeTypeCompilerFnType:
+            {
+                Buf *name = &node->data.compiler_fn_type.name;
+                TypeTableEntry *expr_type = node->codegen_node->expr_node.type_entry;
+                if (buf_eql_str(name, "sizeof")) {
+                    TypeTableEntry *target_type = node->data.compiler_fn_type.type->codegen_node->data.type_node.entry;
+                    out_number_literal->overflow = false;
+                    out_number_literal->data.x_uint = target_type->size_in_bits / 8;
+                    out_number_literal->kind = get_number_literal_kind_unsigned(out_number_literal->data.x_uint);
+
+                    return expr_type;
+                } else if (buf_eql_str(name, "max_value")) {
+                    zig_panic("TODO eval_const_expr max_value");
+                } else if (buf_eql_str(name, "min_value")) {
+                    zig_panic("TODO eval_const_expr min_value");
+                } else {
+                    return g->builtin_types.entry_invalid;
+                }
+                break;
+            }
         case NodeTypeSymbol:
             {
                 VariableTableEntry *var = find_variable(context, &node->data.symbol);
