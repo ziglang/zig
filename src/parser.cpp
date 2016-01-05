@@ -60,6 +60,7 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpBinNot: return "~";
         case PrefixOpAddressOf: return "&";
         case PrefixOpConstAddressOf: return "&const";
+        case PrefixOpDereference: return "*";
     }
     zig_unreachable();
 }
@@ -1422,6 +1423,7 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdDash: return PrefixOpNegation;
         case TokenIdTilde: return PrefixOpBinNot;
         case TokenIdAmpersand: return PrefixOpAddressOf;
+        case TokenIdStar: return PrefixOpDereference;
         default: return PrefixOpInvalid;
     }
 }

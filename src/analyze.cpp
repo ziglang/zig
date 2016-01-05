@@ -1271,31 +1271,51 @@ static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, Bloc
             if (purpose == LValPurposeAssign && var->is_const) {
                 add_node_error(g, lhs_node,
                     buf_sprintf("cannot assign to constant"));
+                expected_rhs_type = g->builtin_types.entry_invalid;
             } else if (purpose == LValPurposeAddressOf && var->is_const && !is_ptr_const) {
                 add_node_error(g, lhs_node,
                     buf_sprintf("must use &const to get address of constant"));
+                expected_rhs_type = g->builtin_types.entry_invalid;
             } else {
                 expected_rhs_type = var->type;
             }
         } else {
             add_node_error(g, lhs_node,
                     buf_sprintf("use of undeclared identifier '%s'", buf_ptr(name)));
+            expected_rhs_type = g->builtin_types.entry_invalid;
         }
     } else if (lhs_node->type == NodeTypeArrayAccessExpr) {
         expected_rhs_type = analyze_array_access_expr(g, import, block_context, lhs_node);
     } else if (lhs_node->type == NodeTypeFieldAccessExpr) {
         alloc_codegen_node(lhs_node);
         expected_rhs_type = analyze_field_access_expr(g, import, block_context, lhs_node);
+    } else if (lhs_node->type == NodeTypePrefixOpExpr &&
+            lhs_node->data.prefix_op_expr.prefix_op == PrefixOpDereference)
+    {
+        assert(purpose == LValPurposeAssign);
+        AstNode *target_node = lhs_node->data.prefix_op_expr.primary_expr;
+        TypeTableEntry *type_entry = analyze_expression(g, import, block_context, nullptr, target_node);
+        if (type_entry->id == TypeTableEntryIdInvalid) {
+            expected_rhs_type = type_entry;
+        } else if (type_entry->id == TypeTableEntryIdPointer) {
+            expected_rhs_type = type_entry->data.pointer.child_type;
+        } else {
+            add_node_error(g, target_node,
+                buf_sprintf("indirection requires pointer operand ('%s' invalid)",
+                    buf_ptr(&type_entry->name)));
+            expected_rhs_type = g->builtin_types.entry_invalid;
+        }
     } else {
         if (purpose == LValPurposeAssign) {
             add_node_error(g, lhs_node,
-                    buf_sprintf("assignment target must be variable, field, or array element"));
+                    buf_sprintf("invalid assignment target"));
         } else if (purpose == LValPurposeAddressOf) {
             add_node_error(g, lhs_node,
-                    buf_sprintf("addressof target must be variable, field, or array element"));
+                    buf_sprintf("invalid addressof target"));
         }
         expected_rhs_type = g->builtin_types.entry_invalid;
     }
+    assert(expected_rhs_type);
     return expected_rhs_type;
 }
 
@@ -1938,6 +1958,22 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                         }
 
                         return_type = get_pointer_to_type(g, child_type, is_const);
+                        break;
+                    }
+                case PrefixOpDereference:
+                    {
+                        TypeTableEntry *type_entry = analyze_expression(g, import, context, nullptr,
+                                node->data.prefix_op_expr.primary_expr);
+                        if (type_entry->id == TypeTableEntryIdInvalid) {
+                            return_type = type_entry;
+                        } else if (type_entry->id == TypeTableEntryIdPointer) {
+                            return_type = type_entry->data.pointer.child_type;
+                        } else {
+                            add_node_error(g, node->data.prefix_op_expr.primary_expr,
+                                buf_sprintf("indirection requires pointer operand ('%s' invalid)",
+                                    buf_ptr(&type_entry->name)));
+                            return_type = g->builtin_types.entry_invalid;
+                        }
                         break;
                     }
             }

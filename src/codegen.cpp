@@ -359,6 +359,13 @@ static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *expr_node, AstNode *node,
         }
     } else if (node->type == NodeTypeFieldAccessExpr) {
         target_ref = gen_field_ptr(g, node, out_type_entry);
+    } else if (node->type == NodeTypePrefixOpExpr) {
+        assert(node->data.prefix_op_expr.prefix_op == PrefixOpDereference);
+        AstNode *target_expr = node->data.prefix_op_expr.primary_expr;
+        TypeTableEntry *type_entry = get_expr_type(target_expr);
+        assert(type_entry->id == TypeTableEntryIdPointer);
+        *out_type_entry = type_entry->data.pointer.child_type;
+        return gen_expr(g, target_expr);
     } else {
         zig_panic("bad assign target");
     }
@@ -397,11 +404,16 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
         case PrefixOpAddressOf:
         case PrefixOpConstAddressOf:
             {
-                add_debug_source_node(g, node);
                 TypeTableEntry *lvalue_type;
                 return gen_lvalue(g, node, expr_node, &lvalue_type);
             }
 
+        case PrefixOpDereference:
+            {
+                LLVMValueRef expr = gen_expr(g, expr_node);
+                add_debug_source_node(g, node);
+                return LLVMBuildLoad(g->builder, expr, "");
+            }
     }
     zig_unreachable();
 }

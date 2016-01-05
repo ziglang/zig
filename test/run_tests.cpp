@@ -757,6 +757,26 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     return 0;
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("pointer dereferencing", R"SOURCE(
+use "std.zig";
+
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    var x = 3 as i32;
+    const y = &x;
+
+    *y += 1;
+
+    if (x != 4) {
+        print_str("BAD\n");
+    }
+    if (*y != 4) {
+        print_str("BAD\n");
+    }
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////
@@ -904,7 +924,7 @@ a_label:
 fn f() {
     3 = 3;
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: assignment target must be variable, field, or array element");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: invalid assignment target");
 
     add_compile_fail_case("assign to constant variable", R"SOURCE(
 fn f() {
