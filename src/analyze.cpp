@@ -506,6 +506,16 @@ static void preview_fn_def(CodeGen *g, ImportTableEntry *import, AstNode *node, 
         fn_table_entry->internal_linkage = is_internal;
         fn_table_entry->calling_convention = is_internal ? LLVMFastCallConv : LLVMCCallConv;
         fn_table_entry->label_table.init(8);
+        fn_table_entry->member_of_struct = struct_type;
+
+        if (struct_type) {
+            buf_resize(&fn_table_entry->symbol_name, 0);
+            buf_appendf(&fn_table_entry->symbol_name, "%s_%s",
+                    buf_ptr(&struct_type->name),
+                    buf_ptr(proto_name));
+        } else {
+            buf_init_from_buf(&fn_table_entry->symbol_name, proto_name);
+        }
 
         g->fn_protos.append(fn_table_entry);
         g->fn_defs.append(fn_table_entry);
@@ -555,6 +565,8 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                 fn_table_entry->calling_convention = LLVMCCallConv;
                 fn_table_entry->import_entry = import;
                 fn_table_entry->label_table.init(8);
+
+                buf_init_from_buf(&fn_table_entry->symbol_name, &fn_proto->data.fn_proto.name);
 
                 resolve_function_proto(g, fn_proto, fn_table_entry, import);
 

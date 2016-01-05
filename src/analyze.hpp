@@ -138,6 +138,8 @@ struct FnTableEntry {
     ZigList<FnAttrId> fn_attr_list;
     // Required to be a pre-order traversal of the AST. (parents must come before children)
     ZigList<BlockContext *> all_block_contexts;
+    TypeTableEntry *member_of_struct;
+    Buf symbol_name;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;

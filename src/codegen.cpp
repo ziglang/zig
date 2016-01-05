@@ -1503,7 +1503,8 @@ static void do_code_gen(CodeGen *g) {
             gen_param_index += 1;
         }
         LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, param_count, fn_proto->is_var_args);
-        LLVMValueRef fn = LLVMAddFunction(g->module, buf_ptr(&fn_proto->name), function_type);
+
+        LLVMValueRef fn = LLVMAddFunction(g->module, buf_ptr(&fn_table_entry->symbol_name), function_type);
 
         for (int attr_i = 0; attr_i < fn_table_entry->fn_attr_list.length; attr_i += 1) {
             FnAttrId attr_id = fn_table_entry->fn_attr_list.at(attr_i);
@@ -1542,7 +1543,8 @@ static void do_code_gen(CodeGen *g) {
         unsigned flags = 0;
         bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
         LLVMZigDISubprogram *subprogram = LLVMZigCreateFunction(g->dbuilder,
-            import->block_context->di_scope, buf_ptr(&fn_proto->name), "", import->di_file, line_number,
+            import->block_context->di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
+            import->di_file, line_number,
             create_di_function_type(g, fn_proto, import->di_file), fn_table_entry->internal_linkage, 
             is_definition, scope_line, flags, is_optimized, fn);
 
