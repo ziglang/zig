@@ -1,3 +1,5 @@
+export executable "rand";
+
 // Mersenne Twister
 const ARRAY_SIZE : u16 = 624;
 

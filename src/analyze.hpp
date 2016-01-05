@@ -45,6 +45,7 @@ struct TypeTableEntryStruct {
     int field_count;
     TypeStructField *fields;
     uint64_t size_bytes;
+    bool is_invalid; // true if any fields are invalid
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
 

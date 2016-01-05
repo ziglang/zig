@@ -429,6 +429,9 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
 
         if (type_struct_field->type_entry->id == TypeTableEntryIdStruct) {
             resolve_struct_type(g, import, type_struct_field->type_entry);
+        } else if (type_struct_field->type_entry->id == TypeTableEntryIdInvalid) {
+            struct_type->data.structure.is_invalid = true;
+            continue;
         }
 
         di_element_types[i] = LLVMZigCreateDebugMemberType(g->dbuilder,
@@ -451,19 +454,22 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     }
     struct_type->data.structure.embedded_in_current = false;
 
-    LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
+    if (!struct_type->data.structure.is_invalid) {
 
-    struct_type->align_in_bits = first_field_align_in_bits;
-    struct_type->size_in_bits = total_size_in_bits;
+        LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
 
-    LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
-            LLVMZigFileToScope(import->di_file),
-            buf_ptr(&decl_node->data.struct_decl.name),
-            import->di_file, decl_node->line + 1, struct_type->size_in_bits, struct_type->align_in_bits, 0,
-            nullptr, di_element_types, field_count, 0, nullptr, "");
+        struct_type->align_in_bits = first_field_align_in_bits;
+        struct_type->size_in_bits = total_size_in_bits;
 
-    LLVMZigReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
-    struct_type->di_type = replacement_di_type;
+        LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
+                LLVMZigFileToScope(import->di_file),
+                buf_ptr(&decl_node->data.struct_decl.name),
+                import->di_file, decl_node->line + 1, struct_type->size_in_bits, struct_type->align_in_bits, 0,
+                nullptr, di_element_types, field_count, 0, nullptr, "");
+
+        LLVMZigReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
+        struct_type->di_type = replacement_di_type;
+    }
 }
 
 static void preview_fn_def(CodeGen *g, ImportTableEntry *import, AstNode *node, TypeTableEntry *struct_type) {
