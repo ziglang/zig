@@ -32,7 +32,7 @@ struct Rand {
         var bytes_left = r.get_bytes_aligned(buf, count);
         if (bytes_left > 0) {
             var rand_val_array : [u8; #sizeof(u32)];
-            *(rand_val_array.ptr as &u32) = r.get();
+            *(rand_val_array.ptr as &u32) = r.get_u32();
             while (bytes_left > 0) {
                 buf[count - bytes_left] = rand_val_array[#sizeof(u32) - bytes_left];
                 bytes_left -= 1;
@@ -55,6 +55,9 @@ struct Rand {
                 return start + (rand_val % range);
             }
         }
+        // TODO detect simple constant in while loop and no breaks and turn it into unreachable
+        // type. then we can remove this unreachable.
+        unreachable;
     }
 
     fn generate_numbers(r: &Rand) {
@@ -77,7 +80,7 @@ struct Rand {
         var bytes_left = count;
         var buf_ptr = buf;
         while (bytes_left > 4) {
-            *(buf_ptr as &u32) = r.get();
+            *(buf_ptr as &u32) = r.get_u32();
             bytes_left -= #sizeof(u32);
             buf_ptr += #sizeof(u32);
         }
