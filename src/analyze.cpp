@@ -1166,9 +1166,12 @@ static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
         case BinOpTypeAssignTimes:
         case BinOpTypeAssignDiv:
         case BinOpTypeAssignMod:
+            return type->id == TypeTableEntryIdInt || type->id == TypeTableEntryIdFloat;
         case BinOpTypeAssignPlus:
         case BinOpTypeAssignMinus:
-            return type->id == TypeTableEntryIdInt || type->id == TypeTableEntryIdFloat;
+            return type->id == TypeTableEntryIdInt ||
+                   type->id == TypeTableEntryIdFloat ||
+                   type->id == TypeTableEntryIdPointer;
         case BinOpTypeAssignBitShiftLeft:
         case BinOpTypeAssignBitShiftRight:
         case BinOpTypeAssignBitAnd:
