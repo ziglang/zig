@@ -233,6 +233,30 @@ static TypeTableEntry *get_array_type(CodeGen *g, ImportTableEntry *import,
     }
 }
 
+static TypeTableEntry *eval_const_expr(CodeGen *g, BlockContext *context,
+        AstNode *node, AstNodeNumberLiteral *out_number_literal)
+{
+    switch (node->type) {
+        case NodeTypeNumberLiteral:
+            *out_number_literal = node->data.number_literal;
+            return node->codegen_node->expr_node.type_entry;
+        case NodeTypeBinOpExpr:
+            zig_panic("TODO eval_const_expr bin op expr");
+            break;
+        case NodeTypeSymbol:
+            {
+                VariableTableEntry *var = find_variable(context, &node->data.symbol);
+                assert(var);
+                AstNode *decl_node = var->decl_node;
+                AstNode *expr_node = decl_node->data.variable_declaration.expr;
+                BlockContext *next_context = expr_node->codegen_node->expr_node.block_context;
+                return eval_const_expr(g, next_context, expr_node, out_number_literal);
+            }
+        default:
+            return g->builtin_types.entry_invalid;
+    }
+}
+
 static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry *import, BlockContext *context) {
     assert(node->type == NodeTypeType);
     alloc_codegen_node(node);
@@ -275,14 +299,27 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
                 }
 
                 AstNode *size_node = node->data.type.array_size;
-                if (size_node->type == NodeTypeNumberLiteral &&
-                    is_num_lit_unsigned(size_node->data.number_literal.kind))
-                {
-                    type_node->entry = get_array_type(g, import, child_type,
-                            size_node->data.number_literal.data.x_uint);
+                TypeTableEntry *size_type = analyze_expression(g, import, context,
+                        g->builtin_types.entry_usize, size_node);
+                if (size_type->id == TypeTableEntryIdInvalid) {
+                    type_node->entry = g->builtin_types.entry_invalid;
+                    return type_node->entry;
+                }
+
+                AstNodeNumberLiteral number_literal;
+                TypeTableEntry *resolved_type = eval_const_expr(g, context, size_node, &number_literal);
+
+                if (resolved_type->id == TypeTableEntryIdInt) {
+                    if (resolved_type->data.integral.is_signed) {
+                        add_node_error(g, size_node,
+                            buf_create_from_str("array size must be unsigned integer"));
+                        type_node->entry = g->builtin_types.entry_invalid;
+                    } else {
+                        type_node->entry = get_array_type(g, import, child_type, number_literal.data.x_uint);
+                    }
                 } else {
                     add_node_error(g, size_node,
-                        buf_create_from_str("array size must be literal unsigned integer"));
+                        buf_create_from_str("unable to resolve constant expression"));
                     type_node->entry = g->builtin_types.entry_invalid;
                 }
                 return type_node->entry;

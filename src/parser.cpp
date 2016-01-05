@@ -2750,6 +2750,14 @@ const char *num_lit_str(NumLit num_lit) {
             return "u32";
         case NumLitU64:
             return "u64";
+        case NumLitI8:
+            return "i8";
+        case NumLitI16:
+            return "i16";
+        case NumLitI32:
+            return "i32";
+        case NumLitI64:
+            return "i64";
         case NumLitCount:
             zig_unreachable();
     }
@@ -2761,6 +2769,10 @@ bool is_num_lit_unsigned(NumLit num_lit) {
         case NumLitF32:
         case NumLitF64:
         case NumLitF128:
+        case NumLitI8:
+        case NumLitI16:
+        case NumLitI32:
+        case NumLitI64:
             return false;
         case NumLitU8:
         case NumLitU16:
@@ -2783,6 +2795,10 @@ bool is_num_lit_float(NumLit num_lit) {
         case NumLitU16:
         case NumLitU32:
         case NumLitU64:
+        case NumLitI8:
+        case NumLitI16:
+        case NumLitI32:
+        case NumLitI64:
             return false;
         case NumLitCount:
             zig_unreachable();
@@ -2793,13 +2809,17 @@ bool is_num_lit_float(NumLit num_lit) {
 uint64_t num_lit_bit_count(NumLit num_lit) {
     switch (num_lit) {
         case NumLitU8:
+        case NumLitI8:
             return 8;
         case NumLitU16:
+        case NumLitI16:
             return 16;
         case NumLitU32:
+        case NumLitI32:
         case NumLitF32:
             return 32;
         case NumLitU64:
+        case NumLitI64:
         case NumLitF64:
             return 64;
         case NumLitF128:

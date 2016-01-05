@@ -777,6 +777,19 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     return 0;
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("constant expressions", R"SOURCE(
+use "std.zig";
+
+const ARRAY_SIZE : u8 = 20;
+
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    var array : [u8; ARRAY_SIZE];
+    print_u64(#sizeof(#typeof(array)));
+    print_str("\n");
+    return 0;
+}
+    )SOURCE", "20\n");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////

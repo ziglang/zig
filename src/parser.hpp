@@ -309,6 +309,10 @@ enum NumLit {
     NumLitU16,
     NumLitU32,
     NumLitU64,
+    NumLitI8,
+    NumLitI16,
+    NumLitI32,
+    NumLitI64,
 
     NumLitCount
 };
@@ -322,6 +326,7 @@ struct AstNodeNumberLiteral {
 
     union {
         uint64_t x_uint;
+        int64_t x_int;
         double x_float;
     } data;
 };

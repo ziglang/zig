@@ -1696,6 +1696,10 @@ static const NumLit num_lit_kinds[] = {
     NumLitU16,
     NumLitU32,
     NumLitU64,
+    NumLitI8,
+    NumLitI16,
+    NumLitI32,
+    NumLitI64,
 };
 
 static void define_builtin_types(CodeGen *g) {
