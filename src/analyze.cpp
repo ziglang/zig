@@ -853,7 +853,7 @@ static TypeTableEntry * resolve_rhs_number_literal(CodeGen *g, AstNode *non_lite
     assert(literal_node->codegen_node);
     NumberLiteralNode *codegen_num_lit = &literal_node->codegen_node->data.num_lit_node;
 
-    if (num_lit_fits_in_other_type(g, literal_type, non_literal_type)) {
+    if (non_literal_type && num_lit_fits_in_other_type(g, literal_type, non_literal_type)) {
         assert(!codegen_num_lit->resolved_type);
         codegen_num_lit->resolved_type = non_literal_type;
         return non_literal_type;
@@ -1711,13 +1711,8 @@ static TypeTableEntry *analyze_compiler_fn_type(CodeGen *g, ImportTableEntry *im
         uint64_t size_in_bytes = type_entry->size_in_bits / 8;
 
         TypeTableEntry *num_lit_type = get_number_literal_type_unsigned(g, size_in_bytes);
-
-        NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
-        assert(!codegen_num_lit->resolved_type);
-        codegen_num_lit->resolved_type = resolve_type_compatibility(g, context, node,
-                expected_type, num_lit_type);
-
-        return num_lit_type;
+        TypeTableEntry *resolved_type = resolve_rhs_number_literal(g, nullptr, expected_type, node, num_lit_type);
+        return resolved_type ? resolved_type : num_lit_type;
     } else if (buf_eql_str(name, "min_value")) {
         return analyze_min_max_value(g, node, type_entry, "no min value available for type '%s'");
     } else if (buf_eql_str(name, "max_value")) {
@@ -1744,6 +1739,10 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
         name = &fn_ref_expr->data.field_access_expr.field_name;
         if (struct_type->id == TypeTableEntryIdStruct) {
             fn_table = &struct_type->data.structure.fn_table;
+        } else if (struct_type->id == TypeTableEntryIdPointer &&
+                   struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct)
+        {
+            fn_table = &struct_type->data.pointer.child_type->data.structure.fn_table;
         } else if (struct_type->id == TypeTableEntryIdInvalid) {
             return struct_type;
         } else {
