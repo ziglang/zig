@@ -42,8 +42,8 @@ struct Rand {
     /// inclusive and `end` exclusive.
     pub fn range_u64(r: &Rand, start: u64, end: u64) -> u64 {
         const range = end - start;
-        const leftover = #max_int(u64) % range;
-        const upper_bound = #max_int(u64) - leftover;
+        const leftover = #max_value(u64) % range;
+        const upper_bound = #max_value(u64) - leftover;
         var rand_val_array : [u8; #sizeof(u64)];
 
         while (true) {
@@ -90,13 +90,14 @@ pub fn rand_init(r: &Rand, seed: u32) {
     var i : #typeof(ARRAY_SIZE) = 1;
     while (i < ARRAY_SIZE) {
         const prev_value : u64 = r.array[i - 1];
-        r.array[i] = ((previous_value ^ (previous_value << 30)) * 0x6c078965 + i) as u32;
+        r.array[i] = ((prev_value ^ (prev_value << 30)) * 0x6c078965 + i) as u32;
         i += 1;
     }
 }
 
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-    var rand = rand_init(13);
+    var rand : Rand;
+    rand_init(&rand, 13);
     const answer = rand.range_u64(0, 100) + 1;
     print_str("random number: ");
     print_u64(answer);

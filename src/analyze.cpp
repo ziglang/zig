@@ -1482,7 +1482,7 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
     }
 
     if (implicit_type == nullptr && variable_declaration->is_const) {
-        add_node_error(g, source_node, buf_sprintf("variables must have initial values or be declared 'mut'."));
+        add_node_error(g, source_node, buf_sprintf("const variable missing initialization"));
         implicit_type = g->builtin_types.entry_invalid;
     }
 
@@ -1684,23 +1684,44 @@ static TypeTableEntry *analyze_if_var_expr(CodeGen *g, ImportTableEntry *import,
             node->data.if_var_expr.then_block, node->data.if_var_expr.else_node, node);
 }
 
+static TypeTableEntry *analyze_min_max_value(CodeGen *g, AstNode *node, TypeTableEntry *type_entry,
+        const char *err_format)
+{
+    if (type_entry->id == TypeTableEntryIdInt ||
+        type_entry->id == TypeTableEntryIdFloat ||
+        type_entry->id == TypeTableEntryIdBool)
+    {
+        return type_entry;
+    } else {
+        add_node_error(g, node,
+                buf_sprintf(err_format, buf_ptr(&type_entry->name)));
+        return g->builtin_types.entry_invalid;
+    }
+}
+
 static TypeTableEntry *analyze_compiler_fn_type(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
     assert(node->type == NodeTypeCompilerFnType);
 
     Buf *name = &node->data.compiler_fn_type.name;
+    TypeTableEntry *type_entry = resolve_type(g, node->data.compiler_fn_type.type, import, context);
+
     if (buf_eql_str(name, "sizeof")) {
-        TypeTableEntry *type_entry = resolve_type(g, node->data.compiler_fn_type.type, import, context);
         uint64_t size_in_bytes = type_entry->size_in_bits / 8;
 
         TypeTableEntry *num_lit_type = get_number_literal_type_unsigned(g, size_in_bytes);
 
         NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
         assert(!codegen_num_lit->resolved_type);
-        codegen_num_lit->resolved_type = resolve_type_compatibility(g, context, node, expected_type, num_lit_type);
+        codegen_num_lit->resolved_type = resolve_type_compatibility(g, context, node,
+                expected_type, num_lit_type);
 
         return num_lit_type;
+    } else if (buf_eql_str(name, "min_value")) {
+        return analyze_min_max_value(g, node, type_entry, "no min value available for type '%s'");
+    } else if (buf_eql_str(name, "max_value")) {
+        return analyze_min_max_value(g, node, type_entry, "no max value available for type '%s'");
     } else {
         add_node_error(g, node,
                 buf_sprintf("invalid compiler function: '%s'", buf_ptr(name)));
@@ -1966,16 +1987,43 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
                     break;
                 case PrefixOpBinNot:
                     {
-                        // TODO: don't require i32
-                        analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.prefix_op_expr.primary_expr);
-                        return_type = g->builtin_types.entry_i32;
+                        AstNode *operand_node = node->data.prefix_op_expr.primary_expr;
+                        TypeTableEntry *expr_type = analyze_expression(g, import, context, expected_type,
+                                operand_node);
+                        if (expr_type->id == TypeTableEntryIdInvalid) {
+                            return_type = expr_type;
+                        } else if (expr_type->id == TypeTableEntryIdInt ||
+                                (expr_type->id == TypeTableEntryIdNumberLiteral &&
+                                 !is_num_lit_float(expr_type->data.num_lit.kind)))
+                        {
+                            return_type = expr_type;
+                        } else {
+                            add_node_error(g, operand_node, buf_sprintf("invalid binary not type: '%s'",
+                                    buf_ptr(&expr_type->name)));
+                            return_type = g->builtin_types.entry_invalid;
+                        }
                         break;
                     }
                 case PrefixOpNegation:
                     {
-                        // TODO: don't require i32
-                        analyze_expression(g, import, context, g->builtin_types.entry_i32, node->data.prefix_op_expr.primary_expr);
-                        return_type = g->builtin_types.entry_i32;
+                        AstNode *operand_node = node->data.prefix_op_expr.primary_expr;
+                        TypeTableEntry *expr_type = analyze_expression(g, import, context, expected_type,
+                                operand_node);
+                        if (expr_type->id == TypeTableEntryIdInvalid) {
+                            return_type = expr_type;
+                        } else if (expr_type->id == TypeTableEntryIdInt &&
+                                expr_type->data.integral.is_signed)
+                        {
+                            return_type = expr_type;
+                        } else if (expr_type->id == TypeTableEntryIdFloat) {
+                            return_type = expr_type;
+                        } else if (expr_type->id == TypeTableEntryIdNumberLiteral) {
+                            return_type = expr_type;
+                        } else {
+                            add_node_error(g, operand_node, buf_sprintf("invalid negation type: '%s'",
+                                    buf_ptr(&expr_type->name)));
+                            return_type = g->builtin_types.entry_invalid;
+                        }
                         break;
                     }
                 case PrefixOpAddressOf:

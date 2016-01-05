@@ -58,15 +58,32 @@ pub fn print_u64(x: u64) -> isize {
     return write(stdout_fileno, buf.ptr, len);
 }
 
+// TODO handle buffering and flushing (mutex protected)
+// TODO error handling
+pub fn print_i64(x: i64) -> isize {
+    // TODO use max_u64_base10_digits instead of hardcoding 20
+    var buf: [u8; 20];
+    const len = buf_print_i64(buf.ptr, x);
+    return write(stdout_fileno, buf.ptr, len);
+}
+
 fn digit_to_char(digit: u64) -> u8 {
     '0' + (digit as u8)
 }
 
 const max_u64_base10_digits: usize = 20;
 
+fn buf_print_i64(out_buf: &u8, x: i64) -> usize {
+    if (x < 0) {
+        out_buf[0] = '-';
+        return 1 + buf_print_u64(&out_buf[1], ((-(x + 1)) as u64) + 1);
+    } else {
+        return buf_print_u64(out_buf, x as u64);
+    }
+}
+
 fn buf_print_u64(out_buf: &u8, x: u64) -> usize {
-    // TODO use max_u64_base10_digits instead of hardcoding 20
-    var buf: [u8; 20];
+    var buf: [u8; max_u64_base10_digits];
     var a = x;
     var index = max_u64_base10_digits;
 

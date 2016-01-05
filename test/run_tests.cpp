@@ -399,7 +399,7 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     if (5 * 4 / 2 % 3 != 1)      { print_str("BAD 9\n"); }
     if (5 as i32 as i32 != 5)    { print_str("BAD 10\n"); }
     if (!!false)                 { print_str("BAD 11\n"); }
-    if (7 != --7)                { print_str("BAD 12\n"); }
+    if (7 as i32 != --(7 as i32))                { print_str("BAD 12\n"); }
 
     print_str("OK\n");
     return 0;
@@ -790,6 +790,93 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     return 0;
 }
     )SOURCE", "20\n");
+
+    add_simple_case("#min_value() and #max_value()", R"SOURCE(
+use "std.zig";
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    print_str("max u8: ");
+    print_u64(#max_value(u8));
+    print_str("\n");
+
+    print_str("max u16: ");
+    print_u64(#max_value(u16));
+    print_str("\n");
+
+    print_str("max u32: ");
+    print_u64(#max_value(u32));
+    print_str("\n");
+
+    print_str("max u64: ");
+    print_u64(#max_value(u64));
+    print_str("\n");
+
+    print_str("max i8: ");
+    print_i64(#max_value(i8));
+    print_str("\n");
+
+    print_str("max i16: ");
+    print_i64(#max_value(i16));
+    print_str("\n");
+
+    print_str("max i32: ");
+    print_i64(#max_value(i32));
+    print_str("\n");
+
+    print_str("max i64: ");
+    print_i64(#max_value(i64));
+    print_str("\n");
+
+    print_str("min u8: ");
+    print_u64(#min_value(u8));
+    print_str("\n");
+
+    print_str("min u16: ");
+    print_u64(#min_value(u16));
+    print_str("\n");
+
+    print_str("min u32: ");
+    print_u64(#min_value(u32));
+    print_str("\n");
+
+    print_str("min u64: ");
+    print_u64(#min_value(u64));
+    print_str("\n");
+
+    print_str("min i8: ");
+    print_i64(#min_value(i8));
+    print_str("\n");
+
+    print_str("min i16: ");
+    print_i64(#min_value(i16));
+    print_str("\n");
+
+    print_str("min i32: ");
+    print_i64(#min_value(i32));
+    print_str("\n");
+
+    print_str("min i64: ");
+    print_i64(#min_value(i64));
+    print_str("\n");
+
+    return 0;
+}
+    )SOURCE",
+        "max u8: 255\n"
+        "max u16: 65535\n"
+        "max u32: 4294967295\n"
+        "max u64: 18446744073709551615\n"
+        "max i8: 127\n"
+        "max i16: 32767\n"
+        "max i32: 2147483647\n"
+        "max i64: 9223372036854775807\n"
+        "min u8: 0\n"
+        "min u16: 0\n"
+        "min u32: 0\n"
+        "min u64: 0\n"
+        "min i8: -128\n"
+        "min i16: -32768\n"
+        "min i32: -2147483648\n"
+        "min i64: -9223372036854775808\n");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////

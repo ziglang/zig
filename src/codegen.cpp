@@ -859,28 +859,38 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
     if (else_node) {
         LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Then");
         LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Else");
-        LLVMBasicBlockRef endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
+
+        LLVMBasicBlockRef endif_block;
+        bool then_endif_reachable = get_expr_type(then_node)->id != TypeTableEntryIdUnreachable;
+        bool else_endif_reachable = get_expr_type(else_node)->id != TypeTableEntryIdUnreachable;
+        if (then_endif_reachable || else_endif_reachable) {
+            endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
+        }
 
         LLVMBuildCondBr(g->builder, cond_value, then_block, else_block);
 
         LLVMPositionBuilderAtEnd(g->builder, then_block);
         LLVMValueRef then_expr_result = gen_expr(g, then_node);
-        if (get_expr_type(then_node)->id != TypeTableEntryIdUnreachable)
+        if (then_endif_reachable) {
             LLVMBuildBr(g->builder, endif_block);
+        }
 
         LLVMPositionBuilderAtEnd(g->builder, else_block);
         LLVMValueRef else_expr_result = gen_expr(g, else_node);
-        if (get_expr_type(else_node)->id != TypeTableEntryIdUnreachable)
+        if (else_endif_reachable) {
             LLVMBuildBr(g->builder, endif_block);
+        }
 
-        LLVMPositionBuilderAtEnd(g->builder, endif_block);
-        if (use_expr_value) {
-            LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(then_expr_result), "");
-            LLVMValueRef incoming_values[2] = {then_expr_result, else_expr_result};
-            LLVMBasicBlockRef incoming_blocks[2] = {then_block, else_block};
-            LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
+        if (then_endif_reachable || else_endif_reachable) {
+            LLVMPositionBuilderAtEnd(g->builder, endif_block);
+            if (use_expr_value) {
+                LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(then_expr_result), "");
+                LLVMValueRef incoming_values[2] = {then_expr_result, else_expr_result};
+                LLVMBasicBlockRef incoming_blocks[2] = {then_block, else_block};
+                LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
 
-            return phi;
+                return phi;
+            }
         }
 
         return nullptr;
@@ -1245,14 +1255,38 @@ static LLVMValueRef gen_compiler_fn_type(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeCompilerFnType);
 
     Buf *name = &node->data.compiler_fn_type.name;
+    TypeTableEntry *type_entry = get_type_for_type_node(g, node->data.compiler_fn_type.type);
     if (buf_eql_str(name, "sizeof")) {
-        TypeTableEntry *type_entry = get_type_for_type_node(g, node->data.compiler_fn_type.type);
         NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
         AstNodeNumberLiteral num_lit_node;
         num_lit_node.kind = type_entry->data.num_lit.kind;
         num_lit_node.overflow = false;
         num_lit_node.data.x_uint = type_entry->size_in_bits / 8;
         return gen_number_literal_raw(g, node, codegen_num_lit, &num_lit_node);
+    } else if (buf_eql_str(name, "min_value")) {
+        if (type_entry->id == TypeTableEntryIdInt) {
+            if (type_entry->data.integral.is_signed) {
+                return LLVMConstInt(type_entry->type_ref, 1ULL << (type_entry->size_in_bits - 1), false);
+            } else {
+                return LLVMConstNull(type_entry->type_ref);
+            }
+        } else if (type_entry->id == TypeTableEntryIdFloat) {
+            zig_panic("TODO codegen min_value float");
+        } else {
+            zig_unreachable();
+        }
+    } else if (buf_eql_str(name, "max_value")) {
+        if (type_entry->id == TypeTableEntryIdInt) {
+            if (type_entry->data.integral.is_signed) {
+                return LLVMConstInt(type_entry->type_ref, (1ULL << (type_entry->size_in_bits - 1)) - 1, false);
+            } else {
+                return LLVMConstAllOnes(type_entry->type_ref);
+            }
+        } else if (type_entry->id == TypeTableEntryIdFloat) {
+            zig_panic("TODO codegen max_value float");
+        } else {
+            zig_unreachable();
+        }
     } else {
         zig_unreachable();
     }
