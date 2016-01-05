@@ -1,5 +1,7 @@
 export executable "rand";
 
+use "std.zig";
+
 // Mersenne Twister
 const ARRAY_SIZE : u16 = 624;
 
@@ -27,7 +29,7 @@ struct Rand {
 
     /// Write `count` bytes of randomness into `buf`.
     pub fn get_bytes(r: &Rand, buf: &u8, count: usize) {
-        var bytes_left = r.get_bytes_aligned(buf, buf, count);
+        var bytes_left = r.get_bytes_aligned(buf, count);
         if (bytes_left > 0) {
             var rand_val_array : [u8; #sizeof(u32)];
             *(rand_val_array.ptr as &u32) = r.get();
@@ -47,7 +49,7 @@ struct Rand {
         var rand_val_array : [u8; #sizeof(u64)];
 
         while (true) {
-            r.get_bytes_aligned(r, rand_val_array.ptr, rand_val_array.len);
+            r.get_bytes_aligned(rand_val_array.ptr, rand_val_array.len);
             const rand_val = *(rand_val_array.ptr as &u64);
             if (rand_val < upper_bound) {
                 return start + (rand_val % range);
