@@ -218,14 +218,24 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeArrayAccessExpr);
 
-    TypeTableEntry *type_entry = get_expr_type(node->data.array_access_expr.array_ref_expr);
     AstNode *array_expr_node = node->data.array_access_expr.array_ref_expr;
+    TypeTableEntry *type_entry = get_expr_type(array_expr_node);
 
-    LLVMValueRef array_ptr = gen_expr(g, array_expr_node);
+    LLVMValueRef array_ptr;
+    if (array_expr_node->type == NodeTypeFieldAccessExpr) {
+        array_ptr = gen_field_access_expr(g, array_expr_node, true);
+        if (type_entry->id == TypeTableEntryIdPointer) {
+            // we have a double pointer so we must dereference it once
+            add_debug_source_node(g, node);
+            array_ptr = LLVMBuildLoad(g->builder, array_ptr, "");
+        }
+    } else {
+        array_ptr = gen_expr(g, array_expr_node);
+    }
+
+    assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
 
     LLVMValueRef subscript_value = gen_expr(g, node->data.array_access_expr.subscript);
-
-    assert(array_ptr);
     assert(subscript_value);
 
     if (type_entry->id == TypeTableEntryIdArray) {
