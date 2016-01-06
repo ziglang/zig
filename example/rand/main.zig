@@ -27,14 +27,14 @@ struct Rand {
         return y;
     }
 
-    /// Write `count` bytes of randomness into `buf`.
-    pub fn get_bytes(r: &Rand, buf: &u8, count: usize) {
-        var bytes_left = r.get_bytes_aligned(buf, count);
+    /// Fill `buf` with randomness.
+    pub fn get_bytes(r: &Rand, buf: []u8) {
+        var bytes_left = r.get_bytes_aligned(buf);
         if (bytes_left > 0) {
             var rand_val_array : [u8; #sizeof(u32)];
             *(rand_val_array.ptr as &u32) = r.get_u32();
             while (bytes_left > 0) {
-                buf[count - bytes_left] = rand_val_array[#sizeof(u32) - bytes_left];
+                buf[buf.len - bytes_left] = rand_val_array[#sizeof(u32) - bytes_left];
                 bytes_left -= 1;
             }
         }
@@ -49,7 +49,7 @@ struct Rand {
         var rand_val_array : [u8; #sizeof(u64)];
 
         while (true) {
-            r.get_bytes_aligned(rand_val_array.ptr, rand_val_array.len);
+            r.get_bytes_aligned(rand_val_array);
             const rand_val = *(rand_val_array.ptr as &u64);
             if (rand_val < upper_bound) {
                 return start + (rand_val % range);
@@ -75,14 +75,12 @@ struct Rand {
         }
     }
 
-    // does not populate the remaining (count % 4) bytes
-    fn get_bytes_aligned(r: &Rand, buf: &u8, count: usize) -> usize {
-        var bytes_left = count;
-        var buf_ptr = buf;
+    // does not populate the remaining (buf.len % 4) bytes
+    fn get_bytes_aligned(r: &Rand, buf: []u8) -> usize {
+        var bytes_left = buf.len;
         while (bytes_left > 4) {
-            *(buf_ptr as &u32) = r.get_u32();
+            *(&buf[buf.len - bytes_left] as &u32) = r.get_u32();
             bytes_left -= #sizeof(u32);
-            buf_ptr += #sizeof(u32);
         }
         return bytes_left;
     }

@@ -72,7 +72,7 @@ PointerType : token(Ampersand) option(token(Const)) Type
 
 MaybeType : token(Question) Type
 
-ArrayType : token(LBracket) Type token(Semicolon) Expression token(RBracket)
+ArrayType : token(LBracket) option(Expression) token(RBracket) Type
 
 Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
 

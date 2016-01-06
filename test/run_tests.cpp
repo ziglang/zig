@@ -349,7 +349,7 @@ done:
 use "std.zig";
 
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-    var array : [u32; 5];
+    var array : [5]u32;
 
     var i : u32 = 0;
     while (i < 5) {
@@ -784,7 +784,7 @@ use "std.zig";
 const ARRAY_SIZE : u8 = 20;
 
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-    var array : [u8; ARRAY_SIZE];
+    var array : [ARRAY_SIZE]u8;
     print_u64(#sizeof(#typeof(array)));
     print_str("\n");
     return 0;

@@ -1062,7 +1062,7 @@ static AstNode *ast_parse_compiler_fn_call(ParseContext *pc, int *token_index, b
 /*
 Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType | MaybeType | CompilerFnExpr
 PointerType : token(Ampersand) option(token(Const)) Type
-ArrayType : token(LBracket) Type token(Semicolon) token(Number) token(RBracket)
+ArrayType : token(LBracket) option(Expression) token(RBracket) Type
 */
 static AstNode *ast_parse_type(ParseContext *pc, int *token_index) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1103,17 +1103,11 @@ static AstNode *ast_parse_type(ParseContext *pc, int *token_index) {
     } else if (token->id == TokenIdLBracket) {
         node->data.type.type = AstNodeTypeTypeArray;
 
+        node->data.type.array_size = ast_parse_expression(pc, token_index, false);
+
+        ast_eat_token(pc, token_index, TokenIdRBracket);
+
         node->data.type.child_type = ast_parse_type(pc, token_index);
-
-        Token *semicolon_token = &pc->tokens->at(*token_index);
-        *token_index += 1;
-        ast_expect_token(pc, semicolon_token, TokenIdSemicolon);
-
-        node->data.type.array_size = ast_parse_expression(pc, token_index, true);
-
-        Token *rbracket_token = &pc->tokens->at(*token_index);
-        *token_index += 1;
-        ast_expect_token(pc, rbracket_token, TokenIdRBracket);
     } else {
         ast_invalid_token_error(pc, token);
     }

@@ -106,7 +106,7 @@ struct AstNodeType {
     AstNodeTypeType type;
     Buf primitive_name;
     AstNode *child_type;
-    AstNode *array_size;
+    AstNode *array_size; // can be null
     bool is_const;
     AstNode *compiler_expr;
 };

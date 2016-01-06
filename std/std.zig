@@ -53,7 +53,7 @@ pub fn fprint_str(fd: isize, str: string) -> isize {
 // TODO error handling
 pub fn print_u64(x: u64) -> isize {
     // TODO use max_u64_base10_digits instead of hardcoding 20
-    var buf: [u8; 20];
+    var buf: [20]u8;
     const len = buf_print_u64(buf.ptr, x);
     return write(stdout_fileno, buf.ptr, len);
 }
@@ -62,7 +62,7 @@ pub fn print_u64(x: u64) -> isize {
 // TODO error handling
 pub fn print_i64(x: i64) -> isize {
     // TODO use max_u64_base10_digits instead of hardcoding 20
-    var buf: [u8; 20];
+    var buf: [20]u8;
     const len = buf_print_i64(buf.ptr, x);
     return write(stdout_fileno, buf.ptr, len);
 }
@@ -83,9 +83,9 @@ fn buf_print_i64(out_buf: &u8, x: i64) -> usize {
 }
 
 fn buf_print_u64(out_buf: &u8, x: u64) -> usize {
-    var buf: [u8; max_u64_base10_digits];
+    var buf: [max_u64_base10_digits]u8;
     var a = x;
-    var index = max_u64_base10_digits;
+    var index = buf.len;
 
     while (true) {
         const digit = a % 10;
@@ -96,7 +96,7 @@ fn buf_print_u64(out_buf: &u8, x: u64) -> usize {
             break;
     }
 
-    const len = max_u64_base10_digits - index;
+    const len = buf.len - index;
 
     // TODO memcpy intrinsic
     var i: usize = 0;
