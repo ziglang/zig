@@ -7,8 +7,10 @@ const ARRAY_SIZE : u16 = 624;
 
 /// Use `rand_init` to initialize this state.
 struct Rand {
-    array: [u32; ARRAY_SIZE],
-    index: #typeof(ARRAY_SIZE),
+    // TODO use ARRAY_SIZE here
+    array: [624]u32,
+    // TODO use ARRAY_SIZE here
+    index: #typeof(624),
 
     /// Get 32 bits of randomness.
     pub fn get_u32(r: &Rand) -> u32 {
@@ -31,10 +33,11 @@ struct Rand {
     pub fn get_bytes(r: &Rand, buf: []u8) {
         var bytes_left = r.get_bytes_aligned(buf);
         if (bytes_left > 0) {
-            var rand_val_array : [u8; #sizeof(u32)];
+            var rand_val_array : [#sizeof(u32)]u8;
             *(rand_val_array.ptr as &u32) = r.get_u32();
             while (bytes_left > 0) {
-                buf[buf.len - bytes_left] = rand_val_array[#sizeof(u32) - bytes_left];
+                // TODO array index operator so we can remove the .ptr
+                buf.ptr[buf.len - bytes_left] = rand_val_array[#sizeof(u32) - bytes_left];
                 bytes_left -= 1;
             }
         }
@@ -46,7 +49,7 @@ struct Rand {
         const range = end - start;
         const leftover = #max_value(u64) % range;
         const upper_bound = #max_value(u64) - leftover;
-        var rand_val_array : [u8; #sizeof(u64)];
+        var rand_val_array : [#sizeof(u64)]u8;
 
         while (true) {
             r.get_bytes_aligned(rand_val_array);
@@ -79,7 +82,8 @@ struct Rand {
     fn get_bytes_aligned(r: &Rand, buf: []u8) -> usize {
         var bytes_left = buf.len;
         while (bytes_left > 4) {
-            *(&buf[buf.len - bytes_left] as &u32) = r.get_u32();
+            // TODO: array access so we can remove .ptr
+            *(&buf.ptr[buf.len - bytes_left] as &u32) = r.get_u32();
             bytes_left -= #sizeof(u32);
         }
         return bytes_left;

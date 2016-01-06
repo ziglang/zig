@@ -19,9 +19,18 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
         i += 1;
     }
 
-    if (accumulator == 15) {
-        print_str("OK\n");
+    if (accumulator != 15) {
+        print_str("BAD\n");
     }
 
+    if (get_array_len(array) != 5) {
+        print_str("BAD\n");
+    }
+
+    print_str("OK\n");
     return 0;
+}
+
+fn get_array_len(a: []u32) -> usize {
+    a.len
 }

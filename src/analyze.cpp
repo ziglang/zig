@@ -219,7 +219,7 @@ static TypeTableEntry *get_array_type(CodeGen *g, ImportTableEntry *import,
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
         entry->type_ref = LLVMArrayType(child_type->type_ref, array_size);
         buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "[%s; %" PRIu64 "]", buf_ptr(&child_type->name), array_size);
+        buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
 
         entry->size_in_bits = child_type->size_in_bits * array_size;
         entry->align_in_bits = child_type->align_in_bits;
@@ -231,6 +231,55 @@ static TypeTableEntry *get_array_type(CodeGen *g, ImportTableEntry *import,
 
         import->type_table.put(&entry->name, entry);
         child_type->arrays_by_size.put(array_size, entry);
+        return entry;
+    }
+}
+
+static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, ImportTableEntry *import,
+        TypeTableEntry *child_type, bool is_const)
+{
+    TypeTableEntry **parent_pointer = is_const ?
+        &child_type->unknown_size_array_const_parent :
+        &child_type->unknown_size_array_mut_parent;
+    if (*parent_pointer) {
+        return *parent_pointer;
+    } else {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
+
+        buf_resize(&entry->name, 0);
+        buf_appendf(&entry->name, "[]%s", buf_ptr(&child_type->name));
+        entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&entry->name));
+
+        TypeTableEntry *pointer_type = get_pointer_to_type(g, child_type, is_const);
+
+        unsigned element_count = 2;
+        LLVMTypeRef element_types[] = {
+            pointer_type->type_ref,
+            g->builtin_types.entry_usize->type_ref,
+        };
+        LLVMStructSetBody(entry->type_ref, element_types, element_count, false);
+
+        entry->size_in_bits = g->pointer_size_bytes * 2 * 8;
+        entry->align_in_bits = g->pointer_size_bytes * 8;
+        entry->data.structure.is_packed = false;
+        entry->data.structure.is_unknown_size_array = true;
+        entry->data.structure.field_count = element_count;
+        entry->data.structure.fields = allocate<TypeStructField>(element_count);
+        entry->data.structure.fields[0].name = buf_create_from_str("ptr");
+        entry->data.structure.fields[0].type_entry = pointer_type;
+        entry->data.structure.fields[1].name = buf_create_from_str("len");
+        entry->data.structure.fields[1].type_entry = g->builtin_types.entry_usize;
+
+        LLVMZigDIType *di_element_types[] = {
+            pointer_type->di_type,
+            g->builtin_types.entry_usize->di_type,
+        };
+        LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
+        entry->di_type = LLVMZigCreateDebugStructType(g->dbuilder, compile_unit_scope,
+                buf_ptr(&entry->name), g->dummy_di_file, 0, entry->size_in_bits, entry->align_in_bits, 0,
+                nullptr, di_element_types, element_count, 0, nullptr, "");
+
+        *parent_pointer = entry;
         return entry;
     }
 }
@@ -313,38 +362,47 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
             }
         case AstNodeTypeTypeArray:
             {
-                resolve_type(g, node->data.type.child_type, import, context);
-                TypeTableEntry *child_type = node->data.type.child_type->codegen_node->data.type_node.entry;
+                TypeTableEntry *child_type = resolve_type(g, node->data.type.child_type, import, context);
                 if (child_type->id == TypeTableEntryIdUnreachable) {
                     add_node_error(g, node,
                             buf_create_from_str("array of unreachable not allowed"));
-                }
-
-                AstNode *size_node = node->data.type.array_size;
-                TypeTableEntry *size_type = analyze_expression(g, import, context,
-                        g->builtin_types.entry_usize, size_node);
-                if (size_type->id == TypeTableEntryIdInvalid) {
                     type_node->entry = g->builtin_types.entry_invalid;
                     return type_node->entry;
                 }
 
-                AstNodeNumberLiteral number_literal;
-                TypeTableEntry *resolved_type = eval_const_expr(g, context, size_node, &number_literal);
+                AstNode *size_node = node->data.type.array_size;
 
-                if (resolved_type->id == TypeTableEntryIdInt) {
-                    if (resolved_type->data.integral.is_signed) {
-                        add_node_error(g, size_node,
-                            buf_create_from_str("array size must be unsigned integer"));
+                if (size_node) {
+                    TypeTableEntry *size_type = analyze_expression(g, import, context,
+                            g->builtin_types.entry_usize, size_node);
+                    if (size_type->id == TypeTableEntryIdInvalid) {
                         type_node->entry = g->builtin_types.entry_invalid;
-                    } else {
-                        type_node->entry = get_array_type(g, import, child_type, number_literal.data.x_uint);
+                        return type_node->entry;
                     }
+
+                    AstNodeNumberLiteral number_literal;
+                    TypeTableEntry *resolved_type = eval_const_expr(g, context, size_node, &number_literal);
+
+                    if (resolved_type->id == TypeTableEntryIdInt) {
+                        if (resolved_type->data.integral.is_signed) {
+                            add_node_error(g, size_node,
+                                buf_create_from_str("array size must be unsigned integer"));
+                            type_node->entry = g->builtin_types.entry_invalid;
+                        } else {
+                            type_node->entry = get_array_type(g, import, child_type, number_literal.data.x_uint);
+                        }
+                    } else {
+                        add_node_error(g, size_node,
+                            buf_create_from_str("unable to resolve constant expression"));
+                        type_node->entry = g->builtin_types.entry_invalid;
+                    }
+                    return type_node->entry;
                 } else {
-                    add_node_error(g, size_node,
-                        buf_create_from_str("unable to resolve constant expression"));
-                    type_node->entry = g->builtin_types.entry_invalid;
+                    type_node->entry = get_unknown_size_array_type(g, import, child_type,
+                            node->data.type.is_const);
+                    return type_node->entry;
                 }
-                return type_node->entry;
+
             }
         case AstNodeTypeTypeMaybe:
             {
@@ -1016,13 +1074,14 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
         return expected_type;
     }
 
-    // implicit constant sized array to string conversion
-    if (expected_type == g->builtin_types.entry_string &&
+    // implicit constant sized array to unknown size array conversion
+    if (expected_type->id == TypeTableEntryIdStruct &&
+        expected_type->data.structure.is_unknown_size_array &&
         actual_type->id == TypeTableEntryIdArray &&
-        actual_type->data.array.child_type == g->builtin_types.entry_u8)
+        actual_type->data.array.child_type == expected_type->data.structure.fields[0].type_entry->data.pointer.child_type)
     {
         node->codegen_node->expr_node.implicit_cast.after_type = expected_type;
-        node->codegen_node->expr_node.implicit_cast.op = CastOpArrayToString;
+        node->codegen_node->expr_node.implicit_cast.op = CastOpToUnknownSizeArray;
         node->codegen_node->expr_node.implicit_cast.source_node = node;
         context->cast_expr_alloca_list.append(&node->codegen_node->expr_node.implicit_cast);
         return expected_type;
@@ -1292,11 +1351,12 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     {
         cast_node->op = CastOpIntWidenOrShorten;
         return wanted_type;
-    } else if (wanted_type == g->builtin_types.entry_string &&
-                actual_type->id == TypeTableEntryIdArray &&
-                actual_type->data.array.child_type == g->builtin_types.entry_u8)
+    } else if (wanted_type->id == TypeTableEntryIdStruct &&
+               wanted_type->data.structure.is_unknown_size_array &&
+               actual_type->id == TypeTableEntryIdArray &&
+               actual_type->data.array.child_type == wanted_type->data.structure.fields[0].type_entry)
     {
-        cast_node->op = CastOpArrayToString;
+        cast_node->op = CastOpToUnknownSizeArray;
         context->cast_expr_alloca_list.append(cast_node);
         return wanted_type;
     } else if (actual_type->id == TypeTableEntryIdNumberLiteral &&

@@ -219,7 +219,7 @@ void ast_print(AstNode *node, int indent) {
                     }
                 case AstNodeTypeTypePointer:
                     {
-                        const char *const_or_mut_str = node->data.type.is_const ? "const" : "mut";
+                        const char *const_or_mut_str = node->data.type.is_const ? "const" : "var";
                         fprintf(stderr, "'%s' PointerType\n", const_or_mut_str);
 
                         ast_print(node->data.type.child_type, indent + 2);
@@ -227,9 +227,11 @@ void ast_print(AstNode *node, int indent) {
                     }
                 case AstNodeTypeTypeArray:
                     {
-                        fprintf(stderr, "ArrayType\n");
+                        const char *const_or_mut_str = node->data.type.is_const ? "const" : "var";
+                        fprintf(stderr, "'%s' ArrayType\n", const_or_mut_str);
+                        if (node->data.type.array_size)
+                            ast_print(node->data.type.array_size, indent + 2);
                         ast_print(node->data.type.child_type, indent + 2);
-                        ast_print(node->data.type.array_size, indent + 2);
                         break;
                     }
                 case AstNodeTypeTypeMaybe:
@@ -1106,6 +1108,12 @@ static AstNode *ast_parse_type(ParseContext *pc, int *token_index) {
         node->data.type.array_size = ast_parse_expression(pc, token_index, false);
 
         ast_eat_token(pc, token_index, TokenIdRBracket);
+
+        Token *const_tok = &pc->tokens->at(*token_index);
+        if (const_tok->id == TokenIdKeywordConst) {
+            *token_index += 1;
+            node->data.type.is_const = true;
+        }
 
         node->data.type.child_type = ast_parse_type(pc, token_index);
     } else {

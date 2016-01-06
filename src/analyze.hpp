@@ -46,6 +46,7 @@ struct TypeTableEntryStruct {
     TypeStructField *fields;
     uint64_t size_bytes;
     bool is_invalid; // true if any fields are invalid
+    bool is_unknown_size_array;
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
 
@@ -100,6 +101,8 @@ struct TypeTableEntry {
     TypeTableEntry *pointer_mut_parent;
     HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
     TypeTableEntry *maybe_parent;
+    TypeTableEntry *unknown_size_array_const_parent;
+    TypeTableEntry *unknown_size_array_mut_parent;
 
 };
 
@@ -175,7 +178,6 @@ struct CodeGen {
         TypeTableEntry *entry_f32;
         TypeTableEntry *entry_f64;
         TypeTableEntry *entry_c_string_literal;
-        TypeTableEntry *entry_string;
         TypeTableEntry *entry_void;
         TypeTableEntry *entry_unreachable;
         TypeTableEntry *entry_invalid;
@@ -283,7 +285,7 @@ enum CastOp {
     CastOpNothing,
     CastOpPtrToInt,
     CastOpIntWidenOrShorten,
-    CastOpArrayToString,
+    CastOpToUnknownSizeArray,
     CastOpMaybeWrap,
     CastOpPointerReinterpret,
 };

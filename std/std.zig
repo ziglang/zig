@@ -39,13 +39,13 @@ pub fn os_get_random_bytes(buf: &u8, count: usize) -> isize {
 
 // TODO error handling
 // TODO handle buffering and flushing (mutex protected)
-pub fn print_str(str: string) -> isize {
+pub fn print_str(str: []const u8) -> isize {
     fprint_str(stdout_fileno, str)
 }
 
 // TODO error handling
 // TODO handle buffering and flushing (mutex protected)
-pub fn fprint_str(fd: isize, str: string) -> isize {
+pub fn fprint_str(fd: isize, str: []const u8) -> isize {
     write(fd, str.ptr, str.len)
 }
 
@@ -73,6 +73,9 @@ fn digit_to_char(digit: u64) -> u8 {
 
 const max_u64_base10_digits: usize = 20;
 
+// TODO use an array for out_buf instead of pointer. this should give bounds checking in
+// debug mode and length can get optimized out in release mode. requires array slicing syntax
+// for the buf_print_u64 call.
 fn buf_print_i64(out_buf: &u8, x: i64) -> usize {
     if (x < 0) {
         out_buf[0] = '-';
@@ -82,6 +85,7 @@ fn buf_print_i64(out_buf: &u8, x: i64) -> usize {
     }
 }
 
+// TODO use an array for out_buf instead of pointer.
 fn buf_print_u64(out_buf: &u8, x: u64) -> usize {
     var buf: [max_u64_base10_digits]u8;
     var a = x;

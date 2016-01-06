@@ -462,14 +462,17 @@ static LLVMValueRef gen_bare_cast(CodeGen *g, AstNode *node, LLVMValueRef expr_v
                 add_debug_source_node(g, node);
                 return LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
             }
-        case CastOpArrayToString:
+        case CastOpToUnknownSizeArray:
             {
                 assert(cast_node->ptr);
+
+                TypeTableEntry *pointer_type = wanted_type->data.structure.fields[0].type_entry;
 
                 add_debug_source_node(g, node);
 
                 LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, cast_node->ptr, 0, "");
-                LLVMBuildStore(g->builder, expr_val, ptr_ptr);
+                LLVMValueRef expr_bitcast = LLVMBuildBitCast(g->builder, expr_val, pointer_type->type_ref, "");
+                LLVMBuildStore(g->builder, expr_bitcast, ptr_ptr);
 
                 LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_node->ptr, 1, "");
                 LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
@@ -1925,41 +1928,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->di_type = g->builtin_types.entry_void->di_type;
         g->builtin_types.entry_unreachable = entry;
     }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
-
-        TypeTableEntry *const_pointer_to_u8 = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
-
-        unsigned element_count = 2;
-        LLVMTypeRef element_types[] = {
-            const_pointer_to_u8->type_ref,
-            g->builtin_types.entry_usize->type_ref
-        };
-        entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), "string");
-        LLVMStructSetBody(entry->type_ref, element_types, element_count, false);
-
-        buf_init_from_str(&entry->name, "string");
-        entry->size_in_bits = g->pointer_size_bytes * 2 * 8;
-        entry->align_in_bits = g->pointer_size_bytes;
-        entry->data.structure.is_packed = false;
-        entry->data.structure.field_count = element_count;
-        entry->data.structure.fields = allocate<TypeStructField>(element_count);
-        entry->data.structure.fields[0].name = buf_create_from_str("ptr");
-        entry->data.structure.fields[0].type_entry = const_pointer_to_u8;
-        entry->data.structure.fields[1].name = buf_create_from_str("len");
-        entry->data.structure.fields[1].type_entry = g->builtin_types.entry_usize;
-
-        LLVMZigDIType *di_element_types[] = {
-            const_pointer_to_u8->di_type,
-            g->builtin_types.entry_usize->di_type
-        };
-        LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
-        entry->di_type = LLVMZigCreateDebugStructType(g->dbuilder, compile_unit_scope,
-                "string", g->dummy_di_file, 0, entry->size_in_bits, entry->align_in_bits, 0,
-                nullptr, di_element_types, element_count, 0, nullptr, "");
-
-        g->builtin_types.entry_string = entry;
-    }
 }
 
 
@@ -2103,7 +2071,6 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
     import_entry->type_table.put(&g->builtin_types.entry_f64->name, g->builtin_types.entry_f64);
     import_entry->type_table.put(&g->builtin_types.entry_void->name, g->builtin_types.entry_void);
     import_entry->type_table.put(&g->builtin_types.entry_unreachable->name, g->builtin_types.entry_unreachable);
-    import_entry->type_table.put(&g->builtin_types.entry_string->name, g->builtin_types.entry_string);
 
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);
