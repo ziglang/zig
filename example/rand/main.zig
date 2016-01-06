@@ -9,8 +9,8 @@ const ARRAY_SIZE : u16 = 624;
 struct Rand {
     // TODO use ARRAY_SIZE here
     array: [624]u32,
-    // TODO use ARRAY_SIZE here
-    index: #typeof(624),
+    // TODO use #typeof(ARRAY_SIZE) here
+    index: u16,
 
     /// Get 32 bits of randomness.
     pub fn get_u32(r: &Rand) -> u32 {

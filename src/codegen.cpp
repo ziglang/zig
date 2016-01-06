@@ -150,7 +150,14 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         Buf *name = &fn_ref_expr->data.field_access_expr.field_name;
         first_param_expr = fn_ref_expr->data.field_access_expr.struct_expr;
         struct_type = get_expr_type(first_param_expr);
-        fn_table_entry = struct_type->data.structure.fn_table.get(name);
+        if (struct_type->id == TypeTableEntryIdStruct) {
+            fn_table_entry = struct_type->data.structure.fn_table.get(name);
+        } else if (struct_type->id == TypeTableEntryIdPointer) {
+            assert(struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct);
+            fn_table_entry = struct_type->data.pointer.child_type->data.structure.fn_table.get(name);
+        } else {
+            zig_unreachable();
+        }
     } else if (fn_ref_expr->type == NodeTypeSymbol) {
         Buf *name = hack_get_fn_call_name(g, fn_ref_expr);
         struct_type = nullptr;
