@@ -81,7 +81,7 @@ struct Rand {
     // does not populate the remaining (buf.len % 4) bytes
     fn get_bytes_aligned(r: &Rand, buf: []u8) -> usize {
         var bytes_left = buf.len;
-        while (bytes_left > 4) {
+        while (bytes_left >= 4) {
             // TODO: array access so we can remove .ptr
             *(&buf.ptr[buf.len - bytes_left] as &u32) = r.get_u32();
             bytes_left -= #sizeof(u32);
@@ -104,10 +104,17 @@ pub fn rand_init(r: &Rand, seed: u32) {
 
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     var rand : Rand;
-    rand_init(&rand, 13);
-    const answer = rand.range_u64(0, 100) + 1;
-    print_str("random number: ");
-    print_u64(answer);
-    print_str("\n");
+    var i : u8 = 0;
+    while (i < 20) {
+        rand_init(&rand, i);
+        var j : u8 = 0;
+        while (j < 20) {
+            print_u64(rand.range_u64(0, 100) + 1);
+            print_str(" ");
+            j += 1;
+        }
+        print_str("\n");
+        i += 1;
+    }
     return 0;
 }
