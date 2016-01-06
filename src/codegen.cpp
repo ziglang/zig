@@ -554,7 +554,7 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
             if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFAdd(g->builder, val1, val2, "");
             } else {
-                return LLVMBuildNSWAdd(g->builder, val1, val2, "");
+                return LLVMBuildAdd(g->builder, val1, val2, "");
             }
         case BinOpTypeSub:
         case BinOpTypeAssignMinus:
@@ -562,7 +562,7 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
             if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFSub(g->builder, val1, val2, "");
             } else {
-                return LLVMBuildNSWSub(g->builder, val1, val2, "");
+                return LLVMBuildSub(g->builder, val1, val2, "");
             }
         case BinOpTypeMult:
         case BinOpTypeAssignTimes:
@@ -570,7 +570,7 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
             if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFMul(g->builder, val1, val2, "");
             } else {
-                return LLVMBuildNSWMul(g->builder, val1, val2, "");
+                return LLVMBuildMul(g->builder, val1, val2, "");
             }
         case BinOpTypeDiv:
         case BinOpTypeAssignDiv:
