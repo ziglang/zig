@@ -2179,6 +2179,24 @@ done_looking_at_imports:
     return import_entry;
 }
 
+static ImportTableEntry *add_special_code(CodeGen *g, const char *basename) {
+    Buf *std_dir = buf_create_from_str(ZIG_STD_DIR);
+    Buf *code_basename = buf_create_from_str(basename);
+    Buf path_to_code_src = BUF_INIT;
+    os_path_join(std_dir, code_basename, &path_to_code_src);
+    Buf *abs_full_path = buf_alloc();
+    int err;
+    if ((err = os_path_real(&path_to_code_src, abs_full_path))) {
+        zig_panic("unable to open '%s': %s", buf_ptr(&path_to_code_src), err_str(err));
+    }
+    Buf *import_code = buf_alloc();
+    if ((err = os_fetch_file_path(abs_full_path, import_code))) {
+        zig_panic("unable to open '%s': %s", buf_ptr(&path_to_code_src), err_str(err));
+    }
+
+    return codegen_add_code(g, abs_full_path, std_dir, code_basename, import_code);
+}
+
 void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *source_code) {
     Buf source_path = BUF_INIT;
     os_path_join(src_dir, src_basename, &source_path);
@@ -2192,22 +2210,12 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
 
     g->root_import = codegen_add_code(g, abs_full_path, src_dir, src_basename, source_code);
 
-    if (g->have_exported_main && !g->link_libc && g->out_type != OutTypeLib) {
-        Buf *bootstrap_dir = buf_create_from_str(ZIG_STD_DIR);
-        Buf *bootstrap_basename = buf_create_from_str("bootstrap.zig");
-        Buf path_to_bootstrap_src = BUF_INIT;
-        os_path_join(bootstrap_dir, bootstrap_basename, &path_to_bootstrap_src);
-        Buf *abs_full_path = buf_alloc();
-        if ((err = os_path_real(&path_to_bootstrap_src, abs_full_path))) {
-            zig_panic("unable to open '%s': %s", buf_ptr(&path_to_bootstrap_src), err_str(err));
-        }
-        Buf *import_code = buf_alloc();
-        int err;
-        if ((err = os_fetch_file_path(abs_full_path, import_code))) {
-            zig_panic("unable to open '%s': %s", buf_ptr(&path_to_bootstrap_src), err_str(err));
+    if (!g->link_libc) {
+        if (g->have_exported_main && g->out_type != OutTypeLib) {
+            g->bootstrap_import = add_special_code(g, "bootstrap.zig");
         }
 
-        g->bootstrap_import = codegen_add_code(g, abs_full_path, bootstrap_dir, bootstrap_basename, import_code);
+        add_special_code(g, "builtin.zig");
     }
 
     if (g->verbose) {
@@ -2417,7 +2425,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
         // invoke `ar`
         // example:
         // # static link into libfoo.a
-        // ar cq libfoo.a foo1.o foo2.o 
+        // ar rcs libfoo.a foo1.o foo2.o 
         zig_panic("TODO invoke ar");
         return;
     }

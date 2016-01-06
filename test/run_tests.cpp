@@ -109,6 +109,7 @@ static void add_compiling_test_cases(void) {
 
     add_simple_case("function call", R"SOURCE(
         use "std.zig";
+        use "syscall.zig";
 
         fn empty_function_1() {}
         fn empty_function_2() { return; }
