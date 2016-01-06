@@ -36,7 +36,7 @@ TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use | StructDecl | Variabl
 
 VariableDeclaration : option(FnVisibleMod) (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
 
-StructDecl : many(Directive) token(Struct) token(Symbol) token(LBrace) many(StructMember) token(RBrace)
+StructDecl : many(Directive) option(FnVisibleMod) token(Struct) token(Symbol) token(LBrace) many(StructMember) token(RBrace)
 
 StructMember: StructField | FnDecl
 

@@ -2387,34 +2387,40 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
 FnProto : many(Directive) option(FnVisibleMod) token(Fn) token(Symbol) ParamDeclList option(token(Arrow) Type)
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory) {
-    Token *token = &pc->tokens->at(*token_index);
+    Token *first_token = &pc->tokens->at(*token_index);
 
-    FnProtoVisibMod visib_mod;
+    VisibMod visib_mod;
 
-    if (token->id == TokenIdKeywordPub) {
-        visib_mod = FnProtoVisibModPub;
-        *token_index += 1;
-
-        Token *fn_token = &pc->tokens->at(*token_index);
-        *token_index += 1;
-        ast_expect_token(pc, fn_token, TokenIdKeywordFn);
-    } else if (token->id == TokenIdKeywordExport) {
-        visib_mod = FnProtoVisibModExport;
-        *token_index += 1;
-
-        Token *fn_token = &pc->tokens->at(*token_index);
-        *token_index += 1;
-        ast_expect_token(pc, fn_token, TokenIdKeywordFn);
-    } else if (token->id == TokenIdKeywordFn) {
-        visib_mod = FnProtoVisibModPrivate;
+    if (first_token->id == TokenIdKeywordPub) {
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdKeywordFn) {
+            visib_mod = VisibModPub;
+            *token_index += 2;
+        } else if (mandatory) {
+            ast_invalid_token_error(pc, first_token);
+        } else {
+            return nullptr;
+        }
+    } else if (first_token->id == TokenIdKeywordExport) {
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdKeywordFn) {
+            visib_mod = VisibModExport;
+            *token_index += 2;
+        } else if (mandatory) {
+            ast_invalid_token_error(pc, first_token);
+        } else {
+            return nullptr;
+        }
+    } else if (first_token->id == TokenIdKeywordFn) {
+        visib_mod = VisibModPrivate;
         *token_index += 1;
     } else if (mandatory) {
-        ast_invalid_token_error(pc, token);
+        ast_invalid_token_error(pc, first_token);
     } else {
         return nullptr;
     }
 
-    AstNode *node = ast_create_node(pc, NodeTypeFnProto, token);
+    AstNode *node = ast_create_node(pc, NodeTypeFnProto, first_token);
     node->data.fn_proto.visib_mod = visib_mod;
     node->data.fn_proto.directives = pc->directive_list;
     pc->directive_list = nullptr;
@@ -2584,22 +2590,45 @@ static AstNode *ast_parse_use(ParseContext *pc, int *token_index) {
 }
 
 /*
-StructDecl : many(Directive) token(Struct) token(Symbol) token(LBrace) many(StructMember) token(RBrace)
+StructDecl : many(Directive) option(FnVisibleMod) token(Struct) token(Symbol) token(LBrace) many(StructMember) token(RBrace)
 StructMember: StructField | FnDecl
 StructField : token(Symbol) token(Colon) Type token(Comma)
 */
 static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
-    Token *struct_kw = &pc->tokens->at(*token_index);
-    if (struct_kw->id != TokenIdKeywordStruct)
+    Token *first_token = &pc->tokens->at(*token_index);
+
+    VisibMod visib_mod;
+
+    if (first_token->id == TokenIdKeywordPub) {
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdKeywordStruct) {
+            visib_mod = VisibModPub;
+            *token_index += 2;
+        } else {
+            return nullptr;
+        }
+    } else if (first_token->id == TokenIdKeywordExport) {
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdKeywordStruct) {
+            visib_mod = VisibModExport;
+            *token_index += 2;
+        } else {
+            return nullptr;
+        }
+    } else if (first_token->id == TokenIdKeywordStruct) {
+        visib_mod = VisibModPrivate;
+        *token_index += 1;
+    } else {
         return nullptr;
-    *token_index += 1;
+    }
 
     Token *struct_name = &pc->tokens->at(*token_index);
     *token_index += 1;
     ast_expect_token(pc, struct_name, TokenIdSymbol);
 
-    AstNode *node = ast_create_node(pc, NodeTypeStructDecl, struct_kw);
+    AstNode *node = ast_create_node(pc, NodeTypeStructDecl, first_token);
     ast_buf_from_token(pc, struct_name, &node->data.struct_decl.name);
+    node->data.struct_decl.visib_mod = visib_mod;
 
     ast_eat_token(pc, token_index, TokenIdLBrace);
 

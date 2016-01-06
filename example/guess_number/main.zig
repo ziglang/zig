@@ -1,6 +1,7 @@
 export executable "guess_number";
 
 use "std.zig";
+use "rand.zig";
 
 // TODO don't duplicate these; implement pub const
 const stdout_fileno : isize = 1;
@@ -11,16 +12,16 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
 
     var seed : u32;
     var err : isize;
-    // TODO #sizeof(u32) instead of 4
-    if ({err = os_get_random_bytes(&seed as &u8, 4); err != 4}) {
+    if ({err = os_get_random_bytes(&seed as &u8, #sizeof(u32)); err != #sizeof(u32)}) {
         // TODO full error message
         fprint_str(stderr_fileno, "unable to get random bytes");
         return 1;
     }
 
-    var rand_state = rand_init(seed);
+    var rand : Rand;
+    rand.init(seed);
 
-    const answer = rand_u64(&rand_state, 0, 100) + 1;
+    const answer = rand.range_u64(0, 100) + 1;
 
     print_str("Answer: ");
     print_u64(answer);

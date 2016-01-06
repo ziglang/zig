@@ -1,16 +1,25 @@
-export executable "rand";
-
-use "std.zig";
-
 // Mersenne Twister
 const ARRAY_SIZE : u16 = 624;
 
 /// Use `rand_init` to initialize this state.
-struct Rand {
+pub struct Rand {
     // TODO use ARRAY_SIZE here
     array: [624]u32,
     // TODO use #typeof(ARRAY_SIZE) here
     index: u16,
+
+    /// Initialize random state with the given seed.
+    pub fn init(r: &Rand, seed: u32) {
+        r.index = 0;
+        r.array[0] = seed;
+        var i : #typeof(ARRAY_SIZE) = 1;
+        while (i < ARRAY_SIZE) {
+            const prev_value : u64 = r.array[i - 1];
+            r.array[i] = ((prev_value ^ (prev_value << 30)) * 0x6c078965 + i) as u32;
+            i += 1;
+        }
+    }
+
 
     /// Get 32 bits of randomness.
     pub fn get_u32(r: &Rand) -> u32 {
@@ -90,31 +99,3 @@ struct Rand {
     }
 }
 
-/// Initialize random state with the given seed.
-pub fn rand_init(r: &Rand, seed: u32) {
-    r.index = 0;
-    r.array[0] = seed;
-    var i : #typeof(ARRAY_SIZE) = 1;
-    while (i < ARRAY_SIZE) {
-        const prev_value : u64 = r.array[i - 1];
-        r.array[i] = ((prev_value ^ (prev_value << 30)) * 0x6c078965 + i) as u32;
-        i += 1;
-    }
-}
-
-pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-    var rand : Rand;
-    var i : u8 = 0;
-    while (i < 20) {
-        rand_init(&rand, i);
-        var j : u8 = 0;
-        while (j < 20) {
-            print_u64(rand.range_u64(0, 100) + 1);
-            print_str(" ");
-            j += 1;
-        }
-        print_str("\n");
-        i += 1;
-    }
-    return 0;
-}

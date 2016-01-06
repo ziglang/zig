@@ -2164,7 +2164,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
             assert(proto_node->type == NodeTypeFnProto);
             Buf *proto_name = &proto_node->data.fn_proto.name;
 
-            bool is_private = (proto_node->data.fn_proto.visib_mod == FnProtoVisibModPrivate);
+            bool is_private = (proto_node->data.fn_proto.visib_mod == VisibModPrivate);
 
             if (buf_eql_str(proto_name, "main") && !is_private) {
                 g->have_exported_main = true;
@@ -2287,7 +2287,7 @@ static void generate_h_file(CodeGen *g) {
         assert(proto_node->type == NodeTypeFnProto);
         AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-        if (fn_proto->visib_mod != FnProtoVisibModExport)
+        if (fn_proto->visib_mod != VisibModExport)
             continue;
 
         Buf return_type_c = BUF_INIT;

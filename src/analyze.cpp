@@ -474,7 +474,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
             add_node_error(g, child->data.param_decl.type,
                 buf_sprintf("parameter of type 'unreachable' not allowed"));
         } else if (type_entry->id == TypeTableEntryIdVoid) {
-            if (node->data.fn_proto.visib_mod == FnProtoVisibModExport) {
+            if (node->data.fn_proto.visib_mod == VisibModExport) {
                 add_node_error(g, child->data.param_decl.type,
                     buf_sprintf("parameter of type 'void' not allowed on exported functions"));
             }
@@ -599,8 +599,8 @@ static void preview_fn_def(CodeGen *g, ImportTableEntry *import, AstNode *node, 
 
     auto entry = fn_table->maybe_get(proto_name);
     bool skip = false;
-    bool is_internal = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModExport);
-    bool is_pub = (proto_node->data.fn_proto.visib_mod != FnProtoVisibModPrivate);
+    bool is_internal = (proto_node->data.fn_proto.visib_mod != VisibModExport);
+    bool is_pub = (proto_node->data.fn_proto.visib_mod != VisibModPrivate);
     if (entry) {
         add_node_error(g, node,
                 buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
@@ -2199,7 +2199,7 @@ static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNo
     node->codegen_node->data.fn_def_node.block_context = context;
 
     AstNodeFnProto *fn_proto = &fn_proto_node->data.fn_proto;
-    bool is_exported = (fn_proto->visib_mod == FnProtoVisibModExport);
+    bool is_exported = (fn_proto->visib_mod == VisibModExport);
     for (int i = 0; i < fn_proto->params.length; i += 1) {
         AstNode *param_decl_node = fn_proto->params.at(i);
         assert(param_decl_node->type == NodeTypeParamDecl);
@@ -2293,7 +2293,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                             break;
 
                         FnTableEntry *fn_entry = entry->value;
-                        bool is_pub = (fn_entry->proto_node->data.fn_proto.visib_mod != FnProtoVisibModPrivate);
+                        bool is_pub = (fn_entry->proto_node->data.fn_proto.visib_mod != VisibModPrivate);
                         if (is_pub) {
                             auto existing_entry = import->fn_table.maybe_get(entry->key);
                             if (existing_entry) {
@@ -2302,6 +2302,32 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                                         buf_ptr(&fn_entry->proto_node->data.fn_proto.name)));
                             } else {
                                 import->fn_table.put(entry->key, entry->value);
+                            }
+                        }
+                    }
+                }
+
+                // import all the public types
+                {
+                    auto it = target_import->type_table.entry_iterator();
+                    for (;;) {
+                        auto *entry = it.next();
+                        if (!entry)
+                            break;
+
+                        TypeTableEntry *type_entry = entry->value;
+                        if (type_entry->id == TypeTableEntryIdStruct) {
+                            AstNode *decl_node = type_entry->data.structure.decl_node;
+                            bool is_pub = (decl_node->data.struct_decl.visib_mod != VisibModPrivate);
+                            if (is_pub) {
+                                auto existing_entry = import->type_table.maybe_get(entry->key);
+                                if (existing_entry) {
+                                    add_node_error(g, node,
+                                        buf_sprintf("import of type '%s' overrides existing definition",
+                                            buf_ptr(&type_entry->name)));
+                                } else {
+                                    import->type_table.put(entry->key, entry->value);
+                                }
                             }
                         }
                     }
