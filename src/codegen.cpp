@@ -542,8 +542,11 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
             return LLVMBuildShl(g->builder, val1, val2, "");
         case BinOpTypeBitShiftRight:
         case BinOpTypeAssignBitShiftRight:
+            assert(op1_type->id == TypeTableEntryIdInt);
+            assert(op2_type->id == TypeTableEntryIdInt);
+
             add_debug_source_node(g, source_node);
-            if (op1_type->id == TypeTableEntryIdInt) {
+            if (op1_type->data.integral.is_signed) {
                 return LLVMBuildAShr(g->builder, val1, val2, "");
             } else {
                 return LLVMBuildLShr(g->builder, val1, val2, "");
