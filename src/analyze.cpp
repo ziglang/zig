@@ -23,6 +23,8 @@ static AstNode *first_executing_node(AstNode *node) {
             return first_executing_node(node->data.bin_op_expr.op1);
         case NodeTypeArrayAccessExpr:
             return first_executing_node(node->data.array_access_expr.array_ref_expr);
+        case NodeTypeSliceExpr:
+            return first_executing_node(node->data.slice_expr.array_ref_expr);
         case NodeTypeFieldAccessExpr:
             return first_executing_node(node->data.field_access_expr.struct_expr);
         case NodeTypeCastExpr:
@@ -875,6 +877,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeBinOpExpr:
         case NodeTypeFnCallExpr:
         case NodeTypeArrayAccessExpr:
+        case NodeTypeSliceExpr:
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
@@ -950,6 +953,7 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeBinOpExpr:
         case NodeTypeFnCallExpr:
         case NodeTypeArrayAccessExpr:
+        case NodeTypeSliceExpr:
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
@@ -1349,6 +1353,50 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
     return return_type;
 }
 
+static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        AstNode *node)
+{
+    TypeTableEntry *array_type = analyze_expression(g, import, context, nullptr,
+            node->data.slice_expr.array_ref_expr);
+
+    TypeTableEntry *return_type;
+
+    if (array_type->id == TypeTableEntryIdInvalid) {
+        return_type = g->builtin_types.entry_invalid;
+    } else if (array_type->id == TypeTableEntryIdArray) {
+        return_type = get_unknown_size_array_type(g, import, array_type->data.array.child_type,
+                node->data.slice_expr.is_const);
+    } else if (array_type->id == TypeTableEntryIdPointer) {
+        return_type = get_unknown_size_array_type(g, import, array_type->data.pointer.child_type,
+                node->data.slice_expr.is_const);
+    } else if (array_type->id == TypeTableEntryIdStruct &&
+               array_type->data.structure.is_unknown_size_array)
+    {
+        return_type = get_unknown_size_array_type(g, import,
+                array_type->data.structure.fields[0].type_entry,
+                node->data.slice_expr.is_const);
+    } else {
+        add_node_error(g, node,
+            buf_sprintf("slice of non-array type '%s'", buf_ptr(&array_type->name)));
+        return_type = g->builtin_types.entry_invalid;
+    }
+
+    if (return_type->id != TypeTableEntryIdInvalid) {
+        assert(node->codegen_node);
+        node->codegen_node->data.struct_val_expr_node.type_entry = return_type;
+        node->codegen_node->data.struct_val_expr_node.source_node = node;
+        context->struct_val_expr_alloca_list.append(&node->codegen_node->data.struct_val_expr_node);
+    }
+
+    analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.slice_expr.start);
+
+    if (node->data.slice_expr.end) {
+        analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.slice_expr.end);
+    }
+
+    return return_type;
+}
+
 static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         AstNode *node)
 {
@@ -1363,7 +1411,8 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
         return_type = array_type->data.pointer.child_type;
     } else {
         if (array_type->id != TypeTableEntryIdInvalid) {
-            add_node_error(g, node, buf_sprintf("array access of non-array"));
+            add_node_error(g, node,
+                    buf_sprintf("array access of non-array type '%s'", buf_ptr(&array_type->name)));
         }
         return_type = g->builtin_types.entry_invalid;
     }
@@ -2197,6 +2246,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             // for reading array access; assignment handled elsewhere
             return_type = analyze_array_access_expr(g, import, context, node);
             break;
+        case NodeTypeSliceExpr:
+            return_type = analyze_slice_expr(g, import, context, node);
+            break;
         case NodeTypeFieldAccessExpr:
             return_type = analyze_field_access_expr(g, import, context, node);
             break;
@@ -2541,6 +2593,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeBinOpExpr:
         case NodeTypeFnCallExpr:
         case NodeTypeArrayAccessExpr:
+        case NodeTypeSliceExpr:
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:

@@ -907,6 +907,35 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
         "min i16: -32768\n"
         "min i32: -2147483648\n"
         "min i64: -9223372036854775808\n");
+
+
+    add_simple_case("slicing", R"SOURCE(
+use "std.zig";
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    var array : [20]i32;
+
+    array[5] = 1234;
+
+    var slice = array[5...10];
+
+    if (slice.len != 5) {
+        print_str("BAD\n");
+    }
+
+    if (slice.ptr[0] != 1234) {
+        print_str("BAD\n");
+    }
+
+    var slice_rest = array[10...];
+    if (slice_rest.len != 10) {
+        print_str("BAD\n");
+    }
+
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////////

@@ -355,9 +355,11 @@ struct CodeGenNode {
         StructDeclNode struct_decl_node; // for NodeTypeStructDecl
         FieldAccessNode field_access_node; // for NodeTypeFieldAccessExpr
         CastNode cast_node; // for NodeTypeCastExpr
+        // note: I've been using this field on some non-number literal nodes too.
         NumberLiteralNode num_lit_node; // for NodeTypeNumberLiteral
         VarDeclNode var_decl_node; // for NodeTypeVariableDeclaration
         StructValFieldNode struct_val_field_node; // for NodeTypeStructValueField
+        // note: I've been using this field on some non-struct val expressions too.
         StructValExprNode struct_val_expr_node; // for NodeTypeStructValueExpr
         IfVarNode if_var_node; // for NodeTypeStructValueExpr
         ParamDeclNode param_decl_node; // for NodeTypeParamDecl

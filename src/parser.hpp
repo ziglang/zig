@@ -41,6 +41,7 @@ enum NodeType {
     NodeTypePrefixOpExpr,
     NodeTypeFnCallExpr,
     NodeTypeArrayAccessExpr,
+    NodeTypeSliceExpr,
     NodeTypeFieldAccessExpr,
     NodeTypeUse,
     NodeTypeVoid,
@@ -179,6 +180,13 @@ struct AstNodeFnCallExpr {
 struct AstNodeArrayAccessExpr {
     AstNode *array_ref_expr;
     AstNode *subscript;
+};
+
+struct AstNodeSliceExpr {
+    AstNode *array_ref_expr;
+    AstNode *start;
+    AstNode *end;
+    bool is_const;
 };
 
 struct AstNodeFieldAccessExpr {
@@ -378,6 +386,7 @@ struct AstNode {
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodeFnCallExpr fn_call_expr;
         AstNodeArrayAccessExpr array_access_expr;
+        AstNodeSliceExpr slice_expr;
         AstNodeUse use;
         AstNodeIfBoolExpr if_bool_expr;
         AstNodeIfVarExpr if_var_expr;

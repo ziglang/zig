@@ -148,13 +148,15 @@ CastExpression : CastExpression token(as) Type | PrefixOpExpression
 
 PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
 
-SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression)
+SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 
 FieldAccessExpression : token(Dot) token(Symbol)
 
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
+
+SliceExpression : token(LBracket) Expression token(Ellipsis) option(Expression) token(RBracket) option(token(Const))
 
 PrefixOp : token(Not) | token(Dash) | token(Tilde) | token(Star) | (token(Ampersand) option(token(Const)))
 

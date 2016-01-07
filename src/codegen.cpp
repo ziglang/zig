@@ -215,25 +215,33 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     }
 }
 
-static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeArrayAccessExpr);
-
-    AstNode *array_expr_node = node->data.array_access_expr.array_ref_expr;
-    TypeTableEntry *type_entry = get_expr_type(array_expr_node);
+static LLVMValueRef gen_array_base_ptr(CodeGen *g, AstNode *node) {
+    TypeTableEntry *type_entry = get_expr_type(node);
 
     LLVMValueRef array_ptr;
-    if (array_expr_node->type == NodeTypeFieldAccessExpr) {
-        array_ptr = gen_field_access_expr(g, array_expr_node, true);
+    if (node->type == NodeTypeFieldAccessExpr) {
+        array_ptr = gen_field_access_expr(g, node, true);
         if (type_entry->id == TypeTableEntryIdPointer) {
             // we have a double pointer so we must dereference it once
             add_debug_source_node(g, node);
             array_ptr = LLVMBuildLoad(g->builder, array_ptr, "");
         }
     } else {
-        array_ptr = gen_expr(g, array_expr_node);
+        array_ptr = gen_expr(g, node);
     }
 
     assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
+
+    return array_ptr;
+}
+
+static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeArrayAccessExpr);
+
+    AstNode *array_expr_node = node->data.array_access_expr.array_ref_expr;
+    TypeTableEntry *type_entry = get_expr_type(array_expr_node);
+
+    LLVMValueRef array_ptr = gen_array_base_ptr(g, array_expr_node);
 
     LLVMValueRef subscript_value = gen_expr(g, node->data.array_access_expr.subscript);
     assert(subscript_value);
@@ -297,6 +305,48 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
 
     add_debug_source_node(g, node);
     return LLVMBuildStructGEP(g->builder, struct_ptr, codegen_field_access->field_index, "");
+}
+
+static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeSliceExpr);
+
+    AstNode *array_ref_node = node->data.slice_expr.array_ref_expr;
+    TypeTableEntry *array_type = get_expr_type(array_ref_node);
+
+    LLVMValueRef tmp_struct_ptr = node->codegen_node->data.struct_val_expr_node.ptr;
+
+    if (array_type->id == TypeTableEntryIdArray) {
+        LLVMValueRef array_ptr = gen_array_base_ptr(g, array_ref_node);
+        LLVMValueRef start_val = gen_expr(g, node->data.slice_expr.start);
+        LLVMValueRef end_val;
+        if (node->data.slice_expr.end) {
+            end_val = gen_expr(g, node->data.slice_expr.end);
+        } else {
+            end_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, array_type->data.array.len, false);
+        }
+
+        add_debug_source_node(g, node);
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 0, "");
+        LLVMValueRef indices[] = {
+            LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+            start_val,
+        };
+        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
+        LLVMBuildStore(g->builder, slice_start_ptr, ptr_field_ptr);
+
+        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 1, "");
+        LLVMValueRef len_value = LLVMBuildSub(g->builder, end_val, start_val, "");
+        LLVMBuildStore(g->builder, len_value, len_field_ptr);
+
+        return tmp_struct_ptr;
+    } else if (array_type->id == TypeTableEntryIdPointer) {
+        zig_panic("TODO gen_slice_expr pointer");
+    } else if (array_type->id == TypeTableEntryIdStruct) {
+        assert(array_type->data.structure.is_unknown_size_array);
+        zig_panic("TODO gen_slice_expr unknown size array");
+    } else {
+        zig_unreachable();
+    }
 }
 
 static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node, bool is_lvalue) {
@@ -1443,6 +1493,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
             return gen_fn_call_expr(g, node);
         case NodeTypeArrayAccessExpr:
             return gen_array_access_expr(g, node, false);
+        case NodeTypeSliceExpr:
+            return gen_slice_expr(g, node);
         case NodeTypeFieldAccessExpr:
             return gen_field_access_expr(g, node, false);
         case NodeTypeUnreachable:

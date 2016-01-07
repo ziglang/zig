@@ -90,6 +90,8 @@ const char *node_type_str(NodeType node_type) {
             return "FnCallExpr";
         case NodeTypeArrayAccessExpr:
             return "ArrayAccessExpr";
+        case NodeTypeSliceExpr:
+            return "SliceExpr";
         case NodeTypeExternBlock:
             return "ExternBlock";
         case NodeTypeDirective:
@@ -297,6 +299,14 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "%s\n", node_type_str(node->type));
             ast_print(node->data.array_access_expr.array_ref_expr, indent + 2);
             ast_print(node->data.array_access_expr.subscript, indent + 2);
+            break;
+        case NodeTypeSliceExpr:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            ast_print(node->data.slice_expr.array_ref_expr, indent + 2);
+            ast_print(node->data.slice_expr.start, indent + 2);
+            if (node->data.slice_expr.end) {
+                ast_print(node->data.slice_expr.end, indent + 2);
+            }
             break;
         case NodeTypeDirective:
             fprintf(stderr, "%s\n", node_type_str(node->type));
@@ -1381,9 +1391,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression)
+SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
+SliceExpression : token(LBracket) Expression token(Ellipsis) option(Expression) token(RBracket) option(token(Const))
 FieldAccessExpression : token(Dot) token(Symbol)
 */
 static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, int *token_index, bool mandatory) {
@@ -1405,15 +1416,38 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, int *token_index, boo
         } else if (token->id == TokenIdLBracket) {
             *token_index += 1;
 
-            AstNode *node = ast_create_node(pc, NodeTypeArrayAccessExpr, token);
-            node->data.array_access_expr.array_ref_expr = primary_expr;
-            node->data.array_access_expr.subscript = ast_parse_expression(pc, token_index, true);
+            AstNode *expr_node = ast_parse_expression(pc, token_index, true);
 
-            Token *r_bracket = &pc->tokens->at(*token_index);
-            *token_index += 1;
-            ast_expect_token(pc, r_bracket, TokenIdRBracket);
+            Token *ellipsis_or_r_bracket = &pc->tokens->at(*token_index);
 
-            primary_expr = node;
+            if (ellipsis_or_r_bracket->id == TokenIdEllipsis) {
+                *token_index += 1;
+
+                AstNode *node = ast_create_node(pc, NodeTypeSliceExpr, token);
+                node->data.slice_expr.array_ref_expr = primary_expr;
+                node->data.slice_expr.start = expr_node;
+                node->data.slice_expr.end = ast_parse_expression(pc, token_index, false);
+
+                ast_eat_token(pc, token_index, TokenIdRBracket);
+
+                Token *const_tok = &pc->tokens->at(*token_index);
+                if (const_tok->id == TokenIdKeywordConst) {
+                    *token_index += 1;
+                    node->data.slice_expr.is_const = true;
+                }
+
+                primary_expr = node;
+            } else if (ellipsis_or_r_bracket->id == TokenIdRBracket) {
+                *token_index += 1;
+
+                AstNode *node = ast_create_node(pc, NodeTypeArrayAccessExpr, token);
+                node->data.array_access_expr.array_ref_expr = primary_expr;
+                node->data.array_access_expr.subscript = expr_node;
+
+                primary_expr = node;
+            } else {
+                ast_invalid_token_error(pc, token);
+            }
         } else if (token->id == TokenIdDot) {
             *token_index += 1;
 
