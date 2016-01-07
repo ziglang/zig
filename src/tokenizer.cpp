@@ -816,6 +816,15 @@ void tokenize(Buf *buf, Tokenization *out) {
             case TokenizeStateNumber:
                 {
                     if (c == '.') {
+                        if (t.pos + 1 < buf_len(t.buf)) {
+                            uint8_t next_c = buf_ptr(t.buf)[t.pos + 1];
+                            if (next_c == '.') {
+                                t.pos -= 1;
+                                end_token(&t);
+                                t.state = TokenizeStateStart;
+                                continue;
+                            }
+                        }
                         t.cur_tok->decimal_point_pos = t.pos;
                         t.state = TokenizeStateFloatFraction;
                         break;
