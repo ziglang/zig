@@ -67,9 +67,6 @@ pub struct Rand {
                 return start + (rand_val % range);
             }
         }
-        // TODO detect simple constant in while loop and no breaks and turn it into unreachable
-        // type. then we can remove this unreachable.
-        unreachable;
     }
 
     fn generate_numbers(r: &Rand) {

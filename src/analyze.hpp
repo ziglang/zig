@@ -244,8 +244,8 @@ struct BlockContext {
     HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
     ZigList<CastNode *> cast_expr_alloca_list;
     ZigList<StructValExprNode *> struct_val_expr_alloca_list;
-    bool break_allowed;
-    bool next_child_break_allowed;
+    AstNode *parent_loop_node;
+    AstNode *next_child_parent_loop_node;
     LLVMZigDIScope *di_scope;
 };
 
@@ -340,6 +340,10 @@ struct ImportNode {
     ImportTableEntry *import;
 };
 
+struct WhileNode {
+    bool contains_break;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
@@ -358,6 +362,7 @@ struct CodeGenNode {
         IfVarNode if_var_node; // for NodeTypeStructValueExpr
         ParamDeclNode param_decl_node; // for NodeTypeParamDecl
         ImportNode import_node; // for NodeTypeUse
+        WhileNode while_node; // for NodeTypeWhileExpr
     } data;
     ExprNode expr_node; // for all the expression nodes
 };

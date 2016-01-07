@@ -683,7 +683,12 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
         print_str("loop\n");
         i += 1;
     }
-    return 0;
+    return f();
+}
+fn f() -> i32 {
+    while (true) {
+        return 0;
+    }
 }
     )SOURCE", "loop\nloop\nloop\nloop\n");
 
@@ -1168,13 +1173,13 @@ fn f() {
 fn f() {
     break;
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: 'break' expression not in loop");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: 'break' expression outside loop");
 
     add_compile_fail_case("invalid continue expression", R"SOURCE(
 fn f() {
     continue;
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: 'continue' expression not in loop");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: 'continue' expression outside loop");
 
     add_compile_fail_case("invalid maybe type", R"SOURCE(
 fn f() {

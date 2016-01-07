@@ -27,6 +27,8 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     print_u64(answer);
     print_str("\n");
 
+    return 0;
+
     /*
     while (true) {
         const line = readline("\nGuess a number between 1 and 100: ");
@@ -45,6 +47,4 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
         }
     }
     */
-
-    return 0;
 }
