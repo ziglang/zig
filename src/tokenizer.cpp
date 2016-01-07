@@ -241,6 +241,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordContinue;
     } else if (mem_eql_str(token_mem, token_len, "break")) {
         t->cur_tok->id = TokenIdKeywordBreak;
+    } else if (mem_eql_str(token_mem, token_len, "null")) {
+        t->cur_tok->id = TokenIdKeywordNull;
     }
 
     t->cur_tok = nullptr;
@@ -418,6 +420,11 @@ void tokenize(Buf *buf, Tokenization *out) {
                 break;
             case TokenizeStateSawQuestionMark:
                 switch (c) {
+                    case '?':
+                        t.cur_tok->id = TokenIdDoubleQuestion;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
                     case '=':
                         t.cur_tok->id = TokenIdMaybeAssign;
                         end_token(&t);
@@ -1002,6 +1009,7 @@ static const char * token_name(Token *token) {
         case TokenIdKeywordWhile: return "While";
         case TokenIdKeywordContinue: return "Continue";
         case TokenIdKeywordBreak: return "Break";
+        case TokenIdKeywordNull: return "Null";
         case TokenIdLParen: return "LParen";
         case TokenIdRParen: return "RParen";
         case TokenIdComma: return "Comma";
@@ -1052,6 +1060,7 @@ static const char * token_name(Token *token) {
         case TokenIdDot: return "Dot";
         case TokenIdEllipsis: return "Ellipsis";
         case TokenIdMaybe: return "Maybe";
+        case TokenIdDoubleQuestion: return "DoubleQuestion";
         case TokenIdMaybeAssign: return "MaybeAssign";
     }
     return "(invalid token)";

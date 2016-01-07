@@ -14,7 +14,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     var err : isize;
     if ({err = os_get_random_bytes(&seed as &u8, #sizeof(u32)); err != #sizeof(u32)}) {
         // TODO full error message
-        fprint_str(stderr_fileno, "unable to get random bytes");
+        fprint_str(stderr_fileno, "unable to get random bytes\n");
         return 1;
     }
 
@@ -27,11 +27,14 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     print_u64(answer);
     print_str("\n");
 
-    return 0;
-
-    /*
     while (true) {
-        const line = readline("\nGuess a number between 1 and 100: ");
+        print_str("\nGuess a number between 1 and 100: ");
+        var line_buf : [20]u8;
+        const line = readline(line_buf) ?? {
+            // TODO full error message
+            fprint_str(stderr_fileno, "unable to read input\n");
+            return 1;
+        };
 
         if (const guess ?= parse_u64(line)) {
             if (guess > answer) {
@@ -46,5 +49,4 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
             print_str("Invalid number format.\n");
         }
     }
-    */
 }

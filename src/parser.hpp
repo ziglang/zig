@@ -45,6 +45,7 @@ enum NodeType {
     NodeTypeUse,
     NodeTypeVoid,
     NodeTypeBoolLiteral,
+    NodeTypeNullLiteral,
     NodeTypeIfBoolExpr,
     NodeTypeIfVarExpr,
     NodeTypeWhileExpr,
@@ -161,6 +162,7 @@ enum BinOpType {
     BinOpTypeMult,
     BinOpTypeDiv,
     BinOpTypeMod,
+    BinOpTypeUnwrapMaybe,
 };
 
 struct AstNodeBinOpExpr {

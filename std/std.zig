@@ -1,5 +1,6 @@
 use "syscall.zig";
 
+const stdin_fileno : isize = 0;
 const stdout_fileno : isize = 1;
 const stderr_fileno : isize = 2;
 
@@ -37,6 +38,26 @@ pub fn print_i64(x: i64) -> isize {
     const len = buf_print_i64(buf.ptr, x);
     return write(stdout_fileno, buf.ptr, len);
 }
+
+/*
+// TODO error handling
+pub fn readline(buf: []u8) -> ?[]u8 {
+    var index = 0;
+    while (index < buf.len) {
+        // TODO unknown size array indexing operator
+        const err = read(stdin_fileno, &buf.ptr[index], 1);
+        if (err != 0) {
+            return null;
+        }
+        // TODO unknown size array indexing operator
+        if (buf.ptr[index] == '\n') {
+            return buf[0...index + 1];
+        }
+        index += 1;
+    }
+    return null;
+}
+*/
 
 fn digit_to_char(digit: u64) -> u8 {
     '0' + (digit as u8)

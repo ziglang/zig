@@ -14,6 +14,7 @@ syn keyword zigStatement goto break return continue asm
 syn keyword zigConditional if else match
 syn keyword zigRepeat while for
 
+syn keyword zigConstant null
 syn keyword zigKeyword fn unreachable use void
 syn keyword zigType bool i8 u8 i16 u16 i32 u32 i64 u64 isize usize f32 f64 f128 string
 
@@ -27,6 +28,12 @@ syn match zigDecNumber display "\<[0-9][0-9_]*\%([iu]\%(size\|8\|16\|32\|64\)\)\
 syn match zigHexNumber display "\<0x[a-fA-F0-9_]\+\%([iu]\%(size\|8\|16\|32\|64\)\)\="
 syn match zigOctNumber display "\<0o[0-7_]\+\%([iu]\%(size\|8\|16\|32\|64\)\)\="
 syn match zigBinNumber display "\<0b[01_]\+\%([iu]\%(size\|8\|16\|32\|64\)\)\="
+
+
+syn match zigCharacterInvalid display contained /b\?'\zs[\n\r\t']\ze'/
+syn match zigCharacterInvalidUnicode display contained /b'\zs[^[:cntrl:][:graph:][:alnum:][:space:]]\ze'/
+syn match zigCharacter /b'\([^\\]\|\\\(.\|x\x\{2}\)\)'/ contains=zigEscape,zigEscapeError,zigCharacterInvalid,zigCharacterInvalidUnicode
+syn match zigCharacter /'\([^\\]\|\\\(.\|x\x\{2}\|u\x\{4}\|U\x\{8}\|u{\x\{1,6}}\)\)'/ contains=zigEscape,zigEscapeUnicode,zigEscapeError,zigCharacterInvalid
 
 syn match zigShebang /\%^#![^[].*/
 
@@ -64,6 +71,9 @@ hi def link zigCommentBlockDoc zigCommentLineDoc
 hi def link zigTodo Todo
 hi def link zigStringContinuation Special
 hi def link zigString String
+hi def link zigCharacterInvalid Error
+hi def link zigCharacterInvalidUnicode zigCharacterInvalid
+hi def link zigCharacter Character
 hi def link zigEscape Special
 hi def link zigEscapeUnicode zigEscape
 hi def link zigEscapeError Error

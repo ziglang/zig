@@ -48,6 +48,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeUse:
         case NodeTypeVoid:
         case NodeTypeBoolLiteral:
+        case NodeTypeNullLiteral:
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
         case NodeTypeLabel:
@@ -358,6 +359,7 @@ static TypeTableEntry *eval_const_expr_bin_op(CodeGen *g, BlockContext *context,
         case BinOpTypeSub:
         case BinOpTypeMult:
         case BinOpTypeDiv:
+        case BinOpTypeUnwrapMaybe:
             return g->builtin_types.entry_invalid;
         case BinOpTypeInvalid:
         case BinOpTypeAssign:
@@ -387,6 +389,8 @@ static TypeTableEntry *eval_const_expr(CodeGen *g, BlockContext *context,
             return node->codegen_node->expr_node.type_entry;
         case NodeTypeBoolLiteral:
             out_number_literal->data.x_uint = node->data.bool_literal ? 1 : 0;
+            return node->codegen_node->expr_node.type_entry;
+        case NodeTypeNullLiteral:
             return node->codegen_node->expr_node.type_entry;
         case NodeTypeBinOpExpr:
             return eval_const_expr_bin_op(g, context, node, out_number_literal);
@@ -877,6 +881,7 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeUnreachable:
         case NodeTypeVoid:
         case NodeTypeBoolLiteral:
+        case NodeTypeNullLiteral:
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
@@ -951,6 +956,7 @@ static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
         case NodeTypeUnreachable:
         case NodeTypeVoid:
         case NodeTypeBoolLiteral:
+        case NodeTypeNullLiteral:
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:
@@ -1018,7 +1024,7 @@ static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type,
                 return false;
             }
         case TypeTableEntryIdMaybe:
-            return num_lit_fits_in_other_type(g, literal_type, other_type->data.maybe.child_type);
+            return false;
     }
     zig_unreachable();
 }
@@ -1133,6 +1139,9 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
     if (actual_type->id == TypeTableEntryIdNumberLiteral &&
         num_lit_fits_in_other_type(g, actual_type, expected_type))
     {
+        assert(!node->codegen_node->data.num_lit_node.resolved_type ||
+                node->codegen_node->data.num_lit_node.resolved_type == expected_type);
+        node->codegen_node->data.num_lit_node.resolved_type = expected_type;
         return expected_type;
     }
 
@@ -1419,6 +1428,7 @@ static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
         case BinOpTypeMult:
         case BinOpTypeDiv:
         case BinOpTypeMod:
+        case BinOpTypeUnwrapMaybe:
             zig_unreachable();
     }
     zig_unreachable();
@@ -1619,6 +1629,24 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
 
                 return resolve_peer_type_compatibility(g, context, node, op1, op2, lhs_type, rhs_type);
             }
+        case BinOpTypeUnwrapMaybe:
+            {
+                AstNode *op1 = node->data.bin_op_expr.op1;
+                AstNode *op2 = node->data.bin_op_expr.op2;
+                TypeTableEntry *lhs_type = analyze_expression(g, import, context, nullptr, op1);
+
+                if (lhs_type->id == TypeTableEntryIdInvalid) {
+                    return lhs_type;
+                } else if (lhs_type->id == TypeTableEntryIdMaybe) {
+                    TypeTableEntry *child_type = lhs_type->data.maybe.child_type;
+                    analyze_expression(g, import, context, child_type, op2);
+                    return child_type;
+                } else {
+                    add_node_error(g, op1,
+                        buf_sprintf("expected maybe type, got '%s'",
+                            buf_ptr(&lhs_type->name)));
+                }
+            }
         case BinOpTypeInvalid:
             zig_unreachable();
     }
@@ -1695,6 +1723,27 @@ static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableE
     return analyze_variable_declaration_raw(g, import, context, node, variable_declaration, false);
 }
 
+static TypeTableEntry *analyze_null_literal_expr(CodeGen *g, ImportTableEntry *import,
+        BlockContext *block_context, TypeTableEntry *expected_type, AstNode *node)
+{
+    assert(node->type == NodeTypeNullLiteral);
+
+    if (expected_type) {
+        assert(expected_type->id == TypeTableEntryIdMaybe);
+
+        assert(node->codegen_node);
+        node->codegen_node->data.struct_val_expr_node.type_entry = expected_type;
+        node->codegen_node->data.struct_val_expr_node.source_node = node;
+        block_context->struct_val_expr_alloca_list.append(&node->codegen_node->data.struct_val_expr_node);
+
+        return expected_type;
+    } else {
+        add_node_error(g, node,
+                buf_sprintf("unable to determine null type"));
+        return g->builtin_types.entry_invalid;
+    }
+}
+
 static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry *import,
         BlockContext *block_context, TypeTableEntry *expected_type, AstNode *node)
 {
@@ -1706,8 +1755,11 @@ static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry 
     } else if (expected_type) {
         NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
         assert(!codegen_num_lit->resolved_type);
-        codegen_num_lit->resolved_type = resolve_type_compatibility(g, block_context, node, expected_type, num_lit_type);
-        return codegen_num_lit->resolved_type;
+        TypeTableEntry *after_implicit_cast_resolved_type =
+            resolve_type_compatibility(g, block_context, node, expected_type, num_lit_type);
+        assert(codegen_num_lit->resolved_type ||
+                after_implicit_cast_resolved_type->id == TypeTableEntryIdInvalid);
+        return after_implicit_cast_resolved_type;
     } else {
         return num_lit_type;
     }
@@ -2174,6 +2226,10 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             return_type = g->builtin_types.entry_bool;
             break;
 
+        case NodeTypeNullLiteral:
+            return_type = analyze_null_literal_expr(g, import, context, expected_type, node);
+            break;
+
         case NodeTypeSymbol:
             {
                 return_type = analyze_variable_name(g, import, context, node, &node->data.symbol);
@@ -2491,6 +2547,7 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeUnreachable:
         case NodeTypeVoid:
         case NodeTypeBoolLiteral:
+        case NodeTypeNullLiteral:
         case NodeTypeSymbol:
         case NodeTypeCastExpr:
         case NodeTypePrefixOpExpr:

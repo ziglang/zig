@@ -98,7 +98,9 @@ AsmInputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token
 
 AsmClobbers: token(Colon) list(token(String), token(Comma))
 
-AssignmentExpression : BoolOrExpression AssignmentOperator BoolOrExpression | BoolOrExpression
+UnwrapMaybeExpression : BoolOrExpression token(DoubleQuestion) BoolOrExpression | BoolOrExpression
+
+AssignmentExpression : UnwrapMaybeExpression AssignmentOperator UnwrapMaybeExpression | UnwrapMaybeExpression
 
 AssignmentOperator : token(Eq) | token(TimesEq) | token(DivEq) | token(ModEq) | token(PlusEq) | token(MinusEq) | token(BitShiftLeftEq) | token(BitShiftRightEq) | token(BitAndEq) | token(BitXorEq) | token(BitOrEq) | token(BoolAndEq) | token(BoolOrEq) 
 
@@ -166,7 +168,7 @@ Goto: token(Goto) token(Symbol)
 
 GroupedExpression : token(LParen) Expression token(RParen)
 
-KeywordLiteral : token(Unreachable) | token(Void) | token(True) | token(False)
+KeywordLiteral : token(Unreachable) | token(Void) | token(True) | token(False) | token(Null)
 ```
 
 ## Operator Precedence
@@ -184,6 +186,7 @@ as
 == != < > <= >=
 &&
 ||
+??
 = *= /= %= += -= <<= >>= &= ^= |= &&= ||=
 ```
 
@@ -192,7 +195,7 @@ as
 ### Characters and Strings
 
                 | Example  | Characters  | Escapes        | Null Term | Type
----------------------------------------------------------------------------------
+----------------|----------|-------------|----------------|-----------|----------
  Byte           | 'H'      | All ASCII   | Byte           | No        | u8
  UTF-8 Bytes    | "hello"  | All Unicode | Byte & Unicode | No        | [5; u8]
  UTF-8 C string | c"hello" | All Unicode | Byte & Unicode | Yes       | *const u8
@@ -200,7 +203,7 @@ as
 ### Byte Escapes
 
       | Name
------------------------------------------------
+------|----------------------------------------
  \x7F | 8-bit character code (exactly 2 digits)
  \n   | Newline
  \r   | Carriage return
@@ -213,13 +216,13 @@ as
 ### Unicode Escapes
 
           | Name
-----------------------------------------------------------
+----------|-----------------------------------------------
  \u{7FFF} | 24-bit Unicode character code (up to 6 digits)
 
 ### Numbers
 
  Number literals    | Example     | Exponentiation
---------------------------------------------------
+--------------------|-------------|---------------
  Decimal integer    | 98222       | N/A
  Hex integer        | 0xff        | N/A
  Octal integer      | 0o77        | N/A

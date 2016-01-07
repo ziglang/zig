@@ -35,6 +35,7 @@ enum TokenId {
     TokenIdKeywordWhile,
     TokenIdKeywordContinue,
     TokenIdKeywordBreak,
+    TokenIdKeywordNull,
     TokenIdLParen,
     TokenIdRParen,
     TokenIdComma,
@@ -85,6 +86,7 @@ enum TokenId {
     TokenIdDot,
     TokenIdEllipsis,
     TokenIdMaybe,
+    TokenIdDoubleQuestion,
     TokenIdMaybeAssign,
 };
 

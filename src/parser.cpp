@@ -48,6 +48,7 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeAssignBitOr:         return "|=";
         case BinOpTypeAssignBoolAnd:       return "&&=";
         case BinOpTypeAssignBoolOr:        return "||=";
+        case BinOpTypeUnwrapMaybe:         return "??";
     }
     zig_unreachable();
 }
@@ -117,6 +118,8 @@ const char *node_type_str(NodeType node_type) {
             return "Void";
         case NodeTypeBoolLiteral:
             return "BoolLiteral";
+        case NodeTypeNullLiteral:
+            return "NullLiteral";
         case NodeTypeIfBoolExpr:
             return "IfBoolExpr";
         case NodeTypeIfVarExpr:
@@ -348,6 +351,9 @@ void ast_print(AstNode *node, int indent) {
             break;
         case NodeTypeBoolLiteral:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), node->data.bool_literal ? "true" : "false");
+            break;
+        case NodeTypeNullLiteral:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
             break;
         case NodeTypeIfBoolExpr:
             fprintf(stderr, "%s\n", node_type_str(node->type));
@@ -1280,6 +1286,7 @@ static AstNode *ast_parse_struct_val_expr(ParseContext *pc, int *token_index) {
 
 /*
 PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression | CompilerFnType
+KeywordLiteral : token(Unreachable) | token(Void) | token(True) | token(False) | token(Null)
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1315,6 +1322,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
     } else if (token->id == TokenIdKeywordFalse) {
         AstNode *node = ast_create_node(pc, NodeTypeBoolLiteral, token);
         node->data.bool_literal = false;
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordNull) {
+        AstNode *node = ast_create_node(pc, NodeTypeNullLiteral, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdSymbol) {
@@ -2045,10 +2056,36 @@ static BinOpType ast_parse_ass_op(ParseContext *pc, int *token_index, bool manda
 }
 
 /*
-AssignmentExpression : BoolOrExpression AssignmentOperator BoolOrExpression | BoolOrExpression
+UnwrapMaybeExpression : BoolOrExpression token(DoubleQuestion) BoolOrExpression | BoolOrExpression
+*/
+static AstNode *ast_parse_unwrap_maybe_expr(ParseContext *pc, int *token_index, bool mandatory) {
+    AstNode *lhs = ast_parse_bool_or_expr(pc, token_index, mandatory);
+    if (!lhs)
+        return nullptr;
+
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id != TokenIdDoubleQuestion) {
+        return lhs;
+    }
+
+    *token_index += 1;
+
+    AstNode *rhs = ast_parse_bool_or_expr(pc, token_index, true);
+
+    AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+    node->data.bin_op_expr.op1 = lhs;
+    node->data.bin_op_expr.bin_op = BinOpTypeUnwrapMaybe;
+    node->data.bin_op_expr.op2 = rhs;
+
+    return node;
+}
+
+/*
+AssignmentExpression : UnwrapMaybeExpression AssignmentOperator UnwrapMaybeExpression | UnwrapMaybeExpression
 */
 static AstNode *ast_parse_ass_expr(ParseContext *pc, int *token_index, bool mandatory) {
-    AstNode *lhs = ast_parse_bool_or_expr(pc, token_index, mandatory);
+    AstNode *lhs = ast_parse_unwrap_maybe_expr(pc, token_index, mandatory);
     if (!lhs)
         return nullptr;
 
@@ -2057,7 +2094,7 @@ static AstNode *ast_parse_ass_expr(ParseContext *pc, int *token_index, bool mand
     if (ass_op == BinOpTypeInvalid)
         return lhs;
 
-    AstNode *rhs = ast_parse_bool_or_expr(pc, token_index, true);
+    AstNode *rhs = ast_parse_unwrap_maybe_expr(pc, token_index, true);
 
     AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
     node->data.bin_op_expr.op1 = lhs;

@@ -613,6 +613,7 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
         case BinOpTypeAssign:
         case BinOpTypeAssignBoolAnd:
         case BinOpTypeAssignBoolOr:
+        case BinOpTypeUnwrapMaybe:
             zig_unreachable();
     }
     zig_unreachable();
@@ -814,6 +815,70 @@ static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
     return gen_assign_raw(g, node, node->data.bin_op_expr.bin_op, target_ref, value, op1_type, op2_type);
 }
 
+static LLVMValueRef gen_unwrap_maybe(CodeGen *g, AstNode *node, LLVMValueRef maybe_struct_ref) {
+    add_debug_source_node(g, node);
+    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_struct_ref, 0, "");
+    // TODO if it's a struct we might not want to load the pointer
+    return LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+}
+
+static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeBinOpExpr);
+    assert(node->data.bin_op_expr.bin_op == BinOpTypeUnwrapMaybe);
+
+    AstNode *op1_node = node->data.bin_op_expr.op1;
+    AstNode *op2_node = node->data.bin_op_expr.op2;
+
+    LLVMValueRef maybe_struct_ref = gen_expr(g, op1_node);
+
+    add_debug_source_node(g, node);
+    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_struct_ref, 1, "");
+    LLVMValueRef cond_value = LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+
+    LLVMBasicBlockRef non_null_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeNonNull");
+    LLVMBasicBlockRef null_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeNull");
+    LLVMBasicBlockRef end_block;
+    
+    bool non_null_reachable = get_expr_type(op1_node)->id != TypeTableEntryIdUnreachable;
+    bool null_reachable = get_expr_type(op2_node)->id != TypeTableEntryIdUnreachable;
+    bool end_reachable = non_null_reachable || null_reachable;
+    if (end_reachable) {
+        end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeEnd");
+    }
+
+    LLVMBuildCondBr(g->builder, cond_value, non_null_block, null_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, non_null_block);
+    LLVMValueRef non_null_result = gen_unwrap_maybe(g, op1_node, maybe_struct_ref);
+    if (non_null_reachable) {
+        add_debug_source_node(g, node);
+        LLVMBuildBr(g->builder, end_block);
+    }
+
+    LLVMPositionBuilderAtEnd(g->builder, null_block);
+    LLVMValueRef null_result = gen_expr(g, op2_node);
+    if (null_reachable) {
+        add_debug_source_node(g, node);
+        LLVMBuildBr(g->builder, end_block);
+    }
+
+    if (end_reachable) {
+        LLVMPositionBuilderAtEnd(g->builder, end_block);
+        if (null_reachable) {
+            add_debug_source_node(g, node);
+            LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(non_null_result), "");
+            LLVMValueRef incoming_values[2] = {non_null_result, null_result};
+            LLVMBasicBlockRef incoming_blocks[2] = {non_null_block, null_block};
+            LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
+            return phi;
+        } else {
+            return non_null_result;
+        }
+    }
+
+    return nullptr;
+}
+
 static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
     switch (node->data.bin_op_expr.bin_op) {
         case BinOpTypeInvalid:
@@ -843,6 +908,8 @@ static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
         case BinOpTypeCmpLessOrEq:
         case BinOpTypeCmpGreaterOrEq:
             return gen_cmp_expr(g, node);
+        case BinOpTypeUnwrapMaybe:
+            return gen_unwrap_maybe_expr(g, node);
         case BinOpTypeBinOr:
         case BinOpTypeBinXor:
         case BinOpTypeBinAnd:
@@ -1124,6 +1191,22 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
     return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
 }
 
+static LLVMValueRef gen_null_literal(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeNullLiteral);
+
+    TypeTableEntry *type_entry = get_expr_type(node);
+    assert(type_entry->id == TypeTableEntryIdMaybe);
+
+    LLVMValueRef tmp_struct_ptr = node->codegen_node->data.struct_val_expr_node.ptr;
+
+    add_debug_source_node(g, node);
+    LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 1, "");
+    LLVMValueRef null_value = LLVMConstNull(LLVMInt1Type());
+    LLVMBuildStore(g->builder, null_value, field_ptr);
+
+    return tmp_struct_ptr;
+}
+
 static LLVMValueRef gen_struct_val_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeStructValueExpr);
 
@@ -1242,10 +1325,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
         LLVMValueRef value;
         if (unwrap_maybe) {
             assert(var_decl->expr);
-            add_debug_source_node(g, source_node);
-            LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, *init_value, 0, "");
-            // TODO if it's a struct we might not want to load the pointer
-            value = LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+            value = gen_unwrap_maybe(g, source_node, *init_value);
         } else {
             value = *init_value;
         }
@@ -1375,6 +1455,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
                 return LLVMConstAllOnes(LLVMInt1Type());
             else
                 return LLVMConstNull(LLVMInt1Type());
+        case NodeTypeNullLiteral:
+            return gen_null_literal(g, node);
         case NodeTypeIfBoolExpr:
             return gen_if_bool_expr(g, node);
         case NodeTypeIfVarExpr:
