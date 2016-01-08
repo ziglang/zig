@@ -23,10 +23,6 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
 
     const answer = rand.range_u64(0, 100) + 1;
 
-    print_str("Answer: ");
-    print_u64(answer);
-    print_str("\n");
-
     while (true) {
         print_str("\nGuess a number between 1 and 100: ");
         var line_buf : [20]u8;
@@ -39,7 +35,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
         }
 
         var guess : u64;
-        if (parse_u64(line_buf, 10, &guess)) {
+        if (parse_u64(line_buf[0...line_len - 1], 10, &guess)) {
             print_str("Invalid number format.\n");
         } else if (guess > answer) {
             print_str("Guess lower.\n");
