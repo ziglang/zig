@@ -30,23 +30,24 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     while (true) {
         print_str("\nGuess a number between 1 and 100: ");
         var line_buf : [20]u8;
-        const line = readline(line_buf) ?? {
+        var line_len : usize;
+        // TODO fix this awkward error handling
+        if (readline(line_buf, &line_len) || line_len == line_buf.len) {
             // TODO full error message
             fprint_str(stderr_fileno, "unable to read input\n");
             return 1;
-        };
+        }
 
-        if (const guess ?= parse_u64(line)) {
-            if (guess > answer) {
-                print_str("Guess lower.\n");
-            } else if (guess < answer) {
-                print_str("Guess higher.\n");
-            } else {
-                print_str("You win!\n");
-                return 0;
-            }
-        } else {
+        var guess : u64;
+        if (parse_u64(line_buf, 10, &guess)) {
             print_str("Invalid number format.\n");
+        } else if (guess > answer) {
+            print_str("Guess lower.\n");
+        } else if (guess < answer) {
+            print_str("Guess higher.\n");
+        } else {
+            print_str("You win!\n");
+            return 0;
         }
     }
 }

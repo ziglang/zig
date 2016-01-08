@@ -936,7 +936,27 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
 }
     )SOURCE", "OK\n");
 
+
+    add_simple_case("else if expression", R"SOURCE(
+use "std.zig";
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    if (f(1) == 1) {
+        print_str("OK\n");
+    }
+    return 0;
 }
+fn f(c: u8) -> u8 {
+    if (c == 0) {
+        0
+    } else if (c == 1) {
+        1
+    } else {
+        2
+    }
+}
+    )SOURCE", "OK\n");
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////////
 

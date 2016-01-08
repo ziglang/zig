@@ -39,28 +39,63 @@ pub fn print_i64(x: i64) -> isize {
     return write(stdout_fileno, buf.ptr, len);
 }
 
-/*
 // TODO error handling
-pub fn readline(buf: []u8) -> ?[]u8 {
-    var index : usize = 0;
-    while (index < buf.len) {
-        // TODO unknown size array indexing operator
-        const err = read(stdin_fileno, &buf.ptr[index], 1);
-        if (err != 0) {
-            return null;
-        }
-        // TODO unknown size array indexing operator
-        if (buf.ptr[index] == '\n') {
-            return buf[0...index + 1];
-        }
-        index += 1;
+pub fn readline(buf: []u8, out_len: &usize) -> bool {
+    // TODO unknown size array indexing operator
+    const amt_read = read(stdin_fileno, buf.ptr, buf.len);
+    if (amt_read < 0) {
+        return true;
     }
-    return null;
+    *out_len = amt_read as usize;
+    return false;
 }
-*/
 
-fn digit_to_char(digit: u64) -> u8 {
-    '0' + (digit as u8)
+// TODO return ?u64 when we support returning struct byval
+pub fn parse_u64(buf: []u8, radix: u8, result: &u64) -> bool {
+    var x : u64 = 0;
+
+    var i : #typeof(buf.len) = 0;
+    while (i < buf.len) {
+        // TODO array indexing operator
+        const c = buf.ptr[i];
+        const digit = char_to_digit(c);
+
+        if (digit > radix) {
+            return true;
+        }
+
+        x *= radix;
+        x += digit;
+
+        /* TODO intrinsics mul and add with overflow
+        // x *= radix
+        if (@mul_with_overflow_u64(x, radix, &x)) {
+            return true;
+        }
+
+        // x += digit
+        if (@add_with_overflow_u64(x, digit, &x)) {
+            return true;
+        }
+        */
+
+        i += 1;
+    }
+
+    *result = x;
+    return false;
+}
+
+fn char_to_digit(c: u8) -> u8 {
+    if ('0' <= c && c <= '9') {
+        c - '0'
+    } else if ('A' <= c && c <= 'Z') {
+        c - 'A' + 10
+    } else if ('a' <= c && c <= 'z') {
+        c - 'a' + 10
+    } else {
+        #max_value(u8)
+    }
 }
 
 const max_u64_base10_digits: usize = 20;
@@ -86,7 +121,7 @@ fn buf_print_u64(out_buf: &u8, x: u64) -> usize {
     while (true) {
         const digit = a % 10;
         index -= 1;
-        buf[index] = digit_to_char(digit);
+        buf[index] = '0' + (digit as u8);
         a /= 10;
         if (a == 0)
             break;

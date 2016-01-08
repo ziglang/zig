@@ -209,7 +209,6 @@ struct CodeGen {
 
     OutType out_type;
     FnTableEntry *cur_fn;
-    LLVMBasicBlockRef cur_basic_block;
     BlockContext *cur_block_context;
     ZigList<LLVMBasicBlockRef> break_block_stack;
     ZigList<LLVMBasicBlockRef> continue_block_stack;

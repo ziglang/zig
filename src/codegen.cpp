@@ -905,6 +905,7 @@ static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
         add_debug_source_node(g, node);
         LLVMBuildBr(g->builder, end_block);
     }
+    LLVMBasicBlockRef post_non_null_result_block = LLVMGetInsertBlock(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, null_block);
     LLVMValueRef null_result = gen_expr(g, op2_node);
@@ -912,6 +913,7 @@ static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
         add_debug_source_node(g, node);
         LLVMBuildBr(g->builder, end_block);
     }
+    LLVMBasicBlockRef post_null_result_block = LLVMGetInsertBlock(g->builder);
 
     if (end_reachable) {
         LLVMPositionBuilderAtEnd(g->builder, end_block);
@@ -919,7 +921,7 @@ static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
             add_debug_source_node(g, node);
             LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(non_null_result), "");
             LLVMValueRef incoming_values[2] = {non_null_result, null_result};
-            LLVMBasicBlockRef incoming_blocks[2] = {non_null_block, null_block};
+            LLVMBasicBlockRef incoming_blocks[2] = {post_non_null_result_block, post_null_result_block};
             LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
             return phi;
         } else {
@@ -1015,19 +1017,21 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
         if (then_endif_reachable) {
             LLVMBuildBr(g->builder, endif_block);
         }
+        LLVMBasicBlockRef after_then_block = LLVMGetInsertBlock(g->builder);
 
         LLVMPositionBuilderAtEnd(g->builder, else_block);
         LLVMValueRef else_expr_result = gen_expr(g, else_node);
         if (else_endif_reachable) {
             LLVMBuildBr(g->builder, endif_block);
         }
+        LLVMBasicBlockRef after_else_block = LLVMGetInsertBlock(g->builder);
 
         if (then_endif_reachable || else_endif_reachable) {
             LLVMPositionBuilderAtEnd(g->builder, endif_block);
             if (use_expr_value) {
                 LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(then_expr_result), "");
                 LLVMValueRef incoming_values[2] = {then_expr_result, else_expr_result};
-                LLVMBasicBlockRef incoming_blocks[2] = {then_block, else_block};
+                LLVMBasicBlockRef incoming_blocks[2] = {after_then_block, after_else_block};
                 LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
 
                 return phi;
