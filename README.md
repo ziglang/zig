@@ -17,7 +17,7 @@ compromises backward compatibility.
  * Completely compatible with C libraries with no wrapper necessary.
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
- * Do not depend on libc unless explicitly imported.
+ * Do not depend on libc unless explicitly linked.
  * Provide standard library which competes with the C standard library and is
    always compiled against statically in source form.
  * Generics so that one can write efficient data structures that work for any
@@ -32,6 +32,8 @@ compromises backward compatibility.
  * Eliminate the need for header files (when using zig internally).
  * Tagged union enum type.
  * Resilient to parsing errors to make IDE integration work well.
+ * Eliminate the preprocessor, but have a plan for how to do things you would
+   want to use the preprocessor for such as conditional compilation.
  * Ability to mark functions as test and automatically run them in test mode.
    This mode should automatically provide test coverage.
  * Friendly toward package maintainers.

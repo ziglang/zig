@@ -42,7 +42,7 @@ pub fn print_i64(x: i64) -> isize {
 /*
 // TODO error handling
 pub fn readline(buf: []u8) -> ?[]u8 {
-    var index = 0;
+    var index : usize = 0;
     while (index < buf.len) {
         // TODO unknown size array indexing operator
         const err = read(stdin_fileno, &buf.ptr[index], 1);

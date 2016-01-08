@@ -495,6 +495,7 @@ static LLVMValueRef gen_bare_cast(CodeGen *g, AstNode *node, LLVMValueRef expr_v
             {
                 assert(cast_node->ptr);
                 assert(wanted_type->id == TypeTableEntryIdMaybe);
+                assert(actual_type);
 
                 add_debug_source_node(g, node);
                 LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, cast_node->ptr, 0, "");
@@ -1600,12 +1601,6 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
     zig_unreachable();
 }
 
-static LLVMValueRef gen_cast_node(CodeGen *g, AstNode *node, LLVMValueRef val, TypeTableEntry *before_type,
-        CastNode *cast_node)
-{
-    return cast_node->after_type ? gen_bare_cast(g, node, val, before_type, cast_node->after_type, cast_node) : val;
-}
-
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef val = gen_expr_no_cast(g, node);
 
@@ -1615,17 +1610,19 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
 
     assert(node->codegen_node);
 
-    {
-        TypeTableEntry *before_type = node->codegen_node->expr_node.type_entry;
-        if (before_type && before_type->id == TypeTableEntryIdUnreachable) {
-            return val;
-        }
-        val = gen_cast_node(g, node, val, before_type, &node->codegen_node->expr_node.implicit_cast);
+    TypeTableEntry *before_type = node->codegen_node->expr_node.type_entry;
+    if (before_type && before_type->id == TypeTableEntryIdUnreachable) {
+        return val;
+    }
+    CastNode *cast_node = &node->codegen_node->expr_node.implicit_cast;
+    if (cast_node->after_type) {
+        val = gen_bare_cast(g, node, val, before_type, cast_node->after_type, cast_node);
+        before_type = cast_node->after_type;
     }
 
-    {
-        TypeTableEntry *before_type = node->codegen_node->expr_node.implicit_cast.after_type;
-        val = gen_cast_node(g, node, val, before_type, &node->codegen_node->expr_node.implicit_maybe_cast);
+    cast_node = &node->codegen_node->expr_node.implicit_maybe_cast;
+    if (cast_node->after_type) {
+        val = gen_bare_cast(g, node, val, before_type, cast_node->after_type, cast_node);
     }
 
     return val;

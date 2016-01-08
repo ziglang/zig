@@ -1207,7 +1207,7 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
                 actual_type->data.pointer.child_type);
     }
 
-    add_node_error(g, node,
+    add_node_error(g, first_executing_node(node),
         buf_sprintf("expected type '%s', got '%s'",
             buf_ptr(&expected_type->name),
             buf_ptr(&actual_type->name)));
