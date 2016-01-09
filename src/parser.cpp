@@ -225,8 +225,8 @@ void ast_print(AstNode *node, int indent) {
                 case AstNodeTypeTypePointer:
                     {
                         const char *const_or_mut_str = node->data.type.is_const ? "const " : "";
-                        const char *restrict_or_not_str = node->data.type.is_restrict ? "restrict " : "";
-                        fprintf(stderr, "%s%s PointerType\n", const_or_mut_str, restrict_or_not_str);
+                        const char *noalias_or_not_str = node->data.type.is_noalias ? "noalias " : "";
+                        fprintf(stderr, "%s%s PointerType\n", const_or_mut_str, noalias_or_not_str);
 
                         ast_print(node->data.type.child_type, indent + 2);
                         break;
@@ -234,8 +234,8 @@ void ast_print(AstNode *node, int indent) {
                 case AstNodeTypeTypeArray:
                     {
                         const char *const_or_mut_str = node->data.type.is_const ? "const " : "";
-                        const char *restrict_or_not_str = node->data.type.is_restrict ? "restrict " : "";
-                        fprintf(stderr, "%s%s ArrayType\n", const_or_mut_str, restrict_or_not_str);
+                        const char *noalias_or_not_str = node->data.type.is_noalias ? "noalias " : "";
+                        fprintf(stderr, "%s%s ArrayType\n", const_or_mut_str, noalias_or_not_str);
                         if (node->data.type.array_size)
                             ast_print(node->data.type.array_size, indent + 2);
                         ast_print(node->data.type.child_type, indent + 2);
@@ -1024,12 +1024,12 @@ static void ast_parse_type_assume_amp(ParseContext *pc, int *token_index, AstNod
         node->data.type.is_const = true;
         *token_index += 1;
         first_type_token = &pc->tokens->at(*token_index);
-        if (first_type_token->id == TokenIdKeywordRestrict) {
-            node->data.type.is_restrict = true;
+        if (first_type_token->id == TokenIdKeywordNoAlias) {
+            node->data.type.is_noalias = true;
             *token_index += 1;
         }
-    } else if (first_type_token->id == TokenIdKeywordRestrict) {
-        node->data.type.is_restrict = true;
+    } else if (first_type_token->id == TokenIdKeywordNoAlias) {
+        node->data.type.is_noalias = true;
         *token_index += 1;
     }
 
@@ -1088,8 +1088,8 @@ static AstNode *ast_parse_compiler_fn_call(ParseContext *pc, int *token_index, b
 
 /*
 Type : token(Symbol) | token(Unreachable) | token(Void) | PointerType | ArrayType | MaybeType | CompilerFnExpr
-PointerType : token(Ampersand) option(token(Const)) option(token(Restrict)) Type
-ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) option(token(Restrict)) Type
+PointerType : token(Ampersand) option(token(Const)) option(token(NoAlias)) Type
+ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) option(token(NoAlias)) Type
 */
 static AstNode *ast_parse_type(ParseContext *pc, int *token_index) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1140,13 +1140,13 @@ static AstNode *ast_parse_type(ParseContext *pc, int *token_index) {
             node->data.type.is_const = true;
 
             Token *next_tok = &pc->tokens->at(*token_index);
-            if (next_tok->id == TokenIdKeywordRestrict) {
+            if (next_tok->id == TokenIdKeywordNoAlias) {
                 *token_index += 1;
-                node->data.type.is_restrict = true;
+                node->data.type.is_noalias = true;
             }
-        } else if (const_tok->id == TokenIdKeywordRestrict) {
+        } else if (const_tok->id == TokenIdKeywordNoAlias) {
             *token_index += 1;
-            node->data.type.is_restrict = true;
+            node->data.type.is_noalias = true;
         }
 
         node->data.type.child_type = ast_parse_type(pc, token_index);

@@ -68,11 +68,11 @@ CompilerFnExpr : token(NumberSign) token(Symbol) token(LParen) Expression token(
 
 CompilerFnType : token(NumberSign) token(Symbol) token(LParen) Type token(RParen)
 
-PointerType : token(Ampersand) option(token(Const)) option(token(Restrict)) Type
+PointerType : token(Ampersand) option(token(Const)) option(token(NoAlias)) Type
 
 MaybeType : token(Question) Type
 
-ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) option(token(Restrict)) Type
+ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) option(token(NoAlias)) Type
 
 Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
 

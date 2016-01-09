@@ -23,7 +23,7 @@ struct StructValExprNode;
 struct TypeTableEntryPointer {
     TypeTableEntry *child_type;
     bool is_const;
-    bool is_restrict;
+    bool is_noalias;
 };
 
 struct TypeTableEntryInt {
@@ -98,8 +98,8 @@ struct TypeTableEntry {
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
-    TypeTableEntry *pointer_parent[2][2]; // 0 - const. 1 - restrict
-    TypeTableEntry *unknown_size_array_parent[2][2]; // 0 - const. 1 - restrict
+    TypeTableEntry *pointer_parent[2][2]; // 0 - const. 1 - noalias
+    TypeTableEntry *unknown_size_array_parent[2][2]; // 0 - const. 1 - noalias
     HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
     TypeTableEntry *maybe_parent;
 
@@ -391,7 +391,7 @@ void semantic_analyze(CodeGen *g);
 void add_node_error(CodeGen *g, AstNode *node, Buf *msg);
 void alloc_codegen_node(AstNode *node);
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id);
-TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const, bool is_restrict);
+TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const, bool is_noalias);
 VariableTableEntry *find_variable(BlockContext *context, Buf *name);
 BlockContext *new_block_context(AstNode *node, BlockContext *parent);
 

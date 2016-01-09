@@ -135,8 +135,8 @@ static TypeTableEntry *get_number_literal_type_unsigned(CodeGen *g, uint64_t x) 
     return g->num_lit_types[get_number_literal_kind_unsigned(x)];
 }
 
-TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const, bool is_restrict) {
-    TypeTableEntry **parent_pointer = &child_type->pointer_parent[(is_const ? 1 : 0)][(is_restrict ? 1 : 0)];
+TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const, bool is_noalias) {
+    TypeTableEntry **parent_pointer = &child_type->pointer_parent[(is_const ? 1 : 0)][(is_noalias ? 1 : 0)];
     if (*parent_pointer) {
         return *parent_pointer;
     } else {
@@ -151,7 +151,7 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
                 entry->size_in_bits, entry->align_in_bits, buf_ptr(&entry->name));
         entry->data.pointer.child_type = child_type;
         entry->data.pointer.is_const = is_const;
-        entry->data.pointer.is_restrict = is_restrict;
+        entry->data.pointer.is_noalias = is_noalias;
 
         *parent_pointer = entry;
         return entry;
@@ -240,9 +240,9 @@ static TypeTableEntry *get_array_type(CodeGen *g, ImportTableEntry *import,
 }
 
 static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, ImportTableEntry *import,
-        TypeTableEntry *child_type, bool is_const, bool is_restrict)
+        TypeTableEntry *child_type, bool is_const, bool is_noalias)
 {
-    TypeTableEntry **parent_pointer = &child_type->unknown_size_array_parent[(is_const ? 1 : 0)][(is_restrict ? 1 : 0)];
+    TypeTableEntry **parent_pointer = &child_type->unknown_size_array_parent[(is_const ? 1 : 0)][(is_noalias ? 1 : 0)];
     if (*parent_pointer) {
         return *parent_pointer;
     } else {
@@ -252,7 +252,7 @@ static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, ImportTableEntry 
         buf_appendf(&entry->name, "[]%s", buf_ptr(&child_type->name));
         entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&entry->name));
 
-        TypeTableEntry *pointer_type = get_pointer_to_type(g, child_type, is_const, is_restrict);
+        TypeTableEntry *pointer_type = get_pointer_to_type(g, child_type, is_const, is_noalias);
 
         unsigned element_count = 2;
         LLVMTypeRef element_types[] = {
@@ -428,7 +428,7 @@ static TypeTableEntry *eval_const_expr(CodeGen *g, BlockContext *context,
 }
 
 static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry *import,
-        BlockContext *context, bool restrict_allowed)
+        BlockContext *context, bool noalias_allowed)
 {
     assert(node->type == NodeTypeType);
     alloc_codegen_node(node);
@@ -449,13 +449,13 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
             }
         case AstNodeTypeTypePointer:
             {
-                bool use_restrict = false;
-                if (node->data.type.is_restrict) {
-                    if (!restrict_allowed) {
+                bool use_noalias = false;
+                if (node->data.type.is_noalias) {
+                    if (!noalias_allowed) {
                         add_node_error(g, node,
-                                buf_create_from_str("invalid restrict qualifier"));
+                                buf_create_from_str("invalid noalias qualifier"));
                     } else {
-                        use_restrict = true;
+                        use_noalias = true;
                     }
                 }
 
@@ -471,7 +471,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
                     type_node->entry = child_type;
                     return child_type;
                 } else {
-                    type_node->entry = get_pointer_to_type(g, child_type, node->data.type.is_const, use_restrict);
+                    type_node->entry = get_pointer_to_type(g, child_type, node->data.type.is_const, use_noalias);
                     return type_node->entry;
                 }
             }
@@ -479,13 +479,13 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
             {
                 AstNode *size_node = node->data.type.array_size;
 
-                bool use_restrict = false;
-                if (node->data.type.is_restrict) {
-                    if (!restrict_allowed || size_node) {
+                bool use_noalias = false;
+                if (node->data.type.is_noalias) {
+                    if (!noalias_allowed || size_node) {
                         add_node_error(g, node,
-                                buf_create_from_str("invalid restrict qualifier"));
+                                buf_create_from_str("invalid noalias qualifier"));
                     } else {
-                        use_restrict = true;
+                        use_noalias = true;
                     }
                 }
 
@@ -524,7 +524,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
                     return type_node->entry;
                 } else {
                     type_node->entry = get_unknown_size_array_type(g, import, child_type,
-                            node->data.type.is_const, use_restrict);
+                            node->data.type.is_const, use_noalias);
                     return type_node->entry;
                 }
 
@@ -1221,7 +1221,7 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
         return expected_type;
     }
 
-    // implicit non-const to const and ignore restrict
+    // implicit non-const to const and ignore noalias
     if (expected_type->id == TypeTableEntryIdPointer &&
         actual_type->id == TypeTableEntryIdPointer &&
         (!actual_type->data.pointer.is_const || expected_type->data.pointer.is_const))

@@ -10,7 +10,7 @@ export fn memset(dest: &u8, c: u8, n: usize) -> &u8 {
     return dest;
 }
 
-export fn memcpy(dest: &restrict u8, src: &const restrict u8, n: usize) -> &u8 {
+export fn memcpy(dest: &noalias u8, src: &const noalias u8, n: usize) -> &u8 {
     var index : #typeof(n) = 0;
     while (index != n) {
         dest[index] = src[index];

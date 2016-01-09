@@ -1840,7 +1840,7 @@ static void do_code_gen(CodeGen *g) {
             TypeTableEntry *param_type = fn_proto_type_from_type_node(g, type_node);
             LLVMValueRef argument_val = LLVMGetParam(fn, gen_param_index);
             if (param_type->id == TypeTableEntryIdPointer &&
-                param_type->data.pointer.is_restrict)
+                param_type->data.pointer.is_noalias)
             {
                 LLVMAddAttribute(argument_val, LLVMNoAliasAttribute);
             } else if (param_type->id == TypeTableEntryIdPointer &&
