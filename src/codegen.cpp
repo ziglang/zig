@@ -171,6 +171,67 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
 
                 return overflow_bit;
             }
+        case BuiltinFnIdMemcpy:
+            {
+                int fn_call_param_count = node->data.fn_call_expr.params.length;
+                assert(fn_call_param_count == 3);
+
+                AstNode *dest_node = node->data.fn_call_expr.params.at(0);
+                TypeTableEntry *dest_type = get_expr_type(dest_node);
+
+                LLVMValueRef dest_ptr = gen_expr(g, dest_node);
+                LLVMValueRef src_ptr = gen_expr(g, node->data.fn_call_expr.params.at(1));
+                LLVMValueRef len_val = gen_expr(g, node->data.fn_call_expr.params.at(2));
+
+                LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+
+                add_debug_source_node(g, node);
+                LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
+                LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr, ptr_u8, "");
+
+                uint64_t align_in_bytes = dest_type->data.pointer.child_type->align_in_bits / 8;
+
+                LLVMValueRef params[] = {
+                    dest_ptr_casted, // dest pointer
+                    src_ptr_casted, // source pointer
+                    len_val, // byte count
+                    LLVMConstInt(LLVMInt32Type(), align_in_bytes, false), // align in bytes
+                    LLVMConstNull(LLVMInt1Type()), // is volatile
+                };
+
+                LLVMBuildCall(g->builder, builtin_fn->fn_val, params, 5, "");
+                return nullptr;
+            }
+        case BuiltinFnIdMemset:
+            {
+                int fn_call_param_count = node->data.fn_call_expr.params.length;
+                assert(fn_call_param_count == 3);
+
+                AstNode *dest_node = node->data.fn_call_expr.params.at(0);
+                TypeTableEntry *dest_type = get_expr_type(dest_node);
+
+                LLVMValueRef dest_ptr = gen_expr(g, dest_node);
+                LLVMValueRef char_val = gen_expr(g, node->data.fn_call_expr.params.at(1));
+                LLVMValueRef len_val = gen_expr(g, node->data.fn_call_expr.params.at(2));
+
+                LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+
+                add_debug_source_node(g, node);
+                LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
+
+                uint64_t align_in_bytes = dest_type->data.pointer.child_type->align_in_bits / 8;
+
+                LLVMValueRef params[] = {
+                    dest_ptr_casted, // dest pointer
+                    char_val, // source pointer
+                    len_val, // byte count
+                    LLVMConstInt(LLVMInt32Type(), align_in_bytes, false), // align in bytes
+                    LLVMConstNull(LLVMInt1Type()), // is volatile
+                };
+
+                LLVMBuildCall(g->builder, builtin_fn->fn_val, params, 5, "");
+                return nullptr;
+            }
     }
     zig_unreachable();
 }
@@ -1376,22 +1437,34 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
     assert(node->data.while_expr.condition);
     assert(node->data.while_expr.body);
 
-    if (get_expr_type(node)->id == TypeTableEntryIdUnreachable) {
-        // generate a forever loop. guarantees no break statements
+    bool condition_always_true = node->codegen_node->data.while_node.condition_always_true;
+    bool contains_break = node->codegen_node->data.while_node.contains_break;
+    if (condition_always_true) {
+        // generate a forever loop
 
         LLVMBasicBlockRef body_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileBody");
+        LLVMBasicBlockRef end_block = nullptr;
+        if (contains_break) {
+            end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileEnd");
+        }
 
         add_debug_source_node(g, node);
         LLVMBuildBr(g->builder, body_block);
 
         LLVMPositionBuilderAtEnd(g->builder, body_block);
+        g->break_block_stack.append(end_block);
         g->continue_block_stack.append(body_block);
         gen_expr(g, node->data.while_expr.body);
+        g->break_block_stack.pop();
         g->continue_block_stack.pop();
 
         if (get_expr_type(node->data.while_expr.body)->id != TypeTableEntryIdUnreachable) {
             add_debug_source_node(g, node);
             LLVMBuildBr(g->builder, body_block);
+        }
+
+        if (contains_break) {
+            LLVMPositionBuilderAtEnd(g->builder, end_block);
         }
     } else {
         // generate a normal while loop
@@ -1754,20 +1827,6 @@ static LLVMAttribute to_llvm_fn_attr(FnAttrId attr_id) {
 
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
-
-    {
-        LLVMTypeRef param_types[] = {
-            LLVMPointerType(LLVMInt8Type(), 0),
-            LLVMPointerType(LLVMInt8Type(), 0),
-            LLVMIntType(g->pointer_size_bytes * 8),
-            LLVMInt32Type(),
-            LLVMInt1Type(),
-        };
-        LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 5, false);
-        Buf *name = buf_sprintf("llvm.memcpy.p0i8.p0i8.i%d", g->pointer_size_bytes * 8);
-        g->memcpy_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
-        assert(LLVMGetIntrinsicID(g->memcpy_fn_val));
-    }
 
     // Generate module level variables
     for (int i = 0; i < g->global_vars.length; i += 1) {
@@ -2267,6 +2326,57 @@ static void define_builtin_fns(CodeGen *g) {
     define_builtin_fns_int(g, g->builtin_types.entry_i16);
     define_builtin_fns_int(g, g->builtin_types.entry_i32);
     define_builtin_fns_int(g, g->builtin_types.entry_i64);
+    {
+        BuiltinFnEntry *builtin_fn = allocate<BuiltinFnEntry>(1);
+        buf_init_from_str(&builtin_fn->name, "memcpy");
+        builtin_fn->id = BuiltinFnIdMemcpy;
+        builtin_fn->return_type = g->builtin_types.entry_void;
+        builtin_fn->param_count = 3;
+        builtin_fn->param_types = allocate<TypeTableEntry *>(builtin_fn->param_count);
+        builtin_fn->param_types[0] = nullptr; // manually checked later
+        builtin_fn->param_types[1] = nullptr; // manually checked later
+        builtin_fn->param_types[2] = g->builtin_types.entry_usize;
+
+        LLVMTypeRef param_types[] = {
+            LLVMPointerType(LLVMInt8Type(), 0),
+            LLVMPointerType(LLVMInt8Type(), 0),
+            LLVMIntType(g->pointer_size_bytes * 8),
+            LLVMInt32Type(),
+            LLVMInt1Type(),
+        };
+        LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 5, false);
+        Buf *name = buf_sprintf("llvm.memcpy.p0i8.p0i8.i%d", g->pointer_size_bytes * 8);
+        g->memcpy_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+        builtin_fn->fn_val = g->memcpy_fn_val;
+        assert(LLVMGetIntrinsicID(g->memcpy_fn_val));
+
+        g->builtin_fn_table.put(&builtin_fn->name, builtin_fn);
+    }
+    {
+        BuiltinFnEntry *builtin_fn = allocate<BuiltinFnEntry>(1);
+        buf_init_from_str(&builtin_fn->name, "memset");
+        builtin_fn->id = BuiltinFnIdMemset;
+        builtin_fn->return_type = g->builtin_types.entry_void;
+        builtin_fn->param_count = 3;
+        builtin_fn->param_types = allocate<TypeTableEntry *>(builtin_fn->param_count);
+        builtin_fn->param_types[0] = nullptr; // manually checked later
+        builtin_fn->param_types[1] = g->builtin_types.entry_u8;
+        builtin_fn->param_types[2] = g->builtin_types.entry_usize;
+
+        LLVMTypeRef param_types[] = {
+            LLVMPointerType(LLVMInt8Type(), 0),
+            LLVMInt8Type(),
+            LLVMIntType(g->pointer_size_bytes * 8),
+            LLVMInt32Type(),
+            LLVMInt1Type(),
+        };
+        LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 5, false);
+        Buf *name = buf_sprintf("llvm.memset.p0i8.i%d", g->pointer_size_bytes * 8);
+        builtin_fn->fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+        assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
+
+        g->builtin_fn_table.put(&builtin_fn->name, builtin_fn);
+    }
 }
 
 

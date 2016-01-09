@@ -151,6 +151,8 @@ struct FnTableEntry {
 enum BuiltinFnId {
     BuiltinFnIdInvalid,
     BuiltinFnIdArithmeticWithOverflow,
+    BuiltinFnIdMemcpy,
+    BuiltinFnIdMemset,
 };
 
 struct BuiltinFnEntry {
@@ -354,6 +356,7 @@ struct ImportNode {
 };
 
 struct WhileNode {
+    bool condition_always_true;
     bool contains_break;
 };
 

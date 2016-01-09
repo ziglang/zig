@@ -973,6 +973,24 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     return 0;
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("memcpy and memset intrinsics", R"SOURCE(
+use "std.zig";
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    var foo : [20]u8;
+    var bar : [20]u8;
+
+    @memset(foo.ptr, 'A', foo.len);
+    @memcpy(bar.ptr, foo.ptr, bar.len);
+
+    if (bar[11] != 'A') {
+        print_str("BAD\n");
+    }
+
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
 }
 
 

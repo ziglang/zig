@@ -118,13 +118,7 @@ fn buf_print_u64(out_buf: []u8, x: u64) -> usize {
 
     const len = buf.len - index;
 
-    // TODO memcpy intrinsic
-    // @memcpy(out_buf, buf, len);
-    var i: usize = 0;
-    while (i < len) {
-        out_buf[i] = buf[index + i];
-        i += 1;
-    }
+    @memcpy(out_buf.ptr, &buf[index], len);
 
     return len;
 }

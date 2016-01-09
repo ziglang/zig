@@ -1944,8 +1944,11 @@ static TypeTableEntry *analyze_while_expr(CodeGen *g, ImportTableEntry *import, 
         if (resolved_type->id != TypeTableEntryIdInvalid) {
             assert(resolved_type->id == TypeTableEntryIdBool);
             bool constant_cond_value = number_literal.data.x_uint;
-            if (constant_cond_value && !node->codegen_node->data.while_node.contains_break) {
-                expr_return_type = g->builtin_types.entry_unreachable;
+            if (constant_cond_value) {
+                node->codegen_node->data.while_node.condition_always_true = true;
+                if (!node->codegen_node->data.while_node.contains_break) {
+                    expr_return_type = g->builtin_types.entry_unreachable;
+                }
             }
         }
     }
@@ -2085,13 +2088,74 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                         builtin_fn->param_count, actual_param_count));
         }
 
-        for (int i = 0; i < actual_param_count; i += 1) {
-            AstNode *child = node->data.fn_call_expr.params.at(i);
-            TypeTableEntry *expected_param_type = builtin_fn->param_types[i];
-            analyze_expression(g, import, context, expected_param_type, child);
-        }
+        switch (builtin_fn->id) {
+            case BuiltinFnIdInvalid:
+                zig_unreachable();
+            case BuiltinFnIdArithmeticWithOverflow:
+                for (int i = 0; i < actual_param_count; i += 1) {
+                    AstNode *child = node->data.fn_call_expr.params.at(i);
+                    TypeTableEntry *expected_param_type = builtin_fn->param_types[i];
+                    analyze_expression(g, import, context, expected_param_type, child);
+                }
+                return builtin_fn->return_type;
+            case BuiltinFnIdMemcpy:
+                {
+                    AstNode *dest_node = node->data.fn_call_expr.params.at(0);
+                    AstNode *src_node = node->data.fn_call_expr.params.at(1);
+                    AstNode *len_node = node->data.fn_call_expr.params.at(2);
+                    TypeTableEntry *dest_type = analyze_expression(g, import, context, nullptr, dest_node);
+                    TypeTableEntry *src_type = analyze_expression(g, import, context, nullptr, src_node);
+                    analyze_expression(g, import, context, builtin_fn->param_types[2], len_node);
 
-        return builtin_fn->return_type;
+                    if (dest_type->id != TypeTableEntryIdInvalid &&
+                        dest_type->id != TypeTableEntryIdPointer)
+                    {
+                        add_node_error(g, dest_node,
+                                buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&dest_type->name)));
+                    }
+
+                    if (src_type->id != TypeTableEntryIdInvalid &&
+                        src_type->id != TypeTableEntryIdPointer)
+                    {
+                        add_node_error(g, src_node,
+                                buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&src_type->name)));
+                    }
+
+                    if (dest_type->id == TypeTableEntryIdPointer &&
+                        src_type->id == TypeTableEntryIdPointer)
+                    {
+                        uint64_t dest_align_bits = dest_type->data.pointer.child_type->align_in_bits;
+                        uint64_t src_align_bits = src_type->data.pointer.child_type->align_in_bits;
+                        if (dest_align_bits != src_align_bits) {
+                            add_node_error(g, dest_node, buf_sprintf(
+                                "misaligned memcpy, '%s' has alignment '%" PRIu64 ", '%s' has alignment %" PRIu64,
+                                        buf_ptr(&dest_type->name), dest_align_bits / 8,
+                                        buf_ptr(&src_type->name), src_align_bits / 8));
+                        }
+                    }
+
+                    return builtin_fn->return_type;
+                }
+            case BuiltinFnIdMemset:
+                {
+                    AstNode *dest_node = node->data.fn_call_expr.params.at(0);
+                    AstNode *char_node = node->data.fn_call_expr.params.at(1);
+                    AstNode *len_node = node->data.fn_call_expr.params.at(2);
+                    TypeTableEntry *dest_type = analyze_expression(g, import, context, nullptr, dest_node);
+                    analyze_expression(g, import, context, builtin_fn->param_types[1], char_node);
+                    analyze_expression(g, import, context, builtin_fn->param_types[2], len_node);
+
+                    if (dest_type->id != TypeTableEntryIdInvalid &&
+                        dest_type->id != TypeTableEntryIdPointer)
+                    {
+                        add_node_error(g, dest_node,
+                                buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&dest_type->name)));
+                    }
+
+                    return builtin_fn->return_type;
+                }
+        }
+        zig_unreachable();
     } else {
         add_node_error(g, node,
                 buf_sprintf("invalid builtin function: '%s'", buf_ptr(name)));
