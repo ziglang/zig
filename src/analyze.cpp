@@ -2635,6 +2635,29 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                         }
                     }
                 }
+
+                // import all the public variables
+                {
+                    auto it = target_import->block_context->variable_table.entry_iterator();
+                    for (;;) {
+                        auto *entry = it.next();
+                        if (!entry)
+                            break;
+
+                        VariableTableEntry *var = entry->value;
+                        bool is_pub = (var->decl_node->data.variable_declaration.visib_mod != VisibModPrivate);
+                        if (is_pub) {
+                            auto existing_entry = import->type_table.maybe_get(entry->key);
+                            if (existing_entry) {
+                                add_node_error(g, node,
+                                    buf_sprintf("import of variable '%s' overrides existing definition",
+                                        buf_ptr(&var->name)));
+                            } else {
+                                import->block_context->variable_table.put(entry->key, entry->value);
+                            }
+                        }
+                    }
+                }
                 break;
             }
         case NodeTypeStructDecl:

@@ -3,10 +3,6 @@ export executable "guess_number";
 use "std.zig";
 use "rand.zig";
 
-// TODO don't duplicate these; implement pub const
-const stdout_fileno : isize = 1;
-const stderr_fileno : isize = 2;
-
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     print_str("Welcome to the Guess Number Game in Zig.\n");
 

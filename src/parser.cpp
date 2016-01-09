@@ -1965,23 +1965,34 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index, bool m
 VariableDeclaration : option(FnVisibleMod) (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
 */
 static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token_index, bool mandatory) {
-    Token *var_or_const_tok = &pc->tokens->at(*token_index);
+    Token *first_token = &pc->tokens->at(*token_index);
 
-    bool is_const;
-    if (var_or_const_tok->id == TokenIdKeywordVar) {
-        is_const = false;
-    } else if (var_or_const_tok->id == TokenIdKeywordConst) {
-        is_const = true;
+    VisibMod visib_mod;
+
+    if (first_token->id == TokenIdKeywordPub) {
+        *token_index += 1;
+        visib_mod = VisibModPub;
+    } else if (first_token->id == TokenIdKeywordExport) {
+        *token_index += 1;
+        visib_mod = VisibModExport;
+    } else if (first_token->id == TokenIdKeywordVar ||
+               first_token->id == TokenIdKeywordConst)
+    {
+        visib_mod = VisibModPrivate;
     } else if (mandatory) {
-        ast_invalid_token_error(pc, var_or_const_tok);
+        ast_invalid_token_error(pc, first_token);
     } else {
         return nullptr;
     }
 
+    Token *var_or_const_tok = &pc->tokens->at(*token_index);
+    bool is_const = (var_or_const_tok->id == TokenIdKeywordConst);
     *token_index += 1;
-    AstNode *node = ast_create_node(pc, NodeTypeVariableDeclaration, var_or_const_tok);
+
+    AstNode *node = ast_create_node(pc, NodeTypeVariableDeclaration, first_token);
 
     node->data.variable_declaration.is_const = is_const;
+    node->data.variable_declaration.visib_mod = visib_mod;
 
     Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
     ast_buf_from_token(pc, name_token, &node->data.variable_declaration.symbol);

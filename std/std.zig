@@ -1,8 +1,8 @@
 use "syscall.zig";
 
-const stdin_fileno : isize = 0;
-const stdout_fileno : isize = 1;
-const stderr_fileno : isize = 2;
+pub const stdin_fileno : isize = 0;
+pub const stdout_fileno : isize = 1;
+pub const stderr_fileno : isize = 2;
 
 // TODO error handling
 pub fn os_get_random_bytes(buf: &u8, count: usize) -> isize {
@@ -41,7 +41,6 @@ pub fn print_i64(x: i64) -> isize {
 
 // TODO error handling
 pub fn readline(buf: []u8, out_len: &usize) -> bool {
-    // TODO unknown size array indexing operator
     const amt_read = read(stdin_fileno, buf.ptr, buf.len);
     if (amt_read < 0) {
         return true;
