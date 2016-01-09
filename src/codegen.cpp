@@ -77,13 +77,13 @@ static TypeTableEntry *get_type_for_type_node(CodeGen *g, AstNode *type_node) {
     return type_node->codegen_node->data.type_node.entry;
 }
 
-static LLVMTypeRef fn_proto_type_from_type_node(CodeGen *g, AstNode *type_node) {
+static TypeTableEntry *fn_proto_type_from_type_node(CodeGen *g, AstNode *type_node) {
     TypeTableEntry *type_entry = get_type_for_type_node(g, type_node);
 
     if (type_entry->id == TypeTableEntryIdStruct || type_entry->id == TypeTableEntryIdArray) {
-        return get_pointer_to_type(g, type_entry, true)->type_ref;
+        return get_pointer_to_type(g, type_entry, true, true);
     } else {
-        return type_entry->type_ref;
+        return type_entry;
     }
 }
 
@@ -1763,7 +1763,7 @@ static void do_code_gen(CodeGen *g) {
             if (is_param_decl_type_void(g, param_node))
                 continue;
             AstNode *type_node = param_node->data.param_decl.type;
-            param_types[gen_param_index] = fn_proto_type_from_type_node(g, type_node);
+            param_types[gen_param_index] = fn_proto_type_from_type_node(g, type_node)->type_ref;
             gen_param_index += 1;
         }
         LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, param_count, fn_proto->is_var_args);
@@ -1783,6 +1783,28 @@ static void do_code_gen(CodeGen *g) {
         LLVMSetFunctionCallConv(fn, fn_table_entry->calling_convention);
         if (!fn_table_entry->is_extern) {
             LLVMAddFunctionAttr(fn, LLVMNoUnwindAttribute);
+        }
+
+        // set parameter attributes
+        gen_param_index = 0;
+        for (int param_decl_i = 0; param_decl_i < fn_proto->params.length; param_decl_i += 1) {
+            AstNode *param_node = fn_proto->params.at(param_decl_i);
+            assert(param_node->type == NodeTypeParamDecl);
+            if (is_param_decl_type_void(g, param_node))
+                continue;
+            AstNode *type_node = param_node->data.param_decl.type;
+            TypeTableEntry *param_type = fn_proto_type_from_type_node(g, type_node);
+            LLVMValueRef argument_val = LLVMGetParam(fn, gen_param_index);
+            if (param_type->id == TypeTableEntryIdPointer &&
+                param_type->data.pointer.is_restrict)
+            {
+                LLVMAddAttribute(argument_val, LLVMNoAliasAttribute);
+            } else if (param_type->id == TypeTableEntryIdPointer &&
+                       param_type->data.pointer.is_const)
+            {
+                LLVMAddAttribute(argument_val, LLVMReadOnlyAttribute);
+            }
+            gen_param_index += 1;
         }
 
         fn_table_entry->fn_value = fn;
@@ -2032,7 +2054,7 @@ static void define_builtin_types(CodeGen *g) {
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_u64 = entry;
     }
-    g->builtin_types.entry_c_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    g->builtin_types.entry_c_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true, false);
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMInt8Type();

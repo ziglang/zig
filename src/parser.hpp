@@ -110,6 +110,7 @@ struct AstNodeType {
     AstNode *child_type;
     AstNode *array_size; // can be null
     bool is_const;
+    bool is_restrict;
     AstNode *compiler_expr;
 };
 
