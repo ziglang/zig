@@ -26,7 +26,7 @@ pub fn fprint_str(fd: isize, str: []const u8) -> isize {
 pub fn print_u64(x: u64) -> isize {
     // TODO use max_u64_base10_digits instead of hardcoding 20
     var buf: [20]u8;
-    const len = buf_print_u64(buf.ptr, x);
+    const len = buf_print_u64(buf, x);
     return write(stdout_fileno, buf.ptr, len);
 }
 
@@ -35,7 +35,7 @@ pub fn print_u64(x: u64) -> isize {
 pub fn print_i64(x: i64) -> isize {
     // TODO use max_u64_base10_digits instead of hardcoding 20
     var buf: [20]u8;
-    const len = buf_print_i64(buf.ptr, x);
+    const len = buf_print_i64(buf, x);
     return write(stdout_fileno, buf.ptr, len);
 }
 
@@ -56,8 +56,7 @@ pub fn parse_u64(buf: []u8, radix: u8, result: &u64) -> bool {
 
     var i : #typeof(buf.len) = 0;
     while (i < buf.len) {
-        // TODO array indexing operator
-        const c = buf.ptr[i];
+        const c = buf[i];
         const digit = char_to_digit(c);
 
         if (digit > radix) {
@@ -100,20 +99,16 @@ fn char_to_digit(c: u8) -> u8 {
 
 const max_u64_base10_digits: usize = 20;
 
-// TODO use an array for out_buf instead of pointer. this should give bounds checking in
-// debug mode and length can get optimized out in release mode. requires array slicing syntax
-// for the buf_print_u64 call.
-fn buf_print_i64(out_buf: &u8, x: i64) -> usize {
+fn buf_print_i64(out_buf: []u8, x: i64) -> usize {
     if (x < 0) {
         out_buf[0] = '-';
-        return 1 + buf_print_u64(&out_buf[1], ((-(x + 1)) as u64) + 1);
+        return 1 + buf_print_u64(out_buf[1...], ((-(x + 1)) as u64) + 1);
     } else {
         return buf_print_u64(out_buf, x as u64);
     }
 }
 
-// TODO use an array for out_buf instead of pointer.
-fn buf_print_u64(out_buf: &u8, x: u64) -> usize {
+fn buf_print_u64(out_buf: []u8, x: u64) -> usize {
     var buf: [max_u64_base10_digits]u8;
     var a = x;
     var index = buf.len;
@@ -130,6 +125,7 @@ fn buf_print_u64(out_buf: &u8, x: u64) -> usize {
     const len = buf.len - index;
 
     // TODO memcpy intrinsic
+    // @memcpy(out_buf, buf, len);
     var i: usize = 0;
     while (i < len) {
         out_buf[i] = buf[index + i];

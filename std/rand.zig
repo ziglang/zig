@@ -45,8 +45,7 @@ pub struct Rand {
             var rand_val_array : [#sizeof(u32)]u8;
             *(rand_val_array.ptr as &u32) = r.get_u32();
             while (bytes_left > 0) {
-                // TODO array index operator so we can remove the .ptr
-                buf.ptr[buf.len - bytes_left] = rand_val_array[#sizeof(u32) - bytes_left];
+                buf[buf.len - bytes_left] = rand_val_array[#sizeof(u32) - bytes_left];
                 bytes_left -= 1;
             }
         }
@@ -88,8 +87,7 @@ pub struct Rand {
     fn get_bytes_aligned(r: &Rand, buf: []u8) -> usize {
         var bytes_left = buf.len;
         while (bytes_left >= 4) {
-            // TODO: array access so we can remove .ptr
-            *(&buf.ptr[buf.len - bytes_left] as &u32) = r.get_u32();
+            *(&buf[buf.len - bytes_left] as &u32) = r.get_u32();
             bytes_left -= #sizeof(u32);
         }
         return bytes_left;

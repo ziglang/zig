@@ -1373,7 +1373,7 @@ static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, 
                array_type->data.structure.is_unknown_size_array)
     {
         return_type = get_unknown_size_array_type(g, import,
-                array_type->data.structure.fields[0].type_entry,
+                array_type->data.structure.fields[0].type_entry->data.pointer.child_type,
                 node->data.slice_expr.is_const);
     } else {
         add_node_error(g, node,
@@ -1405,15 +1405,19 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
 
     TypeTableEntry *return_type;
 
-    if (array_type->id == TypeTableEntryIdArray) {
+    if (array_type->id == TypeTableEntryIdInvalid) {
+        return_type = g->builtin_types.entry_invalid;
+    } else if (array_type->id == TypeTableEntryIdArray) {
         return_type = array_type->data.array.child_type;
     } else if (array_type->id == TypeTableEntryIdPointer) {
         return_type = array_type->data.pointer.child_type;
+    } else if (array_type->id == TypeTableEntryIdStruct &&
+               array_type->data.structure.is_unknown_size_array)
+    {
+        return_type = array_type->data.structure.fields[0].type_entry->data.pointer.child_type;
     } else {
-        if (array_type->id != TypeTableEntryIdInvalid) {
-            add_node_error(g, node,
-                    buf_sprintf("array access of non-array type '%s'", buf_ptr(&array_type->name)));
-        }
+        add_node_error(g, node,
+                buf_sprintf("array access of non-array type '%s'", buf_ptr(&array_type->name)));
         return_type = g->builtin_types.entry_invalid;
     }
 

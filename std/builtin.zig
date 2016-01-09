@@ -10,6 +10,7 @@ export fn memset(dest: &u8, c: u8, n: usize) -> &u8 {
     return dest;
 }
 
+// TODO annotate parameters with noalias
 export fn memcpy(dest: &u8, src: &const u8, n: usize) -> &u8 {
     var index : #typeof(n) = 0;
     while (index != n) {

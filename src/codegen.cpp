@@ -260,6 +260,15 @@ static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
         };
         add_debug_source_node(g, node);
         return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 1, "");
+    } else if (type_entry->id == TypeTableEntryIdStruct) {
+        assert(type_entry->data.structure.is_unknown_size_array);
+        assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
+        assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
+
+        add_debug_source_node(g, node);
+        LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, 0, "");
+        LLVMValueRef ptr = LLVMBuildLoad(g->builder, ptr_ptr, "");
+        return LLVMBuildInBoundsGEP(g->builder, ptr, &subscript_value, 1, "");
     } else {
         zig_unreachable();
     }
@@ -314,9 +323,9 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
     TypeTableEntry *array_type = get_expr_type(array_ref_node);
 
     LLVMValueRef tmp_struct_ptr = node->codegen_node->data.struct_val_expr_node.ptr;
+    LLVMValueRef array_ptr = gen_array_base_ptr(g, array_ref_node);
 
     if (array_type->id == TypeTableEntryIdArray) {
-        LLVMValueRef array_ptr = gen_array_base_ptr(g, array_ref_node);
         LLVMValueRef start_val = gen_expr(g, node->data.slice_expr.start);
         LLVMValueRef end_val;
         if (node->data.slice_expr.end) {
@@ -343,7 +352,31 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
         zig_panic("TODO gen_slice_expr pointer");
     } else if (array_type->id == TypeTableEntryIdStruct) {
         assert(array_type->data.structure.is_unknown_size_array);
-        zig_panic("TODO gen_slice_expr unknown size array");
+        assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
+        assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
+
+        LLVMValueRef start_val = gen_expr(g, node->data.slice_expr.start);
+        LLVMValueRef end_val;
+        if (node->data.slice_expr.end) {
+            end_val = gen_expr(g, node->data.slice_expr.end);
+        } else {
+            add_debug_source_node(g, node);
+            LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, 1, "");
+            end_val = LLVMBuildLoad(g->builder, src_len_ptr, "");
+        }
+
+        add_debug_source_node(g, node);
+        LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, 0, "");
+        LLVMValueRef src_ptr = LLVMBuildLoad(g->builder, src_ptr_ptr, "");
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 0, "");
+        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr, &start_val, 1, "");
+        LLVMBuildStore(g->builder, slice_start_ptr, ptr_field_ptr);
+
+        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 1, "");
+        LLVMValueRef len_value = LLVMBuildSub(g->builder, end_val, start_val, "");
+        LLVMBuildStore(g->builder, len_value, len_field_ptr);
+
+        return tmp_struct_ptr;
     } else {
         zig_unreachable();
     }
@@ -420,6 +453,10 @@ static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *expr_node, AstNode *node,
             target_ref = gen_array_ptr(g, node);
         } else if (array_type->id == TypeTableEntryIdPointer) {
             *out_type_entry = array_type->data.pointer.child_type;
+            target_ref = gen_array_ptr(g, node);
+        } else if (array_type->id == TypeTableEntryIdStruct) {
+            assert(array_type->data.structure.is_unknown_size_array);
+            *out_type_entry = array_type->data.structure.fields[0].type_entry->data.pointer.child_type;
             target_ref = gen_array_ptr(g, node);
         } else {
             zig_unreachable();
