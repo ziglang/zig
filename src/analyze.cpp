@@ -2064,6 +2064,41 @@ static TypeTableEntry *analyze_compiler_fn_type(CodeGen *g, ImportTableEntry *im
     }
 }
 
+static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
+    Buf *name = &fn_ref_expr->data.symbol;
+
+    auto entry = g->builtin_fn_table.maybe_get(name);
+
+    if (entry) {
+        BuiltinFnEntry *builtin_fn = entry->value;
+        int actual_param_count = node->data.fn_call_expr.params.length;
+
+        assert(node->codegen_node);
+        node->codegen_node->data.fn_call_node.builtin_fn = builtin_fn;
+
+        if (builtin_fn->param_count != actual_param_count) {
+            add_node_error(g, node,
+                    buf_sprintf("expected %d arguments, got %d",
+                        builtin_fn->param_count, actual_param_count));
+        }
+
+        for (int i = 0; i < actual_param_count; i += 1) {
+            AstNode *child = node->data.fn_call_expr.params.at(i);
+            TypeTableEntry *expected_param_type = builtin_fn->param_types[i];
+            analyze_expression(g, import, context, expected_param_type, child);
+        }
+
+        return builtin_fn->return_type;
+    } else {
+        add_node_error(g, node,
+                buf_sprintf("invalid builtin function: '%s'", buf_ptr(name)));
+        return g->builtin_types.entry_invalid;
+    }
+}
+
 static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -2091,6 +2126,9 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
             return g->builtin_types.entry_invalid;
         }
     } else if (fn_ref_expr->type == NodeTypeSymbol) {
+        if (node->data.fn_call_expr.is_builtin) {
+            return analyze_builtin_fn_call_expr(g, import, context, expected_type, node);
+        }
         name = &fn_ref_expr->data.symbol;
     } else {
         add_node_error(g, node,
@@ -2126,12 +2164,12 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
         if (fn_proto->is_var_args) {
             if (actual_param_count < expected_param_count) {
                 add_node_error(g, node,
-                        buf_sprintf("wrong number of arguments. Expected at least %d, got %d.",
+                        buf_sprintf("expected at least %d arguments, got %d",
                             expected_param_count, actual_param_count));
             }
         } else if (expected_param_count != actual_param_count) {
             add_node_error(g, node,
-                    buf_sprintf("wrong number of arguments. Expected %d, got %d.",
+                    buf_sprintf("expected %d arguments, got %d",
                         expected_param_count, actual_param_count));
         }
 

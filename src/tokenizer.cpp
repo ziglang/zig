@@ -376,6 +376,10 @@ void tokenize(Buf *buf, Tokenization *out) {
                         begin_token(&t, TokenIdTilde);
                         end_token(&t);
                         break;
+                    case '@':
+                        begin_token(&t, TokenIdAtSign);
+                        end_token(&t);
+                        break;
                     case '-':
                         begin_token(&t, TokenIdDash);
                         t.state = TokenizeStateSawDash;
@@ -1074,6 +1078,7 @@ static const char * token_name(Token *token) {
         case TokenIdMaybe: return "Maybe";
         case TokenIdDoubleQuestion: return "DoubleQuestion";
         case TokenIdMaybeAssign: return "MaybeAssign";
+        case TokenIdAtSign: return "AtSign";
     }
     return "(invalid token)";
 }

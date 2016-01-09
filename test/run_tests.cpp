@@ -955,6 +955,24 @@ fn f(c: u8) -> u8 {
     }
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("overflow intrinsics", R"SOURCE(
+use "std.zig";
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    var result: u8;
+    if (!@add_with_overflow_u8(250, 100, &result)) {
+        print_str("BAD\n");
+    }
+    if (@add_with_overflow_u8(100, 150, &result)) {
+        print_str("BAD\n");
+    }
+    if (result != 250) {
+        print_str("BAD\n");
+    }
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
 }
 
 
@@ -995,7 +1013,7 @@ fn a() {
     b(1);
 }
 fn b(a: i32, b: i32, c: i32) { }
-    )SOURCE", 1, ".tmp_source.zig:3:6: error: wrong number of arguments. Expected 3, got 1.");
+    )SOURCE", 1, ".tmp_source.zig:3:6: error: expected 3 arguments, got 1");
 
     add_compile_fail_case("invalid type", R"SOURCE(
 fn a() -> bogus {}

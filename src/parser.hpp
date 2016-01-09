@@ -176,6 +176,7 @@ struct AstNodeBinOpExpr {
 struct AstNodeFnCallExpr {
     AstNode *fn_ref_expr;
     ZigList<AstNode *> params;
+    bool is_builtin;
 };
 
 struct AstNodeArrayAccessExpr {

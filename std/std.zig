@@ -63,10 +63,6 @@ pub fn parse_u64(buf: []u8, radix: u8, result: &u64) -> bool {
             return true;
         }
 
-        x *= radix;
-        x += digit;
-
-        /* TODO intrinsics mul and add with overflow
         // x *= radix
         if (@mul_with_overflow_u64(x, radix, &x)) {
             return true;
@@ -76,7 +72,6 @@ pub fn parse_u64(buf: []u8, radix: u8, result: &u64) -> bool {
         if (@add_with_overflow_u64(x, digit, &x)) {
             return true;
         }
-        */
 
         i += 1;
     }

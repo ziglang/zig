@@ -148,6 +148,20 @@ struct FnTableEntry {
     HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
 };
 
+enum BuiltinFnId {
+    BuiltinFnIdInvalid,
+    BuiltinFnIdArithmeticWithOverflow,
+};
+
+struct BuiltinFnEntry {
+    BuiltinFnId id;
+    Buf name;
+    int param_count;
+    TypeTableEntry *return_type;
+    TypeTableEntry **param_types;
+    LLVMValueRef fn_val;
+};
+
 struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -161,6 +175,7 @@ struct CodeGen {
     HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> link_table;
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
+    HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
 
     struct {
         TypeTableEntry *entry_bool;
@@ -342,6 +357,10 @@ struct WhileNode {
     bool contains_break;
 };
 
+struct FnCallNode {
+    BuiltinFnEntry *builtin_fn;
+};
+
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
@@ -363,16 +382,10 @@ struct CodeGenNode {
         ParamDeclNode param_decl_node; // for NodeTypeParamDecl
         ImportNode import_node; // for NodeTypeUse
         WhileNode while_node; // for NodeTypeWhileExpr
+        FnCallNode fn_call_node; // for NodeTypeFnCallExpr
     } data;
     ExprNode expr_node; // for all the expression nodes
 };
-
-static inline Buf *hack_get_fn_call_name(CodeGen *g, AstNode *node) {
-    // Assume that the expression evaluates to a simple name and return the buf
-    // TODO after type checking works we should be able to remove this hack
-    assert(node->type == NodeTypeSymbol);
-    return &node->data.symbol;
-}
 
 void semantic_analyze(CodeGen *g);
 void add_node_error(CodeGen *g, AstNode *node, Buf *msg);

@@ -1313,7 +1313,7 @@ static AstNode *ast_parse_struct_val_expr(ParseContext *pc, int *token_index) {
 }
 
 /*
-PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression | CompilerFnType
+PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression | CompilerFnType | (token(AtSign) token(Symbol) FnCallExpression)
 KeywordLiteral : token(Unreachable) | token(Void) | token(True) | token(False) | token(Null)
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
@@ -1355,6 +1355,18 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
     } else if (token->id == TokenIdKeywordNull) {
         AstNode *node = ast_create_node(pc, NodeTypeNullLiteral, token);
         *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdAtSign) {
+        *token_index += 1;
+        Token *name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+        AstNode *name_node = ast_create_node(pc, NodeTypeSymbol, name_tok);
+        ast_buf_from_token(pc, name_tok, &name_node->data.symbol);
+
+        AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, token);
+        node->data.fn_call_expr.fn_ref_expr = name_node;
+        ast_eat_token(pc, token_index, TokenIdLParen);
+        ast_parse_fn_call_param_list(pc, token_index, &node->data.fn_call_expr.params);
+        node->data.fn_call_expr.is_builtin = true;
         return node;
     } else if (token->id == TokenIdSymbol) {
         Token *next_token = &pc->tokens->at(*token_index + 1);
