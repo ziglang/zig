@@ -356,8 +356,7 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "Unreachable\n");
             break;
         case NodeTypeSymbol:
-            fprintf(stderr, "Symbol %s\n",
-                    buf_ptr(&node->data.symbol));
+            fprintf(stderr, "Symbol %s\n", buf_ptr(&node->data.symbol_expr.symbol));
             break;
         case NodeTypeUse:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.use.path));
@@ -366,7 +365,8 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "%s\n", node_type_str(node->type));
             break;
         case NodeTypeBoolLiteral:
-            fprintf(stderr, "%s '%s'\n", node_type_str(node->type), node->data.bool_literal ? "true" : "false");
+            fprintf(stderr, "%s '%s'\n", node_type_str(node->type),
+                    node->data.bool_literal.value ? "true" : "false");
             break;
         case NodeTypeNullLiteral:
             fprintf(stderr, "%s\n", node_type_str(node->type));
@@ -401,7 +401,7 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.label.name));
             break;
         case NodeTypeGoto:
-            fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.go_to.name));
+            fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.goto_expr.name));
             break;
         case NodeTypeBreak:
             fprintf(stderr, "%s\n", node_type_str(node->type));
@@ -1369,12 +1369,12 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         return node;
     } else if (token->id == TokenIdKeywordTrue) {
         AstNode *node = ast_create_node(pc, NodeTypeBoolLiteral, token);
-        node->data.bool_literal = true;
+        node->data.bool_literal.value = true;
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordFalse) {
         AstNode *node = ast_create_node(pc, NodeTypeBoolLiteral, token);
-        node->data.bool_literal = false;
+        node->data.bool_literal.value = false;
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordNull) {
@@ -1385,7 +1385,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         *token_index += 1;
         Token *name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
         AstNode *name_node = ast_create_node(pc, NodeTypeSymbol, name_tok);
-        ast_buf_from_token(pc, name_tok, &name_node->data.symbol);
+        ast_buf_from_token(pc, name_tok, &name_node->data.symbol_expr.symbol);
 
         AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, token);
         node->data.fn_call_expr.fn_ref_expr = name_node;
@@ -1401,7 +1401,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         } else {
             *token_index += 1;
             AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
-            ast_buf_from_token(pc, token, &node->data.symbol);
+            ast_buf_from_token(pc, token, &node->data.symbol_expr.symbol);
             return node;
         }
     } else if (token->id == TokenIdKeywordGoto) {
@@ -1412,7 +1412,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         *token_index += 1;
         ast_expect_token(pc, dest_symbol, TokenIdSymbol);
 
-        ast_buf_from_token(pc, dest_symbol, &node->data.go_to.name);
+        ast_buf_from_token(pc, dest_symbol, &node->data.goto_expr.name);
         return node;
     } else if (token->id == TokenIdKeywordBreak) {
         AstNode *node = ast_create_node(pc, NodeTypeBreak, token);

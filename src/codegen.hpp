@@ -11,21 +11,8 @@
 #include "parser.hpp"
 #include "errmsg.hpp"
 
-struct CodeGen;
-
-enum OutType {
-    OutTypeUnknown,
-    OutTypeExe,
-    OutTypeLib,
-    OutTypeObj,
-};
-
 CodeGen *codegen_create(Buf *root_source_dir);
 
-enum CodeGenBuildType {
-    CodeGenBuildTypeDebug,
-    CodeGenBuildTypeRelease,
-};
 void codegen_set_build_type(CodeGen *codegen, CodeGenBuildType build_type);
 void codegen_set_is_static(CodeGen *codegen, bool is_static);
 void codegen_set_strip(CodeGen *codegen, bool strip);

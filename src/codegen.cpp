@@ -75,9 +75,7 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType b
 
 static TypeTableEntry *get_type_for_type_node(CodeGen *g, AstNode *type_node) {
     assert(type_node->type == NodeTypeType);
-    assert(type_node->codegen_node);
-    assert(type_node->codegen_node->data.type_node.entry);
-    return type_node->codegen_node->data.type_node.entry;
+    return type_node->data.type.entry;
 }
 
 static TypeTableEntry *fn_proto_type_from_type_node(CodeGen *g, AstNode *type_node) {
@@ -138,15 +136,16 @@ static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str, bool c) {
 }
 
 static TypeTableEntry *get_expr_type(AstNode *node) {
-    TypeTableEntry *cast_type = node->codegen_node->expr_node.implicit_cast.after_type;
-    return cast_type ? cast_type : node->codegen_node->expr_node.type_entry;
+    Expr *expr = get_resolved_expr(node);
+    TypeTableEntry *cast_type = expr->implicit_cast.after_type;
+    return cast_type ? cast_type : expr->type_entry;
 }
 
 static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
     AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
     assert(fn_ref_expr->type == NodeTypeSymbol);
-    BuiltinFnEntry *builtin_fn = node->codegen_node->data.fn_call_node.builtin_fn;
+    BuiltinFnEntry *builtin_fn = node->data.fn_call_expr.builtin_fn;
 
     switch (builtin_fn->id) {
         case BuiltinFnIdInvalid:
@@ -265,7 +264,7 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         // Assume that the expression evaluates to a simple name and return the buf
         // TODO after we support function pointers we can make this generic
         assert(fn_ref_expr->type == NodeTypeSymbol);
-        Buf *name = &fn_ref_expr->data.symbol;
+        Buf *name = &fn_ref_expr->data.symbol_expr.symbol;
 
         struct_type = nullptr;
         first_param_expr = nullptr;
@@ -388,8 +387,8 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
 
     LLVMValueRef struct_ptr;
     if (struct_expr_node->type == NodeTypeSymbol) {
-        VariableTableEntry *var = find_variable(struct_expr_node->codegen_node->expr_node.block_context,
-                &struct_expr_node->data.symbol);
+        VariableTableEntry *var = find_variable(get_resolved_expr(struct_expr_node)->block_context,
+                &struct_expr_node->data.symbol_expr.symbol);
         assert(var);
 
         if (var->is_ptr && var->type->id == TypeTableEntryIdPointer) {
@@ -413,14 +412,12 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
     assert(LLVMGetTypeKind(LLVMTypeOf(struct_ptr)) == LLVMPointerTypeKind);
     assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(struct_ptr))) == LLVMStructTypeKind);
 
-    FieldAccessNode *codegen_field_access = &node->codegen_node->data.field_access_node;
+    assert(node->data.field_access_expr.field_index >= 0);
 
-    assert(codegen_field_access->field_index >= 0);
-
-    *out_type_entry = codegen_field_access->type_struct_field->type_entry;
+    *out_type_entry = node->data.field_access_expr.type_struct_field->type_entry;
 
     add_debug_source_node(g, node);
-    return LLVMBuildStructGEP(g->builder, struct_ptr, codegen_field_access->field_index, "");
+    return LLVMBuildStructGEP(g->builder, struct_ptr, node->data.field_access_expr.field_index, "");
 }
 
 static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
@@ -429,7 +426,7 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
     AstNode *array_ref_node = node->data.slice_expr.array_ref_expr;
     TypeTableEntry *array_type = get_expr_type(array_ref_node);
 
-    LLVMValueRef tmp_struct_ptr = node->codegen_node->data.struct_val_expr_node.ptr;
+    LLVMValueRef tmp_struct_ptr = node->data.slice_expr.resolved_struct_val_expr.ptr;
     LLVMValueRef array_ptr = gen_array_base_ptr(g, array_ref_node);
 
     if (array_type->id == TypeTableEntryIdArray) {
@@ -545,8 +542,8 @@ static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *expr_node, AstNode *node,
     LLVMValueRef target_ref;
 
     if (node->type == NodeTypeSymbol) {
-        VariableTableEntry *var = find_variable(expr_node->codegen_node->expr_node.block_context,
-                &node->data.symbol);
+        VariableTableEntry *var = find_variable(get_resolved_expr(expr_node)->block_context,
+                &node->data.symbol_expr.symbol);
         assert(var);
         // semantic checking ensures no variables are constant
         assert(!var->is_const);
@@ -630,7 +627,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
 }
 
 static LLVMValueRef gen_bare_cast(CodeGen *g, AstNode *node, LLVMValueRef expr_val,
-        TypeTableEntry *actual_type, TypeTableEntry *wanted_type, CastNode *cast_node)
+        TypeTableEntry *actual_type, TypeTableEntry *wanted_type, Cast *cast_node)
 {
     switch (cast_node->op) {
         case CastOpNothing:
@@ -705,7 +702,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
     TypeTableEntry *actual_type = get_expr_type(node->data.cast_expr.expr);
     TypeTableEntry *wanted_type = get_expr_type(node);
 
-    CastNode *cast_node = &node->codegen_node->data.cast_node;
+    Cast *cast_node = &node->data.cast_expr.cast;
 
     return gen_bare_cast(g, node, expr_val, actual_type, wanted_type, cast_node);
 
@@ -1218,7 +1215,7 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
     assert(node->data.if_var_expr.var_decl.expr);
 
     BlockContext *old_block_context = g->cur_block_context;
-    BlockContext *new_block_context = node->codegen_node->data.if_var_node.block_context;
+    BlockContext *new_block_context = node->data.if_var_expr.block_context;
 
     LLVMValueRef init_val;
     gen_var_decl_raw(g, node, &node->data.if_var_expr.var_decl, new_block_context, true, &init_val);
@@ -1242,7 +1239,7 @@ static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *i
     assert(block_node->type == NodeTypeBlock);
 
     BlockContext *old_block_context = g->cur_block_context;
-    g->cur_block_context = block_node->codegen_node->data.block_node.block_context;
+    g->cur_block_context = block_node->data.block.block_context;
 
     LLVMValueRef return_value;
     for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
@@ -1347,7 +1344,7 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
 
         if (!is_return) {
             VariableTableEntry *variable = find_variable(
-                    node->codegen_node->expr_node.block_context,
+                    get_resolved_expr(node)->block_context,
                     &asm_output->variable_name);
             assert(variable);
             param_types[param_index] = LLVMTypeOf(variable->value_ref);
@@ -1396,7 +1393,7 @@ static LLVMValueRef gen_null_literal(CodeGen *g, AstNode *node) {
     TypeTableEntry *type_entry = get_expr_type(node);
     assert(type_entry->id == TypeTableEntryIdMaybe);
 
-    LLVMValueRef tmp_struct_ptr = node->codegen_node->data.struct_val_expr_node.ptr;
+    LLVMValueRef tmp_struct_ptr = node->data.null_literal.resolved_struct_val_expr.ptr;
 
     add_debug_source_node(g, node);
     LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 1, "");
@@ -1416,12 +1413,13 @@ static LLVMValueRef gen_struct_val_expr(CodeGen *g, AstNode *node) {
     int field_count = type_entry->data.structure.field_count;
     assert(field_count == node->data.struct_val_expr.fields.length);
 
-    StructValExprNode *struct_val_expr_node = &node->codegen_node->data.struct_val_expr_node;
+    StructValExprCodeGen *struct_val_expr_node = &node->data.struct_val_expr.codegen;
     LLVMValueRef tmp_struct_ptr = struct_val_expr_node->ptr;
 
     for (int i = 0; i < field_count; i += 1) {
         AstNode *field_node = node->data.struct_val_expr.fields.at(i);
-        int index = field_node->codegen_node->data.struct_val_field_node.index;
+        assert(field_node->type == NodeTypeStructValueField);
+        int index = field_node->data.struct_val_field.index;
         TypeStructField *type_struct_field = &type_entry->data.structure.fields[index];
         assert(buf_eql_buf(type_struct_field->name, &field_node->data.struct_val_field.name));
 
@@ -1439,8 +1437,8 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
     assert(node->data.while_expr.condition);
     assert(node->data.while_expr.body);
 
-    bool condition_always_true = node->codegen_node->data.while_node.condition_always_true;
-    bool contains_break = node->codegen_node->data.while_node.contains_break;
+    bool condition_always_true = node->data.while_expr.condition_always_true;
+    bool contains_break = node->data.while_expr.contains_break;
     if (condition_always_true) {
         // generate a forever loop
 
@@ -1559,17 +1557,17 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
 static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef init_val;
     return gen_var_decl_raw(g, node, &node->data.variable_declaration,
-            node->codegen_node->expr_node.block_context, false, &init_val);
+            get_resolved_expr(node)->block_context, false, &init_val);
 }
 
 static LLVMValueRef gen_number_literal_raw(CodeGen *g, AstNode *source_node,
-        NumberLiteralNode *codegen_num_lit, AstNodeNumberLiteral *num_lit_node)
+        NumLitCodeGen *codegen_num_lit, AstNodeNumberLiteral *num_lit_node)
 {
     TypeTableEntry *type_entry = codegen_num_lit->resolved_type;
     assert(type_entry);
 
     // override the expression type for number literals
-    source_node->codegen_node->expr_node.type_entry = type_entry;
+    get_resolved_expr(source_node)->type_entry = type_entry;
 
     if (type_entry->id == TypeTableEntryIdInt) {
         // here the union has int64_t and uint64_t and we purposefully read
@@ -1594,7 +1592,7 @@ static LLVMValueRef gen_compiler_fn_type(CodeGen *g, AstNode *node) {
     Buf *name = &node->data.compiler_fn_type.name;
     TypeTableEntry *type_entry = get_type_for_type_node(g, node->data.compiler_fn_type.type);
     if (buf_eql_str(name, "sizeof")) {
-        NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
+        NumLitCodeGen *codegen_num_lit = get_resolved_num_lit(node);
         AstNodeNumberLiteral num_lit_node;
         num_lit_node.kind = type_entry->data.num_lit.kind;
         num_lit_node.overflow = false;
@@ -1632,7 +1630,7 @@ static LLVMValueRef gen_compiler_fn_type(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_number_literal(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeNumberLiteral);
 
-    NumberLiteralNode *codegen_num_lit = &node->codegen_node->data.num_lit_node;
+    NumLitCodeGen *codegen_num_lit = get_resolved_num_lit(node);
     assert(codegen_num_lit);
 
     return gen_number_literal_raw(g, node, codegen_num_lit, &node->data.number_literal);
@@ -1664,7 +1662,7 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
         case NodeTypeVoid:
             return nullptr;
         case NodeTypeBoolLiteral:
-            if (node->data.bool_literal)
+            if (node->data.bool_literal.value)
                 return LLVMConstAllOnes(LLVMInt1Type());
             else
                 return LLVMConstNull(LLVMInt1Type());
@@ -1696,8 +1694,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
         case NodeTypeSymbol:
             {
                 VariableTableEntry *variable = find_variable(
-                        node->codegen_node->expr_node.block_context,
-                        &node->data.symbol);
+                        get_resolved_expr(node)->block_context,
+                        &node->data.symbol_expr.symbol);
                 assert(variable);
                 if (variable->type->id == TypeTableEntryIdVoid) {
                     return nullptr;
@@ -1721,14 +1719,14 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
             return gen_block(g, node, nullptr);
         case NodeTypeGoto:
             add_debug_source_node(g, node);
-            return LLVMBuildBr(g->builder, node->codegen_node->data.label_entry->basic_block);
+            return LLVMBuildBr(g->builder, node->data.goto_expr.label_entry->basic_block);
         case NodeTypeBreak:
             return gen_break(g, node);
         case NodeTypeContinue:
             return gen_continue(g, node);
         case NodeTypeLabel:
             {
-                LabelTableEntry *label_entry = node->codegen_node->data.label_entry;
+                LabelTableEntry *label_entry = node->data.label.label_entry;
                 assert(label_entry);
                 LLVMBasicBlockRef basic_block = label_entry->basic_block;
                 if (label_entry->entered_from_fallthrough) {
@@ -1770,19 +1768,19 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         return val;
     }
 
-    assert(node->codegen_node);
+    Expr *expr = get_resolved_expr(node);
 
-    TypeTableEntry *before_type = node->codegen_node->expr_node.type_entry;
+    TypeTableEntry *before_type = expr->type_entry;
     if (before_type && before_type->id == TypeTableEntryIdUnreachable) {
         return val;
     }
-    CastNode *cast_node = &node->codegen_node->expr_node.implicit_cast;
+    Cast *cast_node = &expr->implicit_cast;
     if (cast_node->after_type) {
         val = gen_bare_cast(g, node, val, before_type, cast_node->after_type, cast_node);
         before_type = cast_node->after_type;
     }
 
-    cast_node = &node->codegen_node->expr_node.implicit_maybe_cast;
+    cast_node = &expr->implicit_maybe_cast;
     if (cast_node->after_type) {
         val = gen_bare_cast(g, node, val, before_type, cast_node->after_type, cast_node);
     }
@@ -1798,7 +1796,7 @@ static void build_label_blocks(CodeGen *g, AstNode *block_node) {
             continue;
 
         Buf *name = &label_node->data.label.name;
-        label_node->codegen_node->data.label_entry->basic_block = LLVMAppendBasicBlock(
+        label_node->data.label.label_entry->basic_block = LLVMAppendBasicBlock(
                 g->cur_fn->fn_value, buf_ptr(name));
     }
 
@@ -1944,13 +1942,7 @@ static void do_code_gen(CodeGen *g) {
         LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn, "entry");
         LLVMPositionBuilderAtEnd(g->builder, entry_block);
 
-        CodeGenNode *codegen_node = fn_def_node->codegen_node;
-        assert(codegen_node);
-
-        FnDefNode *codegen_fn_def = &codegen_node->data.fn_def_node;
-        assert(codegen_fn_def);
-
-        codegen_fn_def->block_context->di_scope = LLVMZigSubprogramToScope(subprogram);
+        fn_def_node->data.fn_def.block_context->di_scope = LLVMZigSubprogramToScope(subprogram);
 
         int non_void_param_count = count_non_void_params(g, &fn_proto->params);
         assert(non_void_param_count == (int)LLVMCountParams(fn));
@@ -1963,7 +1955,7 @@ static void do_code_gen(CodeGen *g) {
             assert(param_decl->type == NodeTypeParamDecl);
             if (is_param_decl_type_void(g, param_decl))
                 continue;
-            VariableTableEntry *parameter_variable = fn_def_node->codegen_node->data.fn_def_node.block_context->variable_table.get(&param_decl->data.param_decl.name);
+            VariableTableEntry *parameter_variable = fn_def_node->data.fn_def.block_context->variable_table.get(&param_decl->data.param_decl.name);
             parameter_variable->value_ref = params[non_void_index];
             non_void_index += 1;
         }
@@ -2019,14 +2011,14 @@ static void do_code_gen(CodeGen *g) {
 
             // allocate structs which are the result of casts
             for (int cea_i = 0; cea_i < block_context->cast_expr_alloca_list.length; cea_i += 1) {
-                CastNode *cast_node = block_context->cast_expr_alloca_list.at(cea_i);
+                Cast *cast_node = block_context->cast_expr_alloca_list.at(cea_i);
                 add_debug_source_node(g, cast_node->source_node);
                 cast_node->ptr = LLVMBuildAlloca(g->builder, cast_node->after_type->type_ref, "");
             }
 
             // allocate structs which are struct value expressions
             for (int alloca_i = 0; alloca_i < block_context->struct_val_expr_alloca_list.length; alloca_i += 1) {
-                StructValExprNode *struct_val_expr_node = block_context->struct_val_expr_alloca_list.at(alloca_i);
+                StructValExprCodeGen *struct_val_expr_node = block_context->struct_val_expr_alloca_list.at(alloca_i);
                 add_debug_source_node(g, struct_val_expr_node->source_node);
                 struct_val_expr_node->ptr = LLVMBuildAlloca(g->builder,
                         struct_val_expr_node->type_entry->type_ref, "");
@@ -2041,15 +2033,15 @@ static void do_code_gen(CodeGen *g) {
             if (is_param_decl_type_void(g, param_decl))
                 continue;
 
-            VariableTableEntry *variable = param_decl->codegen_node->data.param_decl_node.variable;
+            VariableTableEntry *variable = param_decl->data.param_decl.variable;
 
             LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(param_decl->line + 1, param_decl->column + 1,
-                    codegen_fn_def->block_context->di_scope);
+                    fn_def_node->data.fn_def.block_context->di_scope);
             LLVMZigInsertDeclareAtEnd(g->dbuilder, variable->value_ref, variable->di_loc_var, debug_loc,
                     entry_block);
         }
 
-        TypeTableEntry *implicit_return_type = codegen_fn_def->implicit_return_type;
+        TypeTableEntry *implicit_return_type = fn_def_node->data.fn_def.implicit_return_type;
         gen_block(g, fn_def_node->data.fn_def.body, implicit_return_type);
 
     }
@@ -2549,8 +2541,6 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
             Buf *import_code = buf_alloc();
             bool found_it = false;
 
-            alloc_codegen_node(top_level_decl);
-
             for (int path_i = 0; path_i < g->lib_search_paths.length; path_i += 1) {
                 Buf *search_path = g->lib_search_paths.at(path_i);
                 os_path_join(search_path, import_target_path, &full_path);
@@ -2570,7 +2560,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
                 auto entry = g->import_table.maybe_get(abs_full_path);
                 if (entry) {
                     found_it = true;
-                    top_level_decl->codegen_node->data.import_node.import = entry->value;
+                    top_level_decl->data.use.import = entry->value;
                 } else {
                     if ((err = os_fetch_file_path(abs_full_path, import_code))) {
                         if (err == ErrorFileNotFound) {
@@ -2582,7 +2572,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
                             goto done_looking_at_imports;
                         }
                     }
-                    top_level_decl->codegen_node->data.import_node.import = codegen_add_code(g,
+                    top_level_decl->data.use.import = codegen_add_code(g,
                             abs_full_path, search_path, &top_level_decl->data.use.path, import_code);
                     found_it = true;
                 }
@@ -2682,9 +2672,8 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
 
 static void to_c_type(CodeGen *g, AstNode *type_node, Buf *out_buf) {
     assert(type_node->type == NodeTypeType);
-    assert(type_node->codegen_node);
 
-    TypeTableEntry *type_entry = type_node->codegen_node->data.type_node.entry;
+    TypeTableEntry *type_entry = type_node->data.type.entry;
     assert(type_entry);
 
     if (type_entry == g->builtin_types.entry_u8) {
