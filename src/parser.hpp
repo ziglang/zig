@@ -80,6 +80,16 @@ struct AstNodeFnProto {
     ZigList<AstNode *> params;
     AstNode *return_type;
     bool is_var_args;
+
+    // the extern block this fn proto is inside. can be null.
+    // populated by semantic analyzer.
+    AstNode *extern_node;
+    // the struct decl node this fn proto is inside. can be null.
+    // populated by semantic analyzer.
+    AstNode *struct_node;
+    // the function definition this fn proto is inside. can be null.
+    // populated by semantic analyzer.
+    AstNode *fn_def_node;
 };
 
 struct AstNodeFnDef {
@@ -369,6 +379,7 @@ struct AstNode {
     enum NodeType type;
     int line;
     int column;
+    uint32_t create_index; // for determinism purposes
     CodeGenNode *codegen_node;
     ImportTableEntry *owner;
     union {

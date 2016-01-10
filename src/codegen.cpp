@@ -23,6 +23,8 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->link_table.init(32);
     g->import_table.init(32);
     g->builtin_fn_table.init(32);
+    g->primitive_type_table.init(32);
+    g->unresolved_top_level_decls.init(32);
     g->build_type = CodeGenBuildTypeDebug;
     g->root_source_dir = root_source_dir;
 
@@ -2109,6 +2111,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_bool = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -2120,6 +2123,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_u8 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -2132,6 +2136,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_u16 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -2144,6 +2149,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_u32 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -2156,6 +2162,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_u64 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     g->builtin_types.entry_c_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true, false);
     {
@@ -2169,6 +2176,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
         g->builtin_types.entry_i8 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -2181,6 +2189,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
         g->builtin_types.entry_i16 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -2193,6 +2202,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
         g->builtin_types.entry_i32 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -2205,6 +2215,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
         g->builtin_types.entry_i64 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -2217,6 +2228,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
         g->builtin_types.entry_isize = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -2229,6 +2241,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_usize = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
@@ -2240,6 +2253,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_float());
         g->builtin_types.entry_f32 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
@@ -2251,6 +2265,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_float());
         g->builtin_types.entry_f64 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);
@@ -2260,6 +2275,7 @@ static void define_builtin_types(CodeGen *g) {
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_void = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUnreachable);
@@ -2267,6 +2283,7 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "unreachable");
         entry->di_type = g->builtin_types.entry_void->di_type;
         g->builtin_types.entry_unreachable = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
 }
 
@@ -2506,21 +2523,6 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
     import_entry->path = full_path;
     import_entry->fn_table.init(32);
     import_entry->type_table.init(32);
-    import_entry->type_table.put(&g->builtin_types.entry_bool->name, g->builtin_types.entry_bool);
-    import_entry->type_table.put(&g->builtin_types.entry_u8->name, g->builtin_types.entry_u8);
-    import_entry->type_table.put(&g->builtin_types.entry_u16->name, g->builtin_types.entry_u16);
-    import_entry->type_table.put(&g->builtin_types.entry_u32->name, g->builtin_types.entry_u32);
-    import_entry->type_table.put(&g->builtin_types.entry_u64->name, g->builtin_types.entry_u64);
-    import_entry->type_table.put(&g->builtin_types.entry_i8->name, g->builtin_types.entry_i8);
-    import_entry->type_table.put(&g->builtin_types.entry_i16->name, g->builtin_types.entry_i16);
-    import_entry->type_table.put(&g->builtin_types.entry_i32->name, g->builtin_types.entry_i32);
-    import_entry->type_table.put(&g->builtin_types.entry_i64->name, g->builtin_types.entry_i64);
-    import_entry->type_table.put(&g->builtin_types.entry_isize->name, g->builtin_types.entry_isize);
-    import_entry->type_table.put(&g->builtin_types.entry_usize->name, g->builtin_types.entry_usize);
-    import_entry->type_table.put(&g->builtin_types.entry_f32->name, g->builtin_types.entry_f32);
-    import_entry->type_table.put(&g->builtin_types.entry_f64->name, g->builtin_types.entry_f64);
-    import_entry->type_table.put(&g->builtin_types.entry_void->name, g->builtin_types.entry_void);
-    import_entry->type_table.put(&g->builtin_types.entry_unreachable->name, g->builtin_types.entry_unreachable);
 
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);

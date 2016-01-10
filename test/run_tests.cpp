@@ -1203,7 +1203,7 @@ struct A { a : A, }
 struct A { b : B, }
 struct B { c : C, }
 struct C { a : A, }
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: struct has infinite size");
+    )SOURCE", 1, ".tmp_source.zig:4:1: error: struct has infinite size");
 
     add_compile_fail_case("invalid struct field", R"SOURCE(
 struct A { x : i32, }

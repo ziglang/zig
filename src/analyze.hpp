@@ -178,6 +178,10 @@ struct CodeGen {
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> link_table;
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> unresolved_top_level_decls;
+
+    uint32_t next_unresolved_index;
 
     struct {
         TypeTableEntry *entry_bool;
@@ -270,12 +274,12 @@ struct TypeNode {
 
 struct FnProtoNode {
     FnTableEntry *fn_table_entry;
+    bool skip;
 };
 
 struct FnDefNode {
     TypeTableEntry *implicit_return_type;
     BlockContext *block_context;
-    bool skip;
 };
 
 
@@ -364,6 +368,15 @@ struct FnCallNode {
     BuiltinFnEntry *builtin_fn;
 };
 
+struct DeclNode {
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> deps;
+    Buf *name;
+    ImportTableEntry *import;
+    // set this flag temporarily to detect infinite loops
+    bool in_current_deps;
+};
+
+// TODO get rid of this structure and put the data directly in the appropriate AST node
 struct CodeGenNode {
     union {
         TypeNode type_node; // for NodeTypeType
@@ -388,6 +401,7 @@ struct CodeGenNode {
         FnCallNode fn_call_node; // for NodeTypeFnCallExpr
     } data;
     ExprNode expr_node; // for all the expression nodes
+    DeclNode decl_node; // for all top level decls
 };
 
 void semantic_analyze(CodeGen *g);

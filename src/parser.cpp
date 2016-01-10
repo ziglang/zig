@@ -457,6 +457,7 @@ struct ParseContext {
     ZigList<AstNode *> *directive_list;
     ImportTableEntry *owner;
     ErrColor err_color;
+    uint32_t next_create_index;
 };
 
 __attribute__ ((format (printf, 4, 5)))
@@ -512,6 +513,8 @@ static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
     node->type = type;
     node->owner = pc->owner;
+    node->create_index = pc->next_create_index;
+    pc->next_create_index += 1;
     return node;
 }
 

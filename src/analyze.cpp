@@ -14,6 +14,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         TypeTableEntry *expected_type, AstNode *node);
 static TypeTableEntry *eval_const_expr(CodeGen *g, BlockContext *context,
         AstNode *node, AstNodeNumberLiteral *out_number_literal);
+static void collect_type_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *type_node, DeclNode *decl_node);
+static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, TypeTableEntry *expected_type, AstNode *node);
 
 static AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
@@ -438,6 +441,9 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
             {
                 Buf *name = &node->data.type.primitive_name;
                 auto table_entry = import->type_table.maybe_get(name);
+                if (!table_entry) {
+                    table_entry = g->primitive_type_table.maybe_get(name);
+                }
                 if (table_entry) {
                     type_node->entry = table_entry->value;
                 } else {
@@ -716,10 +722,19 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     }
 }
 
-static void preview_fn_def(CodeGen *g, ImportTableEntry *import, AstNode *node, TypeTableEntry *struct_type) {
-    assert(node->type == NodeTypeFnDef);
-    AstNode *proto_node = node->data.fn_def.fn_proto;
-    assert(proto_node->type == NodeTypeFnProto);
+static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
+        AstNode *proto_node)
+{
+    AstNode *fn_def_node = proto_node->data.fn_proto.fn_def_node;
+    AstNode *extern_node = proto_node->data.fn_proto.extern_node;
+    AstNode *struct_node = proto_node->data.fn_proto.struct_node;
+    TypeTableEntry *struct_type;
+    if (struct_node) {
+        struct_type = struct_node->codegen_node->data.struct_decl_node.type_entry;
+    } else {
+        struct_type = nullptr;
+    }
+
     Buf *proto_name = &proto_node->data.fn_proto.name;
 
     auto fn_table = struct_type ? &struct_type->data.structure.fn_table : &import->fn_table;
@@ -727,69 +742,74 @@ static void preview_fn_def(CodeGen *g, ImportTableEntry *import, AstNode *node, 
     auto entry = fn_table->maybe_get(proto_name);
     bool skip = false;
     bool is_internal = (proto_node->data.fn_proto.visib_mod != VisibModExport);
+    bool is_c_compat = !is_internal || extern_node;
     bool is_pub = (proto_node->data.fn_proto.visib_mod != VisibModPrivate);
     if (entry) {
-        add_node_error(g, node,
+        add_node_error(g, proto_node,
                 buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
-        alloc_codegen_node(node);
-        node->codegen_node->data.fn_def_node.skip = true;
+        proto_node->codegen_node->data.fn_proto_node.skip = true;
         skip = true;
     } else if (is_pub) {
         auto entry = fn_table->maybe_get(proto_name);
         if (entry) {
-            add_node_error(g, node,
-                    buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
-            alloc_codegen_node(node);
-            node->codegen_node->data.fn_def_node.skip = true;
+            add_node_error(g, proto_node, buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
+            proto_node->codegen_node->data.fn_proto_node.skip = true;
             skip = true;
         }
     }
-    if (proto_node->data.fn_proto.is_var_args) {
-        add_node_error(g, node,
+    if (!extern_node && proto_node->data.fn_proto.is_var_args) {
+        add_node_error(g, proto_node,
                 buf_sprintf("variadic arguments only allowed in extern functions"));
     }
-    if (!skip) {
-        FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
-        fn_table_entry->import_entry = import;
-        fn_table_entry->proto_node = proto_node;
-        fn_table_entry->fn_def_node = node;
-        fn_table_entry->internal_linkage = is_internal;
-        fn_table_entry->calling_convention = is_internal ? LLVMFastCallConv : LLVMCCallConv;
-        fn_table_entry->label_table.init(8);
-        fn_table_entry->member_of_struct = struct_type;
+    if (skip) {
+        return;
+    }
 
-        if (struct_type) {
-            buf_resize(&fn_table_entry->symbol_name, 0);
-            buf_appendf(&fn_table_entry->symbol_name, "%s_%s",
-                    buf_ptr(&struct_type->name),
-                    buf_ptr(proto_name));
-        } else {
-            buf_init_from_buf(&fn_table_entry->symbol_name, proto_name);
-        }
+    FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
+    fn_table_entry->import_entry = import;
+    fn_table_entry->proto_node = proto_node;
+    fn_table_entry->fn_def_node = fn_def_node;
+    fn_table_entry->internal_linkage = !is_c_compat;
+    fn_table_entry->is_extern = extern_node;
+    fn_table_entry->calling_convention = is_c_compat ? LLVMCCallConv : LLVMFastCallConv;
+    fn_table_entry->label_table.init(8);
+    fn_table_entry->member_of_struct = struct_type;
 
-        g->fn_protos.append(fn_table_entry);
+    if (struct_type) {
+        buf_resize(&fn_table_entry->symbol_name, 0);
+        buf_appendf(&fn_table_entry->symbol_name, "%s_%s",
+                buf_ptr(&struct_type->name),
+                buf_ptr(proto_name));
+    } else {
+        buf_init_from_buf(&fn_table_entry->symbol_name, proto_name);
+    }
+
+    g->fn_protos.append(fn_table_entry);
+
+    if (!extern_node) {
         g->fn_defs.append(fn_table_entry);
+    }
 
-        fn_table->put(proto_name, fn_table_entry);
+    fn_table->put(proto_name, fn_table_entry);
 
-        if (!struct_type &&
-            g->bootstrap_import &&
-            import == g->root_import && buf_eql_str(proto_name, "main"))
-        {
-            g->bootstrap_import->fn_table.put(proto_name, fn_table_entry);
-        }
+    if (!struct_type &&
+        g->bootstrap_import &&
+        import == g->root_import && buf_eql_str(proto_name, "main"))
+    {
+        g->bootstrap_import->fn_table.put(proto_name, fn_table_entry);
+    }
 
-        resolve_function_proto(g, proto_node, fn_table_entry, import);
+    resolve_function_proto(g, proto_node, fn_table_entry, import);
 
 
-        alloc_codegen_node(proto_node);
-        proto_node->codegen_node->data.fn_proto_node.fn_table_entry = fn_table_entry;
+    proto_node->codegen_node->data.fn_proto_node.fn_table_entry = fn_table_entry;
 
-        preview_function_labels(g, node->data.fn_def.body, fn_table_entry);
+    if (fn_def_node) {
+        preview_function_labels(g, fn_def_node->data.fn_def.body, fn_table_entry);
     }
 }
 
-static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeExternBlock:
             for (int i = 0; i < node->data.extern_block.directives->length; i += 1) {
@@ -803,33 +823,9 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
                             buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
                 }
             }
-
-            for (int fn_decl_i = 0; fn_decl_i < node->data.extern_block.fn_decls.length; fn_decl_i += 1) {
-                AstNode *fn_decl = node->data.extern_block.fn_decls.at(fn_decl_i);
-                assert(fn_decl->type == NodeTypeFnDecl);
-                AstNode *fn_proto = fn_decl->data.fn_decl.fn_proto;
-
-                FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
-                fn_table_entry->proto_node = fn_proto;
-                fn_table_entry->is_extern = true;
-                fn_table_entry->calling_convention = LLVMCCallConv;
-                fn_table_entry->import_entry = import;
-                fn_table_entry->label_table.init(8);
-
-                buf_init_from_buf(&fn_table_entry->symbol_name, &fn_proto->data.fn_proto.name);
-
-                resolve_function_proto(g, fn_proto, fn_table_entry, import);
-
-                Buf *name = &fn_proto->data.fn_proto.name;
-                g->fn_protos.append(fn_table_entry);
-                import->fn_table.put(name, fn_table_entry);
-
-                alloc_codegen_node(fn_proto);
-                fn_proto->codegen_node->data.fn_proto_node.fn_table_entry = fn_table_entry;
-            }
             break;
-        case NodeTypeFnDef:
-            preview_fn_def(g, import, node, nullptr);
+        case NodeTypeFnProto:
+            preview_fn_proto(g, import, node);
             break;
         case NodeTypeRootExportDecl:
             if (import == g->root_import) {
@@ -881,95 +877,22 @@ static void preview_function_declarations(CodeGen *g, ImportTableEntry *import, 
 
                 resolve_struct_type(g, import, type_entry);
 
-                for (int i = 0; i < node->data.struct_decl.fns.length; i += 1) {
-                    AstNode *fn_def_node = node->data.struct_decl.fns.at(i);
-                    preview_fn_def(g, import, fn_def_node, type_entry);
-                }
+                // struct member fns will get resolved independently
+                break;
+            }
+        case NodeTypeVariableDeclaration:
+            {
+                VariableTableEntry *var = analyze_variable_declaration(g, import, import->block_context,
+                        nullptr, node);
+                g->global_vars.append(var);
                 break;
             }
         case NodeTypeUse:
-        case NodeTypeVariableDeclaration:
             // nothing to do here
             break;
-        case NodeTypeDirective:
-        case NodeTypeParamDecl:
-        case NodeTypeFnProto:
-        case NodeTypeType:
-        case NodeTypeFnDecl:
-        case NodeTypeReturnExpr:
-        case NodeTypeRoot:
-        case NodeTypeBlock:
-        case NodeTypeBinOpExpr:
-        case NodeTypeFnCallExpr:
-        case NodeTypeArrayAccessExpr:
-        case NodeTypeSliceExpr:
-        case NodeTypeNumberLiteral:
-        case NodeTypeStringLiteral:
-        case NodeTypeCharLiteral:
-        case NodeTypeUnreachable:
-        case NodeTypeVoid:
-        case NodeTypeBoolLiteral:
-        case NodeTypeNullLiteral:
-        case NodeTypeSymbol:
-        case NodeTypeCastExpr:
-        case NodeTypePrefixOpExpr:
-        case NodeTypeIfBoolExpr:
-        case NodeTypeIfVarExpr:
-        case NodeTypeWhileExpr:
-        case NodeTypeLabel:
-        case NodeTypeGoto:
-        case NodeTypeBreak:
-        case NodeTypeContinue:
-        case NodeTypeAsmExpr:
-        case NodeTypeFieldAccessExpr:
-        case NodeTypeStructField:
-        case NodeTypeStructValueExpr:
-        case NodeTypeStructValueField:
-        case NodeTypeCompilerFnExpr:
-        case NodeTypeCompilerFnType:
-            zig_unreachable();
-    }
-}
-
-static void preview_types(CodeGen *g, ImportTableEntry *import, AstNode *node) {
-    switch (node->type) {
-        case NodeTypeStructDecl:
-            {
-                alloc_codegen_node(node);
-                StructDeclNode *struct_codegen = &node->codegen_node->data.struct_decl_node;
-
-                Buf *name = &node->data.struct_decl.name;
-                auto table_entry = import->type_table.maybe_get(name);
-                if (table_entry) {
-                    struct_codegen->type_entry = table_entry->value;
-                    add_node_error(g, node,
-                            buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-                } else {
-                    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
-                    entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(name));
-                    entry->data.structure.decl_node = node;
-                    entry->di_type = LLVMZigCreateReplaceableCompositeType(g->dbuilder,
-                        LLVMZigTag_DW_structure_type(), buf_ptr(&node->data.struct_decl.name),
-                        LLVMZigFileToScope(import->di_file), import->di_file, node->line + 1);
-
-                    buf_init_from_buf(&entry->name, name);
-                    // put off adding the debug type until we do the full struct body
-                    // this type is incomplete until we do another pass
-                    import->type_table.put(&entry->name, entry);
-                    struct_codegen->type_entry = entry;
-                }
-                break;
-            }
-        case NodeTypeExternBlock:
         case NodeTypeFnDef:
-        case NodeTypeRootExportDecl:
-        case NodeTypeUse:
-        case NodeTypeVariableDeclaration:
-            // nothing to do
-            break;
         case NodeTypeDirective:
         case NodeTypeParamDecl:
-        case NodeTypeFnProto:
         case NodeTypeType:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
@@ -2552,14 +2475,14 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     assert(node->type == NodeTypeFnDef);
 
-    if (node->codegen_node && node->codegen_node->data.fn_def_node.skip) {
+    AstNode *fn_proto_node = node->data.fn_def.fn_proto;
+    assert(fn_proto_node->type == NodeTypeFnProto);
+
+    if (fn_proto_node->codegen_node->data.fn_proto_node.skip) {
         // we detected an error with this function definition which prevents us
         // from further analyzing it.
         return;
     }
-
-    AstNode *fn_proto_node = node->data.fn_def.fn_proto;
-    assert(fn_proto_node->type == NodeTypeFnProto);
 
     alloc_codegen_node(node);
     BlockContext *context = new_block_context(node, import->block_context);
@@ -2630,7 +2553,7 @@ static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNo
     }
 }
 
-static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeFnDef:
             analyze_top_level_fn_def(g, import, node);
@@ -2733,12 +2656,8 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
                 break;
             }
         case NodeTypeVariableDeclaration:
-            {
-                VariableTableEntry *var = analyze_variable_declaration(g, import, import->block_context,
-                        nullptr, node);
-                g->global_vars.append(var);
-                break;
-            }
+            // handled in resolve phase
+            break;
         case NodeTypeDirective:
         case NodeTypeParamDecl:
         case NodeTypeFnProto:
@@ -2779,24 +2698,389 @@ static void analyze_top_level_declaration(CodeGen *g, ImportTableEntry *import, 
     }
 }
 
-static void find_function_declarations_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
-    assert(node->type == NodeTypeRoot);
-
-    for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
-        AstNode *child = node->data.root.top_level_decls.at(i);
-        preview_function_declarations(g, import, child);
+static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *expr_node,
+        DeclNode *decl_node)
+{
+    switch (expr_node->type) {
+        case NodeTypeNumberLiteral:
+        case NodeTypeStringLiteral:
+        case NodeTypeCharLiteral:
+        case NodeTypeVoid:
+        case NodeTypeBoolLiteral:
+        case NodeTypeNullLiteral:
+        case NodeTypeUnreachable:
+        case NodeTypeGoto:
+        case NodeTypeBreak:
+        case NodeTypeContinue:
+            // no dependencies on other top level declarations
+            break;
+        case NodeTypeSymbol:
+            decl_node->deps.put(&expr_node->data.symbol, expr_node);
+            break;
+        case NodeTypeBinOpExpr:
+            collect_expr_decl_deps(g, import, expr_node->data.bin_op_expr.op1, decl_node);
+            collect_expr_decl_deps(g, import, expr_node->data.bin_op_expr.op2, decl_node);
+            break;
+        case NodeTypeReturnExpr:
+            collect_expr_decl_deps(g, import, expr_node->data.return_expr.expr, decl_node);
+            break;
+        case NodeTypeCastExpr:
+            collect_expr_decl_deps(g, import, expr_node->data.cast_expr.expr, decl_node);
+            collect_type_decl_deps(g, import, expr_node->data.cast_expr.type, decl_node);
+            break;
+        case NodeTypePrefixOpExpr:
+            collect_expr_decl_deps(g, import, expr_node->data.prefix_op_expr.primary_expr, decl_node);
+            break;
+        case NodeTypeFnCallExpr:
+            collect_expr_decl_deps(g, import, expr_node->data.fn_call_expr.fn_ref_expr, decl_node);
+            for (int i = 0; i < expr_node->data.fn_call_expr.params.length; i += 1) {
+                AstNode *arg_node = expr_node->data.fn_call_expr.params.at(i);
+                collect_expr_decl_deps(g, import, arg_node, decl_node);
+            }
+            break;
+        case NodeTypeArrayAccessExpr:
+            collect_expr_decl_deps(g, import, expr_node->data.array_access_expr.array_ref_expr, decl_node);
+            collect_expr_decl_deps(g, import, expr_node->data.array_access_expr.subscript, decl_node);
+            break;
+        case NodeTypeSliceExpr:
+            collect_expr_decl_deps(g, import, expr_node->data.slice_expr.array_ref_expr, decl_node);
+            collect_expr_decl_deps(g, import, expr_node->data.slice_expr.start, decl_node);
+            if (expr_node->data.slice_expr.end) {
+                collect_expr_decl_deps(g, import, expr_node->data.slice_expr.end, decl_node);
+            }
+            break;
+        case NodeTypeFieldAccessExpr:
+            collect_expr_decl_deps(g, import, expr_node->data.field_access_expr.struct_expr, decl_node);
+            break;
+        case NodeTypeIfBoolExpr:
+            collect_expr_decl_deps(g, import, expr_node->data.if_bool_expr.condition, decl_node);
+            collect_expr_decl_deps(g, import, expr_node->data.if_bool_expr.then_block, decl_node);
+            if (expr_node->data.if_bool_expr.else_node) {
+                collect_expr_decl_deps(g, import, expr_node->data.if_bool_expr.else_node, decl_node);
+            }
+            break;
+        case NodeTypeIfVarExpr:
+            if (expr_node->data.if_var_expr.var_decl.type) {
+                collect_type_decl_deps(g, import, expr_node->data.if_var_expr.var_decl.type, decl_node);
+            }
+            if (expr_node->data.if_var_expr.var_decl.expr) {
+                collect_expr_decl_deps(g, import, expr_node->data.if_var_expr.var_decl.expr, decl_node);
+            }
+            collect_expr_decl_deps(g, import, expr_node->data.if_var_expr.then_block, decl_node);
+            if (expr_node->data.if_bool_expr.else_node) {
+                collect_expr_decl_deps(g, import, expr_node->data.if_var_expr.else_node, decl_node);
+            }
+            break;
+        case NodeTypeWhileExpr:
+            collect_expr_decl_deps(g, import, expr_node->data.while_expr.condition, decl_node);
+            collect_expr_decl_deps(g, import, expr_node->data.while_expr.body, decl_node);
+            break;
+        case NodeTypeBlock:
+            for (int i = 0; i < expr_node->data.block.statements.length; i += 1) {
+                AstNode *stmt = expr_node->data.block.statements.at(i);
+                collect_expr_decl_deps(g, import, stmt, decl_node);
+            }
+            break;
+        case NodeTypeAsmExpr:
+            for (int i = 0; i < expr_node->data.asm_expr.output_list.length; i += 1) {
+                AsmOutput *asm_output = expr_node->data.asm_expr.output_list.at(i);
+                if (asm_output->return_type) {
+                    collect_type_decl_deps(g, import, asm_output->return_type, decl_node);
+                } else {
+                    decl_node->deps.put(&asm_output->variable_name, expr_node);
+                }
+            }
+            for (int i = 0; i < expr_node->data.asm_expr.input_list.length; i += 1) {
+                AsmInput *asm_input = expr_node->data.asm_expr.input_list.at(i);
+                collect_expr_decl_deps(g, import, asm_input->expr, decl_node);
+            }
+            break;
+        case NodeTypeStructValueExpr:
+            collect_type_decl_deps(g, import, expr_node->data.struct_val_expr.type, decl_node);
+            for (int i = 0; i < expr_node->data.struct_val_expr.fields.length; i += 1) {
+                AstNode *field_node = expr_node->data.struct_val_expr.fields.at(i);
+                assert(field_node->type == NodeTypeStructValueField);
+                collect_expr_decl_deps(g, import, field_node->data.struct_val_field.expr, decl_node);
+            }
+            break;
+        case NodeTypeCompilerFnExpr:
+            collect_expr_decl_deps(g, import, expr_node->data.compiler_fn_expr.expr, decl_node);
+            break;
+        case NodeTypeCompilerFnType:
+            collect_type_decl_deps(g, import, expr_node->data.compiler_fn_type.type, decl_node);
+            break;
+        case NodeTypeRoot:
+        case NodeTypeRootExportDecl:
+        case NodeTypeFnProto:
+        case NodeTypeFnDef:
+        case NodeTypeFnDecl:
+        case NodeTypeParamDecl:
+        case NodeTypeType:
+        case NodeTypeExternBlock:
+        case NodeTypeDirective:
+        case NodeTypeVariableDeclaration:
+        case NodeTypeUse:
+        case NodeTypeLabel:
+        case NodeTypeStructDecl:
+        case NodeTypeStructField:
+        case NodeTypeStructValueField:
+            zig_unreachable();
     }
-
 }
 
-static void preview_types_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+static void collect_type_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *type_node, DeclNode *decl_node) {
+    assert(type_node->type == NodeTypeType);
+    switch (type_node->data.type.type) {
+        case AstNodeTypeTypePrimitive:
+            {
+                Buf *name = &type_node->data.type.primitive_name;
+                auto table_entry = g->primitive_type_table.maybe_get(name);
+                if (!table_entry) {
+                    table_entry = import->type_table.maybe_get(name);
+                }
+                if (!table_entry) {
+                    decl_node->deps.put(name, type_node);
+                }
+                break;
+            }
+        case AstNodeTypeTypePointer:
+            collect_type_decl_deps(g, import, type_node->data.type.child_type, decl_node);
+            break;
+        case AstNodeTypeTypeArray:
+            collect_type_decl_deps(g, import, type_node->data.type.child_type, decl_node);
+            if (type_node->data.type.array_size) {
+                collect_expr_decl_deps(g, import, type_node->data.type.array_size, decl_node);
+            }
+            break;
+        case AstNodeTypeTypeMaybe:
+            collect_type_decl_deps(g, import, type_node->data.type.child_type, decl_node);
+            break;
+        case AstNodeTypeTypeCompilerExpr:
+            collect_expr_decl_deps(g, import, type_node->data.type.compiler_expr, decl_node);
+            break;
+    }
+}
+
+static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+    switch (node->type) {
+        case NodeTypeStructDecl:
+            {
+                alloc_codegen_node(node);
+                StructDeclNode *struct_codegen = &node->codegen_node->data.struct_decl_node;
+
+                Buf *name = &node->data.struct_decl.name;
+                auto table_entry = import->type_table.maybe_get(name);
+                if (!table_entry) {
+                    table_entry = g->primitive_type_table.maybe_get(name);
+                }
+                if (table_entry) {
+                    struct_codegen->type_entry = table_entry->value;
+                    add_node_error(g, node,
+                            buf_sprintf("redefinition of '%s'", buf_ptr(name)));
+                } else {
+                    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
+                    entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(name));
+                    entry->data.structure.decl_node = node;
+                    entry->di_type = LLVMZigCreateReplaceableCompositeType(g->dbuilder,
+                        LLVMZigTag_DW_structure_type(), buf_ptr(&node->data.struct_decl.name),
+                        LLVMZigFileToScope(import->di_file), import->di_file, node->line + 1);
+
+                    buf_init_from_buf(&entry->name, name);
+                    // put off adding the debug type until we do the full struct body
+                    // this type is incomplete until we do another pass
+                    import->type_table.put(&entry->name, entry);
+                    struct_codegen->type_entry = entry;
+                }
+
+                // determine which other top level declarations this struct depends on.
+                DeclNode *decl_node = &node->codegen_node->decl_node;
+                for (int i = 0; i < node->data.struct_decl.fields.length; i += 1) {
+                    AstNode *field_node = node->data.struct_decl.fields.at(i);
+                    AstNode *type_node = field_node->data.struct_field.type;
+                    collect_type_decl_deps(g, import, type_node, decl_node);
+                }
+                node->codegen_node->decl_node.name = name;
+                node->codegen_node->decl_node.import = import;
+                if (decl_node->deps.size() > 0) {
+                    g->unresolved_top_level_decls.put(name, node);
+                } else {
+                    resolve_top_level_decl(g, import, node);
+                }
+
+                // handle the member function definitions independently
+                for (int i = 0; i < node->data.struct_decl.fns.length; i += 1) {
+                    AstNode *fn_def_node = node->data.struct_decl.fns.at(i);
+                    AstNode *fn_proto_node = fn_def_node->data.fn_def.fn_proto;
+                    fn_proto_node->data.fn_proto.struct_node = node;
+                    detect_top_level_decl_deps(g, import, fn_def_node);
+                }
+
+                break;
+            }
+        case NodeTypeExternBlock:
+            for (int fn_decl_i = 0; fn_decl_i < node->data.extern_block.fn_decls.length; fn_decl_i += 1) {
+                AstNode *fn_decl = node->data.extern_block.fn_decls.at(fn_decl_i);
+                assert(fn_decl->type == NodeTypeFnDecl);
+                AstNode *fn_proto = fn_decl->data.fn_decl.fn_proto;
+                fn_proto->data.fn_proto.extern_node = node;
+                detect_top_level_decl_deps(g, import, fn_proto);
+            }
+            resolve_top_level_decl(g, import, node);
+            break;
+        case NodeTypeFnDef:
+            node->data.fn_def.fn_proto->data.fn_proto.fn_def_node = node;
+            detect_top_level_decl_deps(g, import, node->data.fn_def.fn_proto);
+            break;
+        case NodeTypeVariableDeclaration:
+            {
+                // determine which other top level declarations this variable declaration depends on.
+                alloc_codegen_node(node);
+                DeclNode *decl_node = &node->codegen_node->decl_node;
+                if (node->data.variable_declaration.type) {
+                    collect_type_decl_deps(g, import, node->data.variable_declaration.type, decl_node);
+                }
+                if (node->data.variable_declaration.expr) {
+                    collect_expr_decl_deps(g, import, node->data.variable_declaration.expr, decl_node);
+                }
+                Buf *name = &node->data.variable_declaration.symbol;
+                node->codegen_node->decl_node.name = name;
+                node->codegen_node->decl_node.import = import;
+                if (decl_node->deps.size() > 0) {
+                    g->unresolved_top_level_decls.put(name, node);
+                } else {
+                    resolve_top_level_decl(g, import, node);
+                }
+                break;
+            }
+        case NodeTypeFnProto:
+            {
+                // determine which other top level declarations this function prototype depends on.
+                alloc_codegen_node(node);
+                DeclNode *decl_node = &node->codegen_node->decl_node;
+                for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
+                    AstNode *param_node = node->data.fn_proto.params.at(i);
+                    assert(param_node->type == NodeTypeParamDecl);
+                    collect_type_decl_deps(g, import, param_node->data.param_decl.type, decl_node);
+                }
+
+                Buf *name = &node->data.fn_proto.name;
+                node->codegen_node->decl_node.name = name;
+                node->codegen_node->decl_node.import = import;
+                if (decl_node->deps.size() > 0) {
+                    g->unresolved_top_level_decls.put(name, node);
+                } else {
+                    resolve_top_level_decl(g, import, node);
+                }
+                break;
+            }
+        case NodeTypeRootExportDecl:
+            resolve_top_level_decl(g, import, node);
+            break;
+        case NodeTypeUse:
+            // nothing to do
+            break;
+        case NodeTypeDirective:
+        case NodeTypeParamDecl:
+        case NodeTypeType:
+        case NodeTypeFnDecl:
+        case NodeTypeReturnExpr:
+        case NodeTypeRoot:
+        case NodeTypeBlock:
+        case NodeTypeBinOpExpr:
+        case NodeTypeFnCallExpr:
+        case NodeTypeArrayAccessExpr:
+        case NodeTypeSliceExpr:
+        case NodeTypeNumberLiteral:
+        case NodeTypeStringLiteral:
+        case NodeTypeCharLiteral:
+        case NodeTypeUnreachable:
+        case NodeTypeVoid:
+        case NodeTypeBoolLiteral:
+        case NodeTypeNullLiteral:
+        case NodeTypeSymbol:
+        case NodeTypeCastExpr:
+        case NodeTypePrefixOpExpr:
+        case NodeTypeIfBoolExpr:
+        case NodeTypeIfVarExpr:
+        case NodeTypeWhileExpr:
+        case NodeTypeLabel:
+        case NodeTypeGoto:
+        case NodeTypeBreak:
+        case NodeTypeContinue:
+        case NodeTypeAsmExpr:
+        case NodeTypeFieldAccessExpr:
+        case NodeTypeStructField:
+        case NodeTypeStructValueExpr:
+        case NodeTypeStructValueField:
+        case NodeTypeCompilerFnExpr:
+        case NodeTypeCompilerFnType:
+            zig_unreachable();
+    }
+}
+
+static void recursive_resolve_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+    auto it = node->codegen_node->decl_node.deps.entry_iterator();
+    for (;;) {
+        auto *entry = it.next();
+        if (!entry)
+            break;
+
+        auto unresolved_entry = g->unresolved_top_level_decls.maybe_get(entry->key);
+        if (!unresolved_entry) {
+            continue;
+        }
+
+        AstNode *child_node = unresolved_entry->value;
+
+        if (child_node->codegen_node->decl_node.in_current_deps) {
+            zig_panic("TODO infinite top level decl loop");
+        }
+
+        // set temporary flag
+        child_node->codegen_node->decl_node.in_current_deps = true;
+
+        recursive_resolve_decl(g, child_node->codegen_node->decl_node.import, child_node);
+
+        // unset temporary flag
+        child_node->codegen_node->decl_node.in_current_deps = false;
+    }
+
+    resolve_top_level_decl(g, import, node);
+    g->unresolved_top_level_decls.remove(node->codegen_node->decl_node.name);
+}
+
+static void resolve_top_level_declarations_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     assert(node->type == NodeTypeRoot);
 
     for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
         AstNode *child = node->data.root.top_level_decls.at(i);
-        preview_types(g, import, child);
+        detect_top_level_decl_deps(g, import, child);
     }
 
+    while (g->unresolved_top_level_decls.size() > 0) {
+        // for the sake of determinism, find the element with the lowest
+        // insert index and resolve that one.
+        AstNode *decl_node = nullptr;
+        auto it = g->unresolved_top_level_decls.entry_iterator();
+        for (;;) {
+            auto *entry = it.next();
+            if (!entry)
+                break;
+
+            AstNode *this_node = entry->value;
+            if (!decl_node || this_node->create_index < decl_node->create_index) {
+                decl_node = this_node;
+            }
+
+        }
+        // set temporary flag
+        decl_node->codegen_node->decl_node.in_current_deps = true;
+
+        recursive_resolve_decl(g, decl_node->codegen_node->decl_node.import, decl_node);
+
+        // unset temporary flag
+        decl_node->codegen_node->decl_node.in_current_deps = false;
+    }
 }
 
 static void analyze_top_level_decls_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
@@ -2804,7 +3088,7 @@ static void analyze_top_level_decls_root(CodeGen *g, ImportTableEntry *import, A
 
     for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
         AstNode *child = node->data.root.top_level_decls.at(i);
-        analyze_top_level_declaration(g, import, child);
+        analyze_top_level_decl(g, import, child);
     }
 }
 
@@ -2817,21 +3101,9 @@ void semantic_analyze(CodeGen *g) {
                 break;
 
             ImportTableEntry *import = entry->value;
-            preview_types_root(g, import, import->root);
+            resolve_top_level_declarations_root(g, import, import->root);
         }
     }
-    {
-        auto it = g->import_table.entry_iterator();
-        for (;;) {
-            auto *entry = it.next();
-            if (!entry)
-                break;
-
-            ImportTableEntry *import = entry->value;
-            find_function_declarations_root(g, import, import->root);
-        }
-    }
-
     {
         auto it = g->import_table.entry_iterator();
         for (;;) {
@@ -2843,7 +3115,6 @@ void semantic_analyze(CodeGen *g) {
             analyze_top_level_decls_root(g, import, import->root);
         }
     }
-
 
     if (!g->root_out_name) {
         add_node_error(g, g->root_import->root,
@@ -2857,5 +3128,6 @@ void semantic_analyze(CodeGen *g) {
 void alloc_codegen_node(AstNode *node) {
     assert(!node->codegen_node);
     node->codegen_node = allocate<CodeGenNode>(1);
+    node->codegen_node->decl_node.deps.init(1);
 }
 
