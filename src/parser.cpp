@@ -431,7 +431,9 @@ void ast_print(AstNode *node, int indent) {
             break;
         case NodeTypeStructField:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.struct_field.name));
-            ast_print(node->data.struct_field.type, indent + 2);
+            if (node->data.struct_field.type) {
+                ast_print(node->data.struct_field.type, indent + 2);
+            }
             break;
         case NodeTypeEnumDecl:
             fprintf(stderr, "%s '%s'\n",
@@ -2727,106 +2729,7 @@ static AstNode *ast_parse_use(ParseContext *pc, int *token_index) {
 }
 
 /*
-EnumDecl : many(Directive) option(FnVisibleMod) token(Enum) token(Symbol) token(LBrace) many(EnumField) token(RBrace)
-EnumField : (EnumDiscriminant | StructPayload) token(Comma)
-EnumDiscriminant : token(Symbol) option(token(Eq) Expression)
-*/
-static AstNode *ast_parse_enum_decl(ParseContext *pc, int *token_index) {
-    Token *first_token = &pc->tokens->at(*token_index);
-
-    VisibMod visib_mod;
-    if (first_token->id == TokenIdKeywordPub) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordEnum) {
-            visib_mod = VisibModPub;
-            *token_index += 2;
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordExport) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordEnum) {
-            visib_mod = VisibModExport;
-            *token_index += 2;
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordEnum) {
-        visib_mod = VisibModPrivate;
-        *token_index += 1;
-    } else {
-        return nullptr;
-    }
-
-    Token *enum_name = ast_eat_token(pc, token_index, TokenIdSymbol);
-    AstNode *node = ast_create_node(pc, NodeTypeEnumDecl, first_token);
-    ast_buf_from_token(pc, enum_name, &node->data.enum_decl.name);
-    node->data.enum_decl.visib_mod = visib_mod;
-
-    node->data.enum_decl.directives = pc->directive_list;
-    pc->directive_list = nullptr;
-
-    ast_eat_token(pc, token_index, TokenIdLBrace);
-
-    for (;;) {
-        Token *token = &pc->tokens->at(*token_index);
-
-        if (token->id == TokenIdRBrace) {
-            *token_index += 1;
-            break;
-        } else if (token->id == TokenIdSymbol) {
-            AstNode *field_node = ast_create_node(pc, NodeTypeEnumField, token);
-            *token_index += 1;
-
-            ast_buf_from_token(pc, token, &field_node->data.enum_field.name);
-
-            Token *eq_tok = &pc->tokens->at(*token_index);
-            if (eq_tok->id == TokenIdEq) {
-                *token_index += 1;
-
-                field_node->data.enum_field.val_expr = ast_parse_expression(pc, token_index, true);
-            } else if (eq_tok->id == TokenIdLBrace) {
-                *token_index += 1;
-
-                for (;;) {
-                    Token *token = &pc->tokens->at(*token_index);
-
-                    if (token->id == TokenIdRBrace) {
-                        *token_index += 1;
-                        break;
-                    } else if (token->id == TokenIdSymbol) {
-                        AstNode *sub_field_node = ast_create_node(pc, NodeTypeStructField, token);
-                        *token_index += 1;
-
-                        ast_buf_from_token(pc, token, &sub_field_node->data.struct_field.name);
-
-                        ast_eat_token(pc, token_index, TokenIdColon);
-
-                        sub_field_node->data.struct_field.type = ast_parse_type(pc, token_index);
-
-                        ast_eat_token(pc, token_index, TokenIdComma);
-
-                        field_node->data.enum_decl.fields.append(sub_field_node);
-                    } else {
-                        ast_invalid_token_error(pc, token);
-                    }
-                }
-            }
-
-            ast_eat_token(pc, token_index, TokenIdComma);
-
-            node->data.enum_decl.fields.append(field_node);
-        } else {
-            ast_invalid_token_error(pc, token);
-        }
-    }
-
-    return node;
-}
-
-/*
-StructDecl : many(Directive) option(FnVisibleMod) token(Struct) StructPayload
-StructPayload: token(Symbol) token(LBrace) many(StructMember) token(RBrace)
+ContainerDecl : many(Directive) option(FnVisibleMod) (token(Struct) | token(Enum)) token(Symbol) token(LBrace) many(StructMember) token(RBrace)
 StructMember: StructField | FnDecl
 StructField : token(Symbol) token(Colon) Type token(Comma)
 */
@@ -2834,25 +2737,35 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
     Token *first_token = &pc->tokens->at(*token_index);
 
     VisibMod visib_mod;
+    ContainerKind kind;
 
     if (first_token->id == TokenIdKeywordPub) {
         Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordStruct) {
+        if (next_token->id == TokenIdKeywordStruct ||
+            next_token->id == TokenIdKeywordEnum)
+        {
             visib_mod = VisibModPub;
+            kind = (next_token->id == TokenIdKeywordStruct) ? ContainerKindStruct : ContainerKindEnum;
             *token_index += 2;
         } else {
             return nullptr;
         }
     } else if (first_token->id == TokenIdKeywordExport) {
         Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordStruct) {
+        if (next_token->id == TokenIdKeywordStruct ||
+            next_token->id == TokenIdKeywordEnum)
+        {
             visib_mod = VisibModExport;
+            kind = (next_token->id == TokenIdKeywordStruct) ? ContainerKindStruct : ContainerKindEnum;
             *token_index += 2;
         } else {
             return nullptr;
         }
-    } else if (first_token->id == TokenIdKeywordStruct) {
+    } else if (first_token->id == TokenIdKeywordStruct ||
+               first_token->id == TokenIdKeywordEnum)
+    {
         visib_mod = VisibModPrivate;
+        kind = (first_token->id == TokenIdKeywordStruct) ? ContainerKindStruct : ContainerKindEnum;
         *token_index += 1;
     } else {
         return nullptr;
@@ -2861,6 +2774,7 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
     Token *struct_name = ast_eat_token(pc, token_index, TokenIdSymbol);
 
     AstNode *node = ast_create_node(pc, NodeTypeStructDecl, first_token);
+    node->data.struct_decl.kind = kind;
     ast_buf_from_token(pc, struct_name, &node->data.struct_decl.name);
     node->data.struct_decl.visib_mod = visib_mod;
 
@@ -2900,9 +2814,13 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
 
             ast_buf_from_token(pc, token, &field_node->data.struct_field.name);
 
-            ast_eat_token(pc, token_index, TokenIdColon);
-
-            field_node->data.struct_field.type = ast_parse_type(pc, token_index);
+            Token *colon_tok = &pc->tokens->at(*token_index);
+            if (colon_tok->id == TokenIdColon) {
+                *token_index += 1;
+                field_node->data.struct_field.type = ast_parse_type(pc, token_index);
+            } else {
+                field_node->data.struct_field.type = ast_create_void_type_node(pc, colon_tok);
+            }
 
             ast_eat_token(pc, token_index, TokenIdComma);
 
@@ -2953,12 +2871,6 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
         AstNode *struct_node = ast_parse_struct_decl(pc, token_index);
         if (struct_node) {
             top_level_decls->append(struct_node);
-            continue;
-        }
-
-        AstNode *enum_node = ast_parse_enum_decl(pc, token_index);
-        if (enum_node) {
-            top_level_decls->append(enum_node);
             continue;
         }
 

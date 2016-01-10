@@ -451,8 +451,14 @@ struct AstNodeAsmExpr {
     Expr resolved_expr;
 };
 
+enum ContainerKind {
+    ContainerKindStruct,
+    ContainerKindEnum,
+};
+
 struct AstNodeStructDecl {
     Buf name;
+    ContainerKind kind;
     ZigList<AstNode *> fields;
     ZigList<AstNode *> fns;
     ZigList<AstNode *> *directives;
