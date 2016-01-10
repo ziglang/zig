@@ -7,8 +7,8 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     print_str("Welcome to the Guess Number Game in Zig.\n");
 
     var seed : u32;
-    var err : isize;
-    if ({err = os_get_random_bytes(&seed as &u8, #sizeof(u32)); err != #sizeof(u32)}) {
+    const err = os_get_random_bytes(&seed as &u8, #sizeof(u32));
+    if (err != #sizeof(u32)) {
         // TODO full error message
         fprint_str(stderr_fileno, "unable to get random bytes\n");
         return 1;
