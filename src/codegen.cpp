@@ -1754,6 +1754,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
         case NodeTypeUse:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
+        case NodeTypeEnumDecl:
+        case NodeTypeEnumField:
         case NodeTypeStructValueField:
         case NodeTypeCompilerFnExpr:
             zig_unreachable();

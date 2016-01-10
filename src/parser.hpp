@@ -59,6 +59,8 @@ enum NodeType {
     NodeTypeStructField,
     NodeTypeStructValueExpr,
     NodeTypeStructValueField,
+    NodeTypeEnumDecl,
+    NodeTypeEnumField,
     NodeTypeCompilerFnExpr,
     NodeTypeCompilerFnType,
 };
@@ -316,6 +318,19 @@ struct AstNodeStructField {
     ZigList<AstNode *> *directives;
 };
 
+struct AstNodeEnumDecl {
+    Buf name;
+    ZigList<AstNode *> fields;
+    ZigList<AstNode *> *directives;
+    VisibMod visib_mod;
+};
+
+struct AstNodeEnumField {
+    Buf name;
+    ZigList<AstNode *> fields; // length 0 means simple enum
+    AstNode *val_expr;
+};
+
 struct AstNodeStringLiteral {
     Buf buf;
     bool c;
@@ -411,6 +426,8 @@ struct AstNode {
         AstNodeFieldAccessExpr field_access_expr;
         AstNodeStructDecl struct_decl;
         AstNodeStructField struct_field;
+        AstNodeEnumDecl enum_decl;
+        AstNodeEnumField enum_field;
         AstNodeStringLiteral string_literal;
         AstNodeCharLiteral char_literal;
         AstNodeNumberLiteral number_literal;

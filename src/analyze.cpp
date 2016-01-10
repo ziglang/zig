@@ -63,6 +63,8 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeAsmExpr:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
+        case NodeTypeEnumDecl:
+        case NodeTypeEnumField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
         case NodeTypeWhileExpr:
@@ -894,6 +896,11 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
                 // struct member fns will get resolved independently
                 break;
             }
+        case NodeTypeEnumDecl:
+            {
+                zig_panic("TODO resolve enum decl");
+                break;
+            }
         case NodeTypeVariableDeclaration:
             {
                 VariableTableEntry *var = analyze_variable_declaration(g, import, import->block_context,
@@ -936,6 +943,7 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
+        case NodeTypeEnumField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
         case NodeTypeCompilerFnExpr:
@@ -2490,6 +2498,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeLabel:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
+        case NodeTypeEnumDecl:
+        case NodeTypeEnumField:
         case NodeTypeStructValueField:
         case NodeTypeCompilerFnExpr:
             zig_unreachable();
@@ -2589,13 +2599,6 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeFnDef:
             analyze_top_level_fn_def(g, import, node);
             break;
-        case NodeTypeRootExportDecl:
-        case NodeTypeExternBlock:
-            // already looked at these in the preview pass
-            break;
-        case NodeTypeUse:
-            // already took care of this
-            break;
         case NodeTypeStructDecl:
             {
                 for (int i = 0; i < node->data.struct_decl.fns.length; i += 1) {
@@ -2604,8 +2607,12 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
                 }
                 break;
             }
+        case NodeTypeRootExportDecl:
+        case NodeTypeExternBlock:
+        case NodeTypeUse:
+        case NodeTypeEnumDecl:
         case NodeTypeVariableDeclaration:
-            // handled in resolve phase
+            // already took care of these
             break;
         case NodeTypeDirective:
         case NodeTypeParamDecl:
@@ -2639,6 +2646,7 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
+        case NodeTypeEnumField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
         case NodeTypeCompilerFnExpr:
@@ -2772,6 +2780,8 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeLabel:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
+        case NodeTypeEnumDecl:
+        case NodeTypeEnumField:
         case NodeTypeStructValueField:
             zig_unreachable();
     }
@@ -2881,6 +2891,11 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
 
                 break;
             }
+        case NodeTypeEnumDecl:
+            {
+                zig_panic("TODO detect enum top level decl deps");
+                break;
+            }
         case NodeTypeExternBlock:
             for (int fn_decl_i = 0; fn_decl_i < node->data.extern_block.fn_decls.length; fn_decl_i += 1) {
                 AstNode *fn_decl = node->data.extern_block.fn_decls.at(fn_decl_i);
@@ -2974,6 +2989,7 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
+        case NodeTypeEnumField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
         case NodeTypeCompilerFnExpr:

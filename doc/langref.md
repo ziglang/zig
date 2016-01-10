@@ -32,15 +32,23 @@ zig          |        C equivalent    | Description
 ```
 Root : many(TopLevelDecl) token(EOF)
 
-TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use | StructDecl | VariableDeclaration
+TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use | StructDecl | VariableDeclaration | EnumDecl
 
 VariableDeclaration : option(FnVisibleMod) (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) Type option(token(Eq) Expression))
 
-StructDecl : many(Directive) option(FnVisibleMod) token(Struct) token(Symbol) token(LBrace) many(StructMember) token(RBrace)
+StructDecl : many(Directive) option(FnVisibleMod) token(Struct) StructPayload
+
+StructPayload: token(Symbol) token(LBrace) many(StructMember) token(RBrace)
+
+EnumDecl : many(Directive) option(FnVisibleMod) token(Enum) token(Symbol) token(LBrace) many(EnumField) token(RBrace)
 
 StructMember: StructField | FnDecl
 
 StructField : token(Symbol) token(Colon) Type token(Comma)
+
+EnumField : (EnumDiscriminant | StructPayload) token(Comma)
+
+EnumDiscriminant : token(Symbol) option(token(Eq) Expression)
 
 Use : many(Directive) token(Use) token(String) token(Semicolon)
 
@@ -160,7 +168,9 @@ SliceExpression : token(LBracket) Expression token(Ellipsis) option(Expression) 
 
 PrefixOp : token(Not) | token(Dash) | token(Tilde) | token(Star) | (token(Ampersand) option(token(Const)))
 
-PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression | CompilerFnType | (token(AtSign) token(Symbol) FnCallExpression)
+PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | Goto | token(Break) | token(Continue) | BlockExpression | token(Symbol) | StructValueExpression | CompilerFnType | (token(AtSign) token(Symbol) FnCallExpression) | NamespaceSymbol
+
+NamespaceSymbol : token(Symbol) token(ColonColon) token(Symbol)
 
 StructValueExpression : token(Type) token(LBrace) list(StructValueExpressionField, token(Comma)) token(RBrace)
 

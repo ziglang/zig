@@ -32,6 +32,7 @@ enum TokenId {
     TokenIdKeywordAsm,
     TokenIdKeywordVolatile,
     TokenIdKeywordStruct,
+    TokenIdKeywordEnum,
     TokenIdKeywordWhile,
     TokenIdKeywordContinue,
     TokenIdKeywordBreak,
