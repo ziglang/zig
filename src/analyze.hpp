@@ -105,6 +105,11 @@ struct TypeTableEntry {
 
 };
 
+struct ImporterInfo {
+    ImportTableEntry *import;
+    AstNode *source_node;
+};
+
 struct ImportTableEntry {
     AstNode *root;
     Buf *path; // relative to root_source_dir
@@ -112,6 +117,7 @@ struct ImportTableEntry {
     Buf *source_code;
     ZigList<int> *line_offsets;
     BlockContext *block_context;
+    ZigList<ImporterInfo> importers;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;

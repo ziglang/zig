@@ -994,6 +994,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
 
     add_simple_case("order-independent declarations", R"SOURCE(
 use "std.zig";
+const z : #typeof(stdin_fileno) = 0;
 const x : #typeof(y) = 1234;
 const y : u16 = 5678;
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {

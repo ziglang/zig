@@ -807,6 +807,20 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
     if (fn_def_node) {
         preview_function_labels(g, fn_def_node->data.fn_def.body, fn_table_entry);
     }
+
+    if (is_pub && !struct_type) {
+        for (int i = 0; i < import->importers.length; i += 1) {
+            ImporterInfo importer = import->importers.at(i);
+            auto table_entry = importer.import->fn_table.maybe_get(proto_name);
+            if (table_entry) {
+                add_node_error(g, importer.source_node,
+                    buf_sprintf("import of function '%s' overrides existing definition",
+                        buf_ptr(proto_name)));
+            } else {
+                importer.import->fn_table.put(proto_name, fn_table_entry);
+            }
+        }
+    }
 }
 
 static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
@@ -1715,6 +1729,23 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
         variable_entry->is_ptr = true;
         variable_entry->decl_node = source_node;
         context->variable_table.put(&variable_entry->name, variable_entry);
+
+        bool is_pub = (variable_declaration->visib_mod != VisibModPrivate);
+        if (is_pub) {
+            for (int i = 0; i < import->importers.length; i += 1) {
+                ImporterInfo importer = import->importers.at(i);
+                auto table_entry = importer.import->block_context->variable_table.maybe_get(&variable_entry->name);
+                if (table_entry) {
+                    add_node_error(g, importer.source_node,
+                        buf_sprintf("import of variable '%s' overrides existing definition",
+                            buf_ptr(&variable_entry->name)));
+                } else {
+                    importer.import->block_context->variable_table.put(&variable_entry->name, variable_entry);
+                }
+            }
+        }
+
+
         return variable_entry;
     }
     return nullptr;
@@ -2563,90 +2594,8 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
             // already looked at these in the preview pass
             break;
         case NodeTypeUse:
-            {
-                for (int i = 0; i < node->data.use.directives->length; i += 1) {
-                    AstNode *directive_node = node->data.use.directives->at(i);
-                    Buf *name = &directive_node->data.directive.name;
-                    add_node_error(g, directive_node,
-                            buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
-                }
-
-                ImportTableEntry *target_import = node->codegen_node->data.import_node.import;
-                assert(target_import);
-
-                // import all the public functions
-                {
-                    auto it = target_import->fn_table.entry_iterator();
-                    for (;;) {
-                        auto *entry = it.next();
-                        if (!entry)
-                            break;
-
-                        FnTableEntry *fn_entry = entry->value;
-                        bool is_pub = (fn_entry->proto_node->data.fn_proto.visib_mod != VisibModPrivate);
-                        if (is_pub) {
-                            auto existing_entry = import->fn_table.maybe_get(entry->key);
-                            if (existing_entry) {
-                                add_node_error(g, node,
-                                    buf_sprintf("import of function '%s' overrides existing definition",
-                                        buf_ptr(&fn_entry->proto_node->data.fn_proto.name)));
-                            } else {
-                                import->fn_table.put(entry->key, entry->value);
-                            }
-                        }
-                    }
-                }
-
-                // import all the public types
-                {
-                    auto it = target_import->type_table.entry_iterator();
-                    for (;;) {
-                        auto *entry = it.next();
-                        if (!entry)
-                            break;
-
-                        TypeTableEntry *type_entry = entry->value;
-                        if (type_entry->id == TypeTableEntryIdStruct) {
-                            AstNode *decl_node = type_entry->data.structure.decl_node;
-                            bool is_pub = (decl_node->data.struct_decl.visib_mod != VisibModPrivate);
-                            if (is_pub) {
-                                auto existing_entry = import->type_table.maybe_get(entry->key);
-                                if (existing_entry) {
-                                    add_node_error(g, node,
-                                        buf_sprintf("import of type '%s' overrides existing definition",
-                                            buf_ptr(&type_entry->name)));
-                                } else {
-                                    import->type_table.put(entry->key, entry->value);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // import all the public variables
-                {
-                    auto it = target_import->block_context->variable_table.entry_iterator();
-                    for (;;) {
-                        auto *entry = it.next();
-                        if (!entry)
-                            break;
-
-                        VariableTableEntry *var = entry->value;
-                        bool is_pub = (var->decl_node->data.variable_declaration.visib_mod != VisibModPrivate);
-                        if (is_pub) {
-                            auto existing_entry = import->type_table.maybe_get(entry->key);
-                            if (existing_entry) {
-                                add_node_error(g, node,
-                                    buf_sprintf("import of variable '%s' overrides existing definition",
-                                        buf_ptr(&var->name)));
-                            } else {
-                                import->block_context->variable_table.put(entry->key, entry->value);
-                            }
-                        }
-                    }
-                }
-                break;
-            }
+            // already took care of this
+            break;
         case NodeTypeStructDecl:
             {
                 for (int i = 0; i < node->data.struct_decl.fns.length; i += 1) {
@@ -2869,9 +2818,9 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
                 StructDeclNode *struct_codegen = &node->codegen_node->data.struct_decl_node;
 
                 Buf *name = &node->data.struct_decl.name;
-                auto table_entry = import->type_table.maybe_get(name);
+                auto table_entry = g->primitive_type_table.maybe_get(name);
                 if (!table_entry) {
-                    table_entry = g->primitive_type_table.maybe_get(name);
+                    table_entry = import->type_table.maybe_get(name);
                 }
                 if (table_entry) {
                     struct_codegen->type_entry = table_entry->value;
@@ -2890,6 +2839,21 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
                     // this type is incomplete until we do another pass
                     import->type_table.put(&entry->name, entry);
                     struct_codegen->type_entry = entry;
+
+                    bool is_pub = (node->data.struct_decl.visib_mod != VisibModPrivate);
+                    if (is_pub) {
+                        for (int i = 0; i < import->importers.length; i += 1) {
+                            ImporterInfo importer = import->importers.at(i);
+                            auto table_entry = importer.import->type_table.maybe_get(&entry->name);
+                            if (table_entry) {
+                                add_node_error(g, importer.source_node,
+                                    buf_sprintf("import of type '%s' overrides existing definition",
+                                        buf_ptr(&entry->name)));
+                            } else {
+                                importer.import->type_table.put(&entry->name, entry);
+                            }
+                        }
+                    }
                 }
 
                 // determine which other top level declarations this struct depends on.
@@ -2977,7 +2941,7 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
             resolve_top_level_decl(g, import, node);
             break;
         case NodeTypeUse:
-            // nothing to do
+            // already taken care of
             break;
         case NodeTypeDirective:
         case NodeTypeParamDecl:
@@ -3054,11 +3018,6 @@ static void recursive_resolve_decl(CodeGen *g, ImportTableEntry *import, AstNode
 static void resolve_top_level_declarations_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     assert(node->type == NodeTypeRoot);
 
-    for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
-        AstNode *child = node->data.root.top_level_decls.at(i);
-        detect_top_level_decl_deps(g, import, child);
-    }
-
     while (g->unresolved_top_level_decls.size() > 0) {
         // for the sake of determinism, find the element with the lowest
         // insert index and resolve that one.
@@ -3095,6 +3054,48 @@ static void analyze_top_level_decls_root(CodeGen *g, ImportTableEntry *import, A
 }
 
 void semantic_analyze(CodeGen *g) {
+    {
+        auto it = g->import_table.entry_iterator();
+        for (;;) {
+            auto *entry = it.next();
+            if (!entry)
+                break;
+
+            ImportTableEntry *import = entry->value;
+
+            for (int i = 0; i < import->root->data.root.top_level_decls.length; i += 1) {
+                AstNode *child = import->root->data.root.top_level_decls.at(i);
+                if (child->type == NodeTypeUse) {
+                    for (int i = 0; i < child->data.use.directives->length; i += 1) {
+                        AstNode *directive_node = child->data.use.directives->at(i);
+                        Buf *name = &directive_node->data.directive.name;
+                        add_node_error(g, directive_node,
+                                buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+                    }
+
+                    ImportTableEntry *target_import = child->codegen_node->data.import_node.import;
+                    assert(target_import);
+
+                    target_import->importers.append({import, child});
+                }
+            }
+        }
+    }
+    {
+        auto it = g->import_table.entry_iterator();
+        for (;;) {
+            auto *entry = it.next();
+            if (!entry)
+                break;
+
+            ImportTableEntry *import = entry->value;
+
+            for (int i = 0; i < import->root->data.root.top_level_decls.length; i += 1) {
+                AstNode *child = import->root->data.root.top_level_decls.at(i);
+                detect_top_level_decl_deps(g, import, child);
+            }
+        }
+    }
     {
         auto it = g->import_table.entry_iterator();
         for (;;) {
