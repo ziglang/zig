@@ -24,8 +24,7 @@ pub fn fprint_str(fd: isize, str: []const u8) -> isize {
 // TODO handle buffering and flushing (mutex protected)
 // TODO error handling
 pub fn print_u64(x: u64) -> isize {
-    // TODO use max_u64_base10_digits instead of hardcoding 20
-    var buf: [20]u8;
+    var buf: [max_u64_base10_digits]u8;
     const len = buf_print_u64(buf, x);
     return write(stdout_fileno, buf.ptr, len);
 }
@@ -33,8 +32,7 @@ pub fn print_u64(x: u64) -> isize {
 // TODO handle buffering and flushing (mutex protected)
 // TODO error handling
 pub fn print_i64(x: i64) -> isize {
-    // TODO use max_u64_base10_digits instead of hardcoding 20
-    var buf: [20]u8;
+    var buf: [max_u64_base10_digits]u8;
     const len = buf_print_i64(buf, x);
     return write(stdout_fileno, buf.ptr, len);
 }

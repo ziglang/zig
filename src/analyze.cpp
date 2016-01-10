@@ -3033,7 +3033,9 @@ static void recursive_resolve_decl(CodeGen *g, ImportTableEntry *import, AstNode
         AstNode *child_node = unresolved_entry->value;
 
         if (child_node->codegen_node->decl_node.in_current_deps) {
-            zig_panic("TODO infinite top level decl loop");
+            // dependency loop. we'll let the fact that it's not in the respective
+            // table cause an error in resolve_top_level_decl.
+            continue;
         }
 
         // set temporary flag

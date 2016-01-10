@@ -991,6 +991,20 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     return 0;
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("order-independent declarations", R"SOURCE(
+use "std.zig";
+const x : #typeof(y) = 1234;
+const y : u16 = 5678;
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    print_ok(x)
+}
+fn print_ok(val: #typeof(x)) -> #typeof(foo) {
+    print_str("OK\n");
+    return 0;
+}
+const foo : i32 = 0;
+    )SOURCE", "OK\n");
 }
 
 
@@ -1299,6 +1313,11 @@ fn f() -> i32 {
 fn f() -> #bogus(foo) {
 }
     )SOURCE", 1, ".tmp_source.zig:2:11: error: invalid compiler function: 'bogus'");
+
+    add_compile_fail_case("top level decl dependency loop", R"SOURCE(
+const a : #typeof(b) = 0;
+const b : #typeof(a) = 0;
+    )SOURCE", 1, ".tmp_source.zig:3:19: error: use of undeclared identifier 'a'");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

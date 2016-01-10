@@ -3,10 +3,8 @@ const ARRAY_SIZE : u16 = 624;
 
 /// Use `rand_init` to initialize this state.
 pub struct Rand {
-    // TODO use ARRAY_SIZE here
-    array: [624]u32,
-    // TODO use #typeof(ARRAY_SIZE) here
-    index: u16,
+    array: [ARRAY_SIZE]u32,
+    index: #typeof(ARRAY_SIZE),
 
     /// Initialize random state with the given seed.
     pub fn init(r: &Rand, seed: u32) {
