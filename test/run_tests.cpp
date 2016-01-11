@@ -326,6 +326,31 @@ fn void_fun(a : i32, b : void, c : i32) {
 }
     )SOURCE", "OK\n");
 
+    add_simple_case("void struct fields", R"SOURCE(
+use "std.zig";
+struct Foo {
+    a : void,
+    b : i32,
+    c : void,
+}
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    const foo = Foo {
+        .a = void,
+        .b = 1,
+        .c = void,
+    };
+    if (foo.b != 1) {
+        print_str("BAD\n");
+    }
+    if (#sizeof(Foo) != 4) {
+        print_str("BAD\n");
+    }
+    print_str("OK\n");
+    return 0;
+}
+
+    )SOURCE", "OK\n");
+
     add_simple_case("mutable local variables", R"SOURCE(
 use "std.zig";
 

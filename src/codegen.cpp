@@ -412,12 +412,13 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
     assert(LLVMGetTypeKind(LLVMTypeOf(struct_ptr)) == LLVMPointerTypeKind);
     assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(struct_ptr))) == LLVMStructTypeKind);
 
-    assert(node->data.field_access_expr.field_index >= 0);
+    int gen_field_index = node->data.field_access_expr.type_struct_field->gen_index;
+    assert(gen_field_index >= 0);
 
     *out_type_entry = node->data.field_access_expr.type_struct_field->type_entry;
 
     add_debug_source_node(g, node);
-    return LLVMBuildStructGEP(g->builder, struct_ptr, node->data.field_access_expr.field_index, "");
+    return LLVMBuildStructGEP(g->builder, struct_ptr, gen_field_index, "");
 }
 
 static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
@@ -1419,12 +1420,14 @@ static LLVMValueRef gen_struct_val_expr(CodeGen *g, AstNode *node) {
     for (int i = 0; i < field_count; i += 1) {
         AstNode *field_node = node->data.struct_val_expr.fields.at(i);
         assert(field_node->type == NodeTypeStructValueField);
-        int index = field_node->data.struct_val_field.index;
-        TypeStructField *type_struct_field = &type_entry->data.structure.fields[index];
+        TypeStructField *type_struct_field = field_node->data.struct_val_field.type_struct_field;
+        if (type_struct_field->type_entry->id == TypeTableEntryIdVoid) {
+            continue;
+        }
         assert(buf_eql_buf(type_struct_field->name, &field_node->data.struct_val_field.name));
 
         add_debug_source_node(g, field_node);
-        LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, index, "");
+        LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, type_struct_field->gen_index, "");
         LLVMValueRef value = gen_expr(g, field_node->data.struct_val_field.expr);
         LLVMBuildStore(g->builder, value, field_ptr);
     }

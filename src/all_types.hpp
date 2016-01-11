@@ -315,7 +315,6 @@ struct AstNodeFieldAccessExpr {
     Buf field_name;
 
     // populated by semantic analyzer
-    int field_index;
     TypeStructField *type_struct_field;
     Expr resolved_expr;
 };
@@ -527,7 +526,7 @@ struct AstNodeStructValueField {
     AstNode *expr;
 
     // populated by semantic analyzer
-    int index;
+    TypeStructField *type_struct_field;
 };
 
 struct AstNodeStructValueExpr {
@@ -678,6 +677,8 @@ struct TypeTableEntryArray {
 struct TypeStructField {
     Buf *name;
     TypeTableEntry *type_entry;
+    int src_index;
+    int gen_index;
 };
 
 struct TypeTableEntryStruct {

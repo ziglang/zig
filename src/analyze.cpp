@@ -273,8 +273,12 @@ static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, ImportTableEntry 
         entry->data.structure.fields = allocate<TypeStructField>(element_count);
         entry->data.structure.fields[0].name = buf_create_from_str("ptr");
         entry->data.structure.fields[0].type_entry = pointer_type;
+        entry->data.structure.fields[0].src_index = 0;
+        entry->data.structure.fields[0].gen_index = 0;
         entry->data.structure.fields[1].name = buf_create_from_str("len");
         entry->data.structure.fields[1].type_entry = g->builtin_types.entry_usize;
+        entry->data.structure.fields[1].src_index = 1;
+        entry->data.structure.fields[1].gen_index = 1;
 
         LLVMZigDIType *di_element_types[] = {
             pointer_type->di_type,
@@ -632,7 +636,7 @@ static void preview_function_labels(CodeGen *g, AstNode *node, FnTableEntry *fn_
     }
 }
 
-static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type) {
+static void resolve_container_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type) {
     assert(struct_type->id == TypeTableEntryIdStruct);
 
     AstNode *decl_node = struct_type->data.structure.decl_node;
@@ -655,9 +659,12 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     assert(struct_type->di_type);
 
     int field_count = decl_node->data.struct_decl.fields.length;
+
     struct_type->data.structure.field_count = field_count;
     struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
 
+    // we possibly allocate too much here since gen_field_count can be lower than field_count.
+    // the only problem is potential wasted space though.
     LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
     LLVMZigDIType **di_element_types = allocate<LLVMZigDIType*>(field_count);
 
@@ -665,33 +672,40 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     uint64_t first_field_align_in_bits = 0;
     uint64_t offset_in_bits = 0;
 
-    // this field should be set to true only during the recursive calls to resolve_struct_type
+    // this field should be set to true only during the recursive calls to resolve_container_type
     struct_type->data.structure.embedded_in_current = true;
 
+    int gen_field_index = 0;
     for (int i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         type_struct_field->name = &field_node->data.struct_field.name;
         type_struct_field->type_entry = resolve_type(g, field_node->data.struct_field.type,
                 import, import->block_context, false);
+        type_struct_field->src_index = i;
+        type_struct_field->gen_index = -1;
 
         if (type_struct_field->type_entry->id == TypeTableEntryIdStruct) {
-            resolve_struct_type(g, import, type_struct_field->type_entry);
+            resolve_container_type(g, import, type_struct_field->type_entry);
         } else if (type_struct_field->type_entry->id == TypeTableEntryIdInvalid) {
             struct_type->data.structure.is_invalid = true;
             continue;
+        } else if (type_struct_field->type_entry->id == TypeTableEntryIdVoid) {
+            continue;
         }
 
-        di_element_types[i] = LLVMZigCreateDebugMemberType(g->dbuilder,
+        type_struct_field->gen_index = gen_field_index;
+
+        di_element_types[gen_field_index] = LLVMZigCreateDebugMemberType(g->dbuilder,
                 LLVMZigTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
                 import->di_file, field_node->line + 1,
                 type_struct_field->type_entry->size_in_bits,
                 type_struct_field->type_entry->align_in_bits,
                 offset_in_bits, 0, type_struct_field->type_entry->di_type);
 
-        element_types[i] = type_struct_field->type_entry->type_ref;
-        assert(di_element_types[i]);
-        assert(element_types[i]);
+        element_types[gen_field_index] = type_struct_field->type_entry->type_ref;
+        assert(di_element_types[gen_field_index]);
+        assert(element_types[gen_field_index]);
 
         total_size_in_bits += type_struct_field->type_entry->size_in_bits;
         if (first_field_align_in_bits == 0) {
@@ -699,12 +713,13 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
         }
         offset_in_bits += type_struct_field->type_entry->size_in_bits;
 
+        gen_field_index += 1;
     }
     struct_type->data.structure.embedded_in_current = false;
 
     if (!struct_type->data.structure.is_invalid) {
 
-        LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
+        LLVMStructSetBody(struct_type->type_ref, element_types, gen_field_index, false);
 
         struct_type->align_in_bits = first_field_align_in_bits;
         struct_type->size_in_bits = total_size_in_bits;
@@ -713,7 +728,7 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
                 LLVMZigFileToScope(import->di_file),
                 buf_ptr(&decl_node->data.struct_decl.name),
                 import->di_file, decl_node->line + 1, struct_type->size_in_bits, struct_type->align_in_bits, 0,
-                nullptr, di_element_types, field_count, 0, nullptr, "");
+                nullptr, di_element_types, gen_field_index, 0, nullptr, "");
 
         LLVMZigReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
         struct_type->di_type = replacement_di_type;
@@ -888,7 +903,7 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
             {
                 TypeTableEntry *type_entry = node->data.struct_decl.type_entry;
 
-                resolve_struct_type(g, import, type_entry);
+                resolve_container_type(g, import, type_entry);
 
                 // struct member fns will get resolved independently
                 break;
@@ -1262,17 +1277,14 @@ TypeTableEntry *find_container(BlockContext *context, Buf *name) {
     return nullptr;
 }
 
-static void get_struct_field(TypeTableEntry *struct_type, Buf *name, TypeStructField **out_tsf, int *out_i) {
+static TypeStructField *get_struct_field(TypeTableEntry *struct_type, Buf *name) {
     for (int i = 0; i < struct_type->data.structure.field_count; i += 1) {
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         if (buf_eql_buf(type_struct_field->name, name)) {
-            *out_tsf = type_struct_field;
-            *out_i = i;
-            return;
+            return type_struct_field;
         }
     }
-    *out_tsf = nullptr;
-    *out_i = -1;
+    return nullptr;
 }
 
 static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -1293,9 +1305,7 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
         TypeTableEntry *bare_struct_type = (struct_type->id == TypeTableEntryIdStruct) ?
             struct_type : struct_type->data.pointer.child_type;
 
-        get_struct_field(bare_struct_type, field_name,
-                &node->data.field_access_expr.type_struct_field,
-                &node->data.field_access_expr.field_index);
+        node->data.field_access_expr.type_struct_field = get_struct_field(bare_struct_type, field_name);
         if (node->data.field_access_expr.type_struct_field) {
             return_type = node->data.field_access_expr.type_struct_field->type_entry;
         } else {
@@ -1885,7 +1895,7 @@ static TypeTableEntry *analyze_struct_val_expr(CodeGen *g, ImportTableEntry *imp
             continue;
         }
 
-        val_field_node->data.struct_val_field.index = field_index;
+        val_field_node->data.struct_val_field.type_struct_field = type_field;
 
         analyze_expression(g, import, context, type_field->type_entry,
                 val_field_node->data.struct_val_field.expr);
