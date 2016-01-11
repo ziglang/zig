@@ -24,6 +24,7 @@ struct LLVMZigDISubprogram;
 struct LLVMZigDISubroutineType;
 struct LLVMZigDILocalVariable;
 struct LLVMZigDILocation;
+struct LLVMZigDIEnumerator;
 struct LLVMZigInsertionPoint;
 
 void LLVMZigInitializeLoopStrengthReducePass(LLVMPassRegistryRef R);
@@ -49,11 +50,23 @@ LLVMZigDIType *LLVMZigCreateDebugArrayType(LLVMZigDIBuilder *dibuilder,
         uint64_t size_in_bits, uint64_t align_in_bits, LLVMZigDIType *elem_type,
         int elem_count);
 
+LLVMZigDIEnumerator *LLVMZigCreateDebugEnumerator(LLVMZigDIBuilder *dibuilder, const char *name, int64_t val);
+
+LLVMZigDIType *LLVMZigCreateDebugEnumerationType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
+        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, LLVMZigDIEnumerator **enumerator_array, int enumerator_array_len,
+        LLVMZigDIType *underlying_type, const char *unique_id);
+
 LLVMZigDIType *LLVMZigCreateDebugStructType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
         const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
         uint64_t align_in_bits, unsigned flags, LLVMZigDIType *derived_from, 
         LLVMZigDIType **types_array, int types_array_len, unsigned run_time_lang, LLVMZigDIType *vtable_holder,
         const char *unique_id);
+
+LLVMZigDIType *LLVMZigCreateDebugUnionType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
+        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, unsigned flags, LLVMZigDIType **types_array, int types_array_len,
+        unsigned run_time_lang, const char *unique_id);
 
 LLVMZigDIType *LLVMZigCreateDebugMemberType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
         const char *name, LLVMZigDIFile *file, unsigned line, uint64_t size_in_bits,

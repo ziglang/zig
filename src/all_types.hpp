@@ -705,8 +705,32 @@ struct TypeTableEntryMaybe {
     TypeTableEntry *child_type;
 };
 
+struct TypeTableEntryMetaType {
+    TypeTableEntry *child_type;
+};
+
+struct TypeEnumField {
+    Buf *name;
+    TypeTableEntry *type_entry;
+};
+
+struct TypeTableEntryEnum {
+    AstNode *decl_node;
+    int field_count;
+    TypeEnumField *fields;
+    bool is_invalid; // true if any fields are invalid
+
+    // reminder: hash tables must be initialized before use
+    HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
+
+    // set this flag temporarily to detect infinite loops
+    bool embedded_in_current;
+    bool reported_infinite_err;
+};
+
 enum TypeTableEntryId {
     TypeTableEntryIdInvalid,
+    TypeTableEntryIdMetaType,
     TypeTableEntryIdVoid,
     TypeTableEntryIdBool,
     TypeTableEntryIdUnreachable,
@@ -717,6 +741,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdStruct,
     TypeTableEntryIdNumberLiteral,
     TypeTableEntryIdMaybe,
+    TypeTableEntryIdEnum,
 };
 
 struct TypeTableEntry {
@@ -736,6 +761,8 @@ struct TypeTableEntry {
         TypeTableEntryStruct structure;
         TypeTableEntryNumLit num_lit;
         TypeTableEntryMaybe maybe;
+        TypeTableEntryEnum enumeration;
+        TypeTableEntryMetaType meta_type;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
@@ -743,7 +770,7 @@ struct TypeTableEntry {
     TypeTableEntry *unknown_size_array_parent[2][2]; // 0 - const. 1 - noalias
     HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
     TypeTableEntry *maybe_parent;
-
+    TypeTableEntry *meta_parent;
 };
 
 struct ImporterInfo {

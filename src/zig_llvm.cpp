@@ -161,6 +161,32 @@ LLVMZigDIType *LLVMZigCreateDebugArrayType(LLVMZigDIBuilder *dibuilder, uint64_t
     return reinterpret_cast<LLVMZigDIType*>(di_type);
 }
 
+LLVMZigDIEnumerator *LLVMZigCreateDebugEnumerator(LLVMZigDIBuilder *dibuilder, const char *name, int64_t val) {
+    DIEnumerator *di_enumerator = reinterpret_cast<DIBuilder*>(dibuilder)->createEnumerator(name, val);
+    return reinterpret_cast<LLVMZigDIEnumerator*>(di_enumerator);
+}
+
+LLVMZigDIType *LLVMZigCreateDebugEnumerationType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
+        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, LLVMZigDIEnumerator **enumerator_array, int enumerator_array_len,
+        LLVMZigDIType *underlying_type, const char *unique_id)
+{
+    SmallVector<Metadata *, 8> fields;
+    for (int i = 0; i < enumerator_array_len; i += 1) {
+        DIEnumerator *dienumerator = reinterpret_cast<DIEnumerator*>(enumerator_array[i]);
+        fields.push_back(dienumerator);
+    }
+    DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createEnumerationType(
+            reinterpret_cast<DIScope*>(scope),
+            name,
+            reinterpret_cast<DIFile*>(file),
+            line_number, size_in_bits, align_in_bits,
+            reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(fields),
+            reinterpret_cast<DIType*>(underlying_type),
+            unique_id);
+    return reinterpret_cast<LLVMZigDIType*>(di_type);
+}
+
 LLVMZigDIType *LLVMZigCreateDebugMemberType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
         const char *name, LLVMZigDIFile *file, unsigned line, uint64_t size_in_bits,
         uint64_t align_in_bits, uint64_t offset_in_bits, unsigned flags, LLVMZigDIType *type)
@@ -171,6 +197,26 @@ LLVMZigDIType *LLVMZigCreateDebugMemberType(LLVMZigDIBuilder *dibuilder, LLVMZig
             reinterpret_cast<DIFile*>(file),
             line, size_in_bits, align_in_bits, offset_in_bits, flags,
             reinterpret_cast<DIType*>(type));
+    return reinterpret_cast<LLVMZigDIType*>(di_type);
+}
+
+LLVMZigDIType *LLVMZigCreateDebugUnionType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
+        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, unsigned flags, LLVMZigDIType **types_array, int types_array_len,
+        unsigned run_time_lang, const char *unique_id)
+{
+    SmallVector<Metadata *, 8> fields;
+    for (int i = 0; i < types_array_len; i += 1) {
+        DIType *ditype = reinterpret_cast<DIType*>(types_array[i]);
+        fields.push_back(ditype);
+    }
+    DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createUnionType(
+            reinterpret_cast<DIScope*>(scope),
+            name,
+            reinterpret_cast<DIFile*>(file),
+            line_number, size_in_bits, align_in_bits, flags,
+            reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(fields),
+            run_time_lang, unique_id);
     return reinterpret_cast<LLVMZigDIType*>(di_type);
 }
 

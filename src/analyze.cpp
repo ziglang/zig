@@ -18,6 +18,7 @@ static TypeTableEntry *eval_const_expr(CodeGen *g, BlockContext *context,
 static void collect_type_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *type_node, TopLevelDecl *decl_node);
 static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, TypeTableEntry *expected_type, AstNode *node);
+static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type);
 
 static AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
@@ -116,8 +117,27 @@ TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
     entry->arrays_by_size.init(2);
     entry->id = id;
 
-    if (id == TypeTableEntryIdStruct) {
-        entry->data.structure.fn_table.init(8);
+    switch (id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdNumberLiteral:
+        case TypeTableEntryIdMaybe:
+            // nothing to init
+            break;
+        case TypeTableEntryIdStruct:
+            entry->data.structure.fn_table.init(8);
+            break;
+        case TypeTableEntryIdEnum:
+            entry->data.enumeration.fn_table.init(8);
+            break;
+
     }
 
     return entry;
@@ -139,6 +159,35 @@ static TypeTableEntry *get_number_literal_type_unsigned(CodeGen *g, uint64_t x) 
     return g->num_lit_types[get_number_literal_kind_unsigned(x)];
 }
 
+static TypeTableEntry *get_int_type_unsigned(CodeGen *g, uint64_t x) {
+    switch (get_number_literal_kind_unsigned(x)) {
+        case NumLitU8:
+            return g->builtin_types.entry_u8;
+        case NumLitU16:
+            return g->builtin_types.entry_u16;
+        case NumLitU32:
+            return g->builtin_types.entry_u32;
+        case NumLitU64:
+            return g->builtin_types.entry_u64;
+        default:
+            zig_unreachable();
+    }
+}
+
+static TypeTableEntry *get_meta_type(CodeGen *g, TypeTableEntry *child_type) {
+    if (child_type->meta_parent) {
+        return child_type->maybe_parent;
+    } else {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMetaType);
+        buf_resize(&entry->name, 0);
+        buf_appendf(&entry->name, "(%s declaration)", buf_ptr(&child_type->name));
+
+        entry->data.meta_type.child_type = child_type;
+        child_type->meta_parent = entry;
+        return entry;
+    }
+}
+
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const, bool is_noalias) {
     TypeTableEntry **parent_pointer = &child_type->pointer_parent[(is_const ? 1 : 0)][(is_noalias ? 1 : 0)];
     if (*parent_pointer) {
@@ -146,8 +195,12 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
         entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
+
+        const char *const_str = is_const ? "const " : "";
+        const char *noalias_str = is_noalias ? "noalias " : "";
         buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "&%s%s", is_const ? "const " : "", buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "&%s%s%s", const_str, noalias_str, buf_ptr(&child_type->name));
+
         entry->size_in_bits = g->pointer_size_bytes * 8;
         entry->align_in_bits = g->pointer_size_bytes * 8;
         assert(child_type->di_type);
@@ -165,7 +218,6 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
 static TypeTableEntry *get_maybe_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *child_type) {
     if (child_type->maybe_parent) {
         TypeTableEntry *entry = child_type->maybe_parent;
-        import->block_context->type_table.put(&entry->name, entry);
         return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
@@ -209,7 +261,6 @@ static TypeTableEntry *get_maybe_type(CodeGen *g, ImportTableEntry *import, Type
 
         entry->data.maybe.child_type = child_type;
 
-        import->block_context->type_table.put(&entry->name, entry);
         child_type->maybe_parent = entry;
         return entry;
     }
@@ -221,7 +272,6 @@ static TypeTableEntry *get_array_type(CodeGen *g, ImportTableEntry *import,
     auto existing_entry = child_type->arrays_by_size.maybe_get(array_size);
     if (existing_entry) {
         TypeTableEntry *entry = existing_entry->value;
-        import->block_context->type_table.put(&entry->name, entry);
         return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
@@ -237,7 +287,6 @@ static TypeTableEntry *get_array_type(CodeGen *g, ImportTableEntry *import,
         entry->data.array.child_type = child_type;
         entry->data.array.len = array_size;
 
-        import->block_context->type_table.put(&entry->name, entry);
         child_type->arrays_by_size.put(array_size, entry);
         return entry;
     }
@@ -636,7 +685,165 @@ static void preview_function_labels(CodeGen *g, AstNode *node, FnTableEntry *fn_
     }
 }
 
-static void resolve_container_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type) {
+static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *enum_type) {
+    assert(enum_type->id == TypeTableEntryIdEnum);
+
+    AstNode *decl_node = enum_type->data.enumeration.decl_node;
+
+    if (enum_type->data.enumeration.embedded_in_current) {
+        if (!enum_type->data.enumeration.reported_infinite_err) {
+            enum_type->data.enumeration.reported_infinite_err = true;
+            add_node_error(g, decl_node, buf_sprintf("enum has infinite size"));
+        }
+        return;
+    }
+
+    if (enum_type->data.enumeration.fields) {
+        // we already resolved this type. skip
+        return;
+    }
+
+    assert(enum_type->di_type);
+
+    int field_count = decl_node->data.struct_decl.fields.length;
+
+    enum_type->data.enumeration.field_count = field_count;
+    enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+    LLVMZigDIEnumerator **di_enumerators = allocate<LLVMZigDIEnumerator*>(field_count);
+
+    // we possibly allocate too much here since gen_field_count can be lower than field_count.
+    // the only problem is potential wasted space though.
+    LLVMZigDIType **union_inner_di_types = allocate<LLVMZigDIType*>(field_count);
+
+    TypeTableEntry *biggest_union_member = nullptr;
+    uint64_t biggest_align_in_bits = 0;
+    uint64_t biggest_union_member_size_in_bits = 0;
+
+    // set temporary flag
+    enum_type->data.enumeration.embedded_in_current = true;
+
+    int gen_field_index = 0;
+    for (int i = 0; i < field_count; i += 1) {
+        AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
+        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
+        type_enum_field->name = &field_node->data.struct_field.name;
+        type_enum_field->type_entry = resolve_type(g, field_node->data.struct_field.type,
+                import, import->block_context, false);
+
+        di_enumerators[i] = LLVMZigCreateDebugEnumerator(g->dbuilder, buf_ptr(type_enum_field->name), i);
+
+        if (type_enum_field->type_entry->id == TypeTableEntryIdStruct) {
+            resolve_struct_type(g, import, type_enum_field->type_entry);
+        } else if (type_enum_field->type_entry->id == TypeTableEntryIdEnum) {
+            resolve_enum_type(g, import, type_enum_field->type_entry);
+        } else if (type_enum_field->type_entry->id == TypeTableEntryIdInvalid) {
+            enum_type->data.enumeration.is_invalid = true;
+            continue;
+        } else if (type_enum_field->type_entry->id == TypeTableEntryIdVoid) {
+            continue;
+        }
+
+        union_inner_di_types[gen_field_index] = LLVMZigCreateDebugMemberType(g->dbuilder,
+                LLVMZigTypeToScope(enum_type->di_type), buf_ptr(type_enum_field->name),
+                import->di_file, field_node->line + 1,
+                type_enum_field->type_entry->size_in_bits,
+                type_enum_field->type_entry->align_in_bits,
+                0, 0, type_enum_field->type_entry->di_type);
+
+        biggest_align_in_bits = max(biggest_align_in_bits, type_enum_field->type_entry->align_in_bits);
+
+        if (!biggest_union_member ||
+            type_enum_field->type_entry->size_in_bits > biggest_union_member->size_in_bits)
+        {
+            biggest_union_member = type_enum_field->type_entry;
+            biggest_union_member_size_in_bits = biggest_union_member->size_in_bits;
+        }
+
+        gen_field_index += 1;
+    }
+
+    // unset temporary flag
+    enum_type->data.enumeration.embedded_in_current = false;
+
+    if (!enum_type->data.enumeration.is_invalid) {
+        uint64_t tag_size_in_bits = get_number_literal_type_unsigned(g, field_count)->size_in_bits;
+        enum_type->align_in_bits = tag_size_in_bits;
+        enum_type->size_in_bits = tag_size_in_bits + biggest_union_member_size_in_bits;
+        TypeTableEntry *tag_type_entry = get_int_type_unsigned(g, field_count);
+
+        if (biggest_union_member) {
+            // create llvm type for union
+            LLVMTypeRef union_element_type = biggest_union_member->type_ref;
+            LLVMTypeRef union_type_ref = LLVMStructType(&union_element_type, 1, false);
+
+            // create llvm type for root struct
+            LLVMTypeRef root_struct_element_types[] = {
+                tag_type_entry->type_ref,
+                union_type_ref,
+            };
+            LLVMStructSetBody(enum_type->type_ref, root_struct_element_types, 2, false);
+
+            // create debug type for tag
+            LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(g->dbuilder,
+                    LLVMZigTypeToScope(enum_type->di_type), "AnonEnum", import->di_file, decl_node->line + 1,
+                    tag_type_entry->size_in_bits, tag_type_entry->align_in_bits, di_enumerators, field_count,
+                    tag_type_entry->di_type, "");
+
+            // create debug type for union
+            LLVMZigDIType *union_di_type = LLVMZigCreateDebugUnionType(g->dbuilder,
+                    LLVMZigTypeToScope(enum_type->di_type), "AnonUnion", import->di_file, decl_node->line + 1,
+                    biggest_union_member->size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
+                    gen_field_index, 0, "");
+
+            // create debug types for members of root struct
+            LLVMZigDIType *tag_member_di_type = LLVMZigCreateDebugMemberType(g->dbuilder,
+                    LLVMZigTypeToScope(enum_type->di_type), "tag_field",
+                    import->di_file, decl_node->line + 1,
+                    tag_type_entry->size_in_bits,
+                    tag_type_entry->align_in_bits,
+                    0, 0, tag_di_type);
+            LLVMZigDIType *union_member_di_type = LLVMZigCreateDebugMemberType(g->dbuilder,
+                    LLVMZigTypeToScope(enum_type->di_type), "union_field",
+                    import->di_file, decl_node->line + 1,
+                    biggest_union_member->size_in_bits,
+                    biggest_align_in_bits,
+                    tag_type_entry->size_in_bits, 0, union_di_type);
+
+            // create debug type for root struct 
+            LLVMZigDIType *di_root_members[] = {
+                tag_member_di_type,
+                union_member_di_type,
+            };
+
+
+            LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
+                    LLVMZigFileToScope(import->di_file),
+                    buf_ptr(&decl_node->data.struct_decl.name),
+                    import->di_file, decl_node->line + 1, enum_type->size_in_bits, enum_type->align_in_bits, 0,
+                    nullptr, di_root_members, 2, 0, nullptr, "");
+
+            LLVMZigReplaceTemporary(g->dbuilder, enum_type->di_type, replacement_di_type);
+            enum_type->di_type = replacement_di_type;
+        } else {
+            // create llvm type for root struct
+            enum_type->type_ref = tag_type_entry->type_ref;
+
+            // create debug type for tag
+            LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(g->dbuilder,
+                    LLVMZigFileToScope(import->di_file), buf_ptr(&decl_node->data.struct_decl.name),
+                    import->di_file, decl_node->line + 1,
+                    tag_type_entry->size_in_bits, tag_type_entry->align_in_bits, di_enumerators, field_count,
+                    tag_type_entry->di_type, "");
+
+            LLVMZigReplaceTemporary(g->dbuilder, enum_type->di_type, tag_di_type);
+            enum_type->di_type = tag_di_type;
+
+        }
+
+    }
+}
+
+static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type) {
     assert(struct_type->id == TypeTableEntryIdStruct);
 
     AstNode *decl_node = struct_type->data.structure.decl_node;
@@ -672,7 +879,7 @@ static void resolve_container_type(CodeGen *g, ImportTableEntry *import, TypeTab
     uint64_t first_field_align_in_bits = 0;
     uint64_t offset_in_bits = 0;
 
-    // this field should be set to true only during the recursive calls to resolve_container_type
+    // this field should be set to true only during the recursive calls to resolve_struct_type
     struct_type->data.structure.embedded_in_current = true;
 
     int gen_field_index = 0;
@@ -686,7 +893,9 @@ static void resolve_container_type(CodeGen *g, ImportTableEntry *import, TypeTab
         type_struct_field->gen_index = -1;
 
         if (type_struct_field->type_entry->id == TypeTableEntryIdStruct) {
-            resolve_container_type(g, import, type_struct_field->type_entry);
+            resolve_struct_type(g, import, type_struct_field->type_entry);
+        } else if (type_struct_field->type_entry->id == TypeTableEntryIdEnum) {
+            resolve_enum_type(g, import, type_struct_field->type_entry);
         } else if (type_struct_field->type_entry->id == TypeTableEntryIdInvalid) {
             struct_type->data.structure.is_invalid = true;
             continue;
@@ -903,9 +1112,17 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
             {
                 TypeTableEntry *type_entry = node->data.struct_decl.type_entry;
 
-                resolve_container_type(g, import, type_entry);
+                // struct/enum member fns will get resolved independently
 
-                // struct member fns will get resolved independently
+                switch (node->data.struct_decl.kind) {
+                    case ContainerKindStruct:
+                        resolve_struct_type(g, import, type_entry);
+                        break;
+                    case ContainerKindEnum:
+                        resolve_enum_type(g, import, type_entry);
+                        break;
+                }
+
                 break;
             }
         case NodeTypeVariableDeclaration:
@@ -986,6 +1203,8 @@ static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type,
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdMetaType:
             return false;
         case TypeTableEntryIdInt:
             if (is_num_lit_unsigned(num_lit)) {
@@ -1326,6 +1545,12 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
                     buf_ptr(&struct_type->name)));
             return_type = g->builtin_types.entry_invalid;
         }
+    } else if (struct_type->id == TypeTableEntryIdMetaType &&
+               struct_type->data.meta_type.child_type->id == TypeTableEntryIdEnum)
+    {
+        //TypeTableEntry *enum_type = struct_type->data.meta_type.child_type;
+
+        zig_panic("TODO enum field access");
     } else {
         if (struct_type->id != TypeTableEntryIdInvalid) {
             add_node_error(g, node,
@@ -1421,7 +1646,7 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
     } else {
         TypeTableEntry *container_type = find_container(context, variable_name);
         if (container_type) {
-            return container_type;
+            return get_meta_type(g, container_type);
         } else {
             add_node_error(g, node,
                     buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
@@ -2179,6 +2404,10 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
             fn_table = &struct_type->data.pointer.child_type->data.structure.fn_table;
         } else if (struct_type->id == TypeTableEntryIdInvalid) {
             return struct_type;
+        } else if (struct_type->id == TypeTableEntryIdMetaType &&
+                   struct_type->data.meta_type.child_type->id == TypeTableEntryIdEnum)
+        {
+            zig_panic("TODO enum initialization");
         } else {
             add_node_error(g, fn_ref_expr->data.field_access_expr.struct_expr,
                     buf_sprintf("member reference base type not struct or enum"));
@@ -2846,6 +3075,16 @@ static void collect_type_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
     }
 }
 
+static TypeTableEntryId container_to_type(ContainerKind kind) {
+    switch (kind) {
+        case ContainerKindStruct:
+            return TypeTableEntryIdStruct;
+        case ContainerKindEnum:
+            return TypeTableEntryIdEnum;
+    }
+    zig_unreachable();
+}
+
 static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeStructDecl:
@@ -2860,11 +3099,20 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
                     add_node_error(g, node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                 } else {
-                    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
+                    TypeTableEntryId type_id = container_to_type(node->data.struct_decl.kind);
+                    TypeTableEntry *entry = new_type_table_entry(type_id);
+                    switch (node->data.struct_decl.kind) {
+                        case ContainerKindStruct:
+                            entry->data.structure.decl_node = node;
+                            break;
+                        case ContainerKindEnum:
+                            entry->data.enumeration.decl_node = node;
+                            break;
+                    }
+
                     entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(name));
-                    entry->data.structure.decl_node = node;
                     entry->di_type = LLVMZigCreateReplaceableCompositeType(g->dbuilder,
-                        LLVMZigTag_DW_structure_type(), buf_ptr(&node->data.struct_decl.name),
+                        LLVMZigTag_DW_structure_type(), buf_ptr(name),
                         LLVMZigFileToScope(import->di_file), import->di_file, node->line + 1);
 
                     buf_init_from_buf(&entry->name, name);
