@@ -87,6 +87,12 @@ struct TopLevelDecl {
     bool in_current_deps;
 };
 
+struct TypeEnumField {
+    Buf *name;
+    TypeTableEntry *type_entry;
+    uint32_t value;
+};
+
 enum NodeType {
     NodeTypeRoot,
     NodeTypeRootExportDecl,
@@ -316,6 +322,7 @@ struct AstNodeFieldAccessExpr {
 
     // populated by semantic analyzer
     TypeStructField *type_struct_field;
+    TypeEnumField *type_enum_field;
     Expr resolved_expr;
 };
 
@@ -680,11 +687,10 @@ struct TypeStructField {
     int src_index;
     int gen_index;
 };
-
 struct TypeTableEntryStruct {
     AstNode *decl_node;
     bool is_packed;
-    int field_count;
+    uint32_t field_count;
     TypeStructField *fields;
     uint64_t size_bytes;
     bool is_invalid; // true if any fields are invalid
@@ -709,14 +715,9 @@ struct TypeTableEntryMetaType {
     TypeTableEntry *child_type;
 };
 
-struct TypeEnumField {
-    Buf *name;
-    TypeTableEntry *type_entry;
-};
-
 struct TypeTableEntryEnum {
     AstNode *decl_node;
-    int field_count;
+    uint32_t field_count;
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid
 

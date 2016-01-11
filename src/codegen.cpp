@@ -500,6 +500,15 @@ static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node, bool is_lva
     }
 }
 
+static LLVMValueRef gen_enum_value_expr(CodeGen *g, AstNode *node, TypeTableEntry *enum_type) {
+    assert(node->type == NodeTypeFieldAccessExpr);
+
+    uint64_t value = node->data.field_access_expr.type_enum_field->value;
+    LLVMTypeRef tag_type_ref = enum_type->type_ref;
+
+    return LLVMConstInt(tag_type_ref, value, false);
+}
+
 static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lvalue) {
     assert(node->type == NodeTypeFieldAccessExpr);
 
@@ -532,6 +541,12 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
             add_debug_source_node(g, node);
             return LLVMBuildLoad(g->builder, ptr, "");
         }
+    } else if (struct_type->id == TypeTableEntryIdMetaType &&
+               struct_type->data.meta_type.child_type->id == TypeTableEntryIdEnum)
+    {
+        assert(!is_lvalue);
+        TypeTableEntry *enum_type = struct_type->data.meta_type.child_type;
+        return gen_enum_value_expr(g, node, enum_type);
     } else {
         zig_panic("gen_field_access_expr bad struct type");
     }
@@ -875,11 +890,15 @@ static LLVMValueRef gen_cmp_expr(CodeGen *g, AstNode *node) {
     if (op1_type->id == TypeTableEntryIdFloat) {
         LLVMRealPredicate pred = cmp_op_to_real_predicate(node->data.bin_op_expr.bin_op);
         return LLVMBuildFCmp(g->builder, pred, val1, val2, "");
-    } else {
-        assert(op1_type->id == TypeTableEntryIdInt);
+    } else if (op1_type->id == TypeTableEntryIdInt) {
         LLVMIntPredicate pred = cmp_op_to_int_predicate(node->data.bin_op_expr.bin_op,
                 op1_type->data.integral.is_signed);
         return LLVMBuildICmp(g->builder, pred, val1, val2, "");
+    } else if (op1_type->id == TypeTableEntryIdEnum) {
+        LLVMIntPredicate pred = cmp_op_to_int_predicate(node->data.bin_op_expr.bin_op, false);
+        return LLVMBuildICmp(g->builder, pred, val1, val2, "");
+    } else {
+        zig_unreachable();
     }
 }
 

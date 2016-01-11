@@ -176,7 +176,7 @@ static TypeTableEntry *get_int_type_unsigned(CodeGen *g, uint64_t x) {
 
 static TypeTableEntry *get_meta_type(CodeGen *g, TypeTableEntry *child_type) {
     if (child_type->meta_parent) {
-        return child_type->maybe_parent;
+        return child_type->meta_parent;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMetaType);
         buf_resize(&entry->name, 0);
@@ -705,7 +705,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
 
     assert(enum_type->di_type);
 
-    int field_count = decl_node->data.struct_decl.fields.length;
+    uint32_t field_count = decl_node->data.struct_decl.fields.length;
 
     enum_type->data.enumeration.field_count = field_count;
     enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
@@ -723,12 +723,13 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
     enum_type->data.enumeration.embedded_in_current = true;
 
     int gen_field_index = 0;
-    for (int i = 0; i < field_count; i += 1) {
+    for (uint32_t i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
         type_enum_field->name = &field_node->data.struct_field.name;
         type_enum_field->type_entry = resolve_type(g, field_node->data.struct_field.type,
                 import, import->block_context, false);
+        type_enum_field->value = i;
 
         di_enumerators[i] = LLVMZigCreateDebugEnumerator(g->dbuilder, buf_ptr(type_enum_field->name), i);
 
@@ -1496,6 +1497,16 @@ TypeTableEntry *find_container(BlockContext *context, Buf *name) {
     return nullptr;
 }
 
+static TypeEnumField *get_enum_field(TypeTableEntry *enum_type, Buf *name) {
+    for (int i = 0; i < enum_type->data.enumeration.field_count; i += 1) {
+        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
+        if (buf_eql_buf(type_enum_field->name, name)) {
+            return type_enum_field;
+        }
+    }
+    return nullptr;
+}
+
 static TypeStructField *get_struct_field(TypeTableEntry *struct_type, Buf *name) {
     for (int i = 0; i < struct_type->data.structure.field_count; i += 1) {
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
@@ -1506,13 +1517,46 @@ static TypeStructField *get_struct_field(TypeTableEntry *struct_type, Buf *name)
     return nullptr;
 }
 
+static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        AstNode *field_access_node, AstNode *value_node, TypeTableEntry *enum_type, Buf *field_name)
+{
+    TypeEnumField *type_enum_field = get_enum_field(enum_type, field_name);
+    field_access_node->data.field_access_expr.type_enum_field = type_enum_field;
+    if (type_enum_field) {
+        if (value_node) {
+            if (type_enum_field->type_entry->id == TypeTableEntryIdVoid) {
+                add_node_error(g, field_access_node,
+                    buf_sprintf("enum value '%s.%s' has void parameter",
+                        buf_ptr(&enum_type->name),
+                        buf_ptr(field_name)));
+
+            } else {
+                analyze_expression(g, import, context, type_enum_field->type_entry, value_node);
+            }
+        } else if (type_enum_field->type_entry->id == TypeTableEntryIdVoid) {
+            // OK
+        } else {
+            add_node_error(g, field_access_node,
+                buf_sprintf("enum value '%s.%s' requires parameter of type '%s'",
+                    buf_ptr(&enum_type->name),
+                    buf_ptr(field_name),
+                    buf_ptr(&type_enum_field->type_entry->name)));
+        }
+    } else {
+        add_node_error(g, field_access_node,
+            buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
+                buf_ptr(&enum_type->name)));
+    }
+    return enum_type;
+}
+
 static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         AstNode *node)
 {
     assert(node->type == NodeTypeFieldAccessExpr);
 
-    TypeTableEntry *struct_type = analyze_expression(g, import, context, nullptr,
-            node->data.field_access_expr.struct_expr);
+    AstNode *struct_expr_node = node->data.field_access_expr.struct_expr;
+    TypeTableEntry *struct_type = analyze_expression(g, import, context, nullptr, struct_expr_node);
 
     TypeTableEntry *return_type;
 
@@ -1548,9 +1592,9 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
     } else if (struct_type->id == TypeTableEntryIdMetaType &&
                struct_type->data.meta_type.child_type->id == TypeTableEntryIdEnum)
     {
-        //TypeTableEntry *enum_type = struct_type->data.meta_type.child_type;
-
-        zig_panic("TODO enum field access");
+        TypeTableEntry *enum_type = struct_type->data.meta_type.child_type;
+        Buf *field_name = &node->data.field_access_expr.field_name;
+        return_type = analyze_enum_value_expr(g, import, context, node, nullptr, enum_type, field_name);
     } else {
         if (struct_type->id != TypeTableEntryIdInvalid) {
             add_node_error(g, node,
