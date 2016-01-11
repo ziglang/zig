@@ -11,7 +11,7 @@ syn keyword zigOperator as
 syn keyword zigStorage const var extern volatile export pub noalias
 syn keyword zigStructure struct enum type
 syn keyword zigStatement goto break return continue asm
-syn keyword zigConditional if else match
+syn keyword zigConditional if else switch
 syn keyword zigRepeat while for
 
 syn keyword zigConstant null
