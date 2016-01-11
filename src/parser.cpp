@@ -144,10 +144,6 @@ const char *node_type_str(NodeType node_type) {
             return "StructDecl";
         case NodeTypeStructField:
             return "StructField";
-        case NodeTypeEnumDecl:
-            return "EnumDecl";
-        case NodeTypeEnumField:
-            return "EnumField";
         case NodeTypeStructValueExpr:
             return "StructValueExpr";
         case NodeTypeStructValueField:
@@ -433,24 +429,6 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.struct_field.name));
             if (node->data.struct_field.type) {
                 ast_print(node->data.struct_field.type, indent + 2);
-            }
-            break;
-        case NodeTypeEnumDecl:
-            fprintf(stderr, "%s '%s'\n",
-                    node_type_str(node->type), buf_ptr(&node->data.enum_decl.name));
-            for (int i = 0; i < node->data.enum_decl.fields.length; i += 1) {
-                AstNode *child = node->data.enum_decl.fields.at(i);
-                ast_print(child, indent + 2);
-            }
-            break;
-        case NodeTypeEnumField:
-            fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.enum_field.name));
-            if (node->data.enum_field.val_expr) {
-                ast_print(node->data.enum_field.val_expr, indent + 2);
-            }
-            for (int i = 0; i < node->data.enum_field.fields.length; i += 1) {
-                AstNode *child = node->data.enum_field.fields.at(i);
-                ast_print(child, indent + 2);
             }
             break;
         case NodeTypeStructValueExpr:

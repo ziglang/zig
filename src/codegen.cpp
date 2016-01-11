@@ -1752,8 +1752,6 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
         case NodeTypeUse:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
-        case NodeTypeEnumDecl:
-        case NodeTypeEnumField:
         case NodeTypeStructValueField:
         case NodeTypeCompilerFnExpr:
             zig_unreachable();
@@ -2516,7 +2514,6 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
     import_entry->line_offsets = tokenization.line_offsets;
     import_entry->path = full_path;
     import_entry->fn_table.init(32);
-    import_entry->type_table.init(32);
 
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);

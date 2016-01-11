@@ -64,8 +64,6 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeAsmExpr:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
-        case NodeTypeEnumDecl:
-        case NodeTypeEnumField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
         case NodeTypeWhileExpr:
@@ -167,7 +165,7 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
 static TypeTableEntry *get_maybe_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *child_type) {
     if (child_type->maybe_parent) {
         TypeTableEntry *entry = child_type->maybe_parent;
-        import->type_table.put(&entry->name, entry);
+        import->block_context->type_table.put(&entry->name, entry);
         return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
@@ -211,7 +209,7 @@ static TypeTableEntry *get_maybe_type(CodeGen *g, ImportTableEntry *import, Type
 
         entry->data.maybe.child_type = child_type;
 
-        import->type_table.put(&entry->name, entry);
+        import->block_context->type_table.put(&entry->name, entry);
         child_type->maybe_parent = entry;
         return entry;
     }
@@ -223,7 +221,7 @@ static TypeTableEntry *get_array_type(CodeGen *g, ImportTableEntry *import,
     auto existing_entry = child_type->arrays_by_size.maybe_get(array_size);
     if (existing_entry) {
         TypeTableEntry *entry = existing_entry->value;
-        import->type_table.put(&entry->name, entry);
+        import->block_context->type_table.put(&entry->name, entry);
         return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
@@ -239,7 +237,7 @@ static TypeTableEntry *get_array_type(CodeGen *g, ImportTableEntry *import,
         entry->data.array.child_type = child_type;
         entry->data.array.len = array_size;
 
-        import->type_table.put(&entry->name, entry);
+        import->block_context->type_table.put(&entry->name, entry);
         child_type->arrays_by_size.put(array_size, entry);
         return entry;
     }
@@ -441,7 +439,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node, ImportTableEntry 
         case AstNodeTypeTypePrimitive:
             {
                 Buf *name = &node->data.type.primitive_name;
-                auto table_entry = import->type_table.maybe_get(name);
+                auto table_entry = import->block_context->type_table.maybe_get(name);
                 if (!table_entry) {
                     table_entry = g->primitive_type_table.maybe_get(name);
                 }
@@ -895,11 +893,6 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
                 // struct member fns will get resolved independently
                 break;
             }
-        case NodeTypeEnumDecl:
-            {
-                zig_panic("TODO resolve enum decl");
-                break;
-            }
         case NodeTypeVariableDeclaration:
             {
                 VariableTableEntry *var = analyze_variable_declaration(g, import, import->block_context,
@@ -942,7 +935,6 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
-        case NodeTypeEnumField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
         case NodeTypeCompilerFnExpr:
@@ -1212,6 +1204,7 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     context->node = node;
     context->parent = parent;
     context->variable_table.init(8);
+    context->type_table.init(8);
 
     if (parent) {
         if (parent->next_child_parent_loop_node) {
@@ -1250,6 +1243,17 @@ static VariableTableEntry *find_local_variable(BlockContext *context, Buf *name)
 VariableTableEntry *find_variable(BlockContext *context, Buf *name) {
     while (context) {
         auto entry = context->variable_table.maybe_get(name);
+        if (entry != nullptr)
+            return entry->value;
+
+        context = context->parent;
+    }
+    return nullptr;
+}
+
+TypeTableEntry *find_container(BlockContext *context, Buf *name) {
+    while (context) {
+        auto entry = context->type_table.maybe_get(name);
         if (entry != nullptr)
             return entry->value;
 
@@ -1395,6 +1399,25 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
     analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.array_access_expr.subscript);
 
     return return_type;
+}
+
+static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    Buf *variable_name = &node->data.symbol_expr.symbol;
+    VariableTableEntry *var = find_variable(context, variable_name);
+    if (var) {
+        return var->type;
+    } else {
+        TypeTableEntry *container_type = find_container(context, variable_name);
+        if (container_type) {
+            return container_type;
+        } else {
+            add_node_error(g, node,
+                    buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
+            return g->builtin_types.entry_invalid;
+        }
+    }
 }
 
 static TypeTableEntry *analyze_variable_name(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -2381,7 +2404,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
 
         case NodeTypeSymbol:
             {
-                return_type = analyze_variable_name(g, import, context, node, &node->data.symbol_expr.symbol);
+                return_type = analyze_symbol_expr(g, import, context, expected_type, node);
                 break;
             }
         case NodeTypeCastExpr:
@@ -2499,8 +2522,6 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeLabel:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
-        case NodeTypeEnumDecl:
-        case NodeTypeEnumField:
         case NodeTypeStructValueField:
         case NodeTypeCompilerFnExpr:
             zig_unreachable();
@@ -2609,7 +2630,6 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeRootExportDecl:
         case NodeTypeExternBlock:
         case NodeTypeUse:
-        case NodeTypeEnumDecl:
         case NodeTypeVariableDeclaration:
             // already took care of these
             break;
@@ -2645,7 +2665,6 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
-        case NodeTypeEnumField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
         case NodeTypeCompilerFnExpr:
@@ -2779,8 +2798,6 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeLabel:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
-        case NodeTypeEnumDecl:
-        case NodeTypeEnumField:
         case NodeTypeStructValueField:
             zig_unreachable();
     }
@@ -2794,7 +2811,7 @@ static void collect_type_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
                 Buf *name = &type_node->data.type.primitive_name;
                 auto table_entry = g->primitive_type_table.maybe_get(name);
                 if (!table_entry) {
-                    table_entry = import->type_table.maybe_get(name);
+                    table_entry = import->block_context->type_table.maybe_get(name);
                 }
                 if (!table_entry) {
                     decl_node->deps.put(name, type_node);
@@ -2826,7 +2843,7 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
                 Buf *name = &node->data.struct_decl.name;
                 auto table_entry = g->primitive_type_table.maybe_get(name);
                 if (!table_entry) {
-                    table_entry = import->type_table.maybe_get(name);
+                    table_entry = import->block_context->type_table.maybe_get(name);
                 }
                 if (table_entry) {
                     node->data.struct_decl.type_entry = table_entry->value;
@@ -2843,20 +2860,20 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
                     buf_init_from_buf(&entry->name, name);
                     // put off adding the debug type until we do the full struct body
                     // this type is incomplete until we do another pass
-                    import->type_table.put(&entry->name, entry);
+                    import->block_context->type_table.put(&entry->name, entry);
                     node->data.struct_decl.type_entry = entry;
 
                     bool is_pub = (node->data.struct_decl.visib_mod != VisibModPrivate);
                     if (is_pub) {
                         for (int i = 0; i < import->importers.length; i += 1) {
                             ImporterInfo importer = import->importers.at(i);
-                            auto table_entry = importer.import->type_table.maybe_get(&entry->name);
+                            auto table_entry = importer.import->block_context->type_table.maybe_get(&entry->name);
                             if (table_entry) {
                                 add_node_error(g, importer.source_node,
                                     buf_sprintf("import of type '%s' overrides existing definition",
                                         buf_ptr(&entry->name)));
                             } else {
-                                importer.import->type_table.put(&entry->name, entry);
+                                importer.import->block_context->type_table.put(&entry->name, entry);
                             }
                         }
                     }
@@ -2886,11 +2903,6 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
                     detect_top_level_decl_deps(g, import, fn_def_node);
                 }
 
-                break;
-            }
-        case NodeTypeEnumDecl:
-            {
-                zig_panic("TODO detect enum top level decl deps");
                 break;
             }
         case NodeTypeExternBlock:
@@ -2986,7 +2998,6 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:
-        case NodeTypeEnumField:
         case NodeTypeStructValueExpr:
         case NodeTypeStructValueField:
         case NodeTypeCompilerFnExpr:
@@ -3216,8 +3227,6 @@ Expr *get_resolved_expr(AstNode *node) {
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
-        case NodeTypeEnumDecl:
-        case NodeTypeEnumField:
             zig_unreachable();
     }
 }
@@ -3267,8 +3276,6 @@ NumLitCodeGen *get_resolved_num_lit(AstNode *node) {
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
-        case NodeTypeEnumDecl:
-        case NodeTypeEnumField:
         case NodeTypeCompilerFnExpr:
             zig_unreachable();
     }
@@ -3319,8 +3326,6 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
         case NodeTypeContinue:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
-        case NodeTypeEnumDecl:
-        case NodeTypeEnumField:
         case NodeTypeCompilerFnExpr:
         case NodeTypeCompilerFnType:
             zig_unreachable();
