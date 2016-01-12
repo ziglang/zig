@@ -1033,19 +1033,6 @@ fn print_ok(val: #typeof(x)) -> #typeof(foo) {
 const foo : i32 = 0;
     )SOURCE", "OK\n");
 
-    add_simple_case("enum with void types", R"SOURCE(
-use "std.zig";
-enum Foo { A, B, C, D, }
-pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-    const foo : Foo = Foo.B;
-    if (foo != Foo.B) {
-        print_str("BAD\n");
-    }
-    print_str("OK\n");
-    return 0;
-}
-    )SOURCE", "OK\n");
-
     add_simple_case("enum type", R"SOURCE(
 use "std.zig";
 
@@ -1070,7 +1057,11 @@ enum Bar {
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
     const foo1 = Foo.One(13);
     const foo2 = Foo.Two(Point { .x = 1234, .y = 5678, });
-    const bar = Bar.A;
+    const bar = Bar.B;
+
+    if (bar != Bar.B) {
+        print_str("BAD\n");
+    }
 
     if (#value_count(Foo) != 3) {
         print_str("BAD\n");

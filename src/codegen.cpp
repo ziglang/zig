@@ -2748,8 +2748,7 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
             g->bootstrap_import = add_special_code(g, "bootstrap.zig");
         }
 
-        // TODO re-enable this
-        //add_special_code(g, "builtin.zig");
+        add_special_code(g, "builtin.zig");
     }
 
     if (g->verbose) {

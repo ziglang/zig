@@ -45,10 +45,10 @@ compromises backward compatibility.
 ### Current Status
 
  * Have a look in the examples/ folder to see some code examples.
- * Some language features available such as loops, inline assembly, expressions,
-   literals, functions, importing other files.
- * Only Linux x86_64 is supported.
- * Only building for the native target is supported.
+ * Basic language features available such as loops, inline assembly,
+   expressions, literals, functions, importing, structs, enums.
+ * Linux x86_64 is supported.
+ * Building for the native target is supported.
  * Optimized machine code that Zig produces is indistinguishable from
    optimized machine code produced from equivalent C program.
  * Zig can generate dynamic libraries, executables, object files, and C
