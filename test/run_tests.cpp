@@ -355,7 +355,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
 use "std.zig";
 
 pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
-    var zero : i32;
+    var zero : i32 = 0;
     if (zero == 0) { print_str("zero\n"); }
 
     var i = 0 as i32;
@@ -619,6 +619,7 @@ use "std.zig";
 
 pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     var foo : Foo;
+    @memset(&foo, 0, #sizeof(Foo));
     foo.a += 1;
     foo.b = foo.a == 1;
     test_foo(foo);
@@ -689,7 +690,7 @@ fn test_initializer() {
 use "std.zig";
 
 const g1 : i32 = 1233 + 1;
-var g2 : i32;
+var g2 : i32 = 0;
 
 pub fn main(argc : isize, argv : &&u8, env : &&u8) -> i32 {
     if (g2 != 0) { print_str("BAD\n"); }
@@ -1041,6 +1042,53 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
         print_str("BAD\n");
     }
     print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
+
+    add_simple_case("enum type", R"SOURCE(
+use "std.zig";
+
+struct Point {
+    x: u64,
+    y: u64,
+}
+
+enum Foo {
+    One: i32,
+    Two: Point,
+    Three: void,
+}
+
+enum Bar {
+    A,
+    B,
+    C,
+    D,
+}
+
+pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+    const foo1 = Foo.One(13);
+    const foo2 = Foo.Two(Point { .x = 1234, .y = 5678, });
+    const bar = Bar.A;
+
+    if (#value_count(Foo) != 3) {
+        print_str("BAD\n");
+    }
+
+    if (#value_count(Bar) != 4) {
+        print_str("BAD\n");
+    }
+
+    if (#sizeof(Foo) != 17) {
+        print_str("BAD\n");
+    }
+    if (#sizeof(Bar) != 1) {
+        print_str("BAD\n");
+    }
+
+    print_str("OK\n");
+
     return 0;
 }
     )SOURCE", "OK\n");

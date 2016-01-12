@@ -324,6 +324,7 @@ struct AstNodeFieldAccessExpr {
     TypeStructField *type_struct_field;
     TypeEnumField *type_enum_field;
     Expr resolved_expr;
+    StructValExprCodeGen resolved_struct_val_expr; // for enum values
 };
 
 struct AstNodeExternBlock {
@@ -718,8 +719,10 @@ struct TypeTableEntryMetaType {
 struct TypeTableEntryEnum {
     AstNode *decl_node;
     uint32_t field_count;
+    uint32_t gen_field_count;
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid
+    TypeTableEntry *tag_type;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
@@ -916,6 +919,7 @@ struct CodeGen {
     ImportTableEntry *root_import;
     ImportTableEntry *bootstrap_import;
     LLVMValueRef memcpy_fn_val;
+    LLVMValueRef memset_fn_val;
     bool error_during_imports;
 };
 

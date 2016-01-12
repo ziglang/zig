@@ -137,8 +137,13 @@ static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str, bool c) {
 
 static TypeTableEntry *get_expr_type(AstNode *node) {
     Expr *expr = get_resolved_expr(node);
-    TypeTableEntry *cast_type = expr->implicit_cast.after_type;
-    return cast_type ? cast_type : expr->type_entry;
+    if (expr->implicit_maybe_cast.after_type) {
+        return expr->implicit_maybe_cast.after_type;
+    }
+    if (expr->implicit_cast.after_type) {
+        return expr->implicit_cast.after_type;
+    }
+    return expr->type_entry;
 }
 
 static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
@@ -237,6 +242,51 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
     zig_unreachable();
 }
 
+static LLVMValueRef gen_enum_value_expr(CodeGen *g, AstNode *node, TypeTableEntry *enum_type,
+        AstNode *arg_node)
+{
+    assert(node->type == NodeTypeFieldAccessExpr);
+
+    uint64_t value = node->data.field_access_expr.type_enum_field->value;
+    LLVMTypeRef tag_type_ref = enum_type->data.enumeration.tag_type->type_ref;
+    LLVMValueRef tag_value = LLVMConstInt(tag_type_ref, value, false);
+
+    if (enum_type->data.enumeration.gen_field_count == 0) {
+        return tag_value;
+    } else {
+        TypeTableEntry *arg_node_type = nullptr;
+        LLVMValueRef new_union_val = gen_expr(g, arg_node);
+        if (arg_node) {
+            arg_node_type = get_expr_type(arg_node);
+            new_union_val = gen_expr(g, arg_node);
+        } else {
+            arg_node_type = g->builtin_types.entry_void;
+        }
+
+        LLVMValueRef tmp_struct_ptr = node->data.field_access_expr.resolved_struct_val_expr.ptr;
+
+        // populate the new tag value
+        add_debug_source_node(g, node);
+        LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 0, "");
+        LLVMBuildStore(g->builder, tag_value, tag_field_ptr);
+
+        if (arg_node_type->id != TypeTableEntryIdVoid) {
+            // populate the union value
+            TypeTableEntry *union_val_type = get_expr_type(arg_node);
+            LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 1, "");
+            LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr,
+                    LLVMPointerType(union_val_type->type_ref, 0), "");
+
+            gen_assign_raw(g, arg_node, BinOpTypeAssign, bitcasted_union_field_ptr, new_union_val,
+                    union_val_type, union_val_type);
+
+        }
+
+        return tmp_struct_ptr;
+    }
+}
+
+
 static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
@@ -253,6 +303,19 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         } else if (struct_type->id == TypeTableEntryIdPointer) {
             assert(struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct);
             fn_table_entry = struct_type->data.pointer.child_type->data.structure.fn_table.get(name);
+        } else if (struct_type->id == TypeTableEntryIdMetaType &&
+                   struct_type->data.meta_type.child_type->id == TypeTableEntryIdEnum)
+        {
+            TypeTableEntry *enum_type = struct_type->data.meta_type.child_type;
+            int param_count = node->data.fn_call_expr.params.length;
+            AstNode *arg1_node;
+            if (param_count == 1) {
+                arg1_node = node->data.fn_call_expr.params.at(0);
+            } else {
+                assert(param_count == 0);
+                arg1_node = nullptr;
+            }
+            return gen_enum_value_expr(g, fn_ref_expr, enum_type, arg1_node);
         } else {
             zig_unreachable();
         }
@@ -500,15 +563,6 @@ static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node, bool is_lva
     }
 }
 
-static LLVMValueRef gen_enum_value_expr(CodeGen *g, AstNode *node, TypeTableEntry *enum_type) {
-    assert(node->type == NodeTypeFieldAccessExpr);
-
-    uint64_t value = node->data.field_access_expr.type_enum_field->value;
-    LLVMTypeRef tag_type_ref = enum_type->type_ref;
-
-    return LLVMConstInt(tag_type_ref, value, false);
-}
-
 static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lvalue) {
     assert(node->type == NodeTypeFieldAccessExpr);
 
@@ -546,7 +600,7 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
     {
         assert(!is_lvalue);
         TypeTableEntry *enum_type = struct_type->data.meta_type.child_type;
-        return gen_enum_value_expr(g, node, enum_type);
+        return gen_enum_value_expr(g, node, enum_type, nullptr);
     } else {
         zig_panic("gen_field_access_expr bad struct type");
     }
@@ -968,7 +1022,9 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
 static LLVMValueRef gen_struct_memcpy(CodeGen *g, AstNode *source_node, LLVMValueRef src, LLVMValueRef dest,
         TypeTableEntry *type_entry)
 {
-    assert(type_entry->id == TypeTableEntryIdStruct || type_entry->id == TypeTableEntryIdMaybe);
+    assert(type_entry->id == TypeTableEntryIdStruct ||
+            type_entry->id == TypeTableEntryIdMaybe ||
+            (type_entry->id == TypeTableEntryIdEnum && type_entry->data.enumeration.gen_field_count != 0));
 
     LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
 
@@ -991,8 +1047,13 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType b
         LLVMValueRef target_ref, LLVMValueRef value,
         TypeTableEntry *op1_type, TypeTableEntry *op2_type)
 {
-    if (op1_type->id == TypeTableEntryIdStruct) {
-        assert(op2_type->id == TypeTableEntryIdStruct);
+    if (op1_type->id == TypeTableEntryIdStruct ||
+        (op1_type->id == TypeTableEntryIdEnum && op1_type->data.enumeration.gen_field_count != 0) ||
+        op1_type->id == TypeTableEntryIdMaybe)
+    {
+        assert(op2_type->id == TypeTableEntryIdStruct ||
+                (op2_type->id == TypeTableEntryIdEnum && op2_type->data.enumeration.gen_field_count != 0) ||
+                op2_type->id == TypeTableEntryIdMaybe);
         assert(op1_type == op2_type);
         assert(bin_op == BinOpTypeAssign);
 
@@ -1546,32 +1607,48 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
 
     if (var_decl->expr) {
         *init_value = gen_expr(g, var_decl->expr);
-    } else {
-        *init_value = LLVMConstNull(variable->type->type_ref);
     }
     if (variable->type->id == TypeTableEntryIdVoid) {
         return nullptr;
     } else {
-        LLVMValueRef store_instr;
-        LLVMValueRef value;
-        if (unwrap_maybe) {
-            assert(var_decl->expr);
-            value = gen_unwrap_maybe(g, source_node, *init_value);
-        } else {
-            value = *init_value;
-        }
-        if ((variable->type->id == TypeTableEntryIdStruct || variable->type->id == TypeTableEntryIdMaybe) &&
-            var_decl->expr)
-        {
-            store_instr = gen_struct_memcpy(g, source_node, value, variable->value_ref, variable->type);
-        } else {
+        if (var_decl->expr) {
+            TypeTableEntry *expr_type = get_expr_type(var_decl->expr);
+            LLVMValueRef value;
+            if (unwrap_maybe) {
+                assert(var_decl->expr);
+                assert(expr_type->id == TypeTableEntryIdMaybe);
+                value = gen_unwrap_maybe(g, source_node, *init_value);
+                expr_type = expr_type->data.maybe.child_type;
+            } else {
+                value = *init_value;
+            }
+            gen_assign_raw(g, var_decl->expr, BinOpTypeAssign, variable->value_ref,
+                    value, variable->type, expr_type);
+        } else if (g->build_type != CodeGenBuildTypeRelease) {
+            // memset uninitialized memory to 0xa
             add_debug_source_node(g, source_node);
-            store_instr = LLVMBuildStore(g->builder, value, variable->value_ref);
+            LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+            LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
+            LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, variable->value_ref, ptr_u8, "");
+            LLVMValueRef byte_count = LLVMConstInt(LLVMIntType(g->pointer_size_bytes * 8),
+                    variable->type->size_in_bits / 8, false);
+            LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(),
+                    variable->type->align_in_bits / 8, false);
+            LLVMValueRef params[] = {
+                dest_ptr,
+                fill_char,
+                byte_count,
+                align_in_bytes,
+                LLVMConstNull(LLVMInt1Type()), // is volatile
+            };
+
+            LLVMBuildCall(g->builder, g->memset_fn_val, params, 5, "");
         }
 
         LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(source_node->line + 1, source_node->column + 1,
                 g->cur_block_context->di_scope);
-        LLVMZigInsertDeclare(g->dbuilder, variable->value_ref, variable->di_loc_var, debug_loc, store_instr);
+        LLVMZigInsertDeclareAtEnd(g->dbuilder, variable->value_ref, variable->di_loc_var, debug_loc,
+                LLVMGetInsertBlock(g->builder));
         return nullptr;
     }
 }
@@ -1641,6 +1718,17 @@ static LLVMValueRef gen_compiler_fn_type(CodeGen *g, AstNode *node) {
             }
         } else if (type_entry->id == TypeTableEntryIdFloat) {
             zig_panic("TODO codegen max_value float");
+        } else {
+            zig_unreachable();
+        }
+    } else if (buf_eql_str(name, "value_count")) {
+        if (type_entry->id == TypeTableEntryIdEnum) {
+            NumLitCodeGen *codegen_num_lit = get_resolved_num_lit(node);
+            AstNodeNumberLiteral num_lit_node;
+            num_lit_node.kind = type_entry->data.num_lit.kind;
+            num_lit_node.overflow = false;
+            num_lit_node.data.x_uint = type_entry->data.enumeration.field_count;
+            return gen_number_literal_raw(g, node, codegen_num_lit, &num_lit_node);
         } else {
             zig_unreachable();
         }
@@ -2112,6 +2200,7 @@ static void define_builtin_types(CodeGen *g) {
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "(%s literal)", num_lit_str(num_lit_kind));
         entry->data.num_lit.kind = num_lit_kind;
+        entry->size_in_bits = num_lit_bit_count(num_lit_kind);
         g->num_lit_types[i] = entry;
     }
 
@@ -2377,10 +2466,10 @@ static void define_builtin_fns(CodeGen *g) {
         };
         LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 5, false);
         Buf *name = buf_sprintf("llvm.memcpy.p0i8.p0i8.i%d", g->pointer_size_bytes * 8);
-        g->memcpy_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
-        builtin_fn->fn_val = g->memcpy_fn_val;
-        assert(LLVMGetIntrinsicID(g->memcpy_fn_val));
+        builtin_fn->fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+        assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
 
+        g->memcpy_fn_val = builtin_fn->fn_val;
         g->builtin_fn_table.put(&builtin_fn->name, builtin_fn);
     }
     {
@@ -2406,6 +2495,7 @@ static void define_builtin_fns(CodeGen *g) {
         builtin_fn->fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
         assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
 
+        g->memset_fn_val = builtin_fn->fn_val;
         g->builtin_fn_table.put(&builtin_fn->name, builtin_fn);
     }
 }
@@ -2658,7 +2748,8 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
             g->bootstrap_import = add_special_code(g, "bootstrap.zig");
         }
 
-        add_special_code(g, "builtin.zig");
+        // TODO re-enable this
+        //add_special_code(g, "builtin.zig");
     }
 
     if (g->verbose) {

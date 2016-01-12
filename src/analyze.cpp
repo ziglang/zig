@@ -465,6 +465,8 @@ static TypeTableEntry *eval_const_expr(CodeGen *g, BlockContext *context,
                     zig_panic("TODO eval_const_expr max_value");
                 } else if (buf_eql_str(name, "min_value")) {
                     zig_panic("TODO eval_const_expr min_value");
+                } else if (buf_eql_str(name, "value_count")) {
+                    zig_panic("TODO eval_const_expr value_count");
                 } else {
                     return g->builtin_types.entry_invalid;
                 }
@@ -767,10 +769,13 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
     enum_type->data.enumeration.embedded_in_current = false;
 
     if (!enum_type->data.enumeration.is_invalid) {
-        uint64_t tag_size_in_bits = get_number_literal_type_unsigned(g, field_count)->size_in_bits;
+        enum_type->data.enumeration.gen_field_count = gen_field_index;
+
+        uint64_t tag_size_in_bits = num_lit_bit_count(get_number_literal_kind_unsigned(field_count));
         enum_type->align_in_bits = tag_size_in_bits;
         enum_type->size_in_bits = tag_size_in_bits + biggest_union_member_size_in_bits;
         TypeTableEntry *tag_type_entry = get_int_type_unsigned(g, field_count);
+        enum_type->data.enumeration.tag_type = tag_type_entry;
 
         if (biggest_union_member) {
             // create llvm type for union
@@ -1520,22 +1525,20 @@ static TypeStructField *get_struct_field(TypeTableEntry *struct_type, Buf *name)
 static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         AstNode *field_access_node, AstNode *value_node, TypeTableEntry *enum_type, Buf *field_name)
 {
+    assert(field_access_node->type == NodeTypeFieldAccessExpr);
+
     TypeEnumField *type_enum_field = get_enum_field(enum_type, field_name);
     field_access_node->data.field_access_expr.type_enum_field = type_enum_field;
+
     if (type_enum_field) {
         if (value_node) {
-            if (type_enum_field->type_entry->id == TypeTableEntryIdVoid) {
-                add_node_error(g, field_access_node,
-                    buf_sprintf("enum value '%s.%s' has void parameter",
-                        buf_ptr(&enum_type->name),
-                        buf_ptr(field_name)));
+            analyze_expression(g, import, context, type_enum_field->type_entry, value_node);
 
-            } else {
-                analyze_expression(g, import, context, type_enum_field->type_entry, value_node);
-            }
-        } else if (type_enum_field->type_entry->id == TypeTableEntryIdVoid) {
-            // OK
-        } else {
+            StructValExprCodeGen *codegen = &field_access_node->data.field_access_expr.resolved_struct_val_expr;
+            codegen->type_entry = enum_type;
+            codegen->source_node = field_access_node;
+            context->struct_val_expr_alloca_list.append(codegen);
+        } else if (type_enum_field->type_entry->id != TypeTableEntryIdVoid) {
             add_node_error(g, field_access_node,
                 buf_sprintf("enum value '%s.%s' requires parameter of type '%s'",
                     buf_ptr(&enum_type->name),
@@ -2295,7 +2298,8 @@ static TypeTableEntry *analyze_min_max_value(CodeGen *g, AstNode *node, TypeTabl
 {
     if (type_entry->id == TypeTableEntryIdInt ||
         type_entry->id == TypeTableEntryIdFloat ||
-        type_entry->id == TypeTableEntryIdBool)
+        type_entry->id == TypeTableEntryIdBool ||
+        type_entry->id == TypeTableEntryIdInvalid)
     {
         return type_entry;
     } else {
@@ -2314,15 +2318,38 @@ static TypeTableEntry *analyze_compiler_fn_type(CodeGen *g, ImportTableEntry *im
     TypeTableEntry *type_entry = resolve_type(g, node->data.compiler_fn_type.type, import, context, false);
 
     if (buf_eql_str(name, "sizeof")) {
-        uint64_t size_in_bytes = type_entry->size_in_bits / 8;
+        if (type_entry->id == TypeTableEntryIdInvalid) {
+            return type_entry;
+        } else if (type_entry->id == TypeTableEntryIdUnreachable) {
+            add_node_error(g, node,
+                    buf_sprintf("no size available for type '%s'", buf_ptr(&type_entry->name)));
+            return g->builtin_types.entry_invalid;
+        } else {
+            uint64_t size_in_bytes = type_entry->size_in_bits / 8;
 
-        TypeTableEntry *num_lit_type = get_number_literal_type_unsigned(g, size_in_bytes);
-        TypeTableEntry *resolved_type = resolve_rhs_number_literal(g, nullptr, expected_type, node, num_lit_type);
-        return resolved_type ? resolved_type : num_lit_type;
+            TypeTableEntry *num_lit_type = get_number_literal_type_unsigned(g, size_in_bytes);
+            TypeTableEntry *resolved_type = resolve_rhs_number_literal(g, nullptr, expected_type, node, num_lit_type);
+            return resolved_type ? resolved_type : num_lit_type;
+        }
     } else if (buf_eql_str(name, "min_value")) {
         return analyze_min_max_value(g, node, type_entry, "no min value available for type '%s'");
     } else if (buf_eql_str(name, "max_value")) {
         return analyze_min_max_value(g, node, type_entry, "no max value available for type '%s'");
+    } else if (buf_eql_str(name, "value_count")) {
+        if (type_entry->id == TypeTableEntryIdInvalid) {
+            return type_entry;
+        } else if (type_entry->id == TypeTableEntryIdEnum) {
+            uint64_t value_count = type_entry->data.enumeration.field_count;
+
+            TypeTableEntry *num_lit_type = get_number_literal_type_unsigned(g, value_count);
+            TypeTableEntry *resolved_type = resolve_rhs_number_literal(g, nullptr, expected_type, node, num_lit_type);
+            return resolved_type ? resolved_type : num_lit_type;
+
+        } else {
+            add_node_error(g, node,
+                    buf_sprintf("no value count available for type '%s'", buf_ptr(&type_entry->name)));
+            return g->builtin_types.entry_invalid;
+        }
     } else {
         add_node_error(g, node,
                 buf_sprintf("invalid compiler function: '%s'", buf_ptr(name)));
@@ -2451,7 +2478,24 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
         } else if (struct_type->id == TypeTableEntryIdMetaType &&
                    struct_type->data.meta_type.child_type->id == TypeTableEntryIdEnum)
         {
-            zig_panic("TODO enum initialization");
+            TypeTableEntry *enum_type = struct_type->data.meta_type.child_type;
+            Buf *field_name = &fn_ref_expr->data.field_access_expr.field_name;
+            int param_count = node->data.fn_call_expr.params.length;
+            if (param_count > 1) {
+                add_node_error(g, first_executing_node(node->data.fn_call_expr.params.at(1)),
+                        buf_sprintf("enum values accept only one parameter"));
+                return enum_type;
+            } else {
+                AstNode *value_node;
+                if (param_count == 1) {
+                    value_node = node->data.fn_call_expr.params.at(0);
+                } else {
+                    value_node = nullptr;
+                }
+
+                return analyze_enum_value_expr(g, import, context, fn_ref_expr, value_node,
+                        enum_type, field_name);
+            }
         } else {
             add_node_error(g, fn_ref_expr->data.field_access_expr.struct_expr,
                     buf_sprintf("member reference base type not struct or enum"));
