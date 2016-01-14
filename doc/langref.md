@@ -48,7 +48,7 @@ RootExportDecl : many(Directive) token(Export) token(Symbol) token(String) token
 
 ExternBlock : many(Directive) token(Extern) token(LBrace) many(FnDecl) token(RBrace)
 
-FnProto : many(Directive) option(FnVisibleMod) token(Fn) token(Symbol) ParamDeclList option(Expression)
+FnProto : many(Directive) option(FnVisibleMod) token(Fn) token(Symbol) ParamDeclList option(UnwrapMaybeExpression)
 
 Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
 
@@ -78,7 +78,7 @@ AsmOutput : token(Colon) list(AsmOutputItem, token(Comma)) option(AsmInput)
 
 AsmInput : token(Colon) list(AsmInputItem, token(Comma)) option(AsmClobbers)
 
-AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Arrow) Expression) token(RParen)
+AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Arrow) UnwrapMaybeExpression) token(RParen)
 
 AsmInputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) Expression token(RParen)
 
@@ -102,7 +102,7 @@ IfExpression : IfVarExpression | IfBoolExpression
 
 IfBoolExpression : token(If) token(LParen) Expression token(RParen) Expression option(Else)
 
-IfVarExpression : token(If) token(LParen) (token(Const) | token(Var)) token(Symbol) option(token(Colon) Expression) Token(MaybeAssign) Expression token(RParen) Expression Option(Else)
+IfVarExpression : token(If) token(LParen) (token(Const) | token(Var)) token(Symbol) option(token(Colon) UnwrapMaybeExpression) Token(MaybeAssign) Expression token(RParen) Expression Option(Else)
 
 Else : token(Else) Expression
 
@@ -152,7 +152,7 @@ PrefixOp : token(Not) | token(Dash) | token(Tilde) | token(Star) | (token(Ampers
 
 PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | token(Symbol) | (token(AtSign) token(Symbol) FnCallExpression) | ArrayType | AsmExpression
 
-ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) Expression
+ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) UnwrapMaybeExpression
 
 GotoExpression: token(Goto) token(Symbol)
 

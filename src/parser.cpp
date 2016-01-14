@@ -1089,7 +1089,7 @@ static AstNode *ast_parse_grouped_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) Expression
+ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) UnwrapMaybeExpression
 */
 static AstNode *ast_parse_array_type_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *l_bracket = &pc->tokens->at(*token_index);
@@ -1114,7 +1114,7 @@ static AstNode *ast_parse_array_type_expr(ParseContext *pc, int *token_index, bo
         node->data.array_type.is_const = true;
     }
 
-    node->data.array_type.child_type = ast_parse_expression(pc, token_index, true);
+    node->data.array_type.child_type = ast_parse_unwrap_maybe_expr(pc, token_index, true);
 
     return node;
 }
@@ -1141,7 +1141,7 @@ static void ast_parse_asm_input_item(ParseContext *pc, int *token_index, AstNode
 }
 
 /*
-AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Arrow) Expression) token(RParen)
+AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Arrow) UnwrapMaybeExpression token(RParen)
 */
 static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNode *node) {
     ast_eat_token(pc, token_index, TokenIdLBracket);
@@ -1159,7 +1159,7 @@ static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNod
     if (token->id == TokenIdSymbol) {
         ast_buf_from_token(pc, token, &asm_output->variable_name);
     } else if (token->id == TokenIdArrow) {
-        asm_output->return_type = ast_parse_expression(pc, token_index, true);
+        asm_output->return_type = ast_parse_unwrap_maybe_expr(pc, token_index, true);
     } else {
         ast_invalid_token_error(pc, token);
     }
@@ -1948,7 +1948,7 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool manda
             node->data.if_var_expr.var_decl.expr = ast_parse_expression(pc, token_index, true);
         } else if (eq_or_colon->id == TokenIdColon) {
             *token_index += 1;
-            node->data.if_var_expr.var_decl.type = ast_parse_expression(pc, token_index, true);
+            node->data.if_var_expr.var_decl.type = ast_parse_unwrap_maybe_expr(pc, token_index, true);
 
             ast_eat_token(pc, token_index, TokenIdMaybeAssign);
             node->data.if_var_expr.var_decl.expr = ast_parse_expression(pc, token_index, true);
@@ -2342,7 +2342,7 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
 }
 
 /*
-FnProto : many(Directive) option(FnVisibleMod) token(Fn) token(Symbol) ParamDeclList option(Expression)
+FnProto : many(Directive) option(FnVisibleMod) token(Fn) token(Symbol) ParamDeclList option(UnwrapMaybeExpression)
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2394,7 +2394,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
     ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
 
     Token *next_token = &pc->tokens->at(*token_index);
-    node->data.fn_proto.return_type = ast_parse_expression(pc, token_index, false);
+    node->data.fn_proto.return_type = ast_parse_unwrap_maybe_expr(pc, token_index, false);
     if (!node->data.fn_proto.return_type) {
         node->data.fn_proto.return_type = ast_create_void_type_node(pc, next_token);
     }
