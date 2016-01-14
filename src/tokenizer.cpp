@@ -994,94 +994,101 @@ void tokenize(Buf *buf, Tokenization *out) {
             break;
     }
     if (t.state != TokenizeStateError) {
-        t.pos = -1;
+        if (t.tokens->length > 0) {
+            Token *last_token = &t.tokens->last();
+            t.line = last_token->start_line;
+            t.column = last_token->start_column;
+            t.pos = last_token->start_pos;
+        } else {
+            t.pos = 0;
+        }
         begin_token(&t, TokenIdEof);
         end_token(&t);
         assert(!t.cur_tok);
     }
 }
 
-static const char * token_name(Token *token) {
-    switch (token->id) {
+const char * token_name(TokenId id) {
+    switch (id) {
         case TokenIdEof: return "EOF";
         case TokenIdSymbol: return "Symbol";
-        case TokenIdKeywordFn: return "Fn";
-        case TokenIdKeywordConst: return "Const";
-        case TokenIdKeywordVar: return "Var";
-        case TokenIdKeywordReturn: return "Return";
-        case TokenIdKeywordExtern: return "Extern";
-        case TokenIdKeywordPub: return "Pub";
-        case TokenIdKeywordExport: return "Export";
-        case TokenIdKeywordAs: return "As";
-        case TokenIdKeywordUse: return "Use";
-        case TokenIdKeywordTrue: return "True";
-        case TokenIdKeywordFalse: return "False";
-        case TokenIdKeywordIf: return "If";
-        case TokenIdKeywordElse: return "Else";
-        case TokenIdKeywordGoto: return "Goto";
-        case TokenIdKeywordVolatile: return "Volatile";
-        case TokenIdKeywordAsm: return "Asm";
-        case TokenIdKeywordStruct: return "Struct";
-        case TokenIdKeywordEnum: return "Enum";
-        case TokenIdKeywordWhile: return "While";
-        case TokenIdKeywordContinue: return "Continue";
-        case TokenIdKeywordBreak: return "Break";
-        case TokenIdKeywordNull: return "Null";
-        case TokenIdKeywordNoAlias: return "NoAlias";
-        case TokenIdLParen: return "LParen";
-        case TokenIdRParen: return "RParen";
-        case TokenIdComma: return "Comma";
-        case TokenIdStar: return "Star";
-        case TokenIdLBrace: return "LBrace";
-        case TokenIdRBrace: return "RBrace";
-        case TokenIdLBracket: return "LBracket";
-        case TokenIdRBracket: return "RBracket";
+        case TokenIdKeywordFn: return "fn";
+        case TokenIdKeywordConst: return "const";
+        case TokenIdKeywordVar: return "var";
+        case TokenIdKeywordReturn: return "return";
+        case TokenIdKeywordExtern: return "extern";
+        case TokenIdKeywordPub: return "pub";
+        case TokenIdKeywordExport: return "export";
+        case TokenIdKeywordAs: return "as";
+        case TokenIdKeywordUse: return "use";
+        case TokenIdKeywordTrue: return "true";
+        case TokenIdKeywordFalse: return "false";
+        case TokenIdKeywordIf: return "if";
+        case TokenIdKeywordElse: return "else";
+        case TokenIdKeywordGoto: return "goto";
+        case TokenIdKeywordVolatile: return "volatile";
+        case TokenIdKeywordAsm: return "asm";
+        case TokenIdKeywordStruct: return "struct";
+        case TokenIdKeywordEnum: return "enum";
+        case TokenIdKeywordWhile: return "while";
+        case TokenIdKeywordContinue: return "continue";
+        case TokenIdKeywordBreak: return "break";
+        case TokenIdKeywordNull: return "null";
+        case TokenIdKeywordNoAlias: return "noalias";
+        case TokenIdLParen: return "(";
+        case TokenIdRParen: return ")";
+        case TokenIdComma: return ",";
+        case TokenIdStar: return "*";
+        case TokenIdLBrace: return "{";
+        case TokenIdRBrace: return "}";
+        case TokenIdLBracket: return "[";
+        case TokenIdRBracket: return "]";
         case TokenIdStringLiteral: return "StringLiteral";
         case TokenIdCharLiteral: return "CharLiteral";
-        case TokenIdSemicolon: return "Semicolon";
+        case TokenIdSemicolon: return ";";
         case TokenIdNumberLiteral: return "NumberLiteral";
-        case TokenIdPlus: return "Plus";
-        case TokenIdColon: return "Colon";
-        case TokenIdArrow: return "Arrow";
-        case TokenIdFatArrow: return "FatArrow";
-        case TokenIdDash: return "Dash";
-        case TokenIdNumberSign: return "NumberSign";
-        case TokenIdBinOr: return "BinOr";
-        case TokenIdAmpersand: return "Ampersand";
-        case TokenIdBinXor: return "BinXor";
-        case TokenIdBoolOr: return "BoolOr";
-        case TokenIdBoolAnd: return "BoolAnd";
-        case TokenIdEq: return "Eq";
-        case TokenIdTimesEq: return "TimesEq";
-        case TokenIdDivEq: return "DivEq";
-        case TokenIdModEq: return "ModEq";
-        case TokenIdPlusEq: return "PlusEq";
-        case TokenIdMinusEq: return "MinusEq";
-        case TokenIdBitShiftLeftEq: return "BitShiftLeftEq";
-        case TokenIdBitShiftRightEq: return "BitShiftRightEq";
-        case TokenIdBitAndEq: return "BitAndEq";
-        case TokenIdBitXorEq: return "BitXorEq";
-        case TokenIdBitOrEq: return "BitOrEq";
-        case TokenIdBoolAndEq: return "BoolAndEq";
-        case TokenIdBoolOrEq: return "BoolOrEq";
-        case TokenIdBang: return "Bang";
-        case TokenIdTilde: return "Tilde";
-        case TokenIdCmpEq: return "CmpEq";
-        case TokenIdCmpNotEq: return "CmpNotEq";
-        case TokenIdCmpLessThan: return "CmpLessThan";
-        case TokenIdCmpGreaterThan: return "CmpGreaterThan";
-        case TokenIdCmpLessOrEq: return "CmpLessOrEq";
-        case TokenIdCmpGreaterOrEq: return "CmpGreaterOrEq";
-        case TokenIdBitShiftLeft: return "BitShiftLeft";
-        case TokenIdBitShiftRight: return "BitShiftRight";
-        case TokenIdSlash: return "Slash";
-        case TokenIdPercent: return "Percent";
-        case TokenIdDot: return "Dot";
-        case TokenIdEllipsis: return "Ellipsis";
-        case TokenIdMaybe: return "Maybe";
-        case TokenIdDoubleQuestion: return "DoubleQuestion";
-        case TokenIdMaybeAssign: return "MaybeAssign";
-        case TokenIdAtSign: return "AtSign";
+        case TokenIdPlus: return "+";
+        case TokenIdColon: return ":";
+        case TokenIdArrow: return "->";
+        case TokenIdFatArrow: return "=>";
+        case TokenIdDash: return "-";
+        case TokenIdNumberSign: return "#";
+        case TokenIdBinOr: return "|";
+        case TokenIdAmpersand: return "&";
+        case TokenIdBinXor: return "^";
+        case TokenIdBoolOr: return "||";
+        case TokenIdBoolAnd: return "&&";
+        case TokenIdEq: return "=";
+        case TokenIdTimesEq: return "*=";
+        case TokenIdDivEq: return "/=";
+        case TokenIdModEq: return "%=";
+        case TokenIdPlusEq: return "+=";
+        case TokenIdMinusEq: return "-=";
+        case TokenIdBitShiftLeftEq: return "<<=";
+        case TokenIdBitShiftRightEq: return ">>=";
+        case TokenIdBitAndEq: return "&=";
+        case TokenIdBitXorEq: return "^=";
+        case TokenIdBitOrEq: return "|=";
+        case TokenIdBoolAndEq: return "&&=";
+        case TokenIdBoolOrEq: return "||=";
+        case TokenIdBang: return "!";
+        case TokenIdTilde: return "~";
+        case TokenIdCmpEq: return "==";
+        case TokenIdCmpNotEq: return "!=";
+        case TokenIdCmpLessThan: return "<";
+        case TokenIdCmpGreaterThan: return ">";
+        case TokenIdCmpLessOrEq: return "<=";
+        case TokenIdCmpGreaterOrEq: return ">=";
+        case TokenIdBitShiftLeft: return "<<";
+        case TokenIdBitShiftRight: return ">>";
+        case TokenIdSlash: return "/";
+        case TokenIdPercent: return "%";
+        case TokenIdDot: return ".";
+        case TokenIdEllipsis: return "...";
+        case TokenIdMaybe: return "?";
+        case TokenIdDoubleQuestion: return "??";
+        case TokenIdMaybeAssign: return "?=";
+        case TokenIdAtSign: return "@";
     }
     return "(invalid token)";
 }
@@ -1089,7 +1096,7 @@ static const char * token_name(Token *token) {
 void print_tokens(Buf *buf, ZigList<Token> *tokens) {
     for (int i = 0; i < tokens->length; i += 1) {
         Token *token = &tokens->at(i);
-        fprintf(stderr, "%s ", token_name(token));
+        fprintf(stderr, "%s ", token_name(token->id));
         if (token->start_pos >= 0) {
             fwrite(buf_ptr(buf) + token->start_pos, 1, token->end_pos - token->start_pos, stderr);
         }

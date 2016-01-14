@@ -2914,6 +2914,11 @@ static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNo
         AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
         TypeTableEntry *type = unwrapped_node_type(param_decl->type);
 
+        if (param_decl->is_noalias && type->id != TypeTableEntryIdPointer) {
+            add_node_error(g, param_decl_node,
+                buf_sprintf("noalias on non-pointer parameter"));
+        }
+
         if (is_exported && type->id == TypeTableEntryIdStruct) {
             add_node_error(g, param_decl_node,
                 buf_sprintf("byvalue struct parameters not yet supported on exported functions"));

@@ -913,9 +913,13 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool ma
 static AstNode *ast_parse_unwrap_maybe_expr(ParseContext *pc, int *token_index, bool mandatory);
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
-    if (token->id != token_id) {
-        ast_invalid_token_error(pc, token);
+    if (token->id == token_id) {
+        return;
     }
+
+    Buf token_value = BUF_INIT;
+    ast_buf_from_token(pc, token, &token_value);
+    ast_error(pc, token, "expected token '%s', found '%s'", token_name(token_id), token_name(token->id));
 }
 
 static Token *ast_eat_token(ParseContext *pc, int *token_index, TokenId token_id) {

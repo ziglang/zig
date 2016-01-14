@@ -122,4 +122,6 @@ void print_tokens(Buf *buf, ZigList<Token> *tokens);
 bool is_printable(uint8_t c);
 int get_digit_value(uint8_t c);
 
+const char * token_name(TokenId id);
+
 #endif

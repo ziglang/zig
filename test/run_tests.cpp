@@ -1396,6 +1396,10 @@ fn f() @bogus(foo) => {
 const a : @typeof(b) = 0;
 const b : @typeof(a) = 0;
     )SOURCE", 1, ".tmp_source.zig:3:19: error: use of undeclared identifier 'a'");
+
+    add_compile_fail_case("noalias on non pointer param", R"SOURCE(
+fn f(noalias x: i32) => {}
+    )SOURCE", 1, ".tmp_source.zig:2:6: error: noalias on non-pointer parameter");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
