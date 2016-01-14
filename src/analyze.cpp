@@ -1408,7 +1408,7 @@ TypeTableEntry *find_container(BlockContext *context, Buf *name) {
 }
 
 static TypeEnumField *get_enum_field(TypeTableEntry *enum_type, Buf *name) {
-    for (int i = 0; i < enum_type->data.enumeration.field_count; i += 1) {
+    for (uint32_t i = 0; i < enum_type->data.enumeration.field_count; i += 1) {
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
         if (buf_eql_buf(type_enum_field->name, name)) {
             return type_enum_field;
@@ -1418,7 +1418,7 @@ static TypeEnumField *get_enum_field(TypeTableEntry *enum_type, Buf *name) {
 }
 
 static TypeStructField *get_struct_field(TypeTableEntry *struct_type, Buf *name) {
-    for (int i = 0; i < struct_type->data.structure.field_count; i += 1) {
+    for (uint32_t i = 0; i < struct_type->data.structure.field_count; i += 1) {
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         if (buf_eql_buf(type_struct_field->name, name)) {
             return type_struct_field;
@@ -3561,6 +3561,7 @@ Expr *get_resolved_expr(AstNode *node) {
         case NodeTypeStructValueField:
             zig_unreachable();
     }
+    zig_unreachable();
 }
 
 NumLitCodeGen *get_resolved_num_lit(AstNode *node) {
@@ -3607,6 +3608,7 @@ NumLitCodeGen *get_resolved_num_lit(AstNode *node) {
         case NodeTypeArrayType:
             zig_unreachable();
     }
+    zig_unreachable();
 }
 
 TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
@@ -3654,6 +3656,7 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
         case NodeTypeArrayType:
             zig_unreachable();
     }
+    zig_unreachable();
 }
 
 bool is_node_void_expr(AstNode *node) {

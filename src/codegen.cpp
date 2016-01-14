@@ -2428,7 +2428,7 @@ static void define_builtin_fns_int(CodeGen *g, TypeTableEntry *type_entry) {
         {"sub", "ssub", "usub"},
         {"mul", "smul", "umul"},
     };
-    for (int i = 0; i < sizeof(overflow_fns)/sizeof(overflow_fns[0]); i += 1) {
+    for (size_t i = 0; i < sizeof(overflow_fns)/sizeof(overflow_fns[0]); i += 1) {
         OverflowFn *overflow_fn = &overflow_fns[i];
         BuiltinFnEntry *builtin_fn = allocate<BuiltinFnEntry>(1);
         buf_resize(&builtin_fn->name, 0);
