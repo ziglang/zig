@@ -2658,7 +2658,8 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
     import_entry->path = full_path;
     import_entry->fn_table.init(32);
 
-    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
+    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color,
+            &g->next_node_index);
     assert(import_entry->root);
     if (g->verbose) {
         ast_print(import_entry->root, 0);

@@ -890,6 +890,7 @@ struct CodeGen {
     LLVMValueRef memcpy_fn_val;
     LLVMValueRef memset_fn_val;
     bool error_during_imports;
+    uint32_t next_node_index;
 };
 
 struct VariableTableEntry {

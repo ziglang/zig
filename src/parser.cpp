@@ -401,7 +401,7 @@ struct ParseContext {
     ZigList<AstNode *> *directive_list;
     ImportTableEntry *owner;
     ErrColor err_color;
-    uint32_t next_create_index;
+    uint32_t *next_node_index;
 };
 
 __attribute__ ((format (printf, 4, 5)))
@@ -457,8 +457,8 @@ static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
     node->type = type;
     node->owner = pc->owner;
-    node->create_index = pc->next_create_index;
-    pc->next_create_index += 1;
+    node->create_index = *pc->next_node_index;
+    *pc->next_node_index += 1;
     return node;
 }
 
@@ -2724,12 +2724,15 @@ static AstNode *ast_parse_root(ParseContext *pc, int *token_index) {
     return node;
 }
 
-AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner, ErrColor err_color) {
+AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
+        ErrColor err_color, uint32_t *next_node_index)
+{
     ParseContext pc = {0};
     pc.err_color = err_color;
     pc.owner = owner;
     pc.buf = buf;
     pc.tokens = tokens;
+    pc.next_node_index = next_node_index;
     int token_index = 0;
     pc.root = ast_parse_root(&pc, &token_index);
     return pc.root;
