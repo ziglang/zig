@@ -20,7 +20,6 @@ enum TokenId {
     TokenIdKeywordExtern,
     TokenIdKeywordPub,
     TokenIdKeywordExport,
-    TokenIdKeywordAs,
     TokenIdKeywordUse,
     TokenIdKeywordTrue,
     TokenIdKeywordFalse,

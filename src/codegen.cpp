@@ -71,6 +71,8 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
 static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType bin_op,
         LLVMValueRef target_ref, LLVMValueRef value,
         TypeTableEntry *op1_type, TypeTableEntry *op2_type);
+static LLVMValueRef gen_bare_cast(CodeGen *g, AstNode *node, LLVMValueRef expr_val,
+        TypeTableEntry *actual_type, TypeTableEntry *wanted_type, Cast *cast_node);
     
 static TypeTableEntry *get_type_for_type_node(AstNode *node) {
     TypeTableEntry *meta_type_entry = get_resolved_expr(node)->type_entry;
@@ -381,23 +383,43 @@ static LLVMValueRef gen_enum_value_expr(CodeGen *g, AstNode *node, TypeTableEntr
     }
 }
 
+static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode *expr_node = node->data.fn_call_expr.params.at(0);
+
+    LLVMValueRef expr_val = gen_expr(g, expr_node);
+
+    TypeTableEntry *actual_type = get_expr_type(expr_node);
+    TypeTableEntry *wanted_type = get_expr_type(node);
+
+    Cast *cast_node = &node->data.fn_call_expr.cast;
+
+    return gen_bare_cast(g, node, expr_val, actual_type, wanted_type, cast_node);
+
+}
 
 static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
-    FnTableEntry *fn_table_entry;
+    if (node->data.fn_call_expr.is_builtin) {
+        return gen_builtin_fn_call_expr(g, node);
+    } else if (node->data.fn_call_expr.cast.after_type) {
+        return gen_cast_expr(g, node);
+    }
+
+    FnTableEntry *fn_table_entry = node->data.fn_call_expr.fn_entry;
     AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
-    TypeTableEntry *struct_type;
-    AstNode *first_param_expr;
+    TypeTableEntry *struct_type = nullptr;
+    AstNode *first_param_expr = nullptr;
     if (fn_ref_expr->type == NodeTypeFieldAccessExpr) {
-        Buf *name = &fn_ref_expr->data.field_access_expr.field_name;
         first_param_expr = fn_ref_expr->data.field_access_expr.struct_expr;
         struct_type = get_expr_type(first_param_expr);
         if (struct_type->id == TypeTableEntryIdStruct) {
-            fn_table_entry = struct_type->data.structure.fn_table.get(name);
+            fn_table_entry = node->data.fn_call_expr.fn_entry;
         } else if (struct_type->id == TypeTableEntryIdPointer) {
             assert(struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct);
-            fn_table_entry = struct_type->data.pointer.child_type->data.structure.fn_table.get(name);
+            fn_table_entry = node->data.fn_call_expr.fn_entry;
         } else if (struct_type->id == TypeTableEntryIdMetaType &&
                    struct_type->data.meta_type.child_type->id == TypeTableEntryIdEnum)
         {
@@ -414,23 +436,7 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         } else {
             zig_unreachable();
         }
-    } else if (fn_ref_expr->type == NodeTypeSymbol) {
-        if (node->data.fn_call_expr.is_builtin) {
-            return gen_builtin_fn_call_expr(g, node);
-        }
-
-        // Assume that the expression evaluates to a simple name and return the buf
-        // TODO after we support function pointers we can make this generic
-        assert(fn_ref_expr->type == NodeTypeSymbol);
-        Buf *name = &fn_ref_expr->data.symbol_expr.symbol;
-
-        struct_type = nullptr;
-        first_param_expr = nullptr;
-        fn_table_entry = g->cur_fn->import_entry->fn_table.get(name);
-    } else {
-        zig_unreachable();
     }
-
 
     assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto_data = &fn_table_entry->proto_node->data.fn_proto;
@@ -861,20 +867,6 @@ static LLVMValueRef gen_bare_cast(CodeGen *g, AstNode *node, LLVMValueRef expr_v
             }
     }
     zig_unreachable();
-}
-
-static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeCastExpr);
-
-    LLVMValueRef expr_val = gen_expr(g, node->data.cast_expr.expr);
-
-    TypeTableEntry *actual_type = get_expr_type(node->data.cast_expr.expr);
-    TypeTableEntry *wanted_type = get_expr_type(node);
-
-    Cast *cast_node = &node->data.cast_expr.cast;
-
-    return gen_bare_cast(g, node, expr_val, actual_type, wanted_type, cast_node);
-
 }
 
 static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
@@ -1810,8 +1802,6 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
             return gen_return_expr(g, node);
         case NodeTypeVariableDeclaration:
             return gen_var_decl_expr(g, node);
-        case NodeTypeCastExpr:
-            return gen_cast_expr(g, node);
         case NodeTypePrefixOpExpr:
             return gen_prefix_op_expr(g, node);
         case NodeTypeFnCallExpr:

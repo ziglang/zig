@@ -272,7 +272,7 @@ use "std.zig";
 
 pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     const a : i32 = 1;
-    const b = 2 as i32;
+    const b = i32(2);
     if (a + b == 3) {
         print_str("OK\n");
     }
@@ -302,7 +302,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     }
 
     const c = {
-        const no_conflict = 10 as i32;
+        const no_conflict = i32(10);
         no_conflict
     };
     if (c == 10) { print_str("OK 2\n"); }
@@ -358,7 +358,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     var zero : i32 = 0;
     if (zero == 0) { print_str("zero\n"); }
 
-    var i = 0 as i32;
+    var i = i32(0);
 loop_start:
     if (i == 3) {
         goto done;
@@ -384,7 +384,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     }
 
     i = 0;
-    var accumulator = 0 as u32;
+    var accumulator = u32(0);
     while (i < 5) {
         accumulator += array[i];
 
@@ -430,9 +430,9 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
     if (90 >> 1 >> 2 != 90 >> 3) { print_str("BAD 7\n"); }
     if (100 - 1 + 1000 != 1099)  { print_str("BAD 8\n"); }
     if (5 * 4 / 2 % 3 != 1)      { print_str("BAD 9\n"); }
-    if (5 as i32 as i32 != 5)    { print_str("BAD 10\n"); }
+    if (i32(i32(5)) != 5)        { print_str("BAD 10\n"); }
     if (!!false)                 { print_str("BAD 11\n"); }
-    if (7 as i32 != --(7 as i32))                { print_str("BAD 12\n"); }
+    if (i32(7) != --(i32(7)))    { print_str("BAD 12\n"); }
 
     print_str("OK\n");
     return 0;
@@ -495,82 +495,82 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
     printf(c"\n");
 
     printf(c"0: %llu\n",
-             0 as u64);
+             u64(0));
     printf(c"320402575052271: %llu\n",
-             320402575052271 as u64);
+         u64(320402575052271));
     printf(c"0x01236789abcdef: %llu\n",
-             0x01236789abcdef as u64);
+         u64(0x01236789abcdef));
     printf(c"0xffffffffffffffff: %llu\n",
-             0xffffffffffffffff as u64);
+         u64(0xffffffffffffffff));
     printf(c"0x000000ffffffffffffffff: %llu\n",
-             0x000000ffffffffffffffff as u64);
+         u64(0x000000ffffffffffffffff));
     printf(c"0o1777777777777777777777: %llu\n",
-             0o1777777777777777777777 as u64);
+         u64(0o1777777777777777777777));
     printf(c"0o0000001777777777777777777777: %llu\n",
-             0o0000001777777777777777777777 as u64);
+         u64(0o0000001777777777777777777777));
     printf(c"0b1111111111111111111111111111111111111111111111111111111111111111: %llu\n",
-             0b1111111111111111111111111111111111111111111111111111111111111111 as u64);
+         u64(0b1111111111111111111111111111111111111111111111111111111111111111));
     printf(c"0b0000001111111111111111111111111111111111111111111111111111111111111111: %llu\n",
-             0b0000001111111111111111111111111111111111111111111111111111111111111111 as u64);
+         u64(0b0000001111111111111111111111111111111111111111111111111111111111111111));
 
     printf(c"\n");
 
     printf(c"0.0: %a\n",
-             0.0 as f64);
+         f64(0.0));
     printf(c"0e0: %a\n",
-             0e0 as f64);
+         f64(0e0));
     printf(c"0.0e0: %a\n",
-             0.0e0 as f64);
+         f64(0.0e0));
     printf(c"000000000000000000000000000000000000000000000000000000000.0e0: %a\n",
-             000000000000000000000000000000000000000000000000000000000.0e0 as f64);
+         f64(000000000000000000000000000000000000000000000000000000000.0e0));
     printf(c"0.000000000000000000000000000000000000000000000000000000000e0: %a\n",
-             0.000000000000000000000000000000000000000000000000000000000e0 as f64);
+         f64(0.000000000000000000000000000000000000000000000000000000000e0));
     printf(c"0.0e000000000000000000000000000000000000000000000000000000000: %a\n",
-             0.0e000000000000000000000000000000000000000000000000000000000 as f64);
+         f64(0.0e000000000000000000000000000000000000000000000000000000000));
     printf(c"1.0: %a\n",
-             1.0 as f64);
+         f64(1.0));
     printf(c"10.0: %a\n",
-             10.0 as f64);
+         f64(10.0));
     printf(c"10.5: %a\n",
-             10.5 as f64);
+         f64(10.5));
     printf(c"10.5e5: %a\n",
-             10.5e5 as f64);
+         f64(10.5e5));
     printf(c"10.5e+5: %a\n",
-             10.5e+5 as f64);
+         f64(10.5e+5));
     printf(c"50.0e-2: %a\n",
-             50.0e-2 as f64);
+         f64(50.0e-2));
     printf(c"50e-2: %a\n",
-             50e-2 as f64);
+         f64(50e-2));
 
     printf(c"\n");
 
     printf(c"0x1.0: %a\n",
-             0x1.0 as f64);
+         f64(0x1.0));
     printf(c"0x10.0: %a\n",
-             0x10.0 as f64);
+         f64(0x10.0));
     printf(c"0x100.0: %a\n",
-             0x100.0 as f64);
+         f64(0x100.0));
     printf(c"0x103.0: %a\n",
-             0x103.0 as f64);
+         f64(0x103.0));
     printf(c"0x103.7: %a\n",
-             0x103.7 as f64);
+         f64(0x103.7));
     printf(c"0x103.70: %a\n",
-             0x103.70 as f64);
+         f64(0x103.70));
     printf(c"0x103.70p4: %a\n",
-             0x103.70p4 as f64);
+         f64(0x103.70p4));
     printf(c"0x103.70p5: %a\n",
-             0x103.70p5 as f64);
+         f64(0x103.70p5));
     printf(c"0x103.70p+5: %a\n",
-             0x103.70p+5 as f64);
+         f64(0x103.70p+5));
     printf(c"0x103.70p-5: %a\n",
-             0x103.70p-5 as f64);
+         f64(0x103.70p-5));
 
     printf(c"\n");
 
     printf(c"0b10100.00010e0: %a\n",
-             0b10100.00010e0 as f64);
+         f64(0b10100.00010e0));
     printf(c"0o10700.00010e0: %a\n",
-             0o10700.00010e0 as f64);
+         f64(0o10700.00010e0));
 
     return 0;
 }
@@ -818,7 +818,7 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
 use "std.zig";
 
 pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
-    var x = 3 as i32;
+    var x = i32(3);
     const y = &x;
 
     *y += 1;
@@ -1116,7 +1116,7 @@ fn a() i32 => {}
 fn a() => {
     b();
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: undefined function: 'b'");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: use of undeclared identifier 'b'");
 
     add_compile_fail_case("wrong number of arguments", R"SOURCE(
 fn a() => {
@@ -1282,7 +1282,7 @@ fn f() => {
     add_compile_fail_case("missing else clause", R"SOURCE(
 fn f() => {
     const x : i32 = if (true) { 1 };
-    const y = if (true) { 1 as i32 };
+    const y = if (true) { i32(1) };
 }
     )SOURCE", 2, ".tmp_source.zig:3:21: error: expected type 'i32', got 'void'",
                  ".tmp_source.zig:4:15: error: incompatible types: 'i32' and 'void'");
@@ -1383,9 +1383,9 @@ fn f() => {
 
     add_compile_fail_case("cast unreachable", R"SOURCE(
 fn f() i32 => {
-    (return 1) as i32
+    i32(return 1)
 }
-    )SOURCE", 1, ".tmp_source.zig:3:16: error: invalid cast from type 'unreachable' to 'i32'");
+    )SOURCE", 1, ".tmp_source.zig:3:8: error: invalid cast from type 'unreachable' to 'i32'");
 
     add_compile_fail_case("invalid builtin fn", R"SOURCE(
 fn f() @bogus(foo) => {

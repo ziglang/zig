@@ -99,8 +99,6 @@ const char *node_type_str(NodeType node_type) {
             return "ReturnExpr";
         case NodeTypeVariableDeclaration:
             return "VariableDeclaration";
-        case NodeTypeCastExpr:
-            return "CastExpr";
         case NodeTypeNumberLiteral:
             return "NumberLiteral";
         case NodeTypeStringLiteral:
@@ -264,12 +262,6 @@ void ast_print(AstNode *node, int indent) {
             break;
         case NodeTypeDirective:
             fprintf(stderr, "%s\n", node_type_str(node->type));
-            break;
-        case NodeTypeCastExpr:
-            fprintf(stderr, "%s\n", node_type_str(node->type));
-            ast_print(node->data.cast_expr.expr, indent + 2);
-            if (node->data.cast_expr.type)
-                ast_print(node->data.cast_expr.type, indent + 2);
             break;
         case NodeTypePrefixOpExpr:
             fprintf(stderr, "%s %s\n", node_type_str(node->type),
@@ -1604,29 +1596,6 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, boo
 }
 
 
-/*
-CastExpression : CastExpression token(as) PrimaryExpression | PrefixOpExpression
-*/
-static AstNode *ast_parse_cast_expression(ParseContext *pc, int *token_index, bool mandatory) {
-    AstNode *operand_1 = ast_parse_prefix_op_expr(pc, token_index, mandatory);
-    if (!operand_1)
-        return nullptr;
-
-    while (true) {
-        Token *as_kw = &pc->tokens->at(*token_index);
-        if (as_kw->id != TokenIdKeywordAs)
-            return operand_1;
-        *token_index += 1;
-
-        AstNode *node = ast_create_node(pc, NodeTypeCastExpr, as_kw);
-        node->data.cast_expr.expr = operand_1;
-
-        node->data.cast_expr.type = ast_parse_primary_expr(pc, token_index, true);
-
-        operand_1 = node;
-    }
-}
-
 static BinOpType tok_to_mult_op(Token *token) {
     switch (token->id) {
         case TokenIdStar: return BinOpTypeMult;
@@ -1654,10 +1623,10 @@ static BinOpType ast_parse_mult_op(ParseContext *pc, int *token_index, bool mand
 }
 
 /*
-MultiplyExpression : CastExpression MultiplyOperator MultiplyExpression | CastExpression
+MultiplyExpression : PrefixOpExpression MultiplyOperator MultiplyExpression | PrefixOpExpression
 */
 static AstNode *ast_parse_mult_expr(ParseContext *pc, int *token_index, bool mandatory) {
-    AstNode *operand_1 = ast_parse_cast_expression(pc, token_index, mandatory);
+    AstNode *operand_1 = ast_parse_prefix_op_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
 
@@ -1667,7 +1636,7 @@ static AstNode *ast_parse_mult_expr(ParseContext *pc, int *token_index, bool man
         if (mult_op == BinOpTypeInvalid)
             return operand_1;
 
-        AstNode *operand_2 = ast_parse_cast_expression(pc, token_index, true);
+        AstNode *operand_2 = ast_parse_prefix_op_expr(pc, token_index, true);
 
         AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
         node->data.bin_op_expr.op1 = operand_1;

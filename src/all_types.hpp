@@ -106,7 +106,6 @@ enum NodeType {
     NodeTypeReturnExpr,
     NodeTypeVariableDeclaration,
     NodeTypeBinOpExpr,
-    NodeTypeCastExpr,
     NodeTypeNumberLiteral,
     NodeTypeStringLiteral,
     NodeTypeCharLiteral,
@@ -272,6 +271,8 @@ struct AstNodeFnCallExpr {
     BuiltinFnEntry *builtin_fn;
     Expr resolved_expr;
     NumLitCodeGen resolved_num_lit;
+    Cast cast;
+    FnTableEntry *fn_entry;
 };
 
 struct AstNodeArrayAccessExpr {
@@ -318,15 +319,6 @@ struct AstNodeRootExportDecl {
     Buf type;
     Buf name;
     ZigList<AstNode *> *directives;
-};
-
-struct AstNodeCastExpr {
-    AstNode *expr;
-    AstNode *type;
-
-    // populated by semantic analyzer
-    Cast cast;
-    Expr resolved_expr;
 };
 
 enum PrefixOp {
@@ -541,6 +533,9 @@ struct AstNodeSymbolExpr {
 
     // populated by semantic analyzer
     Expr resolved_expr;
+    VariableTableEntry *variable;
+    TypeTableEntry *meta_type;
+    FnTableEntry *fn_entry;
 };
 
 struct AstNodeBoolLiteral {
@@ -588,7 +583,6 @@ struct AstNode {
         AstNodeBinOpExpr bin_op_expr;
         AstNodeExternBlock extern_block;
         AstNodeDirective directive;
-        AstNodeCastExpr cast_expr;
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodeFnCallExpr fn_call_expr;
         AstNodeArrayAccessExpr array_access_expr;
@@ -693,6 +687,12 @@ struct TypeTableEntryEnum {
     bool reported_infinite_err;
 };
 
+struct TypeTableEntryFn {
+    TypeTableEntry *return_type;
+    TypeTableEntry **param_types;
+    int param_count;
+};
+
 enum TypeTableEntryId {
     TypeTableEntryIdInvalid,
     TypeTableEntryIdMetaType,
@@ -707,6 +707,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdNumberLiteral,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdEnum,
+    TypeTableEntryIdFn,
 };
 
 struct TypeTableEntry {
@@ -728,6 +729,7 @@ struct TypeTableEntry {
         TypeTableEntryMaybe maybe;
         TypeTableEntryEnum enumeration;
         TypeTableEntryMetaType meta_type;
+        TypeTableEntryFn fn;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
@@ -781,6 +783,7 @@ struct FnTableEntry {
     ZigList<BlockContext *> all_block_contexts;
     TypeTableEntry *member_of_struct;
     Buf symbol_name;
+    TypeTableEntry *type_entry; // function type
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
@@ -911,6 +914,24 @@ struct BlockContext {
     AstNode *parent_loop_node;
     AstNode *next_child_parent_loop_node;
     LLVMZigDIScope *di_scope;
+};
+
+struct ConstExprValue {
+    bool ok; // true if constant expression evalution worked
+    bool depends_on_compile_var;
+
+    union {
+        uint64_t x_uint;
+        int64_t x_int;
+        double x_float;
+        bool x_bool;
+        FnTableEntry *x_fn;
+        TypeTableEntry *x_type;
+        struct {
+            bool is_null;
+            ConstExprValue *child_val;
+        } x_maybe;
+    } data;
 };
 
 #endif

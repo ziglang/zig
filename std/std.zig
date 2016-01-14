@@ -43,7 +43,7 @@ pub fn readline(buf: []u8, out_len: &usize) bool => {
     if (amt_read < 0) {
         return true;
     }
-    *out_len = amt_read as usize;
+    *out_len = usize(amt_read);
     return false;
 }
 
@@ -94,9 +94,9 @@ const max_u64_base10_digits: usize = 20;
 fn buf_print_i64(out_buf: []u8, x: i64) usize => {
     if (x < 0) {
         out_buf[0] = '-';
-        return 1 + buf_print_u64(out_buf[1...], ((-(x + 1)) as u64) + 1);
+        return 1 + buf_print_u64(out_buf[1...], u64(-(x + 1)) + 1);
     } else {
-        return buf_print_u64(out_buf, x as u64);
+        return buf_print_u64(out_buf, u64(x));
     }
 }
 
@@ -108,7 +108,7 @@ fn buf_print_u64(out_buf: []u8, x: u64) usize => {
     while (true) {
         const digit = a % 10;
         index -= 1;
-        buf[index] = '0' + (digit as u8);
+        buf[index] = '0' + u8(digit);
         a /= 10;
         if (a == 0)
             break;

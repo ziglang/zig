@@ -41,6 +41,12 @@ compromises backward compatibility.
    provide a tag or sha1).
  * Include documentation generator.
  * Shebang line OK so language can be used for "scripting" as well.
+ * Have the compiler run continuously, watching the file system for source
+   changes and automatically perform multithreaded compilation to build projects
+   quickly.
+ * Hot code swapping. When integrated with the previous feature, you could
+   press "save" in your editor and see the change immediately in your running
+   software.
 
 ### Current Status
 

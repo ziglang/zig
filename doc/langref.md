@@ -126,11 +126,9 @@ AdditionExpression : MultiplyExpression AdditionOperator AdditionExpression | Mu
 
 AdditionOperator : token(Plus) | token(Minus)
 
-MultiplyExpression : CastExpression MultiplyOperator MultiplyExpression | CastExpression
+MultiplyExpression : PrefixOpExpression MultiplyOperator MultiplyExpression | PrefixOpExpression
 
 MultiplyOperator : token(Star) | token(Slash) | token(Percent)
-
-CastExpression : CastExpression token(as) PrimaryExpression | PrefixOpExpression
 
 PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
 
