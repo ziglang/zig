@@ -1,16 +1,16 @@
 pub struct List#(T: type) {
     items: ?&T,
-    length: usize,
-    capacity: usize,
+    length: isize,
+    capacity: isize,
 
-    pub fn (l: &List) deinit() {
+    pub fn deinit(l: &List) {
         free(l.items);
-        l.items = None;
+        l.items = null;
     }
 
     pub fn append(l: &List, item: T) -> error {
         const err = l.ensure_capacity(l.length + 1);
-        if err != Error.None {
+        if err != error.None {
             return err;
         }
         const raw_items = l.items ?? unreachable;
@@ -47,11 +47,11 @@ pub struct List#(T: type) {
             better_capacity *= 2;
         }
         if better_capacity != l.capacity {
-            const new_items = realloc(l.items, better_capacity) ?? { return Error.NoMem };
+            const new_items = realloc(l.items, better_capacity) ?? { return error.NoMem };
             l.items = new_items;
             l.capacity = better_capacity;
         }
-        Error.None
+        error.None
     }
 }
 
@@ -64,3 +64,41 @@ pub fn realloc#(T: type)(ptr: ?&T, new_count: usize) -> ?&T {
 pub fn free#(T: type)(ptr: ?&T) {
 
 }
+
+
+////////////////// alternate
+
+// previously proposed, but with : instead of ->
+// `:` means "parser should expect a type now"
+fn max#(T :type)(a :T, b :T) :T {
+    if (a > b) a else b
+}
+
+// andy's new idea
+// parameters can talk about @typeof() for previous parameters.
+// using :T here is equivalent to @child_type(@typeof(T))
+fn max(T :type, a :T, b :T) :T {
+    if (a > b) a else b
+}
+
+fn f() {
+    const x :i32 = 1234;
+    const y :i32 = 5678;
+    const z = max(@typeof(x), x, y);
+}
+
+// So, type-generic functions don't need any fancy syntax. type-generic
+// containers still do, though:
+
+pub struct List(T :type) {
+    items :?&T,
+    length :isize,
+    capacity :isize,
+}
+
+// Types are always marked with ':' so we don't need '#' to indicate type generic parameters.
+
+fn f() {
+    var list :List(:u8);
+}
+

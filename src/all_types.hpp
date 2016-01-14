@@ -100,7 +100,6 @@ enum NodeType {
     NodeTypeFnDef,
     NodeTypeFnDecl,
     NodeTypeParamDecl,
-    NodeTypeType,
     NodeTypeBlock,
     NodeTypeExternBlock,
     NodeTypeDirective,
@@ -111,7 +110,6 @@ enum NodeType {
     NodeTypeNumberLiteral,
     NodeTypeStringLiteral,
     NodeTypeCharLiteral,
-    NodeTypeUnreachable,
     NodeTypeSymbol,
     NodeTypePrefixOpExpr,
     NodeTypeFnCallExpr,
@@ -119,7 +117,6 @@ enum NodeType {
     NodeTypeSliceExpr,
     NodeTypeFieldAccessExpr,
     NodeTypeUse,
-    NodeTypeVoid,
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
     NodeTypeIfBoolExpr,
@@ -132,10 +129,9 @@ enum NodeType {
     NodeTypeAsmExpr,
     NodeTypeStructDecl,
     NodeTypeStructField,
-    NodeTypeStructValueExpr,
+    NodeTypeContainerInitExpr,
     NodeTypeStructValueField,
-    NodeTypeCompilerFnExpr,
-    NodeTypeCompilerFnType,
+    NodeTypeArrayType,
 };
 
 struct AstNodeRoot {
@@ -185,30 +181,10 @@ struct AstNodeFnDecl {
 struct AstNodeParamDecl {
     Buf name;
     AstNode *type;
+    bool is_noalias;
 
     // populated by semantic analyzer
     VariableTableEntry *variable;
-};
-
-enum AstNodeTypeType {
-    AstNodeTypeTypePrimitive,
-    AstNodeTypeTypePointer,
-    AstNodeTypeTypeArray,
-    AstNodeTypeTypeMaybe,
-    AstNodeTypeTypeCompilerExpr,
-};
-
-struct AstNodeType {
-    AstNodeTypeType type;
-    Buf primitive_name;
-    AstNode *child_type;
-    AstNode *array_size; // can be null
-    bool is_const;
-    bool is_noalias;
-    AstNode *compiler_expr;
-
-    // populated by semantic analyzer
-    TypeTableEntry *entry;
 };
 
 struct AstNodeBlock {
@@ -295,6 +271,7 @@ struct AstNodeFnCallExpr {
     // populated by semantic analyzer:
     BuiltinFnEntry *builtin_fn;
     Expr resolved_expr;
+    NumLitCodeGen resolved_num_lit;
 };
 
 struct AstNodeArrayAccessExpr {
@@ -360,6 +337,7 @@ enum PrefixOp {
     PrefixOpAddressOf,
     PrefixOpConstAddressOf,
     PrefixOpDereference,
+    PrefixOpMaybe,
 };
 
 struct AstNodePrefixOpExpr {
@@ -537,45 +515,24 @@ struct AstNodeStructValueField {
     TypeStructField *type_struct_field;
 };
 
-struct AstNodeStructValueExpr {
+enum ContainerInitKind {
+    ContainerInitKindStruct,
+    ContainerInitKindArray,
+};
+
+struct AstNodeContainerInitExpr {
     AstNode *type;
-    ZigList<AstNode *> fields;
+    ZigList<AstNode *> entries;
+    ContainerInitKind kind;
 
-    // populated by semantic analyzer
-    StructValExprCodeGen codegen;
-    Expr resolved_expr;
-};
-
-struct AstNodeCompilerFnExpr {
-    Buf name;
-    AstNode *expr;
-
-    // populated by semantic analyzer
-    Expr resolved_expr;
-};
-
-struct AstNodeCompilerFnType {
-    Buf name;
-    AstNode *type;
-
-    // populated by semantic analyzer
-    Expr resolved_expr;
-    NumLitCodeGen resolved_num_lit;
-};
-
-struct AstNodeNullLiteral {
     // populated by semantic analyzer
     StructValExprCodeGen resolved_struct_val_expr;
     Expr resolved_expr;
 };
 
-struct AstNodeVoidExpr {
+struct AstNodeNullLiteral {
     // populated by semantic analyzer
-    Expr resolved_expr;
-};
-
-struct AstNodeUnreachableExpr {
-    // populated by semantic analyzer
+    StructValExprCodeGen resolved_struct_val_expr;
     Expr resolved_expr;
 };
 
@@ -603,6 +560,15 @@ struct AstNodeContinueExpr {
     Expr resolved_expr;
 };
 
+struct AstNodeArrayType {
+    AstNode *size;
+    AstNode *child_type;
+    bool is_const;
+
+    // populated by semantic analyzer
+    Expr resolved_expr;
+};
+
 struct AstNode {
     enum NodeType type;
     int line;
@@ -615,7 +581,6 @@ struct AstNode {
         AstNodeFnDef fn_def;
         AstNodeFnDecl fn_decl;
         AstNodeFnProto fn_proto;
-        AstNodeType type;
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
         AstNodeReturnExpr return_expr;
@@ -641,17 +606,14 @@ struct AstNode {
         AstNodeStringLiteral string_literal;
         AstNodeCharLiteral char_literal;
         AstNodeNumberLiteral number_literal;
-        AstNodeStructValueExpr struct_val_expr;
+        AstNodeContainerInitExpr container_init_expr;
         AstNodeStructValueField struct_val_field;
-        AstNodeCompilerFnExpr compiler_fn_expr;
-        AstNodeCompilerFnType compiler_fn_type;
         AstNodeNullLiteral null_literal;
-        AstNodeVoidExpr void_expr;
-        AstNodeUnreachableExpr unreachable_expr;
         AstNodeSymbolExpr symbol_expr;
         AstNodeBoolLiteral bool_literal;
         AstNodeBreakExpr break_expr;
         AstNodeContinueExpr continue_expr;
+        AstNodeArrayType array_type;
     } data;
 };
 
@@ -670,7 +632,6 @@ struct AsmToken {
 struct TypeTableEntryPointer {
     TypeTableEntry *child_type;
     bool is_const;
-    bool is_noalias;
 };
 
 struct TypeTableEntryInt {
@@ -770,8 +731,8 @@ struct TypeTableEntry {
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
-    TypeTableEntry *pointer_parent[2][2]; // 0 - const. 1 - noalias
-    TypeTableEntry *unknown_size_array_parent[2][2]; // 0 - const. 1 - noalias
+    TypeTableEntry *pointer_parent[2];
+    TypeTableEntry *unknown_size_array_parent[2];
     HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
     TypeTableEntry *maybe_parent;
     TypeTableEntry *meta_parent;
@@ -830,6 +791,11 @@ enum BuiltinFnId {
     BuiltinFnIdArithmeticWithOverflow,
     BuiltinFnIdMemcpy,
     BuiltinFnIdMemset,
+    BuiltinFnIdSizeof,
+    BuiltinFnIdMaxValue,
+    BuiltinFnIdMinValue,
+    BuiltinFnIdValueCount,
+    BuiltinFnIdTypeof,
 };
 
 struct BuiltinFnEntry {

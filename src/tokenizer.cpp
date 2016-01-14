@@ -207,8 +207,6 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordConst;
     } else if (mem_eql_str(token_mem, token_len, "extern")) {
         t->cur_tok->id = TokenIdKeywordExtern;
-    } else if (mem_eql_str(token_mem, token_len, "unreachable")) {
-        t->cur_tok->id = TokenIdKeywordUnreachable;
     } else if (mem_eql_str(token_mem, token_len, "pub")) {
         t->cur_tok->id = TokenIdKeywordPub;
     } else if (mem_eql_str(token_mem, token_len, "export")) {
@@ -217,8 +215,6 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordAs;
     } else if (mem_eql_str(token_mem, token_len, "use")) {
         t->cur_tok->id = TokenIdKeywordUse;
-    } else if (mem_eql_str(token_mem, token_len, "void")) {
-        t->cur_tok->id = TokenIdKeywordVoid;
     } else if (mem_eql_str(token_mem, token_len, "true")) {
         t->cur_tok->id = TokenIdKeywordTrue;
     } else if (mem_eql_str(token_mem, token_len, "false")) {
@@ -550,6 +546,11 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case '=':
                         t.cur_tok->id = TokenIdCmpEq;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    case '>':
+                        t.cur_tok->id = TokenIdFatArrow;
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
@@ -1009,12 +1010,10 @@ static const char * token_name(Token *token) {
         case TokenIdKeywordVar: return "Var";
         case TokenIdKeywordReturn: return "Return";
         case TokenIdKeywordExtern: return "Extern";
-        case TokenIdKeywordUnreachable: return "Unreachable";
         case TokenIdKeywordPub: return "Pub";
         case TokenIdKeywordExport: return "Export";
         case TokenIdKeywordAs: return "As";
         case TokenIdKeywordUse: return "Use";
-        case TokenIdKeywordVoid: return "Void";
         case TokenIdKeywordTrue: return "True";
         case TokenIdKeywordFalse: return "False";
         case TokenIdKeywordIf: return "If";
@@ -1044,6 +1043,7 @@ static const char * token_name(Token *token) {
         case TokenIdPlus: return "Plus";
         case TokenIdColon: return "Colon";
         case TokenIdArrow: return "Arrow";
+        case TokenIdFatArrow: return "FatArrow";
         case TokenIdDash: return "Dash";
         case TokenIdNumberSign: return "NumberSign";
         case TokenIdBinOr: return "BinOr";

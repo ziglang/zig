@@ -2,7 +2,7 @@ export executable "maybe_type";
 
 use "std.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
+pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     const x : ?bool = true;
 
     if (const y ?= x) {
@@ -25,7 +25,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) -> i32 {
 
     const final_x : ?i32 = 13;
 
-    const num = final_x ?? unreachable;
+    const num = final_x ?? unreachable{};
 
     if (num != 13) {
         print_str("BAD\n");

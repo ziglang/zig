@@ -15,8 +15,8 @@ syn keyword zigConditional if else switch
 syn keyword zigRepeat while for
 
 syn keyword zigConstant null
-syn keyword zigKeyword fn unreachable use void
-syn keyword zigType bool i8 u8 i16 u16 i32 u32 i64 u64 isize usize f32 f64 f128 string
+syn keyword zigKeyword fn use
+syn keyword zigType bool i8 u8 i16 u16 i32 u32 i64 u64 isize usize f32 f64 f128 string void unreachable
 
 syn keyword zigBoolean true false
 
