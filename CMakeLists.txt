@@ -16,9 +16,6 @@ find_package(llvm)
 include_directories(${LLVM_INCLUDE_DIRS})
 link_directories(${LLVM_LIBDIRS})
 
-find_package(clang)
-include_directories(${CLANG_INCLUDE_DIR})
-
 include_directories(
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_BINARY_DIR}
@@ -36,7 +33,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
-    "${CMAKE_SOURCE_DIR}/src/parseh.cpp"
 )
 
 set(TEST_SOURCES
@@ -147,7 +143,6 @@ set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS})
 target_link_libraries(zig LINK_PUBLIC
     ${LLVM_LIBRARIES}
-    ${CLANG_LIBRARY}
 )
 install(TARGETS zig DESTINATION bin)
 

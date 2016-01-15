@@ -10,7 +10,6 @@
 #include "codegen.hpp"
 #include "os.hpp"
 #include "error.hpp"
-#include "parseh.hpp"
 
 #include <stdio.h>
 
@@ -19,7 +18,6 @@ static int usage(const char *arg0) {
         "Commands:\n"
         "  build                  create executable, object, or library from target\n"
         "  version                print version number and exit\n"
-        "  parseh                 convert a c header file to zig extern declarations\n"
         "Command: build target\n"
         "  --release              build with optimizations on and debug protection off\n"
         "  --static               output will be statically linked\n"
@@ -30,10 +28,6 @@ static int usage(const char *arg0) {
         "  --verbose              turn on compiler debug output\n"
         "  --color [auto|off|on]  enable or disable colored error messages\n"
         "  --libc-path [path]     set the C compiler data path\n"
-        "Command: parseh target\n"
-        "  -isystem [dir]         add additional search path for other .h files\n"
-        "  -dirafter [dir]        same as -isystem but do it last\n"
-        "  -B[prefix]             set the C compiler data path\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -156,41 +150,6 @@ static int build(const char *arg0, int argc, char **argv) {
     return 0;
 }
 
-static int parseh(const char *arg0, int argc, char **argv) {
-    char *in_file = nullptr;
-    ZigList<const char *> clang_argv = {0};
-    for (int i = 0; i < argc; i += 1) {
-        char *arg = argv[i];
-        if (arg[0] == '-') {
-            if (arg[1] == 'I') {
-                clang_argv.append(arg);
-            } else if (strcmp(arg, "-isystem") == 0) {
-                if (i + 1 >= argc) {
-                    return usage(arg0);
-                }
-                clang_argv.append("-isystem");
-                clang_argv.append(argv[i + 1]);
-            } else if (arg[1] == 'B') {
-                clang_argv.append(arg);
-            } else {
-                fprintf(stderr, "unrecognized argument: %s", arg);
-                return usage(arg0);
-            }
-        } else if (!in_file) {
-            in_file = arg;
-        } else {
-            return usage(arg0);
-        }
-    }
-    if (!in_file) {
-        fprintf(stderr, "missing target argument");
-        return usage(arg0);
-    }
-
-    parse_h_file(in_file, &clang_argv, stdout);
-    return 0;
-}
-
 int main(int argc, char **argv) {
     char *arg0 = argv[0];
     int (*cmd)(const char *, int, char **) = nullptr;
@@ -203,8 +162,6 @@ int main(int argc, char **argv) {
                 cmd = build;
             } else if (strcmp(arg, "version") == 0) {
                 cmd = version;
-            } else if (strcmp(arg, "parseh") == 0) {
-                cmd = parseh;
             } else {
                 fprintf(stderr, "Unrecognized command: %s\n", arg);
                 return usage(arg0);
