@@ -1308,7 +1308,7 @@ static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *imp
 
 static TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name, int *index) {
     assert(type_entry->id == TypeTableEntryIdStruct);
-    for (int i = 0; i < type_entry->data.structure.field_count; i += 1) {
+    for (uint32_t i = 0; i < type_entry->data.structure.field_count; i += 1) {
         TypeStructField *field = &type_entry->data.structure.fields[i];
         if (buf_eql_buf(field->name, name)) {
             *index = i;
@@ -2839,6 +2839,7 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                 }
             }
     }
+    zig_unreachable();
 }
 
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
