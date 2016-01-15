@@ -184,14 +184,28 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdInvalid:
         case BuiltinFnIdTypeof:
             zig_unreachable();
-        case BuiltinFnIdArithmeticWithOverflow:
+        case BuiltinFnIdAddWithOverflow:
+        case BuiltinFnIdSubWithOverflow:
+        case BuiltinFnIdMulWithOverflow:
             {
                 int fn_call_param_count = node->data.fn_call_expr.params.length;
-                assert(fn_call_param_count == 3);
+                assert(fn_call_param_count == 4);
 
-                LLVMValueRef op1 = gen_expr(g, node->data.fn_call_expr.params.at(0));
-                LLVMValueRef op2 = gen_expr(g, node->data.fn_call_expr.params.at(1));
-                LLVMValueRef ptr_result = gen_expr(g, node->data.fn_call_expr.params.at(2));
+                TypeTableEntry *int_type = get_type_for_type_node(node->data.fn_call_expr.params.at(0));
+                LLVMValueRef fn_val;
+                if (builtin_fn->id == BuiltinFnIdAddWithOverflow) {
+                    fn_val = int_type->data.integral.add_with_overflow_fn;
+                } else if (builtin_fn->id == BuiltinFnIdSubWithOverflow) {
+                    fn_val = int_type->data.integral.sub_with_overflow_fn;
+                } else if (builtin_fn->id == BuiltinFnIdMulWithOverflow) {
+                    fn_val = int_type->data.integral.mul_with_overflow_fn;
+                } else {
+                    zig_unreachable();
+                }
+
+                LLVMValueRef op1 = gen_expr(g, node->data.fn_call_expr.params.at(1));
+                LLVMValueRef op2 = gen_expr(g, node->data.fn_call_expr.params.at(2));
+                LLVMValueRef ptr_result = gen_expr(g, node->data.fn_call_expr.params.at(3));
 
                 LLVMValueRef params[] = {
                     op1,
@@ -199,7 +213,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
                 };
 
                 add_debug_source_node(g, node);
-                LLVMValueRef result_struct = LLVMBuildCall(g->builder, builtin_fn->fn_val, params, 2, "");
+                LLVMValueRef result_struct = LLVMBuildCall(g->builder, fn_val, params, 2, "");
                 LLVMValueRef result = LLVMBuildExtractValue(g->builder, result_struct, 0, "");
                 LLVMValueRef overflow_bit = LLVMBuildExtractValue(g->builder, result_struct, 1, "");
                 LLVMBuildStore(g->builder, result, ptr_result);
@@ -2184,6 +2198,35 @@ static void do_code_gen(CodeGen *g) {
 #endif
 }
 
+static LLVMValueRef get_arithmetic_overflow_fn(CodeGen *g, TypeTableEntry *type_entry,
+        const char *signed_name, const char *unsigned_name)
+{
+    const char *signed_str = type_entry->data.integral.is_signed ? signed_name : unsigned_name;
+    Buf *llvm_name = buf_sprintf("llvm.%s.with.overflow.i%" PRIu64, signed_str, type_entry->size_in_bits);
+
+    LLVMTypeRef return_elem_types[] = {
+        type_entry->type_ref,
+        LLVMInt1Type(),
+    };
+    LLVMTypeRef param_types[] = {
+        type_entry->type_ref,
+        type_entry->type_ref,
+    };
+    LLVMTypeRef return_struct_type = LLVMStructType(return_elem_types, 2, false);
+    LLVMTypeRef fn_type = LLVMFunctionType(return_struct_type, param_types, 2, false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(llvm_name), fn_type);
+    assert(LLVMGetIntrinsicID(fn_val));
+    return fn_val;
+}
+
+static void add_int_overflow_fns(CodeGen *g, TypeTableEntry *type_entry) {
+    assert(type_entry->id == TypeTableEntryIdInt);
+
+    type_entry->data.integral.add_with_overflow_fn = get_arithmetic_overflow_fn(g, type_entry, "sadd", "uadd");
+    type_entry->data.integral.sub_with_overflow_fn = get_arithmetic_overflow_fn(g, type_entry, "ssub", "usub");
+    type_entry->data.integral.mul_with_overflow_fn = get_arithmetic_overflow_fn(g, type_entry, "smul", "umul");
+}
+
 static const NumLit num_lit_kinds[] = {
     NumLitF32,
     NumLitF64,
@@ -2196,6 +2239,13 @@ static const NumLit num_lit_kinds[] = {
     NumLitI16,
     NumLitI32,
     NumLitI64,
+};
+
+static const int int_sizes_in_bits[] = {
+    8,
+    16,
+    32,
+    64,
 };
 
 static void define_builtin_types(CodeGen *g) {
@@ -2219,6 +2269,37 @@ static void define_builtin_types(CodeGen *g) {
         g->num_lit_types[i] = entry;
     }
 
+    for (int i = 0; i < array_length(int_sizes_in_bits); i += 1) {
+        int size_in_bits = int_sizes_in_bits[i];
+        bool is_signed = true;
+        for (;;) {
+            TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+            entry->type_ref = LLVMIntType(size_in_bits);
+
+            const char u_or_i = is_signed ? 'i' : 'u';
+            buf_resize(&entry->name, 0);
+            buf_appendf(&entry->name, "%c%d", u_or_i, size_in_bits);
+
+            entry->size_in_bits = size_in_bits;
+            entry->align_in_bits = size_in_bits;
+            entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                    entry->size_in_bits, entry->align_in_bits,
+                    is_signed ? LLVMZigEncoding_DW_ATE_signed() : LLVMZigEncoding_DW_ATE_unsigned());
+            entry->data.integral.is_signed = is_signed;
+            g->primitive_type_table.put(&entry->name, entry);
+
+            get_int_type_ptr(g, is_signed, size_in_bits)[0] = entry;
+
+            add_int_overflow_fns(g, entry);
+
+            if (!is_signed) {
+                break;
+            } else {
+                is_signed = false;
+            }
+        }
+    }
+
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBool);
         entry->type_ref = LLVMInt1Type();
@@ -2233,115 +2314,17 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
-        entry->type_ref = LLVMInt8Type();
-        buf_init_from_str(&entry->name, "u8");
-        entry->size_in_bits = 8;
-        entry->align_in_bits = 8;
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
-                LLVMZigEncoding_DW_ATE_unsigned());
-        g->builtin_types.entry_u8 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
-        entry->type_ref = LLVMInt16Type();
-        buf_init_from_str(&entry->name, "u16");
-        entry->size_in_bits = 16;
-        entry->align_in_bits = 16;
-        entry->data.integral.is_signed = false;
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
-                LLVMZigEncoding_DW_ATE_unsigned());
-        g->builtin_types.entry_u16 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
-        entry->type_ref = LLVMInt32Type();
-        buf_init_from_str(&entry->name, "u32");
-        entry->size_in_bits = 32;
-        entry->align_in_bits = 32;
-        entry->data.integral.is_signed = false;
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
-                LLVMZigEncoding_DW_ATE_unsigned());
-        g->builtin_types.entry_u32 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
-        entry->type_ref = LLVMInt64Type();
-        buf_init_from_str(&entry->name, "u64");
-        entry->size_in_bits = 64;
-        entry->align_in_bits = 64;
-        entry->data.integral.is_signed = false;
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
-                LLVMZigEncoding_DW_ATE_unsigned());
-        g->builtin_types.entry_u64 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    g->builtin_types.entry_c_string_literal = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
-        entry->type_ref = LLVMInt8Type();
-        buf_init_from_str(&entry->name, "i8");
-        entry->size_in_bits = 8;
-        entry->align_in_bits = 8;
-        entry->data.integral.is_signed = true;
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
-                LLVMZigEncoding_DW_ATE_signed());
-        g->builtin_types.entry_i8 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
-        entry->type_ref = LLVMInt16Type();
-        buf_init_from_str(&entry->name, "i16");
-        entry->size_in_bits = 16;
-        entry->align_in_bits = 16;
-        entry->data.integral.is_signed = true;
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
-                LLVMZigEncoding_DW_ATE_signed());
-        g->builtin_types.entry_i16 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
-        entry->type_ref = LLVMInt32Type();
-        buf_init_from_str(&entry->name, "i32");
-        entry->size_in_bits = 32;
-        entry->align_in_bits = 32;
-        entry->data.integral.is_signed = true;
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
-                LLVMZigEncoding_DW_ATE_signed());
-        g->builtin_types.entry_i32 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
-        entry->type_ref = LLVMInt64Type();
-        buf_init_from_str(&entry->name, "i64");
-        entry->size_in_bits = 64;
-        entry->align_in_bits = 64;
-        entry->data.integral.is_signed = true;
-        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
-                LLVMZigEncoding_DW_ATE_signed());
-        g->builtin_types.entry_i64 = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMIntType(g->pointer_size_bytes * 8);
         buf_init_from_str(&entry->name, "isize");
         entry->size_in_bits = g->pointer_size_bytes * 8;
         entry->align_in_bits = g->pointer_size_bytes * 8;
         entry->data.integral.is_signed = true;
+
+        TypeTableEntry *fixed_width_entry = get_int_type(g, entry->data.integral.is_signed, entry->size_in_bits);
+        entry->data.integral.add_with_overflow_fn = fixed_width_entry->data.integral.add_with_overflow_fn;
+        entry->data.integral.sub_with_overflow_fn = fixed_width_entry->data.integral.sub_with_overflow_fn;
+        entry->data.integral.mul_with_overflow_fn = fixed_width_entry->data.integral.mul_with_overflow_fn;
+
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
@@ -2355,6 +2338,12 @@ static void define_builtin_types(CodeGen *g) {
         entry->size_in_bits = g->pointer_size_bytes * 8;
         entry->align_in_bits = g->pointer_size_bytes * 8;
         entry->data.integral.is_signed = false;
+
+        TypeTableEntry *fixed_width_entry = get_int_type(g, entry->data.integral.is_signed, entry->size_in_bits);
+        entry->data.integral.add_with_overflow_fn = fixed_width_entry->data.integral.add_with_overflow_fn;
+        entry->data.integral.sub_with_overflow_fn = fixed_width_entry->data.integral.sub_with_overflow_fn;
+        entry->data.integral.mul_with_overflow_fn = fixed_width_entry->data.integral.mul_with_overflow_fn;
+
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
@@ -2403,54 +2392,19 @@ static void define_builtin_types(CodeGen *g) {
         g->builtin_types.entry_unreachable = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
+
+    g->builtin_types.entry_c_string_literal = get_pointer_to_type(g, get_int_type(g, false, 8), true);
+
+    g->builtin_types.entry_u8 = get_int_type(g, false, 8);
+    g->builtin_types.entry_u16 = get_int_type(g, false, 16);
+    g->builtin_types.entry_u32 = get_int_type(g, false, 32);
+    g->builtin_types.entry_u64 = get_int_type(g, false, 64);
+    g->builtin_types.entry_i8 = get_int_type(g, true, 8);
+    g->builtin_types.entry_i16 = get_int_type(g, true, 16);
+    g->builtin_types.entry_i32 = get_int_type(g, true, 32);
+    g->builtin_types.entry_i64 = get_int_type(g, true, 64);
 }
 
-static void define_builtin_fns_int(CodeGen *g, TypeTableEntry *type_entry) {
-    assert(type_entry->id == TypeTableEntryIdInt);
-    struct OverflowFn {
-        const char *bare_name;
-        const char *signed_name;
-        const char *unsigned_name;
-    };
-    OverflowFn overflow_fns[] = {
-        {"add", "sadd", "uadd"},
-        {"sub", "ssub", "usub"},
-        {"mul", "smul", "umul"},
-    };
-    for (size_t i = 0; i < sizeof(overflow_fns)/sizeof(overflow_fns[0]); i += 1) {
-        OverflowFn *overflow_fn = &overflow_fns[i];
-        BuiltinFnEntry *builtin_fn = allocate<BuiltinFnEntry>(1);
-        buf_resize(&builtin_fn->name, 0);
-        buf_appendf(&builtin_fn->name, "%s_with_overflow_%s", overflow_fn->bare_name, buf_ptr(&type_entry->name));
-        builtin_fn->id = BuiltinFnIdArithmeticWithOverflow;
-        builtin_fn->return_type = g->builtin_types.entry_bool;
-        builtin_fn->param_count = 3;
-        builtin_fn->param_types = allocate<TypeTableEntry *>(builtin_fn->param_count);
-        builtin_fn->param_types[0] = type_entry;
-        builtin_fn->param_types[1] = type_entry;
-        builtin_fn->param_types[2] = get_pointer_to_type(g, type_entry, false);
-
-
-        const char *signed_str = type_entry->data.integral.is_signed ?
-            overflow_fn->signed_name : overflow_fn->unsigned_name;
-        Buf *llvm_name = buf_sprintf("llvm.%s.with.overflow.i%" PRIu64, signed_str, type_entry->size_in_bits);
-
-        LLVMTypeRef return_elem_types[] = {
-            type_entry->type_ref,
-            LLVMInt1Type(),
-        };
-        LLVMTypeRef param_types[] = {
-            type_entry->type_ref,
-            type_entry->type_ref,
-        };
-        LLVMTypeRef return_struct_type = LLVMStructType(return_elem_types, 2, false);
-        LLVMTypeRef fn_type = LLVMFunctionType(return_struct_type, param_types, 2, false);
-        builtin_fn->fn_val = LLVMAddFunction(g->module, buf_ptr(llvm_name), fn_type);
-        assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
-
-        g->builtin_fn_table.put(&builtin_fn->name, builtin_fn);
-    }
-}
 
 static BuiltinFnEntry *create_builtin_fn(CodeGen *g, BuiltinFnId id, const char *name) {
     BuiltinFnEntry *builtin_fn = allocate<BuiltinFnEntry>(1);
@@ -2460,24 +2414,14 @@ static BuiltinFnEntry *create_builtin_fn(CodeGen *g, BuiltinFnId id, const char 
     return builtin_fn;
 }
 
-static BuiltinFnEntry *create_one_arg_builtin_fn(CodeGen *g, BuiltinFnId id, const char *name) {
+static BuiltinFnEntry *create_builtin_fn_with_arg_count(CodeGen *g, BuiltinFnId id, const char *name, int count) {
     BuiltinFnEntry *builtin_fn = create_builtin_fn(g, id, name);
-    builtin_fn->return_type = nullptr; // manually determined later
-    builtin_fn->param_count = 1;
-    builtin_fn->param_types = allocate<TypeTableEntry *>(builtin_fn->param_count);
-    builtin_fn->param_types[0] = nullptr; // manually checked later
+    builtin_fn->param_count = count;
+    builtin_fn->param_types = allocate<TypeTableEntry *>(count);
     return builtin_fn;
 }
 
 static void define_builtin_fns(CodeGen *g) {
-    define_builtin_fns_int(g, g->builtin_types.entry_u8);
-    define_builtin_fns_int(g, g->builtin_types.entry_u16);
-    define_builtin_fns_int(g, g->builtin_types.entry_u32);
-    define_builtin_fns_int(g, g->builtin_types.entry_u64);
-    define_builtin_fns_int(g, g->builtin_types.entry_i8);
-    define_builtin_fns_int(g, g->builtin_types.entry_i16);
-    define_builtin_fns_int(g, g->builtin_types.entry_i32);
-    define_builtin_fns_int(g, g->builtin_types.entry_i64);
     {
         BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy");
         builtin_fn->return_type = g->builtin_types.entry_void;
@@ -2524,11 +2468,14 @@ static void define_builtin_fns(CodeGen *g) {
 
         g->memset_fn_val = builtin_fn->fn_val;
     }
-    create_one_arg_builtin_fn(g, BuiltinFnIdSizeof, "sizeof");
-    create_one_arg_builtin_fn(g, BuiltinFnIdMaxValue, "max_value");
-    create_one_arg_builtin_fn(g, BuiltinFnIdMinValue, "min_value");
-    create_one_arg_builtin_fn(g, BuiltinFnIdValueCount, "value_count");
-    create_one_arg_builtin_fn(g, BuiltinFnIdTypeof, "typeof");
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdSizeof, "sizeof", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdMaxValue, "max_value", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdMinValue, "min_value", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdValueCount, "value_count", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdTypeof, "typeof", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdAddWithOverflow, "add_with_overflow", 4);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdSubWithOverflow, "sub_with_overflow", 4);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdMulWithOverflow, "mul_with_overflow", 4);
 }
 
 

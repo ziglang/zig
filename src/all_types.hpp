@@ -630,6 +630,9 @@ struct TypeTableEntryPointer {
 
 struct TypeTableEntryInt {
     bool is_signed;
+    LLVMValueRef add_with_overflow_fn;
+    LLVMValueRef sub_with_overflow_fn;
+    LLVMValueRef mul_with_overflow_fn;
 };
 
 struct TypeTableEntryArray {
@@ -791,7 +794,6 @@ struct FnTableEntry {
 
 enum BuiltinFnId {
     BuiltinFnIdInvalid,
-    BuiltinFnIdArithmeticWithOverflow,
     BuiltinFnIdMemcpy,
     BuiltinFnIdMemset,
     BuiltinFnIdSizeof,
@@ -799,6 +801,9 @@ enum BuiltinFnId {
     BuiltinFnIdMinValue,
     BuiltinFnIdValueCount,
     BuiltinFnIdTypeof,
+    BuiltinFnIdAddWithOverflow,
+    BuiltinFnIdSubWithOverflow,
+    BuiltinFnIdMulWithOverflow,
 };
 
 struct BuiltinFnEntry {
@@ -831,6 +836,7 @@ struct CodeGen {
 
     struct {
         TypeTableEntry *entry_bool;
+        TypeTableEntry *entry_int[2][4]; // [signed,unsigned][8,16,32,64]
         TypeTableEntry *entry_u8;
         TypeTableEntry *entry_u16;
         TypeTableEntry *entry_u32;

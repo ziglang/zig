@@ -61,12 +61,12 @@ pub fn parse_u64(buf: []u8, radix: u8, result: &u64) bool => {
         }
 
         // x *= radix
-        if (@mul_with_overflow_u64(x, radix, &x)) {
+        if (@mul_with_overflow(u64, x, radix, &x)) {
             return true;
         }
 
         // x += digit
-        if (@add_with_overflow_u64(x, digit, &x)) {
+        if (@add_with_overflow(u64, x, digit, &x)) {
             return true;
         }
 

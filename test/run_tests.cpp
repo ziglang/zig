@@ -986,10 +986,10 @@ fn f(c: u8) u8 => {
 use "std.zig";
 pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     var result: u8;
-    if (!@add_with_overflow_u8(250, 100, &result)) {
+    if (!@add_with_overflow(u8, 250, 100, &result)) {
         print_str("BAD\n");
     }
-    if (@add_with_overflow_u8(100, 150, &result)) {
+    if (@add_with_overflow(u8, 100, 150, &result)) {
         print_str("BAD\n");
     }
     if (result != 250) {

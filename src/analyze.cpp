@@ -155,18 +155,7 @@ static TypeTableEntry *get_number_literal_type_unsigned(CodeGen *g, uint64_t x) 
 }
 
 static TypeTableEntry *get_int_type_unsigned(CodeGen *g, uint64_t x) {
-    switch (get_number_literal_kind_unsigned(x)) {
-        case NumLitU8:
-            return g->builtin_types.entry_u8;
-        case NumLitU16:
-            return g->builtin_types.entry_u16;
-        case NumLitU32:
-            return g->builtin_types.entry_u32;
-        case NumLitU64:
-            return g->builtin_types.entry_u64;
-        default:
-            zig_unreachable();
-    }
+    return get_int_type(g, false, num_lit_bit_count(get_number_literal_kind_unsigned(x)));
 }
 
 static TypeTableEntry *get_meta_type(CodeGen *g, TypeTableEntry *child_type) {
@@ -464,7 +453,9 @@ static void eval_const_expr_builtin(CodeGen *g, BlockContext *context, AstNode *
     switch (node->data.fn_call_expr.builtin_fn->id) {
         case BuiltinFnIdInvalid:
             zig_unreachable();
-        case BuiltinFnIdArithmeticWithOverflow:
+        case BuiltinFnIdAddWithOverflow:
+        case BuiltinFnIdSubWithOverflow:
+        case BuiltinFnIdMulWithOverflow:
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
             break;
@@ -2476,18 +2467,36 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             add_node_error(g, node,
                     buf_sprintf("expected %d arguments, got %d",
                         builtin_fn->param_count, actual_param_count));
+            return g->builtin_types.entry_invalid;
         }
 
         switch (builtin_fn->id) {
             case BuiltinFnIdInvalid:
                 zig_unreachable();
-            case BuiltinFnIdArithmeticWithOverflow:
-                for (int i = 0; i < actual_param_count; i += 1) {
-                    AstNode *child = node->data.fn_call_expr.params.at(i);
-                    TypeTableEntry *expected_param_type = builtin_fn->param_types[i];
-                    analyze_expression(g, import, context, expected_param_type, child);
+            case BuiltinFnIdAddWithOverflow:
+            case BuiltinFnIdSubWithOverflow:
+            case BuiltinFnIdMulWithOverflow:
+                {
+                    AstNode *type_node = node->data.fn_call_expr.params.at(0);
+                    TypeTableEntry *int_type = analyze_type_expr(g, import, context, type_node);
+                    if (int_type->id == TypeTableEntryIdInvalid) {
+                        return g->builtin_types.entry_bool;
+                    } else if (int_type->id == TypeTableEntryIdInt) {
+                        AstNode *op1_node = node->data.fn_call_expr.params.at(1);
+                        AstNode *op2_node = node->data.fn_call_expr.params.at(2);
+                        AstNode *result_node = node->data.fn_call_expr.params.at(3);
+
+                        analyze_expression(g, import, context, int_type, op1_node);
+                        analyze_expression(g, import, context, int_type, op2_node);
+                        analyze_expression(g, import, context, get_pointer_to_type(g, int_type, false),
+                                result_node);
+                    } else {
+                        add_node_error(g, type_node,
+                            buf_sprintf("expected integer type, got '%s'", buf_ptr(&int_type->name)));
+                    }
+
+                    return g->builtin_types.entry_bool;
                 }
-                return builtin_fn->return_type;
             case BuiltinFnIdMemcpy:
                 {
                     AstNode *dest_node = node->data.fn_call_expr.params.at(0);
@@ -2796,7 +2805,8 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                 } else if (expr_type->id == TypeTableEntryIdNumberLiteral) {
                     return expr_type;
                 } else {
-                    add_node_error(g, operand_node, buf_sprintf("invalid negation type: '%s'",
+                    BREAKPOINT;
+                    add_node_error(g, node, buf_sprintf("invalid negation type: '%s'",
                             buf_ptr(&expr_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
@@ -3842,3 +3852,22 @@ bool is_node_void_expr(AstNode *node) {
     return false;
 }
 
+TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, int size_in_bits) {
+    int index;
+    if (size_in_bits == 8) {
+        index = 0;
+    } else if (size_in_bits == 16) {
+        index = 1;
+    } else if (size_in_bits == 32) {
+        index = 2;
+    } else if (size_in_bits == 64) {
+        index = 3;
+    } else {
+        zig_unreachable();
+    }
+    return &g->builtin_types.entry_int[is_signed ? 0 : 1][index];
+}
+
+TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, int size_in_bits) {
+    return *get_int_type_ptr(g, is_signed, size_in_bits);
+}

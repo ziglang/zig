@@ -21,5 +21,7 @@ Expr *get_resolved_expr(AstNode *node);
 NumLitCodeGen *get_resolved_num_lit(AstNode *node);
 TopLevelDecl *get_resolved_top_level_decl(AstNode *node);
 bool is_node_void_expr(AstNode *node);
+TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, int size_in_bits);
+TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, int size_in_bits);
 
 #endif
