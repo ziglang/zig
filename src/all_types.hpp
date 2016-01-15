@@ -57,6 +57,21 @@ struct Cast {
     AstNode *source_node;
 };
 
+struct ConstExprValue {
+    bool ok; // true if constant expression evalution worked
+    bool depends_on_compile_var;
+
+    union {
+        uint64_t x_uint;
+        int64_t x_int;
+        double x_float;
+        bool x_bool;
+        FnTableEntry *x_fn;
+        TypeTableEntry *x_type;
+        ConstExprValue *x_maybe;
+    } data;
+};
+
 struct Expr {
     TypeTableEntry *type_entry;
     // the context in which this expression is evaluated.
@@ -66,6 +81,8 @@ struct Expr {
     // may be null for no cast
     Cast implicit_cast; // happens first
     Cast implicit_maybe_cast; // happens second
+
+    ConstExprValue const_val;
 };
 
 struct NumLitCodeGen {
@@ -490,7 +507,6 @@ struct AstNodeNumberLiteral {
 
     union {
         uint64_t x_uint;
-        int64_t x_int;
         double x_float;
     } data;
 
@@ -534,8 +550,6 @@ struct AstNodeSymbolExpr {
     // populated by semantic analyzer
     Expr resolved_expr;
     VariableTableEntry *variable;
-    TypeTableEntry *meta_type;
-    FnTableEntry *fn_entry;
 };
 
 struct AstNodeBoolLiteral {
@@ -670,10 +684,6 @@ struct TypeTableEntryMaybe {
     TypeTableEntry *child_type;
 };
 
-struct TypeTableEntryMetaType {
-    TypeTableEntry *child_type;
-};
-
 struct TypeTableEntryEnum {
     AstNode *decl_node;
     uint32_t field_count;
@@ -731,7 +741,6 @@ struct TypeTableEntry {
         TypeTableEntryNumLit num_lit;
         TypeTableEntryMaybe maybe;
         TypeTableEntryEnum enumeration;
-        TypeTableEntryMetaType meta_type;
         TypeTableEntryFn fn;
     } data;
 
@@ -740,7 +749,6 @@ struct TypeTableEntry {
     TypeTableEntry *unknown_size_array_parent[2];
     HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
     TypeTableEntry *maybe_parent;
-    TypeTableEntry *meta_parent;
 };
 
 struct ImporterInfo {
@@ -852,6 +860,7 @@ struct CodeGen {
         TypeTableEntry *entry_c_string_literal;
         TypeTableEntry *entry_void;
         TypeTableEntry *entry_unreachable;
+        TypeTableEntry *entry_type;
         TypeTableEntry *entry_invalid;
     } builtin_types;
 
@@ -921,24 +930,6 @@ struct BlockContext {
     AstNode *parent_loop_node;
     AstNode *next_child_parent_loop_node;
     LLVMZigDIScope *di_scope;
-};
-
-struct ConstExprValue {
-    bool ok; // true if constant expression evalution worked
-    bool depends_on_compile_var;
-
-    union {
-        uint64_t x_uint;
-        int64_t x_int;
-        double x_float;
-        bool x_bool;
-        FnTableEntry *x_fn;
-        TypeTableEntry *x_type;
-        struct {
-            bool is_null;
-            ConstExprValue *child_val;
-        } x_maybe;
-    } data;
 };
 
 #endif

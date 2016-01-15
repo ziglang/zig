@@ -73,11 +73,13 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType b
         TypeTableEntry *op1_type, TypeTableEntry *op2_type);
 static LLVMValueRef gen_bare_cast(CodeGen *g, AstNode *node, LLVMValueRef expr_val,
         TypeTableEntry *actual_type, TypeTableEntry *wanted_type, Cast *cast_node);
-    
+
 static TypeTableEntry *get_type_for_type_node(AstNode *node) {
-    TypeTableEntry *meta_type_entry = get_resolved_expr(node)->type_entry;
-    assert(meta_type_entry->id == TypeTableEntryIdMetaType);
-    return meta_type_entry->data.meta_type.child_type;
+    Expr *expr = get_resolved_expr(node);
+    assert(expr->type_entry->id == TypeTableEntryIdMetaType);
+    ConstExprValue *const_val = &expr->const_val;
+    assert(const_val->ok);
+    return const_val->data.x_type;
 }
 
 static TypeTableEntry *fn_proto_type_from_type_node(CodeGen *g, AstNode *type_node) {
@@ -434,10 +436,8 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         } else if (struct_type->id == TypeTableEntryIdPointer) {
             assert(struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct);
             fn_table_entry = node->data.fn_call_expr.fn_entry;
-        } else if (struct_type->id == TypeTableEntryIdMetaType &&
-                   struct_type->data.meta_type.child_type->id == TypeTableEntryIdEnum)
-        {
-            TypeTableEntry *enum_type = struct_type->data.meta_type.child_type;
+        } else if (struct_type->id == TypeTableEntryIdMetaType) {
+            TypeTableEntry *enum_type = get_type_for_type_node(first_param_expr);
             int param_count = node->data.fn_call_expr.params.length;
             AstNode *arg1_node;
             if (param_count == 1) {
@@ -681,7 +681,8 @@ static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node, bool is_lva
 static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lvalue) {
     assert(node->type == NodeTypeFieldAccessExpr);
 
-    TypeTableEntry *struct_type = get_expr_type(node->data.field_access_expr.struct_expr);
+    AstNode *struct_expr = node->data.field_access_expr.struct_expr;
+    TypeTableEntry *struct_type = get_expr_type(struct_expr);
     Buf *name = &node->data.field_access_expr.field_name;
 
     if (struct_type->id == TypeTableEntryIdArray) {
@@ -710,14 +711,12 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
             add_debug_source_node(g, node);
             return LLVMBuildLoad(g->builder, ptr, "");
         }
-    } else if (struct_type->id == TypeTableEntryIdMetaType &&
-               struct_type->data.meta_type.child_type->id == TypeTableEntryIdEnum)
-    {
+    } else if (struct_type->id == TypeTableEntryIdMetaType) {
         assert(!is_lvalue);
-        TypeTableEntry *enum_type = struct_type->data.meta_type.child_type;
+        TypeTableEntry *enum_type = get_type_for_type_node(struct_expr);
         return gen_enum_value_expr(g, node, enum_type, nullptr);
     } else {
-        zig_panic("gen_field_access_expr bad struct type");
+        zig_unreachable();
     }
 }
 
@@ -2390,6 +2389,12 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "unreachable");
         entry->di_type = g->builtin_types.entry_void->di_type;
         g->builtin_types.entry_unreachable = entry;
+        g->primitive_type_table.put(&entry->name, entry);
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMetaType);
+        buf_init_from_str(&entry->name, "type");
+        g->builtin_types.entry_type = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
 
