@@ -514,7 +514,7 @@ static LLVMValueRef gen_array_base_ptr(CodeGen *g, AstNode *node) {
         array_ptr = gen_expr(g, node);
     }
 
-    assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
+    assert(!array_ptr || LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
 
     return array_ptr;
 }
@@ -529,6 +529,10 @@ static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
 
     LLVMValueRef subscript_value = gen_expr(g, node->data.array_access_expr.subscript);
     assert(subscript_value);
+
+    if (type_entry->size_in_bits == 0) {
+        return nullptr;
+    }
 
     if (type_entry->id == TypeTableEntryIdArray) {
         LLVMValueRef indices[] = {
@@ -670,7 +674,7 @@ static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node, bool is_lva
 
     LLVMValueRef ptr = gen_array_ptr(g, node);
 
-    if (is_lvalue) {
+    if (is_lvalue || !ptr) {
         return ptr;
     } else {
         add_debug_source_node(g, node);
@@ -1188,6 +1192,10 @@ static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
     TypeTableEntry *op2_type = get_expr_type(node->data.bin_op_expr.op2);
 
     LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
+
+    if (op1_type->size_in_bits == 0) {
+        return nullptr;
+    }
 
     return gen_assign_raw(g, node, node->data.bin_op_expr.bin_op, target_ref, value, op1_type, op2_type);
 }
@@ -1723,7 +1731,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
     if (var_decl->expr) {
         *init_value = gen_expr(g, var_decl->expr);
     }
-    if (variable->type->id == TypeTableEntryIdVoid) {
+    if (variable->type->size_in_bits == 0) {
         return nullptr;
     } else {
         if (var_decl->expr) {
@@ -1788,7 +1796,7 @@ static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
             get_resolved_expr(node)->block_context,
             &node->data.symbol_expr.symbol);
     assert(variable);
-    if (variable->type->id == TypeTableEntryIdVoid) {
+    if (variable->type->size_in_bits == 0) {
         return nullptr;
     } else if (variable->is_ptr) {
         assert(variable->value_ref);
@@ -2122,8 +2130,9 @@ static void do_code_gen(CodeGen *g) {
                     break;
 
                 VariableTableEntry *var = entry->value;
-                if (var->type->id == TypeTableEntryIdVoid)
+                if (var->type->size_in_bits == 0) {
                     continue;
+                }
 
                 unsigned tag;
                 unsigned arg_no;
@@ -2732,7 +2741,9 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
             g->bootstrap_import = add_special_code(g, "bootstrap.zig");
         }
 
-        add_special_code(g, "builtin.zig");
+        if (g->out_type == OutTypeExe) {
+            add_special_code(g, "builtin.zig");
+        }
     }
 
     if (g->verbose) {

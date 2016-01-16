@@ -351,6 +351,25 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
 
     )SOURCE", "OK\n");
 
+    add_simple_case("void arrays", R"SOURCE(
+use "std.zig";
+
+pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+    var array: [4]void;
+    array[0] = void{};
+    array[1] = array[2];
+    if (@sizeof(@typeof(array)) != 0) {
+        print_str("BAD\n");
+    }
+    if (array.len != 4) {
+        print_str("BAD\n");
+    }
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
+
+
     add_simple_case("mutable local variables", R"SOURCE(
 use "std.zig";
 

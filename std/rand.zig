@@ -59,7 +59,7 @@ pub struct Rand {
 
         while (true) {
             r.get_bytes_aligned(rand_val_array);
-            const rand_val = *((&u64)(rand_val_array.ptr));
+            const rand_val = *(&u64)(rand_val_array.ptr);
             if (rand_val < upper_bound) {
                 return start + (rand_val % range);
             }
