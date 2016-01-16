@@ -29,7 +29,7 @@ pub fn main(args: [][]u8) error => {
 }
 
 fn usage(exe: []u8) error => {
-    stderr.print("Usage: {} [FILE]...\n");
+    stderr.print("Usage: {} [FILE]...\n", exe);
     return error.Invalid;
 }
 
