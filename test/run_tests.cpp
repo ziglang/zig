@@ -101,7 +101,7 @@ extern {
     fn puts(s: &const u8) i32;
 }
 
-export fn main(argc: i32, argv: &&u8, env: &&u8) i32 => {
+export fn main(argc: i32, argv: &&u8) i32 => {
     puts(c"Hello, world!");
     return 0;
 }
@@ -114,7 +114,7 @@ import "syscall.zig";
 fn empty_function_1() => {}
 fn empty_function_2() => { return; }
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     empty_function_1();
     empty_function_2();
     this_is_a_function();
@@ -136,7 +136,7 @@ fn another_function() => {}
 
 /// this is a documentation comment
 /// doc comment line 2
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     print_str(/* mid-line comment /* nested */ */ "OK\n");
     return 0;
 }
@@ -147,7 +147,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
 import "std.zig";
 import "foo.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     private_function();
     print_str("OK 2\n");
     return 0;
@@ -178,7 +178,7 @@ pub fn print_text() => {
 import "foo.zig";
 import "bar.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     foo_function();
     bar_function();
     return 0;
@@ -214,7 +214,7 @@ pub fn foo_function() bool => {
     add_simple_case("if statements", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     if (1 != 0) {
         print_str("1 is true\n");
     } else {
@@ -239,7 +239,7 @@ fn add(a: i32, b: i32) i32 => {
     a + b
 }
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     if (add(22, 11) == 33) {
         print_str("pass\n");
     }
@@ -261,7 +261,7 @@ done:
     return;
 }
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     loop(3);
     return 0;
 }
@@ -270,7 +270,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     add_simple_case("local variables", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     const a : i32 = 1;
     const b = i32(2);
     if (a + b == 3) {
@@ -283,7 +283,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     add_simple_case("bool literals", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     if (true)   { print_str("OK 1\n"); }
     if (false)  { print_str("BAD 1\n"); }
     if (!true)  { print_str("BAD 2\n"); }
@@ -295,7 +295,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     add_simple_case("separate block scopes", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     if (true) {
         const no_conflict : i32 = 5;
         if (no_conflict == 5) { print_str("OK 1\n"); }
@@ -313,7 +313,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     add_simple_case("void parameters", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     void_fun(1, void{}, 2);
     return 0;
 }
@@ -333,7 +333,7 @@ struct Foo {
     b : i32,
     c : void,
 }
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     const foo = Foo {
         .a = void{},
         .b = 1,
@@ -354,7 +354,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     add_simple_case("void arrays", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var array: [4]void;
     array[0] = void{};
     array[1] = array[2];
@@ -373,7 +373,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     add_simple_case("mutable local variables", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var zero : i32 = 0;
     if (zero == 0) { print_str("zero\n"); }
 
@@ -393,7 +393,7 @@ done:
     add_simple_case("arrays", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var array : [5]u32;
 
     var i : u32 = 0;
@@ -429,7 +429,7 @@ fn get_array_len(a: []u32) usize => {
     add_simple_case("hello world without libc", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     print_str("Hello, world!\n");
     return 0;
 }
@@ -439,7 +439,7 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
     add_simple_case("a + b + c", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     if (false || false || false) { print_str("BAD 1\n"); }
     if (true && true && false)   { print_str("BAD 2\n"); }
     if (1 | 2 | 4 != 7)          { print_str("BAD 3\n"); }
@@ -461,7 +461,7 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
     add_simple_case("short circuit", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     if (true || { print_str("BAD 1\n"); false }) {
       print_str("OK 1\n");
     }
@@ -484,7 +484,7 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
     add_simple_case("modify operators", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var i : i32 = 0;
     i += 5;  if (i != 5)  { print_str("BAD +=\n"); }
     i -= 2;  if (i != 3)  { print_str("BAD -=\n"); }
@@ -510,7 +510,7 @@ extern {
     fn printf(__format: &const u8, ...) i32;
 }
 
-export fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+export fn main(argc: i32, argv: &&u8) i32 => {
     printf(c"\n");
 
     printf(c"0: %llu\n",
@@ -636,7 +636,7 @@ export fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
     add_simple_case("structs", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var foo : Foo;
     @memset(&foo, 0, @sizeof(Foo));
     foo.a += 1;
@@ -711,7 +711,7 @@ import "std.zig";
 const g1 : i32 = 1233 + 1;
 var g2 : i32 = 0;
 
-pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     if (g2 != 0) { print_str("BAD\n"); }
     g2 = g1;
     if (g2 != 1234) { print_str("BAD\n"); }
@@ -722,7 +722,7 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
 
     add_simple_case("while loop", R"SOURCE(
 import "std.zig";
-pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var i : i32 = 0;
     while (i < 4) {
         print_str("loop\n");
@@ -739,7 +739,7 @@ fn f() i32 => {
 
     add_simple_case("continue and break", R"SOURCE(
 import "std.zig";
-pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var i : i32 = 0;
     while (true) {
         print_str("loop\n");
@@ -755,7 +755,7 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
 
     add_simple_case("maybe type", R"SOURCE(
 import "std.zig";
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     const x : ?bool = true;
 
     if (const y ?= x) {
@@ -790,7 +790,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
 
     add_simple_case("implicit cast after unreachable", R"SOURCE(
 import "std.zig";
-pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     const x = outer();
     if (x == 1234) {
         print_str("OK\n");
@@ -807,7 +807,7 @@ fn outer() isize => {
 import "std.zig";
 const x: u16 = 13;
 const z: @typeof(x) = 19;
-pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     const y: @typeof(x) = 120;
     print_u64(@sizeof(@typeof(y)));
     print_str("\n");
@@ -823,7 +823,7 @@ struct Rand {
         r.seed
     }
 }
-pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     const r = Rand {.seed = 1234};
     if (r.get_seed() != 1234) {
         print_str("BAD seed\n");
@@ -836,7 +836,7 @@ pub fn main(argc : isize, argv : &&u8, env : &&u8) i32 => {
     add_simple_case("pointer dereferencing", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var x = i32(3);
     const y = &x;
 
@@ -858,7 +858,7 @@ import "std.zig";
 
 const ARRAY_SIZE : u8 = 20;
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var array : [ARRAY_SIZE]u8;
     print_u64(@sizeof(@typeof(array)));
     print_str("\n");
@@ -868,7 +868,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
 
     add_simple_case("#min_value() and #max_value()", R"SOURCE(
 import "std.zig";
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     print_str("max u8: ");
     print_u64(@max_value(u8));
     print_str("\n");
@@ -956,7 +956,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
 
     add_simple_case("slicing", R"SOURCE(
 import "std.zig";
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var array : [20]i32;
 
     array[5] = 1234;
@@ -984,7 +984,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
 
     add_simple_case("else if expression", R"SOURCE(
 import "std.zig";
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     if (f(1) == 1) {
         print_str("OK\n");
     }
@@ -1003,7 +1003,7 @@ fn f(c: u8) u8 => {
 
     add_simple_case("overflow intrinsics", R"SOURCE(
 import "std.zig";
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var result: u8;
     if (!@add_with_overflow(u8, 250, 100, &result)) {
         print_str("BAD\n");
@@ -1021,7 +1021,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
 
     add_simple_case("memcpy and memset intrinsics", R"SOURCE(
 import "std.zig";
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     var foo : [20]u8;
     var bar : [20]u8;
 
@@ -1042,7 +1042,7 @@ import "std.zig";
 const z : @typeof(stdin_fileno) = 0;
 const x : @typeof(y) = 1234;
 const y : u16 = 5678;
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     print_ok(x)
 }
 fn print_ok(val: @typeof(x)) @typeof(foo) => {
@@ -1073,7 +1073,7 @@ enum Bar {
     D,
 }
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     const foo1 = Foo.One(13);
     const foo2 = Foo.Two(Point { .x = 1234, .y = 5678, });
     const bar = Bar.B;
@@ -1106,7 +1106,7 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     add_simple_case("array literal", R"SOURCE(
 import "std.zig";
 
-pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+pub fn main(args: [][]u8) i32 => {
     const HEX_MULT = []u16{4096, 256, 16, 1};
 
     if (HEX_MULT.len != 4) {
@@ -1442,6 +1442,10 @@ fn f(noalias x: i32) => {}
     add_compile_fail_case("struct init syntax for array", R"SOURCE(
 const foo = []u16{.x = 1024,};
     )SOURCE", 1, ".tmp_source.zig:2:18: error: type '[]u16' does not support struct initialization syntax");
+
+    add_compile_fail_case("type variables must be constant", R"SOURCE(
+var foo = u8;
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: variable of type 'type' must be constant");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

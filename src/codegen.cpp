@@ -636,7 +636,19 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
 
         return tmp_struct_ptr;
     } else if (array_type->id == TypeTableEntryIdPointer) {
-        zig_panic("TODO gen_slice_expr pointer");
+        LLVMValueRef start_val = gen_expr(g, node->data.slice_expr.start);
+        LLVMValueRef end_val = gen_expr(g, node->data.slice_expr.end);
+
+        add_debug_source_node(g, node);
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 0, "");
+        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, &start_val, 1, "");
+        LLVMBuildStore(g->builder, slice_start_ptr, ptr_field_ptr);
+
+        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 1, "");
+        LLVMValueRef len_value = LLVMBuildSub(g->builder, end_val, start_val, "");
+        LLVMBuildStore(g->builder, len_value, len_field_ptr);
+
+        return tmp_struct_ptr;
     } else if (array_type->id == TypeTableEntryIdStruct) {
         assert(array_type->data.structure.is_unknown_size_array);
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
@@ -1767,25 +1779,62 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
             }
             gen_assign_raw(g, var_decl->expr, BinOpTypeAssign, variable->value_ref,
                     value, variable->type, expr_type);
-        } else if (g->build_type != CodeGenBuildTypeRelease) {
-            // memset uninitialized memory to 0xa
-            add_debug_source_node(g, source_node);
-            LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-            LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
-            LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, variable->value_ref, ptr_u8, "");
-            LLVMValueRef byte_count = LLVMConstInt(LLVMIntType(g->pointer_size_bytes * 8),
-                    variable->type->size_in_bits / 8, false);
-            LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(),
-                    variable->type->align_in_bits / 8, false);
-            LLVMValueRef params[] = {
-                dest_ptr,
-                fill_char,
-                byte_count,
-                align_in_bytes,
-                LLVMConstNull(LLVMInt1Type()), // is volatile
-            };
+        } else {
+            bool ignore_uninit = false;
+            TypeTableEntry *var_type = get_type_for_type_node(var_decl->type);
+            if (var_type->id == TypeTableEntryIdStruct &&
+                var_type->data.structure.is_unknown_size_array)
+            {
+                assert(var_decl->type->type == NodeTypeArrayType);
+                AstNode *size_node = var_decl->type->data.array_type.size;
+                if (size_node) {
+                    ConstExprValue *const_val = &get_resolved_expr(size_node)->const_val;
+                    if (!const_val->ok) {
+                        TypeTableEntry *ptr_type = var_type->data.structure.fields[0].type_entry;
+                        assert(ptr_type->id == TypeTableEntryIdPointer);
+                        TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
 
-            LLVMBuildCall(g->builder, g->memset_fn_val, params, 5, "");
+                        LLVMValueRef size_val = gen_expr(g, size_node);
+
+                        add_debug_source_node(g, source_node);
+                        LLVMValueRef ptr_val = LLVMBuildArrayAlloca(g->builder, child_type->type_ref,
+                                size_val, "");
+
+                        // store the freshly allocated pointer in the unknown size array struct
+                        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder,
+                                variable->value_ref, 0, "");
+                        LLVMBuildStore(g->builder, ptr_val, ptr_field_ptr);
+
+                        // store the size in the len field
+                        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder,
+                                variable->value_ref, 1, "");
+                        LLVMBuildStore(g->builder, size_val, len_field_ptr);
+
+                        // don't clobber what we just did with debug initialization
+                        ignore_uninit = true;
+                    }
+                }
+            }
+            if (!ignore_uninit && g->build_type != CodeGenBuildTypeRelease) {
+                // memset uninitialized memory to 0xa
+                add_debug_source_node(g, source_node);
+                LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+                LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
+                LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, variable->value_ref, ptr_u8, "");
+                LLVMValueRef byte_count = LLVMConstInt(LLVMIntType(g->pointer_size_bytes * 8),
+                        variable->type->size_in_bits / 8, false);
+                LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(),
+                        variable->type->align_in_bits / 8, false);
+                LLVMValueRef params[] = {
+                    dest_ptr,
+                    fill_char,
+                    byte_count,
+                    align_in_bytes,
+                    LLVMConstNull(LLVMInt1Type()), // is volatile
+                };
+
+                LLVMBuildCall(g->builder, g->memset_fn_val, params, 5, "");
+            }
         }
 
         LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(source_node->line + 1, source_node->column + 1,
@@ -2592,6 +2641,30 @@ static bool directives_contains_link_libc(ZigList<AstNode*> *directives) {
     return false;
 }
 
+static int parse_version_string(Buf *buf, int *major, int *minor, int *patch) {
+    char *dot1 = strstr(buf_ptr(buf), ".");
+    if (!dot1)
+        return ErrorInvalidFormat;
+    char *dot2 = strstr(dot1 + 1, ".");
+    if (!dot2)
+        return ErrorInvalidFormat;
+
+    *major = (int)strtol(buf_ptr(buf), nullptr, 10);
+    *minor = (int)strtol(dot1 + 1, nullptr, 10);
+    *patch = (int)strtol(dot2 + 1, nullptr, 10);
+
+    return ErrorNone;
+}
+
+static void set_root_export_version(CodeGen *g, Buf *version_buf, AstNode *node) {
+    int err;
+    if ((err = parse_version_string(version_buf, &g->version_major, &g->version_minor, &g->version_patch))) {
+        add_node_error(g, node,
+                buf_sprintf("invalid version string"));
+    }
+}
+
+
 static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
         Buf *src_dirname, Buf *src_basename, Buf *source_code)
 {
@@ -2657,7 +2730,50 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
     for (int decl_i = 0; decl_i < import_entry->root->data.root.top_level_decls.length; decl_i += 1) {
         AstNode *top_level_decl = import_entry->root->data.root.top_level_decls.at(decl_i);
 
-        if (top_level_decl->type == NodeTypeUse) {
+        if (top_level_decl->type == NodeTypeRootExportDecl) {
+            if (g->root_import) {
+                add_node_error(g, top_level_decl,
+                        buf_sprintf("root export declaration only valid in root source file"));
+            } else {
+                for (int i = 0; i < top_level_decl->data.root_export_decl.directives->length; i += 1) {
+                    AstNode *directive_node = top_level_decl->data.root_export_decl.directives->at(i);
+                    Buf *name = &directive_node->data.directive.name;
+                    Buf *param = &directive_node->data.directive.param;
+                    if (buf_eql_str(name, "version")) {
+                        set_root_export_version(g, param, directive_node);
+                    } else {
+                        add_node_error(g, directive_node,
+                                buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+                    }
+                }
+
+                if (g->root_export_decl) {
+                    add_node_error(g, top_level_decl,
+                            buf_sprintf("only one root export declaration allowed"));
+                } else {
+                    g->root_export_decl = top_level_decl;
+
+                    if (!g->root_out_name)
+                        g->root_out_name = &top_level_decl->data.root_export_decl.name;
+
+                    Buf *out_type = &top_level_decl->data.root_export_decl.type;
+                    OutType export_out_type;
+                    if (buf_eql_str(out_type, "executable")) {
+                        export_out_type = OutTypeExe;
+                    } else if (buf_eql_str(out_type, "library")) {
+                        export_out_type = OutTypeLib;
+                    } else if (buf_eql_str(out_type, "object")) {
+                        export_out_type = OutTypeObj;
+                    } else {
+                        add_node_error(g, top_level_decl,
+                                buf_sprintf("invalid export type: '%s'", buf_ptr(out_type)));
+                    }
+                    if (g->out_type == OutTypeUnknown) {
+                        g->out_type = export_out_type;
+                    }
+                }
+            }
+        } else if (top_level_decl->type == NodeTypeUse) {
             Buf *import_target_path = &top_level_decl->data.use.path;
             Buf full_path = BUF_INIT;
             Buf *import_code = buf_alloc();
@@ -2756,8 +2872,16 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
 
     g->root_import = codegen_add_code(g, abs_full_path, src_dir, src_basename, source_code);
 
+    if (!g->root_out_name) {
+        add_node_error(g, g->root_import->root,
+                buf_sprintf("missing export declaration and output name not provided"));
+    } else if (g->out_type == OutTypeUnknown) {
+        add_node_error(g, g->root_import->root,
+                buf_sprintf("missing export declaration and export type not provided"));
+    }
+
     if (!g->link_libc) {
-        if (g->have_exported_main && g->out_type != OutTypeLib) {
+        if (g->have_exported_main && (g->out_type == OutTypeObj || g->out_type == OutTypeExe)) {
             g->bootstrap_import = add_special_code(g, "bootstrap.zig");
         }
 

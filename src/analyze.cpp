@@ -64,7 +64,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeArrayType:
             return node;
     }
-    zig_panic("unreachable");
+    zig_unreachable();
 }
 
 void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
@@ -79,29 +79,6 @@ void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     err->line_offsets = node->owner->line_offsets;
 
     g->errors.append(err);
-}
-
-static int parse_version_string(Buf *buf, int *major, int *minor, int *patch) {
-    char *dot1 = strstr(buf_ptr(buf), ".");
-    if (!dot1)
-        return ErrorInvalidFormat;
-    char *dot2 = strstr(dot1 + 1, ".");
-    if (!dot2)
-        return ErrorInvalidFormat;
-
-    *major = (int)strtol(buf_ptr(buf), nullptr, 10);
-    *minor = (int)strtol(dot1 + 1, nullptr, 10);
-    *patch = (int)strtol(dot2 + 1, nullptr, 10);
-
-    return ErrorNone;
-}
-
-static void set_root_export_version(CodeGen *g, Buf *version_buf, AstNode *node) {
-    int err;
-    if ((err = parse_version_string(version_buf, &g->version_major, &g->version_minor, &g->version_patch))) {
-        add_node_error(g, node,
-                buf_sprintf("invalid version string"));
-    }
 }
 
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
@@ -258,9 +235,7 @@ static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, ui
     }
 }
 
-static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, ImportTableEntry *import,
-        TypeTableEntry *child_type, bool is_const)
-{
+static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
     assert(child_type->id != TypeTableEntryIdInvalid);
     TypeTableEntry **parent_pointer = &child_type->unknown_size_array_parent[(is_const ? 1 : 0)];
     if (*parent_pointer) {
@@ -268,8 +243,9 @@ static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, ImportTableEntry 
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
 
+        const char *const_str = is_const ? "const " : "";
         buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "[]%s", buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "[]%s%s", const_str, buf_ptr(&child_type->name));
         entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&entry->name));
 
         TypeTableEntry *pointer_type = get_pointer_to_type(g, child_type, is_const);
@@ -818,47 +794,7 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
             preview_fn_proto(g, import, node);
             break;
         case NodeTypeRootExportDecl:
-            if (import == g->root_import) {
-                for (int i = 0; i < node->data.root_export_decl.directives->length; i += 1) {
-                    AstNode *directive_node = node->data.root_export_decl.directives->at(i);
-                    Buf *name = &directive_node->data.directive.name;
-                    Buf *param = &directive_node->data.directive.param;
-                    if (buf_eql_str(name, "version")) {
-                        set_root_export_version(g, param, directive_node);
-                    } else {
-                        add_node_error(g, directive_node,
-                                buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
-                    }
-                }
-
-                if (g->root_export_decl) {
-                    add_node_error(g, node,
-                            buf_sprintf("only one root export declaration allowed"));
-                } else {
-                    g->root_export_decl = node;
-
-                    if (!g->root_out_name)
-                        g->root_out_name = &node->data.root_export_decl.name;
-
-                    Buf *out_type = &node->data.root_export_decl.type;
-                    OutType export_out_type;
-                    if (buf_eql_str(out_type, "executable")) {
-                        export_out_type = OutTypeExe;
-                    } else if (buf_eql_str(out_type, "library")) {
-                        export_out_type = OutTypeLib;
-                    } else if (buf_eql_str(out_type, "object")) {
-                        export_out_type = OutTypeObj;
-                    } else {
-                        add_node_error(g, node,
-                                buf_sprintf("invalid export type: '%s'", buf_ptr(out_type)));
-                    }
-                    if (g->out_type == OutTypeUnknown)
-                        g->out_type = export_out_type;
-                }
-            } else {
-                add_node_error(g, node,
-                        buf_sprintf("root export declaration only valid in root source file"));
-            }
+            // handled earlier
             break;
         case NodeTypeStructDecl:
             {
@@ -1126,7 +1062,7 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
     if (expected_type->id == TypeTableEntryIdInt &&
         actual_type->id == TypeTableEntryIdInt &&
         expected_type->data.integral.is_signed == actual_type->data.integral.is_signed &&
-        expected_type->size_in_bits > actual_type->size_in_bits)
+        expected_type->size_in_bits >= actual_type->size_in_bits)
     {
         Expr *expr = get_resolved_expr(node);
         expr->implicit_cast.after_type = expected_type;
@@ -1149,7 +1085,7 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
         return expected_type;
     }
 
-    // implicit non-const to const and ignore noalias
+    // implicit non-const to const for pointers
     if (expected_type->id == TypeTableEntryIdPointer &&
         actual_type->id == TypeTableEntryIdPointer &&
         (!actual_type->data.pointer.is_const || expected_type->data.pointer.is_const))
@@ -1157,6 +1093,23 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
         TypeTableEntry *resolved_type = resolve_type_compatibility(g, context, node,
                 expected_type->data.pointer.child_type,
                 actual_type->data.pointer.child_type);
+        if (resolved_type->id == TypeTableEntryIdInvalid) {
+            return resolved_type;
+        }
+        return expected_type;
+    }
+
+    // implicit non-const to const for unknown size arrays
+    if (expected_type->id == TypeTableEntryIdStruct &&
+        actual_type->id == TypeTableEntryIdStruct &&
+        expected_type->data.structure.is_unknown_size_array &&
+        actual_type->data.structure.is_unknown_size_array &&
+        (!actual_type->data.structure.fields[0].type_entry->data.pointer.is_const ||
+          expected_type->data.structure.fields[0].type_entry->data.pointer.is_const))
+    {
+        TypeTableEntry *resolved_type = resolve_type_compatibility(g, context, node,
+                expected_type->data.structure.fields[0].type_entry->data.pointer.child_type,
+                actual_type->data.structure.fields[0].type_entry->data.pointer.child_type);
         if (resolved_type->id == TypeTableEntryIdInvalid) {
             return resolved_type;
         }
@@ -1511,15 +1464,15 @@ static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, 
     if (array_type->id == TypeTableEntryIdInvalid) {
         return_type = g->builtin_types.entry_invalid;
     } else if (array_type->id == TypeTableEntryIdArray) {
-        return_type = get_unknown_size_array_type(g, import, array_type->data.array.child_type,
+        return_type = get_unknown_size_array_type(g, array_type->data.array.child_type,
                 node->data.slice_expr.is_const);
     } else if (array_type->id == TypeTableEntryIdPointer) {
-        return_type = get_unknown_size_array_type(g, import, array_type->data.pointer.child_type,
+        return_type = get_unknown_size_array_type(g, array_type->data.pointer.child_type,
                 node->data.slice_expr.is_const);
     } else if (array_type->id == TypeTableEntryIdStruct &&
                array_type->data.structure.is_unknown_size_array)
     {
-        return_type = get_unknown_size_array_type(g, import,
+        return_type = get_unknown_size_array_type(g,
                 array_type->data.structure.fields[0].type_entry->data.pointer.child_type,
                 node->data.slice_expr.is_const);
     } else {
@@ -2045,6 +1998,11 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
             add_node_error(g, source_node,
                 buf_sprintf("unable to infer variable type"));
             implicit_type = g->builtin_types.entry_invalid;
+        } else if (implicit_type->id == TypeTableEntryIdMetaType &&
+                   !variable_declaration->is_const)
+        {
+            add_node_error(g, source_node, buf_sprintf("variable of type 'type' must be constant"));
+            implicit_type = g->builtin_types.entry_invalid;
         }
     }
 
@@ -2175,12 +2133,12 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
             return resolve_expr_const_val_as_type(g, node,
                     get_array_type(g, child_type, const_val->data.x_uint));
         } else {
-            add_node_error(g, size_node, buf_create_from_str("unable to resolve constant expression"));
-            return g->builtin_types.entry_invalid;
+            return resolve_expr_const_val_as_type(g, node,
+                    get_unknown_size_array_type(g, child_type, node->data.array_type.is_const));
         }
     } else {
         return resolve_expr_const_val_as_type(g, node,
-                get_unknown_size_array_type(g, import, child_type, node->data.array_type.is_const));
+                get_unknown_size_array_type(g, child_type, node->data.array_type.is_const));
     }
 }
 
@@ -2587,7 +2545,6 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     return resolve_expr_const_val_as_type(g, node, type_entry);
                 }
             }
-
     }
     zig_unreachable();
 }
@@ -3676,14 +3633,6 @@ void semantic_analyze(CodeGen *g) {
             ImportTableEntry *import = entry->value;
             analyze_top_level_decls_root(g, import, import->root);
         }
-    }
-
-    if (!g->root_out_name) {
-        add_node_error(g, g->root_import->root,
-                buf_sprintf("missing export declaration and output name not provided"));
-    } else if (g->out_type == OutTypeUnknown) {
-        add_node_error(g, g->root_import->root,
-                buf_sprintf("missing export declaration and export type not provided"));
     }
 }
 

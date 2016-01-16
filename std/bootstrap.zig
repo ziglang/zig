@@ -3,18 +3,28 @@ import "syscall.zig";
 // The compiler treats this file special by implicitly importing the function `main`
 // from the root source file.
 
+var argc: usize;
+var argv: &&u8;
 var env: &&u8;
 
 #attribute("naked")
 export fn _start() unreachable => {
-    const argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> isize));
-    const argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));
+    argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> usize));
+    argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));
     env = asm("lea 0x10(%%rsp,%%rdi,8), %[env]": [env] "=r" (-> &&u8));
+    call_main()
+}
 
-    exit(main(argc, argv, env));
+fn strlen(ptr: &u8) usize => {
+    var count: usize = 0;
+    while (ptr[count] != 0) {
+        count += 1;
+    }
+    return count;
+}
 
-/*
-    var args = @alloca_array([]u8, argc);
+fn call_main() unreachable => {
+    var args: [argc][]u8;
     var i : @typeof(argc) = 0;
     // TODO for in loop over the array
     while (i < argc) {
@@ -23,15 +33,4 @@ export fn _start() unreachable => {
         i += 1;
     }
     exit(main(args))
-    */
 }
-
-/*
-fn strlen(ptr: &u8) isize => {
-    var count: isize = 0;
-    while (ptr[count]) {
-        count += 1;
-    }
-    return count;
-}
-*/
