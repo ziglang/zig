@@ -1132,7 +1132,8 @@ static LLVMValueRef gen_struct_memcpy(CodeGen *g, AstNode *source_node, LLVMValu
 {
     assert(type_entry->id == TypeTableEntryIdStruct ||
             type_entry->id == TypeTableEntryIdMaybe ||
-            (type_entry->id == TypeTableEntryIdEnum && type_entry->data.enumeration.gen_field_count != 0));
+            (type_entry->id == TypeTableEntryIdEnum && type_entry->data.enumeration.gen_field_count != 0) ||
+            type_entry->id == TypeTableEntryIdArray);
 
     LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
 
@@ -1157,11 +1158,9 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType b
 {
     if (op1_type->id == TypeTableEntryIdStruct ||
         (op1_type->id == TypeTableEntryIdEnum && op1_type->data.enumeration.gen_field_count != 0) ||
-        op1_type->id == TypeTableEntryIdMaybe)
+        op1_type->id == TypeTableEntryIdMaybe ||
+        op1_type->id == TypeTableEntryIdArray)
     {
-        assert(op2_type->id == TypeTableEntryIdStruct ||
-                (op2_type->id == TypeTableEntryIdEnum && op2_type->data.enumeration.gen_field_count != 0) ||
-                op2_type->id == TypeTableEntryIdMaybe);
         assert(op1_type == op2_type);
         assert(bin_op == BinOpTypeAssign);
 
@@ -1633,6 +1632,27 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
     } else if (type_entry->id == TypeTableEntryIdVoid) {
         assert(node->data.container_init_expr.entries.length == 0);
         return nullptr;
+    } else if (type_entry->id == TypeTableEntryIdArray) {
+        StructValExprCodeGen *struct_val_expr_node = &node->data.container_init_expr.resolved_struct_val_expr;
+        LLVMValueRef tmp_array_ptr = struct_val_expr_node->ptr;
+
+        int field_count = type_entry->data.array.len;
+        assert(field_count == node->data.container_init_expr.entries.length);
+
+        for (int i = 0; i < field_count; i += 1) {
+            AstNode *field_node = node->data.container_init_expr.entries.at(i);
+            LLVMValueRef elem_val = gen_expr(g, field_node);
+
+            LLVMValueRef indices[] = {
+                LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+                LLVMConstInt(g->builtin_types.entry_usize->type_ref, i, false),
+            };
+            add_debug_source_node(g, field_node);
+            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, tmp_array_ptr, indices, 2, "");
+            LLVMBuildStore(g->builder, elem_val, elem_ptr);
+        }
+
+        return tmp_array_ptr;
     } else {
         zig_unreachable();
     }

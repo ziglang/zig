@@ -1102,6 +1102,25 @@ pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     return 0;
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("array literal", R"SOURCE(
+import "std.zig";
+
+pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
+    const HEX_MULT = []u16{4096, 256, 16, 1};
+
+    if (HEX_MULT.len != 4) {
+        print_str("BAD\n");
+    }
+
+    if (HEX_MULT[1] != 256) {
+        print_str("BAD\n");
+    }
+
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
 }
 
 

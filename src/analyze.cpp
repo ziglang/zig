@@ -233,8 +233,7 @@ static TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
     }
 }
 
-static TypeTableEntry *get_array_type(CodeGen *g, ImportTableEntry *import,
-        TypeTableEntry *child_type, uint64_t array_size)
+static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size)
 {
     auto existing_entry = child_type->arrays_by_size.maybe_get(array_size);
     if (existing_entry) {
@@ -1389,6 +1388,29 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
             }
         }
         return container_type;
+    } else if (container_type->id == TypeTableEntryIdStruct &&
+               container_type->data.structure.is_unknown_size_array &&
+               kind == ContainerInitKindArray)
+    {
+        int elem_count = container_init_expr->entries.length;
+
+        TypeTableEntry *pointer_type = container_type->data.structure.fields[0].type_entry;
+        assert(pointer_type->id == TypeTableEntryIdPointer);
+        TypeTableEntry *child_type = pointer_type->data.pointer.child_type;
+
+        for (int i = 0; i < elem_count; i += 1) {
+            AstNode *elem_node = container_init_expr->entries.at(i);
+            analyze_expression(g, import, context, child_type, elem_node);
+        }
+
+        TypeTableEntry *fixed_size_array_type = get_array_type(g, child_type, elem_count);
+
+        StructValExprCodeGen *codegen = &container_init_expr->resolved_struct_val_expr;
+        codegen->type_entry = fixed_size_array_type;
+        codegen->source_node = node;
+        context->struct_val_expr_alloca_list.append(codegen);
+
+        return fixed_size_array_type;
     } else if (container_type->id == TypeTableEntryIdArray) {
         zig_panic("TODO array container init");
         return container_type;
@@ -2151,7 +2173,7 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
         ConstExprValue *const_val = &get_resolved_expr(size_node)->const_val;
         if (const_val->ok) {
             return resolve_expr_const_val_as_type(g, node,
-                    get_array_type(g, import, child_type, const_val->data.x_uint));
+                    get_array_type(g, child_type, const_val->data.x_uint));
         } else {
             add_node_error(g, size_node, buf_create_from_str("unable to resolve constant expression"));
             return g->builtin_types.entry_invalid;
@@ -2986,7 +3008,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             if (node->data.string_literal.c) {
                 return_type = g->builtin_types.entry_c_string_literal;
             } else {
-                return_type = get_array_type(g, import, g->builtin_types.entry_u8,
+                return_type = get_array_type(g, g->builtin_types.entry_u8,
                         buf_len(&node->data.string_literal.buf));
             }
             break;
