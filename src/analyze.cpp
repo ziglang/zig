@@ -1318,6 +1318,16 @@ static TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *
     return nullptr;
 }
 
+static const char *err_container_init_syntax_name(ContainerInitKind kind) {
+    switch (kind) {
+        case ContainerInitKindStruct:
+            return "struct";
+        case ContainerInitKindArray:
+            return "array";
+    }
+    zig_unreachable();
+}
+
 static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         AstNode *node)
 {
@@ -1331,60 +1341,51 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
 
     if (container_type->id == TypeTableEntryIdInvalid) {
         return container_type;
-    } else if (container_type->id == TypeTableEntryIdStruct) {
-        switch (kind) {
-            case ContainerInitKindStruct:
-                {
-                    StructValExprCodeGen *codegen = &container_init_expr->resolved_struct_val_expr;
-                    codegen->type_entry = container_type;
-                    codegen->source_node = node;
-                    context->struct_val_expr_alloca_list.append(codegen);
+    } else if (container_type->id == TypeTableEntryIdStruct &&
+               kind == ContainerInitKindStruct)
+    {
+        StructValExprCodeGen *codegen = &container_init_expr->resolved_struct_val_expr;
+        codegen->type_entry = container_type;
+        codegen->source_node = node;
+        context->struct_val_expr_alloca_list.append(codegen);
 
 
-                    int expr_field_count = container_init_expr->entries.length;
-                    int actual_field_count = container_type->data.structure.field_count;
+        int expr_field_count = container_init_expr->entries.length;
+        int actual_field_count = container_type->data.structure.field_count;
 
-                    int *field_use_counts = allocate<int>(actual_field_count);
-                    for (int i = 0; i < expr_field_count; i += 1) {
-                        AstNode *val_field_node = container_init_expr->entries.at(i);
-                        assert(val_field_node->type == NodeTypeStructValueField);
+        int *field_use_counts = allocate<int>(actual_field_count);
+        for (int i = 0; i < expr_field_count; i += 1) {
+            AstNode *val_field_node = container_init_expr->entries.at(i);
+            assert(val_field_node->type == NodeTypeStructValueField);
 
-                        int field_index;
-                        TypeStructField *type_field = find_struct_type_field(container_type,
-                                &val_field_node->data.struct_val_field.name, &field_index);
+            int field_index;
+            TypeStructField *type_field = find_struct_type_field(container_type,
+                    &val_field_node->data.struct_val_field.name, &field_index);
 
-                        if (!type_field) {
-                            add_node_error(g, val_field_node,
-                                buf_sprintf("no member named '%s' in '%s'",
-                                    buf_ptr(&val_field_node->data.struct_val_field.name), buf_ptr(&container_type->name)));
-                            continue;
-                        }
+            if (!type_field) {
+                add_node_error(g, val_field_node,
+                    buf_sprintf("no member named '%s' in '%s'",
+                        buf_ptr(&val_field_node->data.struct_val_field.name), buf_ptr(&container_type->name)));
+                continue;
+            }
 
-                        field_use_counts[field_index] += 1;
-                        if (field_use_counts[field_index] > 1) {
-                            add_node_error(g, val_field_node, buf_sprintf("duplicate field"));
-                            continue;
-                        }
+            field_use_counts[field_index] += 1;
+            if (field_use_counts[field_index] > 1) {
+                add_node_error(g, val_field_node, buf_sprintf("duplicate field"));
+                continue;
+            }
 
-                        val_field_node->data.struct_val_field.type_struct_field = type_field;
+            val_field_node->data.struct_val_field.type_struct_field = type_field;
 
-                        analyze_expression(g, import, context, type_field->type_entry,
-                                val_field_node->data.struct_val_field.expr);
-                    }
+            analyze_expression(g, import, context, type_field->type_entry,
+                    val_field_node->data.struct_val_field.expr);
+        }
 
-                    for (int i = 0; i < actual_field_count; i += 1) {
-                        if (field_use_counts[i] == 0) {
-                            add_node_error(g, node,
-                                buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i].name)));
-                        }
-                    }
-                    break;
-                }
-            case ContainerInitKindArray:
+        for (int i = 0; i < actual_field_count; i += 1) {
+            if (field_use_counts[i] == 0) {
                 add_node_error(g, node,
-                    buf_sprintf("struct '%s' does not support array initialization syntax",
-                        buf_ptr(&container_type->name)));
-                break;
+                    buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i].name)));
+            }
         }
         return container_type;
     } else if (container_type->id == TypeTableEntryIdArray) {
@@ -1409,7 +1410,8 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
         }
     } else {
         add_node_error(g, node,
-            buf_sprintf("type '%s' does not support initialization syntax", buf_ptr(&container_type->name)));
+            buf_sprintf("type '%s' does not support %s syntax",
+                buf_ptr(&container_type->name), err_container_init_syntax_name(kind)));
         return g->builtin_types.entry_invalid;
     }
 }

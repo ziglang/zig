@@ -1423,6 +1423,7 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, int *token_index, 
 
             Token *token = &pc->tokens->at(*token_index);
             if (token->id == TokenIdDot) {
+                node->data.container_init_expr.kind = ContainerInitKindStruct;
                 for (;;) {
                     if (token->id == TokenIdDot) {
                         ast_eat_token(pc, token_index, TokenIdDot);
@@ -1456,6 +1457,7 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, int *token_index, 
                 }
 
             } else {
+                node->data.container_init_expr.kind = ContainerInitKindArray;
                 for (;;) {
                     if (token->id == TokenIdRBrace) {
                         *token_index += 1;
