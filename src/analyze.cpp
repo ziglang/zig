@@ -1342,6 +1342,7 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
     if (container_type->id == TypeTableEntryIdInvalid) {
         return container_type;
     } else if (container_type->id == TypeTableEntryIdStruct &&
+               !container_type->data.structure.is_unknown_size_array &&
                kind == ContainerInitKindStruct)
     {
         StructValExprCodeGen *codegen = &container_init_expr->resolved_struct_val_expr;
@@ -1410,7 +1411,7 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
         }
     } else {
         add_node_error(g, node,
-            buf_sprintf("type '%s' does not support %s syntax",
+            buf_sprintf("type '%s' does not support %s initialization syntax",
                 buf_ptr(&container_type->name), err_container_init_syntax_name(kind)));
         return g->builtin_types.entry_invalid;
     }

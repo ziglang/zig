@@ -1419,6 +1419,10 @@ const b : @typeof(a) = 0;
     add_compile_fail_case("noalias on non pointer param", R"SOURCE(
 fn f(noalias x: i32) => {}
     )SOURCE", 1, ".tmp_source.zig:2:6: error: noalias on non-pointer parameter");
+
+    add_compile_fail_case("struct init syntax for array", R"SOURCE(
+const foo = []u16{.x = 1024,};
+    )SOURCE", 1, ".tmp_source.zig:2:18: error: type '[]u16' does not support struct initialization syntax");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
