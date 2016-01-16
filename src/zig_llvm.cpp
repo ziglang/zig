@@ -5,6 +5,13 @@
  * See http://opensource.org/licenses/MIT
  */
 
+// This must go before all includes.
+#include "config.h"
+#if defined(ZIG_LLVM_OLD_CXX_ABI)
+#define _GLIBCXX_USE_CXX11_ABI 0
+#endif
+
+
 #include "zig_llvm.hpp"
 
 /*

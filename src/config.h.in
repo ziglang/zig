@@ -10,4 +10,6 @@
 #define ZIG_STD_DIR "@CMAKE_INSTALL_PREFIX@/@ZIG_STD_DEST@"
 #define ZIG_LIBC_DIR "@ZIG_LIBC_DIR@"
 
+#cmakedefine ZIG_LLVM_OLD_CXX_ABI
+
 #endif
