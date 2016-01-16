@@ -356,7 +356,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
             if (fn_table_entry->fn_def_node) {
                 if (buf_eql_str(attr_name, "naked")) {
                     fn_table_entry->fn_attr_list.append(FnAttrIdNaked);
-                } else if (buf_eql_str(attr_name, "alwaysinline")) {
+                } else if (buf_eql_str(attr_name, "inline")) {
                     fn_table_entry->fn_attr_list.append(FnAttrIdAlwaysInline);
                 } else {
                     add_node_error(g, directive_node,
