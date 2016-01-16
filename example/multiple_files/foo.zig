@@ -1,4 +1,4 @@
-use "std.zig";
+import "std.zig";
 
 // purposefully conflicting function with main.zig
 // but it's private so it should be OK

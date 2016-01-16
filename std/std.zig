@@ -1,4 +1,4 @@
-use "syscall.zig";
+import "syscall.zig";
 
 pub const stdin_fileno : isize = 0;
 pub const stdout_fileno : isize = 1;

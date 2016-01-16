@@ -211,8 +211,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordPub;
     } else if (mem_eql_str(token_mem, token_len, "export")) {
         t->cur_tok->id = TokenIdKeywordExport;
-    } else if (mem_eql_str(token_mem, token_len, "use")) {
-        t->cur_tok->id = TokenIdKeywordUse;
+    } else if (mem_eql_str(token_mem, token_len, "import")) {
+        t->cur_tok->id = TokenIdKeywordImport;
     } else if (mem_eql_str(token_mem, token_len, "true")) {
         t->cur_tok->id = TokenIdKeywordTrue;
     } else if (mem_eql_str(token_mem, token_len, "false")) {
@@ -1017,7 +1017,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordExtern: return "extern";
         case TokenIdKeywordPub: return "pub";
         case TokenIdKeywordExport: return "export";
-        case TokenIdKeywordUse: return "use";
+        case TokenIdKeywordImport: return "import";
         case TokenIdKeywordTrue: return "true";
         case TokenIdKeywordFalse: return "false";
         case TokenIdKeywordIf: return "if";

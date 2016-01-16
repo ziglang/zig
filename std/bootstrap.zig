@@ -1,4 +1,4 @@
-use "syscall.zig";
+import "syscall.zig";
 
 // The compiler treats this file special by implicitly importing the function `main`
 // from the root source file.

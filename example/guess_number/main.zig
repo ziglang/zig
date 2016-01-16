@@ -1,7 +1,7 @@
 export executable "guess_number";
 
-use "std.zig";
-use "rand.zig";
+import "std.zig";
+import "rand.zig";
 
 pub fn main(argc: isize, argv: &&u8, env: &&u8) i32 => {
     print_str("Welcome to the Guess Number Game in Zig.\n");

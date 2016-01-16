@@ -2542,7 +2542,7 @@ Use : many(Directive) token(Use) token(String) token(Semicolon)
 */
 static AstNode *ast_parse_use(ParseContext *pc, int *token_index) {
     Token *use_kw = &pc->tokens->at(*token_index);
-    if (use_kw->id != TokenIdKeywordUse)
+    if (use_kw->id != TokenIdKeywordImport)
         return nullptr;
     *token_index += 1;
 
