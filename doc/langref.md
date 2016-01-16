@@ -34,7 +34,7 @@ Root : many(TopLevelDecl) token(EOF)
 
 TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use | ContainerDecl | VariableDeclaration
 
-VariableDeclaration : option(FnVisibleMod) (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) UnwrapMaybeExpression option(token(Eq) Expression))
+VariableDeclaration : option(FnVisibleMod) (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) PrefixOpExpression option(token(Eq) Expression))
 
 ContainerDecl : many(Directive) option(FnVisibleMod) (token(Struct) | token(Enum)) token(Symbol) token(LBrace) many(StructMember) token(RBrace)
 
@@ -48,7 +48,7 @@ RootExportDecl : many(Directive) token(Export) token(Symbol) token(String) token
 
 ExternBlock : many(Directive) token(Extern) token(LBrace) many(FnDecl) token(RBrace)
 
-FnProto : many(Directive) option(FnVisibleMod) token(Fn) token(Symbol) ParamDeclList option(UnwrapMaybeExpression)
+FnProto : many(Directive) option(FnVisibleMod) token(Fn) token(Symbol) ParamDeclList option(PrefixOpExpression)
 
 Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
 
@@ -60,7 +60,7 @@ FnDef : FnProto token(FatArrow) Block
 
 ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
 
-ParamDecl : option(token(NoAlias)) token(Symbol) token(Colon) UnwrapMaybeExpression | token(Ellipsis)
+ParamDecl : option(token(NoAlias)) token(Symbol) token(Colon) PrefixOpExpression | token(Ellipsis)
 
 Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
 
@@ -78,7 +78,7 @@ AsmOutput : token(Colon) list(AsmOutputItem, token(Comma)) option(AsmInput)
 
 AsmInput : token(Colon) list(AsmInputItem, token(Comma)) option(AsmClobbers)
 
-AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Arrow) UnwrapMaybeExpression) token(RParen)
+AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Arrow) PrefixOpExpression) token(RParen)
 
 AsmInputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) Expression token(RParen)
 
@@ -102,7 +102,7 @@ IfExpression : IfVarExpression | IfBoolExpression
 
 IfBoolExpression : token(If) token(LParen) Expression token(RParen) Expression option(Else)
 
-IfVarExpression : token(If) token(LParen) (token(Const) | token(Var)) token(Symbol) option(token(Colon) UnwrapMaybeExpression) Token(MaybeAssign) Expression token(RParen) Expression Option(Else)
+IfVarExpression : token(If) token(LParen) (token(Const) | token(Var)) token(Symbol) option(token(Colon) PrefixOpExpression) Token(MaybeAssign) Expression token(RParen) Expression Option(Else)
 
 Else : token(Else) Expression
 
@@ -126,13 +126,15 @@ AdditionExpression : MultiplyExpression AdditionOperator AdditionExpression | Mu
 
 AdditionOperator : token(Plus) | token(Minus)
 
-MultiplyExpression : PrefixOpExpression MultiplyOperator MultiplyExpression | PrefixOpExpression
+MultiplyExpression : CurlySuffixExpression MultiplyOperator MultiplyExpression | CurlySuffixExpression
+
+CurlySuffixExpression : PrefixOpExpression option(ContainerInitExpression)
 
 MultiplyOperator : token(Star) | token(Slash) | token(Percent)
 
 PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
 
-SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression | ContainerInitExpression)
+SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 
 FieldAccessExpression : token(Dot) token(Symbol)
 
@@ -152,7 +154,7 @@ PrefixOp : token(Not) | token(Dash) | token(Tilde) | token(Star) | (token(Ampers
 
 PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | token(Symbol) | (token(AtSign) token(Symbol) FnCallExpression) | ArrayType | AsmExpression
 
-ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) UnwrapMaybeExpression
+ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) PrefixOpExpression
 
 GotoExpression: token(Goto) token(Symbol)
 
@@ -164,9 +166,9 @@ KeywordLiteral : token(True) | token(False) | token(Null) | token(Break) | token
 ## Operator Precedence
 
 ```
-x() x[] x{} x.y
-!x -x ~x *x &x
-as
+x() x[] x.y
+!x -x ~x *x &x ?x
+x{}
 * / %
 + -
 << >>
