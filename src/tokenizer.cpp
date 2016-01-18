@@ -231,6 +231,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordStruct;
     } else if (mem_eql_str(token_mem, token_len, "enum")) {
         t->cur_tok->id = TokenIdKeywordEnum;
+    } else if (mem_eql_str(token_mem, token_len, "for")) {
+        t->cur_tok->id = TokenIdKeywordFor;
     } else if (mem_eql_str(token_mem, token_len, "while")) {
         t->cur_tok->id = TokenIdKeywordWhile;
     } else if (mem_eql_str(token_mem, token_len, "continue")) {
@@ -1028,6 +1030,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordStruct: return "struct";
         case TokenIdKeywordEnum: return "enum";
         case TokenIdKeywordWhile: return "while";
+        case TokenIdKeywordFor: return "for";
         case TokenIdKeywordContinue: return "continue";
         case TokenIdKeywordBreak: return "break";
         case TokenIdKeywordNull: return "null";

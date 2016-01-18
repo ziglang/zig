@@ -138,6 +138,7 @@ enum NodeType {
     NodeTypeIfBoolExpr,
     NodeTypeIfVarExpr,
     NodeTypeWhileExpr,
+    NodeTypeForExpr,
     NodeTypeLabel,
     NodeTypeGoto,
     NodeTypeBreak,
@@ -393,6 +394,21 @@ struct AstNodeWhileExpr {
     bool condition_always_true;
     bool contains_break;
     Expr resolved_expr;
+    BlockContext *block_context;
+};
+
+struct AstNodeForExpr {
+    AstNode *elem_node; // always a symbol
+    AstNode *array_expr;
+    AstNode *index_node; // always a symbol, might be null
+    AstNode *body;
+
+    // populated by semantic analyzer
+    bool contains_break;
+    Expr resolved_expr;
+    BlockContext *block_context;
+    VariableTableEntry *elem_var;
+    VariableTableEntry *index_var;
 };
 
 struct AstNodeLabel {
@@ -605,6 +621,7 @@ struct AstNode {
         AstNodeIfBoolExpr if_bool_expr;
         AstNodeIfVarExpr if_var_expr;
         AstNodeWhileExpr while_expr;
+        AstNodeForExpr for_expr;
         AstNodeLabel label;
         AstNodeGoto goto_expr;
         AstNodeAsmExpr asm_expr;
@@ -916,7 +933,8 @@ struct VariableTableEntry {
     bool is_ptr; // if true, value_ref is a pointer
     AstNode *decl_node;
     LLVMZigDILocalVariable *di_loc_var;
-    int arg_index;
+    int src_arg_index;
+    int gen_arg_index;
 };
 
 struct BlockContext {
@@ -927,8 +945,8 @@ struct BlockContext {
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
     ZigList<Cast *> cast_expr_alloca_list;
     ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
+    ZigList<VariableTableEntry *> variable_list;
     AstNode *parent_loop_node;
-    AstNode *next_child_parent_loop_node;
     LLVMZigDIScope *di_scope;
 };
 

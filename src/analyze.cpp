@@ -60,6 +60,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeWhileExpr:
+        case NodeTypeForExpr:
         case NodeTypeContainerInitExpr:
         case NodeTypeArrayType:
             return node;
@@ -867,6 +868,7 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
+        case NodeTypeForExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
@@ -1175,12 +1177,7 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     context->type_table.init(8);
 
     if (parent) {
-        if (parent->next_child_parent_loop_node) {
-            context->parent_loop_node = parent->next_child_parent_loop_node;
-            parent->next_child_parent_loop_node = nullptr;
-        } else {
-            context->parent_loop_node = parent->parent_loop_node;
-        }
+        context->parent_loop_node = parent->parent_loop_node;
     }
 
     if (node && node->type == NodeTypeFnDef) {
@@ -1986,6 +1983,36 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
     zig_unreachable();
 }
 
+// Set name to nullptr to make the variable anonymous (not visible to programmer).
+static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, BlockContext *context,
+        Buf *name, TypeTableEntry *type_entry, bool is_const)
+{
+    VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
+    variable_entry->type = type_entry;
+
+    if (name) {
+        buf_init_from_buf(&variable_entry->name, name);
+        VariableTableEntry *existing_var = find_local_variable(context, name);
+
+        if (existing_var) {
+            add_node_error(g, source_node, buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
+            variable_entry->type = g->builtin_types.entry_invalid;
+        }
+
+        context->variable_table.put(&variable_entry->name, variable_entry);
+        context->variable_list.append(variable_entry);
+    } else {
+        buf_init_from_str(&variable_entry->name, "_anon");
+        context->variable_list.append(variable_entry);
+    }
+
+    variable_entry->is_const = is_const;
+    variable_entry->is_ptr = true;
+    variable_entry->decl_node = source_node;
+
+    return variable_entry;
+}
+
 static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, AstNode *source_node,
         AstNodeVariableDeclaration *variable_declaration,
@@ -2037,38 +2064,26 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
     TypeTableEntry *type = explicit_type != nullptr ? explicit_type : implicit_type;
     assert(type != nullptr); // should have been caught by the parser
 
-    VariableTableEntry *existing_variable = find_local_variable(context, &variable_declaration->symbol);
-    if (existing_variable) {
-        add_node_error(g, source_node,
-            buf_sprintf("redeclaration of variable '%s'", buf_ptr(&variable_declaration->symbol)));
-    } else {
-        VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
-        buf_init_from_buf(&variable_entry->name, &variable_declaration->symbol);
-        variable_entry->type = type;
-        variable_entry->is_const = variable_declaration->is_const;
-        variable_entry->is_ptr = true;
-        variable_entry->decl_node = source_node;
-        context->variable_table.put(&variable_entry->name, variable_entry);
+    VariableTableEntry *var = add_local_var(g, source_node, context,
+            &variable_declaration->symbol, type, variable_declaration->is_const);
 
-        bool is_pub = (variable_declaration->visib_mod != VisibModPrivate);
-        if (is_pub) {
-            for (int i = 0; i < import->importers.length; i += 1) {
-                ImporterInfo importer = import->importers.at(i);
-                auto table_entry = importer.import->block_context->variable_table.maybe_get(&variable_entry->name);
-                if (table_entry) {
-                    add_node_error(g, importer.source_node,
-                        buf_sprintf("import of variable '%s' overrides existing definition",
-                            buf_ptr(&variable_entry->name)));
-                } else {
-                    importer.import->block_context->variable_table.put(&variable_entry->name, variable_entry);
-                }
+
+    bool is_pub = (variable_declaration->visib_mod != VisibModPrivate);
+    if (is_pub) {
+        for (int i = 0; i < import->importers.length; i += 1) {
+            ImporterInfo importer = import->importers.at(i);
+            auto table_entry = importer.import->block_context->variable_table.maybe_get(&var->name);
+            if (table_entry) {
+                add_node_error(g, importer.source_node,
+                    buf_sprintf("import of variable '%s' overrides existing definition",
+                        buf_ptr(&var->name)));
+            } else {
+                importer.import->block_context->variable_table.put(&var->name, var);
             }
         }
-
-
-        return variable_entry;
     }
-    return nullptr;
+
+    return var;
 }
 
 static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableEntry *import,
@@ -2172,11 +2187,15 @@ static TypeTableEntry *analyze_while_expr(CodeGen *g, ImportTableEntry *import, 
 
     AstNode *condition_node = node->data.while_expr.condition;
     AstNode *while_body_node = node->data.while_expr.body;
+
     TypeTableEntry *condition_type = analyze_expression(g, import, context,
             g->builtin_types.entry_bool, condition_node);
 
-    context->next_child_parent_loop_node = node;
-    analyze_expression(g, import, context, g->builtin_types.entry_void, while_body_node);
+    BlockContext *child_context = new_block_context(node, context);
+    child_context->parent_loop_node = node;
+    node->data.while_expr.block_context = child_context;
+
+    analyze_expression(g, import, child_context, g->builtin_types.entry_void, while_body_node);
 
 
     TypeTableEntry *expr_return_type = g->builtin_types.entry_void;
@@ -2198,6 +2217,54 @@ static TypeTableEntry *analyze_while_expr(CodeGen *g, ImportTableEntry *import, 
     }
 
     return expr_return_type;
+}
+
+static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    assert(node->type == NodeTypeForExpr);
+
+    AstNode *array_node = node->data.for_expr.array_expr;
+    TypeTableEntry *array_type = analyze_expression(g, import, context, nullptr, array_node);
+    TypeTableEntry *child_type;
+    if (array_type->id == TypeTableEntryIdInvalid) {
+        child_type = array_type;
+    } else if (array_type->id == TypeTableEntryIdArray) {
+        child_type = array_type->data.array.child_type;
+    } else if (array_type->id == TypeTableEntryIdStruct &&
+               array_type->data.structure.is_unknown_size_array)
+    {
+        TypeTableEntry *pointer_type = array_type->data.structure.fields[0].type_entry;
+        assert(pointer_type->id == TypeTableEntryIdPointer);
+        child_type = pointer_type->data.pointer.child_type;
+    } else {
+        add_node_error(g, node,
+            buf_sprintf("iteration over non array type '%s'", buf_ptr(&array_type->name)));
+        child_type = g->builtin_types.entry_invalid;
+    }
+
+    BlockContext *child_context = new_block_context(node, context);
+    node->data.for_expr.block_context = child_context;
+
+    AstNode *elem_var_node = node->data.for_expr.elem_node;
+    Buf *elem_var_name = &elem_var_node->data.symbol_expr.symbol;
+    node->data.for_expr.elem_var = add_local_var(g, elem_var_node, child_context, elem_var_name, child_type, true);
+
+    AstNode *index_var_node = node->data.for_expr.index_node;
+    if (index_var_node) {
+        Buf *index_var_name = &index_var_node->data.symbol_expr.symbol;
+        node->data.for_expr.index_var = add_local_var(g, index_var_node, child_context, index_var_name,
+                g->builtin_types.entry_usize, true);
+    } else {
+        node->data.for_expr.index_var = add_local_var(g, node, child_context, nullptr,
+                g->builtin_types.entry_usize, true);
+    }
+
+    AstNode *for_body_node = node->data.for_expr.body;
+    analyze_expression(g, import, child_context, g->builtin_types.entry_void, for_body_node);
+
+
+    return g->builtin_types.entry_void;
 }
 
 static TypeTableEntry *analyze_break_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -3018,6 +3085,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeWhileExpr:
             return_type = analyze_while_expr(g, import, context, expected_type, node);
             break;
+        case NodeTypeForExpr:
+            return_type = analyze_for_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeArrayType:
             return_type = analyze_array_type(g, import, context, expected_type, node);
             break;
@@ -3081,6 +3151,7 @@ static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNo
 
     AstNodeFnProto *fn_proto = &fn_proto_node->data.fn_proto;
     bool is_exported = (fn_proto->visib_mod == VisibModExport);
+    int gen_arg_index = 0;
     for (int i = 0; i < fn_proto->params.length; i += 1) {
         AstNode *param_decl_node = fn_proto->params.at(i);
         assert(param_decl_node->type == NodeTypeParamDecl);
@@ -3099,28 +3170,15 @@ static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNo
                 buf_sprintf("byvalue struct parameters not yet supported on exported functions"));
         }
 
-        VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
-        buf_init_from_buf(&variable_entry->name, &param_decl->name);
-        variable_entry->type = type;
-        variable_entry->is_const = true;
-        variable_entry->decl_node = param_decl_node;
-        variable_entry->arg_index = i;
+        VariableTableEntry *var = add_local_var(g, param_decl_node, context, &param_decl->name, type, true);
+        var->src_arg_index = i;
+        param_decl_node->data.param_decl.variable = var;
 
-        param_decl_node->data.param_decl.variable = variable_entry;
-
-        VariableTableEntry *existing_entry = find_local_variable(context, &variable_entry->name);
-        if (!existing_entry) {
-            // unique definition
-            context->variable_table.put(&variable_entry->name, variable_entry);
+        if (type->size_in_bits > 0) {
+            var->gen_arg_index = gen_arg_index;
+            gen_arg_index += 1;
         } else {
-            add_node_error(g, node,
-                buf_sprintf("redeclaration of parameter '%s'.", buf_ptr(&existing_entry->name)));
-            if (existing_entry->type == variable_entry->type) {
-                // types agree, so the type is probably good enough for the rest of analysis
-            } else {
-                // types disagree. don't trust either one of them.
-                existing_entry->type = g->builtin_types.entry_invalid;;
-            }
+            var->gen_arg_index = -1;
         }
     }
 
@@ -3187,6 +3245,7 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
+        case NodeTypeForExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
@@ -3280,6 +3339,10 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeWhileExpr:
             collect_expr_decl_deps(g, import, node->data.while_expr.condition, decl_node);
             collect_expr_decl_deps(g, import, node->data.while_expr.body, decl_node);
+            break;
+        case NodeTypeForExpr:
+            collect_expr_decl_deps(g, import, node->data.for_expr.array_expr, decl_node);
+            collect_expr_decl_deps(g, import, node->data.for_expr.body, decl_node);
             break;
         case NodeTypeBlock:
             for (int i = 0; i < node->data.block.statements.length; i += 1) {
@@ -3505,6 +3568,7 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
+        case NodeTypeForExpr:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
@@ -3681,6 +3745,8 @@ Expr *get_resolved_expr(AstNode *node) {
             return &node->data.if_var_expr.resolved_expr;
         case NodeTypeWhileExpr:
             return &node->data.while_expr.resolved_expr;
+        case NodeTypeForExpr:
+            return &node->data.for_expr.resolved_expr;
         case NodeTypeAsmExpr:
             return &node->data.asm_expr.resolved_expr;
         case NodeTypeContainerInitExpr:
@@ -3743,6 +3809,7 @@ NumLitCodeGen *get_resolved_num_lit(AstNode *node) {
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
+        case NodeTypeForExpr:
         case NodeTypeAsmExpr:
         case NodeTypeContainerInitExpr:
         case NodeTypeRoot:
@@ -3793,6 +3860,7 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
+        case NodeTypeForExpr:
         case NodeTypeAsmExpr:
         case NodeTypeContainerInitExpr:
         case NodeTypeRoot:

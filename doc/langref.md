@@ -90,9 +90,11 @@ AssignmentExpression : UnwrapMaybeExpression AssignmentOperator UnwrapMaybeExpre
 
 AssignmentOperator : token(Eq) | token(TimesEq) | token(DivEq) | token(ModEq) | token(PlusEq) | token(MinusEq) | token(BitShiftLeftEq) | token(BitShiftRightEq) | token(BitAndEq) | token(BitXorEq) | token(BitOrEq) | token(BoolAndEq) | token(BoolOrEq) 
 
-BlockExpression : IfExpression | Block | WhileExpression
+BlockExpression : IfExpression | Block | WhileExpression | ForExpression
 
 WhileExpression : token(While) token(LParen) Expression token(RParen) Expression
+
+ForExpression : token(For) token(LParen) Symbol token(Comma) Expression option(token(Comma) token(Symbol)) token(RParen) Expression
 
 BoolOrExpression : BoolAndExpression token(BoolOr) BoolOrExpression | BoolAndExpression
 

@@ -526,47 +526,54 @@ static LLVMValueRef gen_array_base_ptr(CodeGen *g, AstNode *node) {
     return array_ptr;
 }
 
-static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeArrayAccessExpr);
-
-    AstNode *array_expr_node = node->data.array_access_expr.array_ref_expr;
-    TypeTableEntry *type_entry = get_expr_type(array_expr_node);
-
-    LLVMValueRef array_ptr = gen_array_base_ptr(g, array_expr_node);
-
-    LLVMValueRef subscript_value = gen_expr(g, node->data.array_access_expr.subscript);
+static LLVMValueRef gen_array_elem_ptr(CodeGen *g, AstNode *source_node, LLVMValueRef array_ptr,
+        TypeTableEntry *array_type, LLVMValueRef subscript_value)
+{
     assert(subscript_value);
 
-    if (type_entry->size_in_bits == 0) {
+    if (array_type->size_in_bits == 0) {
         return nullptr;
     }
 
-    if (type_entry->id == TypeTableEntryIdArray) {
+    if (array_type->id == TypeTableEntryIdArray) {
         LLVMValueRef indices[] = {
             LLVMConstNull(g->builtin_types.entry_usize->type_ref),
             subscript_value
         };
-        add_debug_source_node(g, node);
+        add_debug_source_node(g, source_node);
         return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
-    } else if (type_entry->id == TypeTableEntryIdPointer) {
+    } else if (array_type->id == TypeTableEntryIdPointer) {
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
         LLVMValueRef indices[] = {
             subscript_value
         };
-        add_debug_source_node(g, node);
+        add_debug_source_node(g, source_node);
         return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 1, "");
-    } else if (type_entry->id == TypeTableEntryIdStruct) {
-        assert(type_entry->data.structure.is_unknown_size_array);
+    } else if (array_type->id == TypeTableEntryIdStruct) {
+        assert(array_type->data.structure.is_unknown_size_array);
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
         assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
 
-        add_debug_source_node(g, node);
+        add_debug_source_node(g, source_node);
         LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, 0, "");
         LLVMValueRef ptr = LLVMBuildLoad(g->builder, ptr_ptr, "");
         return LLVMBuildInBoundsGEP(g->builder, ptr, &subscript_value, 1, "");
     } else {
         zig_unreachable();
     }
+}
+
+static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeArrayAccessExpr);
+
+    AstNode *array_expr_node = node->data.array_access_expr.array_ref_expr;
+    TypeTableEntry *array_type = get_expr_type(array_expr_node);
+
+    LLVMValueRef array_ptr = gen_array_base_ptr(g, array_expr_node);
+
+    LLVMValueRef subscript_value = gen_expr(g, node->data.array_access_expr.subscript);
+
+    return gen_array_elem_ptr(g, node, array_ptr, array_type, subscript_value);
 }
 
 static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **out_type_entry) {
@@ -1695,10 +1702,13 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
     assert(node->data.while_expr.condition);
     assert(node->data.while_expr.body);
 
+    BlockContext *old_block_context = g->cur_block_context;
+
     bool condition_always_true = node->data.while_expr.condition_always_true;
     bool contains_break = node->data.while_expr.contains_break;
     if (condition_always_true) {
         // generate a forever loop
+        g->cur_block_context = node->data.while_expr.block_context;
 
         LLVMBasicBlockRef body_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileBody");
         LLVMBasicBlockRef end_block = nullptr;
@@ -1735,6 +1745,7 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
         LLVMBuildBr(g->builder, cond_block);
 
         LLVMPositionBuilderAtEnd(g->builder, cond_block);
+        g->cur_block_context = old_block_context;
         LLVMValueRef cond_val = gen_expr(g, node->data.while_expr.condition);
         add_debug_source_node(g, node->data.while_expr.condition);
         LLVMBuildCondBr(g->builder, cond_val, body_block, end_block);
@@ -1742,6 +1753,7 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
         LLVMPositionBuilderAtEnd(g->builder, body_block);
         g->break_block_stack.append(end_block);
         g->continue_block_stack.append(cond_block);
+        g->cur_block_context = node->data.while_expr.block_context;
         gen_expr(g, node->data.while_expr.body);
         g->break_block_stack.pop();
         g->continue_block_stack.pop();
@@ -1753,6 +1765,77 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
         LLVMPositionBuilderAtEnd(g->builder, end_block);
     }
 
+    g->cur_block_context = old_block_context;
+    return nullptr;
+}
+
+static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeForExpr);
+    assert(node->data.for_expr.array_expr);
+    assert(node->data.for_expr.body);
+
+    VariableTableEntry *elem_var = node->data.for_expr.elem_var;
+    assert(elem_var);
+
+    TypeTableEntry *array_type = get_expr_type(node->data.for_expr.array_expr);
+
+    VariableTableEntry *index_var = node->data.for_expr.index_var;
+    assert(index_var);
+    LLVMValueRef index_ptr = index_var->value_ref;
+    LLVMValueRef one_const = LLVMConstInt(g->builtin_types.entry_usize->type_ref, 1, false);
+
+    BlockContext *old_block_context = g->cur_block_context;
+
+    LLVMBasicBlockRef cond_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForCond");
+    LLVMBasicBlockRef body_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForBody");
+    LLVMBasicBlockRef end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForEnd");
+
+    LLVMValueRef array_val = gen_expr(g, node->data.for_expr.array_expr);
+    add_debug_source_node(g, node);
+    LLVMBuildStore(g->builder, LLVMConstNull(index_var->type->type_ref), index_ptr);
+    LLVMValueRef len_val;
+    TypeTableEntry *child_type;
+    if (array_type->id == TypeTableEntryIdArray) {
+        len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+                array_type->data.array.len, false);
+        child_type = array_type->data.array.child_type;
+    } else if (array_type->id == TypeTableEntryIdStruct) {
+        assert(array_type->data.structure.is_unknown_size_array);
+        TypeTableEntry *child_ptr_type = array_type->data.structure.fields[0].type_entry;
+        assert(child_ptr_type->id == TypeTableEntryIdPointer);
+        child_type = child_ptr_type->data.pointer.child_type;
+        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, array_val, 1, "");
+        len_val = LLVMBuildLoad(g->builder, len_field_ptr, "");
+    } else {
+        zig_unreachable();
+    }
+    LLVMBuildBr(g->builder, cond_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, cond_block);
+    LLVMValueRef index_val = LLVMBuildLoad(g->builder, index_ptr, "");
+    LLVMValueRef cond = LLVMBuildICmp(g->builder, LLVMIntSLT, index_val, len_val, "");
+    LLVMBuildCondBr(g->builder, cond, body_block, end_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, body_block);
+    LLVMValueRef elem_ptr = gen_array_elem_ptr(g, node, array_val, array_type, index_val);
+    LLVMValueRef elem_val = handle_is_ptr(child_type) ? elem_ptr : LLVMBuildLoad(g->builder, elem_ptr, "");
+    gen_assign_raw(g, node, BinOpTypeAssign, elem_var->value_ref, elem_val,
+            elem_var->type, child_type);
+    g->break_block_stack.append(end_block);
+    g->continue_block_stack.append(cond_block);
+    g->cur_block_context = node->data.for_expr.block_context;
+    gen_expr(g, node->data.for_expr.body);
+    g->break_block_stack.pop();
+    g->continue_block_stack.pop();
+    if (get_expr_type(node->data.for_expr.body)->id != TypeTableEntryIdUnreachable) {
+        add_debug_source_node(g, node);
+        LLVMValueRef new_index_val = LLVMBuildAdd(g->builder, index_val, one_const, "");
+        LLVMBuildStore(g->builder, new_index_val, index_ptr);
+        LLVMBuildBr(g->builder, cond_block);
+    }
+
+    LLVMPositionBuilderAtEnd(g->builder, end_block);
+    g->cur_block_context = old_block_context;
     return nullptr;
 }
 
@@ -1935,6 +2018,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
             return gen_if_var_expr(g, node);
         case NodeTypeWhileExpr:
             return gen_while_expr(g, node);
+        case NodeTypeForExpr:
+            return gen_for_expr(g, node);
         case NodeTypeAsmExpr:
             return gen_asm_expr(g, node);
         case NodeTypeNumberLiteral:
@@ -2177,22 +2262,6 @@ static void do_code_gen(CodeGen *g) {
 
         fn_def_node->data.fn_def.block_context->di_scope = LLVMZigSubprogramToScope(subprogram);
 
-        int non_void_param_count = count_non_void_params(g, &fn_proto->params);
-        assert(non_void_param_count == (int)LLVMCountParams(fn));
-        LLVMValueRef *params = allocate<LLVMValueRef>(non_void_param_count);
-        LLVMGetParams(fn, params);
-
-        int non_void_index = 0;
-        for (int param_i = 0; param_i < fn_proto->params.length; param_i += 1) {
-            AstNode *param_decl = fn_proto->params.at(param_i);
-            assert(param_decl->type == NodeTypeParamDecl);
-            if (is_param_decl_type_void(g, param_decl))
-                continue;
-            VariableTableEntry *parameter_variable = fn_def_node->data.fn_def.block_context->variable_table.get(&param_decl->data.param_decl.name);
-            parameter_variable->value_ref = params[non_void_index];
-            non_void_index += 1;
-        }
-
         AstNode *body_node = fn_def_node->data.fn_def.body;
         build_label_blocks(g, body_node);
 
@@ -2212,13 +2281,9 @@ static void do_code_gen(CodeGen *g) {
 
             g->cur_block_context = block_context;
 
-            auto it = block_context->variable_table.entry_iterator();
-            for (;;) {
-                auto *entry = it.next();
-                if (!entry)
-                    break;
+            for (int var_i = 0; var_i < block_context->variable_list.length; var_i += 1) {
+                VariableTableEntry *var = block_context->variable_list.at(var_i);
 
-                VariableTableEntry *var = entry->value;
                 if (var->type->size_in_bits == 0) {
                     continue;
                 }
@@ -2227,7 +2292,10 @@ static void do_code_gen(CodeGen *g) {
                 unsigned arg_no;
                 if (block_context->node->type == NodeTypeFnDef) {
                     tag = LLVMZigTag_DW_arg_variable();
-                    arg_no = var->arg_index + 1;
+                    arg_no = var->gen_arg_index + 1;
+
+                    var->is_ptr = false;
+                    var->value_ref = LLVMGetParam(fn, var->gen_arg_index);
                 } else {
                     tag = LLVMZigTag_DW_auto_variable();
                     arg_no = 0;

@@ -31,6 +31,7 @@ enum TokenId {
     TokenIdKeywordStruct,
     TokenIdKeywordEnum,
     TokenIdKeywordWhile,
+    TokenIdKeywordFor,
     TokenIdKeywordContinue,
     TokenIdKeywordBreak,
     TokenIdKeywordNull,

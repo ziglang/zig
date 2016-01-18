@@ -25,12 +25,9 @@ fn strlen(ptr: &u8) usize => {
 
 fn call_main() unreachable => {
     var args: [argc][]u8;
-    var i : @typeof(argc) = 0;
-    // TODO for in loop over the array
-    while (i < argc) {
+    for (arg, args, i) {
         const ptr = argv[i];
         args[i] = ptr[0...strlen(ptr)];
-        i += 1;
     }
     exit(main(args))
 }

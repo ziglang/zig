@@ -121,6 +121,8 @@ const char *node_type_str(NodeType node_type) {
             return "IfVarExpr";
         case NodeTypeWhileExpr:
             return "WhileExpr";
+        case NodeTypeForExpr:
+            return "ForExpr";
         case NodeTypeLabel:
             return "Label";
         case NodeTypeGoto:
@@ -330,6 +332,15 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "%s\n", node_type_str(node->type));
             ast_print(node->data.while_expr.condition, indent + 2);
             ast_print(node->data.while_expr.body, indent + 2);
+            break;
+        case NodeTypeForExpr:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            ast_print(node->data.for_expr.elem_node, indent + 2);
+            ast_print(node->data.for_expr.array_expr, indent + 2);
+            if (node->data.for_expr.index_node) {
+                ast_print(node->data.for_expr.index_node, indent + 2);
+            }
+            ast_print(node->data.for_expr.body, indent + 2);
             break;
         case NodeTypeLabel:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.label.name));
@@ -2114,8 +2125,49 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, int *token_index, bool ma
     return node;
 }
 
+static AstNode *ast_parse_symbol(ParseContext *pc, int *token_index) {
+    Token *token = ast_eat_token(pc, token_index, TokenIdSymbol);
+    AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
+    ast_buf_from_token(pc, token, &node->data.symbol_expr.symbol);
+    return node;
+}
+
 /*
-BlockExpression : IfExpression | Block | WhileExpression
+ForExpression : token(For) token(LParen) Symbol token(Comma) Expression option(token(Comma) token(Symbol)) token(RParen) Expression
+*/
+static AstNode *ast_parse_for_expr(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id != TokenIdKeywordFor) {
+        if (mandatory) {
+            ast_invalid_token_error(pc, token);
+        } else {
+            return nullptr;
+        }
+    }
+    *token_index += 1;
+
+    AstNode *node = ast_create_node(pc, NodeTypeForExpr, token);
+
+    ast_eat_token(pc, token_index, TokenIdLParen);
+    node->data.for_expr.elem_node = ast_parse_symbol(pc, token_index);
+    ast_eat_token(pc, token_index, TokenIdComma);
+    node->data.for_expr.array_expr = ast_parse_expression(pc, token_index, true);
+
+    Token *comma = &pc->tokens->at(*token_index);
+    if (comma->id == TokenIdComma) {
+        *token_index += 1;
+        node->data.for_expr.index_node = ast_parse_symbol(pc, token_index);
+    }
+
+    ast_eat_token(pc, token_index, TokenIdRParen);
+
+    node->data.for_expr.body = ast_parse_expression(pc, token_index, true);
+    return node;
+}
+
+/*
+BlockExpression : IfExpression | Block | WhileExpression | ForExpression
 */
 static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -2131,6 +2183,10 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool ma
     AstNode *while_expr = ast_parse_while_expr(pc, token_index, false);
     if (while_expr)
         return while_expr;
+
+    AstNode *for_expr = ast_parse_for_expr(pc, token_index, false);
+    if (for_expr)
+        return for_expr;
 
     if (mandatory)
         ast_invalid_token_error(pc, token);

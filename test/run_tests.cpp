@@ -1136,6 +1136,32 @@ pub fn main(args: [][]u8) i32 => {
     return 0;
 }
     )SOURCE", "hello\nthis\nis\nmy\nthing\n");
+
+    add_simple_case("for loops", R"SOURCE(
+import "std.zig";
+
+pub fn main(args: [][]u8) i32 => {
+    const array = []u8 {9, 8, 7, 6};
+    for (item, array) {
+        print_u64(item);
+        print_str("\n");
+    }
+    for (item, array, index) {
+        print_u64(index);
+        print_str("\n");
+    }
+    const unknown_size: []u8 = array;
+    for (item, unknown_size) {
+        print_u64(item);
+        print_str("\n");
+    }
+    for (item, unknown_size, index) {
+        print_u64(index);
+        print_str("\n");
+    }
+    return 0;
+}
+    )SOURCE", "9\n8\n7\n6\n0\n1\n2\n3\n9\n8\n7\n6\n0\n1\n2\n3\n");
 }
 
 
@@ -1226,7 +1252,7 @@ fn b() => {}
     add_compile_fail_case("parameter redeclaration", R"SOURCE(
 fn f(a : i32, a : i32) => {
 }
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: redeclaration of parameter 'a'");
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: redeclaration of variable 'a'");
 
     add_compile_fail_case("local variable redeclaration", R"SOURCE(
 fn f() => {
