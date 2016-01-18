@@ -793,11 +793,6 @@ struct LabelTableEntry {
     bool entered_from_fallthrough;
 };
 
-enum FnAttrId {
-    FnAttrIdNaked,
-    FnAttrIdAlwaysInline,
-};
-
 struct FnTableEntry {
     LLVMValueRef fn_value;
     AstNode *proto_node;
@@ -806,7 +801,8 @@ struct FnTableEntry {
     bool internal_linkage;
     unsigned calling_convention;
     ImportTableEntry *import_entry;
-    ZigList<FnAttrId> fn_attr_list;
+    bool is_naked;
+    bool is_inline;
     // Required to be a pre-order traversal of the AST. (parents must come before children)
     ZigList<BlockContext *> all_block_contexts;
     TypeTableEntry *member_of_struct;

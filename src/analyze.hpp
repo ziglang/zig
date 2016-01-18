@@ -23,5 +23,5 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node);
 bool is_node_void_expr(AstNode *node);
 TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, int size_in_bits);
 TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, int size_in_bits);
-
+bool handle_is_ptr(TypeTableEntry *type_entry);
 #endif

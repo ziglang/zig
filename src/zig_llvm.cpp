@@ -388,6 +388,11 @@ LLVMZigDIScope *LLVMZigSubprogramToScope(LLVMZigDISubprogram *subprogram) {
     return reinterpret_cast<LLVMZigDIScope*>(scope);
 }
 
+LLVMZigDIType *LLVMZigSubroutineToType(LLVMZigDISubroutineType *subrtype) {
+    DIType *di_type = reinterpret_cast<DISubroutineType*>(subrtype);
+    return reinterpret_cast<LLVMZigDIType*>(di_type);
+}
+
 LLVMZigDIScope *LLVMZigTypeToScope(LLVMZigDIType *type) {
     DIScope *scope = reinterpret_cast<DIType*>(type);
     return reinterpret_cast<LLVMZigDIScope*>(scope);

@@ -101,6 +101,7 @@ LLVMZigDIScope *LLVMZigCompileUnitToScope(LLVMZigDICompileUnit *compile_unit);
 LLVMZigDIScope *LLVMZigFileToScope(LLVMZigDIFile *difile);
 LLVMZigDIScope *LLVMZigSubprogramToScope(LLVMZigDISubprogram *subprogram);
 LLVMZigDIScope *LLVMZigTypeToScope(LLVMZigDIType *type);
+LLVMZigDIType *LLVMZigSubroutineToType(LLVMZigDISubroutineType *subrtype);
 
 LLVMZigDILocalVariable *LLVMZigCreateLocalVariable(LLVMZigDIBuilder *dbuilder, unsigned tag,
         LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,

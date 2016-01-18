@@ -346,18 +346,19 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         ImportTableEntry *import)
 {
     assert(node->type == NodeTypeFnProto);
+    AstNodeFnProto *fn_proto = &node->data.fn_proto;
 
-    for (int i = 0; i < node->data.fn_proto.directives->length; i += 1) {
-        AstNode *directive_node = node->data.fn_proto.directives->at(i);
+    for (int i = 0; i < fn_proto->directives->length; i += 1) {
+        AstNode *directive_node = fn_proto->directives->at(i);
         Buf *name = &directive_node->data.directive.name;
 
         if (buf_eql_str(name, "attribute")) {
             Buf *attr_name = &directive_node->data.directive.param;
             if (fn_table_entry->fn_def_node) {
                 if (buf_eql_str(attr_name, "naked")) {
-                    fn_table_entry->fn_attr_list.append(FnAttrIdNaked);
+                    fn_table_entry->is_naked = true;
                 } else if (buf_eql_str(attr_name, "inline")) {
-                    fn_table_entry->fn_attr_list.append(FnAttrIdAlwaysInline);
+                    fn_table_entry->is_inline = true;
                 } else {
                     add_node_error(g, directive_node,
                             buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
@@ -382,37 +383,99 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
 
     buf_resize(&fn_type->name, 0);
     buf_appendf(&fn_type->name, "fn(");
+    int gen_param_count = 0;
+    LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(param_count);
+    LLVMZigDIType **param_di_types = allocate<LLVMZigDIType*>(1 + param_count);
     for (int i = 0; i < param_count; i += 1) {
         AstNode *child = node->data.fn_proto.params.at(i);
         assert(child->type == NodeTypeParamDecl);
         TypeTableEntry *type_entry = analyze_type_expr(g, import, import->block_context,
                 child->data.param_decl.type);
-        fn_table_entry->type_entry->data.fn.param_types[i] = type_entry;
-
-        buf_appendf(&fn_type->name, "%s", buf_ptr(&type_entry->name));
-
-        if (i + 1 < param_count) {
-            buf_appendf(&fn_type->name, ", ");
-        }
+        fn_type->data.fn.param_types[i] = type_entry;
 
         if (type_entry->id == TypeTableEntryIdUnreachable) {
             add_node_error(g, child->data.param_decl.type,
                 buf_sprintf("parameter of type 'unreachable' not allowed"));
-        } else if (type_entry->id == TypeTableEntryIdVoid) {
-            if (node->data.fn_proto.visib_mod == VisibModExport) {
-                add_node_error(g, child->data.param_decl.type,
-                    buf_sprintf("parameter of type 'void' not allowed on exported functions"));
-            }
+            fn_proto->skip = true;
+        } else if (type_entry->id == TypeTableEntryIdInvalid) {
+            fn_proto->skip = true;
+        }
+
+        if (!fn_proto->skip && type_entry->size_in_bits > 0) {
+            const char *comma = (gen_param_count == 0) ? "" : ", ";
+            buf_appendf(&fn_type->name, "%s%s", comma, buf_ptr(&type_entry->name));
+
+            TypeTableEntry *gen_type = handle_is_ptr(type_entry) ?
+                get_pointer_to_type(g, type_entry, true) : type_entry;
+            gen_param_types[gen_param_count] = gen_type->type_ref;
+
+            gen_param_count += 1;
+
+            // after the gen_param_count += 1 because 0 is the return type
+            param_di_types[gen_param_count] = gen_type->di_type;
         }
     }
 
     TypeTableEntry *return_type = analyze_type_expr(g, import, import->block_context,
             node->data.fn_proto.return_type);
-    fn_table_entry->type_entry->data.fn.return_type = return_type;
+    fn_type->data.fn.return_type = return_type;
+    if (return_type->id == TypeTableEntryIdInvalid) {
+        fn_proto->skip = true;
+    }
 
     buf_appendf(&fn_type->name, ")");
     if (return_type->id != TypeTableEntryIdVoid) {
         buf_appendf(&fn_type->name, " %s", buf_ptr(&return_type->name));
+    }
+
+    if (fn_proto->skip) {
+        return;
+    }
+
+    fn_type->type_ref = LLVMFunctionType(return_type->type_ref, gen_param_types, gen_param_count,
+            fn_proto->is_var_args);
+
+    fn_table_entry->fn_value = LLVMAddFunction(g->module, buf_ptr(&fn_table_entry->symbol_name),
+            fn_table_entry->type_entry->type_ref);
+
+    if (fn_table_entry->is_inline) {
+        LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMAlwaysInlineAttribute);
+    }
+    if (fn_table_entry->is_naked) {
+        LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNakedAttribute);
+    }
+
+    LLVMSetLinkage(fn_table_entry->fn_value, fn_table_entry->internal_linkage ?
+            LLVMInternalLinkage : LLVMExternalLinkage);
+
+    if (return_type->id == TypeTableEntryIdUnreachable) {
+        LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoReturnAttribute);
+    }
+    LLVMSetFunctionCallConv(fn_table_entry->fn_value, fn_table_entry->calling_convention);
+    if (!fn_table_entry->is_extern) {
+        LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoUnwindAttribute);
+    }
+
+    param_di_types[0] = return_type->di_type;
+    LLVMZigDISubroutineType *di_sub_type = LLVMZigCreateSubroutineType(g->dbuilder, import->di_file,
+            param_di_types, gen_param_count + 1, 0);
+
+    // Add debug info.
+    unsigned line_number = node->line + 1;
+    unsigned scope_line = line_number;
+    bool is_definition = fn_table_entry->fn_def_node != nullptr;
+    unsigned flags = 0;
+    bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
+    LLVMZigDISubprogram *subprogram = LLVMZigCreateFunction(g->dbuilder,
+        import->block_context->di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
+        import->di_file, line_number,
+        di_sub_type, fn_table_entry->internal_linkage, 
+        is_definition, scope_line, flags, is_optimized, fn_table_entry->fn_value);
+    fn_type->di_type = LLVMZigSubroutineToType(di_sub_type);
+    if (fn_table_entry->fn_def_node) {
+        BlockContext *context = new_block_context(fn_table_entry->fn_def_node, import->block_context);
+        fn_table_entry->fn_def_node->data.fn_def.block_context = context;
+        context->di_scope = LLVMZigSubprogramToScope(subprogram);
     }
 }
 
@@ -724,14 +787,6 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
                 buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
         proto_node->data.fn_proto.skip = true;
         skip = true;
-    } else if (is_pub) {
-        // TODO is this else if branch a mistake?
-        auto entry = fn_table->maybe_get(proto_name);
-        if (entry) {
-            add_node_error(g, proto_node, buf_sprintf("redefinition of '%s'", buf_ptr(proto_name)));
-            proto_node->data.fn_proto.skip = true;
-            skip = true;
-        }
     }
     if (!extern_node && proto_node->data.fn_proto.is_var_args) {
         add_node_error(g, proto_node,
@@ -775,10 +830,8 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
         g->bootstrap_import->fn_table.put(proto_name, fn_table_entry);
     }
 
-    resolve_function_proto(g, proto_node, fn_table_entry, import);
-
-
     proto_node->data.fn_proto.fn_table_entry = fn_table_entry;
+    resolve_function_proto(g, proto_node, fn_table_entry, import);
 
     if (fn_def_node) {
         preview_function_labels(g, fn_def_node->data.fn_def.body, fn_table_entry);
@@ -3146,8 +3199,7 @@ static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNo
         return;
     }
 
-    BlockContext *context = new_block_context(node, import->block_context);
-    node->data.fn_def.block_context = context;
+    BlockContext *context = node->data.fn_def.block_context;
 
     AstNodeFnProto *fn_proto = &fn_proto_node->data.fn_proto;
     bool is_exported = (fn_proto->visib_mod == VisibModExport);
@@ -3923,3 +3975,11 @@ TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, int size_in_bits) 
 TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, int size_in_bits) {
     return *get_int_type_ptr(g, is_signed, size_in_bits);
 }
+
+bool handle_is_ptr(TypeTableEntry *type_entry) {
+    return type_entry->id == TypeTableEntryIdStruct ||
+            (type_entry->id == TypeTableEntryIdEnum && type_entry->data.enumeration.gen_field_count != 0) ||
+            type_entry->id == TypeTableEntryIdMaybe ||
+            type_entry->id == TypeTableEntryIdArray;
+}
+

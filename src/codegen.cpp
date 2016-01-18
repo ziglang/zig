@@ -82,29 +82,13 @@ static TypeTableEntry *get_type_for_type_node(AstNode *node) {
     return const_val->data.x_type;
 }
 
-static TypeTableEntry *fn_proto_type_from_type_node(CodeGen *g, AstNode *type_node) {
-    TypeTableEntry *type_entry = get_type_for_type_node(type_node);
-
-    if (type_entry->id == TypeTableEntryIdStruct || type_entry->id == TypeTableEntryIdArray) {
-        return get_pointer_to_type(g, type_entry, true);
-    } else {
-        return type_entry;
-    }
-}
-
-static LLVMZigDIType *to_llvm_debug_type(CodeGen *g, AstNode *type_node) {
-    TypeTableEntry *type_entry = get_type_for_type_node(type_node);
-    return type_entry->di_type;
-}
-
-
 static bool type_is_unreachable(CodeGen *g, AstNode *type_node) {
     return get_type_for_type_node(type_node)->id == TypeTableEntryIdUnreachable;
 }
 
 static bool is_param_decl_type_void(CodeGen *g, AstNode *param_decl_node) {
     assert(param_decl_node->type == NodeTypeParamDecl);
-    return get_type_for_type_node(param_decl_node->data.param_decl.type)->id == TypeTableEntryIdVoid;
+    return get_type_for_type_node(param_decl_node->data.param_decl.type)->size_in_bits == 0;
 }
 
 static int count_non_void_params(CodeGen *g, ZigList<AstNode *> *params) {
@@ -150,11 +134,14 @@ static TypeTableEntry *get_expr_type(AstNode *node) {
     return expr->type_entry;
 }
 
-static bool handle_is_ptr(TypeTableEntry *type_entry) {
-    return type_entry->id == TypeTableEntryIdStruct ||
-            (type_entry->id == TypeTableEntryIdEnum && type_entry->data.enumeration.gen_field_count != 0) ||
-            type_entry->id == TypeTableEntryIdMaybe ||
-            type_entry->id == TypeTableEntryIdArray;
+static TypeTableEntry *fn_proto_type_from_type_node(CodeGen *g, AstNode *type_node) {
+    TypeTableEntry *type_entry = get_type_for_type_node(type_node);
+
+    if (handle_is_ptr(type_entry)) {
+        return get_pointer_to_type(g, type_entry, true);
+    } else {
+        return type_entry;
+    }
 }
 
 static LLVMValueRef gen_number_literal_raw(CodeGen *g, AstNode *source_node,
@@ -2121,31 +2108,6 @@ static void build_label_blocks(CodeGen *g, AstNode *block_node) {
 
 }
 
-static LLVMZigDISubroutineType *create_di_function_type(CodeGen *g, AstNodeFnProto *fn_proto,
-        LLVMZigDIFile *di_file)
-{
-    LLVMZigDIType **types = allocate<LLVMZigDIType*>(1 + fn_proto->params.length);
-    types[0] = to_llvm_debug_type(g, fn_proto->return_type);
-    int types_len = fn_proto->params.length + 1;
-    for (int i = 0; i < fn_proto->params.length; i += 1) {
-        AstNode *param_node = fn_proto->params.at(i);
-        assert(param_node->type == NodeTypeParamDecl);
-        LLVMZigDIType *param_type = to_llvm_debug_type(g, param_node->data.param_decl.type);
-        types[i + 1] = param_type;
-    }
-    return LLVMZigCreateSubroutineType(g->dbuilder, di_file, types, types_len, 0);
-}
-
-static LLVMAttribute to_llvm_fn_attr(FnAttrId attr_id) {
-    switch (attr_id) {
-        case FnAttrIdNaked:
-            return LLVMNakedAttribute;
-        case FnAttrIdAlwaysInline:
-            return LLVMAlwaysInlineAttribute;
-    }
-    zig_unreachable();
-}
-
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
@@ -2172,14 +2134,11 @@ static void do_code_gen(CodeGen *g) {
     // Generate function prototypes
     for (int fn_proto_i = 0; fn_proto_i < g->fn_protos.length; fn_proto_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_protos.at(fn_proto_i);
-
         AstNode *proto_node = fn_table_entry->proto_node;
         assert(proto_node->type == NodeTypeFnProto);
         AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-        LLVMTypeRef ret_type = get_type_for_type_node(fn_proto->return_type)->type_ref;
-        int param_count = count_non_void_params(g, &fn_proto->params);
-        LLVMTypeRef *param_types = allocate<LLVMTypeRef>(param_count);
+        // set parameter attributes
         int gen_param_index = 0;
         for (int param_decl_i = 0; param_decl_i < fn_proto->params.length; param_decl_i += 1) {
             AstNode *param_node = fn_proto->params.at(param_decl_i);
@@ -2187,38 +2146,8 @@ static void do_code_gen(CodeGen *g) {
             if (is_param_decl_type_void(g, param_node))
                 continue;
             AstNode *type_node = param_node->data.param_decl.type;
-            param_types[gen_param_index] = fn_proto_type_from_type_node(g, type_node)->type_ref;
-            gen_param_index += 1;
-        }
-        LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, param_count, fn_proto->is_var_args);
-
-        LLVMValueRef fn = LLVMAddFunction(g->module, buf_ptr(&fn_table_entry->symbol_name), function_type);
-
-        for (int attr_i = 0; attr_i < fn_table_entry->fn_attr_list.length; attr_i += 1) {
-            FnAttrId attr_id = fn_table_entry->fn_attr_list.at(attr_i);
-            LLVMAddFunctionAttr(fn, to_llvm_fn_attr(attr_id));
-        }
-
-        LLVMSetLinkage(fn, fn_table_entry->internal_linkage ? LLVMInternalLinkage : LLVMExternalLinkage);
-
-        if (type_is_unreachable(g, fn_proto->return_type)) {
-            LLVMAddFunctionAttr(fn, LLVMNoReturnAttribute);
-        }
-        LLVMSetFunctionCallConv(fn, fn_table_entry->calling_convention);
-        if (!fn_table_entry->is_extern) {
-            LLVMAddFunctionAttr(fn, LLVMNoUnwindAttribute);
-        }
-
-        // set parameter attributes
-        gen_param_index = 0;
-        for (int param_decl_i = 0; param_decl_i < fn_proto->params.length; param_decl_i += 1) {
-            AstNode *param_node = fn_proto->params.at(param_decl_i);
-            assert(param_node->type == NodeTypeParamDecl);
-            if (is_param_decl_type_void(g, param_node))
-                continue;
-            AstNode *type_node = param_node->data.param_decl.type;
             TypeTableEntry *param_type = fn_proto_type_from_type_node(g, type_node);
-            LLVMValueRef argument_val = LLVMGetParam(fn, gen_param_index);
+            LLVMValueRef argument_val = LLVMGetParam(fn_table_entry->fn_value, gen_param_index);
             bool param_is_noalias = param_node->data.param_decl.is_noalias;
             if (param_type->id == TypeTableEntryIdPointer && param_is_noalias) {
                 LLVMAddAttribute(argument_val, LLVMNoAliasAttribute);
@@ -2230,7 +2159,6 @@ static void do_code_gen(CodeGen *g) {
             gen_param_index += 1;
         }
 
-        fn_table_entry->fn_value = fn;
     }
 
     // Generate function definitions.
@@ -2245,22 +2173,9 @@ static void do_code_gen(CodeGen *g) {
         assert(proto_node->type == NodeTypeFnProto);
         AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-        // Add debug info.
-        unsigned line_number = fn_def_node->line + 1;
-        unsigned scope_line = line_number;
-        bool is_definition = true;
-        unsigned flags = 0;
-        bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
-        LLVMZigDISubprogram *subprogram = LLVMZigCreateFunction(g->dbuilder,
-            import->block_context->di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
-            import->di_file, line_number,
-            create_di_function_type(g, fn_proto, import->di_file), fn_table_entry->internal_linkage, 
-            is_definition, scope_line, flags, is_optimized, fn);
-
         LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn, "entry");
         LLVMPositionBuilderAtEnd(g->builder, entry_block);
 
-        fn_def_node->data.fn_def.block_context->di_scope = LLVMZigSubprogramToScope(subprogram);
 
         AstNode *body_node = fn_def_node->data.fn_def.body;
         build_label_blocks(g, body_node);

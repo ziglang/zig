@@ -1296,10 +1296,6 @@ fn f() => {
 fn f(a : unreachable) => {}
     )SOURCE", 1, ".tmp_source.zig:2:10: error: parameter of type 'unreachable' not allowed");
 
-    add_compile_fail_case("exporting a void parameter", R"SOURCE(
-export fn f(a : void) => {}
-    )SOURCE", 1, ".tmp_source.zig:2:17: error: parameter of type 'void' not allowed on exported functions");
-
     add_compile_fail_case("unused label", R"SOURCE(
 fn f() => {
 a_label:
