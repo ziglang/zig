@@ -348,6 +348,9 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     assert(node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &node->data.fn_proto;
 
+    TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
+    fn_type->data.fn.calling_convention = fn_table_entry->internal_linkage ? LLVMFastCallConv : LLVMCCallConv;
+
     for (int i = 0; i < fn_proto->directives->length; i += 1) {
         AstNode *directive_node = fn_proto->directives->at(i);
         Buf *name = &directive_node->data.directive.name;
@@ -356,7 +359,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
             Buf *attr_name = &directive_node->data.directive.param;
             if (fn_table_entry->fn_def_node) {
                 if (buf_eql_str(attr_name, "naked")) {
-                    fn_table_entry->is_naked = true;
+                    fn_type->data.fn.is_naked = true;
                 } else if (buf_eql_str(attr_name, "inline")) {
                     fn_table_entry->is_inline = true;
                 } else {
@@ -373,20 +376,24 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         }
     }
 
-    int param_count = node->data.fn_proto.params.length;
+    int src_param_count = node->data.fn_proto.params.length;
 
-    TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
-    fn_type->data.fn.param_count = param_count;
-    fn_type->data.fn.param_types = allocate<TypeTableEntry*>(param_count);
+    fn_type->size_in_bits = g->pointer_size_bytes * 8;
+    fn_type->align_in_bits = g->pointer_size_bytes * 8;
+    fn_type->data.fn.src_param_count = src_param_count;
+    fn_type->data.fn.param_types = allocate<TypeTableEntry*>(src_param_count);
 
     fn_table_entry->type_entry = fn_type;
 
     buf_resize(&fn_type->name, 0);
-    buf_appendf(&fn_type->name, "fn(");
+    const char *export_str = fn_table_entry->internal_linkage ? "" : "export ";
+    const char *inline_str = fn_table_entry->is_inline ? "inline " : "";
+    const char *naked_str = fn_type->data.fn.is_naked ? "naked " : "";
+    buf_appendf(&fn_type->name, "%s%s%sfn(", export_str, inline_str, naked_str);
     int gen_param_count = 0;
-    LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(param_count);
-    LLVMZigDIType **param_di_types = allocate<LLVMZigDIType*>(1 + param_count);
-    for (int i = 0; i < param_count; i += 1) {
+    LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(src_param_count);
+    LLVMZigDIType **param_di_types = allocate<LLVMZigDIType*>(1 + src_param_count);
+    for (int i = 0; i < src_param_count; i += 1) {
         AstNode *child = node->data.fn_proto.params.at(i);
         assert(child->type == NodeTypeParamDecl);
         TypeTableEntry *type_entry = analyze_type_expr(g, import, import->block_context,
@@ -416,6 +423,13 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         }
     }
 
+    fn_type->data.fn.gen_param_count = gen_param_count;
+    fn_type->data.fn.is_var_args = fn_proto->is_var_args;
+    if (fn_proto->is_var_args) {
+        const char *comma = (gen_param_count == 0) ? "" : ", ";
+        buf_appendf(&fn_type->name, "%s...", comma);
+    }
+
     TypeTableEntry *return_type = analyze_type_expr(g, import, import->block_context,
             node->data.fn_proto.return_type);
     fn_type->data.fn.return_type = return_type;
@@ -432,16 +446,29 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         return;
     }
 
-    fn_type->type_ref = LLVMFunctionType(return_type->type_ref, gen_param_types, gen_param_count,
-            fn_proto->is_var_args);
+    auto table_entry = import->fn_type_table.maybe_get(&fn_type->name);
+    if (table_entry) {
+        fn_type = table_entry->value;
+        fn_table_entry->type_entry = fn_type;
+    } else {
+        fn_type->data.fn.raw_type_ref = LLVMFunctionType(return_type->type_ref, gen_param_types, gen_param_count,
+            fn_type->data.fn.is_var_args);
+        fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
+        param_di_types[0] = return_type->di_type;
+        fn_type->di_type = LLVMZigCreateSubroutineType(g->dbuilder, import->di_file,
+                param_di_types, gen_param_count + 1, 0);
+
+        import->fn_type_table.put(&fn_type->name, fn_type);
+    }
+
 
     fn_table_entry->fn_value = LLVMAddFunction(g->module, buf_ptr(&fn_table_entry->symbol_name),
-            fn_table_entry->type_entry->type_ref);
+            fn_type->data.fn.raw_type_ref);
 
     if (fn_table_entry->is_inline) {
         LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMAlwaysInlineAttribute);
     }
-    if (fn_table_entry->is_naked) {
+    if (fn_type->data.fn.is_naked) {
         LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNakedAttribute);
     }
 
@@ -451,14 +478,10 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     if (return_type->id == TypeTableEntryIdUnreachable) {
         LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoReturnAttribute);
     }
-    LLVMSetFunctionCallConv(fn_table_entry->fn_value, fn_table_entry->calling_convention);
+    LLVMSetFunctionCallConv(fn_table_entry->fn_value, fn_type->data.fn.calling_convention);
     if (!fn_table_entry->is_extern) {
         LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoUnwindAttribute);
     }
-
-    param_di_types[0] = return_type->di_type;
-    LLVMZigDISubroutineType *di_sub_type = LLVMZigCreateSubroutineType(g->dbuilder, import->di_file,
-            param_di_types, gen_param_count + 1, 0);
 
     // Add debug info.
     unsigned line_number = node->line + 1;
@@ -469,9 +492,8 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     LLVMZigDISubprogram *subprogram = LLVMZigCreateFunction(g->dbuilder,
         import->block_context->di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
         import->di_file, line_number,
-        di_sub_type, fn_table_entry->internal_linkage, 
+        fn_type->di_type, fn_table_entry->internal_linkage,
         is_definition, scope_line, flags, is_optimized, fn_table_entry->fn_value);
-    fn_type->di_type = LLVMZigSubroutineToType(di_sub_type);
     if (fn_table_entry->fn_def_node) {
         BlockContext *context = new_block_context(fn_table_entry->fn_def_node, import->block_context);
         fn_table_entry->fn_def_node->data.fn_def.block_context = context;
@@ -802,7 +824,6 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
     fn_table_entry->fn_def_node = fn_def_node;
     fn_table_entry->internal_linkage = !is_c_compat;
     fn_table_entry->is_extern = extern_node;
-    fn_table_entry->calling_convention = is_c_compat ? LLVMCCallConv : LLVMFastCallConv;
     fn_table_entry->label_table.init(8);
     fn_table_entry->member_of_struct = struct_type;
 
@@ -1677,6 +1698,7 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
 
     auto fn_table_entry = import->fn_table.maybe_get(variable_name);
     if (fn_table_entry) {
+        node->data.symbol_expr.fn_entry = fn_table_entry->value;
         return resolve_expr_const_val_as_fn(g, node, fn_table_entry->value);
     }
 
@@ -2823,15 +2845,21 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
     // otherwise we treat this as a function pointer.
     ConstExprValue *const_val = &get_resolved_expr(fn_ref_expr)->const_val;
 
-    if (!const_val->ok) {
-        add_node_error(g, node, buf_sprintf("function pointers not yet supported"));
-        return g->builtin_types.entry_invalid;
+    if (const_val->ok) {
+        if (invoke_type_entry->id == TypeTableEntryIdMetaType) {
+            return analyze_cast_expr(g, import, context, node);
+        } else if (invoke_type_entry->id == TypeTableEntryIdFn) {
+            return analyze_fn_call_raw(g, import, context, expected_type, node, const_val->data.x_fn, nullptr);
+        } else {
+            add_node_error(g, fn_ref_expr,
+                buf_sprintf("type '%s' not a function", buf_ptr(&invoke_type_entry->name)));
+            return g->builtin_types.entry_invalid;
+        }
     }
 
-    if (invoke_type_entry->id == TypeTableEntryIdMetaType) {
-        return analyze_cast_expr(g, import, context, node);
-    } else if (invoke_type_entry->id == TypeTableEntryIdFn) {
-        return analyze_fn_call_raw(g, import, context, expected_type, node, const_val->data.x_fn, nullptr);
+    // function pointer
+    if (invoke_type_entry->id == TypeTableEntryIdFn) {
+        return invoke_type_entry->data.fn.return_type;
     } else {
         add_node_error(g, fn_ref_expr,
             buf_sprintf("type '%s' not a function", buf_ptr(&invoke_type_entry->name)));

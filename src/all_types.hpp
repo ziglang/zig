@@ -566,6 +566,7 @@ struct AstNodeSymbolExpr {
     // populated by semantic analyzer
     Expr resolved_expr;
     VariableTableEntry *variable;
+    FnTableEntry *fn_entry;
 };
 
 struct AstNodeBoolLiteral {
@@ -720,7 +721,12 @@ struct TypeTableEntryEnum {
 struct TypeTableEntryFn {
     TypeTableEntry *return_type;
     TypeTableEntry **param_types;
-    int param_count;
+    int src_param_count;
+    LLVMTypeRef raw_type_ref;
+    bool is_var_args;
+    int gen_param_count;
+    LLVMCallConv calling_convention;
+    bool is_naked;
 };
 
 enum TypeTableEntryId {
@@ -784,6 +790,7 @@ struct ImportTableEntry {
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> fn_type_table;
 };
 
 struct LabelTableEntry {
@@ -797,17 +804,15 @@ struct FnTableEntry {
     LLVMValueRef fn_value;
     AstNode *proto_node;
     AstNode *fn_def_node;
-    bool is_extern;
-    bool internal_linkage;
-    unsigned calling_convention;
     ImportTableEntry *import_entry;
-    bool is_naked;
-    bool is_inline;
     // Required to be a pre-order traversal of the AST. (parents must come before children)
     ZigList<BlockContext *> all_block_contexts;
     TypeTableEntry *member_of_struct;
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
+    bool is_inline;
+    bool internal_linkage;
+    bool is_extern;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;

@@ -1162,6 +1162,24 @@ pub fn main(args: [][]u8) i32 => {
     return 0;
 }
     )SOURCE", "9\n8\n7\n6\n0\n1\n2\n3\n9\n8\n7\n6\n0\n1\n2\n3\n");
+
+    add_simple_case("function pointers", R"SOURCE(
+import "std.zig";
+
+pub fn main(args: [][]u8) i32 => {
+    const fns = []@typeof(fn1) { fn1, fn2, fn3, fn4, };
+    for (f, fns) {
+        print_u64(f());
+        print_str("\n");
+    }
+    return 0;
+}
+
+fn fn1() u32 => {5}
+fn fn2() u32 => {6}
+fn fn3() u32 => {7}
+fn fn4() u32 => {8}
+    )SOURCE", "5\n6\n7\n8\n");
 }
 
 

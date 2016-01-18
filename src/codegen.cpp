@@ -82,22 +82,9 @@ static TypeTableEntry *get_type_for_type_node(AstNode *node) {
     return const_val->data.x_type;
 }
 
-static bool type_is_unreachable(CodeGen *g, AstNode *type_node) {
-    return get_type_for_type_node(type_node)->id == TypeTableEntryIdUnreachable;
-}
-
 static bool is_param_decl_type_void(CodeGen *g, AstNode *param_decl_node) {
     assert(param_decl_node->type == NodeTypeParamDecl);
     return get_type_for_type_node(param_decl_node->data.param_decl.type)->size_in_bits == 0;
-}
-
-static int count_non_void_params(CodeGen *g, ZigList<AstNode *> *params) {
-    int result = 0;
-    for (int i = 0; i < params->length; i += 1) {
-        if (!is_param_decl_type_void(g, params->at(i)))
-            result += 1;
-    }
-    return result;
 }
 
 static void add_debug_source_node(CodeGen *g, AstNode *node) {
@@ -446,24 +433,25 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         }
     }
 
-    assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
-    AstNodeFnProto *fn_proto_data = &fn_table_entry->proto_node->data.fn_proto;
+    TypeTableEntry *fn_type;
+    LLVMValueRef fn_val;
+    if (fn_table_entry) {
+        fn_val = fn_table_entry->fn_value;
+        fn_type = fn_table_entry->type_entry;
+    } else {
+        fn_val = gen_expr(g, fn_ref_expr);
+        fn_type = get_expr_type(fn_ref_expr);
+    }
 
-    int expected_param_count = fn_proto_data->params.length;
+    int expected_param_count = fn_type->data.fn.src_param_count;
     int fn_call_param_count = node->data.fn_call_expr.params.length;
     int actual_param_count = fn_call_param_count + (struct_type ? 1 : 0);
-    bool is_var_args = fn_proto_data->is_var_args;
+    bool is_var_args = fn_type->data.fn.is_var_args;
     assert((is_var_args && actual_param_count >= expected_param_count) ||
             actual_param_count == expected_param_count);
 
     // don't really include void values
-    int gen_param_count;
-    if (is_var_args) {
-        gen_param_count = actual_param_count;
-    } else {
-        gen_param_count = count_non_void_params(g, &fn_table_entry->proto_node->data.fn_proto.params);
-    }
-    LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(gen_param_count);
+    LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
 
     int gen_param_index = 0;
     if (struct_type) {
@@ -474,19 +462,18 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     for (int i = 0; i < fn_call_param_count; i += 1) {
         AstNode *expr_node = node->data.fn_call_expr.params.at(i);
         LLVMValueRef param_value = gen_expr(g, expr_node);
-        if (is_var_args ||
-            !is_param_decl_type_void(g, fn_table_entry->proto_node->data.fn_proto.params.at(i)))
-        {
+        TypeTableEntry *param_type = get_expr_type(expr_node);
+        if (is_var_args || param_type->size_in_bits > 0) {
             gen_param_values[gen_param_index] = param_value;
             gen_param_index += 1;
         }
     }
 
     add_debug_source_node(g, node);
-    LLVMValueRef result = LLVMZigBuildCall(g->builder, fn_table_entry->fn_value,
-            gen_param_values, gen_param_count, fn_table_entry->calling_convention, "");
+    LLVMValueRef result = LLVMZigBuildCall(g->builder, fn_val,
+            gen_param_values, gen_param_index, fn_type->data.fn.calling_convention, "");
 
-    if (type_is_unreachable(g, fn_table_entry->proto_node->data.fn_proto.return_type)) {
+    if (fn_type->data.fn.return_type->id == TypeTableEntryIdUnreachable) {
         return LLVMBuildUnreachable(g->builder);
     } else {
         return result;
@@ -1243,7 +1230,7 @@ static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
     LLVMBasicBlockRef non_null_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeNonNull");
     LLVMBasicBlockRef null_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeNull");
     LLVMBasicBlockRef end_block;
-    
+
     bool non_null_reachable = get_expr_type(op1_node)->id != TypeTableEntryIdUnreachable;
     bool null_reachable = get_expr_type(op2_node)->id != TypeTableEntryIdUnreachable;
     bool end_reachable = non_null_reachable || null_reachable;
@@ -1951,27 +1938,31 @@ static LLVMValueRef gen_number_literal(CodeGen *g, AstNode *node) {
 }
 
 static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
-    VariableTableEntry *variable = find_variable(
-            get_resolved_expr(node)->block_context,
-            &node->data.symbol_expr.symbol);
-    assert(variable);
-    if (variable->type->size_in_bits == 0) {
-        return nullptr;
-    } else if (variable->is_ptr) {
-        assert(variable->value_ref);
-        if (variable->type->id == TypeTableEntryIdArray) {
-            return variable->value_ref;
-        } else if (variable->type->id == TypeTableEntryIdStruct ||
-                    variable->type->id == TypeTableEntryIdMaybe)
-        {
-            return variable->value_ref;
+    assert(node->type == NodeTypeSymbol);
+    VariableTableEntry *variable = node->data.symbol_expr.variable;
+    if (variable) {
+        if (variable->type->size_in_bits == 0) {
+            return nullptr;
+        } else if (variable->is_ptr) {
+            assert(variable->value_ref);
+            if (variable->type->id == TypeTableEntryIdArray) {
+                return variable->value_ref;
+            } else if (variable->type->id == TypeTableEntryIdStruct ||
+                        variable->type->id == TypeTableEntryIdMaybe)
+            {
+                return variable->value_ref;
+            } else {
+                add_debug_source_node(g, node);
+                return LLVMBuildLoad(g->builder, variable->value_ref, "");
+            }
         } else {
-            add_debug_source_node(g, node);
-            return LLVMBuildLoad(g->builder, variable->value_ref, "");
+            return variable->value_ref;
         }
-    } else {
-        return variable->value_ref;
     }
+
+    FnTableEntry *fn_entry = node->data.symbol_expr.fn_entry;
+    assert(fn_entry);
+    return fn_entry->fn_value;
 }
 
 static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
@@ -2714,6 +2705,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
     import_entry->line_offsets = tokenization.line_offsets;
     import_entry->path = full_path;
     import_entry->fn_table.init(32);
+    import_entry->fn_type_table.init(32);
 
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color,
             &g->next_node_index);
@@ -3098,7 +3090,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
         // invoke `ar`
         // example:
         // # static link into libfoo.a
-        // ar rcs libfoo.a foo1.o foo2.o 
+        // ar rcs libfoo.a foo1.o foo2.o
         zig_panic("TODO invoke ar");
         return;
     }

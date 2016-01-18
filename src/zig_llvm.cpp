@@ -284,7 +284,7 @@ void LLVMZigReplaceDebugArrays(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
             reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(fields));
 }
 
-LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
+LLVMZigDIType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
         LLVMZigDIFile *file, LLVMZigDIType **types_array, int types_array_len, unsigned flags)
 {
     SmallVector<Metadata *, 8> types;
@@ -297,7 +297,8 @@ LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder
             reinterpret_cast<DIFile*>(file),
             dibuilder->getOrCreateTypeArray(types),
             flags);
-    return reinterpret_cast<LLVMZigDISubroutineType*>(subroutine_type);
+    DIType *ditype = subroutine_type;
+    return reinterpret_cast<LLVMZigDIType*>(ditype);
 }
 
 unsigned LLVMZigEncoding_DW_ATE_unsigned(void) {
@@ -388,11 +389,6 @@ LLVMZigDIScope *LLVMZigSubprogramToScope(LLVMZigDISubprogram *subprogram) {
     return reinterpret_cast<LLVMZigDIScope*>(scope);
 }
 
-LLVMZigDIType *LLVMZigSubroutineToType(LLVMZigDISubroutineType *subrtype) {
-    DIType *di_type = reinterpret_cast<DISubroutineType*>(subrtype);
-    return reinterpret_cast<LLVMZigDIType*>(di_type);
-}
-
 LLVMZigDIScope *LLVMZigTypeToScope(LLVMZigDIType *type) {
     DIScope *scope = reinterpret_cast<DIType*>(type);
     return reinterpret_cast<LLVMZigDIScope*>(scope);
@@ -416,16 +412,17 @@ LLVMZigDIFile *LLVMZigCreateFile(LLVMZigDIBuilder *dibuilder, const char *filena
 
 LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
         const char *name, const char *linkage_name, LLVMZigDIFile *file, unsigned lineno,
-        LLVMZigDISubroutineType *ty, bool is_local_to_unit, bool is_definition, unsigned scope_line,
+        LLVMZigDIType *fn_di_type, bool is_local_to_unit, bool is_definition, unsigned scope_line,
         unsigned flags, bool is_optimized, LLVMValueRef function)
 {
     Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(function));
+    DISubroutineType *di_sub_type = static_cast<DISubroutineType*>(reinterpret_cast<DIType*>(fn_di_type));
     DISubprogram *result = reinterpret_cast<DIBuilder*>(dibuilder)->createFunction(
             reinterpret_cast<DIScope*>(scope),
             name, linkage_name,
             reinterpret_cast<DIFile*>(file),
             lineno,
-            reinterpret_cast<DISubroutineType*>(ty),
+            di_sub_type,
             is_local_to_unit, is_definition, scope_line, flags, is_optimized, unwrapped_function);
     return reinterpret_cast<LLVMZigDISubprogram*>(result);
 }

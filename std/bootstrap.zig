@@ -15,7 +15,7 @@ export fn _start() unreachable => {
     call_main()
 }
 
-fn strlen(ptr: &u8) usize => {
+fn strlen(ptr: &const u8) usize => {
     var count: usize = 0;
     while (ptr[count] != 0) {
         count += 1;

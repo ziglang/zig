@@ -81,7 +81,7 @@ void LLVMZigReplaceTemporary(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
 void LLVMZigReplaceDebugArrays(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
         LLVMZigDIType **types_array, int types_array_len);
 
-LLVMZigDISubroutineType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
+LLVMZigDIType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
         LLVMZigDIFile *file, LLVMZigDIType **types_array, int types_array_len, unsigned flags);
 
 unsigned LLVMZigEncoding_DW_ATE_unsigned(void);
@@ -101,7 +101,6 @@ LLVMZigDIScope *LLVMZigCompileUnitToScope(LLVMZigDICompileUnit *compile_unit);
 LLVMZigDIScope *LLVMZigFileToScope(LLVMZigDIFile *difile);
 LLVMZigDIScope *LLVMZigSubprogramToScope(LLVMZigDISubprogram *subprogram);
 LLVMZigDIScope *LLVMZigTypeToScope(LLVMZigDIType *type);
-LLVMZigDIType *LLVMZigSubroutineToType(LLVMZigDISubroutineType *subrtype);
 
 LLVMZigDILocalVariable *LLVMZigCreateLocalVariable(LLVMZigDIBuilder *dbuilder, unsigned tag,
         LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
@@ -119,7 +118,7 @@ LLVMZigDIFile *LLVMZigCreateFile(LLVMZigDIBuilder *dibuilder, const char *filena
 
 LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
         const char *name, const char *linkage_name, LLVMZigDIFile *file, unsigned lineno,
-        LLVMZigDISubroutineType *ty, bool is_local_to_unit, bool is_definition, unsigned scope_line,
+        LLVMZigDIType *fn_di_type, bool is_local_to_unit, bool is_definition, unsigned scope_line,
         unsigned flags, bool is_optimized, LLVMValueRef function);
 
 void LLVMZigDIBuilderFinalize(LLVMZigDIBuilder *dibuilder);
