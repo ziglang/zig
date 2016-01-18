@@ -1790,7 +1790,7 @@ static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
     LLVMBasicBlockRef body_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForBody");
     LLVMBasicBlockRef end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForEnd");
 
-    LLVMValueRef array_val = gen_expr(g, node->data.for_expr.array_expr);
+    LLVMValueRef array_val = gen_array_base_ptr(g, node->data.for_expr.array_expr);
     add_debug_source_node(g, node);
     LLVMBuildStore(g->builder, LLVMConstNull(index_var->type->type_ref), index_ptr);
     LLVMValueRef len_val;

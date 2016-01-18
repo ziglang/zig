@@ -11,9 +11,10 @@ pub struct Rand {
         r.index = 0;
         r.array[0] = seed;
         var i : @typeof(ARRAY_SIZE) = 1;
+        var prev_value: u64 = seed;
         while (i < ARRAY_SIZE) {
-            const prev_value : u64 = r.array[i - 1];
             r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + i);
+            prev_value = r.array[i];
             i += 1;
         }
     }
@@ -67,9 +68,8 @@ pub struct Rand {
     }
 
     fn generate_numbers(r: &Rand) => {
-        var i : @typeof(ARRAY_SIZE) = 0;
-        while (i < ARRAY_SIZE) {
-            const y : u32 = (r.array[i] & 0x80000000) + (r.array[(i + 1) % ARRAY_SIZE] & 0x7fffffff);
+        for (item, r.array, i) {
+            const y : u32 = (item & 0x80000000) + (r.array[(i + 1) % ARRAY_SIZE] & 0x7fffffff);
             const untempered : u32 = r.array[(i + 397) % ARRAY_SIZE] ^ (y >> 1);
             r.array[i] = if ((y % 2) == 0) {
                 untempered
@@ -77,7 +77,6 @@ pub struct Rand {
                 // y is odd
                 untempered ^ 0x9908b0df
             };
-            i += 1;
         }
     }
 

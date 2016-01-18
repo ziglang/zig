@@ -52,7 +52,7 @@ compromises backward compatibility.
 
  * Have a look in the examples/ folder to see some code examples.
  * Basic language features available such as loops, inline assembly,
-   expressions, literals, functions, importing, structs, enums.
+   expressions, literals, functions, importing, structs, tagged unions.
  * Linux x86_64 is supported.
  * Building for the native target is supported.
  * Optimized machine code that Zig produces is indistinguishable from

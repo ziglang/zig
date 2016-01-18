@@ -51,9 +51,7 @@ pub fn readline(buf: []u8, out_len: &usize) bool => {
 pub fn parse_u64(buf: []u8, radix: u8, result: &u64) bool => {
     var x : u64 = 0;
 
-    var i : @typeof(buf.len) = 0;
-    while (i < buf.len) {
-        const c = buf[i];
+    for (c, buf) {
         const digit = char_to_digit(c);
 
         if (digit > radix) {
@@ -69,8 +67,6 @@ pub fn parse_u64(buf: []u8, radix: u8, result: &u64) bool => {
         if (@add_with_overflow(u64, x, digit, &x)) {
             return true;
         }
-
-        i += 1;
     }
 
     *result = x;
