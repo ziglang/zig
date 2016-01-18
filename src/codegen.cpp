@@ -150,6 +150,13 @@ static TypeTableEntry *get_expr_type(AstNode *node) {
     return expr->type_entry;
 }
 
+static bool handle_is_ptr(TypeTableEntry *type_entry) {
+    return type_entry->id == TypeTableEntryIdStruct ||
+            (type_entry->id == TypeTableEntryIdEnum && type_entry->data.enumeration.gen_field_count != 0) ||
+            type_entry->id == TypeTableEntryIdMaybe ||
+            type_entry->id == TypeTableEntryIdArray;
+}
+
 static LLVMValueRef gen_number_literal_raw(CodeGen *g, AstNode *source_node,
         NumLitCodeGen *codegen_num_lit, AstNodeNumberLiteral *num_lit_node)
 {
@@ -681,12 +688,27 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
     }
 }
 
+
 static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node, bool is_lvalue) {
     assert(node->type == NodeTypeArrayAccessExpr);
 
     LLVMValueRef ptr = gen_array_ptr(g, node);
+    TypeTableEntry *child_type;
+    TypeTableEntry *array_type = get_expr_type(node->data.array_access_expr.array_ref_expr);
+    if (array_type->id == TypeTableEntryIdPointer) {
+        child_type = array_type->data.pointer.child_type;
+    } else if (array_type->id == TypeTableEntryIdStruct) {
+        assert(array_type->data.structure.is_unknown_size_array);
+        TypeTableEntry *child_ptr_type = array_type->data.structure.fields[0].type_entry;
+        assert(child_ptr_type->id == TypeTableEntryIdPointer);
+        child_type = child_ptr_type->data.pointer.child_type;
+    } else if (array_type->id == TypeTableEntryIdArray) {
+        child_type = array_type->data.array.child_type;
+    } else {
+        zig_unreachable();
+    }
 
-    if (is_lvalue || !ptr) {
+    if (is_lvalue || !ptr || handle_is_ptr(child_type)) {
         return ptr;
     } else {
         add_debug_source_node(g, node);
@@ -1142,10 +1164,7 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
 static LLVMValueRef gen_struct_memcpy(CodeGen *g, AstNode *source_node, LLVMValueRef src, LLVMValueRef dest,
         TypeTableEntry *type_entry)
 {
-    assert(type_entry->id == TypeTableEntryIdStruct ||
-            type_entry->id == TypeTableEntryIdMaybe ||
-            (type_entry->id == TypeTableEntryIdEnum && type_entry->data.enumeration.gen_field_count != 0) ||
-            type_entry->id == TypeTableEntryIdArray);
+    assert(handle_is_ptr(type_entry));
 
     LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
 
@@ -1168,11 +1187,7 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType b
         LLVMValueRef target_ref, LLVMValueRef value,
         TypeTableEntry *op1_type, TypeTableEntry *op2_type)
 {
-    if (op1_type->id == TypeTableEntryIdStruct ||
-        (op1_type->id == TypeTableEntryIdEnum && op1_type->data.enumeration.gen_field_count != 0) ||
-        op1_type->id == TypeTableEntryIdMaybe ||
-        op1_type->id == TypeTableEntryIdArray)
-    {
+    if (handle_is_ptr(op1_type)) {
         assert(op1_type == op2_type);
         assert(bin_op == BinOpTypeAssign);
 
@@ -1632,8 +1647,10 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
 
             add_debug_source_node(g, field_node);
             LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, type_struct_field->gen_index, "");
-            LLVMValueRef value = gen_expr(g, field_node->data.struct_val_field.expr);
-            LLVMBuildStore(g->builder, value, field_ptr);
+            AstNode *expr_node = field_node->data.struct_val_field.expr;
+            LLVMValueRef value = gen_expr(g, expr_node);
+            gen_assign_raw(g, field_node, BinOpTypeAssign, field_ptr, value,
+                    type_struct_field->type_entry, get_expr_type(expr_node));
         }
 
         return tmp_struct_ptr;
@@ -1651,6 +1668,8 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
         int field_count = type_entry->data.array.len;
         assert(field_count == node->data.container_init_expr.entries.length);
 
+        TypeTableEntry *child_type = type_entry->data.array.child_type;
+
         for (int i = 0; i < field_count; i += 1) {
             AstNode *field_node = node->data.container_init_expr.entries.at(i);
             LLVMValueRef elem_val = gen_expr(g, field_node);
@@ -1661,7 +1680,8 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
             };
             add_debug_source_node(g, field_node);
             LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, tmp_array_ptr, indices, 2, "");
-            LLVMBuildStore(g->builder, elem_val, elem_ptr);
+            gen_assign_raw(g, field_node, BinOpTypeAssign, elem_ptr, elem_val,
+                    child_type, get_expr_type(field_node));
         }
 
         return tmp_array_ptr;

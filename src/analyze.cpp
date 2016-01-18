@@ -235,17 +235,53 @@ static TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, ui
     }
 }
 
+static void unknown_size_array_type_common_init(CodeGen *g, TypeTableEntry *child_type,
+        bool is_const, TypeTableEntry *entry)
+{
+    TypeTableEntry *pointer_type = get_pointer_to_type(g, child_type, is_const);
+
+    unsigned element_count = 2;
+    entry->size_in_bits = g->pointer_size_bytes * 2 * 8;
+    entry->align_in_bits = g->pointer_size_bytes * 8;
+    entry->data.structure.is_packed = false;
+    entry->data.structure.is_unknown_size_array = true;
+    entry->data.structure.field_count = element_count;
+    entry->data.structure.fields = allocate<TypeStructField>(element_count);
+    entry->data.structure.fields[0].name = buf_create_from_str("ptr");
+    entry->data.structure.fields[0].type_entry = pointer_type;
+    entry->data.structure.fields[0].src_index = 0;
+    entry->data.structure.fields[0].gen_index = 0;
+    entry->data.structure.fields[1].name = buf_create_from_str("len");
+    entry->data.structure.fields[1].type_entry = g->builtin_types.entry_usize;
+    entry->data.structure.fields[1].src_index = 1;
+    entry->data.structure.fields[1].gen_index = 1;
+}
+
 static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
     assert(child_type->id != TypeTableEntryIdInvalid);
     TypeTableEntry **parent_pointer = &child_type->unknown_size_array_parent[(is_const ? 1 : 0)];
+
     if (*parent_pointer) {
         return *parent_pointer;
+    } else if (is_const) {
+        TypeTableEntry *var_peer = get_unknown_size_array_type(g, child_type, false);
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
+
+        buf_resize(&entry->name, 0);
+        buf_appendf(&entry->name, "[]const %s", buf_ptr(&child_type->name));
+
+        unknown_size_array_type_common_init(g, child_type, is_const, entry);
+
+        entry->type_ref = var_peer->type_ref;
+        entry->di_type = var_peer->di_type;
+
+        *parent_pointer = entry;
+        return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
 
-        const char *const_str = is_const ? "const " : "";
         buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "[]%s%s", const_str, buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "[]%s", buf_ptr(&child_type->name));
         entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&entry->name));
 
         TypeTableEntry *pointer_type = get_pointer_to_type(g, child_type, is_const);
@@ -257,20 +293,7 @@ static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, TypeTableEntry *c
         };
         LLVMStructSetBody(entry->type_ref, element_types, element_count, false);
 
-        entry->size_in_bits = g->pointer_size_bytes * 2 * 8;
-        entry->align_in_bits = g->pointer_size_bytes * 8;
-        entry->data.structure.is_packed = false;
-        entry->data.structure.is_unknown_size_array = true;
-        entry->data.structure.field_count = element_count;
-        entry->data.structure.fields = allocate<TypeStructField>(element_count);
-        entry->data.structure.fields[0].name = buf_create_from_str("ptr");
-        entry->data.structure.fields[0].type_entry = pointer_type;
-        entry->data.structure.fields[0].src_index = 0;
-        entry->data.structure.fields[0].gen_index = 0;
-        entry->data.structure.fields[1].name = buf_create_from_str("len");
-        entry->data.structure.fields[1].type_entry = g->builtin_types.entry_usize;
-        entry->data.structure.fields[1].src_index = 1;
-        entry->data.structure.fields[1].gen_index = 1;
+        unknown_size_array_type_common_init(g, child_type, is_const, entry);
 
         LLVMZigDIType *di_element_types[] = {
             pointer_type->di_type,

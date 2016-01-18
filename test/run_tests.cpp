@@ -1121,6 +1121,21 @@ pub fn main(args: [][]u8) i32 => {
     return 0;
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("nested arrays", R"SOURCE(
+import "std.zig";
+
+pub fn main(args: [][]u8) i32 => {
+    const array_of_strings = [][]u8 {"hello", "this", "is", "my", "thing"};
+    var i: @typeof(array_of_strings.len) = 0;
+    while (i < array_of_strings.len) {
+        print_str(array_of_strings[i]);
+        print_str("\n");
+        i += 1;
+    }
+    return 0;
+}
+    )SOURCE", "hello\nthis\nis\nmy\nthing\n");
 }
 
 
