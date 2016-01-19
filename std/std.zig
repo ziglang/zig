@@ -5,8 +5,8 @@ pub const stdout_fileno : isize = 1;
 pub const stderr_fileno : isize = 2;
 
 // TODO error handling
-pub fn os_get_random_bytes(buf: &u8, count: usize) isize => {
-    getrandom(buf, count, 0)
+pub fn os_get_random_bytes(buf: []u8) isize => {
+    getrandom(buf.ptr, buf.len, 0)
 }
 
 // TODO error handling
@@ -38,12 +38,12 @@ pub fn print_i64(x: i64) isize => {
 }
 
 // TODO error handling
-pub fn readline(buf: []u8, out_len: &usize) bool => {
+pub fn readline(buf: []u8, out_len: &isize) bool => {
     const amt_read = read(stdin_fileno, buf.ptr, buf.len);
     if (amt_read < 0) {
         return true;
     }
-    *out_len = usize(amt_read);
+    *out_len = isize(amt_read);
     return false;
 }
 
@@ -85,9 +85,9 @@ fn char_to_digit(c: u8) u8 => {
     }
 }
 
-const max_u64_base10_digits: usize = 20;
+const max_u64_base10_digits: isize = 20;
 
-fn buf_print_i64(out_buf: []u8, x: i64) usize => {
+fn buf_print_i64(out_buf: []u8, x: i64) isize => {
     if (x < 0) {
         out_buf[0] = '-';
         return 1 + buf_print_u64(out_buf[1...], u64(-(x + 1)) + 1);
@@ -96,7 +96,7 @@ fn buf_print_i64(out_buf: []u8, x: i64) usize => {
     }
 }
 
-fn buf_print_u64(out_buf: []u8, x: u64) usize => {
+fn buf_print_u64(out_buf: []u8, x: u64) isize => {
     var buf: [max_u64_base10_digits]u8;
     var a = x;
     var index = buf.len;

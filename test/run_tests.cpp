@@ -394,16 +394,16 @@ done:
 import "std.zig";
 
 pub fn main(args: [][]u8) i32 => {
-    var array : [5]u32;
+    var array : [5]i32;
 
-    var i : u32 = 0;
+    var i : i32 = 0;
     while (i < 5) {
         array[i] = i + 1;
         i = array[i];
     }
 
     i = 0;
-    var accumulator = u32(0);
+    var accumulator = i32(0);
     while (i < 5) {
         accumulator += array[i];
 
@@ -420,7 +420,7 @@ pub fn main(args: [][]u8) i32 => {
 
     return 0;
 }
-fn get_array_len(a: []u32) usize => {
+fn get_array_len(a: []i32) isize => {
     a.len
 }
     )SOURCE", "OK\n");
@@ -856,7 +856,7 @@ pub fn main(args: [][]u8) i32 => {
     add_simple_case("constant expressions", R"SOURCE(
 import "std.zig";
 
-const ARRAY_SIZE : u8 = 20;
+const ARRAY_SIZE : i8 = 20;
 
 pub fn main(args: [][]u8) i32 => {
     var array : [ARRAY_SIZE]u8;
@@ -1147,7 +1147,7 @@ pub fn main(args: [][]u8) i32 => {
         print_str("\n");
     }
     for (item, array, index) {
-        print_u64(index);
+        print_i64(index);
         print_str("\n");
     }
     const unknown_size: []u8 = array;
@@ -1156,7 +1156,7 @@ pub fn main(args: [][]u8) i32 => {
         print_str("\n");
     }
     for (item, unknown_size, index) {
-        print_u64(index);
+        print_i64(index);
         print_str("\n");
     }
     return 0;
@@ -1356,9 +1356,9 @@ fn f() => {
                  ".tmp_source.zig:4:12: error: use of undeclared identifier 'i'",
                  ".tmp_source.zig:4:14: error: use of undeclared identifier 'i'",
                  ".tmp_source.zig:5:8: error: array access of non-array",
-                 ".tmp_source.zig:5:9: error: expected type 'usize', got 'bool'",
+                 ".tmp_source.zig:5:9: error: expected type 'isize', got 'bool'",
                  ".tmp_source.zig:5:19: error: array access of non-array",
-                 ".tmp_source.zig:5:20: error: expected type 'usize', got 'bool'");
+                 ".tmp_source.zig:5:20: error: expected type 'isize', got 'bool'");
 
     add_compile_fail_case("variadic functions only allowed in extern", R"SOURCE(
 fn f(...) => {}

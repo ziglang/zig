@@ -1,35 +1,35 @@
-const SYS_read : usize = 0;
-const SYS_write : usize = 1;
-const SYS_exit : usize = 60;
-const SYS_getrandom : usize = 318;
+const SYS_read : isize = 0;
+const SYS_write : isize = 1;
+const SYS_exit : isize = 60;
+const SYS_getrandom : isize = 318;
 
-fn syscall1(number: usize, arg1: usize) usize => {
+fn syscall1(number: isize, arg1: isize) isize => {
     asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize)
+        : [ret] "={rax}" (-> isize)
         : [number] "{rax}" (number), [arg1] "{rdi}" (arg1)
         : "rcx", "r11")
 }
 
-fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize => {
+fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) isize => {
     asm volatile ("syscall"
-        : [ret] "={rax}" (-> usize)
+        : [ret] "={rax}" (-> isize)
         : [number] "{rax}" (number), [arg1] "{rdi}" (arg1), [arg2] "{rsi}" (arg2), [arg3] "{rdx}" (arg3)
         : "rcx", "r11")
 }
 
-pub fn read(fd: isize, buf: &u8, count: usize) isize => {
-    isize(syscall3(SYS_read, usize(fd), usize(buf), count))
+pub fn read(fd: isize, buf: &u8, count: isize) isize => {
+    isize(syscall3(SYS_read, isize(fd), isize(buf), count))
 }
 
-pub fn write(fd: isize, buf: &const u8, count: usize) isize => {
-    isize(syscall3(SYS_write, usize(fd), usize(buf), count))
+pub fn write(fd: isize, buf: &const u8, count: isize) isize => {
+    isize(syscall3(SYS_write, isize(fd), isize(buf), count))
 }
 
 pub fn exit(status: i32) unreachable => {
-    syscall1(SYS_exit, usize(status));
+    syscall1(SYS_exit, isize(status));
     unreachable{}
 }
 
-pub fn getrandom(buf: &u8, count: usize, flags: u32) isize => {
-    isize(syscall3(SYS_getrandom, usize(buf), count, usize(flags)))
+pub fn getrandom(buf: &u8, count: isize, flags: u32) isize => {
+    isize(syscall3(SYS_getrandom, isize(buf), count, isize(flags)))
 }

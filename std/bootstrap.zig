@@ -3,20 +3,20 @@ import "syscall.zig";
 // The compiler treats this file special by implicitly importing the function `main`
 // from the root source file.
 
-var argc: usize;
+var argc: isize;
 var argv: &&u8;
 var env: &&u8;
 
 #attribute("naked")
 export fn _start() unreachable => {
-    argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> usize));
+    argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> isize));
     argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));
     env = asm("lea 0x10(%%rsp,%%rdi,8), %[env]": [env] "=r" (-> &&u8));
     call_main()
 }
 
-fn strlen(ptr: &const u8) usize => {
-    var count: usize = 0;
+fn strlen(ptr: &const u8) isize => {
+    var count: isize = 0;
     while (ptr[count] != 0) {
         count += 1;
     }

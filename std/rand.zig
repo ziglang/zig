@@ -1,5 +1,5 @@
 // Mersenne Twister
-const ARRAY_SIZE : u16 = 624;
+const ARRAY_SIZE : i16 = 624;
 
 /// Use `rand_init` to initialize this state.
 pub struct Rand {
@@ -13,7 +13,7 @@ pub struct Rand {
         var i : @typeof(ARRAY_SIZE) = 1;
         var prev_value: u64 = seed;
         while (i < ARRAY_SIZE) {
-            r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + i);
+            r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + u32(i));
             prev_value = r.array[i];
             i += 1;
         }
@@ -81,7 +81,7 @@ pub struct Rand {
     }
 
     // does not populate the remaining (buf.len % 4) bytes
-    fn get_bytes_aligned(r: &Rand, buf: []u8) usize => {
+    fn get_bytes_aligned(r: &Rand, buf: []u8) isize => {
         var bytes_left = buf.len;
         while (bytes_left >= 4) {
             *((&u32)(&buf[buf.len - bytes_left])) = r.get_u32();

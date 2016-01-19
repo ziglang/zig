@@ -7,7 +7,8 @@ pub fn main(args: [][]u8) i32 => {
     print_str("Welcome to the Guess Number Game in Zig.\n");
 
     var seed : u32;
-    const err = os_get_random_bytes((&u8)(&seed), @sizeof(u32));
+    const seed_bytes = (&u8)(&seed)[0...@sizeof(u32)];
+    const err = os_get_random_bytes(seed_bytes);
     if (err != @sizeof(u32)) {
         // TODO full error message
         fprint_str(stderr_fileno, "unable to get random bytes\n");
@@ -22,7 +23,7 @@ pub fn main(args: [][]u8) i32 => {
     while (true) {
         print_str("\nGuess a number between 1 and 100: ");
         var line_buf : [20]u8;
-        var line_len : usize;
+        var line_len : isize;
         // TODO fix this awkward error handling
         if (readline(line_buf, &line_len) || line_len == line_buf.len) {
             // TODO full error message

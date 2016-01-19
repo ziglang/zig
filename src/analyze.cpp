@@ -253,7 +253,7 @@ static void unknown_size_array_type_common_init(CodeGen *g, TypeTableEntry *chil
     entry->data.structure.fields[0].src_index = 0;
     entry->data.structure.fields[0].gen_index = 0;
     entry->data.structure.fields[1].name = buf_create_from_str("len");
-    entry->data.structure.fields[1].type_entry = g->builtin_types.entry_usize;
+    entry->data.structure.fields[1].type_entry = g->builtin_types.entry_isize;
     entry->data.structure.fields[1].src_index = 1;
     entry->data.structure.fields[1].gen_index = 1;
 }
@@ -290,7 +290,7 @@ static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, TypeTableEntry *c
         unsigned element_count = 2;
         LLVMTypeRef element_types[] = {
             pointer_type->type_ref,
-            g->builtin_types.entry_usize->type_ref,
+            g->builtin_types.entry_isize->type_ref,
         };
         LLVMStructSetBody(entry->type_ref, element_types, element_count, false);
 
@@ -298,7 +298,7 @@ static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, TypeTableEntry *c
 
         LLVMZigDIType *di_element_types[] = {
             pointer_type->di_type,
-            g->builtin_types.entry_usize->di_type,
+            g->builtin_types.entry_isize->di_type,
         };
         LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
         entry->di_type = LLVMZigCreateDebugStructType(g->dbuilder, compile_unit_scope,
@@ -1513,7 +1513,7 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
     } else if (struct_type->id == TypeTableEntryIdArray) {
         Buf *name = &node->data.field_access_expr.field_name;
         if (buf_eql_str(name, "len")) {
-            return g->builtin_types.entry_usize;
+            return g->builtin_types.entry_isize;
         } else if (buf_eql_str(name, "ptr")) {
             // TODO determine whether the pointer should be const
             return get_pointer_to_type(g, struct_type->data.array.child_type, false);
@@ -1581,10 +1581,10 @@ static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, 
         context->struct_val_expr_alloca_list.append(&node->data.slice_expr.resolved_struct_val_expr);
     }
 
-    analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.slice_expr.start);
+    analyze_expression(g, import, context, g->builtin_types.entry_isize, node->data.slice_expr.start);
 
     if (node->data.slice_expr.end) {
-        analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.slice_expr.end);
+        analyze_expression(g, import, context, g->builtin_types.entry_isize, node->data.slice_expr.end);
     }
 
     return return_type;
@@ -1614,7 +1614,7 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
         return_type = g->builtin_types.entry_invalid;
     }
 
-    analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.array_access_expr.subscript);
+    analyze_expression(g, import, context, g->builtin_types.entry_isize, node->data.array_access_expr.subscript);
 
     return return_type;
 }
@@ -2248,7 +2248,7 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
 
     if (size_node) {
         TypeTableEntry *size_type = analyze_expression(g, import, context,
-                g->builtin_types.entry_usize, size_node);
+                g->builtin_types.entry_isize, size_node);
         if (size_type->id == TypeTableEntryIdInvalid) {
             return g->builtin_types.entry_invalid;
         }
@@ -2341,10 +2341,10 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
     if (index_var_node) {
         Buf *index_var_name = &index_var_node->data.symbol_expr.symbol;
         node->data.for_expr.index_var = add_local_var(g, index_var_node, child_context, index_var_name,
-                g->builtin_types.entry_usize, true);
+                g->builtin_types.entry_isize, true);
     } else {
         node->data.for_expr.index_var = add_local_var(g, node, child_context, nullptr,
-                g->builtin_types.entry_usize, true);
+                g->builtin_types.entry_isize, true);
     }
 
     AstNode *for_body_node = node->data.for_expr.body;
