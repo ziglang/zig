@@ -2,13 +2,26 @@ export executable "cat";
 
 import "std.zig";
 
-pub fn main(args: [][]u8) error => {
+// Things to do to make this work:
+// * isize instead of usize for things
+// * var args printing
+// * update std API
+// * !void type
+// * defer
+// * !return
+// * !! operator
+// * make main return !void
+// * how to reference error values (!void).Invalid ? !Invalid ?
+// * ~ is bool not, not !
+// * cast err type to string
+
+pub fn main(args: [][]u8) !void => {
     const exe = args[0];
     var catted_anything = false;
-    for (arg in args[1...]) {
+    for (arg, args[1...]) {
         if (arg == "-") {
             catted_anything = true;
-            cat_stream(stdin) !! (err) => return err;
+            !return cat_stream(stdin);
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
@@ -20,20 +33,20 @@ pub fn main(args: [][]u8) error => {
             defer is.close();
 
             catted_anything = true;
-            cat_stream(is) !! (err) => return err;
+            !return cat_stream(is);
         }
     }
-    if (!catted_anything) {
-        cat_stream(stdin) !! (err) => return err;
+    if (~catted_anything) {
+        !return cat_stream(stdin)
     }
 }
 
-fn usage(exe: []u8) error => {
+fn usage(exe: []u8) !void => {
     stderr.print("Usage: {} [FILE]...\n", exe);
-    return error.Invalid;
+    return !Invalid;
 }
 
-fn cat_stream(is: InputStream) error => {
+fn cat_stream(is: InputStream) !void => {
     var buf: [1024 * 4]u8;
 
     while (true) {
