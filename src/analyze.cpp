@@ -2072,6 +2072,18 @@ static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, Block
         if (existing_var) {
             add_node_error(g, source_node, buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
             variable_entry->type = g->builtin_types.entry_invalid;
+        } else {
+            auto primitive_table_entry = g->primitive_type_table.maybe_get(name);
+            TypeTableEntry *type;
+            if (primitive_table_entry) {
+                type = primitive_table_entry->value;
+            } else {
+                type = find_container(context, name);
+            }
+            if (type) {
+                add_node_error(g, source_node, buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
+                variable_entry->type = g->builtin_types.entry_invalid;
+            }
         }
 
         context->variable_table.put(&variable_entry->name, variable_entry);

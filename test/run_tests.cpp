@@ -1501,6 +1501,16 @@ const foo = []u16{.x = 1024,};
     add_compile_fail_case("type variables must be constant", R"SOURCE(
 var foo = u8;
     )SOURCE", 1, ".tmp_source.zig:2:1: error: variable of type 'type' must be constant");
+
+    add_compile_fail_case("variables shadowing types", R"SOURCE(
+struct Foo {}
+struct Bar {}
+
+fn f(Foo: i32) => {
+    var Bar : i32;
+}
+    )SOURCE", 2, ".tmp_source.zig:5:6: error: variable shadows type 'Foo'",
+                 ".tmp_source.zig:6:5: error: variable shadows type 'Bar'");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
