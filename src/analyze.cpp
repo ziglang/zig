@@ -2726,7 +2726,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
         case BuiltinFnIdMinValue:
             return analyze_min_max_value(g, import, context, node,
                     "no min value available for type '%s'", false);
-        case BuiltinFnIdValueCount:
+        case BuiltinFnIdMemberCount:
             {
                 AstNode *type_node = node->data.fn_call_expr.params.at(0);
                 TypeTableEntry *type_entry = analyze_type_expr(g, import, context, type_node);

@@ -861,7 +861,7 @@ enum BuiltinFnId {
     BuiltinFnIdSizeof,
     BuiltinFnIdMaxValue,
     BuiltinFnIdMinValue,
-    BuiltinFnIdValueCount,
+    BuiltinFnIdMemberCount,
     BuiltinFnIdTypeof,
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
