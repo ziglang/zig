@@ -1,32 +1,5 @@
 # Language Reference
 
-## Primitive Numeric Types:
-
-zig          |        C equivalent    | Description
--------------|------------------------|-------------------------------
-        bool |                   bool |  unsigned 1-bit integer
-          i8 |                 int8_t |    signed 8-bit integer
-          u8 |                uint8_t |  unsigned 8-bit integer
-         i16 |                int16_t |   signed 16-bit integer
-         u16 |               uint16_t | unsigned 16-bit integer
-         i32 |                int32_t |   signed 32-bit integer
-         u32 |               uint32_t | unsigned 32-bit integer
-         i64 |                int64_t |   signed 64-bit integer
-         u64 |               uint64_t | unsigned 64-bit integer
-         f32 |                  float |  32-bit IEE754 floating point
-         f64 |                 double |  64-bit IEE754 floating point
-        f128 |            long double | 128-bit IEE754 floating point
-       isize |               intptr_t |   signed pointer sized integer
-       usize |              uintptr_t | unsigned pointer sized integer
-     c_short |                  short | for API compatibility with C
-    c_ushort |         unsigned short | for API compatibility with C
-       c_int |                    int | for API compatibility with C
-      c_uint |           unsigned int | for API compatibility with C
-      c_long |                   long | for API compatibility with C
-     c_ulong |          unsigned long | for API compatibility with C
-  c_longlong |              long long | for API compatibility with C
- c_ulonglong |     unsigned long long | for API compatibility with C
-
 ## Grammar
 
 ```
@@ -190,42 +163,152 @@ x{}
 = *= /= %= += -= <<= >>= &= ^= |= &&= ||=
 ```
 
-## Literals
+## Types
 
-### Characters and Strings
+### Numeric Types
 
-                | Example  | Characters  | Escapes        | Null Term | Type
-----------------|----------|-------------|----------------|-----------|----------
- Byte           | 'H'      | All ASCII   | Byte           | No        | u8
- UTF-8 Bytes    | "hello"  | All Unicode | Byte & Unicode | No        | [5; u8]
- UTF-8 C string | c"hello" | All Unicode | Byte & Unicode | Yes       | *const u8
+```
+Type name       C equivalent        Description
 
-### Byte Escapes
+i8              int8_t              signed 8-bit integer
+u8              uint8_t             unsigned 8-bit integer
+i16             int16_t             signed 16-bit integer
+u16             uint16_t            unsigned 16-bit integer
+i32             int32_t             signed 32-bit integer
+u32             uint32_t            unsigned 32-bit integer
+i64             int64_t             signed 64-bit integer
+u64             uint64_t            unsigned 64-bit integer
 
-      | Name
-------|----------------------------------------
- \x7F | 8-bit character code (exactly 2 digits)
- \n   | Newline
- \r   | Carriage return
- \t   | Tab
- \\   | Backslash
- \0   | Null
- \'   | Single quote
- \"   | Double quote
+f32             float               32-bit IEE754 floating point
+f64             double              64-bit IEE754 floating point
+f128            long double         128-bit IEE754 floating point
+
+isize           intptr_t            signed pointer sized integer
+usize           uintptr_t           unsigned pointer sized integer
+
+c_short         short               for ABI compatibility with C
+c_ushort        unsigned short      for ABI compatibility with C
+c_int           int                 for ABI compatibility with C
+c_uint          unsigned int        for ABI compatibility with C
+c_long          long                for ABI compatibility with C
+c_ulong         unsigned long       for ABI compatibility with C
+c_longlong      long long           for ABI compatibility with C
+c_ulonglong     unsigned long long  for ABI compatibility with C
+```
+
+### Boolean Type
+The boolean type has the name `bool` and represents either true or false.
+
+### Function Types
+TODO
+
+### Array Types
+TODO
+Also, are there slices?
+
+### Struct Types
+TODO
+
+### Pointer Types
+TODO
+
+### Unreachable Type
+The unreachable type has the name `unreachable`. TODO explanation
+
+### Void Type
+The void type has the name `void`. TODO explanation
+
+
+## Expressions
+
+### Literals
+
+#### Character and String Literals
+```
+Literal         Example   Characters   Escapes         Null Term  Type
+
+Byte            'H'       All ASCII    Byte            No         u8
+UTF-8 Bytes     "hello"   All Unicode  Byte & Unicode  No         [5; u8]
+UTF-8 C string  c"hello"  All Unicode  Byte & Unicode  Yes        const u8
+```
+
+```
+Escape  Name
+
+\xNN    hexadecimal 8-bit character code (exactly 2 digits)
+\n      Newline
+\r      Carriage return
+\t      Tab
+\\      Backslash
+\0      Null
+\'      Single quote
+\"      Double quote
+```
 
 ### Unicode Escapes
 
-          | Name
-----------|-----------------------------------------------
- \u{7FFF} | 24-bit Unicode character code (up to 6 digits)
+ Escape     | Name
+------------|-----------------------------------------------
+ \u{NNNNNN} | hexadecimal 24-bit Unicode character code (up to 6 digits)
 
-### Numbers
+#### Numeric Literals
 
- Number literals    | Example     | Exponentiation
---------------------|-------------|---------------
- Decimal integer    | 98222       | N/A
- Hex integer        | 0xff        | N/A
- Octal integer      | 0o77        | N/A
- Binary integer     | 0b11110000  | N/A
- Floating-point     | 123.0E+77   | Optional
- Hex floating point | TODO        | TODO
+```
+Number literals     Example      Exponentiation
+
+Decimal integer     98222        N/A
+Hex integer         0xff         N/A
+Octal integer       0o77         N/A
+Binary integer      0b11110000   N/A
+Floating-point      123.0E+77    Optional
+Hex floating point  TODO         TODO
+```
+
+### Identifiers
+TODO
+
+### Declarations
+Declarations have type `void`.
+
+#### Function Declarations
+TODO
+
+#### Variable Declarations
+TODO
+
+#### Struct Declarations
+TODO
+
+#### Enum Declarations
+TODO
+
+
+## Built-in Functions
+Built-in functions are prefixed with `@`.
+
+### Typeof
+TODO
+
+### Sizeof
+TODO
+
+### Overflow Arithmetic
+Overflow arithmetic functions have defined behavior on overflow or underflow. TODO what is that behaviour?
+
+The functions take an integer (TODO float?) type, two variables of the specified type, and a pointer to a variable of the specified type where the result is stored. The functions return a boolean value: true of overflow/underflow occurred, false otherwise.
+
+```
+Function                                                  Operation
+bool add_with_overflow(type, a: type, b: type, x: &type)  *x = a + b
+bool sub_with_overflow(type, a: type, b: type, x: &type)  *x = a - b
+bool mul_with_overflow(type, a: type, b: type, x: &type)  *x = a * b
+```
+
+### Memory Operations
+TODO memset and memcpy
+
+### Value Count
+TODO
+
+### Max and Min Value
+TODO
