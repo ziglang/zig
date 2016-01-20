@@ -26,6 +26,7 @@ struct BuiltinFnEntry;
 struct LabelTableEntry;
 struct TypeStructField;
 struct CodeGen;
+struct ConstExprValue;
 
 enum OutType {
     OutTypeUnknown,
@@ -57,6 +58,11 @@ struct Cast {
     AstNode *source_node;
 };
 
+struct ConstEnumValue {
+    uint64_t tag;
+    ConstExprValue *payload;
+};
+
 struct ConstExprValue {
     bool ok; // true if constant expression evalution worked
     bool depends_on_compile_var;
@@ -69,6 +75,7 @@ struct ConstExprValue {
         FnTableEntry *x_fn;
         TypeTableEntry *x_type;
         ConstExprValue *x_maybe;
+        ConstEnumValue x_enum;
     } data;
 };
 
@@ -426,6 +433,10 @@ struct AstNodeSwitchProng {
     ZigList<AstNode *> items;
     AstNode *var_symbol;
     AstNode *expr;
+
+    // populated by semantic analyzer
+    BlockContext *block_context;
+    VariableTableEntry *var;
 };
 
 struct AstNodeSwitchRange {
@@ -933,6 +944,7 @@ struct CodeGen {
 
     OutType out_type;
     FnTableEntry *cur_fn;
+    // TODO remove this in favor of get_resolved_expr(expr_node)->context
     BlockContext *cur_block_context;
     ZigList<LLVMBasicBlockRef> break_block_stack;
     ZigList<LLVMBasicBlockRef> continue_block_stack;

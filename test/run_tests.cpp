@@ -1180,6 +1180,33 @@ fn fn2() u32 => {6}
 fn fn3() u32 => {7}
 fn fn4() u32 => {8}
     )SOURCE", "5\n6\n7\n8\n");
+
+    add_simple_case("switch statement", R"SOURCE(
+import "std.zig";
+
+enum Foo {
+    A,
+    B,
+    C,
+    D,
+}
+
+pub fn main(args: [][]u8) i32 => {
+    const foo = Foo.C;
+    const val: i32 = switch (foo) {
+        Foo.A => 1,
+        Foo.B => 2,
+        Foo.C => 3,
+        Foo.D => 4,
+    };
+    if (val != 3) {
+        print_str("BAD\n");
+    }
+
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
 }
 
 
@@ -1511,6 +1538,16 @@ fn f(Foo: i32) => {
 }
     )SOURCE", 2, ".tmp_source.zig:5:6: error: variable shadows type 'Foo'",
                  ".tmp_source.zig:6:5: error: variable shadows type 'Bar'");
+
+    add_compile_fail_case("multiple else prongs in a switch", R"SOURCE(
+fn f() => {
+    const value: bool = switch (u32(111)) {
+        1234 => false,
+        else => true,
+        else => true,
+    };
+}
+    )SOURCE", 1, ".tmp_source.zig:6:9: error: multiple else prongs in switch expression");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

@@ -68,37 +68,35 @@ pub fn free#(T: type)(ptr: ?&T) {
 
 ////////////////// alternate
 
-// previously proposed, but with : instead of ->
-// `:` means "parser should expect a type now"
-fn max#(T :type)(a :T, b :T) :T {
+// previously proposed but without ->
+fn max#(T: type)(a: T, b: T) T {
     if (a > b) a else b
 }
 
 // andy's new idea
-// parameters can talk about @typeof() for previous parameters.
-// using :T here is equivalent to @child_type(@typeof(T))
-fn max(T :type, a :T, b :T) :T {
+// parameters can reference other inline parameters.
+fn max(inline T: type, a: T, b: T) T {
     if (a > b) a else b
 }
 
 fn f() {
-    const x :i32 = 1234;
-    const y :i32 = 5678;
+    const x: i32 = 1234;
+    const y: i32 = 5678;
     const z = max(@typeof(x), x, y);
 }
 
 // So, type-generic functions don't need any fancy syntax. type-generic
 // containers still do, though:
 
-pub struct List(T :type) {
-    items :?&T,
-    length :isize,
-    capacity :isize,
+pub struct List(T: type) {
+    items: ?&T,
+    length: isize,
+    capacity: isize,
 }
 
-// Types are always marked with ':' so we don't need '#' to indicate type generic parameters.
+// we don't need '#' to indicate type generic parameters.
 
 fn f() {
-    var list :List(:u8);
+    var list: List(u8);
 }
 

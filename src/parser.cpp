@@ -2255,8 +2255,8 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, int *token_index, bool m
             break;
         }
 
-        Token *arrow_or_comma = &pc->tokens->at(*token_index);
-        if (arrow_or_comma->id == TokenIdComma) {
+        Token *arrow_or_colon = &pc->tokens->at(*token_index);
+        if (arrow_or_colon->id == TokenIdColon) {
             *token_index += 1;
             ast_eat_token(pc, token_index, TokenIdLParen);
             prong_node->data.switch_prong.var_symbol = ast_parse_symbol(pc, token_index);

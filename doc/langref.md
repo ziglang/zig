@@ -94,7 +94,7 @@ BlockExpression : IfExpression | Block | WhileExpression | ForExpression | Switc
 
 SwitchExpression : "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 
-SwitchProng : (list(SwitchItem, ",") | "else") option("," "(" "Symbol" ")") "=>" Expression ","
+SwitchProng : (list(SwitchItem, ",") | "else") option(":" "(" "Symbol" ")") "=>" Expression ","
 
 SwitchItem : Expression | (Expression "..." Expression)
 
@@ -197,8 +197,8 @@ x{}
                 | Example  | Characters  | Escapes        | Null Term | Type
 ----------------|----------|-------------|----------------|-----------|----------
  Byte           | 'H'      | All ASCII   | Byte           | No        | u8
- UTF-8 Bytes    | "hello"  | All Unicode | Byte & Unicode | No        | [5; u8]
- UTF-8 C string | c"hello" | All Unicode | Byte & Unicode | Yes       | *const u8
+ UTF-8 Bytes    | "hello"  | All Unicode | Byte & Unicode | No        | [5]u8
+ UTF-8 C string | c"hello" | All Unicode | Byte & Unicode | Yes       | &const u8
 
 ### Byte Escapes
 

@@ -1350,6 +1350,11 @@ static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *imp
                     buf_ptr(&enum_type->name),
                     buf_ptr(field_name),
                     buf_ptr(&type_enum_field->type_entry->name)));
+        } else {
+            Expr *expr = get_resolved_expr(field_access_node);
+            expr->const_val.ok = true;
+            expr->const_val.data.x_enum.tag = type_enum_field->value;
+            expr->const_val.data.x_enum.payload = nullptr;
         }
     } else {
         add_node_error(g, field_access_node,
@@ -1945,6 +1950,25 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
         }
     } else if (resolved_type->id == TypeTableEntryIdFloat) {
         answer = eval_bool_bin_op_float(op1_val->data.x_float, bin_op_type, op2_val->data.x_float);
+    } else if (resolved_type->id == TypeTableEntryIdEnum) {
+        ConstEnumValue *enum1 = &op1_val->data.x_enum;
+        ConstEnumValue *enum2 = &op2_val->data.x_enum;
+        bool are_equal = false;
+        if (enum1->tag == enum2->tag) {
+            TypeEnumField *enum_field = &op1_type->data.enumeration.fields[enum1->tag];
+            if (enum_field->type_entry->size_in_bits > 0) {
+                zig_panic("TODO const expr analyze enum special value for equality");
+            } else {
+                are_equal = true;
+            }
+        }
+        if (bin_op_type == BinOpTypeCmpEq) {
+            answer = are_equal;
+        } else if (bin_op_type == BinOpTypeCmpNotEq) {
+            answer = !are_equal;
+        } else {
+            zig_unreachable();
+        }
     } else {
         zig_unreachable();
     }
@@ -3017,7 +3041,62 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
 static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    zig_panic("TODO analyze_switch_expr");
+    AstNode *expr_node = node->data.switch_expr.expr;
+    TypeTableEntry *expr_type = analyze_expression(g, import, context, nullptr, expr_node);
+
+    if (expected_type == nullptr) {
+        zig_panic("TODO resolve peer compatibility of switch prongs");
+    }
+
+    if (expr_type->id == TypeTableEntryIdInvalid) {
+        return expr_type;
+    } else if (expr_type->id == TypeTableEntryIdUnreachable) {
+        add_node_error(g, first_executing_node(expr_node),
+                buf_sprintf("switch on unreachable expression not allowed"));
+        return g->builtin_types.entry_invalid;
+    } else {
+        AstNode *else_prong = nullptr;
+        for (int prong_i = 0; prong_i < node->data.switch_expr.prongs.length; prong_i += 1) {
+            AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
+
+            TypeTableEntry *var_type;
+            if (prong_node->data.switch_prong.items.length == 0) {
+                if (else_prong) {
+                    add_node_error(g, prong_node, buf_sprintf("multiple else prongs in switch expression"));
+                } else {
+                    else_prong = prong_node;
+                }
+                var_type = expr_type;
+            } else {
+                for (int item_i = 0; item_i < prong_node->data.switch_prong.items.length; item_i += 1) {
+                    AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
+                    if (item_node->type == NodeTypeSwitchRange) {
+                        zig_panic("TODO range in switch statement");
+                    }
+                    analyze_expression(g, import, context, expr_type, item_node);
+                    ConstExprValue *const_val = &get_resolved_expr(item_node)->const_val;
+                    if (!const_val->ok) {
+                        add_node_error(g, item_node, buf_sprintf("unable to resolve constant expression"));
+                    }
+                }
+                var_type = expr_type;
+            }
+
+            BlockContext *child_context = new_block_context(node, context);
+            prong_node->data.switch_prong.block_context = child_context;
+            AstNode *var_node = prong_node->data.switch_prong.var_symbol;
+            if (var_node) {
+                assert(var_node->type == NodeTypeSymbol);
+                Buf *var_name = &var_node->data.symbol_expr.symbol;
+                prong_node->data.switch_prong.var = add_local_var(g, var_node, child_context, var_name,
+                        var_type, true);
+            }
+
+            analyze_expression(g, import, child_context, expected_type,
+                    prong_node->data.switch_prong.expr);
+        }
+    }
+    return expected_type;
 }
 
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,

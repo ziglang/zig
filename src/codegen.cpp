@@ -1968,7 +1968,69 @@ static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeSwitchExpr);
 
-    zig_panic("TODO gen_switch_expr");
+    LLVMValueRef target_value = gen_expr(g, node->data.switch_expr.expr);
+
+    bool end_unreachable = (get_expr_type(node)->id == TypeTableEntryIdUnreachable);
+
+    LLVMBasicBlockRef end_block = end_unreachable ?
+        nullptr : LLVMAppendBasicBlock(g->cur_fn->fn_value, "SwitchEnd");
+    LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SwitchElse");
+    int prong_count = node->data.switch_expr.prongs.length;
+
+    add_debug_source_node(g, node);
+    LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, target_value, else_block, prong_count);
+
+    ZigList<LLVMValueRef> incoming_values = {0};
+    ZigList<LLVMBasicBlockRef> incoming_blocks = {0};
+
+    AstNode *else_prong = nullptr;
+    for (int prong_i = 0; prong_i < prong_count; prong_i += 1) {
+        AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
+        LLVMBasicBlockRef prong_block;
+        if (prong_node->data.switch_prong.items.length == 0) {
+            assert(!else_prong);
+            else_prong = prong_node;
+            prong_block = else_block;
+        } else {
+            prong_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SwitchProng");
+            for (int item_i = 0; item_i < prong_node->data.switch_prong.items.length; item_i += 1) {
+                AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
+                assert(item_node->type != NodeTypeSwitchRange);
+                assert(get_resolved_expr(item_node)->const_val.ok);
+                LLVMValueRef val = gen_expr(g, item_node);
+                LLVMAddCase(switch_instr, val, prong_block);
+            }
+        }
+        assert(!prong_node->data.switch_prong.var_symbol);
+        LLVMPositionBuilderAtEnd(g->builder, prong_block);
+        AstNode *prong_expr = prong_node->data.switch_prong.expr;
+        LLVMValueRef prong_val = gen_expr(g, prong_expr);
+
+        if (get_expr_type(prong_expr)->id != TypeTableEntryIdUnreachable) {
+            add_debug_source_node(g, prong_expr);
+            LLVMBuildBr(g->builder, end_block);
+            incoming_values.append(prong_val);
+            incoming_blocks.append(prong_block);
+        }
+    }
+
+    if (!else_prong) {
+        LLVMPositionBuilderAtEnd(g->builder, else_block);
+        add_debug_source_node(g, node);
+        LLVMBuildUnreachable(g->builder);
+    }
+
+    if (end_unreachable) {
+        return nullptr;
+    }
+
+    LLVMPositionBuilderAtEnd(g->builder, end_block);
+
+    add_debug_source_node(g, node);
+    LLVMValueRef phi = LLVMBuildPhi(g->builder, get_expr_type(node)->type_ref, "");
+    LLVMAddIncoming(phi, incoming_values.items, incoming_blocks.items, incoming_values.length);
+
+    return phi;
 }
 
 static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
