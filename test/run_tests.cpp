@@ -1082,11 +1082,11 @@ pub fn main(args: [][]u8) i32 => {
         print_str("BAD\n");
     }
 
-    if (@value_count(Foo) != 3) {
+    if (@member_count(Foo) != 3) {
         print_str("BAD\n");
     }
 
-    if (@value_count(Bar) != 4) {
+    if (@member_count(Bar) != 4) {
         print_str("BAD\n");
     }
 
