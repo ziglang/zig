@@ -30,139 +30,145 @@ zig          |        C equivalent    | Description
 ## Grammar
 
 ```
-Root : many(TopLevelDecl) token(EOF)
+Root : many(TopLevelDecl) "EOF"
 
 TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Import | ContainerDecl | VariableDeclaration
 
-VariableDeclaration : option(FnVisibleMod) (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) PrefixOpExpression option(token(Eq) Expression))
+VariableDeclaration : option(FnVisibleMod) ("var" | "const") "symbol" ("=" Expression | ":" PrefixOpExpression option("=" Expression))
 
-ContainerDecl : many(Directive) option(FnVisibleMod) (token(Struct) | token(Enum)) token(Symbol) token(LBrace) many(StructMember) token(RBrace)
+ContainerDecl : many(Directive) option(FnVisibleMod) ("struct" | "enum") "Symbol" "{" many(StructMember) "}"
 
 StructMember: StructField | FnDecl
 
-StructField : token(Symbol) option(token(Colon) Expression) token(Comma))
+StructField : "Symbol" option(":" Expression) ",")
 
-Import : many(Directive) token(Import) token(String) token(Semicolon)
+Import : many(Directive) "import" "String" ";"
 
-RootExportDecl : many(Directive) token(Export) token(Symbol) token(String) token(Semicolon)
+RootExportDecl : many(Directive) "export" "Symbol" "String" ";"
 
-ExternBlock : many(Directive) token(Extern) token(LBrace) many(FnDecl) token(RBrace)
+ExternBlock : many(Directive) "extern" "{" many(FnDecl) "}"
 
-FnProto : many(Directive) option(FnVisibleMod) token(Fn) token(Symbol) ParamDeclList option(PrefixOpExpression)
+FnProto : many(Directive) option(FnVisibleMod) "fn" "Symbol" ParamDeclList option(PrefixOpExpression)
 
-Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
+Directive : "#" "Symbol" "(" "String" ")"
 
-FnVisibleMod : token(Pub) | token(Export)
+FnVisibleMod : "pub" | "export"
 
-FnDecl : FnProto token(Semicolon)
+FnDecl : FnProto ";"
 
-FnDef : FnProto token(FatArrow) Block
+FnDef : FnProto "=>" Block
 
-ParamDeclList : token(LParen) list(ParamDecl, token(Comma)) token(RParen)
+ParamDeclList : "(" list(ParamDecl, ",") ")"
 
-ParamDecl : option(token(NoAlias)) token(Symbol) token(Colon) PrefixOpExpression | token(Ellipsis)
+ParamDecl : option("noalias") "Symbol" ":" PrefixOpExpression | "..."
 
-Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
+Block : "{" list(option(Statement), ";") "}"
 
-Statement : Label | VariableDeclaration token(Semicolon) | NonBlockExpression token(Semicolon) | BlockExpression
+Statement : Label | VariableDeclaration ";" | NonBlockExpression ";" | BlockExpression
 
-Label: token(Symbol) token(Colon)
+Label: "Symbol" ":"
 
 Expression : BlockExpression | NonBlockExpression
 
 NonBlockExpression : ReturnExpression | AssignmentExpression
 
-AsmExpression : token(Asm) option(token(Volatile)) token(LParen) token(String) option(AsmOutput) token(RParen)
+AsmExpression : "asm" option("volatile") "(" "String" option(AsmOutput) ")"
 
-AsmOutput : token(Colon) list(AsmOutputItem, token(Comma)) option(AsmInput)
+AsmOutput : ":" list(AsmOutputItem, ",") option(AsmInput)
 
-AsmInput : token(Colon) list(AsmInputItem, token(Comma)) option(AsmClobbers)
+AsmInput : ":" list(AsmInputItem, ",") option(AsmClobbers)
 
-AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Arrow) PrefixOpExpression) token(RParen)
+AsmOutputItem : "[" "Symbol" "]" "String" "(" ("Symbol" | "->" PrefixOpExpression) ")"
 
-AsmInputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) Expression token(RParen)
+AsmInputItem : "[" "Symbol" "]" "String" "(" Expression ")"
 
-AsmClobbers: token(Colon) list(token(String), token(Comma))
+AsmClobbers: ":" list("String", ",")
 
-UnwrapMaybeExpression : BoolOrExpression token(DoubleQuestionMark) BoolOrExpression | BoolOrExpression
+UnwrapMaybeExpression : BoolOrExpression "??" BoolOrExpression | BoolOrExpression
 
 AssignmentExpression : UnwrapMaybeExpression AssignmentOperator UnwrapMaybeExpression | UnwrapMaybeExpression
 
-AssignmentOperator : token(Eq) | token(TimesEq) | token(DivEq) | token(ModEq) | token(PlusEq) | token(MinusEq) | token(BitShiftLeftEq) | token(BitShiftRightEq) | token(BitAndEq) | token(BitXorEq) | token(BitOrEq) | token(BoolAndEq) | token(BoolOrEq) 
+AssignmentOperator : "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||="
 
-BlockExpression : IfExpression | Block | WhileExpression | ForExpression
+BlockExpression : IfExpression | Block | WhileExpression | ForExpression | SwitchExpression
 
-WhileExpression : token(While) token(LParen) Expression token(RParen) Expression
+SwitchExpression : "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 
-ForExpression : token(For) token(LParen) Symbol token(Comma) Expression option(token(Comma) token(Symbol)) token(RParen) Expression
+SwitchProng : (list(SwitchItem, ",") | "else") option("(" "Symbol" ")") "=>" Expression ","
 
-BoolOrExpression : BoolAndExpression token(BoolOr) BoolOrExpression | BoolAndExpression
+SwitchItem : Expression | (Expression "..." Expression)
 
-ReturnExpression : token(Return) option(Expression)
+WhileExpression : "while" "(" Expression ")" Expression
+
+ForExpression : "for" "(" "Symbol" "," Expression option("," "Symbol") ")" Expression
+
+BoolOrExpression : BoolAndExpression "||" BoolOrExpression | BoolAndExpression
+
+ReturnExpression : "return" option(Expression)
 
 IfExpression : IfVarExpression | IfBoolExpression
 
-IfBoolExpression : token(If) token(LParen) Expression token(RParen) Expression option(Else)
+IfBoolExpression : "if" "(" Expression ")" Expression option(Else)
 
-IfVarExpression : token(If) token(LParen) (token(Const) | token(Var)) token(Symbol) option(token(Colon) PrefixOpExpression) Token(MaybeAssign) Expression token(RParen) Expression Option(Else)
+IfVarExpression : "if" "(" ("const" | "var") "Symbol" option(":" PrefixOpExpression) "?=" Expression ")" Expression Option(Else)
 
-Else : token(Else) Expression
+Else : "else" Expression
 
-BoolAndExpression : ComparisonExpression token(BoolAnd) BoolAndExpression | ComparisonExpression
+BoolAndExpression : ComparisonExpression "&&" BoolAndExpression | ComparisonExpression
 
 ComparisonExpression : BinaryOrExpression ComparisonOperator BinaryOrExpression | BinaryOrExpression
 
-ComparisonOperator : token(BoolEq) | token(BoolNotEq) | token(BoolLessThan) | token(BoolGreaterThan) | token(BoolLessEqual) | token(BoolGreaterEqual)
+ComparisonOperator : "==" | "!=" | "<" | ">" | "<=" | ">="
 
-BinaryOrExpression : BinaryXorExpression token(BinOr) BinaryOrExpression | BinaryXorExpression
+BinaryOrExpression : BinaryXorExpression "|" BinaryOrExpression | BinaryXorExpression
 
-BinaryXorExpression : BinaryAndExpression token(BinXor) BinaryXorExpression | BinaryAndExpression
+BinaryXorExpression : BinaryAndExpression "^" BinaryXorExpression | BinaryAndExpression
 
-BinaryAndExpression : BitShiftExpression token(Ampersand) BinaryAndExpression | BitShiftExpression
+BinaryAndExpression : BitShiftExpression "&" BinaryAndExpression | BitShiftExpression
 
 BitShiftExpression : AdditionExpression BitShiftOperator BitShiftExpression | AdditionExpression
 
-BitShiftOperator : token(BitShiftLeft) | token(BitShiftRight)
+BitShiftOperator : "<<" | ">>"
 
 AdditionExpression : MultiplyExpression AdditionOperator AdditionExpression | MultiplyExpression
 
-AdditionOperator : token(Plus) | token(Minus)
+AdditionOperator : "+" | "-"
 
 MultiplyExpression : CurlySuffixExpression MultiplyOperator MultiplyExpression | CurlySuffixExpression
 
 CurlySuffixExpression : PrefixOpExpression option(ContainerInitExpression)
 
-MultiplyOperator : token(Star) | token(Slash) | token(Percent)
+MultiplyOperator : "*" | "/" | "%"
 
 PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
 
 SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 
-FieldAccessExpression : token(Dot) token(Symbol)
+FieldAccessExpression : "." "Symbol"
 
-FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
+FnCallExpression : "(" list(Expression, ",") ")"
 
-ArrayAccessExpression : token(LBracket) Expression token(RBracket)
+ArrayAccessExpression : "[" Expression "]"
 
-SliceExpression : token(LBracket) Expression token(Ellipsis) option(Expression) token(RBracket) option(token(Const))
+SliceExpression : "[" Expression "..." option(Expression) "]" option("const")
 
-ContainerInitExpression : token(LBrace) ContainerInitBody token(RBrace)
+ContainerInitExpression : "{" ContainerInitBody "}"
 
-ContainerInitBody : list(StructLiteralField, token(Comma)) | list(Expression, token(Comma))
+ContainerInitBody : list(StructLiteralField, ",") | list(Expression, ",")
 
-StructLiteralField : token(Dot) token(Symbol) token(Eq) Expression
+StructLiteralField : "." "Symbol" "=" Expression
 
-PrefixOp : token(Not) | token(Dash) | token(Tilde) | token(Star) | (token(Ampersand) option(token(Const))) | token(QuestionMark)
+PrefixOp : "!" | "-" | "~" | "*" | ("&" option("const")) | "?"
 
-PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | token(Symbol) | (token(AtSign) token(Symbol) FnCallExpression) | ArrayType | AsmExpression
+PrimaryExpression : "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | AsmExpression
 
-ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) PrefixOpExpression
+ArrayType : "[" option(Expression) "]" option("const") PrefixOpExpression
 
-GotoExpression: token(Goto) token(Symbol)
+GotoExpression: "goto" "Symbol"
 
-GroupedExpression : token(LParen) Expression token(RParen)
+GroupedExpression : "(" Expression ")"
 
-KeywordLiteral : token(True) | token(False) | token(Null) | token(Break) | token(Continue)
+KeywordLiteral : "true" | "false" | "null" | "break" | "continue"
 ```
 
 ## Operator Precedence
