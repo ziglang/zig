@@ -2558,7 +2558,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSizeof, "sizeof", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdMaxValue, "max_value", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdMinValue, "min_value", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdValueCount, "value_count", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdValueCount, "member_count", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdTypeof, "typeof", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdAddWithOverflow, "add_with_overflow", 4);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSubWithOverflow, "sub_with_overflow", 4);
