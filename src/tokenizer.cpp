@@ -243,6 +243,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordNull;
     } else if (mem_eql_str(token_mem, token_len, "noalias")) {
         t->cur_tok->id = TokenIdKeywordNoAlias;
+    } else if (mem_eql_str(token_mem, token_len, "switch")) {
+        t->cur_tok->id = TokenIdKeywordSwitch;
     }
 
     t->cur_tok = nullptr;
@@ -1035,6 +1037,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordBreak: return "break";
         case TokenIdKeywordNull: return "null";
         case TokenIdKeywordNoAlias: return "noalias";
+        case TokenIdKeywordSwitch: return "switch";
         case TokenIdLParen: return "(";
         case TokenIdRParen: return ")";
         case TokenIdComma: return ",";

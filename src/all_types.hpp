@@ -139,6 +139,9 @@ enum NodeType {
     NodeTypeIfVarExpr,
     NodeTypeWhileExpr,
     NodeTypeForExpr,
+    NodeTypeSwitchExpr,
+    NodeTypeSwitchProng,
+    NodeTypeSwitchRange,
     NodeTypeLabel,
     NodeTypeGoto,
     NodeTypeBreak,
@@ -411,6 +414,25 @@ struct AstNodeForExpr {
     VariableTableEntry *index_var;
 };
 
+struct AstNodeSwitchExpr {
+    AstNode *expr;
+    ZigList<AstNode *> prongs;
+
+    // populated by semantic analyzer
+    Expr resolved_expr;
+};
+
+struct AstNodeSwitchProng {
+    ZigList<AstNode *> items;
+    AstNode *var_symbol;
+    AstNode *expr;
+};
+
+struct AstNodeSwitchRange {
+    AstNode *start;
+    AstNode *end;
+};
+
 struct AstNodeLabel {
     Buf name;
 
@@ -623,6 +645,9 @@ struct AstNode {
         AstNodeIfVarExpr if_var_expr;
         AstNodeWhileExpr while_expr;
         AstNodeForExpr for_expr;
+        AstNodeSwitchExpr switch_expr;
+        AstNodeSwitchProng switch_prong;
+        AstNodeSwitchRange switch_range;
         AstNodeLabel label;
         AstNodeGoto goto_expr;
         AstNodeAsmExpr asm_expr;

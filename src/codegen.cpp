@@ -1965,6 +1965,12 @@ static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
     return fn_entry->fn_value;
 }
 
+static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeSwitchExpr);
+
+    zig_panic("TODO gen_switch_expr");
+}
+
 static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeBinOpExpr:
@@ -2040,6 +2046,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
             }
         case NodeTypeContainerInitExpr:
             return gen_container_init_expr(g, node);
+        case NodeTypeSwitchExpr:
+            return gen_switch_expr(g, node);
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -2053,6 +2061,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeArrayType:
+        case NodeTypeSwitchProng:
+        case NodeTypeSwitchRange:
             zig_unreachable();
     }
     zig_unreachable();

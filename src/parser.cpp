@@ -123,6 +123,12 @@ const char *node_type_str(NodeType node_type) {
             return "WhileExpr";
         case NodeTypeForExpr:
             return "ForExpr";
+        case NodeTypeSwitchExpr:
+            return "SwitchExpr";
+        case NodeTypeSwitchProng:
+            return "SwitchProng";
+        case NodeTypeSwitchRange:
+            return "SwitchRange";
         case NodeTypeLabel:
             return "Label";
         case NodeTypeGoto:
@@ -341,6 +347,30 @@ void ast_print(AstNode *node, int indent) {
                 ast_print(node->data.for_expr.index_node, indent + 2);
             }
             ast_print(node->data.for_expr.body, indent + 2);
+            break;
+        case NodeTypeSwitchExpr:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            ast_print(node->data.switch_expr.expr, indent + 2);
+            for (int i = 0; i < node->data.switch_expr.prongs.length; i += 1) {
+                AstNode *child_node = node->data.switch_expr.prongs.at(i);
+                ast_print(child_node, indent + 2);
+            }
+            break;
+        case NodeTypeSwitchProng:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            for (int i = 0; i < node->data.switch_prong.items.length; i += 1) {
+                AstNode *child_node = node->data.switch_prong.items.at(i);
+                ast_print(child_node, indent + 2);
+            }
+            if (node->data.switch_prong.var_symbol) {
+                ast_print(node->data.switch_prong.var_symbol, indent + 2);
+            }
+            ast_print(node->data.switch_prong.expr, indent + 2);
+            break;
+        case NodeTypeSwitchRange:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            ast_print(node->data.switch_range.start, indent + 2);
+            ast_print(node->data.switch_range.end, indent + 2);
             break;
         case NodeTypeLabel:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.label.name));
@@ -2167,7 +2197,80 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, int *token_index, bool mand
 }
 
 /*
-BlockExpression : IfExpression | Block | WhileExpression | ForExpression
+SwitchExpression : "switch" "(" Expression ")" "{" many(SwitchProng) "}"
+SwitchProng : (list(SwitchItem, ",") | "else") option("," "(" "Symbol" ")") "=>" Expression ","
+SwitchItem : Expression | (Expression "..." Expression)
+*/
+static AstNode *ast_parse_switch_expr(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id != TokenIdKeywordSwitch) {
+        if (mandatory) {
+            ast_invalid_token_error(pc, token);
+        } else {
+            return nullptr;
+        }
+    }
+    *token_index += 1;
+
+    AstNode *node = ast_create_node(pc, NodeTypeSwitchExpr, token);
+
+    ast_eat_token(pc, token_index, TokenIdLParen);
+    node->data.switch_expr.expr = ast_parse_expression(pc, token_index, true);
+    ast_eat_token(pc, token_index, TokenIdRParen);
+    ast_eat_token(pc, token_index, TokenIdLBrace);
+
+    for (;;) {
+        Token *token = &pc->tokens->at(*token_index);
+
+        if (token->id == TokenIdRBrace) {
+            *token_index += 1;
+            return node;
+        }
+
+        AstNode *prong_node = ast_create_node(pc, NodeTypeSwitchProng, token);
+        node->data.switch_expr.prongs.append(prong_node);
+
+        if (token->id == TokenIdKeywordElse) {
+            *token_index += 1;
+        } else for (;;) {
+            AstNode *expr1 = ast_parse_expression(pc, token_index, true);
+            Token *ellipsis_tok = &pc->tokens->at(*token_index);
+            if (ellipsis_tok->id == TokenIdEllipsis) {
+                *token_index += 1;
+
+                AstNode *range_node = ast_create_node(pc, NodeTypeSwitchRange, ellipsis_tok);
+                prong_node->data.switch_prong.items.append(range_node);
+
+                range_node->data.switch_range.start = expr1;
+                range_node->data.switch_range.end = ast_parse_expression(pc, token_index, true);
+            } else {
+                prong_node->data.switch_prong.items.append(expr1);
+            }
+            Token *comma_tok = &pc->tokens->at(*token_index);
+            if (comma_tok->id == TokenIdComma) {
+                *token_index += 1;
+                continue;
+            }
+            break;
+        }
+
+        Token *arrow_or_comma = &pc->tokens->at(*token_index);
+        if (arrow_or_comma->id == TokenIdComma) {
+            *token_index += 1;
+            ast_eat_token(pc, token_index, TokenIdLParen);
+            prong_node->data.switch_prong.var_symbol = ast_parse_symbol(pc, token_index);
+            ast_eat_token(pc, token_index, TokenIdRParen);
+        }
+
+        ast_eat_token(pc, token_index, TokenIdFatArrow);
+        prong_node->data.switch_prong.expr = ast_parse_expression(pc, token_index, true);
+        ast_eat_token(pc, token_index, TokenIdComma);
+    }
+}
+
+/*
+BlockExpression : IfExpression | Block | WhileExpression | ForExpression | SwitchExpression
 */
 static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -2176,10 +2279,6 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool ma
     if (if_expr)
         return if_expr;
 
-    AstNode *block = ast_parse_block(pc, token_index, false);
-    if (block)
-        return block;
-
     AstNode *while_expr = ast_parse_while_expr(pc, token_index, false);
     if (while_expr)
         return while_expr;
@@ -2187,6 +2286,14 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool ma
     AstNode *for_expr = ast_parse_for_expr(pc, token_index, false);
     if (for_expr)
         return for_expr;
+
+    AstNode *switch_expr = ast_parse_switch_expr(pc, token_index, false);
+    if (switch_expr)
+        return switch_expr;
+
+    AstNode *block = ast_parse_block(pc, token_index, false);
+    if (block)
+        return block;
 
     if (mandatory)
         ast_invalid_token_error(pc, token);

@@ -30,6 +30,8 @@ static AstNode *first_executing_node(AstNode *node) {
             return first_executing_node(node->data.slice_expr.array_ref_expr);
         case NodeTypeFieldAccessExpr:
             return first_executing_node(node->data.field_access_expr.struct_expr);
+        case NodeTypeSwitchRange:
+            return first_executing_node(node->data.switch_range.start);
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -61,6 +63,8 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeStructValueField:
         case NodeTypeWhileExpr:
         case NodeTypeForExpr:
+        case NodeTypeSwitchExpr:
+        case NodeTypeSwitchProng:
         case NodeTypeContainerInitExpr:
         case NodeTypeArrayType:
             return node;
@@ -943,6 +947,9 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
         case NodeTypeForExpr:
+        case NodeTypeSwitchExpr:
+        case NodeTypeSwitchProng:
+        case NodeTypeSwitchRange:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
@@ -3007,6 +3014,12 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
     zig_unreachable();
 }
 
+static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    zig_panic("TODO analyze_switch_expr");
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -3184,6 +3197,11 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeArrayType:
             return_type = analyze_array_type(g, import, context, expected_type, node);
             break;
+        case NodeTypeSwitchExpr:
+            return_type = analyze_switch_expr(g, import, context, expected_type, node);
+            break;
+        case NodeTypeSwitchProng:
+        case NodeTypeSwitchRange:
         case NodeTypeDirective:
         case NodeTypeFnDecl:
         case NodeTypeFnProto:
@@ -3338,6 +3356,9 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
         case NodeTypeForExpr:
+        case NodeTypeSwitchExpr:
+        case NodeTypeSwitchProng:
+        case NodeTypeSwitchRange:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
@@ -3471,6 +3492,24 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
                 collect_expr_decl_deps(g, import, node->data.array_type.size, decl_node);
             }
             collect_expr_decl_deps(g, import, node->data.array_type.child_type, decl_node);
+            break;
+        case NodeTypeSwitchExpr:
+            collect_expr_decl_deps(g, import, node->data.switch_expr.expr, decl_node);
+            for (int i = 0; i < node->data.switch_expr.prongs.length; i += 1) {
+                AstNode *prong = node->data.switch_expr.prongs.at(i);
+                collect_expr_decl_deps(g, import, prong, decl_node);
+            }
+            break;
+        case NodeTypeSwitchProng:
+            for (int i = 0; i < node->data.switch_prong.items.length; i += 1) {
+                AstNode *child = node->data.switch_prong.items.at(i);
+                collect_expr_decl_deps(g, import, child, decl_node);
+            }
+            collect_expr_decl_deps(g, import, node->data.switch_prong.expr, decl_node);
+            break;
+        case NodeTypeSwitchRange:
+            collect_expr_decl_deps(g, import, node->data.switch_range.start, decl_node);
+            collect_expr_decl_deps(g, import, node->data.switch_range.end, decl_node);
             break;
         case NodeTypeVariableDeclaration:
         case NodeTypeFnProto:
@@ -3661,6 +3700,9 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
         case NodeTypeForExpr:
+        case NodeTypeSwitchExpr:
+        case NodeTypeSwitchProng:
+        case NodeTypeSwitchRange:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
@@ -3869,6 +3911,10 @@ Expr *get_resolved_expr(AstNode *node) {
             return &node->data.label.resolved_expr;
         case NodeTypeArrayType:
             return &node->data.array_type.resolved_expr;
+        case NodeTypeSwitchExpr:
+            return &node->data.switch_expr.resolved_expr;
+        case NodeTypeSwitchProng:
+        case NodeTypeSwitchRange:
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -3902,6 +3948,9 @@ NumLitCodeGen *get_resolved_num_lit(AstNode *node) {
         case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
         case NodeTypeForExpr:
+        case NodeTypeSwitchExpr:
+        case NodeTypeSwitchProng:
+        case NodeTypeSwitchRange:
         case NodeTypeAsmExpr:
         case NodeTypeContainerInitExpr:
         case NodeTypeRoot:
@@ -3953,6 +4002,9 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
         case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
         case NodeTypeForExpr:
+        case NodeTypeSwitchExpr:
+        case NodeTypeSwitchProng:
+        case NodeTypeSwitchRange:
         case NodeTypeAsmExpr:
         case NodeTypeContainerInitExpr:
         case NodeTypeRoot:
