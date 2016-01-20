@@ -315,7 +315,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
                     zig_unreachable();
                 }
             }
-        case BuiltinFnIdValueCount:
+        case BuiltinFnIdMemberCount:
             {
                 assert(node->data.fn_call_expr.params.length == 1);
                 AstNode *type_node = node->data.fn_call_expr.params.at(0);
@@ -2558,7 +2558,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSizeof, "sizeof", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdMaxValue, "max_value", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdMinValue, "min_value", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdValueCount, "value_count", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdMemberCount, "member_count", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdTypeof, "typeof", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdAddWithOverflow, "add_with_overflow", 4);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSubWithOverflow, "sub_with_overflow", 4);
