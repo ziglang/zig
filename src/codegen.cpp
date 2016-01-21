@@ -118,6 +118,9 @@ static TypeTableEntry *get_expr_type(AstNode *node) {
     if (expr->implicit_cast.after_type) {
         return expr->implicit_cast.after_type;
     }
+    if (expr->resolved_type) {
+        return expr->resolved_type;
+    }
     return expr->type_entry;
 }
 
@@ -131,29 +134,35 @@ static TypeTableEntry *fn_proto_type_from_type_node(CodeGen *g, AstNode *type_no
     }
 }
 
-static LLVMValueRef gen_number_literal_raw(CodeGen *g, AstNode *source_node,
-        NumLitCodeGen *codegen_num_lit, AstNodeNumberLiteral *num_lit_node)
-{
-    TypeTableEntry *type_entry = codegen_num_lit->resolved_type;
+static LLVMValueRef gen_number_literal(CodeGen *g, AstNode *expr_node) {
+    Expr *expr = get_resolved_expr(expr_node);
+    TypeTableEntry *type_entry = expr->resolved_type;
+    if (!type_entry) {
+        type_entry = expr->type_entry;
+    }
     assert(type_entry);
 
-    // override the expression type for number literals
-    get_resolved_expr(source_node)->type_entry = type_entry;
+    ConstExprValue *const_val = &expr->const_val;
+
+    assert(const_val->ok);
 
     if (type_entry->id == TypeTableEntryIdInt) {
-        // here the union has int64_t and uint64_t and we purposefully read
-        // the uint64_t value in either case, because we want the twos
-        // complement representation
-
+        assert(const_val->data.x_bignum.kind == BigNumKindInt);
         return LLVMConstInt(type_entry->type_ref,
-                num_lit_node->data.x_uint,
-                type_entry->data.integral.is_signed);
+            bignum_to_twos_complement(&const_val->data.x_bignum),
+            type_entry->data.integral.is_signed);
     } else if (type_entry->id == TypeTableEntryIdFloat) {
-
-        return LLVMConstReal(type_entry->type_ref,
-                num_lit_node->data.x_float);
+        if (const_val->data.x_bignum.kind == BigNumKindFloat) {
+            return LLVMConstReal(type_entry->type_ref, const_val->data.x_bignum.data.x_float);
+        } else {
+            int64_t x = const_val->data.x_bignum.data.x_uint;
+            if (const_val->data.x_bignum.is_negative) {
+                x = -x;
+            }
+            return LLVMConstReal(type_entry->type_ref, x);
+        }
     } else {
-        zig_panic("bad number literal type");
+        zig_unreachable();
     }
 }
 
@@ -265,73 +274,10 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
                 return nullptr;
             }
         case BuiltinFnIdSizeof:
-            {
-                assert(node->data.fn_call_expr.params.length == 1);
-                AstNode *type_node = node->data.fn_call_expr.params.at(0);
-                TypeTableEntry *type_entry = get_type_for_type_node(type_node);
-
-                NumLitCodeGen *codegen_num_lit = get_resolved_num_lit(node);
-                AstNodeNumberLiteral num_lit_node;
-                num_lit_node.kind = NumLitU64; // this field isn't even read
-                num_lit_node.overflow = false;
-                num_lit_node.data.x_uint = type_entry->size_in_bits / 8;
-                return gen_number_literal_raw(g, node, codegen_num_lit, &num_lit_node);
-            }
         case BuiltinFnIdMinValue:
-            {
-                assert(node->data.fn_call_expr.params.length == 1);
-                AstNode *type_node = node->data.fn_call_expr.params.at(0);
-                TypeTableEntry *type_entry = get_type_for_type_node(type_node);
-
-
-                if (type_entry->id == TypeTableEntryIdInt) {
-                    if (type_entry->data.integral.is_signed) {
-                        return LLVMConstInt(type_entry->type_ref, 1ULL << (type_entry->size_in_bits - 1), false);
-                    } else {
-                        return LLVMConstNull(type_entry->type_ref);
-                    }
-                } else if (type_entry->id == TypeTableEntryIdFloat) {
-                    zig_panic("TODO codegen min_value float");
-                } else {
-                    zig_unreachable();
-                }
-            }
         case BuiltinFnIdMaxValue:
-            {
-                assert(node->data.fn_call_expr.params.length == 1);
-                AstNode *type_node = node->data.fn_call_expr.params.at(0);
-                TypeTableEntry *type_entry = get_type_for_type_node(type_node);
-
-
-                if (type_entry->id == TypeTableEntryIdInt) {
-                    if (type_entry->data.integral.is_signed) {
-                        return LLVMConstInt(type_entry->type_ref, (1ULL << (type_entry->size_in_bits - 1)) - 1, false);
-                    } else {
-                        return LLVMConstAllOnes(type_entry->type_ref);
-                    }
-                } else if (type_entry->id == TypeTableEntryIdFloat) {
-                    zig_panic("TODO codegen max_value float");
-                } else {
-                    zig_unreachable();
-                }
-            }
         case BuiltinFnIdMemberCount:
-            {
-                assert(node->data.fn_call_expr.params.length == 1);
-                AstNode *type_node = node->data.fn_call_expr.params.at(0);
-                TypeTableEntry *type_entry = get_type_for_type_node(type_node);
-
-                if (type_entry->id == TypeTableEntryIdEnum) {
-                    NumLitCodeGen *codegen_num_lit = get_resolved_num_lit(node);
-                    AstNodeNumberLiteral num_lit_node;
-                    num_lit_node.kind = NumLitU64; // field ignored
-                    num_lit_node.overflow = false;
-                    num_lit_node.data.x_uint = type_entry->data.enumeration.field_count;
-                    return gen_number_literal_raw(g, node, codegen_num_lit, &num_lit_node);
-                } else {
-                    zig_unreachable();
-                }
-            }
+            return gen_number_literal(g, node);
     }
     zig_unreachable();
 }
@@ -1407,11 +1353,22 @@ static LLVMValueRef gen_if_bool_expr(CodeGen *g, AstNode *node) {
     assert(node->data.if_bool_expr.condition);
     assert(node->data.if_bool_expr.then_block);
 
-    LLVMValueRef cond_value = gen_expr(g, node->data.if_bool_expr.condition);
+    ConstExprValue *const_val = &get_resolved_expr(node->data.if_bool_expr.condition)->const_val;
+    if (const_val->ok) {
+        if (const_val->data.x_bool) {
+            return gen_expr(g, node->data.if_bool_expr.then_block);
+        } else if (node->data.if_bool_expr.else_node) {
+            return gen_expr(g, node->data.if_bool_expr.else_node);
+        } else {
+            return nullptr;
+        }
+    } else {
+        LLVMValueRef cond_value = gen_expr(g, node->data.if_bool_expr.condition);
 
-    return gen_if_bool_expr_raw(g, node, cond_value,
-            node->data.if_bool_expr.then_block,
-            node->data.if_bool_expr.else_node);
+        return gen_if_bool_expr_raw(g, node, cond_value,
+                node->data.if_bool_expr.then_block,
+                node->data.if_bool_expr.else_node);
+    }
 }
 
 static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
@@ -1932,15 +1889,6 @@ static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
             get_resolved_expr(node)->block_context, false, &init_val);
 }
 
-static LLVMValueRef gen_number_literal(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeNumberLiteral);
-
-    NumLitCodeGen *codegen_num_lit = get_resolved_num_lit(node);
-    assert(codegen_num_lit);
-
-    return gen_number_literal_raw(g, node, codegen_num_lit, &node->data.number_literal);
-}
-
 static LLVMValueRef gen_error_literal(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeErrorLiteral);
 
@@ -2383,20 +2331,6 @@ static void add_int_overflow_fns(CodeGen *g, TypeTableEntry *type_entry) {
     type_entry->data.integral.mul_with_overflow_fn = get_arithmetic_overflow_fn(g, type_entry, "smul", "umul");
 }
 
-static const NumLit num_lit_kinds[] = {
-    NumLitF32,
-    NumLitF64,
-    NumLitF128,
-    NumLitU8,
-    NumLitU16,
-    NumLitU32,
-    NumLitU64,
-    NumLitI8,
-    NumLitI16,
-    NumLitI32,
-    NumLitI64,
-};
-
 static const int int_sizes_in_bits[] = {
     8,
     16,
@@ -2411,18 +2345,15 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "(invalid)");
         g->builtin_types.entry_invalid = entry;
     }
-
-    assert(NumLitCount == array_length(num_lit_kinds));
-    for (int i = 0; i < NumLitCount; i += 1) {
-        NumLit num_lit_kind = num_lit_kinds[i];
-        // This type should just create a constant with whatever actual number
-        // type is expected at the time.
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumberLiteral);
-        buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "(%s literal)", num_lit_str(num_lit_kind));
-        entry->data.num_lit.kind = num_lit_kind;
-        entry->size_in_bits = num_lit_bit_count(num_lit_kind);
-        g->num_lit_types[i] = entry;
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumLitFloat);
+        buf_init_from_str(&entry->name, "(float literal)");
+        g->builtin_types.entry_num_lit_float = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumLitInt);
+        buf_init_from_str(&entry->name, "(integer literal)");
+        g->builtin_types.entry_num_lit_int = entry;
     }
 
     for (int i = 0; i < array_length(int_sizes_in_bits); i += 1) {

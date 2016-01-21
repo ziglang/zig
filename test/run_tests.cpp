@@ -1323,7 +1323,7 @@ fn f() i32 => {
 fn f() => {
     if (0) {}
 }
-    )SOURCE", 1, ".tmp_source.zig:3:9: error: expected type 'bool', got '(u8 literal)'");
+    )SOURCE", 1, ".tmp_source.zig:3:9: error: value 0 cannot be represented in type 'bool'");
 
     add_compile_fail_case("assign unreachable", R"SOURCE(
 fn f() => {

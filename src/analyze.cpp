@@ -103,7 +103,8 @@ TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdArray:
-        case TypeTableEntryIdNumberLiteral:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdError:
@@ -121,24 +122,20 @@ TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
     return entry;
 }
 
-static NumLit get_number_literal_kind_unsigned(uint64_t x) {
+static int bits_needed_for_unsigned(uint64_t x) {
     if (x <= UINT8_MAX) {
-        return NumLitU8;
+        return 8;
     } else if (x <= UINT16_MAX) {
-        return NumLitU16;
+        return 16;
     } else if (x <= UINT32_MAX) {
-        return NumLitU32;
+        return 32;
     } else {
-        return NumLitU64;
+        return 64;
     }
 }
 
-static TypeTableEntry *get_number_literal_type_unsigned(CodeGen *g, uint64_t x) {
-    return g->num_lit_types[get_number_literal_kind_unsigned(x)];
-}
-
-static TypeTableEntry *get_int_type_unsigned(CodeGen *g, uint64_t x) {
-    return get_int_type(g, false, num_lit_bit_count(get_number_literal_kind_unsigned(x)));
+static TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
+    return get_int_type(g, false, bits_needed_for_unsigned(x));
 }
 
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
@@ -660,10 +657,9 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
     if (!enum_type->data.enumeration.is_invalid) {
         enum_type->data.enumeration.gen_field_count = gen_field_index;
 
-        uint64_t tag_size_in_bits = num_lit_bit_count(get_number_literal_kind_unsigned(field_count));
-        enum_type->align_in_bits = tag_size_in_bits;
-        enum_type->size_in_bits = tag_size_in_bits + biggest_union_member_size_in_bits;
-        TypeTableEntry *tag_type_entry = get_int_type_unsigned(g, field_count);
+        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
+        enum_type->align_in_bits = tag_type_entry->size_in_bits;
+        enum_type->size_in_bits = tag_type_entry->size_in_bits + biggest_union_member_size_in_bits;
         enum_type->data.enumeration.tag_type = tag_type_entry;
 
         if (biggest_union_member) {
@@ -1048,136 +1044,105 @@ static TypeTableEntry *get_return_type(BlockContext *context) {
     return unwrapped_node_type(return_type_node);
 }
 
-static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type, TypeTableEntry *other_type) {
-    NumLit num_lit = literal_type->data.num_lit.kind;
-    uint64_t lit_size_in_bits = num_lit_bit_count(num_lit);
-
-    switch (other_type->id) {
-        case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdNumberLiteral:
-            zig_unreachable();
-        case TypeTableEntryIdVoid:
-        case TypeTableEntryIdBool:
-        case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdPointer:
-        case TypeTableEntryIdArray:
-        case TypeTableEntryIdStruct:
-        case TypeTableEntryIdEnum:
-        case TypeTableEntryIdMetaType:
-        case TypeTableEntryIdFn:
-        case TypeTableEntryIdError:
-            return false;
-        case TypeTableEntryIdInt:
-            if (is_num_lit_unsigned(num_lit)) {
-                return lit_size_in_bits <= other_type->size_in_bits;
-            } else {
-                return false;
-            }
-        case TypeTableEntryIdFloat:
-            if (is_num_lit_float(num_lit)) {
-                return lit_size_in_bits <= other_type->size_in_bits;
-            } else if (other_type->size_in_bits == 32) {
-                return lit_size_in_bits < 24;
-            } else if (other_type->size_in_bits == 64) {
-                return lit_size_in_bits < 53;
-            } else {
-                return false;
-            }
-        case TypeTableEntryIdMaybe:
-            return false;
-    }
-    zig_unreachable();
-}
-
-static TypeTableEntry *resolve_rhs_number_literal(CodeGen *g, AstNode *non_literal_node,
-        TypeTableEntry *non_literal_type, AstNode *literal_node, TypeTableEntry *literal_type)
-{
-    NumLitCodeGen *num_lit_codegen = get_resolved_num_lit(literal_node);
-
-    if (non_literal_type && num_lit_fits_in_other_type(g, literal_type, non_literal_type)) {
-        assert(!num_lit_codegen->resolved_type);
-        num_lit_codegen->resolved_type = non_literal_type;
-        return non_literal_type;
-    } else {
-        return nullptr;
-    }
-}
-
-static TypeTableEntry * resolve_number_literals(CodeGen *g, AstNode *node1, AstNode *node2,
-        TypeTableEntry *type1, TypeTableEntry *type2)
-{
-    if (type1->id == TypeTableEntryIdNumberLiteral &&
-        type2->id == TypeTableEntryIdNumberLiteral)
+static bool num_lit_fits_in_other_type(CodeGen *g, AstNode *literal_node, TypeTableEntry *other_type) {
+    Expr *expr = get_resolved_expr(literal_node);
+    ConstExprValue *const_val = &expr->const_val;
+    assert(const_val->ok);
+    if (other_type->id == TypeTableEntryIdFloat) {
+        expr->resolved_type = other_type;
+        return true;
+    } else if (other_type->id == TypeTableEntryIdInt &&
+               const_val->data.x_bignum.kind == BigNumKindInt)
     {
-        NumLitCodeGen *codegen_num_lit_1 = get_resolved_num_lit(node1);
-        NumLitCodeGen *codegen_num_lit_2 = get_resolved_num_lit(node2);
-
-        assert(!codegen_num_lit_1->resolved_type);
-        assert(!codegen_num_lit_2->resolved_type);
-
-        if (is_num_lit_float(type1->data.num_lit.kind) &&
-            is_num_lit_float(type2->data.num_lit.kind))
+        if (bignum_fits_in_bits(&const_val->data.x_bignum, other_type->size_in_bits,
+                    other_type->data.integral.is_signed))
         {
-            codegen_num_lit_1->resolved_type = g->builtin_types.entry_f64;
-            codegen_num_lit_2->resolved_type = g->builtin_types.entry_f64;
-            return g->builtin_types.entry_f64;
-        } else if (is_num_lit_unsigned(type1->data.num_lit.kind) &&
-                   is_num_lit_unsigned(type2->data.num_lit.kind))
-        {
-            codegen_num_lit_1->resolved_type = g->builtin_types.entry_u64;
-            codegen_num_lit_2->resolved_type = g->builtin_types.entry_u64;
-            return g->builtin_types.entry_u64;
-        } else {
-            return nullptr;
+            expr->resolved_type = other_type;
+            return true;
         }
-    } else if (type1->id == TypeTableEntryIdNumberLiteral) {
-        return resolve_rhs_number_literal(g, node2, type2, node1, type1);
-    } else {
-        assert(type2->id == TypeTableEntryIdNumberLiteral);
-        return resolve_rhs_number_literal(g, node1, type1, node2, type2);
+    } else if (other_type->id == TypeTableEntryIdNumLitFloat ||
+               other_type->id == TypeTableEntryIdNumLitInt)
+    {
+        return true;
     }
+
+    add_node_error(g, literal_node,
+        buf_sprintf("value %s cannot be represented in type '%s'",
+            buf_ptr(bignum_to_buf(&const_val->data.x_bignum)),
+            buf_ptr(&other_type->name)));
+    return false;
 }
 
-static TypeTableEntry *determine_peer_type_compatibility(CodeGen *g, AstNode *node,
-        TypeTableEntry *type1, TypeTableEntry *type2, AstNode *node1, AstNode *node2)
+static TypeTableEntry *determine_peer_type_compatibility(CodeGen *g, AstNode *parent_source_node,
+        AstNode **child_nodes, TypeTableEntry **child_types, int child_count)
 {
-    if (type1->id == TypeTableEntryIdInvalid ||
-        type2->id == TypeTableEntryIdInvalid)
-    {
-        return type1;
-    } else if (type1->id == TypeTableEntryIdUnreachable) {
-        return type2;
-    } else if (type2->id == TypeTableEntryIdUnreachable) {
-        return type1;
-    } else if (type1->id == TypeTableEntryIdInt &&
-        type2->id == TypeTableEntryIdInt &&
-        type1->data.integral.is_signed == type2->data.integral.is_signed)
-    {
-        return (type1->size_in_bits > type2->size_in_bits) ? type1 : type2;
-    } else if (type1->id == TypeTableEntryIdFloat &&
-               type2->id == TypeTableEntryIdFloat)
-    {
-        return (type1->size_in_bits > type2->size_in_bits) ? type1 : type2;
-    } else if (type1->id == TypeTableEntryIdArray &&
-               type2->id == TypeTableEntryIdArray &&
-               type1 == type2)
-    {
-        return type1;
-    } else if (type1->id == TypeTableEntryIdNumberLiteral ||
-               type2->id == TypeTableEntryIdNumberLiteral)
-    {
-        TypeTableEntry *resolved_type = resolve_number_literals(g, node1, node2, type1, type2);
-        if (resolved_type)
-            return resolved_type;
-    } else if (type1 == type2) {
-        return type1;
+    TypeTableEntry *prev_type = child_types[0];
+    AstNode *prev_node = child_nodes[0];
+    if (prev_type->id == TypeTableEntryIdInvalid) {
+        return prev_type;
     }
+    for (int i = 1; i < child_count; i += 1) {
+        TypeTableEntry *cur_type = child_types[i];
+        AstNode *cur_node = child_nodes[i];
+        if (cur_type->id == TypeTableEntryIdInvalid) {
+            return cur_type;
+        } else if (prev_type->id == TypeTableEntryIdUnreachable) {
+            prev_type = cur_type;
+            prev_node = cur_node;
+        } else if (cur_type->id == TypeTableEntryIdUnreachable) {
+            continue;
+        } else if (prev_type->id == TypeTableEntryIdInt &&
+                   cur_type->id == TypeTableEntryIdInt &&
+                   prev_type->data.integral.is_signed == cur_type->data.integral.is_signed)
+        {
+            if (cur_type->size_in_bits > prev_type->size_in_bits) {
+                prev_type = cur_type;
+                prev_node = cur_node;
+            }
+        } else if (prev_type->id == TypeTableEntryIdFloat &&
+                   cur_type->id == TypeTableEntryIdFloat)
+        {
+            if (cur_type->size_in_bits > prev_type->size_in_bits) {
+                prev_type = cur_type;
+                prev_node = cur_node;
+            }
+        } else if (prev_type->id == TypeTableEntryIdNumLitFloat &&
+                   cur_type->id == TypeTableEntryIdNumLitFloat)
+        {
+            continue;
+        } else if (prev_type->id == TypeTableEntryIdNumLitInt &&
+                   cur_type->id == TypeTableEntryIdNumLitInt)
+        {
+            continue;
+        } else if (prev_type->id == TypeTableEntryIdNumLitInt ||
+                    prev_type->id == TypeTableEntryIdNumLitFloat)
+        {
+            if (num_lit_fits_in_other_type(g, prev_node, cur_type)) {
+                prev_type = cur_type;
+                prev_node = cur_node;
+                continue;
+            } else {
+                return g->builtin_types.entry_invalid;
+            }
+        } else if (cur_type->id == TypeTableEntryIdNumLitInt ||
+                   cur_type->id == TypeTableEntryIdNumLitFloat)
+        {
+            if (num_lit_fits_in_other_type(g, cur_node, prev_type)) {
+                continue;
+            } else {
+                return g->builtin_types.entry_invalid;
+            }
+        } else if (prev_type == cur_type) {
+            continue;
+        } else {
+            add_node_error(g, parent_source_node,
+                buf_sprintf("incompatible types: '%s' and '%s'",
+                    buf_ptr(&prev_type->name), buf_ptr(&cur_type->name)));
 
-    add_node_error(g, node,
-        buf_sprintf("incompatible types: '%s' and '%s'",
-            buf_ptr(&type1->name), buf_ptr(&type2->name)));
-
-    return g->builtin_types.entry_invalid;
+            return g->builtin_types.entry_invalid;
+        }
+    }
+    return prev_type;
 }
 
 static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *context, AstNode *node,
@@ -1191,16 +1156,6 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
         return expected_type; // already complained
     if (actual_type->id == TypeTableEntryIdUnreachable)
         return actual_type; // sorry toots; gotta run. good luck with that expected type.
-
-    if (actual_type->id == TypeTableEntryIdNumberLiteral &&
-        num_lit_fits_in_other_type(g, actual_type, expected_type))
-    {
-        NumLitCodeGen *num_lit_code_gen = get_resolved_num_lit(node);
-        assert(!num_lit_code_gen->resolved_type ||
-                num_lit_code_gen->resolved_type == expected_type);
-        num_lit_code_gen->resolved_type = expected_type;
-        return expected_type;
-    }
 
     if (expected_type->id == TypeTableEntryIdMaybe &&
         actual_type->id == TypeTableEntryIdMaybe)
@@ -1283,6 +1238,16 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
         return expected_type;
     }
 
+    if ((actual_type->id == TypeTableEntryIdNumLitFloat ||
+         actual_type->id == TypeTableEntryIdNumLitInt))
+    {
+        if (num_lit_fits_in_other_type(g, node, expected_type)) {
+            return expected_type;
+        } else {
+            return g->builtin_types.entry_invalid;
+        }
+    }
+
     add_node_error(g, first_executing_node(node),
         buf_sprintf("expected type '%s', got '%s'",
             buf_ptr(&expected_type->name),
@@ -1292,23 +1257,23 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, BlockContext *cont
 }
 
 static TypeTableEntry *resolve_peer_type_compatibility(CodeGen *g, BlockContext *block_context,
-        AstNode *parent_node,
-        AstNode *child1, AstNode *child2,
-        TypeTableEntry *type1, TypeTableEntry *type2)
+        AstNode *parent_source_node,
+        AstNode **child_nodes, TypeTableEntry **child_types, int child_count)
 {
-    assert(type1);
-    assert(type2);
+    assert(child_count > 0);
 
-    TypeTableEntry *parent_type = determine_peer_type_compatibility(g, parent_node, type1, type2, child1, child2);
+    TypeTableEntry *expected_type = determine_peer_type_compatibility(g, parent_source_node,
+            child_nodes, child_types, child_count);
 
-    if (parent_type->id == TypeTableEntryIdInvalid) {
-        return parent_type;
+    if (expected_type->id == TypeTableEntryIdInvalid) {
+        return expected_type;
     }
 
-    resolve_type_compatibility(g, block_context, child1, parent_type, type1);
-    resolve_type_compatibility(g, block_context, child2, parent_type, type2);
+    for (int i = 0; i < child_count; i += 1) {
+        resolve_type_compatibility(g, block_context, child_nodes[i], expected_type, child_types[i]);
+    }
 
-    return parent_type;
+    return expected_type;
 }
 
 BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
@@ -1732,11 +1697,57 @@ static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, As
 {
     Expr *expr = get_resolved_expr(node);
     expr->const_val.ok = true;
-    expr->const_val.data.x_uint = x;
-    TypeTableEntry *num_lit_type = get_number_literal_type_unsigned(g, x);
-    TypeTableEntry *resolved_type = resolve_rhs_number_literal(g, nullptr, expected_type, node, num_lit_type);
-    return resolved_type ? resolved_type : num_lit_type;
+
+    bignum_init_unsigned(&expr->const_val.data.x_bignum, x);
+
+    if (expected_type) {
+        if (expected_type->id == TypeTableEntryIdMaybe) {
+            return g->builtin_types.entry_num_lit_int;
+        } else {
+            num_lit_fits_in_other_type(g, node, expected_type);
+            return expected_type;
+        }
+    } else {
+        return g->builtin_types.entry_num_lit_int;
+    }
 }
+
+static TypeTableEntry *resolve_expr_const_val_as_float_num_lit(CodeGen *g, AstNode *node,
+        TypeTableEntry *expected_type, double x)
+{
+    Expr *expr = get_resolved_expr(node);
+    expr->const_val.ok = true;
+
+    bignum_init_float(&expr->const_val.data.x_bignum, x);
+
+    if (expected_type) {
+        num_lit_fits_in_other_type(g, node, expected_type);
+        return expected_type;
+    } else {
+        return g->builtin_types.entry_num_lit_float;
+    }
+}
+
+static TypeTableEntry *resolve_expr_const_val_as_bignum_op(CodeGen *g, AstNode *node, 
+        bool (*bignum_fn)(BigNum *, BigNum *, BigNum *), AstNode *op1, AstNode *op2,
+        TypeTableEntry *resolved_type)
+{
+    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+    ConstExprValue *op1_val = &get_resolved_expr(op1)->const_val;
+    ConstExprValue *op2_val = &get_resolved_expr(op2)->const_val;
+
+    const_val->ok = true;
+
+    if (bignum_fn(&const_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum)) {
+        add_node_error(g, node,
+            buf_sprintf("value cannot be represented in any integer type"));
+    } else {
+        num_lit_fits_in_other_type(g, node, resolved_type);
+    }
+
+    return resolved_type;
+}
+
 
 static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
@@ -1918,60 +1929,6 @@ static bool eval_bool_bin_op_bool(bool a, BinOpType bin_op, bool b) {
     }
 }
 
-static bool eval_bool_bin_op_signed(int64_t a, BinOpType bin_op, int64_t b) {
-    if (bin_op == BinOpTypeCmpEq) {
-        return a == b;
-    } else if (bin_op == BinOpTypeCmpNotEq) {
-        return a != b;
-    } else if (bin_op == BinOpTypeCmpLessThan) {
-        return a < b;
-    } else if (bin_op == BinOpTypeCmpGreaterThan) {
-        return a > b;
-    } else if (bin_op == BinOpTypeCmpLessOrEq) {
-        return a <= b;
-    } else if (bin_op == BinOpTypeCmpGreaterOrEq) {
-        return a >= b;
-    } else {
-        zig_unreachable();
-    }
-}
-
-static bool eval_bool_bin_op_unsigned(uint64_t a, BinOpType bin_op, uint64_t b) {
-    if (bin_op == BinOpTypeCmpEq) {
-        return a == b;
-    } else if (bin_op == BinOpTypeCmpNotEq) {
-        return a != b;
-    } else if (bin_op == BinOpTypeCmpLessThan) {
-        return a < b;
-    } else if (bin_op == BinOpTypeCmpGreaterThan) {
-        return a > b;
-    } else if (bin_op == BinOpTypeCmpLessOrEq) {
-        return a <= b;
-    } else if (bin_op == BinOpTypeCmpGreaterOrEq) {
-        return a >= b;
-    } else {
-        zig_unreachable();
-    }
-}
-
-static bool eval_bool_bin_op_float(double a, BinOpType bin_op, double b) {
-    if (bin_op == BinOpTypeCmpEq) {
-        return a == b;
-    } else if (bin_op == BinOpTypeCmpNotEq) {
-        return a != b;
-    } else if (bin_op == BinOpTypeCmpLessThan) {
-        return a < b;
-    } else if (bin_op == BinOpTypeCmpGreaterThan) {
-        return a > b;
-    } else if (bin_op == BinOpTypeCmpLessOrEq) {
-        return a <= b;
-    } else if (bin_op == BinOpTypeCmpGreaterOrEq) {
-        return a >= b;
-    } else {
-        zig_unreachable();
-    }
-}
-
 static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         AstNode *node)
 {
@@ -1983,8 +1940,11 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
     TypeTableEntry *op1_type = analyze_expression(g, import, context, nullptr, op1);
     TypeTableEntry *op2_type = analyze_expression(g, import, context, nullptr, op2);
 
+    AstNode *op_nodes[] = {op1, op2};
+    TypeTableEntry *op_types[] = {op1_type, op2_type};
+
     TypeTableEntry *resolved_type = resolve_peer_type_compatibility(g, context, node,
-            op1, op2, op1_type, op2_type);
+            op_nodes, op_types, 2);
 
     if (resolved_type->id == TypeTableEntryIdInvalid) {
         return g->builtin_types.entry_invalid;
@@ -1997,20 +1957,30 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
     }
 
     bool answer;
-    if (resolved_type->id == TypeTableEntryIdInt) {
-        if (op1_type->data.integral.is_signed &&
-            op2_type->data.integral.is_signed)
-        {
-            answer = eval_bool_bin_op_signed(op1_val->data.x_int, bin_op_type, op2_val->data.x_int);
-        } else if (!op1_type->data.integral.is_signed &&
-                   !op2_type->data.integral.is_signed)
-        {
-            answer = eval_bool_bin_op_unsigned(op1_val->data.x_uint, bin_op_type, op2_val->data.x_uint);
+    if (resolved_type->id == TypeTableEntryIdNumLitFloat ||
+        resolved_type->id == TypeTableEntryIdNumLitInt ||
+        resolved_type->id == TypeTableEntryIdFloat ||
+        resolved_type->id == TypeTableEntryIdInt)
+    {
+        bool (*bignum_cmp)(BigNum *, BigNum *);
+        if (bin_op_type == BinOpTypeCmpEq) {
+            bignum_cmp = bignum_cmp_eq;
+        } else if (bin_op_type == BinOpTypeCmpNotEq) {
+            bignum_cmp = bignum_cmp_neq;
+        } else if (bin_op_type == BinOpTypeCmpLessThan) {
+            bignum_cmp = bignum_cmp_lt;
+        } else if (bin_op_type == BinOpTypeCmpGreaterThan) {
+            bignum_cmp = bignum_cmp_gt;
+        } else if (bin_op_type == BinOpTypeCmpLessOrEq) {
+            bignum_cmp = bignum_cmp_lte;
+        } else if (bin_op_type == BinOpTypeCmpGreaterOrEq) {
+            bignum_cmp = bignum_cmp_gte;
         } else {
             zig_unreachable();
         }
-    } else if (resolved_type->id == TypeTableEntryIdFloat) {
-        answer = eval_bool_bin_op_float(op1_val->data.x_float, bin_op_type, op2_val->data.x_float);
+
+        answer = bignum_cmp(&op1_val->data.x_bignum, &op2_val->data.x_bignum);
+
     } else if (resolved_type->id == TypeTableEntryIdEnum) {
         ConstEnumValue *enum1 = &op1_val->data.x_enum;
         ConstEnumValue *enum2 = &op2_val->data.x_enum;
@@ -2124,7 +2094,45 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                 TypeTableEntry *lhs_type = analyze_expression(g, import, context, expected_type, op1);
                 TypeTableEntry *rhs_type = analyze_expression(g, import, context, expected_type, op2);
 
-                return resolve_peer_type_compatibility(g, context, node, op1, op2, lhs_type, rhs_type);
+                AstNode *op_nodes[] = {op1, op2};
+                TypeTableEntry *op_types[] = {lhs_type, rhs_type};
+
+                TypeTableEntry *resolved_type = resolve_peer_type_compatibility(g, context, node,
+                        op_nodes, op_types, 2);
+
+                if (resolved_type->id == TypeTableEntryIdInvalid) {
+                    return resolved_type;
+                }
+
+                ConstExprValue *op1_val = &get_resolved_expr(op1)->const_val;
+                ConstExprValue *op2_val = &get_resolved_expr(op2)->const_val;
+                if (!op1_val->ok || !op2_val->ok) {
+                    return resolved_type;
+                }
+
+                if (bin_op_type == BinOpTypeAdd) {
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_add, op1, op2, resolved_type);
+                } else if (bin_op_type == BinOpTypeSub) {
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_sub, op1, op2, resolved_type);
+                } else if (bin_op_type == BinOpTypeMult) {
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_mul, op1, op2, resolved_type);
+                } else if (bin_op_type == BinOpTypeDiv) {
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_div, op1, op2, resolved_type);
+                } else if (bin_op_type == BinOpTypeMod) {
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_mod, op1, op2, resolved_type);
+                } else if (bin_op_type == BinOpTypeBinOr) {
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_or, op1, op2, resolved_type);
+                } else if (bin_op_type == BinOpTypeBinAnd) {
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_and, op1, op2, resolved_type);
+                } else if (bin_op_type == BinOpTypeBinXor) {
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_xor, op1, op2, resolved_type);
+                } else if (bin_op_type == BinOpTypeBitShiftLeft) {
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_shl, op1, op2, resolved_type);
+                } else if (bin_op_type == BinOpTypeBitShiftRight) {
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_shr, op1, op2, resolved_type);
+                } else {
+                    zig_unreachable();
+                }
             }
         case BinOpTypeUnwrapMaybe:
             {
@@ -2197,6 +2205,8 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
         AstNodeVariableDeclaration *variable_declaration,
         bool expr_is_maybe)
 {
+    bool is_const = variable_declaration->is_const;
+
     TypeTableEntry *explicit_type = nullptr;
     if (variable_declaration->type != nullptr) {
         explicit_type = analyze_type_expr(g, import, context, variable_declaration->type);
@@ -2223,19 +2233,19 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
             add_node_error(g, source_node,
                 buf_sprintf("variable initialization is unreachable"));
             implicit_type = g->builtin_types.entry_invalid;
-        } else if (implicit_type->id == TypeTableEntryIdNumberLiteral) {
-            add_node_error(g, source_node,
-                buf_sprintf("unable to infer variable type"));
-            implicit_type = g->builtin_types.entry_invalid;
-        } else if (implicit_type->id == TypeTableEntryIdMetaType &&
-                   !variable_declaration->is_const)
+        } else if (!is_const &&
+                (implicit_type->id == TypeTableEntryIdNumLitFloat ||
+                 implicit_type->id == TypeTableEntryIdNumLitInt))
         {
+            add_node_error(g, source_node, buf_sprintf("unable to infer variable type"));
+            implicit_type = g->builtin_types.entry_invalid;
+        } else if (implicit_type->id == TypeTableEntryIdMetaType && !is_const) {
             add_node_error(g, source_node, buf_sprintf("variable of type 'type' must be constant"));
             implicit_type = g->builtin_types.entry_invalid;
         }
     }
 
-    if (implicit_type == nullptr && variable_declaration->is_const) {
+    if (implicit_type == nullptr && is_const) {
         add_node_error(g, source_node, buf_sprintf("const variable missing initialization"));
         implicit_type = g->builtin_types.entry_invalid;
     }
@@ -2244,7 +2254,7 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
     assert(type != nullptr); // should have been caught by the parser
 
     VariableTableEntry *var = add_local_var(g, source_node, context,
-            &variable_declaration->symbol, type, variable_declaration->is_const);
+            &variable_declaration->symbol, type, is_const);
 
 
     bool is_pub = (variable_declaration->visib_mod != VisibModPrivate);
@@ -2300,27 +2310,14 @@ static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry 
         return g->builtin_types.entry_invalid;
     }
 
-    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-    const_val->ok = true;
-    if (is_num_lit_unsigned(node->data.number_literal.kind)) {
-        const_val->data.x_uint = node->data.number_literal.data.x_uint;
-    } else if (is_num_lit_float(node->data.number_literal.kind)) {
-        const_val->data.x_float = node->data.number_literal.data.x_float;
+    if (node->data.number_literal.kind == NumLitUInt) {
+        return resolve_expr_const_val_as_unsigned_num_lit(g, node,
+                expected_type, node->data.number_literal.data.x_uint);
+    } else if (node->data.number_literal.kind == NumLitFloat) {
+        return resolve_expr_const_val_as_float_num_lit(g, node,
+                expected_type, node->data.number_literal.data.x_float);
     } else {
         zig_unreachable();
-    }
-
-    TypeTableEntry *num_lit_type = g->num_lit_types[node->data.number_literal.kind];
-    if (expected_type) {
-        NumLitCodeGen *codegen_num_lit = get_resolved_num_lit(node);
-        assert(!codegen_num_lit->resolved_type);
-        TypeTableEntry *after_implicit_cast_resolved_type =
-            resolve_type_compatibility(g, block_context, node, expected_type, num_lit_type);
-        assert(codegen_num_lit->resolved_type ||
-                after_implicit_cast_resolved_type->id == TypeTableEntryIdInvalid);
-        return after_implicit_cast_resolved_type;
-    } else {
-        return num_lit_type;
     }
 }
 
@@ -2353,8 +2350,15 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
 
         ConstExprValue *const_val = &get_resolved_expr(size_node)->const_val;
         if (const_val->ok) {
-            return resolve_expr_const_val_as_type(g, node,
-                    get_array_type(g, child_type, const_val->data.x_uint));
+            if (const_val->data.x_bignum.is_negative) {
+                add_node_error(g, size_node,
+                    buf_sprintf("array size %s is negative",
+                        buf_ptr(bignum_to_buf(&const_val->data.x_bignum))));
+                return g->builtin_types.entry_invalid;
+            } else {
+                return resolve_expr_const_val_as_type(g, node,
+                        get_array_type(g, child_type, const_val->data.x_bignum.data.x_uint));
+            }
         } else {
             return resolve_expr_const_val_as_type(g, node,
                     get_unknown_size_array_type(g, child_type, node->data.array_type.is_const));
@@ -2493,9 +2497,9 @@ static TypeTableEntry *analyze_if_then_else(CodeGen *g, ImportTableEntry *import
     if (expected_type) {
         return (then_type->id == TypeTableEntryIdUnreachable) ? else_type : then_type;
     } else {
-        return resolve_peer_type_compatibility(g, context, parent_node,
-                then_block, else_node,
-                then_type, else_type);
+        AstNode *op_nodes[] = {then_block, else_node};
+        TypeTableEntry *op_types[] = {then_type, else_type};
+        return resolve_peer_type_compatibility(g, context, parent_node, op_nodes, op_types, 2);
     }
 }
 
@@ -2535,10 +2539,60 @@ static TypeTableEntry *analyze_min_max_value(CodeGen *g, ImportTableEntry *impor
     if (type_entry->id == TypeTableEntryIdInvalid) {
         return g->builtin_types.entry_invalid;
     } else if (type_entry->id == TypeTableEntryIdInt) {
-        // TODO const expr eval for min/max int
+        ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+        const_val->ok = true;
+        if (is_max) {
+            if (type_entry->data.integral.is_signed) {
+                int64_t val;
+                if (type_entry->size_in_bits == 64) {
+                    val = INT64_MAX;
+                } else if (type_entry->size_in_bits == 32) {
+                    val = INT32_MAX;
+                } else if (type_entry->size_in_bits == 16) {
+                    val = INT16_MAX;
+                } else if (type_entry->size_in_bits == 8) {
+                    val = INT8_MAX;
+                } else {
+                    zig_unreachable();
+                }
+                bignum_init_signed(&const_val->data.x_bignum, val);
+            } else {
+                uint64_t val;
+                if (type_entry->size_in_bits == 64) {
+                    val = UINT64_MAX;
+                } else if (type_entry->size_in_bits == 32) {
+                    val = UINT32_MAX;
+                } else if (type_entry->size_in_bits == 16) {
+                    val = UINT16_MAX;
+                } else if (type_entry->size_in_bits == 8) {
+                    val = UINT8_MAX;
+                } else {
+                    zig_unreachable();
+                }
+                bignum_init_unsigned(&const_val->data.x_bignum, val);
+            }
+        } else {
+            if (type_entry->data.integral.is_signed) {
+                int64_t val;
+                if (type_entry->size_in_bits == 64) {
+                    val = INT64_MIN;
+                } else if (type_entry->size_in_bits == 32) {
+                    val = INT32_MIN;
+                } else if (type_entry->size_in_bits == 16) {
+                    val = INT16_MIN;
+                } else if (type_entry->size_in_bits == 8) {
+                    val = INT8_MIN;
+                } else {
+                    zig_unreachable();
+                }
+                bignum_init_signed(&const_val->data.x_bignum, val);
+            } else {
+                bignum_init_unsigned(&const_val->data.x_bignum, 0);
+            }
+        }
         return type_entry;
     } else if (type_entry->id == TypeTableEntryIdFloat) {
-        // TODO const expr eval for min/max float
+        zig_panic("TODO analyze_min_max_value float");
         return type_entry;
     } else if (type_entry->id == TypeTableEntryIdBool) {
         return resolve_expr_const_val_as_bool(g, node, is_max);
@@ -2559,10 +2613,9 @@ static void eval_const_expr_implicit_cast(CodeGen *g, ImportTableEntry *import, 
         case CastOpPointerReinterpret:
             {
                 ConstExprValue *other_val = &get_resolved_expr(expr_node)->const_val;
-                ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-                if (other_val != const_val) {
-                    *const_val = *other_val;
-                }
+                ConstExprValue *const_val = &cast->const_val;
+                assert(const_val != other_val);
+                *const_val = *other_val;
                 break;
             }
         case CastOpToUnknownSizeArray:
@@ -2571,14 +2624,11 @@ static void eval_const_expr_implicit_cast(CodeGen *g, ImportTableEntry *import, 
         case CastOpMaybeWrap:
             {
                 ConstExprValue *other_val = &get_resolved_expr(expr_node)->const_val;
-                ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+                ConstExprValue *const_val = &cast->const_val;
                 if (!other_val->ok) {
                     break;
-                } else if (const_val == other_val) {
-                    ConstExprValue *new_val = allocate<ConstExprValue>(1);
-                    memcpy(new_val, other_val, sizeof(ConstExprValue));
-                    other_val = new_val;
                 }
+                assert(const_val != other_val);
 
                 const_val->data.x_maybe = other_val;
                 const_val->ok = true;
@@ -2635,12 +2685,10 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         context->cast_expr_alloca_list.append(cast);
         eval_const_expr_implicit_cast(g, import, context, node, cast, expr_node);
         return wanted_type;
-    } else if (actual_type->id == TypeTableEntryIdNumberLiteral &&
-               num_lit_fits_in_other_type(g, actual_type, wanted_type))
+    } else if (actual_type->id == TypeTableEntryIdNumLitFloat ||
+                actual_type->id == TypeTableEntryIdNumLitInt)
     {
-        NumLitCodeGen *codegen_num_lit = get_resolved_num_lit(expr_node);
-        assert(!codegen_num_lit->resolved_type);
-        codegen_num_lit->resolved_type = wanted_type;
+        num_lit_fits_in_other_type(g, expr_node, wanted_type);
         cast->op = CastOpNothing;
         eval_const_expr_implicit_cast(g, import, context, node, cast, expr_node);
         return wanted_type;
@@ -2998,7 +3046,7 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                     return g->builtin_types.entry_bool;
                 }
 
-                bool answer = target_const_val->data.x_bool;
+                bool answer = !target_const_val->data.x_bool;
                 return resolve_expr_const_val_as_bool(g, node, answer);
             }
         case PrefixOpBinNot:
@@ -3008,8 +3056,7 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                 if (expr_type->id == TypeTableEntryIdInvalid) {
                     return expr_type;
                 } else if (expr_type->id == TypeTableEntryIdInt ||
-                        (expr_type->id == TypeTableEntryIdNumberLiteral &&
-                            !is_num_lit_float(expr_type->data.num_lit.kind)))
+                           expr_type->id == TypeTableEntryIdNumLitInt)
                 {
                     return expr_type;
                 } else {
@@ -3017,6 +3064,7 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                             buf_ptr(&expr_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
+                // TODO const expr eval
             }
         case PrefixOpNegation:
             {
@@ -3030,13 +3078,16 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                     return expr_type;
                 } else if (expr_type->id == TypeTableEntryIdFloat) {
                     return expr_type;
-                } else if (expr_type->id == TypeTableEntryIdNumberLiteral) {
+                } else if (expr_type->id == TypeTableEntryIdNumLitInt) {
+                    return expr_type;
+                } else if (expr_type->id == TypeTableEntryIdNumLitFloat) {
                     return expr_type;
                 } else {
                     add_node_error(g, node, buf_sprintf("invalid negation type: '%s'",
                             buf_ptr(&expr_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
+                // TODO const expr eval
             }
         case PrefixOpAddressOf:
         case PrefixOpConstAddressOf:
@@ -4123,59 +4174,6 @@ Expr *get_resolved_expr(AstNode *node) {
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
-        case NodeTypeErrorValueDecl:
-            zig_unreachable();
-    }
-    zig_unreachable();
-}
-
-NumLitCodeGen *get_resolved_num_lit(AstNode *node) {
-    switch (node->type) {
-        case NodeTypeNumberLiteral:
-            return &node->data.number_literal.codegen;
-        case NodeTypeErrorLiteral:
-            return &node->data.error_literal.codegen;
-        case NodeTypeFnCallExpr:
-            return &node->data.fn_call_expr.resolved_num_lit;
-        case NodeTypeReturnExpr:
-        case NodeTypeBinOpExpr:
-        case NodeTypePrefixOpExpr:
-        case NodeTypeArrayAccessExpr:
-        case NodeTypeSliceExpr:
-        case NodeTypeFieldAccessExpr:
-        case NodeTypeIfBoolExpr:
-        case NodeTypeIfVarExpr:
-        case NodeTypeWhileExpr:
-        case NodeTypeForExpr:
-        case NodeTypeSwitchExpr:
-        case NodeTypeSwitchProng:
-        case NodeTypeSwitchRange:
-        case NodeTypeAsmExpr:
-        case NodeTypeContainerInitExpr:
-        case NodeTypeRoot:
-        case NodeTypeRootExportDecl:
-        case NodeTypeFnProto:
-        case NodeTypeFnDef:
-        case NodeTypeFnDecl:
-        case NodeTypeParamDecl:
-        case NodeTypeBlock:
-        case NodeTypeExternBlock:
-        case NodeTypeDirective:
-        case NodeTypeVariableDeclaration:
-        case NodeTypeStringLiteral:
-        case NodeTypeCharLiteral:
-        case NodeTypeSymbol:
-        case NodeTypeUse:
-        case NodeTypeBoolLiteral:
-        case NodeTypeNullLiteral:
-        case NodeTypeLabel:
-        case NodeTypeGoto:
-        case NodeTypeBreak:
-        case NodeTypeContinue:
-        case NodeTypeStructDecl:
-        case NodeTypeStructField:
-        case NodeTypeStructValueField:
-        case NodeTypeArrayType:
         case NodeTypeErrorValueDecl:
             zig_unreachable();
     }

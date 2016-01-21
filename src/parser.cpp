@@ -301,13 +301,12 @@ void ast_print(AstNode *node, int indent) {
             break;
         case NodeTypeNumberLiteral:
             {
-                NumLit num_lit = node->data.number_literal.kind;
+                NumLit kind = node->data.number_literal.kind;
                 const char *name = node_type_str(node->type);
-                const char *kind_str = num_lit_str(num_lit);
-                if (is_num_lit_unsigned(num_lit)) {
-                    fprintf(stderr, "%s %s %" PRIu64 "\n", name, kind_str, node->data.number_literal.data.x_uint);
+                if (kind == NumLitUInt) {
+                    fprintf(stderr, "%s uint %" PRIu64 "\n", name, node->data.number_literal.data.x_uint);
                 } else {
-                    fprintf(stderr, "%s %s %f\n", name, kind_str, node->data.number_literal.data.x_float);
+                    fprintf(stderr, "%s float %f\n", name, node->data.number_literal.data.x_float);
                 }
                 break;
             }
@@ -808,16 +807,7 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
         if (num_lit->overflow) return;
 
         num_lit->data.x_uint = whole_number;
-
-        if (whole_number <= UINT8_MAX) {
-            num_lit->kind = NumLitU8;
-        } else if (whole_number <= UINT16_MAX) {
-            num_lit->kind = NumLitU16;
-        } else if (whole_number <= UINT32_MAX) {
-            num_lit->kind = NumLitU32;
-        } else {
-            num_lit->kind = NumLitU64;
-        }
+        num_lit->kind = NumLitUInt;
     } else {
         // float
 
@@ -834,7 +824,7 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
             }
             assert(str_end == buf_ptr(pc->buf) + token->end_pos);
             num_lit->data.x_float = x;
-            num_lit->kind = NumLitF64;
+            num_lit->kind = NumLitFloat;
             return;
         }
 
@@ -954,8 +944,7 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
         double x = *(double *)&double_bits;
 
         num_lit->data.x_float = x;
-        // TODO: see if we can store it in f32
-        num_lit->kind = NumLitF64;
+        num_lit->kind = NumLitFloat;
     }
 }
 
@@ -3052,100 +3041,4 @@ AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
     int token_index = 0;
     pc.root = ast_parse_root(&pc, &token_index);
     return pc.root;
-}
-
-const char *num_lit_str(NumLit num_lit) {
-    switch (num_lit) {
-        case NumLitF32:
-            return "f32";
-        case NumLitF64:
-            return "f64";
-        case NumLitF128:
-            return "f128";
-        case NumLitU8:
-            return "u8";
-        case NumLitU16:
-            return "u16";
-        case NumLitU32:
-            return "u32";
-        case NumLitU64:
-            return "u64";
-        case NumLitI8:
-            return "i8";
-        case NumLitI16:
-            return "i16";
-        case NumLitI32:
-            return "i32";
-        case NumLitI64:
-            return "i64";
-        case NumLitCount:
-            zig_unreachable();
-    }
-    zig_unreachable();
-}
-
-bool is_num_lit_unsigned(NumLit num_lit) {
-    switch (num_lit) {
-        case NumLitF32:
-        case NumLitF64:
-        case NumLitF128:
-        case NumLitI8:
-        case NumLitI16:
-        case NumLitI32:
-        case NumLitI64:
-            return false;
-        case NumLitU8:
-        case NumLitU16:
-        case NumLitU32:
-        case NumLitU64:
-            return true;
-        case NumLitCount:
-            zig_unreachable();
-    }
-    zig_unreachable();
-}
-
-bool is_num_lit_float(NumLit num_lit) {
-    switch (num_lit) {
-        case NumLitF32:
-        case NumLitF64:
-        case NumLitF128:
-            return true;
-        case NumLitU8:
-        case NumLitU16:
-        case NumLitU32:
-        case NumLitU64:
-        case NumLitI8:
-        case NumLitI16:
-        case NumLitI32:
-        case NumLitI64:
-            return false;
-        case NumLitCount:
-            zig_unreachable();
-    }
-    zig_unreachable();
-}
-
-uint64_t num_lit_bit_count(NumLit num_lit) {
-    switch (num_lit) {
-        case NumLitU8:
-        case NumLitI8:
-            return 8;
-        case NumLitU16:
-        case NumLitI16:
-            return 16;
-        case NumLitU32:
-        case NumLitI32:
-        case NumLitF32:
-            return 32;
-        case NumLitU64:
-        case NumLitI64:
-        case NumLitF64:
-            return 64;
-        case NumLitF128:
-            return 128;
-        case NumLitCount:
-            zig_unreachable();
-    }
-    zig_unreachable();
 }

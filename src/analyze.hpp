@@ -18,7 +18,6 @@ VariableTableEntry *find_variable(BlockContext *context, Buf *name);
 TypeTableEntry *find_container(BlockContext *context, Buf *name);
 BlockContext *new_block_context(AstNode *node, BlockContext *parent);
 Expr *get_resolved_expr(AstNode *node);
-NumLitCodeGen *get_resolved_num_lit(AstNode *node);
 TopLevelDecl *get_resolved_top_level_decl(AstNode *node);
 bool is_node_void_expr(AstNode *node);
 TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, int size_in_bits);

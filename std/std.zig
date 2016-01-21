@@ -34,7 +34,7 @@ pub %.BadPerm;
 pub %.PipeFail;
 */
 
-const buffer_size: u16 = 4 * 1024;
+//const buffer_size: u16 = 4 * 1024;
 const max_u64_base10_digits: isize = 20;
 
 /*

@@ -13,6 +13,7 @@
 #include "zig_llvm.hpp"
 #include "hash_map.hpp"
 #include "errmsg.hpp"
+#include "bignum.hpp"
 
 struct AstNode;
 struct ImportTableEntry;
@@ -49,15 +50,6 @@ enum CastOp {
     CastOpPointerReinterpret,
 };
 
-struct Cast {
-    CastOp op;
-    // if op is CastOpArrayToString, this will be a pointer to
-    // the string struct on the stack
-    LLVMValueRef ptr;
-    TypeTableEntry *after_type;
-    AstNode *source_node;
-};
-
 struct ConstEnumValue {
     uint64_t tag;
     ConstExprValue *payload;
@@ -68,9 +60,7 @@ struct ConstExprValue {
     bool depends_on_compile_var;
 
     union {
-        uint64_t x_uint;
-        int64_t x_int;
-        double x_float;
+        BigNum x_bignum;
         bool x_bool;
         FnTableEntry *x_fn;
         TypeTableEntry *x_type;
@@ -79,8 +69,19 @@ struct ConstExprValue {
     } data;
 };
 
+struct Cast {
+    CastOp op;
+    // if op is CastOpArrayToString, this will be a pointer to
+    // the string struct on the stack
+    LLVMValueRef ptr;
+    TypeTableEntry *after_type;
+    AstNode *source_node;
+    ConstExprValue const_val;
+};
+
 struct Expr {
     TypeTableEntry *type_entry;
+    TypeTableEntry *resolved_type;
     // the context in which this expression is evaluated.
     // for blocks, this points to the containing scope, not the block's own scope for its children.
     BlockContext *block_context;
@@ -90,10 +91,6 @@ struct Expr {
     Cast implicit_maybe_cast; // happens second
 
     ConstExprValue const_val;
-};
-
-struct NumLitCodeGen {
-    TypeTableEntry *resolved_type;
 };
 
 struct StructValExprCodeGen {
@@ -315,7 +312,6 @@ struct AstNodeFnCallExpr {
     // populated by semantic analyzer:
     BuiltinFnEntry *builtin_fn;
     Expr resolved_expr;
-    NumLitCodeGen resolved_num_lit;
     Cast cast;
     FnTableEntry *fn_entry;
 };
@@ -550,26 +546,15 @@ struct AstNodeCharLiteral {
 };
 
 enum NumLit {
-    NumLitF32,
-    NumLitF64,
-    NumLitF128,
-    NumLitU8,
-    NumLitU16,
-    NumLitU32,
-    NumLitU64,
-    NumLitI8,
-    NumLitI16,
-    NumLitI32,
-    NumLitI64,
-
-    NumLitCount
+    NumLitFloat,
+    NumLitUInt,
 };
 
 struct AstNodeNumberLiteral {
     NumLit kind;
 
     // overflow is true if when parsing the number, we discovered it would not
-    // fit without losing data in a uint64_t, int64_t, or double
+    // fit without losing data in a uint64_t or double
     bool overflow;
 
     union {
@@ -578,7 +563,6 @@ struct AstNodeNumberLiteral {
     } data;
 
     // populated by semantic analyzer
-    NumLitCodeGen codegen;
     Expr resolved_expr;
 };
 
@@ -586,7 +570,6 @@ struct AstNodeErrorLiteral {
     Buf symbol;
 
     // populated by semantic analyzer
-    NumLitCodeGen codegen;
     Expr resolved_expr;
 };
 
@@ -758,10 +741,6 @@ struct TypeTableEntryStruct {
     bool reported_infinite_err;
 };
 
-struct TypeTableEntryNumLit {
-    NumLit kind;
-};
-
 struct TypeTableEntryMaybe {
     TypeTableEntry *child_type;
 };
@@ -808,7 +787,8 @@ enum TypeTableEntryId {
     TypeTableEntryIdPointer,
     TypeTableEntryIdArray,
     TypeTableEntryIdStruct,
-    TypeTableEntryIdNumberLiteral,
+    TypeTableEntryIdNumLitFloat,
+    TypeTableEntryIdNumLitInt,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdError,
     TypeTableEntryIdEnum,
@@ -830,7 +810,6 @@ struct TypeTableEntry {
         TypeTableEntryInt integral;
         TypeTableEntryArray array;
         TypeTableEntryStruct structure;
-        TypeTableEntryNumLit num_lit;
         TypeTableEntryMaybe maybe;
         TypeTableEntryError error;
         TypeTableEntryEnum enumeration;
@@ -951,9 +930,9 @@ struct CodeGen {
         TypeTableEntry *entry_unreachable;
         TypeTableEntry *entry_type;
         TypeTableEntry *entry_invalid;
+        TypeTableEntry *entry_num_lit_int;
+        TypeTableEntry *entry_num_lit_float;
     } builtin_types;
-
-    TypeTableEntry *num_lit_types[NumLitCount];
 
     LLVMTargetDataRef target_data_ref;
     unsigned pointer_size_bytes;
