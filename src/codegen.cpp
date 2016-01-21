@@ -134,38 +134,6 @@ static TypeTableEntry *fn_proto_type_from_type_node(CodeGen *g, AstNode *type_no
     }
 }
 
-static LLVMValueRef gen_number_literal(CodeGen *g, AstNode *expr_node) {
-    Expr *expr = get_resolved_expr(expr_node);
-    TypeTableEntry *type_entry = expr->resolved_type;
-    if (!type_entry) {
-        type_entry = expr->type_entry;
-    }
-    assert(type_entry);
-
-    ConstExprValue *const_val = &expr->const_val;
-
-    assert(const_val->ok);
-
-    if (type_entry->id == TypeTableEntryIdInt) {
-        assert(const_val->data.x_bignum.kind == BigNumKindInt);
-        return LLVMConstInt(type_entry->type_ref,
-            bignum_to_twos_complement(&const_val->data.x_bignum),
-            type_entry->data.integral.is_signed);
-    } else if (type_entry->id == TypeTableEntryIdFloat) {
-        if (const_val->data.x_bignum.kind == BigNumKindFloat) {
-            return LLVMConstReal(type_entry->type_ref, const_val->data.x_bignum.data.x_float);
-        } else {
-            int64_t x = const_val->data.x_bignum.data.x_uint;
-            if (const_val->data.x_bignum.is_negative) {
-                x = -x;
-            }
-            return LLVMConstReal(type_entry->type_ref, x);
-        }
-    } else {
-        zig_unreachable();
-    }
-}
-
 static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
     AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
@@ -277,7 +245,8 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdMinValue:
         case BuiltinFnIdMaxValue:
         case BuiltinFnIdMemberCount:
-            return gen_number_literal(g, node);
+            // caught by constant expression eval codegen
+            zig_unreachable();
     }
     zig_unreachable();
 }
@@ -1884,6 +1853,16 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
 }
 
 static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
+    AstNode *init_expr = node->data.variable_declaration.expr;
+    if (node->data.variable_declaration.is_const && init_expr) {
+        TypeTableEntry *init_expr_type = get_expr_type(init_expr);
+        if (init_expr_type->id == TypeTableEntryIdNumLitFloat ||
+            init_expr_type->id == TypeTableEntryIdNumLitInt)
+        {
+            return nullptr;
+        }
+    }
+
     LLVMValueRef init_val;
     return gen_var_decl_raw(g, node, &node->data.variable_declaration,
             get_resolved_expr(node)->block_context, false, &init_val);
@@ -1992,6 +1971,11 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
 }
 
 static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
+    Expr *expr = get_resolved_expr(node);
+    if (expr->const_val.ok) {
+        assert(expr->const_llvm_val);
+        return expr->const_llvm_val;
+    }
     switch (node->type) {
         case NodeTypeBinOpExpr:
             return gen_bin_op_expr(g, node);
@@ -2009,11 +1993,6 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
             return gen_slice_expr(g, node);
         case NodeTypeFieldAccessExpr:
             return gen_field_access_expr(g, node, false);
-        case NodeTypeBoolLiteral:
-            if (node->data.bool_literal.value)
-                return LLVMConstAllOnes(LLVMInt1Type());
-            else
-                return LLVMConstNull(LLVMInt1Type());
         case NodeTypeNullLiteral:
             return gen_null_literal(g, node);
         case NodeTypeIfBoolExpr:
@@ -2026,8 +2005,6 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
             return gen_for_expr(g, node);
         case NodeTypeAsmExpr:
             return gen_asm_expr(g, node);
-        case NodeTypeNumberLiteral:
-            return gen_number_literal(g, node);
         case NodeTypeErrorLiteral:
             return gen_error_literal(g, node);
         case NodeTypeStringLiteral:
@@ -2070,6 +2047,10 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
             return gen_container_init_expr(g, node);
         case NodeTypeSwitchExpr:
             return gen_switch_expr(g, node);
+        case NodeTypeNumberLiteral:
+        case NodeTypeBoolLiteral:
+            // caught by constant expression eval codegen
+            zig_unreachable();
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -2129,15 +2110,113 @@ static void build_label_blocks(CodeGen *g, AstNode *block_node) {
         label_node->data.label.label_entry->basic_block = LLVMAppendBasicBlock(
                 g->cur_fn->fn_value, buf_ptr(name));
     }
+}
 
+static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val) {
+    assert(const_val->ok);
+
+    if (type_entry->id == TypeTableEntryIdInt) {
+        return LLVMConstInt(type_entry->type_ref, bignum_to_twos_complement(&const_val->data.x_bignum), false);
+    } else if (type_entry->id == TypeTableEntryIdFloat) {
+        if (const_val->data.x_bignum.kind == BigNumKindFloat) {
+            return LLVMConstReal(type_entry->type_ref, const_val->data.x_bignum.data.x_float);
+        } else {
+            int64_t x = const_val->data.x_bignum.data.x_uint;
+            if (const_val->data.x_bignum.is_negative) {
+                x = -x;
+            }
+            return LLVMConstReal(type_entry->type_ref, x);
+        }
+    } else if (type_entry->id == TypeTableEntryIdBool) {
+        if (const_val->data.x_bool) {
+            return LLVMConstAllOnes(LLVMInt1Type());
+        } else {
+            return LLVMConstNull(LLVMInt1Type());
+        }
+    } else if (type_entry->id == TypeTableEntryIdMaybe) {
+        TypeTableEntry *child_type = type_entry->data.maybe.child_type;
+        LLVMValueRef child_val;
+        LLVMValueRef maybe_val;
+        if (const_val->data.x_maybe) {
+            child_val = gen_const_val(g, child_type, const_val->data.x_maybe);
+            maybe_val = LLVMConstAllOnes(LLVMInt1Type());
+        } else {
+            child_val = LLVMConstNull(child_type->type_ref);
+            maybe_val = LLVMConstNull(LLVMInt1Type());
+        }
+        LLVMValueRef fields[] = {
+            child_val,
+            maybe_val,
+        };
+        return LLVMConstStruct(fields, 2, false);
+    } else if (type_entry->id == TypeTableEntryIdStruct) {
+        zig_panic("TODO");
+    } else if (type_entry->id == TypeTableEntryIdArray) {
+        zig_panic("TODO");
+    } else if (type_entry->id == TypeTableEntryIdEnum) {
+        LLVMTypeRef tag_type_ref = type_entry->data.enumeration.tag_type->type_ref;
+        LLVMValueRef tag_value = LLVMConstInt(tag_type_ref, const_val->data.x_enum.tag, false);
+        if (type_entry->data.enumeration.gen_field_count == 0) {
+            return tag_value;
+        } else {
+            zig_panic("TODO");
+            /*
+            LLVMValueRef fields[] = {
+                tag_value,
+                union_value,
+            };
+            return LLVMConstStruct(fields, 2, false);
+            */
+        }
+    } else if (type_entry->id == TypeTableEntryIdFn) {
+        return const_val->data.x_fn->fn_value;
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void gen_const_globals(CodeGen *g) {
+    for (int i = 0; i < g->global_const_list.length; i += 1) {
+        Expr *expr = g->global_const_list.at(i);
+        ConstExprValue *const_val = &expr->const_val;
+        assert(const_val->ok);
+        TypeTableEntry *type_entry = expr->resolved_type;
+
+        // TODO delete this if when we make implicit casts insert ast nodes
+        if (type_entry->id == TypeTableEntryIdNumLitFloat ||
+            type_entry->id == TypeTableEntryIdNumLitInt)
+        {
+            continue;
+        }
+
+        if (handle_is_ptr(type_entry)) {
+            LLVMValueRef global_value = LLVMAddGlobal(g->module, type_entry->type_ref, "");
+            LLVMSetLinkage(global_value, LLVMPrivateLinkage);
+            LLVMValueRef init_val = gen_const_val(g, type_entry, const_val);
+            LLVMSetInitializer(global_value, init_val);
+            LLVMSetGlobalConstant(global_value, true);
+            LLVMSetUnnamedAddr(global_value, true);
+            expr->const_llvm_val = global_value;
+        } else {
+            expr->const_llvm_val = gen_const_val(g, type_entry, const_val);
+        }
+    }
 }
 
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
+    gen_const_globals(g);
+
     // Generate module level variables
     for (int i = 0; i < g->global_vars.length; i += 1) {
         VariableTableEntry *var = g->global_vars.at(i);
+
+        if (var->type->id == TypeTableEntryIdNumLitFloat ||
+            var->type->id == TypeTableEntryIdNumLitInt)
+        {
+            continue;
+        }
 
         // TODO if the global is exported, set external linkage
         LLVMValueRef global_value = LLVMAddGlobal(g->module, var->type->type_ref, "");

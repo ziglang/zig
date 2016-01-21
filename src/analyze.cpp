@@ -1667,7 +1667,13 @@ static TypeTableEntry *resolve_expr_const_val_as_type(CodeGen *g, AstNode *node,
 static TypeTableEntry *resolve_expr_const_val_as_other_expr(CodeGen *g, AstNode *node, AstNode *other) {
     Expr *expr = get_resolved_expr(node);
     Expr *other_expr = get_resolved_expr(other);
-    expr->const_val = other_expr->const_val;
+    ConstExprValue *other_const_val;
+    if (other_expr->implicit_maybe_cast.after_type) {
+        other_const_val = &other_expr->implicit_maybe_cast.const_val;
+    } else {
+        other_const_val = &other_expr->const_val;
+    }
+    expr->const_val = *other_const_val;
     return other_expr->type_entry;
 }
 
@@ -1766,8 +1772,14 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
             AstNode *decl_node = var->decl_node;
             if (decl_node->type == NodeTypeVariableDeclaration) {
                 AstNode *expr_node = decl_node->data.variable_declaration.expr;
-                ConstExprValue *const_val = &get_resolved_expr(expr_node)->const_val;
-                if (const_val->ok) {
+                Expr *other_expr = get_resolved_expr(expr_node);
+                ConstExprValue *other_const_val;
+                if (other_expr->implicit_maybe_cast.after_type) {
+                    other_const_val = &other_expr->implicit_maybe_cast.const_val;
+                } else {
+                    other_const_val = &other_expr->const_val;
+                }
+                if (other_const_val->ok) {
                     return resolve_expr_const_val_as_other_expr(g, node, expr_node);
                 }
             }
@@ -2206,6 +2218,7 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
         bool expr_is_maybe)
 {
     bool is_const = variable_declaration->is_const;
+    bool is_export = (variable_declaration->visib_mod == VisibModExport);
 
     TypeTableEntry *explicit_type = nullptr;
     if (variable_declaration->type != nullptr) {
@@ -2233,7 +2246,7 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
             add_node_error(g, source_node,
                 buf_sprintf("variable initialization is unreachable"));
             implicit_type = g->builtin_types.entry_invalid;
-        } else if (!is_const &&
+        } else if ((!is_const || is_export) &&
                 (implicit_type->id == TypeTableEntryIdNumLitFloat ||
                  implicit_type->id == TypeTableEntryIdNumLitInt))
         {
@@ -3273,6 +3286,33 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
     return g->builtin_types.entry_unreachable;
 }
 
+static bool type_has_codegen_value(TypeTableEntryId id) {
+    switch (id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdUnreachable:
+            return false;
+
+        // TODO make num lits return false when we make implicit casts insert ast nodes
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdFn:
+            return true;
+    }
+    zig_unreachable();
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -3457,14 +3497,22 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
     resolve_type_compatibility(g, context, node, expected_type, return_type);
 
     Expr *expr = get_resolved_expr(node);
-    expr->type_entry = return_type;
+    if (!expr->resolved_type) {
+        expr->resolved_type = return_type;
+    }
+    expr->type_entry = expr->resolved_type;
     expr->block_context = context;
+
+    if (expr->const_val.ok && type_has_codegen_value(expr->resolved_type->id)) {
+        g->global_const_list.append(expr);
+    }
+
 
     if (expr->type_entry->id == TypeTableEntryIdUnreachable) {
         return expr->type_entry;
     }
 
-    /*
+    /* TODO delete this code when we make implicit casts insert ast nodes
     Cast *cast_node = &expr->implicit_cast;
     if (cast_node->after_type) {
         eval_const_expr_implicit_cast(g, import, context, node, cast_node, node);

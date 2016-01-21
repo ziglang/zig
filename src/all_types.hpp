@@ -90,6 +90,7 @@ struct Expr {
     Cast implicit_cast; // happens first
     Cast implicit_maybe_cast; // happens second
 
+    LLVMValueRef const_llvm_val;
     ConstExprValue const_val;
 };
 
@@ -955,6 +956,7 @@ struct CodeGen {
     // there will not be a corresponding fn_defs entry.
     ZigList<FnTableEntry *> fn_protos;
     ZigList<VariableTableEntry *> global_vars;
+    ZigList<Expr *> global_const_list;
 
     OutType out_type;
     FnTableEntry *cur_fn;

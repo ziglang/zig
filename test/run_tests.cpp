@@ -866,7 +866,7 @@ pub fn main(args: [][]u8) i32 => {
 }
     )SOURCE", "20\n");
 
-    add_simple_case("#min_value() and #max_value()", R"SOURCE(
+    add_simple_case("@min_value() and @max_value()", R"SOURCE(
 import "std.zig";
 pub fn main(args: [][]u8) i32 => {
     print_str("max u8: ");
