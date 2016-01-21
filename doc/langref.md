@@ -5,9 +5,11 @@
 ```
 Root : many(TopLevelDecl) "EOF"
 
-TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Import | ContainerDecl | VariableDeclaration
+TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Import | ContainerDecl | VariableDeclaration | ErrorValueDecl
 
-VariableDeclaration : option(FnVisibleMod) ("var" | "const") "symbol" ("=" Expression | ":" PrefixOpExpression option("=" Expression))
+ErrorValueDecl : option(FnVisibleMod) "%." "Symbol"
+
+VariableDeclaration : option(FnVisibleMod) ("var" | "const") "Symbol" ("=" Expression | ":" PrefixOpExpression option("=" Expression))
 
 ContainerDecl : many(Directive) option(FnVisibleMod) ("struct" | "enum") "Symbol" "{" many(StructMember) "}"
 
@@ -77,7 +79,7 @@ ForExpression : "for" "(" "Symbol" "," Expression option("," "Symbol") ")" Expre
 
 BoolOrExpression : BoolAndExpression "||" BoolOrExpression | BoolAndExpression
 
-ReturnExpression : "return" option(Expression)
+ReturnExpression : option("%" | "?") "return" option(Expression)
 
 IfExpression : IfVarExpression | IfBoolExpression
 
@@ -133,7 +135,7 @@ StructLiteralField : "." "Symbol" "=" Expression
 
 PrefixOp : "!" | "-" | "~" | "*" | ("&" option("const")) | "?"
 
-PrimaryExpression : "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | AsmExpression
+PrimaryExpression : "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | AsmExpression | ("%." "Symbol")
 
 ArrayType : "[" option(Expression) "]" option("const") PrefixOpExpression
 
@@ -148,7 +150,7 @@ KeywordLiteral : "true" | "false" | "null" | "break" | "continue"
 
 ```
 x() x[] x.y
-!x -x ~x *x &x ?x
+!x -x ~x *x &x ?x %x
 x{}
 * / %
 + -
@@ -199,12 +201,20 @@ c_ulonglong     unsigned long long  for ABI compatibility with C
 ### Boolean Type
 The boolean type has the name `bool` and represents either true or false.
 
-### Function Types
+### Function Type
 TODO
 
-### Array Types
-TODO
-Also, are there slices?
+### Fixed-Size Array Type
+
+Example: The string `"aoeu"` has type `[4]u8`.
+
+The size is known at compile time and is part of the type.
+
+### Slice Type
+
+A slice can be obtained with the slicing syntax: `array[start...end]`
+
+Example: `"aoeu"[0...2]` has type `[]u8`.
 
 ### Struct Types
 TODO
@@ -213,10 +223,13 @@ TODO
 TODO
 
 ### Unreachable Type
+
 The unreachable type has the name `unreachable`. TODO explanation
 
 ### Void Type
-The void type has the name `void`. TODO explanation
+
+The void type has the name `void`. void types are zero bits and are omitted
+from codegen.
 
 
 ## Expressions

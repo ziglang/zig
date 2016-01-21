@@ -63,6 +63,16 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpConstAddressOf: return "&const";
         case PrefixOpDereference: return "*";
         case PrefixOpMaybe: return "?";
+        case PrefixOpError: return "%";
+    }
+    zig_unreachable();
+}
+
+static const char *return_prefix_str(ReturnKind kind) {
+    switch (kind) {
+        case ReturnKindError: return "%";
+        case ReturnKindMaybe: return "?";
+        case ReturnKindUnconditional: return "";
     }
     zig_unreachable();
 }
@@ -99,8 +109,12 @@ const char *node_type_str(NodeType node_type) {
             return "ReturnExpr";
         case NodeTypeVariableDeclaration:
             return "VariableDeclaration";
+        case NodeTypeErrorValueDecl:
+            return "ErrorValueDecl";
         case NodeTypeNumberLiteral:
             return "NumberLiteral";
+        case NodeTypeErrorLiteral:
+            return "ErrorLiteral";
         case NodeTypeStringLiteral:
             return "StringLiteral";
         case NodeTypeCharLiteral:
@@ -214,10 +228,13 @@ void ast_print(AstNode *node, int indent) {
                 break;
             }
         case NodeTypeReturnExpr:
-            fprintf(stderr, "%s\n", node_type_str(node->type));
-            if (node->data.return_expr.expr)
-                ast_print(node->data.return_expr.expr, indent + 2);
-            break;
+            {
+                const char *prefix_str = return_prefix_str(node->data.return_expr.kind);
+                fprintf(stderr, "%s%s\n", prefix_str, node_type_str(node->type));
+                if (node->data.return_expr.expr)
+                    ast_print(node->data.return_expr.expr, indent + 2);
+                break;
+            }
         case NodeTypeVariableDeclaration:
             {
                 Buf *name_buf = &node->data.variable_declaration.symbol;
@@ -226,6 +243,12 @@ void ast_print(AstNode *node, int indent) {
                     ast_print(node->data.variable_declaration.type, indent + 2);
                 if (node->data.variable_declaration.expr)
                     ast_print(node->data.variable_declaration.expr, indent + 2);
+                break;
+            }
+        case NodeTypeErrorValueDecl:
+            {
+                Buf *name_buf = &node->data.error_value_decl.name;
+                fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
                 break;
             }
         case NodeTypeExternBlock:
@@ -286,6 +309,11 @@ void ast_print(AstNode *node, int indent) {
                 } else {
                     fprintf(stderr, "%s %s %f\n", name, kind_str, node->data.number_literal.data.x_float);
                 }
+                break;
+            }
+        case NodeTypeErrorLiteral:
+            {
+                fprintf(stderr, "%s '%s'", node_type_str(node->type), buf_ptr(&node->data.error_literal.symbol));
                 break;
             }
         case NodeTypeStringLiteral:
@@ -1345,7 +1373,7 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, int *token_index, bool mand
 }
 
 /*
-PrimaryExpression : token(Number) | token(String) | token(CharLiteral) | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | token(Symbol) | (token(AtSign) token(Symbol) FnCallExpression) | ArrayType | AsmExpression
+PrimaryExpression : "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | AsmExpression | ("%." "Symbol")
 KeywordLiteral : token(True) | token(False) | token(Null) | token(Break) | token(Continue)
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
@@ -1414,6 +1442,12 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         ast_expect_token(pc, dest_symbol, TokenIdSymbol);
 
         ast_buf_from_token(pc, dest_symbol, &node->data.goto_expr.name);
+        return node;
+    } else if (token->id == TokenIdPercentDot) {
+        *token_index += 1;
+        Token *symbol_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+        AstNode *node = ast_create_node(pc, NodeTypeErrorLiteral, token);
+        ast_buf_from_token(pc, symbol_tok, &node->data.error_literal.symbol);
         return node;
     }
 
@@ -1612,6 +1646,7 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdAmpersand: return PrefixOpAddressOf;
         case TokenIdStar: return PrefixOpDereference;
         case TokenIdMaybe: return PrefixOpMaybe;
+        case TokenIdPercent: return PrefixOpError;
         case TokenIdBoolAnd: return PrefixOpAddressOf;
         default: return PrefixOpInvalid;
     }
@@ -2031,20 +2066,46 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool manda
 }
 
 /*
-ReturnExpression : token(Return) option(Expression)
+ReturnExpression : option("%" | "?") "return" option(Expression)
 */
 static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index, bool mandatory) {
-    Token *return_tok = &pc->tokens->at(*token_index);
-    if (return_tok->id == TokenIdKeywordReturn) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    ReturnKind kind;
+
+    if (token->id == TokenIdPercent) {
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdKeywordReturn) {
+            kind = ReturnKindError;
+            *token_index += 2;
+        } else if (mandatory) {
+            ast_invalid_token_error(pc, token);
+        } else {
+            return nullptr;
+        }
+    } else if (token->id == TokenIdMaybe) {
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdKeywordReturn) {
+            kind = ReturnKindMaybe;
+            *token_index += 2;
+        } else if (mandatory) {
+            ast_invalid_token_error(pc, token);
+        } else {
+            return nullptr;
+        }
+    } else if (token->id == TokenIdKeywordReturn) {
+        kind = ReturnKindUnconditional;
         *token_index += 1;
-        AstNode *node = ast_create_node(pc, NodeTypeReturnExpr, return_tok);
-        node->data.return_expr.expr = ast_parse_expression(pc, token_index, false);
-        return node;
     } else if (mandatory) {
-        ast_invalid_token_error(pc, return_tok);
+        ast_invalid_token_error(pc, token);
     } else {
         return nullptr;
     }
+
+    AstNode *node = ast_create_node(pc, NodeTypeReturnExpr, token);
+    node->data.return_expr.kind = kind;
+    node->data.return_expr.expr = ast_parse_expression(pc, token_index, false);
+    return node;
 }
 
 /*
@@ -2054,26 +2115,45 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token
     Token *first_token = &pc->tokens->at(*token_index);
 
     VisibMod visib_mod;
+    bool is_const;
 
     if (first_token->id == TokenIdKeywordPub) {
-        *token_index += 1;
-        visib_mod = VisibModPub;
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdKeywordVar ||
+            next_token->id == TokenIdKeywordConst)
+        {
+            visib_mod = VisibModPub;
+            is_const = (next_token->id == TokenIdKeywordConst);
+            *token_index += 2;
+        } else if (mandatory) {
+            ast_invalid_token_error(pc, next_token);
+        } else {
+            return nullptr;
+        }
     } else if (first_token->id == TokenIdKeywordExport) {
-        *token_index += 1;
-        visib_mod = VisibModExport;
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdKeywordVar ||
+            next_token->id == TokenIdKeywordConst)
+        {
+            visib_mod = VisibModExport;
+            is_const = (next_token->id == TokenIdKeywordConst);
+            *token_index += 2;
+        } else if (mandatory) {
+            ast_invalid_token_error(pc, next_token);
+        } else {
+            return nullptr;
+        }
     } else if (first_token->id == TokenIdKeywordVar ||
                first_token->id == TokenIdKeywordConst)
     {
         visib_mod = VisibModPrivate;
+        is_const = (first_token->id == TokenIdKeywordConst);
+        *token_index += 1;
     } else if (mandatory) {
         ast_invalid_token_error(pc, first_token);
     } else {
         return nullptr;
     }
-
-    Token *var_or_const_tok = &pc->tokens->at(*token_index);
-    bool is_const = (var_or_const_tok->id == TokenIdKeywordConst);
-    *token_index += 1;
 
     AstNode *node = ast_create_node(pc, NodeTypeVariableDeclaration, first_token);
 
@@ -2836,7 +2916,54 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
 }
 
 /*
-TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Use | StructDecl | VariableDeclaration | EnumDecl
+ErrorValueDecl : option(FnVisibleMod) "%." "Symbol"
+*/
+static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *first_token = &pc->tokens->at(*token_index);
+
+    VisibMod visib_mod;
+
+    if (first_token->id == TokenIdKeywordPub) {
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdPercentDot) {
+            visib_mod = VisibModPub;
+            *token_index += 2;
+        } else if (mandatory) {
+            ast_invalid_token_error(pc, next_token);
+        } else {
+            return nullptr;
+        }
+    } else if (first_token->id == TokenIdKeywordExport) {
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdPercentDot) {
+            visib_mod = VisibModExport;
+            *token_index += 2;
+        } else if (mandatory) {
+            ast_invalid_token_error(pc, next_token);
+        } else {
+            return nullptr;
+        }
+    } else if (first_token->id == TokenIdPercentDot) {
+        visib_mod = VisibModPrivate;
+        *token_index += 1;
+    } else if (mandatory) {
+        ast_invalid_token_error(pc, first_token);
+    } else {
+        return nullptr;
+    }
+
+    Token *name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+    ast_eat_token(pc, token_index, TokenIdSemicolon);
+
+    AstNode *node = ast_create_node(pc, NodeTypeErrorValueDecl, first_token);
+    node->data.error_value_decl.visib_mod = visib_mod;
+    ast_buf_from_token(pc, name_tok, &node->data.error_value_decl.name);
+
+    return node;
+}
+
+/*
+TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Import | ContainerDecl | VariableDeclaration | ErrorValueDecl
 */
 static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigList<AstNode *> *top_level_decls) {
     for (;;) {
@@ -2884,6 +3011,12 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
         if (var_decl_node) {
             ast_eat_token(pc, token_index, TokenIdSemicolon);
             top_level_decls->append(var_decl_node);
+            continue;
+        }
+
+        AstNode *error_value_node = ast_parse_error_value_decl(pc, token_index, false);
+        if (error_value_node) {
+            top_level_decls->append(error_value_node);
             continue;
         }
 

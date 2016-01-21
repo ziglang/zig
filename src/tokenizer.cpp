@@ -584,6 +584,11 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
+                    case '.':
+                        t.cur_tok->id = TokenIdPercentDot;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
                     default:
                         t.pos -= 1;
                         end_token(&t);
@@ -1092,6 +1097,7 @@ const char * token_name(TokenId id) {
         case TokenIdDoubleQuestion: return "??";
         case TokenIdMaybeAssign: return "?=";
         case TokenIdAtSign: return "@";
+        case TokenIdPercentDot: return "%.";
     }
     return "(invalid token)";
 }

@@ -43,7 +43,9 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeDirective:
         case NodeTypeReturnExpr:
         case NodeTypeVariableDeclaration:
+        case NodeTypeErrorValueDecl:
         case NodeTypeNumberLiteral:
+        case NodeTypeErrorLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
         case NodeTypeSymbol:
@@ -104,6 +106,7 @@ TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
         case TypeTableEntryIdNumberLiteral:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdFn:
+        case TypeTableEntryIdError:
             // nothing to init
             break;
         case TypeTableEntryIdStruct:
@@ -170,6 +173,57 @@ static TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
+        // create a struct with a boolean whether this is the null value
+        assert(child_type->type_ref);
+        LLVMTypeRef elem_types[] = {
+            child_type->type_ref,
+            LLVMInt1Type(),
+        };
+        entry->type_ref = LLVMStructType(elem_types, 2, false);
+        buf_resize(&entry->name, 0);
+        buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
+        entry->size_in_bits = child_type->size_in_bits + 8;
+        entry->align_in_bits = child_type->align_in_bits;
+        assert(child_type->di_type);
+
+
+        LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
+        LLVMZigDIFile *di_file = nullptr;
+        unsigned line = 0;
+        entry->di_type = LLVMZigCreateReplaceableCompositeType(g->dbuilder,
+            LLVMZigTag_DW_structure_type(), buf_ptr(&entry->name),
+            compile_unit_scope, di_file, line);
+
+        LLVMZigDIType *di_element_types[] = {
+            LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
+                    "val", di_file, line, child_type->size_in_bits, child_type->align_in_bits, 0, 0,
+                    child_type->di_type),
+            LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
+                    "maybe", di_file, line, 8, 8, 8, 0,
+                    child_type->di_type),
+        };
+        LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
+                compile_unit_scope,
+                buf_ptr(&entry->name),
+                di_file, line, entry->size_in_bits, entry->align_in_bits, 0,
+                nullptr, di_element_types, 2, 0, nullptr, "");
+
+        LLVMZigReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
+        entry->di_type = replacement_di_type;
+
+        entry->data.maybe.child_type = child_type;
+
+        child_type->maybe_parent = entry;
+        return entry;
+    }
+}
+
+static TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
+    if (child_type->error_parent) {
+        return child_type->error_parent;
+    } else {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdError);
+        zig_panic("TODO get_error_type");
         // create a struct with a boolean whether this is the null value
         assert(child_type->type_ref);
         LLVMTypeRef elem_types[] = {
@@ -922,6 +976,11 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
                 g->global_vars.append(var);
                 break;
             }
+        case NodeTypeErrorValueDecl:
+            {
+                zig_panic("TODO resolve_top_level_decl NodeTypeErrorValueDecl");
+                break;
+            }
         case NodeTypeUse:
             // nothing to do here
             break;
@@ -937,6 +996,7 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeArrayAccessExpr:
         case NodeTypeSliceExpr:
         case NodeTypeNumberLiteral:
+        case NodeTypeErrorLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
         case NodeTypeBoolLiteral:
@@ -1005,6 +1065,7 @@ static bool num_lit_fits_in_other_type(CodeGen *g, TypeTableEntry *literal_type,
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdFn:
+        case TypeTableEntryIdError:
             return false;
         case TypeTableEntryIdInt:
             if (is_num_lit_unsigned(num_lit)) {
@@ -2263,6 +2324,12 @@ static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry 
     }
 }
 
+static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
+        BlockContext *block_context, TypeTableEntry *expected_type, AstNode *node)
+{
+    zig_panic("TODO analyze_error_literal_expr");
+}
+
 static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -3021,7 +3088,7 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                     if (meta_type->id == TypeTableEntryIdInvalid) {
                         return g->builtin_types.entry_invalid;
                     } else if (meta_type->id == TypeTableEntryIdUnreachable) {
-                        add_node_error(g, node, buf_create_from_str("maybe unreachable type not allowed"));
+                        add_node_error(g, node, buf_create_from_str("unable to wrap unreachable in maybe type"));
                         return g->builtin_types.entry_invalid;
                     } else {
                         return resolve_expr_const_val_as_type(g, node, get_maybe_type(g, meta_type));
@@ -3033,6 +3100,31 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                     // TODO eval const expr
                     return get_maybe_type(g, type_entry);
                 }
+            }
+        case PrefixOpError:
+            {
+                TypeTableEntry *type_entry = analyze_expression(g, import, context, nullptr, expr_node);
+
+                if (type_entry->id == TypeTableEntryIdInvalid) {
+                    return type_entry;
+                } else if (type_entry->id == TypeTableEntryIdMetaType) {
+                    TypeTableEntry *meta_type = resolve_type(g, expr_node);
+                    if (meta_type->id == TypeTableEntryIdInvalid) {
+                        return meta_type;
+                    } else if (meta_type->id == TypeTableEntryIdUnreachable) {
+                        add_node_error(g, node, buf_create_from_str("unable to wrap unreachable in error type"));
+                        return g->builtin_types.entry_invalid;
+                    } else {
+                        return resolve_expr_const_val_as_type(g, node, get_error_type(g, meta_type));
+                    }
+                } else if (type_entry->id == TypeTableEntryIdUnreachable) {
+                    add_node_error(g, expr_node, buf_sprintf("unable to wrap unreachable in error type"));
+                    return g->builtin_types.entry_invalid;
+                } else {
+                    // TODO eval const expr
+                    return get_error_type(g, type_entry);
+                }
+
             }
     }
     zig_unreachable();
@@ -3099,6 +3191,37 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
     return expected_type;
 }
 
+static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    if (!context->fn_entry) {
+        add_node_error(g, node, buf_sprintf("return expression outside function definition"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (node->data.return_expr.kind != ReturnKindUnconditional) {
+        zig_panic("TODO analyze_return_expr conditional");
+    }
+
+    TypeTableEntry *expected_return_type = get_return_type(context);
+    TypeTableEntry *actual_return_type;
+    if (node->data.return_expr.expr) {
+        actual_return_type = analyze_expression(g, import, context, expected_return_type, node->data.return_expr.expr);
+    } else {
+        actual_return_type = g->builtin_types.entry_void;
+    }
+
+    if (actual_return_type->id == TypeTableEntryIdUnreachable) {
+        // "return exit(0)" should just be "exit(0)".
+        add_node_error(g, node, buf_sprintf("returning is unreachable"));
+        actual_return_type = g->builtin_types.entry_invalid;
+    }
+
+    resolve_type_compatibility(g, context, node, expected_return_type, actual_return_type);
+
+    return g->builtin_types.entry_unreachable;
+}
+
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -3140,29 +3263,8 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
             }
 
         case NodeTypeReturnExpr:
-            {
-                if (context->fn_entry) {
-                    TypeTableEntry *expected_return_type = get_return_type(context);
-                    TypeTableEntry *actual_return_type;
-                    if (node->data.return_expr.expr) {
-                        actual_return_type = analyze_expression(g, import, context, expected_return_type, node->data.return_expr.expr);
-                    } else {
-                        actual_return_type = g->builtin_types.entry_void;
-                    }
-
-                    if (actual_return_type->id == TypeTableEntryIdUnreachable) {
-                        // "return exit(0)" should just be "exit(0)".
-                        add_node_error(g, node, buf_sprintf("returning is unreachable"));
-                        actual_return_type = g->builtin_types.entry_invalid;
-                    }
-
-                    resolve_type_compatibility(g, context, node, expected_return_type, actual_return_type);
-                } else {
-                    add_node_error(g, node, buf_sprintf("return expression outside function definition"));
-                }
-                return_type = g->builtin_types.entry_unreachable;
-                break;
-            }
+            return_type = analyze_return_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeVariableDeclaration:
             analyze_variable_declaration(g, import, context, expected_type, node);
             return_type = g->builtin_types.entry_void;
@@ -3236,6 +3338,9 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeNumberLiteral:
             return_type = analyze_number_literal_expr(g, import, context, expected_type, node);
             break;
+        case NodeTypeErrorLiteral:
+            return_type = analyze_error_literal_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeStringLiteral:
             if (node->data.string_literal.c) {
                 return_type = g->builtin_types.entry_c_string_literal;
@@ -3294,6 +3399,7 @@ static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import,
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
+        case NodeTypeErrorValueDecl:
             zig_unreachable();
     }
     assert(return_type);
@@ -3411,6 +3517,7 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeExternBlock:
         case NodeTypeUse:
         case NodeTypeVariableDeclaration:
+        case NodeTypeErrorValueDecl:
             // already took care of these
             break;
         case NodeTypeDirective:
@@ -3425,6 +3532,7 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeArrayAccessExpr:
         case NodeTypeSliceExpr:
         case NodeTypeNumberLiteral:
+        case NodeTypeErrorLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
         case NodeTypeBoolLiteral:
@@ -3457,6 +3565,7 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
 {
     switch (node->type) {
         case NodeTypeNumberLiteral:
+        case NodeTypeErrorLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
         case NodeTypeBoolLiteral:
@@ -3464,6 +3573,7 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeGoto:
         case NodeTypeBreak:
         case NodeTypeContinue:
+        case NodeTypeErrorValueDecl:
             // no dependencies on other top level declarations
             break;
         case NodeTypeSymbol:
@@ -3758,6 +3868,10 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeUse:
             // already taken care of
             break;
+        case NodeTypeErrorValueDecl:
+            // error value declarations do not depend on other top level decls
+            resolve_top_level_decl(g, import, node);
+            break;
         case NodeTypeDirective:
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
@@ -3769,6 +3883,7 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeArrayAccessExpr:
         case NodeTypeSliceExpr:
         case NodeTypeNumberLiteral:
+        case NodeTypeErrorLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
         case NodeTypeBoolLiteral:
@@ -3966,6 +4081,8 @@ Expr *get_resolved_expr(AstNode *node) {
             return &node->data.container_init_expr.resolved_expr;
         case NodeTypeNumberLiteral:
             return &node->data.number_literal.resolved_expr;
+        case NodeTypeErrorLiteral:
+            return &node->data.error_literal.resolved_expr;
         case NodeTypeStringLiteral:
             return &node->data.string_literal.resolved_expr;
         case NodeTypeBlock:
@@ -4006,6 +4123,7 @@ Expr *get_resolved_expr(AstNode *node) {
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
+        case NodeTypeErrorValueDecl:
             zig_unreachable();
     }
     zig_unreachable();
@@ -4015,6 +4133,8 @@ NumLitCodeGen *get_resolved_num_lit(AstNode *node) {
     switch (node->type) {
         case NodeTypeNumberLiteral:
             return &node->data.number_literal.codegen;
+        case NodeTypeErrorLiteral:
+            return &node->data.error_literal.codegen;
         case NodeTypeFnCallExpr:
             return &node->data.fn_call_expr.resolved_num_lit;
         case NodeTypeReturnExpr:
@@ -4056,6 +4176,7 @@ NumLitCodeGen *get_resolved_num_lit(AstNode *node) {
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeArrayType:
+        case NodeTypeErrorValueDecl:
             zig_unreachable();
     }
     zig_unreachable();
@@ -4069,7 +4190,10 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
             return &node->data.fn_proto.top_level_decl;
         case NodeTypeStructDecl:
             return &node->data.struct_decl.top_level_decl;
+        case NodeTypeErrorValueDecl:
+            return &node->data.error_value_decl.top_level_decl;
         case NodeTypeNumberLiteral:
+        case NodeTypeErrorLiteral:
         case NodeTypeReturnExpr:
         case NodeTypeBinOpExpr:
         case NodeTypePrefixOpExpr:

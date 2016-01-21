@@ -91,6 +91,7 @@ enum TokenId {
     TokenIdDoubleQuestion,
     TokenIdMaybeAssign,
     TokenIdAtSign,
+    TokenIdPercentDot,
 };
 
 struct Token {

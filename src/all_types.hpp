@@ -129,10 +129,12 @@ enum NodeType {
     NodeTypeDirective,
     NodeTypeReturnExpr,
     NodeTypeVariableDeclaration,
+    NodeTypeErrorValueDecl,
     NodeTypeBinOpExpr,
     NodeTypeNumberLiteral,
     NodeTypeStringLiteral,
     NodeTypeCharLiteral,
+    NodeTypeErrorLiteral,
     NodeTypeSymbol,
     NodeTypePrefixOpExpr,
     NodeTypeFnCallExpr,
@@ -222,7 +224,14 @@ struct AstNodeBlock {
     Expr resolved_expr;
 };
 
+enum ReturnKind {
+    ReturnKindUnconditional,
+    ReturnKindMaybe,
+    ReturnKindError,
+};
+
 struct AstNodeReturnExpr {
+    ReturnKind kind;
     // might be null in case of return void;
     AstNode *expr;
 
@@ -241,6 +250,14 @@ struct AstNodeVariableDeclaration {
     // populated by semantic analyzer
     TopLevelDecl top_level_decl;
     Expr resolved_expr;
+};
+
+struct AstNodeErrorValueDecl {
+    VisibMod visib_mod;
+    Buf name;
+
+    // populated by semantic analyzer
+    TopLevelDecl top_level_decl;
 };
 
 enum BinOpType {
@@ -358,6 +375,7 @@ enum PrefixOp {
     PrefixOpConstAddressOf,
     PrefixOpDereference,
     PrefixOpMaybe,
+    PrefixOpError,
 };
 
 struct AstNodePrefixOpExpr {
@@ -564,6 +582,14 @@ struct AstNodeNumberLiteral {
     Expr resolved_expr;
 };
 
+struct AstNodeErrorLiteral {
+    Buf symbol;
+
+    // populated by semantic analyzer
+    NumLitCodeGen codegen;
+    Expr resolved_expr;
+};
+
 struct AstNodeStructValueField {
     Buf name;
     AstNode *expr;
@@ -644,6 +670,7 @@ struct AstNode {
         AstNodeBlock block;
         AstNodeReturnExpr return_expr;
         AstNodeVariableDeclaration variable_declaration;
+        AstNodeErrorValueDecl error_value_decl;
         AstNodeBinOpExpr bin_op_expr;
         AstNodeExternBlock extern_block;
         AstNodeDirective directive;
@@ -668,6 +695,7 @@ struct AstNode {
         AstNodeStringLiteral string_literal;
         AstNodeCharLiteral char_literal;
         AstNodeNumberLiteral number_literal;
+        AstNodeErrorLiteral error_literal;
         AstNodeContainerInitExpr container_init_expr;
         AstNodeStructValueField struct_val_field;
         AstNodeNullLiteral null_literal;
@@ -738,6 +766,10 @@ struct TypeTableEntryMaybe {
     TypeTableEntry *child_type;
 };
 
+struct TypeTableEntryError {
+    TypeTableEntry *child_type;
+};
+
 struct TypeTableEntryEnum {
     AstNode *decl_node;
     uint32_t field_count;
@@ -778,6 +810,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdStruct,
     TypeTableEntryIdNumberLiteral,
     TypeTableEntryIdMaybe,
+    TypeTableEntryIdError,
     TypeTableEntryIdEnum,
     TypeTableEntryIdFn,
 };
@@ -799,6 +832,7 @@ struct TypeTableEntry {
         TypeTableEntryStruct structure;
         TypeTableEntryNumLit num_lit;
         TypeTableEntryMaybe maybe;
+        TypeTableEntryError error;
         TypeTableEntryEnum enumeration;
         TypeTableEntryFn fn;
     } data;
@@ -808,6 +842,7 @@ struct TypeTableEntry {
     TypeTableEntry *unknown_size_array_parent[2];
     HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
     TypeTableEntry *maybe_parent;
+    TypeTableEntry *error_parent;
 };
 
 struct ImporterInfo {

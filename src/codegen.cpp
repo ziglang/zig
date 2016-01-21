@@ -829,6 +829,10 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
             {
                 zig_panic("TODO codegen PrefixOpMaybe");
             }
+        case PrefixOpError:
+            {
+                zig_panic("TODO codegen PrefixOpError");
+            }
     }
     zig_unreachable();
 }
@@ -1937,6 +1941,12 @@ static LLVMValueRef gen_number_literal(CodeGen *g, AstNode *node) {
     return gen_number_literal_raw(g, node, codegen_num_lit, &node->data.number_literal);
 }
 
+static LLVMValueRef gen_error_literal(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeErrorLiteral);
+
+    zig_panic("TODO gen_error_literal");
+}
+
 static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeSymbol);
     VariableTableEntry *variable = node->data.symbol_expr.variable;
@@ -2070,6 +2080,8 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
             return gen_asm_expr(g, node);
         case NodeTypeNumberLiteral:
             return gen_number_literal(g, node);
+        case NodeTypeErrorLiteral:
+            return gen_error_literal(g, node);
         case NodeTypeStringLiteral:
             {
                 Buf *str = &node->data.string_literal.buf;
@@ -2125,6 +2137,7 @@ static LLVMValueRef gen_expr_no_cast(CodeGen *g, AstNode *node) {
         case NodeTypeArrayType:
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
+        case NodeTypeErrorValueDecl:
             zig_unreachable();
     }
     zig_unreachable();
