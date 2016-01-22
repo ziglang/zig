@@ -143,7 +143,7 @@ GotoExpression: "goto" "Symbol"
 
 GroupedExpression : "(" Expression ")"
 
-KeywordLiteral : "true" | "false" | "null" | "break" | "continue"
+KeywordLiteral : "true" | "false" | "null" | "break" | "continue" | "undefined"
 ```
 
 ## Operator Precedence
@@ -216,10 +216,23 @@ A slice can be obtained with the slicing syntax: `array[start...end]`
 
 Example: `"aoeu"[0...2]` has type `[]u8`.
 
-### Struct Types
+### Struct Type
 TODO
 
-### Pointer Types
+### Enum Type
+
+TODO
+
+### Maybe Type
+
+TODO
+
+### Error Type
+
+TODO
+
+### Pointer Type
+
 TODO
 
 ### Unreachable Type
