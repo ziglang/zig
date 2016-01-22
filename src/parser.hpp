@@ -24,4 +24,6 @@ const char *node_type_str(NodeType node_type);
 
 void ast_print(AstNode *node, int indent);
 
+void normalize_parent_ptrs(AstNode *node);
+
 #endif

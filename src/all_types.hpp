@@ -22,7 +22,6 @@ struct FnTableEntry;
 struct BlockContext;
 struct TypeTableEntry;
 struct VariableTableEntry;
-struct Cast;
 struct BuiltinFnEntry;
 struct LabelTableEntry;
 struct TypeStructField;
@@ -39,15 +38,6 @@ enum OutType {
 enum CodeGenBuildType {
     CodeGenBuildTypeDebug,
     CodeGenBuildTypeRelease,
-};
-
-enum CastOp {
-    CastOpNothing,
-    CastOpPtrToInt,
-    CastOpIntWidenOrShorten,
-    CastOpToUnknownSizeArray,
-    CastOpMaybeWrap,
-    CastOpPointerReinterpret,
 };
 
 struct ConstEnumValue {
@@ -69,29 +59,15 @@ struct ConstExprValue {
     } data;
 };
 
-struct Cast {
-    CastOp op;
-    // if op is CastOpArrayToString, this will be a pointer to
-    // the string struct on the stack
-    LLVMValueRef ptr;
-    TypeTableEntry *after_type;
-    AstNode *source_node;
-    ConstExprValue const_val;
-};
-
 struct Expr {
     TypeTableEntry *type_entry;
-    TypeTableEntry *resolved_type;
     // the context in which this expression is evaluated.
     // for blocks, this points to the containing scope, not the block's own scope for its children.
     BlockContext *block_context;
 
-    // may be null for no cast
-    Cast implicit_cast; // happens first
-    Cast implicit_maybe_cast; // happens second
-
     LLVMValueRef const_llvm_val;
     ConstExprValue const_val;
+    bool has_global_const;
 };
 
 struct StructValExprCodeGen {
@@ -305,6 +281,16 @@ struct AstNodeBinOpExpr {
     Expr resolved_expr;
 };
 
+enum CastOp {
+    CastOpNoCast, // signifies the function call expression is not a cast
+    CastOpNoop, // fn call expr is a cast, but does nothing
+    CastOpPtrToInt,
+    CastOpIntWidenOrShorten,
+    CastOpToUnknownSizeArray,
+    CastOpMaybeWrap,
+    CastOpPointerReinterpret,
+};
+
 struct AstNodeFnCallExpr {
     AstNode *fn_ref_expr;
     ZigList<AstNode *> params;
@@ -313,8 +299,11 @@ struct AstNodeFnCallExpr {
     // populated by semantic analyzer:
     BuiltinFnEntry *builtin_fn;
     Expr resolved_expr;
-    Cast cast;
     FnTableEntry *fn_entry;
+    CastOp cast_op;
+    // if cast_op is CastOpArrayToString, this will be a pointer to
+    // the string struct on the stack
+    LLVMValueRef tmp_ptr;
 };
 
 struct AstNodeArrayAccessExpr {
@@ -610,6 +599,8 @@ struct AstNodeSymbolExpr {
     Expr resolved_expr;
     VariableTableEntry *variable;
     FnTableEntry *fn_entry;
+    // set this to instead of analyzing the node, pretend it's a type entry and it's this one.
+    TypeTableEntry *override_type_entry;
 };
 
 struct AstNodeBoolLiteral {
@@ -644,6 +635,7 @@ struct AstNode {
     int column;
     uint32_t create_index; // for determinism purposes
     ImportTableEntry *owner;
+    AstNode **parent_field; // for AST rewriting
     union {
         AstNodeRoot root;
         AstNodeRootExportDecl root_export_decl;
@@ -997,7 +989,7 @@ struct BlockContext {
     BlockContext *parent; // null when this is the root
     HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
-    ZigList<Cast *> cast_expr_alloca_list;
+    ZigList<AstNode *> cast_alloca_list;
     ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
     ZigList<VariableTableEntry *> variable_list;
     AstNode *parent_loop_node;

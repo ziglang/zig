@@ -1317,7 +1317,7 @@ fn f() i32 => {
     const a = c"a";
     a
 }
-    )SOURCE", 1, ".tmp_source.zig:2:15: error: expected type 'i32', got '&const u8'");
+    )SOURCE", 1, ".tmp_source.zig:4:5: error: expected type 'i32', got '&const u8'");
 
     add_compile_fail_case("if condition is bool, not int", R"SOURCE(
 fn f() => {
