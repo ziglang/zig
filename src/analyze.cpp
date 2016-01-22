@@ -2343,6 +2343,13 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
             add_node_error(g, source_node, buf_sprintf("variable of type 'type' must be constant"));
             implicit_type = g->builtin_types.entry_invalid;
         }
+        if (implicit_type->id != TypeTableEntryIdInvalid && !context->fn_entry) {
+            ConstExprValue *const_val = &get_resolved_expr(variable_declaration->expr)->const_val;
+            if (!const_val->ok) {
+                add_node_error(g, first_executing_node(variable_declaration->expr),
+                        buf_sprintf("global variable initializer requires constant expression"));
+            }
+        }
     }
 
     if (implicit_type == nullptr && is_const) {

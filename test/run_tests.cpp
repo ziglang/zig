@@ -1567,6 +1567,13 @@ fn f() => {
     };
 }
     )SOURCE", 1, ".tmp_source.zig:6:9: error: multiple else prongs in switch expression");
+
+    add_compile_fail_case("global variable initializer must be constant expression", R"SOURCE(
+extern {
+    fn foo() i32;
+}
+const x = foo();
+    )SOURCE", 1, ".tmp_source.zig:5:11: error: global variable initializer requires constant expression");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
