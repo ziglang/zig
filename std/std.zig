@@ -1,5 +1,5 @@
 import "syscall.zig";
-//import "errno.zig";
+import "errno.zig";
 
 pub const stdin_fileno : isize = 0;
 pub const stdout_fileno : isize = 1;

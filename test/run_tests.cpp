@@ -1207,6 +1207,25 @@ pub fn main(args: [][]u8) i32 => {
     return 0;
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("const number literal", R"SOURCE(
+import "std.zig";
+
+const ten = 10;
+
+pub fn main(args: [][]u8) i32 => {
+    const one = 1;
+    const eleven = ten + one;
+
+    if (eleven != 11) {
+        print_str("BAD\n");
+    }
+
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
+
 }
 
 
