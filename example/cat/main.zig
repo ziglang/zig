@@ -4,14 +4,11 @@ import "std.zig";
 
 // Things to do to make this work:
 // * var args printing
-// * %void type
+// * update std API
 // * defer
 // * %return
 // * %% operator
-// * make main return %void
-// * how to reference error values %.Invalid
 // * cast err type to string
-// * update std API
 
 pub %.Invalid;
 

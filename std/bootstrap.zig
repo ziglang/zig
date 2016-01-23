@@ -29,5 +29,8 @@ fn call_main() unreachable => {
         const ptr = argv[i];
         args[i] = ptr[0...strlen(ptr)];
     }
-    exit(main(args))
+    // TODO: replace the i32 cast with:
+    // main(args) %% exit(1)
+    // exit(0)
+    exit(i32(main(args)))
 }

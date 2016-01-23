@@ -60,6 +60,11 @@ struct ConstPtrValue {
     uint64_t len;
 };
 
+struct ConstErrValue {
+    ErrorTableEntry *err;
+    ConstExprValue *payload;
+};
+
 struct ConstExprValue {
     bool ok; // true if constant expression evalution worked
     bool depends_on_compile_var;
@@ -70,8 +75,8 @@ struct ConstExprValue {
         bool x_bool;
         FnTableEntry *x_fn;
         TypeTableEntry *x_type;
-        ErrorTableEntry *x_err;
         ConstExprValue *x_maybe;
+        ConstErrValue x_err;
         ConstEnumValue x_enum;
         ConstStructValue x_struct;
         ConstArrayValue x_array;
@@ -309,6 +314,7 @@ enum CastOp {
     CastOpIntWidenOrShorten,
     CastOpToUnknownSizeArray,
     CastOpMaybeWrap,
+    CastOpErrorWrap,
     CastOpPointerReinterpret,
     CastOpErrToInt,
 };

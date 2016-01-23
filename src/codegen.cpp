@@ -268,6 +268,26 @@ static LLVMValueRef gen_enum_value_expr(CodeGen *g, AstNode *node, TypeTableEntr
     }
 }
 
+static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeTableEntry *actual_type,
+        TypeTableEntry *wanted_type, LLVMValueRef expr_val)
+{
+    if (actual_type->size_in_bits == wanted_type->size_in_bits) {
+        return expr_val;
+    } else if (actual_type->size_in_bits < wanted_type->size_in_bits) {
+        if (actual_type->data.integral.is_signed) {
+            add_debug_source_node(g, source_node);
+            return LLVMBuildSExt(g->builder, expr_val, wanted_type->type_ref, "");
+        } else {
+            add_debug_source_node(g, source_node);
+            return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
+        }
+    } else {
+        assert(actual_type->size_in_bits > wanted_type->size_in_bits);
+        add_debug_source_node(g, source_node);
+        return LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
+    }
+}
+
 static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
@@ -288,7 +308,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
         case CastOpErrToInt:
             assert(actual_type->id == TypeTableEntryIdError);
             if (actual_type->data.error.child_type->size_in_bits == 0) {
-                return expr_val;
+                return gen_widen_or_shorten(g, node, g->err_tag_type, wanted_type, expr_val);
             } else {
                 zig_panic("TODO");
             }
@@ -309,6 +329,13 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 return cast_expr->tmp_ptr;
             }
+        case CastOpErrorWrap:
+            assert(wanted_type->id == TypeTableEntryIdError);
+            if (wanted_type->data.error.child_type->size_in_bits == 0) {
+                return LLVMConstNull(g->err_tag_type->type_ref);
+            } else {
+                zig_panic("TODO");
+            }
         case CastOpPtrToInt:
             add_debug_source_node(g, node);
             return LLVMBuildPtrToInt(g->builder, expr_val, wanted_type->type_ref, "");
@@ -316,21 +343,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
             add_debug_source_node(g, node);
             return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");
         case CastOpIntWidenOrShorten:
-            if (actual_type->size_in_bits == wanted_type->size_in_bits) {
-                return expr_val;
-            } else if (actual_type->size_in_bits < wanted_type->size_in_bits) {
-                if (actual_type->data.integral.is_signed) {
-                    add_debug_source_node(g, node);
-                    return LLVMBuildSExt(g->builder, expr_val, wanted_type->type_ref, "");
-                } else {
-                    add_debug_source_node(g, node);
-                    return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
-                }
-            } else {
-                assert(actual_type->size_in_bits > wanted_type->size_in_bits);
-                add_debug_source_node(g, node);
-                return LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
-            }
+            return gen_widen_or_shorten(g, node, actual_type, wanted_type, expr_val);
         case CastOpToUnknownSizeArray:
             {
                 assert(cast_expr->tmp_ptr);
@@ -1279,7 +1292,7 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
         return nullptr;
     }
 
-    assert(!use_expr_value);
+    assert(!use_expr_value || then_type->id == TypeTableEntryIdError);
 
     LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Then");
     LLVMBasicBlockRef endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
@@ -1292,7 +1305,12 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
         LLVMBuildBr(g->builder, endif_block);
 
     LLVMPositionBuilderAtEnd(g->builder, endif_block);
-    return nullptr;
+
+    if (use_expr_value) {
+        return LLVMConstNull(g->err_tag_type->type_ref);
+    } else {
+        return nullptr;
+    }
 }
 
 static LLVMValueRef gen_if_bool_expr(CodeGen *g, AstNode *node) {
@@ -2132,7 +2150,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         }
     } else if (type_entry->id == TypeTableEntryIdError) {
         if (type_entry->data.error.child_type->size_in_bits == 0) {
-            return LLVMConstInt(g->err_tag_type->type_ref, const_val->data.x_err->value, false);
+            uint64_t value = const_val->data.x_err.err ? const_val->data.x_err.err->value : 0;
+            return LLVMConstInt(g->err_tag_type->type_ref, value, false);
         } else {
             zig_panic("TODO");
         }

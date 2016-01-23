@@ -1130,78 +1130,6 @@ static bool num_lit_fits_in_other_type(CodeGen *g, AstNode *literal_node, TypeTa
     return false;
 }
 
-static TypeTableEntry *determine_peer_type_compatibility(CodeGen *g, AstNode *parent_source_node,
-        AstNode **child_nodes, TypeTableEntry **child_types, int child_count)
-{
-    TypeTableEntry *prev_type = child_types[0];
-    AstNode *prev_node = child_nodes[0];
-    if (prev_type->id == TypeTableEntryIdInvalid) {
-        return prev_type;
-    }
-    for (int i = 1; i < child_count; i += 1) {
-        TypeTableEntry *cur_type = child_types[i];
-        AstNode *cur_node = child_nodes[i];
-        if (cur_type->id == TypeTableEntryIdInvalid) {
-            return cur_type;
-        } else if (prev_type->id == TypeTableEntryIdUnreachable) {
-            prev_type = cur_type;
-            prev_node = cur_node;
-        } else if (cur_type->id == TypeTableEntryIdUnreachable) {
-            continue;
-        } else if (prev_type->id == TypeTableEntryIdInt &&
-                   cur_type->id == TypeTableEntryIdInt &&
-                   prev_type->data.integral.is_signed == cur_type->data.integral.is_signed)
-        {
-            if (cur_type->size_in_bits > prev_type->size_in_bits) {
-                prev_type = cur_type;
-                prev_node = cur_node;
-            }
-        } else if (prev_type->id == TypeTableEntryIdFloat &&
-                   cur_type->id == TypeTableEntryIdFloat)
-        {
-            if (cur_type->size_in_bits > prev_type->size_in_bits) {
-                prev_type = cur_type;
-                prev_node = cur_node;
-            }
-        } else if (prev_type->id == TypeTableEntryIdNumLitFloat &&
-                   cur_type->id == TypeTableEntryIdNumLitFloat)
-        {
-            continue;
-        } else if (prev_type->id == TypeTableEntryIdNumLitInt &&
-                   cur_type->id == TypeTableEntryIdNumLitInt)
-        {
-            continue;
-        } else if (prev_type->id == TypeTableEntryIdNumLitInt ||
-                    prev_type->id == TypeTableEntryIdNumLitFloat)
-        {
-            if (num_lit_fits_in_other_type(g, prev_node, cur_type)) {
-                prev_type = cur_type;
-                prev_node = cur_node;
-                continue;
-            } else {
-                return g->builtin_types.entry_invalid;
-            }
-        } else if (cur_type->id == TypeTableEntryIdNumLitInt ||
-                   cur_type->id == TypeTableEntryIdNumLitFloat)
-        {
-            if (num_lit_fits_in_other_type(g, cur_node, prev_type)) {
-                continue;
-            } else {
-                return g->builtin_types.entry_invalid;
-            }
-        } else if (prev_type == cur_type) {
-            continue;
-        } else {
-            add_node_error(g, parent_source_node,
-                buf_sprintf("incompatible types: '%s' and '%s'",
-                    buf_ptr(&prev_type->name), buf_ptr(&cur_type->name)));
-
-            return g->builtin_types.entry_invalid;
-        }
-    }
-    return prev_type;
-}
-
 static bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
     if (expected_type == actual_type)
         return true;
@@ -1257,6 +1185,92 @@ static bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTable
     return false;
 }
 
+static TypeTableEntry *determine_peer_type_compatibility(CodeGen *g, AstNode *parent_source_node,
+        AstNode **child_nodes, TypeTableEntry **child_types, int child_count)
+{
+    TypeTableEntry *prev_type = child_types[0];
+    AstNode *prev_node = child_nodes[0];
+    if (prev_type->id == TypeTableEntryIdInvalid) {
+        return prev_type;
+    }
+    for (int i = 1; i < child_count; i += 1) {
+        TypeTableEntry *cur_type = child_types[i];
+        AstNode *cur_node = child_nodes[i];
+        if (cur_type->id == TypeTableEntryIdInvalid) {
+            return cur_type;
+        } else if (types_match_const_cast_only(prev_type, cur_type)) {
+            continue;
+        } else if (types_match_const_cast_only(cur_type, prev_type)) {
+            prev_type = cur_type;
+            prev_node = cur_node;
+            continue;
+        } else if (prev_type->id == TypeTableEntryIdUnreachable) {
+            prev_type = cur_type;
+            prev_node = cur_node;
+        } else if (cur_type->id == TypeTableEntryIdUnreachable) {
+            continue;
+        } else if (prev_type->id == TypeTableEntryIdInt &&
+                   cur_type->id == TypeTableEntryIdInt &&
+                   prev_type->data.integral.is_signed == cur_type->data.integral.is_signed)
+        {
+            if (cur_type->size_in_bits > prev_type->size_in_bits) {
+                prev_type = cur_type;
+                prev_node = cur_node;
+            }
+        } else if (prev_type->id == TypeTableEntryIdFloat &&
+                   cur_type->id == TypeTableEntryIdFloat)
+        {
+            if (cur_type->size_in_bits > prev_type->size_in_bits) {
+                prev_type = cur_type;
+                prev_node = cur_node;
+            }
+        } else if (prev_type->id == TypeTableEntryIdError &&
+                   types_match_const_cast_only(prev_type->data.error.child_type, cur_type))
+        {
+            continue;
+        } else if (cur_type->id == TypeTableEntryIdError &&
+                   types_match_const_cast_only(cur_type->data.error.child_type, prev_type))
+        {
+            prev_type = cur_type;
+            prev_node = cur_node;
+            continue;
+        } else if (prev_type->id == TypeTableEntryIdNumLitFloat &&
+                   cur_type->id == TypeTableEntryIdNumLitFloat)
+        {
+            continue;
+        } else if (prev_type->id == TypeTableEntryIdNumLitInt &&
+                   cur_type->id == TypeTableEntryIdNumLitInt)
+        {
+            continue;
+        } else if (prev_type->id == TypeTableEntryIdNumLitInt ||
+                    prev_type->id == TypeTableEntryIdNumLitFloat)
+        {
+            if (num_lit_fits_in_other_type(g, prev_node, cur_type)) {
+                prev_type = cur_type;
+                prev_node = cur_node;
+                continue;
+            } else {
+                return g->builtin_types.entry_invalid;
+            }
+        } else if (cur_type->id == TypeTableEntryIdNumLitInt ||
+                   cur_type->id == TypeTableEntryIdNumLitFloat)
+        {
+            if (num_lit_fits_in_other_type(g, cur_node, prev_type)) {
+                continue;
+            } else {
+                return g->builtin_types.entry_invalid;
+            }
+        } else {
+            add_node_error(g, parent_source_node,
+                buf_sprintf("incompatible types: '%s' and '%s'",
+                    buf_ptr(&prev_type->name), buf_ptr(&cur_type->name)));
+
+            return g->builtin_types.entry_invalid;
+        }
+    }
+    return prev_type;
+}
+
 static bool types_match_with_implicit_cast(CodeGen *g, TypeTableEntry *expected_type,
         TypeTableEntry *actual_type, AstNode *literal_node, bool *reported_err)
 {
@@ -1267,6 +1281,14 @@ static bool types_match_with_implicit_cast(CodeGen *g, TypeTableEntry *expected_
     // implicit conversion from non maybe type to maybe type
     if (expected_type->id == TypeTableEntryIdMaybe &&
         types_match_with_implicit_cast(g, expected_type->data.maybe.child_type, actual_type,
+            literal_node, reported_err))
+    {
+        return true;
+    }
+
+    // implicit conversion from error child type to error type
+    if (expected_type->id == TypeTableEntryIdError &&
+        types_match_with_implicit_cast(g, expected_type->data.error.child_type, actual_type,
             literal_node, reported_err))
     {
         return true;
@@ -1381,9 +1403,10 @@ static TypeTableEntry *resolve_peer_type_compatibility(CodeGen *g, ImportTableEn
         if (!child_nodes[i]) {
             continue;
         }
-        Expr *expr = get_resolved_expr(child_nodes[i]);
+        AstNode **child_node = child_nodes[i]->parent_field;
         TypeTableEntry *resolved_type = resolve_type_compatibility(g, import, block_context,
-                child_nodes[i], expected_type, child_types[i]);
+                *child_node, expected_type, child_types[i]);
+        Expr *expr = get_resolved_expr(*child_node);
         expr->type_entry = resolved_type;
         add_global_const_expr(g, expr);
     }
@@ -1812,7 +1835,7 @@ static TypeTableEntry *resolve_expr_const_val_as_fn(CodeGen *g, AstNode *node, F
 static TypeTableEntry *resolve_expr_const_val_as_err(CodeGen *g, AstNode *node, ErrorTableEntry *err) {
     Expr *expr = get_resolved_expr(node);
     expr->const_val.ok = true;
-    expr->const_val.data.x_err = err;
+    expr->const_val.data.x_err.err = err;
     return get_error_type(g, g->builtin_types.entry_void);
 }
 
@@ -2868,10 +2891,18 @@ static void eval_const_expr_implicit_cast(CodeGen *g, AstNode *node, AstNode *ex
             const_val->data.x_maybe = other_val;
             const_val->ok = true;
             break;
-        case CastOpErrToInt:
-            bignum_init_unsigned(&const_val->data.x_bignum, other_val->data.x_err->value);
+        case CastOpErrorWrap:
+            const_val->data.x_err.err = nullptr;
+            const_val->data.x_err.payload = other_val;
             const_val->ok = true;
             break;
+        case CastOpErrToInt:
+            {
+                uint64_t value = other_val->data.x_err.err ? other_val->data.x_err.err->value : 0;
+                bignum_init_unsigned(&const_val->data.x_bignum, value);
+                const_val->ok = true;
+                break;
+            }
     }
 }
 
@@ -2957,6 +2988,25 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         {
             if (num_lit_fits_in_other_type(g, expr_node, wanted_type->data.maybe.child_type)) {
                 node->data.fn_call_expr.cast_op = CastOpMaybeWrap;
+                eval_const_expr_implicit_cast(g, node, expr_node);
+                return wanted_type;
+            } else {
+                return g->builtin_types.entry_invalid;
+            }
+        }
+    }
+
+    // explicit cast from child type of error type to error type
+    if (wanted_type->id == TypeTableEntryIdError) {
+        if (types_match_const_cast_only(wanted_type->data.error.child_type, actual_type)) {
+            node->data.fn_call_expr.cast_op = CastOpErrorWrap;
+            eval_const_expr_implicit_cast(g, node, expr_node);
+            return wanted_type;
+        } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
+                   actual_type->id == TypeTableEntryIdNumLitFloat)
+        {
+            if (num_lit_fits_in_other_type(g, expr_node, wanted_type->data.error.child_type)) {
+                node->data.fn_call_expr.cast_op = CastOpErrorWrap;
                 eval_const_expr_implicit_cast(g, node, expr_node);
                 return wanted_type;
             } else {
@@ -3579,6 +3629,42 @@ static TypeTableEntry *analyze_string_literal_expr(CodeGen *g, ImportTableEntry 
     }
 }
 
+static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    BlockContext *child_context = new_block_context(node, context);
+    node->data.block.block_context = child_context;
+    TypeTableEntry *return_type = g->builtin_types.entry_void;
+
+    for (int i = 0; i < node->data.block.statements.length; i += 1) {
+        AstNode *child = node->data.block.statements.at(i);
+        if (child->type == NodeTypeLabel) {
+            LabelTableEntry *label_entry = child->data.label.label_entry;
+            assert(label_entry);
+            label_entry->entered_from_fallthrough = (return_type->id != TypeTableEntryIdUnreachable);
+            return_type = g->builtin_types.entry_void;
+            continue;
+        }
+        if (return_type->id == TypeTableEntryIdUnreachable) {
+            if (is_node_void_expr(child)) {
+                // {unreachable;void;void} is allowed.
+                // ignore void statements once we enter unreachable land.
+                analyze_expression(g, import, context, g->builtin_types.entry_void, child);
+                continue;
+            }
+            add_node_error(g, first_executing_node(child), buf_sprintf("unreachable code"));
+            break;
+        }
+        bool is_last = (i == node->data.block.statements.length - 1);
+        TypeTableEntry *passed_expected_type = is_last ? expected_type : nullptr;
+        return_type = analyze_expression(g, import, child_context, passed_expected_type, child);
+        if (!is_last && return_type->id == TypeTableEntryIdMetaType) {
+            add_node_error(g, child, buf_sprintf("expected expression, found type"));
+        }
+    }
+    return return_type;
+}
+
 // When you call analyze_expression, the node you pass might no longer be the child node
 // you thought it was due to implicit casting rewriting the AST.
 static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -3587,39 +3673,8 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
     TypeTableEntry *return_type = nullptr;
     switch (node->type) {
         case NodeTypeBlock:
-            {
-                BlockContext *child_context = new_block_context(node, context);
-                node->data.block.block_context = child_context;
-                return_type = g->builtin_types.entry_void;
-
-                for (int i = 0; i < node->data.block.statements.length; i += 1) {
-                    AstNode *child = node->data.block.statements.at(i);
-                    if (child->type == NodeTypeLabel) {
-                        LabelTableEntry *label_entry = child->data.label.label_entry;
-                        assert(label_entry);
-                        label_entry->entered_from_fallthrough = (return_type->id != TypeTableEntryIdUnreachable);
-                        return_type = g->builtin_types.entry_void;
-                        continue;
-                    }
-                    if (return_type->id == TypeTableEntryIdUnreachable) {
-                        if (is_node_void_expr(child)) {
-                            // {unreachable;void;void} is allowed.
-                            // ignore void statements once we enter unreachable land.
-                            analyze_expression(g, import, context, g->builtin_types.entry_void, child);
-                            continue;
-                        }
-                        add_node_error(g, first_executing_node(child), buf_sprintf("unreachable code"));
-                        break;
-                    }
-                    bool is_last = (i == node->data.block.statements.length - 1);
-                    TypeTableEntry *passed_expected_type = is_last ? expected_type : nullptr;
-                    return_type = analyze_expression(g, import, child_context, passed_expected_type, child);
-                    if (!is_last && return_type->id == TypeTableEntryIdMetaType) {
-                        add_node_error(g, child, buf_sprintf("expected expression, found type"));
-                    }
-                }
-                break;
-            }
+            return_type = analyze_block_expr(g, import, context, expected_type, node);
+            break;
 
         case NodeTypeReturnExpr:
             return_type = analyze_return_expr(g, import, context, expected_type, node);
