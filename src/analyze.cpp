@@ -3648,7 +3648,8 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
             return_type = analyze_string_literal_expr(g, import, context, expected_type, node);
             break;
         case NodeTypeCharLiteral:
-            return_type = g->builtin_types.entry_u8;
+            return_type = resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
+                    node->data.char_literal.value);
             break;
         case NodeTypeBoolLiteral:
             return_type = resolve_expr_const_val_as_bool(g, node, node->data.bool_literal.value);

@@ -1,9 +1,9 @@
 import "syscall.zig";
 import "errno.zig";
 
-pub const stdin_fileno : isize = 0;
-pub const stdout_fileno : isize = 1;
-pub const stderr_fileno : isize = 2;
+pub const stdin_fileno = 0;
+pub const stdout_fileno = 1;
+pub const stderr_fileno = 2;
 
 /*
 pub var stdin = InStream {
@@ -34,8 +34,8 @@ pub %.BadPerm;
 pub %.PipeFail;
 */
 
-//const buffer_size = 4 * 1024;
-const max_u64_base10_digits: isize = 20;
+const buffer_size = 4 * 1024;
+const max_u64_base10_digits = 20;
 
 /*
 pub struct OutStream {

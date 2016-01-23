@@ -1828,12 +1828,6 @@ static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
             get_resolved_expr(node)->block_context, false, &init_val);
 }
 
-static LLVMValueRef gen_error_literal(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeErrorLiteral);
-
-    zig_panic("TODO gen_error_literal");
-}
-
 static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeSymbol);
     VariableTableEntry *variable = node->data.symbol_expr.variable;
@@ -1953,12 +1947,6 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_slice_expr(g, node);
         case NodeTypeFieldAccessExpr:
             return gen_field_access_expr(g, node, false);
-        case NodeTypeNullLiteral:
-            // caught by constant expression eval codegen
-            zig_unreachable();
-        case NodeTypeUndefinedLiteral:
-            // caught by constant expression eval codegen
-            zig_unreachable();
         case NodeTypeIfBoolExpr:
             return gen_if_bool_expr(g, node);
         case NodeTypeIfVarExpr:
@@ -1969,10 +1957,6 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_for_expr(g, node);
         case NodeTypeAsmExpr:
             return gen_asm_expr(g, node);
-        case NodeTypeErrorLiteral:
-            return gen_error_literal(g, node);
-        case NodeTypeCharLiteral:
-            return LLVMConstInt(LLVMInt8Type(), node->data.char_literal.value, false);
         case NodeTypeSymbol:
             return gen_symbol(g, node);
         case NodeTypeBlock:
@@ -2000,9 +1984,13 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_container_init_expr(g, node);
         case NodeTypeSwitchExpr:
             return gen_switch_expr(g, node);
+        case NodeTypeErrorLiteral:
         case NodeTypeNumberLiteral:
         case NodeTypeBoolLiteral:
         case NodeTypeStringLiteral:
+        case NodeTypeCharLiteral:
+        case NodeTypeNullLiteral:
+        case NodeTypeUndefinedLiteral:
             // caught by constant expression eval codegen
             zig_unreachable();
         case NodeTypeRoot:

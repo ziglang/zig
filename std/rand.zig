@@ -1,16 +1,16 @@
 // Mersenne Twister
-const ARRAY_SIZE : i16 = 624;
+const ARRAY_SIZE = 624;
 
 /// Use `rand_init` to initialize this state.
 pub struct Rand {
     array: [ARRAY_SIZE]u32,
-    index: @typeof(ARRAY_SIZE),
+    index: isize,
 
     /// Initialize random state with the given seed.
     pub fn init(r: &Rand, seed: u32) => {
         r.index = 0;
         r.array[0] = seed;
-        var i : @typeof(ARRAY_SIZE) = 1;
+        var i : isize = 1;
         var prev_value: u64 = seed;
         while (i < ARRAY_SIZE) {
             r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + u32(i));
