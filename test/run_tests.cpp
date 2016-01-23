@@ -1244,6 +1244,20 @@ pub fn main(args: [][]u8) i32 => {
 }
     )SOURCE", "OK\n");
 
+    add_simple_case("statically initialized array literal", R"SOURCE(
+import "std.zig";
+const x = []u8{1,2,3,4};
+pub fn main(args: [][]u8) i32 => {
+    const y : [4]u8 = x;
+    if (y[3] != 4) {
+        print_str("BAD\n");
+    }
+
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
+
 }
 
 
@@ -1498,12 +1512,14 @@ struct A {
     z : i32,
 }
 fn f() => {
+    // we want the error on the '{' not the 'A' because
+    // the A could be a complicated expression
     const a = A {
         .z = 4,
         .y = 2,
     };
 }
-    )SOURCE", 1, ".tmp_source.zig:8:17: error: missing field: 'x'");
+    )SOURCE", 1, ".tmp_source.zig:10:17: error: missing field: 'x'");
 
     add_compile_fail_case("invalid field in struct value expression", R"SOURCE(
 struct A {

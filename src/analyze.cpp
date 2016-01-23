@@ -34,8 +34,6 @@ static AstNode *first_executing_node(AstNode *node) {
             return first_executing_node(node->data.field_access_expr.struct_expr);
         case NodeTypeSwitchRange:
             return first_executing_node(node->data.switch_range.start);
-        case NodeTypeContainerInitExpr:
-            return first_executing_node(node->data.container_init_expr.type);
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnProto:
@@ -72,6 +70,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeSwitchExpr:
         case NodeTypeSwitchProng:
         case NodeTypeArrayType:
+        case NodeTypeContainerInitExpr:
             return node;
     }
     zig_unreachable();
@@ -1586,9 +1585,22 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
         assert(pointer_type->id == TypeTableEntryIdPointer);
         TypeTableEntry *child_type = pointer_type->data.pointer.child_type;
 
+        ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+        const_val->ok = true;
+        const_val->data.x_array.fields = allocate<ConstExprValue*>(elem_count);
+
         for (int i = 0; i < elem_count; i += 1) {
-            AstNode *elem_node = container_init_expr->entries.at(i);
-            analyze_expression(g, import, context, child_type, elem_node);
+            AstNode **elem_node = &container_init_expr->entries.at(i);
+            analyze_expression(g, import, context, child_type, *elem_node);
+
+            if (const_val->ok) {
+                ConstExprValue *elem_const_val = &get_resolved_expr(*elem_node)->const_val;
+                if (elem_const_val->ok) {
+                    const_val->data.x_array.fields[i] = elem_const_val;
+                } else {
+                    const_val->ok = false;
+                }
+            }
         }
 
         TypeTableEntry *fixed_size_array_type = get_array_type(g, child_type, elem_count);

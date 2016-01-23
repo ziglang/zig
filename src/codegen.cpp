@@ -2105,13 +2105,6 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
             return tag_value;
         } else {
             zig_panic("TODO");
-            /*
-            LLVMValueRef fields[] = {
-                tag_value,
-                union_value,
-            };
-            return LLVMConstStruct(fields, 2, false);
-            */
         }
     } else if (type_entry->id == TypeTableEntryIdFn) {
         return const_val->data.x_fn->fn_value;
@@ -2197,10 +2190,11 @@ static void do_code_gen(CodeGen *g) {
         } else {
             init_val = LLVMConstNull(var->type->type_ref);
         }
-        LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_val), "");
+        LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_val), buf_ptr(&var->name));
         LLVMSetInitializer(global_value, init_val);
         LLVMSetGlobalConstant(global_value, var->is_const);
         LLVMSetUnnamedAddr(global_value, true);
+        LLVMSetLinkage(global_value, LLVMInternalLinkage);
 
         var->value_ref = global_value;
     }

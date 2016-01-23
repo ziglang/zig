@@ -12,14 +12,14 @@ pub var stdin = InStream {
 
 pub var stdout = OutStream {
     .fd = stdout_fileno,
-    .buffer = uninitialized,
+    .buffer = undefined,
     .index = 0,
     .buffered = true,
 };
 
 pub var stderr = OutStream {
     .fd = stderr_fileno,
-    .buffer = uninitialized,
+    .buffer = undefined,
     .index = 0,
     .buffered = false,
 };
@@ -34,7 +34,7 @@ pub %.BadPerm;
 pub %.PipeFail;
 */
 
-//const buffer_size: u16 = 4 * 1024;
+//const buffer_size = 4 * 1024;
 const max_u64_base10_digits: isize = 20;
 
 /*
