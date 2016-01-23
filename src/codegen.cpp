@@ -284,6 +284,13 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
             zig_unreachable();
         case CastOpNoop:
             return expr_val;
+        case CastOpErrToInt:
+            assert(actual_type->id == TypeTableEntryIdError);
+            if (actual_type->data.error.child_type->size_in_bits == 0) {
+                return expr_val;
+            } else {
+                zig_panic("TODO");
+            }
         case CastOpMaybeWrap:
             {
                 assert(cast_expr->tmp_ptr);
@@ -2121,6 +2128,12 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
             return LLVMConstBitCast(global_value, type_entry->type_ref);
         } else {
             return global_value;
+        }
+    } else if (type_entry->id == TypeTableEntryIdError) {
+        if (type_entry->data.error.child_type->size_in_bits == 0) {
+            return LLVMConstInt(g->err_tag_type->type_ref, const_val->data.x_err->value, false);
+        } else {
+            zig_panic("TODO");
         }
     } else {
         zig_unreachable();

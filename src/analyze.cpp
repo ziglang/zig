@@ -233,11 +233,10 @@ static TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
         entry->data.error.child_type = child_type;
 
         if (child_type->size_in_bits == 0) {
-            TypeTableEntry *tag_type = get_smallest_unsigned_int_type(g, g->next_error_index);
-            entry->type_ref = tag_type->type_ref;
-            entry->size_in_bits = tag_type->size_in_bits;
-            entry->align_in_bits = tag_type->align_in_bits;
-            entry->di_type = tag_type->di_type;
+            entry->type_ref = g->err_tag_type->type_ref;
+            entry->size_in_bits = g->err_tag_type->size_in_bits;
+            entry->align_in_bits = g->err_tag_type->align_in_bits;
+            entry->di_type = g->err_tag_type->di_type;
 
         } else {
             zig_panic("TODO get_error_type non-void");
@@ -2869,6 +2868,10 @@ static void eval_const_expr_implicit_cast(CodeGen *g, AstNode *node, AstNode *ex
             const_val->data.x_maybe = other_val;
             const_val->ok = true;
             break;
+        case CastOpErrToInt:
+            bignum_init_unsigned(&const_val->data.x_bignum, other_val->data.x_err->value);
+            const_val->ok = true;
+            break;
     }
 }
 
@@ -2971,6 +2974,24 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
             eval_const_expr_implicit_cast(g, node, expr_node);
             return wanted_type;
         } else {
+            return g->builtin_types.entry_invalid;
+        }
+    }
+
+    // explicit cast from %void to integer type which can fit it
+    if (actual_type->id == TypeTableEntryIdError &&
+        actual_type->data.error.child_type->size_in_bits == 0 &&
+        wanted_type->id == TypeTableEntryIdInt)
+    {
+        BigNum bn;
+        bignum_init_unsigned(&bn, g->next_error_index);
+        if (bignum_fits_in_bits(&bn, wanted_type->size_in_bits, wanted_type->data.integral.is_signed)) {
+            node->data.fn_call_expr.cast_op = CastOpErrToInt;
+            eval_const_expr_implicit_cast(g, node, expr_node);
+            return wanted_type;
+        } else {
+            add_node_error(g, node,
+                    buf_sprintf("too many error values to fit in '%s'", buf_ptr(&wanted_type->name)));
             return g->builtin_types.entry_invalid;
         }
     }
@@ -4353,6 +4374,9 @@ void semantic_analyze(CodeGen *g) {
             }
         }
     }
+
+    g->err_tag_type = get_smallest_unsigned_int_type(g, g->next_error_index);
+
     {
         auto it = g->import_table.entry_iterator();
         for (;;) {

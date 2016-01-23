@@ -1258,6 +1258,22 @@ pub fn main(args: [][]u8) i32 => {
 }
     )SOURCE", "OK\n");
 
+    add_simple_case("error values", R"SOURCE(
+import "std.zig";
+%.err1;
+%.err2;
+pub fn main(args: [][]u8) i32 => {
+    const a = i32(%.err1);
+    const b = i32(%.err2);
+    if (a == b) {
+        print_str("BAD\n");
+    }
+
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
+
 }
 
 
