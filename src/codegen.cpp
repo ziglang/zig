@@ -26,6 +26,7 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->unresolved_top_level_decls.init(32);
     g->build_type = CodeGenBuildTypeDebug;
     g->root_source_dir = root_source_dir;
+    g->next_error_index = 1;
 
     return g;
 }

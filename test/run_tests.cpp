@@ -1484,6 +1484,21 @@ struct A { x : i32, }
 struct A { y : i32, }
     )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of 'A'");
 
+    add_compile_fail_case("redefinition of enums", R"SOURCE(
+enum A {}
+enum A {}
+    )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of 'A'");
+
+    add_compile_fail_case("redefinition of error values", R"SOURCE(
+%.A;
+%.A;
+    )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of error 'A'");
+
+    add_compile_fail_case("redefinition of global variables", R"SOURCE(
+var a : i32 = 1;
+var a : i32 = 2;
+    )SOURCE", 1, ".tmp_source.zig:3:1: error: redeclaration of variable 'a'");
+
     add_compile_fail_case("byvalue struct on exported functions", R"SOURCE(
 struct A { x : i32, }
 export fn f(a : A) => {}
@@ -1608,6 +1623,7 @@ extern {
 }
 const x = foo();
     )SOURCE", 1, ".tmp_source.zig:5:11: error: global variable initializer requires constant expression");
+
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

@@ -224,48 +224,26 @@ static TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
         return child_type->error_parent;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdError);
-        zig_panic("TODO get_error_type");
-        // create a struct with a boolean whether this is the null value
         assert(child_type->type_ref);
-        LLVMTypeRef elem_types[] = {
-            child_type->type_ref,
-            LLVMInt1Type(),
-        };
-        entry->type_ref = LLVMStructType(elem_types, 2, false);
-        buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
-        entry->size_in_bits = child_type->size_in_bits + 8;
-        entry->align_in_bits = child_type->align_in_bits;
         assert(child_type->di_type);
 
+        buf_resize(&entry->name, 0);
+        buf_appendf(&entry->name, "%%%s", buf_ptr(&child_type->name));
 
-        LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
-        LLVMZigDIFile *di_file = nullptr;
-        unsigned line = 0;
-        entry->di_type = LLVMZigCreateReplaceableCompositeType(g->dbuilder,
-            LLVMZigTag_DW_structure_type(), buf_ptr(&entry->name),
-            compile_unit_scope, di_file, line);
+        entry->data.error.child_type = child_type;
 
-        LLVMZigDIType *di_element_types[] = {
-            LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
-                    "val", di_file, line, child_type->size_in_bits, child_type->align_in_bits, 0, 0,
-                    child_type->di_type),
-            LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
-                    "maybe", di_file, line, 8, 8, 8, 0,
-                    child_type->di_type),
-        };
-        LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
-                compile_unit_scope,
-                buf_ptr(&entry->name),
-                di_file, line, entry->size_in_bits, entry->align_in_bits, 0,
-                nullptr, di_element_types, 2, 0, nullptr, "");
+        if (child_type->size_in_bits == 0) {
+            TypeTableEntry *tag_type = get_smallest_unsigned_int_type(g, g->next_error_index);
+            entry->type_ref = tag_type->type_ref;
+            entry->size_in_bits = tag_type->size_in_bits;
+            entry->align_in_bits = tag_type->align_in_bits;
+            entry->di_type = tag_type->di_type;
 
-        LLVMZigReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
-        entry->di_type = replacement_di_type;
+        } else {
+            zig_panic("TODO get_error_type non-void");
+        }
 
-        entry->data.maybe.child_type = child_type;
-
-        child_type->maybe_parent = entry;
+        child_type->error_parent = entry;
         return entry;
     }
 }
@@ -938,6 +916,40 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
     }
 }
 
+static void resolve_error_value_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+    assert(node->type == NodeTypeErrorValueDecl);
+
+    ErrorTableEntry *err = allocate<ErrorTableEntry>(1);
+
+    err->value = g->next_error_index;
+    g->next_error_index += 1;
+
+    err->decl_node = node;
+    buf_init_from_buf(&err->name, &node->data.error_value_decl.name);
+
+    auto existing_entry = import->block_context->error_table.maybe_get(&err->name);
+    if (existing_entry) {
+        add_node_error(g, node, buf_sprintf("redefinition of error '%s'", buf_ptr(&err->name)));
+    } else {
+        import->block_context->error_table.put(&err->name, err);
+    }
+
+    bool is_pub = (node->data.error_value_decl.visib_mod != VisibModPrivate);
+    if (is_pub) {
+        for (int i = 0; i < import->importers.length; i += 1) {
+            ImporterInfo importer = import->importers.at(i);
+            auto table_entry = importer.import->block_context->error_table.maybe_get(&err->name);
+            if (table_entry) {
+                add_node_error(g, importer.source_node,
+                    buf_sprintf("import of error '%s' overrides existing definition",
+                        buf_ptr(&err->name)));
+            } else {
+                importer.import->block_context->error_table.put(&err->name, err);
+            }
+        }
+    }
+}
+
 static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeExternBlock:
@@ -984,10 +996,8 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
                 break;
             }
         case NodeTypeErrorValueDecl:
-            {
-                zig_panic("TODO resolve_top_level_decl NodeTypeErrorValueDecl");
-                break;
-            }
+            resolve_error_value_decl(g, import, node);
+            break;
         case NodeTypeUse:
             // nothing to do here
             break;
@@ -1388,6 +1398,7 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     context->parent = parent;
     context->variable_table.init(8);
     context->type_table.init(8);
+    context->error_table.init(8);
 
     if (parent) {
         context->parent_loop_node = parent->parent_loop_node;
@@ -1797,6 +1808,13 @@ static TypeTableEntry *resolve_expr_const_val_as_fn(CodeGen *g, AstNode *node, F
     expr->const_val.ok = true;
     expr->const_val.data.x_fn = fn;
     return fn->type_entry;
+}
+
+static TypeTableEntry *resolve_expr_const_val_as_err(CodeGen *g, AstNode *node, ErrorTableEntry *err) {
+    Expr *expr = get_resolved_expr(node);
+    expr->const_val.ok = true;
+    expr->const_val.data.x_err = err;
+    return get_error_type(g, g->builtin_types.entry_void);
 }
 
 static TypeTableEntry *resolve_expr_const_val_as_bool(CodeGen *g, AstNode *node, bool value) {
@@ -2333,7 +2351,13 @@ static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, Block
 
     if (name) {
         buf_init_from_buf(&variable_entry->name, name);
-        VariableTableEntry *existing_var = find_local_variable(context, name);
+        VariableTableEntry *existing_var;
+        
+        if (context->fn_entry) {
+            existing_var = find_local_variable(context, name);
+        } else {
+            existing_var = find_variable(context, name);
+        }
 
         if (existing_var) {
             add_node_error(g, source_node, buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
@@ -2511,7 +2535,18 @@ static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry 
 static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
         BlockContext *block_context, TypeTableEntry *expected_type, AstNode *node)
 {
-    zig_panic("TODO analyze_error_literal_expr");
+    Buf *err_name = &node->data.error_literal.symbol;
+
+    auto err_table_entry = import->block_context->error_table.maybe_get(err_name);
+
+    if (err_table_entry) {
+        return resolve_expr_const_val_as_err(g, node, err_table_entry->value);
+    }
+
+    add_node_error(g, node,
+            buf_sprintf("use of undeclared error value '%s'", buf_ptr(err_name)));
+
+    return get_error_type(g, g->builtin_types.entry_void);
 }
 
 static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, BlockContext *context,

@@ -22,6 +22,7 @@ struct FnTableEntry;
 struct BlockContext;
 struct TypeTableEntry;
 struct VariableTableEntry;
+struct ErrorTableEntry;
 struct BuiltinFnEntry;
 struct LabelTableEntry;
 struct TypeStructField;
@@ -69,6 +70,7 @@ struct ConstExprValue {
         bool x_bool;
         FnTableEntry *x_fn;
         TypeTableEntry *x_type;
+        ErrorTableEntry *x_err;
         ConstExprValue *x_maybe;
         ConstEnumValue x_enum;
         ConstStructValue x_struct;
@@ -996,6 +998,7 @@ struct CodeGen {
     LLVMValueRef memset_fn_val;
     bool error_during_imports;
     uint32_t next_node_index;
+    uint32_t next_error_index;
 };
 
 struct VariableTableEntry {
@@ -1010,12 +1013,19 @@ struct VariableTableEntry {
     int gen_arg_index;
 };
 
+struct ErrorTableEntry {
+    Buf name;
+    uint32_t value;
+    AstNode *decl_node;
+};
+
 struct BlockContext {
     AstNode *node; // either NodeTypeFnDef or NodeTypeBlock or NodeTypeRoot
     FnTableEntry *fn_entry; // null at the module scope
     BlockContext *parent; // null when this is the root
     HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
+    HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
     ZigList<AstNode *> cast_alloca_list;
     ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
     ZigList<VariableTableEntry *> variable_list;
