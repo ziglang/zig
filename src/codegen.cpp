@@ -1527,13 +1527,13 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
     if (type_entry->id == TypeTableEntryIdStruct) {
         assert(node->data.container_init_expr.kind == ContainerInitKindStruct);
 
-        int field_count = type_entry->data.structure.field_count;
-        assert(field_count == node->data.container_init_expr.entries.length);
+        int src_field_count = type_entry->data.structure.src_field_count;
+        assert(src_field_count == node->data.container_init_expr.entries.length);
 
         StructValExprCodeGen *struct_val_expr_node = &node->data.container_init_expr.resolved_struct_val_expr;
         LLVMValueRef tmp_struct_ptr = struct_val_expr_node->ptr;
 
-        for (int i = 0; i < field_count; i += 1) {
+        for (int i = 0; i < src_field_count; i += 1) {
             AstNode *field_node = node->data.container_init_expr.entries.at(i);
             assert(field_node->type == NodeTypeStructValueField);
             TypeStructField *type_struct_field = field_node->data.struct_val_field.type_struct_field;
@@ -2109,7 +2109,13 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         };
         return LLVMConstStruct(fields, 2, false);
     } else if (type_entry->id == TypeTableEntryIdStruct) {
-        zig_panic("TODO");
+        LLVMValueRef *fields = allocate<LLVMValueRef>(type_entry->data.structure.gen_field_count);
+        for (int i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+            TypeStructField *type_struct_field = &type_entry->data.structure.fields[i];
+            fields[type_struct_field->gen_index] = gen_const_val(g, type_struct_field->type_entry,
+                    const_val->data.x_struct.fields[i]);
+        }
+        return LLVMConstNamedStruct(type_entry->type_ref, fields, type_entry->data.structure.gen_field_count);
     } else if (type_entry->id == TypeTableEntryIdArray) {
         zig_panic("TODO");
     } else if (type_entry->id == TypeTableEntryIdEnum) {
@@ -2142,10 +2148,10 @@ static void gen_const_globals(CodeGen *g) {
         TypeTableEntry *type_entry = expr->type_entry;
 
         if (handle_is_ptr(type_entry)) {
-            LLVMValueRef global_value = LLVMAddGlobal(g->module, type_entry->type_ref, "");
-            LLVMSetLinkage(global_value, LLVMPrivateLinkage);
             LLVMValueRef init_val = gen_const_val(g, type_entry, const_val);
+            LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_val), "");
             LLVMSetInitializer(global_value, init_val);
+            LLVMSetLinkage(global_value, LLVMPrivateLinkage);
             LLVMSetGlobalConstant(global_value, true);
             LLVMSetUnnamedAddr(global_value, true);
             expr->const_llvm_val = global_value;
@@ -2171,15 +2177,22 @@ static void do_code_gen(CodeGen *g) {
         }
 
         // TODO if the global is exported, set external linkage
-        LLVMValueRef global_value = LLVMAddGlobal(g->module, var->type->type_ref, "");
-        LLVMSetLinkage(global_value, LLVMPrivateLinkage);
+        LLVMValueRef init_val;
 
-        if (var->is_const) {
-            LLVMValueRef init_val = gen_expr(g, var->decl_node->data.variable_declaration.expr);
-            LLVMSetInitializer(global_value, init_val);
+        assert(var->decl_node);
+        assert(var->decl_node->type == NodeTypeVariableDeclaration);
+        AstNode *expr_node = var->decl_node->data.variable_declaration.expr;
+        if (expr_node) {
+            Expr *expr = get_resolved_expr(expr_node);
+            ConstExprValue *const_val = &expr->const_val;
+            assert(const_val->ok);
+            TypeTableEntry *type_entry = expr->type_entry;
+            init_val = gen_const_val(g, type_entry, const_val);
         } else {
-            LLVMSetInitializer(global_value, LLVMConstNull(var->type->type_ref));
+            init_val = LLVMConstNull(var->type->type_ref);
         }
+        LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_val), "");
+        LLVMSetInitializer(global_value, init_val);
         LLVMSetGlobalConstant(global_value, var->is_const);
         LLVMSetUnnamedAddr(global_value, true);
 

@@ -45,6 +45,10 @@ struct ConstEnumValue {
     ConstExprValue *payload;
 };
 
+struct ConstStructValue {
+    ConstExprValue **fields;
+};
+
 struct ConstExprValue {
     bool ok; // true if constant expression evalution worked
     bool depends_on_compile_var;
@@ -56,6 +60,7 @@ struct ConstExprValue {
         TypeTableEntry *x_type;
         ConstExprValue *x_maybe;
         ConstEnumValue x_enum;
+        ConstStructValue x_struct;
     } data;
 };
 
@@ -721,7 +726,8 @@ struct TypeStructField {
 struct TypeTableEntryStruct {
     AstNode *decl_node;
     bool is_packed;
-    uint32_t field_count;
+    uint32_t src_field_count;
+    uint32_t gen_field_count;
     TypeStructField *fields;
     uint64_t size_bytes;
     bool is_invalid; // true if any fields are invalid

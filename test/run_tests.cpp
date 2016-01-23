@@ -1226,6 +1226,24 @@ pub fn main(args: [][]u8) i32 => {
 }
     )SOURCE", "OK\n");
 
+    add_simple_case("statically initialized struct", R"SOURCE(
+import "std.zig";
+struct Foo {
+    x: i32,
+    y: bool,
+}
+var foo = Foo { .x = 13, .y = true, };
+pub fn main(args: [][]u8) i32 => {
+    foo.x += 1;
+    if (foo.x != 14) {
+        print_str("BAD\n");
+    }
+
+    print_str("OK\n");
+    return 0;
+}
+    )SOURCE", "OK\n");
+
 }
 
 
