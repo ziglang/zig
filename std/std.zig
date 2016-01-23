@@ -97,7 +97,7 @@ pub struct OutStream {
     pub fn flush(os: &OutStream) %void => {
         const amt_to_write = os.index;
         os.index = 0;
-        switch (write(fd, os.buffer.ptr, amt_to_write)) {
+        switch (write(os.fd, os.buffer.ptr, amt_to_write)) {
             EINVAL => unreachable{},
             EDQUOT => %.DiskQuota,
             EFBIG  => %.FileTooBig,

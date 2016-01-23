@@ -2984,7 +2984,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         wanted_type->id == TypeTableEntryIdInt)
     {
         BigNum bn;
-        bignum_init_unsigned(&bn, g->next_error_index);
+        bignum_init_unsigned(&bn, g->error_value_count);
         if (bignum_fits_in_bits(&bn, wanted_type->size_in_bits, wanted_type->data.integral.is_signed)) {
             node->data.fn_call_expr.cast_op = CastOpErrToInt;
             eval_const_expr_implicit_cast(g, node, expr_node);
@@ -4355,10 +4355,15 @@ void semantic_analyze(CodeGen *g) {
                     assert(target_import);
 
                     target_import->importers.append({import, child});
+                } else if (child->type == NodeTypeErrorValueDecl) {
+                    g->error_value_count += 1;
                 }
             }
         }
     }
+
+    g->err_tag_type = get_smallest_unsigned_int_type(g, g->error_value_count);
+
     {
         auto it = g->import_table.entry_iterator();
         for (;;) {
@@ -4375,7 +4380,7 @@ void semantic_analyze(CodeGen *g) {
         }
     }
 
-    g->err_tag_type = get_smallest_unsigned_int_type(g, g->next_error_index);
+    assert(g->error_value_count == g->next_error_index);
 
     {
         auto it = g->import_table.entry_iterator();

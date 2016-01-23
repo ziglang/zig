@@ -1000,6 +1000,7 @@ struct CodeGen {
     bool error_during_imports;
     uint32_t next_node_index;
     uint32_t next_error_index;
+    uint32_t error_value_count;
     TypeTableEntry *err_tag_type;
 };
 

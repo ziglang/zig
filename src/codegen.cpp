@@ -27,6 +27,7 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->build_type = CodeGenBuildTypeDebug;
     g->root_source_dir = root_source_dir;
     g->next_error_index = 1;
+    g->error_value_count = 1;
 
     return g;
 }
@@ -684,7 +685,7 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
     {
         TypeTableEntry *type_entry;
         LLVMValueRef ptr = gen_field_ptr(g, node, &type_entry);
-        if (is_lvalue) {
+        if (is_lvalue || handle_is_ptr(type_entry)) {
             return ptr;
         } else {
             add_debug_source_node(g, node);
