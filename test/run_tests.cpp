@@ -1226,6 +1226,15 @@ pub fn main(args: [][]u8) %void => {
 }
     )SOURCE", "OK\n");
 
+    add_simple_case("return with implicit cast from while loop", R"SOURCE(
+import "std.zig";
+pub fn main(args: [][]u8) %void => {
+    while (true) {
+        print_str("OK\n");
+        return;
+    }
+}
+    )SOURCE", "OK\n");
 }
 
 

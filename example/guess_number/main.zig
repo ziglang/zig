@@ -3,7 +3,10 @@ export executable "guess_number";
 import "std.zig";
 import "rand.zig";
 
-pub fn main(args: [][]u8) i32 => {
+%.GetRandomFail;
+%.ReadInputFail;
+
+pub fn main(args: [][]u8) %void => {
     print_str("Welcome to the Guess Number Game in Zig.\n");
 
     var seed : u32;
@@ -12,7 +15,7 @@ pub fn main(args: [][]u8) i32 => {
     if (err != @sizeof(u32)) {
         // TODO full error message
         fprint_str(stderr_fileno, "unable to get random bytes\n");
-        return 1;
+        return %.GetRandomFail;
     }
 
     var rand : Rand;
@@ -28,7 +31,7 @@ pub fn main(args: [][]u8) i32 => {
         if (readline(line_buf, &line_len) || line_len == line_buf.len) {
             // TODO full error message
             fprint_str(stderr_fileno, "unable to read input\n");
-            return 1;
+            return %.ReadInputFail;
         }
 
         var guess : u64;
@@ -40,7 +43,7 @@ pub fn main(args: [][]u8) i32 => {
             print_str("Guess higher.\n");
         } else {
             print_str("You win!\n");
-            return 0;
+            return;
         }
     }
 }

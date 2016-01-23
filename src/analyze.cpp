@@ -1344,6 +1344,16 @@ static AstNode *create_ast_type_node(CodeGen *g, ImportTableEntry *import, TypeT
     return node;
 }
 
+static AstNode *create_ast_void_node(CodeGen *g, ImportTableEntry *import, AstNode *source_node) {
+    AstNode *node = create_ast_node(g, import, NodeTypeContainerInitExpr);
+    node->data.container_init_expr.kind = ContainerInitKindArray;
+    node->data.container_init_expr.type = create_ast_type_node(g, import, g->builtin_types.entry_void);
+    node->line = source_node->line;
+    node->column = source_node->column;
+    normalize_parent_ptrs(node);
+    return node;
+}
+
 static TypeTableEntry *create_and_analyze_cast_node(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, TypeTableEntry *cast_to_type, AstNode *node)
 {
@@ -3596,25 +3606,17 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
         return g->builtin_types.entry_invalid;
     }
 
+    if (!node->data.return_expr.expr) {
+        node->data.return_expr.expr = create_ast_void_node(g, import, node);
+        normalize_parent_ptrs(node);
+    }
+
     if (node->data.return_expr.kind != ReturnKindUnconditional) {
         zig_panic("TODO analyze_return_expr conditional");
     }
 
     TypeTableEntry *expected_return_type = get_return_type(context);
-    TypeTableEntry *actual_return_type;
-    if (node->data.return_expr.expr) {
-        actual_return_type = analyze_expression(g, import, context, expected_return_type, node->data.return_expr.expr);
-    } else {
-        actual_return_type = g->builtin_types.entry_void;
-    }
-
-    if (actual_return_type->id == TypeTableEntryIdUnreachable) {
-        // "return exit(0)" should just be "exit(0)".
-        add_node_error(g, node, buf_sprintf("returning is unreachable"));
-        actual_return_type = g->builtin_types.entry_invalid;
-    }
-
-    resolve_type_compatibility(g, import, context, node, expected_return_type, actual_return_type);
+    analyze_expression(g, import, context, expected_return_type, node->data.return_expr.expr);
 
     return g->builtin_types.entry_unreachable;
 }
