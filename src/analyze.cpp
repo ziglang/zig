@@ -55,6 +55,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeUse:
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
+        case NodeTypeUndefinedLiteral:
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
         case NodeTypeLabel:
@@ -1006,6 +1007,7 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeCharLiteral:
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
+        case NodeTypeUndefinedLiteral:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfBoolExpr:
@@ -1079,7 +1081,9 @@ static bool type_has_codegen_value(TypeTableEntryId id) {
 }
 
 static void add_global_const_expr(CodeGen *g, Expr *expr) {
-    if (expr->const_val.ok && type_has_codegen_value(expr->type_entry->id) && !expr->has_global_const) {
+    if (expr->const_val.ok &&
+        type_has_codegen_value(expr->type_entry->id) && !expr->has_global_const)
+    {
         g->global_const_list.append(expr);
         expr->has_global_const = true;
     }
@@ -2470,6 +2474,20 @@ static TypeTableEntry *analyze_null_literal_expr(CodeGen *g, ImportTableEntry *i
     return resolve_expr_const_val_as_null(g, node, expected_type);
 }
 
+static TypeTableEntry *analyze_undefined_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    Expr *expr = get_resolved_expr(node);
+    ConstExprValue *const_val = &expr->const_val;
+
+    const_val->ok = true;
+
+    zig_panic("TODO");
+
+    return expected_type;
+}
+
+
 static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry *import,
         BlockContext *block_context, TypeTableEntry *expected_type, AstNode *node)
 {
@@ -3634,11 +3652,12 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeBoolLiteral:
             return_type = resolve_expr_const_val_as_bool(g, node, node->data.bool_literal.value);
             break;
-
         case NodeTypeNullLiteral:
             return_type = analyze_null_literal_expr(g, import, context, expected_type, node);
             break;
-
+        case NodeTypeUndefinedLiteral:
+            return_type = analyze_undefined_literal_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeSymbol:
             return_type = analyze_symbol_expr(g, import, context, expected_type, node);
             break;
@@ -3804,6 +3823,7 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeCharLiteral:
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
+        case NodeTypeUndefinedLiteral:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfBoolExpr:
@@ -3837,6 +3857,7 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeCharLiteral:
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
+        case NodeTypeUndefinedLiteral:
         case NodeTypeGoto:
         case NodeTypeBreak:
         case NodeTypeContinue:
@@ -4155,6 +4176,7 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeCharLiteral:
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
+        case NodeTypeUndefinedLiteral:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfBoolExpr:
@@ -4364,6 +4386,8 @@ Expr *get_resolved_expr(AstNode *node) {
             return &node->data.bool_literal.resolved_expr;
         case NodeTypeNullLiteral:
             return &node->data.null_literal.resolved_expr;
+        case NodeTypeUndefinedLiteral:
+            return &node->data.undefined_literal.resolved_expr;
         case NodeTypeGoto:
             return &node->data.goto_expr.resolved_expr;
         case NodeTypeBreak:
@@ -4438,6 +4462,7 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
         case NodeTypeUse:
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
+        case NodeTypeUndefinedLiteral:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:

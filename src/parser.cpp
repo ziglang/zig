@@ -129,6 +129,8 @@ const char *node_type_str(NodeType node_type) {
             return "BoolLiteral";
         case NodeTypeNullLiteral:
             return "NullLiteral";
+        case NodeTypeUndefinedLiteral:
+            return "UndefinedLiteral";
         case NodeTypeIfBoolExpr:
             return "IfBoolExpr";
         case NodeTypeIfVarExpr:
@@ -410,6 +412,9 @@ void ast_print(AstNode *node, int indent) {
             fprintf(stderr, "%s\n", node_type_str(node->type));
             break;
         case NodeTypeContinue:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            break;
+        case NodeTypeUndefinedLiteral:
             fprintf(stderr, "%s\n", node_type_str(node->type));
             break;
         case NodeTypeAsmExpr:
@@ -1368,7 +1373,7 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, int *token_index, bool mand
 
 /*
 PrimaryExpression : "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | AsmExpression | ("%." "Symbol")
-KeywordLiteral : token(True) | token(False) | token(Null) | token(Break) | token(Continue)
+KeywordLiteral : "true" | "false" | "null" | "break" | "continue" | "undefined"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1408,6 +1413,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         return node;
     } else if (token->id == TokenIdKeywordContinue) {
         AstNode *node = ast_create_node(pc, NodeTypeContinue, token);
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordUndefined) {
+        AstNode *node = ast_create_node(pc, NodeTypeUndefinedLiteral, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdAtSign) {
@@ -3200,6 +3209,9 @@ void normalize_parent_ptrs(AstNode *node) {
             // none
             break;
         case NodeTypeNullLiteral:
+            // none
+            break;
+        case NodeTypeUndefinedLiteral:
             // none
             break;
         case NodeTypeIfBoolExpr:

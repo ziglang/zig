@@ -135,6 +135,7 @@ enum NodeType {
     NodeTypeUse,
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
+    NodeTypeUndefinedLiteral,
     NodeTypeIfBoolExpr,
     NodeTypeIfVarExpr,
     NodeTypeWhileExpr,
@@ -609,6 +610,12 @@ struct AstNodeNullLiteral {
     Expr resolved_expr;
 };
 
+struct AstNodeUndefinedLiteral {
+    // populated by semantic analyzer
+    StructValExprCodeGen resolved_struct_val_expr;
+    Expr resolved_expr;
+};
+
 struct AstNodeSymbolExpr {
     Buf symbol;
 
@@ -692,6 +699,7 @@ struct AstNode {
         AstNodeContainerInitExpr container_init_expr;
         AstNodeStructValueField struct_val_field;
         AstNodeNullLiteral null_literal;
+        AstNodeUndefinedLiteral undefined_literal;
         AstNodeSymbolExpr symbol_expr;
         AstNodeBoolLiteral bool_literal;
         AstNodeBreakExpr break_expr;

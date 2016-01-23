@@ -1486,22 +1486,6 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
     return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
 }
 
-static LLVMValueRef gen_null_literal(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeNullLiteral);
-
-    TypeTableEntry *type_entry = get_expr_type(node);
-    assert(type_entry->id == TypeTableEntryIdMaybe);
-
-    LLVMValueRef tmp_struct_ptr = node->data.null_literal.resolved_struct_val_expr.ptr;
-
-    add_debug_source_node(g, node);
-    LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 1, "");
-    LLVMValueRef null_value = LLVMConstNull(LLVMInt1Type());
-    LLVMBuildStore(g->builder, null_value, field_ptr);
-
-    return tmp_struct_ptr;
-}
-
 static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeContainerInitExpr);
 
@@ -1963,7 +1947,11 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeFieldAccessExpr:
             return gen_field_access_expr(g, node, false);
         case NodeTypeNullLiteral:
-            return gen_null_literal(g, node);
+            // caught by constant expression eval codegen
+            zig_unreachable();
+        case NodeTypeUndefinedLiteral:
+            // caught by constant expression eval codegen
+            zig_unreachable();
         case NodeTypeIfBoolExpr:
             return gen_if_bool_expr(g, node);
         case NodeTypeIfVarExpr:
