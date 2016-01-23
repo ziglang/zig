@@ -19,7 +19,6 @@
 
 CodeGen *codegen_create(Buf *root_source_dir) {
     CodeGen *g = allocate<CodeGen>(1);
-    g->str_table.init(32);
     g->link_table.init(32);
     g->import_table.init(32);
     g->builtin_fn_table.init(32);
@@ -90,22 +89,6 @@ static void add_debug_source_node(CodeGen *g, AstNode *node) {
         return;
     LLVMZigSetCurrentDebugLocation(g->builder, node->line + 1, node->column + 1,
             g->cur_block_context->di_scope);
-}
-
-static LLVMValueRef find_or_create_string(CodeGen *g, Buf *str, bool c) {
-    auto entry = g->str_table.maybe_get(str);
-    if (entry) {
-        return entry->value;
-    }
-    LLVMValueRef text = LLVMConstString(buf_ptr(str), buf_len(str), !c);
-    LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(text), "");
-    LLVMSetLinkage(global_value, LLVMPrivateLinkage);
-    LLVMSetInitializer(global_value, text);
-    LLVMSetGlobalConstant(global_value, true);
-    LLVMSetUnnamedAddr(global_value, true);
-    g->str_table.put(str, global_value);
-
-    return global_value;
 }
 
 static TypeTableEntry *get_expr_type(AstNode *node) {
@@ -1993,17 +1976,6 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_asm_expr(g, node);
         case NodeTypeErrorLiteral:
             return gen_error_literal(g, node);
-        case NodeTypeStringLiteral:
-            {
-                Buf *str = &node->data.string_literal.buf;
-                LLVMValueRef str_val = find_or_create_string(g, str, node->data.string_literal.c);
-                LLVMValueRef indices[] = {
-                    LLVMConstNull(g->builtin_types.entry_isize->type_ref),
-                    LLVMConstNull(g->builtin_types.entry_isize->type_ref),
-                };
-                LLVMValueRef ptr_val = LLVMBuildInBoundsGEP(g->builder, str_val, indices, 2, "");
-                return ptr_val;
-            }
         case NodeTypeCharLiteral:
             return LLVMConstInt(LLVMInt8Type(), node->data.char_literal.value, false);
         case NodeTypeSymbol:
@@ -2035,6 +2007,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_switch_expr(g, node);
         case NodeTypeNumberLiteral:
         case NodeTypeBoolLiteral:
+        case NodeTypeStringLiteral:
             // caught by constant expression eval codegen
             zig_unreachable();
         case NodeTypeRoot:
@@ -2117,7 +2090,14 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         }
         return LLVMConstNamedStruct(type_entry->type_ref, fields, type_entry->data.structure.gen_field_count);
     } else if (type_entry->id == TypeTableEntryIdArray) {
-        zig_panic("TODO");
+        TypeTableEntry *child_type = type_entry->data.array.child_type;
+        uint64_t len = type_entry->data.array.len;
+        LLVMValueRef *values = allocate<LLVMValueRef>(len);
+        for (int i = 0; i < len; i += 1) {
+            ConstExprValue *field_value = const_val->data.x_array.fields[i];
+            values[i] = gen_const_val(g, child_type, field_value);
+        }
+        return LLVMConstArray(child_type->type_ref, values, len);
     } else if (type_entry->id == TypeTableEntryIdEnum) {
         LLVMTypeRef tag_type_ref = type_entry->data.enumeration.tag_type->type_ref;
         LLVMValueRef tag_value = LLVMConstInt(tag_type_ref, const_val->data.x_enum.tag, false);
@@ -2135,6 +2115,32 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         }
     } else if (type_entry->id == TypeTableEntryIdFn) {
         return const_val->data.x_fn->fn_value;
+    } else if (type_entry->id == TypeTableEntryIdPointer) {
+        TypeTableEntry *child_type = type_entry->data.pointer.child_type;
+        int len = const_val->data.x_ptr.len;
+        LLVMValueRef target_val;
+        if (len == 1) {
+            target_val = gen_const_val(g, child_type, const_val->data.x_ptr.ptr[0]);
+        } else if (len > 1) {
+            LLVMValueRef *values = allocate<LLVMValueRef>(len);
+            for (int i = 0; i < len; i += 1) {
+                values[i] = gen_const_val(g, child_type, const_val->data.x_ptr.ptr[i]);
+            }
+            target_val = LLVMConstArray(child_type->type_ref, values, len);
+        } else {
+            zig_unreachable();
+        }
+        LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(target_val), "");
+        LLVMSetInitializer(global_value, target_val);
+        LLVMSetLinkage(global_value, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(global_value, type_entry->data.pointer.is_const);
+        LLVMSetUnnamedAddr(global_value, true);
+
+        if (len > 1) {
+            return LLVMConstBitCast(global_value, type_entry->type_ref);
+        } else {
+            return global_value;
+        }
     } else {
         zig_unreachable();
     }
@@ -2531,8 +2537,6 @@ static void define_builtin_types(CodeGen *g) {
         g->builtin_types.entry_type = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
-
-    g->builtin_types.entry_c_string_literal = get_pointer_to_type(g, get_int_type(g, false, 8), true);
 
     g->builtin_types.entry_u8 = get_int_type(g, false, 8);
     g->builtin_types.entry_u16 = get_int_type(g, false, 16);

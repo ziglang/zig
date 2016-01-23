@@ -1795,6 +1795,46 @@ static TypeTableEntry *resolve_expr_const_val_as_null(CodeGen *g, AstNode *node,
     return type;
 }
 
+static TypeTableEntry *resolve_expr_const_val_as_c_string_lit(CodeGen *g, AstNode *node, Buf *str) {
+    Expr *expr = get_resolved_expr(node);
+    expr->const_val.ok = true;
+
+    int len_with_null = buf_len(str) + 1;
+    expr->const_val.data.x_ptr.ptr = allocate<ConstExprValue*>(len_with_null);
+    expr->const_val.data.x_ptr.len = len_with_null;
+
+    ConstExprValue *all_chars = allocate<ConstExprValue>(len_with_null);
+    for (int i = 0; i < buf_len(str); i += 1) {
+        ConstExprValue *this_char = &all_chars[i];
+        this_char->ok = true;
+        bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
+        expr->const_val.data.x_ptr.ptr[i] = this_char;
+    }
+
+    ConstExprValue *null_char = &all_chars[len_with_null - 1];
+    null_char->ok = true;
+    bignum_init_unsigned(&null_char->data.x_bignum, 0);
+    expr->const_val.data.x_ptr.ptr[len_with_null - 1] = null_char;
+
+    return get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+}
+
+static TypeTableEntry *resolve_expr_const_val_as_string_lit(CodeGen *g, AstNode *node, Buf *str) {
+    Expr *expr = get_resolved_expr(node);
+    expr->const_val.ok = true;
+    expr->const_val.data.x_array.fields = allocate<ConstExprValue*>(buf_len(str));
+
+    ConstExprValue *all_chars = allocate<ConstExprValue>(buf_len(str));
+    for (int i = 0; i < buf_len(str); i += 1) {
+        ConstExprValue *this_char = &all_chars[i];
+        this_char->ok = true;
+        bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
+        expr->const_val.data.x_array.fields[i] = this_char;
+    }
+    return get_array_type(g, g->builtin_types.entry_u8, buf_len(str));
+}
+
+
 static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, AstNode *node,
         TypeTableEntry *expected_type, uint64_t x)
 {
@@ -2737,8 +2777,28 @@ static void eval_const_expr_implicit_cast(CodeGen *g, AstNode *node, AstNode *ex
             *const_val = *other_val;
             break;
         case CastOpToUnknownSizeArray:
-            zig_panic("TODO CastOpToUnknownSizeArray");
-            break;
+            {
+                TypeTableEntry *other_type = get_resolved_expr(expr_node)->type_entry;
+                assert(other_type->id == TypeTableEntryIdArray);
+
+                ConstExprValue *all_fields = allocate<ConstExprValue>(2);
+                ConstExprValue *ptr_field = &all_fields[0];
+                ConstExprValue *len_field = &all_fields[1];
+
+                const_val->data.x_struct.fields = allocate<ConstExprValue*>(2);
+                const_val->data.x_struct.fields[0] = ptr_field;
+                const_val->data.x_struct.fields[1] = len_field;
+
+                ptr_field->ok = true;
+                ptr_field->data.x_ptr.ptr = other_val->data.x_array.fields;
+                ptr_field->data.x_ptr.len = other_type->data.array.len;
+
+                len_field->ok = true;
+                bignum_init_unsigned(&len_field->data.x_bignum, other_type->data.array.len);
+
+                const_val->ok = true;
+                break;
+            }
         case CastOpMaybeWrap:
             const_val->data.x_maybe = other_val;
             const_val->ok = true;
@@ -3422,6 +3482,16 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
     return g->builtin_types.entry_unreachable;
 }
 
+static TypeTableEntry *analyze_string_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    if (node->data.string_literal.c) {
+        return resolve_expr_const_val_as_c_string_lit(g, node, &node->data.string_literal.buf);
+    } else {
+        return resolve_expr_const_val_as_string_lit(g, node, &node->data.string_literal.buf);
+    }
+}
+
 // When you call analyze_expression, the node you pass might no longer be the child node
 // you thought it was due to implicit casting rewriting the AST.
 static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -3544,12 +3614,7 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
             return_type = analyze_error_literal_expr(g, import, context, expected_type, node);
             break;
         case NodeTypeStringLiteral:
-            if (node->data.string_literal.c) {
-                return_type = g->builtin_types.entry_c_string_literal;
-            } else {
-                return_type = get_array_type(g, g->builtin_types.entry_u8,
-                        buf_len(&node->data.string_literal.buf));
-            }
+            return_type = analyze_string_literal_expr(g, import, context, expected_type, node);
             break;
         case NodeTypeCharLiteral:
             return_type = g->builtin_types.entry_u8;

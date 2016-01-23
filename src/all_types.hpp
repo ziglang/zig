@@ -49,6 +49,16 @@ struct ConstStructValue {
     ConstExprValue **fields;
 };
 
+struct ConstArrayValue {
+    ConstExprValue **fields;
+};
+
+struct ConstPtrValue {
+    ConstExprValue **ptr;
+    // len should almost always be 1. exceptions include C strings
+    uint64_t len;
+};
+
 struct ConstExprValue {
     bool ok; // true if constant expression evalution worked
     bool depends_on_compile_var;
@@ -61,6 +71,8 @@ struct ConstExprValue {
         ConstExprValue *x_maybe;
         ConstEnumValue x_enum;
         ConstStructValue x_struct;
+        ConstArrayValue x_array;
+        ConstPtrValue x_ptr;
     } data;
 };
 
@@ -900,7 +912,6 @@ struct CodeGen {
     ZigList<Buf *> lib_search_paths;
 
     // reminder: hash tables must be initialized before use
-    HashMap<Buf *, LLVMValueRef, buf_hash, buf_eql_buf> str_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> link_table;
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
@@ -924,7 +935,6 @@ struct CodeGen {
         TypeTableEntry *entry_usize;
         TypeTableEntry *entry_f32;
         TypeTableEntry *entry_f64;
-        TypeTableEntry *entry_c_string_literal;
         TypeTableEntry *entry_void;
         TypeTableEntry *entry_unreachable;
         TypeTableEntry *entry_type;
