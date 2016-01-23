@@ -7,10 +7,9 @@ import "std.zig";
 // * update std API
 // * defer
 // * %return
-// * %% operator
+// * %% binary operator
+// * %% prefix operator
 // * cast err type to string
-
-pub %.Invalid;
 
 pub fn main(args: [][]u8) %void => {
     const exe = args[0];
@@ -24,7 +23,7 @@ pub fn main(args: [][]u8) %void => {
         } else {
             var is: InputStream;
             is.open(arg, OpenReadOnly) %% (err) => {
-                stderr.print("Unable to open file: {}", ([]u8])(err));
+                %%stderr.print("Unable to open file: {}", ([]u8])(err));
                 return err;
             }
             defer is.close();
@@ -39,7 +38,7 @@ pub fn main(args: [][]u8) %void => {
 }
 
 fn usage(exe: []u8) %void => {
-    stderr.print("Usage: {} [FILE]...\n", exe);
+    %%stderr.print("Usage: {} [FILE]...\n", exe);
     return %.Invalid;
 }
 
@@ -47,16 +46,18 @@ fn cat_stream(is: InputStream) %void => {
     var buf: [1024 * 4]u8;
 
     while (true) {
-        const bytes_read = is.read(buf);
-        if (bytes_read < 0) {
-            stderr.print("Unable to read from stream: {}", ([]u8)(is.err));
-            return is.err;
+        const bytes_read = is.read(buf) %% (err) => {
+            %%stderr.print("Unable to read from stream: {}", ([]u8)(err));
+            return err;
         }
 
-        const bytes_written = stdout.write(buf[0...bytes_read]);
-        if (bytes_written < bytes_read) {
-            stderr.print("Unable to write to stdout: {}", ([]u8)(stdout.err));
-            return stdout.err;
+        if (bytes_read == 0) {
+            break;
+        }
+
+        stdout.write(buf[0...bytes_read]) %% (err) => {
+            %%stderr.print("Unable to write to stdout: {}", ([]u8)(err));
+            return err;
         }
     }
 }

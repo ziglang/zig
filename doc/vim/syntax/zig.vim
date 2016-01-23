@@ -9,7 +9,7 @@ endif
 
 syn keyword zigStorage const var extern volatile export pub noalias
 syn keyword zigStructure struct enum
-syn keyword zigStatement goto break return continue asm
+syn keyword zigStatement goto break return continue asm defer
 syn keyword zigConditional if else switch
 syn keyword zigRepeat while for
 

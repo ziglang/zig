@@ -23,6 +23,7 @@ pub var stderr = OutStream {
     .index = 0,
     .buffered = false,
 };
+*/
 
 pub %.Unexpected;
 pub %.DiskQuota;
@@ -32,7 +33,7 @@ pub %.Io;
 pub %.NoSpaceLeft;
 pub %.BadPerm;
 pub %.PipeFail;
-*/
+pub %.Invalid;
 
 const buffer_size = 4 * 1024;
 const max_u64_base10_digits = 20;
