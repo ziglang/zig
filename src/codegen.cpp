@@ -1725,84 +1725,91 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
     }
     if (variable->type->size_in_bits == 0) {
         return nullptr;
-    } else {
-        if (var_decl->expr) {
-            TypeTableEntry *expr_type = get_expr_type(var_decl->expr);
-            LLVMValueRef value;
-            if (unwrap_maybe) {
-                assert(var_decl->expr);
-                assert(expr_type->id == TypeTableEntryIdMaybe);
-                value = gen_unwrap_maybe(g, source_node, *init_value);
-                expr_type = expr_type->data.maybe.child_type;
-            } else {
-                value = *init_value;
-            }
-            gen_assign_raw(g, var_decl->expr, BinOpTypeAssign, variable->value_ref,
-                    value, variable->type, expr_type);
+    }
+
+    bool have_init_expr = false;
+    if (var_decl->expr) {
+        ConstExprValue *const_val = &get_resolved_expr(var_decl->expr)->const_val;
+        if (!const_val->ok || !const_val->undef) {
+            have_init_expr = true;
+        }
+    }
+    if (have_init_expr) {
+        TypeTableEntry *expr_type = get_expr_type(var_decl->expr);
+        LLVMValueRef value;
+        if (unwrap_maybe) {
+            assert(var_decl->expr);
+            assert(expr_type->id == TypeTableEntryIdMaybe);
+            value = gen_unwrap_maybe(g, source_node, *init_value);
+            expr_type = expr_type->data.maybe.child_type;
         } else {
-            bool ignore_uninit = false;
-            TypeTableEntry *var_type = get_type_for_type_node(var_decl->type);
-            if (var_type->id == TypeTableEntryIdStruct &&
-                var_type->data.structure.is_unknown_size_array)
-            {
-                assert(var_decl->type->type == NodeTypeArrayType);
-                AstNode *size_node = var_decl->type->data.array_type.size;
-                if (size_node) {
-                    ConstExprValue *const_val = &get_resolved_expr(size_node)->const_val;
-                    if (!const_val->ok) {
-                        TypeTableEntry *ptr_type = var_type->data.structure.fields[0].type_entry;
-                        assert(ptr_type->id == TypeTableEntryIdPointer);
-                        TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
+            value = *init_value;
+        }
+        gen_assign_raw(g, var_decl->expr, BinOpTypeAssign, variable->value_ref,
+                value, variable->type, expr_type);
+    } else {
+        bool ignore_uninit = false;
+        TypeTableEntry *var_type = get_type_for_type_node(var_decl->type);
+        if (var_type->id == TypeTableEntryIdStruct &&
+            var_type->data.structure.is_unknown_size_array)
+        {
+            assert(var_decl->type->type == NodeTypeArrayType);
+            AstNode *size_node = var_decl->type->data.array_type.size;
+            if (size_node) {
+                ConstExprValue *const_val = &get_resolved_expr(size_node)->const_val;
+                if (!const_val->ok) {
+                    TypeTableEntry *ptr_type = var_type->data.structure.fields[0].type_entry;
+                    assert(ptr_type->id == TypeTableEntryIdPointer);
+                    TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
 
-                        LLVMValueRef size_val = gen_expr(g, size_node);
+                    LLVMValueRef size_val = gen_expr(g, size_node);
 
-                        add_debug_source_node(g, source_node);
-                        LLVMValueRef ptr_val = LLVMBuildArrayAlloca(g->builder, child_type->type_ref,
-                                size_val, "");
+                    add_debug_source_node(g, source_node);
+                    LLVMValueRef ptr_val = LLVMBuildArrayAlloca(g->builder, child_type->type_ref,
+                            size_val, "");
 
-                        // store the freshly allocated pointer in the unknown size array struct
-                        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder,
-                                variable->value_ref, 0, "");
-                        LLVMBuildStore(g->builder, ptr_val, ptr_field_ptr);
+                    // store the freshly allocated pointer in the unknown size array struct
+                    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder,
+                            variable->value_ref, 0, "");
+                    LLVMBuildStore(g->builder, ptr_val, ptr_field_ptr);
 
-                        // store the size in the len field
-                        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder,
-                                variable->value_ref, 1, "");
-                        LLVMBuildStore(g->builder, size_val, len_field_ptr);
+                    // store the size in the len field
+                    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder,
+                            variable->value_ref, 1, "");
+                    LLVMBuildStore(g->builder, size_val, len_field_ptr);
 
-                        // don't clobber what we just did with debug initialization
-                        ignore_uninit = true;
-                    }
+                    // don't clobber what we just did with debug initialization
+                    ignore_uninit = true;
                 }
             }
-            if (!ignore_uninit && g->build_type != CodeGenBuildTypeRelease) {
-                // memset uninitialized memory to 0xa
-                add_debug_source_node(g, source_node);
-                LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-                LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
-                LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, variable->value_ref, ptr_u8, "");
-                LLVMValueRef byte_count = LLVMConstInt(LLVMIntType(g->pointer_size_bytes * 8),
-                        variable->type->size_in_bits / 8, false);
-                LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(),
-                        variable->type->align_in_bits / 8, false);
-                LLVMValueRef params[] = {
-                    dest_ptr,
-                    fill_char,
-                    byte_count,
-                    align_in_bytes,
-                    LLVMConstNull(LLVMInt1Type()), // is volatile
-                };
-
-                LLVMBuildCall(g->builder, g->memset_fn_val, params, 5, "");
-            }
         }
+        if (!ignore_uninit && g->build_type != CodeGenBuildTypeRelease) {
+            // memset uninitialized memory to 0xa
+            add_debug_source_node(g, source_node);
+            LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+            LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
+            LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, variable->value_ref, ptr_u8, "");
+            LLVMValueRef byte_count = LLVMConstInt(LLVMIntType(g->pointer_size_bytes * 8),
+                    variable->type->size_in_bits / 8, false);
+            LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(),
+                    variable->type->align_in_bits / 8, false);
+            LLVMValueRef params[] = {
+                dest_ptr,
+                fill_char,
+                byte_count,
+                align_in_bytes,
+                LLVMConstNull(LLVMInt1Type()), // is volatile
+            };
 
-        LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(source_node->line + 1, source_node->column + 1,
-                g->cur_block_context->di_scope);
-        LLVMZigInsertDeclareAtEnd(g->dbuilder, variable->value_ref, variable->di_loc_var, debug_loc,
-                LLVMGetInsertBlock(g->builder));
-        return nullptr;
+            LLVMBuildCall(g->builder, g->memset_fn_val, params, 5, "");
+        }
     }
+
+    LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(source_node->line + 1, source_node->column + 1,
+            g->cur_block_context->di_scope);
+    LLVMZigInsertDeclareAtEnd(g->dbuilder, variable->value_ref, variable->di_loc_var, debug_loc,
+            LLVMGetInsertBlock(g->builder));
+    return nullptr;
 }
 
 static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
@@ -2034,6 +2041,10 @@ static void build_label_blocks(CodeGen *g, AstNode *block_node) {
 
 static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val) {
     assert(const_val->ok);
+
+    if (const_val->undef) {
+        return LLVMConstNull(type_entry->type_ref);
+    }
 
     if (type_entry->id == TypeTableEntryIdInt) {
         return LLVMConstInt(type_entry->type_ref, bignum_to_twos_complement(&const_val->data.x_bignum), false);
@@ -2388,6 +2399,11 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumLitInt);
         buf_init_from_str(&entry->name, "(integer literal)");
         g->builtin_types.entry_num_lit_int = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUndefLit);
+        buf_init_from_str(&entry->name, "(undefined)");
+        g->builtin_types.entry_undef = entry;
     }
 
     for (int i = 0; i < array_length(int_sizes_in_bits); i += 1) {

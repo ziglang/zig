@@ -62,6 +62,7 @@ struct ConstPtrValue {
 struct ConstExprValue {
     bool ok; // true if constant expression evalution worked
     bool depends_on_compile_var;
+    bool undef;
 
     union {
         BigNum x_bignum;
@@ -808,6 +809,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdStruct,
     TypeTableEntryIdNumLitFloat,
     TypeTableEntryIdNumLitInt,
+    TypeTableEntryIdUndefLit,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdError,
     TypeTableEntryIdEnum,
@@ -949,6 +951,7 @@ struct CodeGen {
         TypeTableEntry *entry_invalid;
         TypeTableEntry *entry_num_lit_int;
         TypeTableEntry *entry_num_lit_float;
+        TypeTableEntry *entry_undef;
     } builtin_types;
 
     LLVMTargetDataRef target_data_ref;

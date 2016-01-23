@@ -111,6 +111,7 @@ TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdError:
+        case TypeTableEntryIdUndefLit:
             // nothing to init
             break;
         case TypeTableEntryIdStruct:
@@ -1063,6 +1064,7 @@ static bool type_has_codegen_value(TypeTableEntryId id) {
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
             return false;
 
         case TypeTableEntryIdBool:
@@ -2481,10 +2483,9 @@ static TypeTableEntry *analyze_undefined_literal_expr(CodeGen *g, ImportTableEnt
     ConstExprValue *const_val = &expr->const_val;
 
     const_val->ok = true;
+    const_val->undef = true;
 
-    zig_panic("TODO");
-
-    return expected_type;
+    return expected_type ? expected_type : g->builtin_types.entry_undef;
 }
 
 
