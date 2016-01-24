@@ -1951,17 +1951,7 @@ static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, As
     expr->const_val.ok = true;
 
     bignum_init_unsigned(&expr->const_val.data.x_bignum, x);
-
-    if (expected_type) {
-        if (expected_type->id == TypeTableEntryIdMaybe) {
-            return g->builtin_types.entry_num_lit_int;
-        } else {
-            num_lit_fits_in_other_type(g, node, expected_type);
-            return expected_type;
-        }
-    } else {
-        return g->builtin_types.entry_num_lit_int;
-    }
+    return g->builtin_types.entry_num_lit_int;
 }
 
 static TypeTableEntry *resolve_expr_const_val_as_float_num_lit(CodeGen *g, AstNode *node,
@@ -3665,14 +3655,37 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
         normalize_parent_ptrs(node);
     }
 
-    if (node->data.return_expr.kind != ReturnKindUnconditional) {
-        zig_panic("TODO analyze_return_expr conditional");
-    }
-
     TypeTableEntry *expected_return_type = get_return_type(context);
-    analyze_expression(g, import, context, expected_return_type, node->data.return_expr.expr);
 
-    return g->builtin_types.entry_unreachable;
+    switch (node->data.return_expr.kind) {
+        case ReturnKindUnconditional:
+            {
+                analyze_expression(g, import, context, expected_return_type, node->data.return_expr.expr);
+
+                return g->builtin_types.entry_unreachable;
+            }
+        case ReturnKindError:
+            {
+                TypeTableEntry *expected_err_type;
+                if (expected_type) {
+                    expected_err_type = get_error_type(g, expected_type);
+                } else {
+                    expected_err_type = nullptr;
+                }
+                TypeTableEntry *resolved_type = analyze_expression(g, import, context, expected_err_type,
+                        node->data.return_expr.expr);
+                if (resolved_type->id == TypeTableEntryIdInvalid) {
+                    return resolved_type;
+                } else if (resolved_type->id == TypeTableEntryIdErrorUnion) {
+                    return resolved_type->data.error.child_type;
+                } else {
+                    add_node_error(g, node->data.return_expr.expr,
+                        buf_sprintf("expected error type, got '%s'", buf_ptr(&resolved_type->name)));
+                }
+            }
+        case ReturnKindMaybe:
+            zig_panic("TODO");
+    }
 }
 
 static TypeTableEntry *analyze_string_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,

@@ -1239,14 +1239,20 @@ static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeReturnExpr);
     AstNode *param_node = node->data.return_expr.expr;
-    if (param_node) {
-        LLVMValueRef value = gen_expr(g, param_node);
+    assert(param_node);
 
-        add_debug_source_node(g, node);
-        return LLVMBuildRet(g->builder, value);
-    } else {
-        add_debug_source_node(g, node);
-        return LLVMBuildRetVoid(g->builder);
+    switch (node->data.return_expr.kind) {
+        case ReturnKindUnconditional:
+            {
+                LLVMValueRef value = gen_expr(g, param_node);
+
+                add_debug_source_node(g, node);
+                return LLVMBuildRet(g->builder, value);
+            }
+        case ReturnKindError:
+            zig_panic("TODO");
+        case ReturnKindMaybe:
+            zig_panic("TODO");
     }
 }
 
