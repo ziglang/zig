@@ -306,7 +306,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
         case CastOpNoop:
             return expr_val;
         case CastOpErrToInt:
-            assert(actual_type->id == TypeTableEntryIdError);
+            assert(actual_type->id == TypeTableEntryIdErrorUnion);
             if (actual_type->data.error.child_type->size_in_bits == 0) {
                 return gen_widen_or_shorten(g, node, g->err_tag_type, wanted_type, expr_val);
             } else {
@@ -330,9 +330,16 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
                 return cast_expr->tmp_ptr;
             }
         case CastOpErrorWrap:
-            assert(wanted_type->id == TypeTableEntryIdError);
+            assert(wanted_type->id == TypeTableEntryIdErrorUnion);
             if (wanted_type->data.error.child_type->size_in_bits == 0) {
                 return LLVMConstNull(g->err_tag_type->type_ref);
+            } else {
+                zig_panic("TODO");
+            }
+        case CastOpPureErrorWrap:
+            assert(wanted_type->id == TypeTableEntryIdErrorUnion);
+            if (wanted_type->data.error.child_type->size_in_bits == 0) {
+                return expr_val;
             } else {
                 zig_panic("TODO");
             }
@@ -1292,7 +1299,7 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
         return nullptr;
     }
 
-    assert(!use_expr_value || then_type->id == TypeTableEntryIdError);
+    assert(!use_expr_value || then_type->id == TypeTableEntryIdErrorUnion);
 
     LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Then");
     LLVMBasicBlockRef endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
@@ -2011,7 +2018,6 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_container_init_expr(g, node);
         case NodeTypeSwitchExpr:
             return gen_switch_expr(g, node);
-        case NodeTypeErrorLiteral:
         case NodeTypeNumberLiteral:
         case NodeTypeBoolLiteral:
         case NodeTypeStringLiteral:
@@ -2033,6 +2039,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeArrayType:
+        case NodeTypeErrorType:
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
         case NodeTypeErrorValueDecl:
@@ -2063,6 +2070,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
 
     if (type_entry->id == TypeTableEntryIdInt) {
         return LLVMConstInt(type_entry->type_ref, bignum_to_twos_complement(&const_val->data.x_bignum), false);
+    } else if (type_entry->id == TypeTableEntryIdPureError) {
+        assert(const_val->data.x_err.err);
+        return LLVMConstInt(g->builtin_types.entry_pure_error->type_ref, const_val->data.x_err.err->value, false);
     } else if (type_entry->id == TypeTableEntryIdFloat) {
         if (const_val->data.x_bignum.kind == BigNumKindFloat) {
             return LLVMConstReal(type_entry->type_ref, const_val->data.x_bignum.data.x_float);
@@ -2148,12 +2158,26 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         } else {
             return global_value;
         }
-    } else if (type_entry->id == TypeTableEntryIdError) {
-        if (type_entry->data.error.child_type->size_in_bits == 0) {
+    } else if (type_entry->id == TypeTableEntryIdErrorUnion) {
+        TypeTableEntry *child_type = type_entry->data.error.child_type;
+        if (child_type->size_in_bits == 0) {
             uint64_t value = const_val->data.x_err.err ? const_val->data.x_err.err->value : 0;
             return LLVMConstInt(g->err_tag_type->type_ref, value, false);
         } else {
-            zig_panic("TODO");
+            LLVMValueRef err_tag_value;
+            LLVMValueRef err_payload_value;
+            if (const_val->data.x_err.err) {
+                err_tag_value = LLVMConstInt(g->err_tag_type->type_ref, const_val->data.x_err.err->value, false);
+                err_payload_value = LLVMConstNull(child_type->type_ref);
+            } else {
+                err_tag_value = LLVMConstNull(g->err_tag_type->type_ref);
+                err_payload_value = gen_const_val(g, child_type, const_val->data.x_err.payload);
+            }
+            LLVMValueRef fields[] = {
+                err_tag_value,
+                err_payload_value,
+            };
+            return LLVMConstStruct(fields, 2, false);
         }
     } else {
         zig_unreachable();
@@ -2555,6 +2579,14 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMetaType);
         buf_init_from_str(&entry->name, "type");
         g->builtin_types.entry_type = entry;
+        g->primitive_type_table.put(&entry->name, entry);
+    }
+    {
+        // partially complete the error type. we complete it later after we know
+        // error_value_count.
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPureError);
+        buf_init_from_str(&entry->name, "error");
+        g->builtin_types.entry_pure_error = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
 

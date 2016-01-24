@@ -133,7 +133,6 @@ enum NodeType {
     NodeTypeNumberLiteral,
     NodeTypeStringLiteral,
     NodeTypeCharLiteral,
-    NodeTypeErrorLiteral,
     NodeTypeSymbol,
     NodeTypePrefixOpExpr,
     NodeTypeFnCallExpr,
@@ -161,6 +160,7 @@ enum NodeType {
     NodeTypeContainerInitExpr,
     NodeTypeStructValueField,
     NodeTypeArrayType,
+    NodeTypeErrorType,
 };
 
 struct AstNodeRoot {
@@ -315,6 +315,7 @@ enum CastOp {
     CastOpToUnknownSizeArray,
     CastOpMaybeWrap,
     CastOpErrorWrap,
+    CastOpPureErrorWrap,
     CastOpPointerReinterpret,
     CastOpErrToInt,
 };
@@ -584,13 +585,6 @@ struct AstNodeNumberLiteral {
     Expr resolved_expr;
 };
 
-struct AstNodeErrorLiteral {
-    Buf symbol;
-
-    // populated by semantic analyzer
-    Expr resolved_expr;
-};
-
 struct AstNodeStructValueField {
     Buf name;
     AstNode *expr;
@@ -663,6 +657,11 @@ struct AstNodeArrayType {
     Expr resolved_expr;
 };
 
+struct AstNodeErrorType {
+    // populated by semantic analyzer
+    Expr resolved_expr;
+};
+
 struct AstNode {
     enum NodeType type;
     int line;
@@ -705,7 +704,6 @@ struct AstNode {
         AstNodeStringLiteral string_literal;
         AstNodeCharLiteral char_literal;
         AstNodeNumberLiteral number_literal;
-        AstNodeErrorLiteral error_literal;
         AstNodeContainerInitExpr container_init_expr;
         AstNodeStructValueField struct_val_field;
         AstNodeNullLiteral null_literal;
@@ -715,6 +713,7 @@ struct AstNode {
         AstNodeBreakExpr break_expr;
         AstNodeContinueExpr continue_expr;
         AstNodeArrayType array_type;
+        AstNodeErrorType error_type;
     } data;
 };
 
@@ -820,7 +819,8 @@ enum TypeTableEntryId {
     TypeTableEntryIdNumLitInt,
     TypeTableEntryIdUndefLit,
     TypeTableEntryIdMaybe,
-    TypeTableEntryIdError,
+    TypeTableEntryIdErrorUnion,
+    TypeTableEntryIdPureError,
     TypeTableEntryIdEnum,
     TypeTableEntryIdFn,
 };
@@ -961,6 +961,7 @@ struct CodeGen {
         TypeTableEntry *entry_num_lit_int;
         TypeTableEntry *entry_num_lit_float;
         TypeTableEntry *entry_undef;
+        TypeTableEntry *entry_pure_error;
     } builtin_types;
 
     LLVMTargetDataRef target_data_ref;

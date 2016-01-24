@@ -113,8 +113,6 @@ const char *node_type_str(NodeType node_type) {
             return "ErrorValueDecl";
         case NodeTypeNumberLiteral:
             return "NumberLiteral";
-        case NodeTypeErrorLiteral:
-            return "ErrorLiteral";
         case NodeTypeStringLiteral:
             return "StringLiteral";
         case NodeTypeCharLiteral:
@@ -167,6 +165,8 @@ const char *node_type_str(NodeType node_type) {
             return "ContainerInitExpr";
         case NodeTypeArrayType:
             return "ArrayType";
+        case NodeTypeErrorType:
+            return "ErrorType";
     }
     zig_unreachable();
 }
@@ -311,11 +311,6 @@ void ast_print(AstNode *node, int indent) {
                 } else {
                     fprintf(stderr, "%s float %f\n", name, node->data.number_literal.data.x_float);
                 }
-                break;
-            }
-        case NodeTypeErrorLiteral:
-            {
-                fprintf(stderr, "%s '%s'", node_type_str(node->type), buf_ptr(&node->data.error_literal.symbol));
                 break;
             }
         case NodeTypeStringLiteral:
@@ -465,6 +460,9 @@ void ast_print(AstNode *node, int indent) {
                 ast_print(node->data.array_type.child_type, indent + 2);
                 break;
             }
+        case NodeTypeErrorType:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            break;
     }
 }
 
@@ -1372,8 +1370,8 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, int *token_index, bool mand
 }
 
 /*
-PrimaryExpression : "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | AsmExpression | ("%." "Symbol")
-KeywordLiteral : "true" | "false" | "null" | "break" | "continue" | "undefined"
+PrimaryExpression : "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | AsmExpression | ("error" "." "Symbol")
+KeywordLiteral : "true" | "false" | "null" | "break" | "continue" | "undefined" | "error"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1419,6 +1417,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         AstNode *node = ast_create_node(pc, NodeTypeUndefinedLiteral, token);
         *token_index += 1;
         return node;
+    } else if (token->id == TokenIdKeywordError) {
+        AstNode *node = ast_create_node(pc, NodeTypeErrorType, token);
+        *token_index += 1;
+        return node;
     } else if (token->id == TokenIdAtSign) {
         *token_index += 1;
         Token *name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
@@ -1447,12 +1449,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         ast_expect_token(pc, dest_symbol, TokenIdSymbol);
 
         ast_buf_from_token(pc, dest_symbol, &node->data.goto_expr.name);
-        return node;
-    } else if (token->id == TokenIdPercentDot) {
-        *token_index += 1;
-        Token *symbol_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
-        AstNode *node = ast_create_node(pc, NodeTypeErrorLiteral, token);
-        ast_buf_from_token(pc, symbol_tok, &node->data.error_literal.symbol);
         return node;
     }
 
@@ -2969,7 +2965,7 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
 }
 
 /*
-ErrorValueDecl : option(FnVisibleMod) "%." "Symbol"
+ErrorValueDecl : option(FnVisibleMod) "error" "Symbol"
 */
 static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index, bool mandatory) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2978,7 +2974,7 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index, b
 
     if (first_token->id == TokenIdKeywordPub) {
         Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdPercentDot) {
+        if (next_token->id == TokenIdKeywordError) {
             visib_mod = VisibModPub;
             *token_index += 2;
         } else if (mandatory) {
@@ -2988,7 +2984,7 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index, b
         }
     } else if (first_token->id == TokenIdKeywordExport) {
         Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdPercentDot) {
+        if (next_token->id == TokenIdKeywordError) {
             visib_mod = VisibModExport;
             *token_index += 2;
         } else if (mandatory) {
@@ -2996,7 +2992,7 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index, b
         } else {
             return nullptr;
         }
-    } else if (first_token->id == TokenIdPercentDot) {
+    } else if (first_token->id == TokenIdKeywordError) {
         visib_mod = VisibModPrivate;
         *token_index += 1;
     } else if (mandatory) {
@@ -3177,9 +3173,6 @@ void normalize_parent_ptrs(AstNode *node) {
         case NodeTypeCharLiteral:
             // none
             break;
-        case NodeTypeErrorLiteral:
-            // none
-            break;
         case NodeTypeSymbol:
             // none
             break;
@@ -3289,6 +3282,9 @@ void normalize_parent_ptrs(AstNode *node) {
         case NodeTypeArrayType:
             set_field(&node->data.array_type.size);
             set_field(&node->data.array_type.child_type);
+            break;
+        case NodeTypeErrorType:
+            // none
             break;
     }
 }

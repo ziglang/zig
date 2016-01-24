@@ -7,7 +7,7 @@ Root : many(TopLevelDecl) "EOF"
 
 TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Import | ContainerDecl | VariableDeclaration | ErrorValueDecl
 
-ErrorValueDecl : option(FnVisibleMod) "%." "Symbol"
+ErrorValueDecl : option(FnVisibleMod) "error" "Symbol"
 
 VariableDeclaration : option(FnVisibleMod) ("var" | "const") "Symbol" ("=" Expression | ":" PrefixOpExpression option("=" Expression))
 
@@ -133,9 +133,9 @@ ContainerInitBody : list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField : "." "Symbol" "=" Expression
 
-PrefixOp : "!" | "-" | "~" | "*" | ("&" option("const")) | "?"
+PrefixOp : "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%"
 
-PrimaryExpression : "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | AsmExpression | ("%." "Symbol")
+PrimaryExpression : "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | AsmExpression | ("error" "." "Symbol")
 
 ArrayType : "[" option(Expression) "]" option("const") PrefixOpExpression
 
@@ -143,7 +143,7 @@ GotoExpression: "goto" "Symbol"
 
 GroupedExpression : "(" Expression ")"
 
-KeywordLiteral : "true" | "false" | "null" | "break" | "continue" | "undefined"
+KeywordLiteral : "true" | "false" | "null" | "break" | "continue" | "undefined" | "error"
 ```
 
 ## Operator Precedence

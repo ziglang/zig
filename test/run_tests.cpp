@@ -1213,11 +1213,11 @@ pub fn main(args: [][]u8) %void => {
 
     add_simple_case("error values", R"SOURCE(
 import "std.zig";
-%.err1;
-%.err2;
+error err1;
+error err2;
 pub fn main(args: [][]u8) %void => {
-    const a = i32(%.err1);
-    const b = i32(%.err2);
+    const a = i32(error.err1);
+    const b = i32(error.err2);
     if (a == b) {
         print_str("BAD\n");
     }
@@ -1467,8 +1467,8 @@ enum A {}
     )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of 'A'");
 
     add_compile_fail_case("redefinition of error values", R"SOURCE(
-%.A;
-%.A;
+error A;
+error A;
     )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of error 'A'");
 
     add_compile_fail_case("redefinition of global variables", R"SOURCE(

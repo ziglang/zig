@@ -25,15 +25,15 @@ pub var stderr = OutStream {
 };
 */
 
-pub %.Unexpected;
-pub %.DiskQuota;
-pub %.FileTooBig;
-pub %.SigInterrupt;
-pub %.Io;
-pub %.NoSpaceLeft;
-pub %.BadPerm;
-pub %.PipeFail;
-pub %.Invalid;
+pub error Unexpected;
+pub error DiskQuota;
+pub error FileTooBig;
+pub error SigInterrupt;
+pub error Io;
+pub error NoSpaceLeft;
+pub error BadPerm;
+pub error PipeFail;
+pub error Invalid;
 
 const buffer_size = 4 * 1024;
 const max_u64_base10_digits = 20;
@@ -100,14 +100,14 @@ pub struct OutStream {
         os.index = 0;
         switch (write(os.fd, os.buffer.ptr, amt_to_write)) {
             EINVAL => unreachable{},
-            EDQUOT => %.DiskQuota,
-            EFBIG  => %.FileTooBig,
-            EINTR  => %.SigInterrupt,
-            EIO    => %.Io,
-            ENOSPC => %.NoSpaceLeft,
-            EPERM  => %.BadPerm,
-            EPIPE  => %.PipeFail,
-            else   => %.Unexpected,
+            EDQUOT => error.DiskQuota,
+            EFBIG  => error.FileTooBig,
+            EINTR  => error.SigInterrupt,
+            EIO    => error.Io,
+            ENOSPC => error.NoSpaceLeft,
+            EPERM  => error.BadPerm,
+            EPIPE  => error.PipeFail,
+            else   => error.Unexpected,
         }
     }
 }
@@ -121,10 +121,10 @@ pub struct InStream {
             switch (-amt_read) {
                 EINVAL => unreachable{},
                 EFAULT => unreachable{},
-                EBADF  => %.BadFd,
-                EINTR  => %.SigInterrupt,
-                EIO    => %.Io,
-                else   => %.Unexpected,
+                EBADF  => error.BadFd,
+                EINTR  => error.SigInterrupt,
+                EIO    => error.Io,
+                else   => error.Unexpected,
             }
         }
         return amt_read;
@@ -136,8 +136,8 @@ pub fn os_get_random_bytes(buf: []u8) %void => {
     switch (getrandom(buf.ptr, buf.len, 0)) {
         EINVAL => unreachable{},
         EFAULT => unreachable{},
-        EINTR  => %.SigInterrupt,
-        else   => %.Unexpected,
+        EINTR  => error.SigInterrupt,
+        else   => error.Unexpected,
     }
 }
 */

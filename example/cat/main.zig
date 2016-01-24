@@ -10,6 +10,7 @@ import "std.zig";
 // * %% binary operator
 // * %% prefix operator
 // * cast err type to string
+// * string equality
 
 pub fn main(args: [][]u8) %void => {
     const exe = args[0];
@@ -39,7 +40,7 @@ pub fn main(args: [][]u8) %void => {
 
 fn usage(exe: []u8) %void => {
     %%stderr.print("Usage: {} [FILE]...\n", exe);
-    return %.Invalid;
+    return error.Invalid;
 }
 
 fn cat_stream(is: InputStream) %void => {
