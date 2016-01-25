@@ -95,6 +95,8 @@ const char *node_type_str(NodeType node_type) {
             return "Block";
         case NodeTypeBinOpExpr:
             return "BinOpExpr";
+        case NodeTypeUnwrapErrorExpr:
+            return "UnwrapErrorExpr";
         case NodeTypeFnCallExpr:
             return "FnCallExpr";
         case NodeTypeArrayAccessExpr:
@@ -272,6 +274,14 @@ void ast_print(AstNode *node, int indent) {
                     bin_op_str(node->data.bin_op_expr.bin_op));
             ast_print(node->data.bin_op_expr.op1, indent + 2);
             ast_print(node->data.bin_op_expr.op2, indent + 2);
+            break;
+        case NodeTypeUnwrapErrorExpr:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            ast_print(node->data.unwrap_err_expr.op1, indent + 2);
+            if (node->data.unwrap_err_expr.symbol) {
+                ast_print(node->data.unwrap_err_expr.symbol, indent + 2);
+            }
+            ast_print(node->data.unwrap_err_expr.op2, indent + 2);
             break;
         case NodeTypeFnCallExpr:
             fprintf(stderr, "%s\n", node_type_str(node->type));
@@ -964,7 +974,7 @@ static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool ma
 static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandatory);
 static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool mandatory);
 static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool mandatory);
-static AstNode *ast_parse_unwrap_maybe_expr(ParseContext *pc, int *token_index, bool mandatory);
+static AstNode *ast_parse_unwrap_expr(ParseContext *pc, int *token_index, bool mandatory);
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, bool mandatory);
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
@@ -1032,7 +1042,7 @@ static void ast_parse_directives(ParseContext *pc, int *token_index,
 }
 
 /*
-ParamDecl : option(token(NoAlias)) token(Symbol) token(Colon) UnwrapMaybeExpression | token(Ellipsis)
+ParamDecl : option("noalias") "Symbol" ":" PrefixOpExpression | "..."
 */
 static AstNode *ast_parse_param_decl(ParseContext *pc, int *token_index) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -1154,7 +1164,7 @@ static AstNode *ast_parse_grouped_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-ArrayType : token(LBracket) option(Expression) token(RBracket) option(token(Const)) UnwrapMaybeExpression
+ArrayType : "[" option(Expression) "]" option("const") PrefixOpExpression
 */
 static AstNode *ast_parse_array_type_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *l_bracket = &pc->tokens->at(*token_index);
@@ -1207,7 +1217,7 @@ static void ast_parse_asm_input_item(ParseContext *pc, int *token_index, AstNode
 }
 
 /*
-AsmOutputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) (token(Symbol) | token(Arrow) UnwrapMaybeExpression token(RParen)
+AsmOutputItem : "[" "Symbol" "]" "String" "(" ("Symbol" | "->" PrefixOpExpression) ")"
 */
 static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNode *node) {
     ast_eat_token(pc, token_index, TokenIdLBracket);
@@ -2132,7 +2142,7 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index, bool m
 }
 
 /*
-VariableDeclaration : option(FnVisibleMod) (token(Var) | token(Const)) token(Symbol) (token(Eq) Expression | token(Colon) UnwrapMaybeExpression option(token(Eq) Expression))
+VariableDeclaration : option(FnVisibleMod) ("var" | "const") "Symbol" ("=" Expression | ":" PrefixOpExpression option("=" Expression))
 */
 static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2454,38 +2464,55 @@ static BinOpType ast_parse_ass_op(ParseContext *pc, int *token_index, bool manda
 }
 
 /*
-UnwrapMaybeExpression : BoolOrExpression token(DoubleQuestion) BoolOrExpression | BoolOrExpression
+UnwrapExpression : BoolOrExpression (UnwrapMaybe | UnwrapError) | BoolOrExpression
+UnwrapMaybe : "??" BoolOrExpression
+UnwrapError : "%%" option("|" "Symbol" "|") BoolOrExpression
 */
-// this is currently the first child expression of assignment
-static AstNode *ast_parse_unwrap_maybe_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_unwrap_expr(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *lhs = ast_parse_bool_or_expr(pc, token_index, mandatory);
     if (!lhs)
         return nullptr;
 
     Token *token = &pc->tokens->at(*token_index);
 
-    if (token->id != TokenIdDoubleQuestion) {
+    if (token->id == TokenIdDoubleQuestion) {
+        *token_index += 1;
+
+        AstNode *rhs = ast_parse_bool_or_expr(pc, token_index, true);
+
+        AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+        node->data.bin_op_expr.op1 = lhs;
+        node->data.bin_op_expr.bin_op = BinOpTypeUnwrapMaybe;
+        node->data.bin_op_expr.op2 = rhs;
+
+        normalize_parent_ptrs(node);
+        return node;
+    } else if (token->id == TokenIdPercentPercent) {
+        *token_index += 1;
+
+        AstNode *node = ast_create_node(pc, NodeTypeUnwrapErrorExpr, token);
+        node->data.unwrap_err_expr.op1 = lhs;
+
+        Token *maybe_bar_tok = &pc->tokens->at(*token_index);
+        if (maybe_bar_tok->id == TokenIdBinOr) {
+            *token_index += 1;
+            node->data.unwrap_err_expr.symbol = ast_parse_symbol(pc, token_index);
+            ast_eat_token(pc, token_index, TokenIdBinOr);
+        }
+        node->data.unwrap_err_expr.op2 = ast_parse_expression(pc, token_index, true);
+
+        normalize_parent_ptrs(node);
+        return node;
+    } else {
         return lhs;
     }
-
-    *token_index += 1;
-
-    AstNode *rhs = ast_parse_bool_or_expr(pc, token_index, true);
-
-    AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
-    node->data.bin_op_expr.op1 = lhs;
-    node->data.bin_op_expr.bin_op = BinOpTypeUnwrapMaybe;
-    node->data.bin_op_expr.op2 = rhs;
-
-    normalize_parent_ptrs(node);
-    return node;
 }
 
 /*
-AssignmentExpression : UnwrapMaybeExpression AssignmentOperator UnwrapMaybeExpression | UnwrapMaybeExpression
+AssignmentExpression : UnwrapExpression AssignmentOperator UnwrapExpression | UnwrapExpression
 */
 static AstNode *ast_parse_ass_expr(ParseContext *pc, int *token_index, bool mandatory) {
-    AstNode *lhs = ast_parse_unwrap_maybe_expr(pc, token_index, mandatory);
+    AstNode *lhs = ast_parse_unwrap_expr(pc, token_index, mandatory);
     if (!lhs)
         return nullptr;
 
@@ -2494,7 +2521,7 @@ static AstNode *ast_parse_ass_expr(ParseContext *pc, int *token_index, bool mand
     if (ass_op == BinOpTypeInvalid)
         return lhs;
 
-    AstNode *rhs = ast_parse_unwrap_maybe_expr(pc, token_index, true);
+    AstNode *rhs = ast_parse_unwrap_expr(pc, token_index, true);
 
     AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
     node->data.bin_op_expr.op1 = lhs;
@@ -2646,7 +2673,7 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
 }
 
 /*
-FnProto : many(Directive) option(FnVisibleMod) token(Fn) token(Symbol) ParamDeclList option(UnwrapMaybeExpression)
+FnProto : many(Directive) option(FnVisibleMod) "fn" "Symbol" ParamDeclList option(PrefixOpExpression)
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -3163,6 +3190,11 @@ void normalize_parent_ptrs(AstNode *node) {
         case NodeTypeBinOpExpr:
             set_field(&node->data.bin_op_expr.op1);
             set_field(&node->data.bin_op_expr.op2);
+            break;
+        case NodeTypeUnwrapErrorExpr:
+            set_field(&node->data.unwrap_err_expr.op1);
+            set_field(&node->data.unwrap_err_expr.symbol);
+            set_field(&node->data.unwrap_err_expr.op2);
             break;
         case NodeTypeNumberLiteral:
             // none

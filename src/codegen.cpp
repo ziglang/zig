@@ -1255,6 +1255,78 @@ static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
     zig_unreachable();
 }
 
+static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeUnwrapErrorExpr);
+
+    AstNode *op1 = node->data.unwrap_err_expr.op1;
+    AstNode *op2 = node->data.unwrap_err_expr.op2;
+    VariableTableEntry *var = node->data.unwrap_err_expr.var;
+
+    LLVMValueRef expr_val = gen_expr(g, op1);
+    TypeTableEntry *expr_type = get_expr_type(op1);
+    TypeTableEntry *op2_type = get_expr_type(op2);
+    assert(expr_type->id == TypeTableEntryIdErrorUnion);
+    TypeTableEntry *child_type = expr_type->data.error.child_type;
+    LLVMValueRef err_val;
+    add_debug_source_node(g, node);
+    if (handle_is_ptr(expr_type)) {
+        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 0, "");
+        err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
+    } else {
+        err_val = expr_val;
+    }
+    LLVMValueRef zero = LLVMConstNull(g->err_tag_type->type_ref);
+    LLVMValueRef cond_val = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, zero, "");
+
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "UnwrapErrOk");
+    LLVMBasicBlockRef err_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "UnwrapErrError");
+    LLVMBasicBlockRef end_block;
+    bool err_reachable = op2_type->id != TypeTableEntryIdUnreachable;
+    bool have_end_block = err_reachable && (child_type->size_in_bits > 0);
+    if (have_end_block) {
+        end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "UnwrapErrEnd");
+    }
+
+    LLVMBuildCondBr(g->builder, cond_val, ok_block, err_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, err_block);
+    if (var) {
+        LLVMBuildStore(g->builder, err_val, var->value_ref);
+    }
+    LLVMValueRef err_result = gen_expr(g, op2);
+    add_debug_source_node(g, node);
+    if (have_end_block) {
+        LLVMBuildBr(g->builder, end_block);
+    } else if (err_reachable) {
+        LLVMBuildBr(g->builder, ok_block);
+    }
+
+    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    if (child_type->size_in_bits == 0) {
+        return nullptr;
+    }
+    LLVMValueRef child_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 1, "");
+    LLVMValueRef child_val;
+    if (handle_is_ptr(child_type)) {
+        child_val = child_val_ptr;
+    } else {
+        child_val = LLVMBuildLoad(g->builder, child_val_ptr, "");
+    }
+
+    if (!have_end_block) {
+        return child_val;
+    }
+
+    LLVMBuildBr(g->builder, end_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, end_block);
+    LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(err_result), "");
+    LLVMValueRef incoming_values[2] = {child_val, err_result};
+    LLVMBasicBlockRef incoming_blocks[2] = {ok_block, err_block};
+    LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
+    return phi;
+}
+
 static LLVMValueRef gen_return(CodeGen *g, AstNode *source_node, LLVMValueRef value) {
     TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.src_return_type;
     if (handle_is_ptr(return_type)) {
@@ -2047,6 +2119,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
     switch (node->type) {
         case NodeTypeBinOpExpr:
             return gen_bin_op_expr(g, node);
+        case NodeTypeUnwrapErrorExpr:
+            return gen_unwrap_err_expr(g, node);
         case NodeTypeReturnExpr:
             return gen_return_expr(g, node);
         case NodeTypeVariableDeclaration:

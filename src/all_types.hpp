@@ -130,6 +130,7 @@ enum NodeType {
     NodeTypeVariableDeclaration,
     NodeTypeErrorValueDecl,
     NodeTypeBinOpExpr,
+    NodeTypeUnwrapErrorExpr,
     NodeTypeNumberLiteral,
     NodeTypeStringLiteral,
     NodeTypeCharLiteral,
@@ -308,6 +309,16 @@ struct AstNodeBinOpExpr {
     // for when op is BinOpTypeAssign
     VariableTableEntry *var_entry;
     Expr resolved_expr;
+};
+
+struct AstNodeUnwrapErrorExpr {
+    AstNode *op1;
+    AstNode *symbol; // can be null
+    AstNode *op2;
+
+    // populated by semantic analyzer:
+    Expr resolved_expr;
+    VariableTableEntry *var;
 };
 
 enum CastOp {
@@ -684,6 +695,7 @@ struct AstNode {
         AstNodeVariableDeclaration variable_declaration;
         AstNodeErrorValueDecl error_value_decl;
         AstNodeBinOpExpr bin_op_expr;
+        AstNodeUnwrapErrorExpr unwrap_err_expr;
         AstNodeExternBlock extern_block;
         AstNodeDirective directive;
         AstNodePrefixOpExpr prefix_op_expr;

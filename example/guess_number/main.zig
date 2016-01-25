@@ -8,7 +8,7 @@ pub fn main(args: [][]u8) %void => {
 
     var seed : u32;
     const seed_bytes = (&u8)(&seed)[0...4];
-    os_get_random_bytes(seed_bytes);
+    os_get_random_bytes(seed_bytes) %% unreachable{};
 
     var rand = rand_new(seed);
 
@@ -18,13 +18,16 @@ pub fn main(args: [][]u8) %void => {
         stderr.print_str("\nGuess a number between 1 and 100: ");
         var line_buf : [20]u8;
 
-        // TODO print error message instead of returning
-        const line_len = %return stdin.readline(line_buf);
+        const line_len = stdin.read(line_buf) %% |err| {
+            stderr.print_str("Unable to read from stdin.\n");
+            return err;
+        };
 
-        var guess : u64;
-        if (parse_u64(line_buf[0...line_len - 1], 10, &guess)) {
-            stderr.print_str("Invalid number format.\n");
-        } else if (guess > answer) {
+        const guess = parse_u64(line_buf[0...line_len - 1], 10) %% {
+            stderr.print_str("Invalid number.\n");
+            continue;
+        };
+        if (guess > answer) {
             stderr.print_str("Guess lower.\n");
         } else if (guess < answer) {
             stderr.print_str("Guess higher.\n");

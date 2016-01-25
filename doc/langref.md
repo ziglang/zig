@@ -59,9 +59,13 @@ AsmInputItem : "[" "Symbol" "]" "String" "(" Expression ")"
 
 AsmClobbers: ":" list("String", ",")
 
-UnwrapMaybeExpression : BoolOrExpression "??" BoolOrExpression | BoolOrExpression
+UnwrapExpression : BoolOrExpression (UnwrapMaybe | UnwrapError) | BoolOrExpression
 
-AssignmentExpression : UnwrapMaybeExpression AssignmentOperator UnwrapMaybeExpression | UnwrapMaybeExpression
+UnwrapMaybe : "??" BoolOrExpression
+
+UnwrapError : "%%" option("|" "Symbol" "|") BoolOrExpression
+
+AssignmentExpression : UnwrapExpression AssignmentOperator UnwrapExpression | UnwrapExpression
 
 AssignmentOperator : "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||="
 
@@ -161,7 +165,7 @@ x{}
 == != < > <= >=
 &&
 ||
-??
+?? %%
 = *= /= %= += -= <<= >>= &= ^= |= &&= ||=
 ```
 

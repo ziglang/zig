@@ -4,9 +4,7 @@ import "std.zig";
 
 // Things to do to make this work:
 // * var args printing
-// * update std API
 // * defer
-// * %return
 // * %% binary operator
 // * %% prefix operator
 // * cast err type to string

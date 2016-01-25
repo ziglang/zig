@@ -87,6 +87,7 @@ enum TokenId {
     TokenIdBitShiftRight,
     TokenIdSlash,
     TokenIdPercent,
+    TokenIdPercentPercent,
     TokenIdDot,
     TokenIdEllipsis,
     TokenIdMaybe,

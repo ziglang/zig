@@ -28,6 +28,8 @@ static AstNode *first_executing_node(AstNode *node) {
             return first_executing_node(node->data.fn_call_expr.fn_ref_expr);
         case NodeTypeBinOpExpr:
             return first_executing_node(node->data.bin_op_expr.op1);
+        case NodeTypeUnwrapErrorExpr:
+            return first_executing_node(node->data.unwrap_err_expr.op1);
         case NodeTypeArrayAccessExpr:
             return first_executing_node(node->data.array_access_expr.array_ref_expr);
         case NodeTypeSliceExpr:
@@ -1076,6 +1078,7 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
+        case NodeTypeUnwrapErrorExpr:
         case NodeTypeFnCallExpr:
         case NodeTypeArrayAccessExpr:
         case NodeTypeSliceExpr:
@@ -2502,6 +2505,38 @@ static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, Block
     return variable_entry;
 }
 
+static TypeTableEntry *analyze_unwrap_error_expr(CodeGen *g, ImportTableEntry *import,
+        BlockContext *parent_context, TypeTableEntry *expected_type, AstNode *node)
+{
+    AstNode *op1 = node->data.unwrap_err_expr.op1;
+    AstNode *op2 = node->data.unwrap_err_expr.op2;
+    AstNode *var_node = node->data.unwrap_err_expr.symbol;
+
+    TypeTableEntry *lhs_type = analyze_expression(g, import, parent_context, nullptr, op1);
+    if (lhs_type->id == TypeTableEntryIdInvalid) {
+        return lhs_type;
+    } else if (lhs_type->id == TypeTableEntryIdErrorUnion) {
+        TypeTableEntry *child_type = lhs_type->data.error.child_type;
+        BlockContext *child_context;
+        if (var_node) {
+            child_context = new_block_context(node, parent_context);
+            Buf *var_name = &var_node->data.symbol_expr.symbol;
+            node->data.unwrap_err_expr.var = add_local_var(g, var_node, child_context, var_name,
+                    g->builtin_types.entry_pure_error, true);
+        } else {
+            child_context = parent_context;
+        }
+
+        analyze_expression(g, import, child_context, child_type, op2);
+        return child_type;
+    } else {
+        add_node_error(g, op1,
+            buf_sprintf("expected error type, got '%s'", buf_ptr(&lhs_type->name)));
+        return g->builtin_types.entry_invalid;
+    }
+}
+
+
 static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, AstNode *source_node,
         AstNodeVariableDeclaration *variable_declaration,
@@ -3845,7 +3880,9 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeBinOpExpr:
             return_type = analyze_bin_op_expr(g, import, context, expected_type, node);
             break;
-
+        case NodeTypeUnwrapErrorExpr:
+            return_type = analyze_unwrap_error_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeFnCallExpr:
             return_type = analyze_fn_call_expr(g, import, context, expected_type, node);
             break;
@@ -4035,6 +4072,7 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
+        case NodeTypeUnwrapErrorExpr:
         case NodeTypeFnCallExpr:
         case NodeTypeArrayAccessExpr:
         case NodeTypeSliceExpr:
@@ -4100,6 +4138,10 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeBinOpExpr:
             collect_expr_decl_deps(g, import, node->data.bin_op_expr.op1, decl_node);
             collect_expr_decl_deps(g, import, node->data.bin_op_expr.op2, decl_node);
+            break;
+        case NodeTypeUnwrapErrorExpr:
+            collect_expr_decl_deps(g, import, node->data.unwrap_err_expr.op1, decl_node);
+            collect_expr_decl_deps(g, import, node->data.unwrap_err_expr.op2, decl_node);
             break;
         case NodeTypeReturnExpr:
             collect_expr_decl_deps(g, import, node->data.return_expr.expr, decl_node);
@@ -4388,6 +4430,7 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
+        case NodeTypeUnwrapErrorExpr:
         case NodeTypeFnCallExpr:
         case NodeTypeArrayAccessExpr:
         case NodeTypeSliceExpr:
@@ -4582,6 +4625,8 @@ Expr *get_resolved_expr(AstNode *node) {
             return &node->data.return_expr.resolved_expr;
         case NodeTypeBinOpExpr:
             return &node->data.bin_op_expr.resolved_expr;
+        case NodeTypeUnwrapErrorExpr:
+            return &node->data.unwrap_err_expr.resolved_expr;
         case NodeTypePrefixOpExpr:
             return &node->data.prefix_op_expr.resolved_expr;
         case NodeTypeFnCallExpr:
@@ -4669,6 +4714,7 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
         case NodeTypeNumberLiteral:
         case NodeTypeReturnExpr:
         case NodeTypeBinOpExpr:
+        case NodeTypeUnwrapErrorExpr:
         case NodeTypePrefixOpExpr:
         case NodeTypeFnCallExpr:
         case NodeTypeArrayAccessExpr:
@@ -4747,10 +4793,30 @@ TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, int size_in_bits) {
 }
 
 bool handle_is_ptr(TypeTableEntry *type_entry) {
-    return type_entry->id == TypeTableEntryIdStruct ||
-            (type_entry->id == TypeTableEntryIdEnum && type_entry->data.enumeration.gen_field_count != 0) ||
-            type_entry->id == TypeTableEntryIdMaybe ||
-            type_entry->id == TypeTableEntryIdArray ||
-            (type_entry->id == TypeTableEntryIdErrorUnion && type_entry->data.error.child_type->size_in_bits > 0);
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+             zig_unreachable();
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdFn:
+             return false;
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdMaybe:
+             return true;
+        case TypeTableEntryIdErrorUnion:
+             return type_entry->data.error.child_type->size_in_bits > 0;
+        case TypeTableEntryIdEnum:
+             return type_entry->data.enumeration.gen_field_count != 0;
+    }
+    zig_unreachable();
 }
-

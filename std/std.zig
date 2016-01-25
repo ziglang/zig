@@ -130,7 +130,7 @@ pub struct OutStream {
 pub struct InStream {
     fd: isize,
 
-    pub fn readline(is: &InStream, buf: []u8) %isize => {
+    pub fn read(is: &InStream, buf: []u8) %isize => {
         const amt_read = read(is.fd, buf.ptr, buf.len);
         if (amt_read < 0) {
             return switch (-amt_read) {
@@ -144,7 +144,6 @@ pub struct InStream {
         }
         return amt_read;
     }
-
 }
 
 pub fn os_get_random_bytes(buf: []u8) %void => {
@@ -160,30 +159,31 @@ pub fn os_get_random_bytes(buf: []u8) %void => {
 }
 
 
-// TODO return %u64 when we support errors
-pub fn parse_u64(buf: []u8, radix: u8, result: &u64) bool => {
+pub error InvalidChar;
+pub error Overflow;
+
+pub fn parse_u64(buf: []u8, radix: u8) %u64 => {
     var x : u64 = 0;
 
     for (c, buf) {
         const digit = char_to_digit(c);
 
         if (digit > radix) {
-            return true;
+            return error.InvalidChar;
         }
 
         // x *= radix
         if (@mul_with_overflow(u64, x, radix, &x)) {
-            return true;
+            return error.Overflow;
         }
 
         // x += digit
         if (@add_with_overflow(u64, x, digit, &x)) {
-            return true;
+            return error.Overflow;
         }
     }
 
-    *result = x;
-    return false;
+    return x;
 }
 
 fn char_to_digit(c: u8) u8 => {
