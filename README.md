@@ -22,35 +22,32 @@ compromises backward compatibility.
    always compiled against statically in source form.
  * Generics so that one can write efficient data structures that work for any
    data type.
- * Ability to run arbitrary code at compile time and generate code.
  * No null pointer. Convenient syntax for dealing with a maybe type so that
    null pointer is not missed.
- * A type which represents an error and has some convenience syntax with
-   regards to resources.
- * Defer statement.
+ * An error type, combined with some syntatical constructs which makes writing
+   robust code convenient and straightforward.
  * Eliminate the need for configure, make, cmake, etc.
  * Eliminate the need for header files (when using zig internally).
- * Tagged union enum type.
- * Resilient to parsing errors to make IDE integration work well.
- * Eliminate the preprocessor, but have a plan for how to do things you would
-   want to use the preprocessor for such as conditional compilation.
+ * Tagged union enum type. No more accidentally reading the wrong union field.
+ * Easy to parse language so that humans and machines have no trouble with the
+   syntax.
+ * Eliminate the preprocessor, but (most) everything you can accomplish with
+   the preprocessor, you can accomplish directly in the language.
  * Ability to mark functions as test and automatically run them in test mode.
-   This mode should automatically provide test coverage.
+   Automatically provide test coverage.
  * Friendly toward package maintainers.
  * Ability to declare dependencies as Git URLS with commit locking (can
    provide a tag or sha1).
  * Include documentation generator.
  * Shebang line OK so language can be used for "scripting" as well.
- * Have the compiler run continuously, watching the file system for source
-   changes and automatically perform multithreaded compilation to build projects
-   quickly.
- * Hot code swapping. When integrated with the previous feature, you could
-   press "save" in your editor and see the change immediately in your running
-   software.
+ * Debug mode optimizes for fast compilation time and crashing when undefined
+   behavior *would* happen.
+ * Release mode produces heavily optimized code. What other projects call
+   "Link Time Optimization" Zig does automatically.
 
 ### Current Status
 
- * Have a look in the examples/ folder to see some code examples.
+ * Have a look in the example/ folder to see some code examples.
  * Basic language features available such as loops, inline assembly,
    expressions, literals, functions, importing, structs, tagged unions.
  * Linux x86_64 is supported.
