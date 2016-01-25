@@ -1266,17 +1266,34 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                 assert(value_type->id == TypeTableEntryIdErrorUnion);
                 TypeTableEntry *child_type = value_type->data.error.child_type;
 
-                LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ErrReturnYes");
-                LLVMBasicBlockRef continue_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ErrReturnNo");
+                LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ErrRetReturn");
+                LLVMBasicBlockRef continue_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ErrRetContinue");
+
+                add_debug_source_node(g, node);
+                LLVMValueRef err_val;
+                if (child_type->size_in_bits > 0) {
+                    LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, value, 0, "");
+                    err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
+                } else {
+                    err_val = value;
+                }
+                LLVMValueRef zero = LLVMConstNull(g->err_tag_type->type_ref);
+                LLVMValueRef cond_val = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, zero, "");
+                LLVMBuildCondBr(g->builder, cond_val, continue_block, return_block);
 
                 LLVMPositionBuilderAtEnd(g->builder, return_block);
-                if (child_type->size_in_bits > 0) {
-                    zig_panic("TODO write the error tag value to sret");
+                TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.src_return_type;
+                if (return_type->id == TypeTableEntryIdPureError) {
+                    gen_return(g, node, err_val);
+                } else if (return_type->id == TypeTableEntryIdErrorUnion) {
+                    assert(g->cur_ret_ptr);
+
                     add_debug_source_node(g, node);
+                    LLVMValueRef tag_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, 0, "");
+                    LLVMBuildStore(g->builder, err_val, tag_ptr);
                     LLVMBuildRetVoid(g->builder);
                 } else {
-                    add_debug_source_node(g, node);
-                    LLVMBuildRet(g->builder, value);
+                    zig_unreachable();
                 }
 
                 LLVMPositionBuilderAtEnd(g->builder, continue_block);
