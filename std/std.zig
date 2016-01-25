@@ -5,7 +5,6 @@ pub const stdin_fileno = 0;
 pub const stdout_fileno = 1;
 pub const stderr_fileno = 2;
 
-/*
 pub var stdin = InStream {
     .fd = stdin_fileno,
 };
@@ -23,9 +22,16 @@ pub var stderr = OutStream {
     .index = 0,
     .buffered = false,
 };
-*/
 
+/// The function received invalid input at runtime. An Invalid error means a
+/// bug in the program that called the function.
+pub error Invalid;
+
+/// When an Unexpected error occurs, code that emitted the error likely needs
+/// a patch to recognize the unexpected case so that it can handle it and emit
+/// a more specific error.
 pub error Unexpected;
+
 pub error DiskQuota;
 pub error FileTooBig;
 pub error SigInterrupt;
@@ -33,26 +39,25 @@ pub error Io;
 pub error NoSpaceLeft;
 pub error BadPerm;
 pub error PipeFail;
-pub error Invalid;
+pub error BadFd;
 
 const buffer_size = 4 * 1024;
 const max_u64_base10_digits = 20;
 
-/*
 pub struct OutStream {
     fd: isize,
     buffer: [buffer_size]u8,
-    index: @typeof(buffer_size),
+    index: isize,
     buffered: bool,
 
     pub fn print_str(os: &OutStream, str: []const u8) %isize => {
         var src_bytes_left = str.len;
         var src_index: @typeof(str.len) = 0;
-        const dest_space_left = os.buffer.len - index;
+        const dest_space_left = os.buffer.len - os.index;
 
         while (src_bytes_left > 0) {
             const copy_amt = min_isize(dest_space_left, src_bytes_left);
-            @memcpy(&buffer[os.index], &str[src_index], copy_amt);
+            @memcpy(&os.buffer[os.index], &str[src_index], copy_amt);
             os.index += copy_amt;
             if (os.index == os.buffer.len) {
                 %return os.flush();
@@ -65,11 +70,19 @@ pub struct OutStream {
         return str.len;
     }
 
+    /// Prints a byte buffer, flushes the buffer, then returns the number of
+    /// bytes printed. The "f" is for "flush".
+    pub fn printf(os: &OutStream, str: []const u8) %isize => {
+        const byte_count = %return os.print_str(str);
+        %return os.flush();
+        return byte_count;
+    }
+
     pub fn print_u64(os: &OutStream, x: u64) %isize => {
         if (os.index + max_u64_base10_digits >= os.buffer.len) {
             %return os.flush();
         }
-        const amt_printed = buf_print_u64(buf[os.index...], x);
+        const amt_printed = buf_print_u64(os.buffer[os.index...], x);
         os.index += amt_printed;
 
         if (!os.buffered) {
@@ -84,7 +97,7 @@ pub struct OutStream {
         if (os.index + max_u64_base10_digits >= os.buffer.len) {
             %return os.flush();
         }
-        const amt_printed = buf_print_i64(buf[os.index...], x);
+        const amt_printed = buf_print_i64(os.buffer[os.index...], x);
         os.index += amt_printed;
 
         if (!os.buffered) {
@@ -96,18 +109,20 @@ pub struct OutStream {
 
 
     pub fn flush(os: &OutStream) %void => {
-        const amt_to_write = os.index;
+        const amt_written = write(os.fd, os.buffer.ptr, os.index);
         os.index = 0;
-        switch (write(os.fd, os.buffer.ptr, amt_to_write)) {
-            EINVAL => unreachable{},
-            EDQUOT => error.DiskQuota,
-            EFBIG  => error.FileTooBig,
-            EINTR  => error.SigInterrupt,
-            EIO    => error.Io,
-            ENOSPC => error.NoSpaceLeft,
-            EPERM  => error.BadPerm,
-            EPIPE  => error.PipeFail,
-            else   => error.Unexpected,
+        if (amt_written < 0) {
+            return switch (-amt_written) {
+                EINVAL => unreachable{},
+                EDQUOT => error.DiskQuota,
+                EFBIG  => error.FileTooBig,
+                EINTR  => error.SigInterrupt,
+                EIO    => error.Io,
+                ENOSPC => error.NoSpaceLeft,
+                EPERM  => error.BadPerm,
+                EPIPE  => error.PipeFail,
+                else   => error.Unexpected,
+            }
         }
     }
 }
@@ -115,10 +130,10 @@ pub struct OutStream {
 pub struct InStream {
     fd: isize,
 
-    pub fn readline(buf: []u8) %isize => {
-        const amt_read = read(stdin_fileno, buf.ptr, buf.len);
+    pub fn readline(is: &InStream, buf: []u8) %isize => {
+        const amt_read = read(is.fd, buf.ptr, buf.len);
         if (amt_read < 0) {
-            switch (-amt_read) {
+            return switch (-amt_read) {
                 EINVAL => unreachable{},
                 EFAULT => unreachable{},
                 EBADF  => error.BadFd,
@@ -133,53 +148,15 @@ pub struct InStream {
 }
 
 pub fn os_get_random_bytes(buf: []u8) %void => {
-    switch (getrandom(buf.ptr, buf.len, 0)) {
-        EINVAL => unreachable{},
-        EFAULT => unreachable{},
-        EINTR  => error.SigInterrupt,
-        else   => error.Unexpected,
+    const amt_got = getrandom(buf.ptr, buf.len, 0);
+    if (amt_got < 0) {
+        return switch (-amt_got) {
+            EINVAL => unreachable{},
+            EFAULT => unreachable{},
+            EINTR  => error.SigInterrupt,
+            else   => error.Unexpected,
+        }
     }
-}
-*/
-
-
-// TODO remove this
-pub fn print_str(str: []const u8) isize => {
-    fprint_str(stdout_fileno, str)
-}
-
-// TODO remove this
-pub fn fprint_str(fd: isize, str: []const u8) isize => {
-    write(fd, str.ptr, str.len)
-}
-
-// TODO remove this
-pub fn os_get_random_bytes(buf: []u8) isize => {
-    getrandom(buf.ptr, buf.len, 0)
-}
-
-// TODO remove this
-pub fn print_u64(x: u64) isize => {
-    var buf: [max_u64_base10_digits]u8;
-    const len = buf_print_u64(buf, x);
-    return write(stdout_fileno, buf.ptr, len);
-}
-
-// TODO remove this
-pub fn print_i64(x: i64) isize => {
-    var buf: [max_u64_base10_digits]u8;
-    const len = buf_print_i64(buf, x);
-    return write(stdout_fileno, buf.ptr, len);
-}
-
-// TODO remove this
-pub fn readline(buf: []u8, out_len: &isize) bool => {
-    const amt_read = read(stdin_fileno, buf.ptr, buf.len);
-    if (amt_read < 0) {
-        return true;
-    }
-    *out_len = isize(amt_read);
-    return false;
 }
 
 
@@ -250,4 +227,8 @@ fn buf_print_u64(out_buf: []u8, x: u64) isize => {
     @memcpy(&out_buf[0], &buf[index], len);
 
     return len;
+}
+
+fn min_isize(x: isize, y: isize) isize => {
+    if (x < y) x else y
 }

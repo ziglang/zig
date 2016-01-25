@@ -1,7 +1,7 @@
-const SYS_read : isize = 0;
-const SYS_write : isize = 1;
-const SYS_exit : isize = 60;
-const SYS_getrandom : isize = 318;
+const SYS_read      = 0;
+const SYS_write     = 1;
+const SYS_exit      = 60;
+const SYS_getrandom = 318;
 
 fn syscall1(number: isize, arg1: isize) isize => {
     asm volatile ("syscall"
@@ -18,11 +18,11 @@ fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) isize => {
 }
 
 pub fn read(fd: isize, buf: &u8, count: isize) isize => {
-    isize(syscall3(SYS_read, isize(fd), isize(buf), count))
+    syscall3(SYS_read, isize(fd), isize(buf), count)
 }
 
 pub fn write(fd: isize, buf: &const u8, count: isize) isize => {
-    isize(syscall3(SYS_write, isize(fd), isize(buf), count))
+    syscall3(SYS_write, isize(fd), isize(buf), count)
 }
 
 pub fn exit(status: i32) unreachable => {
@@ -31,5 +31,5 @@ pub fn exit(status: i32) unreachable => {
 }
 
 pub fn getrandom(buf: &u8, count: isize, flags: u32) isize => {
-    isize(syscall3(SYS_getrandom, isize(buf), count, isize(flags)))
+    syscall3(SYS_getrandom, isize(buf), count, isize(flags))
 }

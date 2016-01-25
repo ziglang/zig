@@ -325,11 +325,28 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
                 return cast_expr->tmp_ptr;
             }
         case CastOpErrorWrap:
-            assert(wanted_type->id == TypeTableEntryIdErrorUnion);
-            if (wanted_type->data.error.child_type->size_in_bits == 0) {
-                return LLVMConstNull(g->err_tag_type->type_ref);
-            } else {
-                zig_panic("TODO");
+            {
+                assert(wanted_type->id == TypeTableEntryIdErrorUnion);
+                TypeTableEntry *child_type = wanted_type->data.error.child_type;
+                LLVMValueRef ok_err_val = LLVMConstNull(g->err_tag_type->type_ref);
+
+                if (child_type->size_in_bits == 0) {
+                    return ok_err_val;
+                } else {
+                    assert(cast_expr->tmp_ptr);
+                    assert(wanted_type->id == TypeTableEntryIdErrorUnion);
+                    assert(actual_type);
+
+                    add_debug_source_node(g, node);
+                    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 0, "");
+                    LLVMBuildStore(g->builder, ok_err_val, err_tag_ptr);
+
+                    LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 1, "");
+                    gen_assign_raw(g, node, BinOpTypeAssign,
+                            payload_ptr, expr_val, child_type, actual_type);
+
+                    return cast_expr->tmp_ptr;
+                }
             }
         case CastOpPureErrorWrap:
             assert(wanted_type->id == TypeTableEntryIdErrorUnion);
@@ -1286,12 +1303,16 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                 if (return_type->id == TypeTableEntryIdPureError) {
                     gen_return(g, node, err_val);
                 } else if (return_type->id == TypeTableEntryIdErrorUnion) {
-                    assert(g->cur_ret_ptr);
+                    if (return_type->data.error.child_type->size_in_bits > 0) {
+                        assert(g->cur_ret_ptr);
 
-                    add_debug_source_node(g, node);
-                    LLVMValueRef tag_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, 0, "");
-                    LLVMBuildStore(g->builder, err_val, tag_ptr);
-                    LLVMBuildRetVoid(g->builder);
+                        add_debug_source_node(g, node);
+                        LLVMValueRef tag_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, 0, "");
+                        LLVMBuildStore(g->builder, err_val, tag_ptr);
+                        LLVMBuildRetVoid(g->builder);
+                    } else {
+                        gen_return(g, node, err_val);
+                    }
                 } else {
                     zig_unreachable();
                 }
@@ -2011,7 +2032,7 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
     LLVMPositionBuilderAtEnd(g->builder, end_block);
 
     add_debug_source_node(g, node);
-    LLVMValueRef phi = LLVMBuildPhi(g->builder, get_expr_type(node)->type_ref, "");
+    LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(incoming_values.at(0)), "");
     LLVMAddIncoming(phi, incoming_values.items, incoming_blocks.items, incoming_values.length);
 
     return phi;

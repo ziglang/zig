@@ -121,7 +121,7 @@ pub fn main(args: [][]u8) %void => {
 }
 
 fn this_is_a_function() unreachable => {
-    print_str("OK\n");
+    stdout.printf("OK\n");
     exit(0);
 }
     )SOURCE", "OK\n");
@@ -137,7 +137,7 @@ fn another_function() => {}
 /// this is a documentation comment
 /// doc comment line 2
 pub fn main(args: [][]u8) %void => {
-    print_str(/* mid-line comment /* nested */ */ "OK\n");
+    stdout.printf(/* mid-line comment /* nested */ */ "OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -148,7 +148,7 @@ import "foo.zig";
 
 pub fn main(args: [][]u8) %void => {
     private_function();
-    print_str("OK 2\n");
+    stdout.printf("OK 2\n");
 }
 
 fn private_function() => {
@@ -162,7 +162,7 @@ import "std.zig";
 // purposefully conflicting function with main.zig
 // but it's private so it should be OK
 fn private_function() => {
-    print_str("OK 1\n");
+    stdout.printf("OK 1\n");
 }
 
 pub fn print_text() => {
@@ -185,7 +185,7 @@ pub fn main(args: [][]u8) %void => {
         add_source_file(tc, "foo.zig", R"SOURCE(
 import "std.zig";
 pub fn foo_function() => {
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
         )SOURCE");
 
@@ -195,7 +195,7 @@ import "std.zig";
 
 pub fn bar_function() => {
     if (foo_function()) {
-        print_str("OK\n");
+        stdout.printf("OK\n");
     }
 }
         )SOURCE");
@@ -213,17 +213,17 @@ import "std.zig";
 
 pub fn main(args: [][]u8) %void => {
     if (1 != 0) {
-        print_str("1 is true\n");
+        stdout.printf("1 is true\n");
     } else {
-        print_str("1 is false\n");
+        stdout.printf("1 is false\n");
     }
     if (0 != 0) {
-        print_str("0 is true\n");
+        stdout.printf("0 is true\n");
     } else if (1 - 1 != 0) {
-        print_str("1 - 1 is true\n");
+        stdout.printf("1 - 1 is true\n");
     }
     if (!(0 != 0)) {
-        print_str("!0 is true\n");
+        stdout.printf("!0 is true\n");
     }
 }
     )SOURCE", "1 is true\n!0 is true\n");
@@ -237,7 +237,7 @@ fn add(a: i32, b: i32) i32 => {
 
 pub fn main(args: [][]u8) %void => {
     if (add(22, 11) == 33) {
-        print_str("pass\n");
+        stdout.printf("pass\n");
     }
 }
     )SOURCE", "pass\n");
@@ -249,7 +249,7 @@ fn loop(a : i32) => {
     if (a == 0) {
         goto done;
     }
-    print_str("loop\n");
+    stdout.printf("loop\n");
     loop(a - 1);
 
 done:
@@ -268,7 +268,7 @@ pub fn main(args: [][]u8) %void => {
     const a : i32 = 1;
     const b = i32(2);
     if (a + b == 3) {
-        print_str("OK\n");
+        stdout.printf("OK\n");
     }
 }
     )SOURCE", "OK\n");
@@ -277,10 +277,10 @@ pub fn main(args: [][]u8) %void => {
 import "std.zig";
 
 pub fn main(args: [][]u8) %void => {
-    if (true)   { print_str("OK 1\n"); }
-    if (false)  { print_str("BAD 1\n"); }
-    if (!true)  { print_str("BAD 2\n"); }
-    if (!false) { print_str("OK 2\n"); }
+    if (true)   { stdout.printf("OK 1\n"); }
+    if (false)  { stdout.printf("BAD 1\n"); }
+    if (!true)  { stdout.printf("BAD 2\n"); }
+    if (!false) { stdout.printf("OK 2\n"); }
 }
     )SOURCE", "OK 1\nOK 2\n");
 
@@ -290,14 +290,14 @@ import "std.zig";
 pub fn main(args: [][]u8) %void => {
     if (true) {
         const no_conflict : i32 = 5;
-        if (no_conflict == 5) { print_str("OK 1\n"); }
+        if (no_conflict == 5) { stdout.printf("OK 1\n"); }
     }
 
     const c = {
         const no_conflict = i32(10);
         no_conflict
     };
-    if (c == 10) { print_str("OK 2\n"); }
+    if (c == 10) { stdout.printf("OK 2\n"); }
 }
     )SOURCE", "OK 1\nOK 2\n");
 
@@ -311,7 +311,7 @@ pub fn main(args: [][]u8) %void => {
 fn void_fun(a : i32, b : void, c : i32) => {
     const v = b;
     const vv : void = if (a == 1) {v} else {};
-    if (a + c == 3) { print_str("OK\n"); }
+    if (a + c == 3) { stdout.printf("OK\n"); }
     return vv;
 }
     )SOURCE", "OK\n");
@@ -330,12 +330,12 @@ pub fn main(args: [][]u8) %void => {
         .c = void{},
     };
     if (foo.b != 1) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
     if (@sizeof(Foo) != 4) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
 
     )SOURCE", "OK\n");
@@ -348,12 +348,12 @@ pub fn main(args: [][]u8) %void => {
     array[0] = void{};
     array[1] = array[2];
     if (@sizeof(@typeof(array)) != 0) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
     if (array.len != 4) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -363,11 +363,11 @@ import "std.zig";
 
 pub fn main(args: [][]u8) %void => {
     var zero : i32 = 0;
-    if (zero == 0) { print_str("zero\n"); }
+    if (zero == 0) { stdout.printf("zero\n"); }
 
     var i = i32(0);
     while (i != 3) {
-        print_str("loop\n");
+        stdout.printf("loop\n");
         i += 1;
     }
 }
@@ -394,11 +394,11 @@ pub fn main(args: [][]u8) %void => {
     }
 
     if (accumulator == 15) {
-        print_str("OK\n");
+        stdout.printf("OK\n");
     }
 
     if (get_array_len(array) != 5) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 }
 fn get_array_len(a: []i32) isize => {
@@ -411,7 +411,7 @@ fn get_array_len(a: []i32) isize => {
 import "std.zig";
 
 pub fn main(args: [][]u8) %void => {
-    print_str("Hello, world!\n");
+    stdout.printf("Hello, world!\n");
 }
     )SOURCE", "Hello, world!\n");
 
@@ -420,20 +420,20 @@ pub fn main(args: [][]u8) %void => {
 import "std.zig";
 
 pub fn main(args: [][]u8) %void => {
-    if (false || false || false) { print_str("BAD 1\n"); }
-    if (true && true && false)   { print_str("BAD 2\n"); }
-    if (1 | 2 | 4 != 7)          { print_str("BAD 3\n"); }
-    if (3 ^ 6 ^ 8 != 13)         { print_str("BAD 4\n"); }
-    if (7 & 14 & 28 != 4)        { print_str("BAD 5\n"); }
-    if (9  << 1 << 2 != 9  << 3) { print_str("BAD 6\n"); }
-    if (90 >> 1 >> 2 != 90 >> 3) { print_str("BAD 7\n"); }
-    if (100 - 1 + 1000 != 1099)  { print_str("BAD 8\n"); }
-    if (5 * 4 / 2 % 3 != 1)      { print_str("BAD 9\n"); }
-    if (i32(i32(5)) != 5)        { print_str("BAD 10\n"); }
-    if (!!false)                 { print_str("BAD 11\n"); }
-    if (i32(7) != --(i32(7)))    { print_str("BAD 12\n"); }
+    if (false || false || false) { stdout.printf("BAD 1\n"); }
+    if (true && true && false)   { stdout.printf("BAD 2\n"); }
+    if (1 | 2 | 4 != 7)          { stdout.printf("BAD 3\n"); }
+    if (3 ^ 6 ^ 8 != 13)         { stdout.printf("BAD 4\n"); }
+    if (7 & 14 & 28 != 4)        { stdout.printf("BAD 5\n"); }
+    if (9  << 1 << 2 != 9  << 3) { stdout.printf("BAD 6\n"); }
+    if (90 >> 1 >> 2 != 90 >> 3) { stdout.printf("BAD 7\n"); }
+    if (100 - 1 + 1000 != 1099)  { stdout.printf("BAD 8\n"); }
+    if (5 * 4 / 2 % 3 != 1)      { stdout.printf("BAD 9\n"); }
+    if (i32(i32(5)) != 5)        { stdout.printf("BAD 10\n"); }
+    if (!!false)                 { stdout.printf("BAD 11\n"); }
+    if (i32(7) != --(i32(7)))    { stdout.printf("BAD 12\n"); }
 
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -441,19 +441,19 @@ pub fn main(args: [][]u8) %void => {
 import "std.zig";
 
 pub fn main(args: [][]u8) %void => {
-    if (true || { print_str("BAD 1\n"); false }) {
-      print_str("OK 1\n");
+    if (true || { stdout.printf("BAD 1\n"); false }) {
+      stdout.printf("OK 1\n");
     }
-    if (false || { print_str("OK 2\n"); false }) {
-      print_str("BAD 2\n");
+    if (false || { stdout.printf("OK 2\n"); false }) {
+      stdout.printf("BAD 2\n");
     }
 
-    if (true && { print_str("OK 3\n"); false }) {
-      print_str("BAD 3\n");
+    if (true && { stdout.printf("OK 3\n"); false }) {
+      stdout.printf("BAD 3\n");
     }
-    if (false && { print_str("BAD 4\n"); false }) {
+    if (false && { stdout.printf("BAD 4\n"); false }) {
     } else {
-      print_str("OK 4\n");
+      stdout.printf("OK 4\n");
     }
 }
     )SOURCE", "OK 1\nOK 2\nOK 3\nOK 4\n");
@@ -463,20 +463,20 @@ import "std.zig";
 
 pub fn main(args: [][]u8) %void => {
     var i : i32 = 0;
-    i += 5;  if (i != 5)  { print_str("BAD +=\n"); }
-    i -= 2;  if (i != 3)  { print_str("BAD -=\n"); }
-    i *= 20; if (i != 60) { print_str("BAD *=\n"); }
-    i /= 3;  if (i != 20) { print_str("BAD /=\n"); }
-    i %= 11; if (i != 9)  { print_str("BAD %=\n"); }
-    i <<= 1; if (i != 18) { print_str("BAD <<=\n"); }
-    i >>= 2; if (i != 4)  { print_str("BAD >>=\n"); }
+    i += 5;  if (i != 5)  { stdout.printf("BAD +=\n"); }
+    i -= 2;  if (i != 3)  { stdout.printf("BAD -=\n"); }
+    i *= 20; if (i != 60) { stdout.printf("BAD *=\n"); }
+    i /= 3;  if (i != 20) { stdout.printf("BAD /=\n"); }
+    i %= 11; if (i != 9)  { stdout.printf("BAD %=\n"); }
+    i <<= 1; if (i != 18) { stdout.printf("BAD <<=\n"); }
+    i >>= 2; if (i != 4)  { stdout.printf("BAD >>=\n"); }
     i = 6;
-    i &= 5;  if (i != 4)  { print_str("BAD &=\n"); }
-    i ^= 6;  if (i != 2)  { print_str("BAD ^=\n"); }
+    i &= 5;  if (i != 4)  { stdout.printf("BAD &=\n"); }
+    i ^= 6;  if (i != 2)  { stdout.printf("BAD ^=\n"); }
     i = 6;
-    i |= 3;  if (i != 7)  { print_str("BAD |=\n"); }
+    i |= 3;  if (i != 7)  { stdout.printf("BAD |=\n"); }
 
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -620,12 +620,12 @@ pub fn main(args: [][]u8) %void => {
     test_foo(foo);
     test_mutation(&foo);
     if (foo.c != 100) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
     test_point_to_self();
     test_byval_assign();
     test_initializer();
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
 struct Foo {
     a : i32,
@@ -634,7 +634,7 @@ struct Foo {
 }
 fn test_foo(foo : Foo) => {
     if (!foo.b) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 }
 fn test_mutation(foo : &Foo) => {
@@ -659,7 +659,7 @@ fn test_point_to_self() => {
     root.next = &node;
 
     if (node.next.next.next.val.x != 1) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 }
 fn test_byval_assign() => {
@@ -668,15 +668,15 @@ fn test_byval_assign() => {
 
     foo1.a = 1234;
 
-    if (foo2.a != 0) { print_str("BAD\n"); }
+    if (foo2.a != 0) { stdout.printf("BAD\n"); }
 
     foo2 = foo1;
 
-    if (foo2.a != 1234) { print_str("BAD - byval assignment failed\n"); }
+    if (foo2.a != 1234) { stdout.printf("BAD - byval assignment failed\n"); }
 }
 fn test_initializer() => {
     const val = Val { .x = 42 };
-    if (val.x != 42) { print_str("BAD\n"); }
+    if (val.x != 42) { stdout.printf("BAD\n"); }
 }
     )SOURCE", "OK\n");
 
@@ -687,10 +687,10 @@ const g1 : i32 = 1233 + 1;
 var g2 : i32 = 0;
 
 pub fn main(args: [][]u8) %void => {
-    if (g2 != 0) { print_str("BAD\n"); }
+    if (g2 != 0) { stdout.printf("BAD\n"); }
     g2 = g1;
-    if (g2 != 1234) { print_str("BAD\n"); }
-    print_str("OK\n");
+    if (g2 != 1234) { stdout.printf("BAD\n"); }
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -699,7 +699,7 @@ import "std.zig";
 pub fn main(args: [][]u8) %void => {
     var i : i32 = 0;
     while (i < 4) {
-        print_str("loop\n");
+        stdout.printf("loop\n");
         i += 1;
     }
     g();
@@ -719,7 +719,7 @@ import "std.zig";
 pub fn main(args: [][]u8) %void => {
     var i : i32 = 0;
     while (true) {
-        print_str("loop\n");
+        stdout.printf("loop\n");
         i += 1;
         if (i < 4) {
             continue;
@@ -736,12 +736,12 @@ pub fn main(args: [][]u8) %void => {
 
     if (const y ?= x) {
         if (y) {
-            print_str("x is true\n");
+            stdout.printf("x is true\n");
         } else {
-            print_str("x is false\n");
+            stdout.printf("x is false\n");
         }
     } else {
-        print_str("x is none\n");
+        stdout.printf("x is none\n");
     }
 
     const next_x : ?i32 = null;
@@ -749,7 +749,7 @@ pub fn main(args: [][]u8) %void => {
     const z = next_x ?? 1234;
 
     if (z != 1234) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
     const final_x : ?i32 = 13;
@@ -757,7 +757,7 @@ pub fn main(args: [][]u8) %void => {
     const num = final_x ?? unreachable{};
 
     if (num != 13) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 }
     )SOURCE", "x is true\n");
@@ -767,7 +767,7 @@ import "std.zig";
 pub fn main(args: [][]u8) %void => {
     const x = outer();
     if (x == 1234) {
-        print_str("OK\n");
+        stdout.printf("OK\n");
     }
 }
 fn inner() i32 => { 1234 }
@@ -782,8 +782,8 @@ const x: u16 = 13;
 const z: @typeof(x) = 19;
 pub fn main(args: [][]u8) %void => {
     const y: @typeof(x) = 120;
-    print_u64(@sizeof(@typeof(y)));
-    print_str("\n");
+    stdout.print_u64(@sizeof(@typeof(y)));
+    stdout.printf("\n");
 }
     )SOURCE", "2\n");
 
@@ -798,9 +798,9 @@ struct Rand {
 pub fn main(args: [][]u8) %void => {
     const r = Rand {.seed = 1234};
     if (r.get_seed() != 1234) {
-        print_str("BAD seed\n");
+        stdout.printf("BAD seed\n");
     }
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -814,12 +814,12 @@ pub fn main(args: [][]u8) %void => {
     *y += 1;
 
     if (x != 4) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
     if (*y != 4) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -830,77 +830,77 @@ const ARRAY_SIZE : i8 = 20;
 
 pub fn main(args: [][]u8) %void => {
     var array : [ARRAY_SIZE]u8;
-    print_u64(@sizeof(@typeof(array)));
-    print_str("\n");
+    stdout.print_u64(@sizeof(@typeof(array)));
+    stdout.printf("\n");
 }
     )SOURCE", "20\n");
 
     add_simple_case("@min_value() and @max_value()", R"SOURCE(
 import "std.zig";
 pub fn main(args: [][]u8) %void => {
-    print_str("max u8: ");
-    print_u64(@max_value(u8));
-    print_str("\n");
+    stdout.printf("max u8: ");
+    stdout.print_u64(@max_value(u8));
+    stdout.printf("\n");
 
-    print_str("max u16: ");
-    print_u64(@max_value(u16));
-    print_str("\n");
+    stdout.printf("max u16: ");
+    stdout.print_u64(@max_value(u16));
+    stdout.printf("\n");
 
-    print_str("max u32: ");
-    print_u64(@max_value(u32));
-    print_str("\n");
+    stdout.printf("max u32: ");
+    stdout.print_u64(@max_value(u32));
+    stdout.printf("\n");
 
-    print_str("max u64: ");
-    print_u64(@max_value(u64));
-    print_str("\n");
+    stdout.printf("max u64: ");
+    stdout.print_u64(@max_value(u64));
+    stdout.printf("\n");
 
-    print_str("max i8: ");
-    print_i64(@max_value(i8));
-    print_str("\n");
+    stdout.printf("max i8: ");
+    stdout.print_i64(@max_value(i8));
+    stdout.printf("\n");
 
-    print_str("max i16: ");
-    print_i64(@max_value(i16));
-    print_str("\n");
+    stdout.printf("max i16: ");
+    stdout.print_i64(@max_value(i16));
+    stdout.printf("\n");
 
-    print_str("max i32: ");
-    print_i64(@max_value(i32));
-    print_str("\n");
+    stdout.printf("max i32: ");
+    stdout.print_i64(@max_value(i32));
+    stdout.printf("\n");
 
-    print_str("max i64: ");
-    print_i64(@max_value(i64));
-    print_str("\n");
+    stdout.printf("max i64: ");
+    stdout.print_i64(@max_value(i64));
+    stdout.printf("\n");
 
-    print_str("min u8: ");
-    print_u64(@min_value(u8));
-    print_str("\n");
+    stdout.printf("min u8: ");
+    stdout.print_u64(@min_value(u8));
+    stdout.printf("\n");
 
-    print_str("min u16: ");
-    print_u64(@min_value(u16));
-    print_str("\n");
+    stdout.printf("min u16: ");
+    stdout.print_u64(@min_value(u16));
+    stdout.printf("\n");
 
-    print_str("min u32: ");
-    print_u64(@min_value(u32));
-    print_str("\n");
+    stdout.printf("min u32: ");
+    stdout.print_u64(@min_value(u32));
+    stdout.printf("\n");
 
-    print_str("min u64: ");
-    print_u64(@min_value(u64));
-    print_str("\n");
+    stdout.printf("min u64: ");
+    stdout.print_u64(@min_value(u64));
+    stdout.printf("\n");
 
-    print_str("min i8: ");
-    print_i64(@min_value(i8));
-    print_str("\n");
+    stdout.printf("min i8: ");
+    stdout.print_i64(@min_value(i8));
+    stdout.printf("\n");
 
-    print_str("min i16: ");
-    print_i64(@min_value(i16));
-    print_str("\n");
+    stdout.printf("min i16: ");
+    stdout.print_i64(@min_value(i16));
+    stdout.printf("\n");
 
-    print_str("min i32: ");
-    print_i64(@min_value(i32));
-    print_str("\n");
+    stdout.printf("min i32: ");
+    stdout.print_i64(@min_value(i32));
+    stdout.printf("\n");
 
-    print_str("min i64: ");
-    print_i64(@min_value(i64));
-    print_str("\n");
+    stdout.printf("min i64: ");
+    stdout.print_i64(@min_value(i64));
+    stdout.printf("\n");
 }
     )SOURCE",
         "max u8: 255\n"
@@ -931,19 +931,19 @@ pub fn main(args: [][]u8) %void => {
     var slice = array[5...10];
 
     if (slice.len != 5) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
     if (slice.ptr[0] != 1234) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
     var slice_rest = array[10...];
     if (slice_rest.len != 10) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -952,7 +952,7 @@ pub fn main(args: [][]u8) %void => {
 import "std.zig";
 pub fn main(args: [][]u8) %void => {
     if (f(1) == 1) {
-        print_str("OK\n");
+        stdout.printf("OK\n");
     }
 }
 fn f(c: u8) u8 => {
@@ -971,15 +971,15 @@ import "std.zig";
 pub fn main(args: [][]u8) %void => {
     var result: u8;
     if (!@add_with_overflow(u8, 250, 100, &result)) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
     if (@add_with_overflow(u8, 100, 150, &result)) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
     if (result != 250) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -993,10 +993,10 @@ pub fn main(args: [][]u8) %void => {
     @memcpy(bar.ptr, foo.ptr, bar.len);
 
     if (bar[11] != 'A') {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -1009,7 +1009,7 @@ pub fn main(args: [][]u8) %void => {
     var x : i32 = print_ok(x);
 }
 fn print_ok(val: @typeof(x)) @typeof(foo) => {
-    print_str("OK\n");
+    stdout.printf("OK\n");
     return 0;
 }
 const foo : i32 = 0;
@@ -1042,25 +1042,25 @@ pub fn main(args: [][]u8) %void => {
     const bar = Bar.B;
 
     if (bar != Bar.B) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
     if (@member_count(Foo) != 3) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
     if (@member_count(Bar) != 4) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
     if (@sizeof(Foo) != 17) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
     if (@sizeof(Bar) != 1) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -1071,14 +1071,14 @@ pub fn main(args: [][]u8) %void => {
     const HEX_MULT = []u16{4096, 256, 16, 1};
 
     if (HEX_MULT.len != 4) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
     if (HEX_MULT[1] != 256) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -1089,8 +1089,8 @@ pub fn main(args: [][]u8) %void => {
     const array_of_strings = [][]u8 {"hello", "this", "is", "my", "thing"};
     var i: @typeof(array_of_strings.len) = 0;
     while (i < array_of_strings.len) {
-        print_str(array_of_strings[i]);
-        print_str("\n");
+        stdout.printf(array_of_strings[i]);
+        stdout.printf("\n");
         i += 1;
     }
 }
@@ -1102,21 +1102,21 @@ import "std.zig";
 pub fn main(args: [][]u8) %void => {
     const array = []u8 {9, 8, 7, 6};
     for (item, array) {
-        print_u64(item);
-        print_str("\n");
+        stdout.print_u64(item);
+        stdout.printf("\n");
     }
     for (item, array, index) {
-        print_i64(index);
-        print_str("\n");
+        stdout.print_i64(index);
+        stdout.printf("\n");
     }
     const unknown_size: []u8 = array;
     for (item, unknown_size) {
-        print_u64(item);
-        print_str("\n");
+        stdout.print_u64(item);
+        stdout.printf("\n");
     }
     for (item, unknown_size, index) {
-        print_i64(index);
-        print_str("\n");
+        stdout.print_i64(index);
+        stdout.printf("\n");
     }
 }
     )SOURCE", "9\n8\n7\n6\n0\n1\n2\n3\n9\n8\n7\n6\n0\n1\n2\n3\n");
@@ -1127,8 +1127,8 @@ import "std.zig";
 pub fn main(args: [][]u8) %void => {
     const fns = []@typeof(fn1) { fn1, fn2, fn3, fn4, };
     for (f, fns) {
-        print_u64(f());
-        print_str("\n");
+        stdout.print_u64(f());
+        stdout.printf("\n");
     }
 }
 
@@ -1157,10 +1157,10 @@ pub fn main(args: [][]u8) %void => {
         Foo.D => 4,
     };
     if (val != 3) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -1174,10 +1174,10 @@ pub fn main(args: [][]u8) %void => {
     const eleven = ten + one;
 
     if (eleven != 11) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -1191,10 +1191,10 @@ var foo = Foo { .x = 13, .y = true, };
 pub fn main(args: [][]u8) %void => {
     foo.x += 1;
     if (foo.x != 14) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -1204,10 +1204,10 @@ const x = []u8{1,2,3,4};
 pub fn main(args: [][]u8) %void => {
     const y : [4]u8 = x;
     if (y[3] != 4) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -1219,10 +1219,10 @@ pub fn main(args: [][]u8) %void => {
     const a = i32(error.err1);
     const b = i32(error.err2);
     if (a == b) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
 
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -1230,7 +1230,7 @@ pub fn main(args: [][]u8) %void => {
 import "std.zig";
 pub fn main(args: [][]u8) %void => {
     while (true) {
-        print_str("OK\n");
+        stdout.printf("OK\n");
         return;
     }
 }
@@ -1251,9 +1251,9 @@ fn make_foo(x: i32, y: i32) Foo => {
 pub fn main(args: [][]u8) %void => {
     const foo = make_foo(1234, 5678);
     if (foo.y != 5678) {
-        print_str("BAD\n");
+        stdout.printf("BAD\n");
     }
-    print_str("OK\n");
+    stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 }

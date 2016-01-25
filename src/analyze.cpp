@@ -3058,6 +3058,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     if (wanted_type->id == TypeTableEntryIdMaybe) {
         if (types_match_const_cast_only(wanted_type->data.maybe.child_type, actual_type)) {
             node->data.fn_call_expr.cast_op = CastOpMaybeWrap;
+            context->cast_alloca_list.append(node);
             eval_const_expr_implicit_cast(g, node, expr_node);
             return wanted_type;
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
@@ -3065,6 +3066,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         {
             if (num_lit_fits_in_other_type(g, expr_node, wanted_type->data.maybe.child_type)) {
                 node->data.fn_call_expr.cast_op = CastOpMaybeWrap;
+                context->cast_alloca_list.append(node);
                 eval_const_expr_implicit_cast(g, node, expr_node);
                 return wanted_type;
             } else {
@@ -3077,6 +3079,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     if (wanted_type->id == TypeTableEntryIdErrorUnion) {
         if (types_match_const_cast_only(wanted_type->data.error.child_type, actual_type)) {
             node->data.fn_call_expr.cast_op = CastOpErrorWrap;
+            context->cast_alloca_list.append(node);
             eval_const_expr_implicit_cast(g, node, expr_node);
             return wanted_type;
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
@@ -3084,6 +3087,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         {
             if (num_lit_fits_in_other_type(g, expr_node, wanted_type->data.error.child_type)) {
                 node->data.fn_call_expr.cast_op = CastOpErrorWrap;
+                context->cast_alloca_list.append(node);
                 eval_const_expr_implicit_cast(g, node, expr_node);
                 return wanted_type;
             } else {

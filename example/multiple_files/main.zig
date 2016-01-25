@@ -5,7 +5,7 @@ import "foo.zig";
 
 pub fn main(args: [][]u8) i32 => {
     private_function();
-    print_str("OK 2\n");
+    stdout.printf("OK 2\n");
     return 0;
 }
 
