@@ -18,8 +18,7 @@ pub fn main(args: [][]u8) %void => {
         return error.GetRandomFail;
     }
 
-    var rand : Rand;
-    rand.init(seed);
+    var rand = rand_new(seed);
 
     const answer = rand.range_u64(0, 100) + 1;
 

@@ -3955,7 +3955,6 @@ static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNo
 
     AstNodeFnProto *fn_proto = &fn_proto_node->data.fn_proto;
     bool is_exported = (fn_proto->visib_mod == VisibModExport);
-    int gen_arg_index = 0;
     for (int i = 0; i < fn_proto->params.length; i += 1) {
         AstNode *param_decl_node = fn_proto->params.at(i);
         assert(param_decl_node->type == NodeTypeParamDecl);
@@ -3978,12 +3977,7 @@ static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNo
         var->src_arg_index = i;
         param_decl_node->data.param_decl.variable = var;
 
-        if (type->size_in_bits > 0) {
-            var->gen_arg_index = gen_arg_index;
-            gen_arg_index += 1;
-        } else {
-            var->gen_arg_index = -1;
-        }
+        var->gen_arg_index = param_decl_node->data.param_decl.gen_index;
     }
 
     TypeTableEntry *expected_type = unwrapped_node_type(fn_proto->return_type);

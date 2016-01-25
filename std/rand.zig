@@ -6,20 +6,6 @@ pub struct Rand {
     array: [ARRAY_SIZE]u32,
     index: isize,
 
-    /// Initialize random state with the given seed.
-    pub fn init(r: &Rand, seed: u32) => {
-        r.index = 0;
-        r.array[0] = seed;
-        var i : isize = 1;
-        var prev_value: u64 = seed;
-        while (i < ARRAY_SIZE) {
-            r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + u32(i));
-            prev_value = r.array[i];
-            i += 1;
-        }
-    }
-
-
     /// Get 32 bits of randomness.
     pub fn get_u32(r: &Rand) u32 => {
         if (r.index == 0) {
@@ -91,3 +77,17 @@ pub struct Rand {
     }
 }
 
+/// Initialize random state with the given seed.
+pub fn rand_new(seed: u32) Rand => {
+    var r: Rand;
+    r.index = 0;
+    r.array[0] = seed;
+    var i : isize = 1;
+    var prev_value: u64 = seed;
+    while (i < ARRAY_SIZE) {
+        r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + u32(i));
+        prev_value = r.array[i];
+        i += 1;
+    }
+    return r;
+}

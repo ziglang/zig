@@ -2319,6 +2319,10 @@ static void do_code_gen(CodeGen *g) {
             if (param_type->id == TypeTableEntryIdPointer && param_type->data.pointer.is_const) {
                 LLVMAddAttribute(argument_val, LLVMReadOnlyAttribute);
             }
+            if (param_type->id == TypeTableEntryIdPointer) {
+                // when https://github.com/andrewrk/zig/issues/82 is fixed, add
+                // non null attribute here
+            }
             if (param_node->data.param_decl.is_byval) {
                 LLVMAddAttribute(argument_val, LLVMByValAttribute);
             }

@@ -1242,14 +1242,14 @@ struct Foo {
     x: i32,
     y: i32,
 }
-fn make_foo() Foo => {
+fn make_foo(x: i32, y: i32) Foo => {
     Foo {
-        .x = 1234,
-        .y = 5678,
+        .x = x,
+        .y = y,
     }
 }
 pub fn main(args: [][]u8) %void => {
-    const foo = make_foo();
+    const foo = make_foo(1234, 5678);
     if (foo.y != 5678) {
         print_str("BAD\n");
     }
