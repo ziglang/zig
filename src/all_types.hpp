@@ -214,6 +214,9 @@ struct AstNodeParamDecl {
 
     // populated by semantic analyzer
     VariableTableEntry *variable;
+    bool is_byval;
+    int src_index;
+    int gen_index;
 };
 
 struct AstNodeBlock {
@@ -794,7 +797,8 @@ struct TypeTableEntryEnum {
 };
 
 struct TypeTableEntryFn {
-    TypeTableEntry *return_type;
+    TypeTableEntry *src_return_type;
+    TypeTableEntry *gen_return_type;
     TypeTableEntry **param_types;
     int src_param_count;
     LLVMTypeRef raw_type_ref;
@@ -989,6 +993,7 @@ struct CodeGen {
 
     OutType out_type;
     FnTableEntry *cur_fn;
+    LLVMValueRef cur_ret_ptr;
     // TODO remove this in favor of get_resolved_expr(expr_node)->context
     BlockContext *cur_block_context;
     ZigList<LLVMBasicBlockRef> break_block_stack;

@@ -1235,6 +1235,27 @@ pub fn main(args: [][]u8) %void => {
     }
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("return struct byval from function", R"SOURCE(
+import "std.zig";
+struct Foo {
+    x: i32,
+    y: i32,
+}
+fn make_foo() Foo => {
+    Foo {
+        .x = 1234,
+        .y = 5678,
+    }
+}
+pub fn main(args: [][]u8) %void => {
+    const foo = make_foo();
+    if (foo.y != 5678) {
+        print_str("BAD\n");
+    }
+    print_str("OK\n");
+}
+    )SOURCE", "OK\n");
 }
 
 
