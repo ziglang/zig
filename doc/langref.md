@@ -137,7 +137,7 @@ ContainerInitBody : list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField : "." "Symbol" "=" Expression
 
-PrefixOp : "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%"
+PrefixOp : "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%"
 
 PrimaryExpression : "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | AsmExpression | ("error" "." "Symbol")
 
@@ -154,7 +154,7 @@ KeywordLiteral : "true" | "false" | "null" | "break" | "continue" | "undefined" 
 
 ```
 x() x[] x.y
-!x -x ~x *x &x ?x %x
+!x -x ~x *x &x ?x %x %%x
 x{}
 * / %
 + -

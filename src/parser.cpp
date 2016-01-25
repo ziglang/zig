@@ -64,6 +64,7 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpDereference: return "*";
         case PrefixOpMaybe: return "?";
         case PrefixOpError: return "%";
+        case PrefixOpUnwrapError: return "%%";
     }
     zig_unreachable();
 }
@@ -1664,6 +1665,7 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdStar: return PrefixOpDereference;
         case TokenIdMaybe: return PrefixOpMaybe;
         case TokenIdPercent: return PrefixOpError;
+        case TokenIdPercentPercent: return PrefixOpUnwrapError;
         case TokenIdBoolAnd: return PrefixOpAddressOf;
         default: return PrefixOpInvalid;
     }

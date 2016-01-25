@@ -833,6 +833,24 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
             {
                 zig_panic("TODO codegen PrefixOpError");
             }
+        case PrefixOpUnwrapError:
+            {
+                LLVMValueRef expr_val = gen_expr(g, expr_node);
+                TypeTableEntry *expr_type = get_expr_type(expr_node);
+                assert(expr_type->id == TypeTableEntryIdErrorUnion);
+                TypeTableEntry *child_type = expr_type->data.error.child_type;
+                // TODO in debug mode, put a panic here if the error is not 0
+                if (child_type->size_in_bits > 0) {
+                    LLVMValueRef child_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 1, "");
+                    if (handle_is_ptr(child_type)) {
+                        return child_val_ptr;
+                    } else {
+                        return expr_val;
+                    }
+                } else {
+                    return nullptr;
+                }
+            }
     }
     zig_unreachable();
 }
@@ -2219,7 +2237,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
     assert(const_val->ok);
 
     if (const_val->undef) {
-        return LLVMConstNull(type_entry->type_ref);
+        return LLVMGetUndef(type_entry->type_ref);
     }
 
     if (type_entry->id == TypeTableEntryIdInt) {

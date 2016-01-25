@@ -3656,6 +3656,20 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                 }
 
             }
+        case PrefixOpUnwrapError:
+            {
+                TypeTableEntry *type_entry = analyze_expression(g, import, context, nullptr, expr_node);
+
+                if (type_entry->id == TypeTableEntryIdInvalid) {
+                    return type_entry;
+                } else if (type_entry->id == TypeTableEntryIdErrorUnion) {
+                    return type_entry->data.error.child_type;
+                } else {
+                    add_node_error(g, expr_node,
+                        buf_sprintf("expected error type, got '%s'", buf_ptr(&type_entry->name)));
+                    return g->builtin_types.entry_invalid;
+                }
+            }
     }
     zig_unreachable();
 }

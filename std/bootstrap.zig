@@ -3,9 +3,9 @@ import "syscall.zig";
 // The compiler treats this file special by implicitly importing the function `main`
 // from the root source file.
 
-var argc: isize;
-var argv: &&u8;
-var env: &&u8;
+var argc: isize = undefined;
+var argv: &&u8 = undefined;
+var env: &&u8 = undefined;
 
 #attribute("naked")
 export fn _start() unreachable => {

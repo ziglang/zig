@@ -48,8 +48,8 @@ compromises backward compatibility.
 ### Current Status
 
  * Have a look in the example/ folder to see some code examples.
- * Basic language features available such as loops, inline assembly,
-   expressions, literals, functions, importing, structs, tagged unions.
+ * Most language features are available, but many edge cases and errors are
+   not yet implemented.
  * Linux x86_64 is supported.
  * Building for the native target is supported.
  * Optimized machine code that Zig produces is indistinguishable from
