@@ -498,7 +498,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
 
     // next, loop over the parameters again and compute debug information
     // and codegen information
-    bool first_arg_return = handle_is_ptr(return_type);
+    bool first_arg_return = !fn_proto->skip && handle_is_ptr(return_type);
     // +1 for maybe making the first argument the return value
     LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + src_param_count);
     // +1 because 0 is the return type and +1 for maybe making first arg ret val

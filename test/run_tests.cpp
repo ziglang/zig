@@ -1256,6 +1256,29 @@ pub fn main(args: [][]u8) %void => {
     stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("%% binary operator", R"SOURCE(
+import "std.zig";
+error ItBroke;
+fn g(x: bool) %isize => {
+    if (x) {
+        error.ItBroke
+    } else {
+        10
+    }
+}
+pub fn main(args: [][]u8) %void => {
+    const a = g(true) %% 3;
+    const b = g(false) %% 3;
+    if (a != 3) {
+        stdout.printf("BAD\n");
+    }
+    if (b != 10) {
+        stdout.printf("BAD\n");
+    }
+    stdout.printf("OK\n");
+}
+    )SOURCE", "OK\n");
 }
 
 
