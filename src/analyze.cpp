@@ -1663,6 +1663,8 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
             AstNode *val_field_node = container_init_expr->entries.at(i);
             assert(val_field_node->type == NodeTypeStructValueField);
 
+            val_field_node->block_context = context;
+
             TypeStructField *type_field = find_struct_type_field(container_type,
                     &val_field_node->data.struct_val_field.name);
 
@@ -2158,6 +2160,7 @@ static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, Bloc
         AstNode *lhs_node, LValPurpose purpose, bool is_ptr_const)
 {
     TypeTableEntry *expected_rhs_type = nullptr;
+    lhs_node->block_context = block_context;
     if (lhs_node->type == NodeTypeSymbol) {
         Buf *name = &lhs_node->data.symbol_expr.symbol;
         if (purpose == LValPurposeAddressOf) {
@@ -2520,6 +2523,7 @@ static TypeTableEntry *analyze_unwrap_error_expr(CodeGen *g, ImportTableEntry *i
         BlockContext *child_context;
         if (var_node) {
             child_context = new_block_context(node, parent_context);
+            var_node->block_context = child_context;
             Buf *var_name = &var_node->data.symbol_expr.symbol;
             node->data.unwrap_err_expr.var = add_local_var(g, var_node, child_context, var_name,
                     g->builtin_types.entry_pure_error, true);
@@ -2600,6 +2604,8 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
 
     VariableTableEntry *var = add_local_var(g, source_node, context,
             &variable_declaration->symbol, type, is_const);
+
+    variable_declaration->variable = var;
 
 
     bool is_pub = (variable_declaration->visib_mod != VisibModPrivate);
@@ -2785,15 +2791,16 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
     }
 
     BlockContext *child_context = new_block_context(node, context);
-    node->data.for_expr.block_context = child_context;
 
     AstNode *elem_var_node = node->data.for_expr.elem_node;
+    elem_var_node->block_context = child_context;
     Buf *elem_var_name = &elem_var_node->data.symbol_expr.symbol;
     node->data.for_expr.elem_var = add_local_var(g, elem_var_node, child_context, elem_var_name, child_type, true);
 
     AstNode *index_var_node = node->data.for_expr.index_node;
     if (index_var_node) {
         Buf *index_var_name = &index_var_node->data.symbol_expr.symbol;
+        index_var_node->block_context = child_context;
         node->data.for_expr.index_var = add_local_var(g, index_var_node, child_context, index_var_name,
                 g->builtin_types.entry_isize, true);
     } else {
@@ -2872,7 +2879,6 @@ static TypeTableEntry *analyze_if_var_expr(CodeGen *g, ImportTableEntry *import,
     assert(node->type == NodeTypeIfVarExpr);
 
     BlockContext *child_context = new_block_context(node, context);
-    node->data.if_var_expr.block_context = child_context;
 
     analyze_variable_declaration_raw(g, import, child_context, node, &node->data.if_var_expr.var_decl, true);
 
@@ -3412,6 +3418,7 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
     }
 
     if (fn_ref_expr->type == NodeTypeFieldAccessExpr) {
+        fn_ref_expr->block_context = context;
         AstNode *first_param_expr = fn_ref_expr->data.field_access_expr.struct_expr;
         TypeTableEntry *struct_type = analyze_expression(g, import, context, nullptr, first_param_expr);
         Buf *name = &fn_ref_expr->data.field_access_expr.field_name;
@@ -3724,6 +3731,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
             if (var_node) {
                 assert(var_node->type == NodeTypeSymbol);
                 Buf *var_name = &var_node->data.symbol_expr.symbol;
+                var_node->block_context = child_context;
                 prong_node->data.switch_prong.var = add_local_var(g, var_node, child_context, var_name,
                         var_type, true);
             }
@@ -3802,6 +3810,7 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
     for (int i = 0; i < node->data.block.statements.length; i += 1) {
         AstNode *child = node->data.block.statements.at(i);
         if (child->type == NodeTypeLabel) {
+            child->block_context = child_context;
             LabelTableEntry *label_entry = child->data.label.label_entry;
             assert(label_entry);
             label_entry->entered_from_fallthrough = (return_type->id != TypeTableEntryIdUnreachable);
@@ -3987,7 +3996,7 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
 
     Expr *expr = get_resolved_expr(node);
     expr->type_entry = return_type;
-    expr->block_context = context;
+    node->block_context = context;
 
     add_global_const_expr(g, expr);
 

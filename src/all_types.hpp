@@ -86,9 +86,6 @@ struct ConstExprValue {
 
 struct Expr {
     TypeTableEntry *type_entry;
-    // the context in which this expression is evaluated.
-    // for blocks, this points to the containing scope, not the block's own scope for its children.
-    BlockContext *block_context;
 
     LLVMValueRef const_llvm_val;
     ConstExprValue const_val;
@@ -254,6 +251,7 @@ struct AstNodeVariableDeclaration {
     // populated by semantic analyzer
     TopLevelDecl top_level_decl;
     Expr resolved_expr;
+    VariableTableEntry *variable;
 };
 
 struct AstNodeErrorValueDecl {
@@ -440,7 +438,6 @@ struct AstNodeIfVarExpr {
 
     // populated by semantic analyzer
     TypeTableEntry *type;
-    BlockContext *block_context;
     Expr resolved_expr;
 };
 
@@ -464,7 +461,6 @@ struct AstNodeForExpr {
     // populated by semantic analyzer
     bool contains_break;
     Expr resolved_expr;
-    BlockContext *block_context;
     VariableTableEntry *elem_var;
     VariableTableEntry *index_var;
 };
@@ -684,6 +680,9 @@ struct AstNode {
     uint32_t create_index; // for determinism purposes
     ImportTableEntry *owner;
     AstNode **parent_field; // for AST rewriting
+    // the context in which this expression/node is evaluated.
+    // for blocks, this points to the containing scope, not the block's own scope for its children.
+    BlockContext *block_context;
     union {
         AstNodeRoot root;
         AstNodeRootExportDecl root_export_decl;
@@ -1007,8 +1006,6 @@ struct CodeGen {
     OutType out_type;
     FnTableEntry *cur_fn;
     LLVMValueRef cur_ret_ptr;
-    // TODO remove this in favor of get_resolved_expr(expr_node)->context
-    BlockContext *cur_block_context;
     ZigList<LLVMBasicBlockRef> break_block_stack;
     ZigList<LLVMBasicBlockRef> continue_block_stack;
     bool c_stdint_used;
