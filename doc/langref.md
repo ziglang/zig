@@ -23,7 +23,7 @@ RootExportDecl : many(Directive) "export" "Symbol" "String" ";"
 
 ExternBlock : many(Directive) "extern" "{" many(FnDecl) "}"
 
-FnProto : many(Directive) option(FnVisibleMod) "fn" "Symbol" ParamDeclList option(PrefixOpExpression)
+FnProto : many(Directive) option(FnVisibleMod) "fn" "Symbol" ParamDeclList option("->" PrefixOpExpression)
 
 Directive : "#" "Symbol" "(" "String" ")"
 
@@ -31,7 +31,7 @@ FnVisibleMod : "pub" | "export"
 
 FnDecl : FnProto ";"
 
-FnDef : FnProto "=>" Block
+FnDef : FnProto Block
 
 ParamDeclList : "(" list(ParamDecl, ",") ")"
 

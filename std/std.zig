@@ -50,7 +50,7 @@ pub struct OutStream {
     index: isize,
     buffered: bool,
 
-    pub fn print_str(os: &OutStream, str: []const u8) %isize => {
+    pub fn print_str(os: &OutStream, str: []const u8) -> %isize {
         var src_bytes_left = str.len;
         var src_index: @typeof(str.len) = 0;
         const dest_space_left = os.buffer.len - os.index;
@@ -72,13 +72,13 @@ pub struct OutStream {
 
     /// Prints a byte buffer, flushes the buffer, then returns the number of
     /// bytes printed. The "f" is for "flush".
-    pub fn printf(os: &OutStream, str: []const u8) %isize => {
+    pub fn printf(os: &OutStream, str: []const u8) -> %isize {
         const byte_count = %return os.print_str(str);
         %return os.flush();
         return byte_count;
     }
 
-    pub fn print_u64(os: &OutStream, x: u64) %isize => {
+    pub fn print_u64(os: &OutStream, x: u64) -> %isize {
         if (os.index + max_u64_base10_digits >= os.buffer.len) {
             %return os.flush();
         }
@@ -93,7 +93,7 @@ pub struct OutStream {
     }
 
 
-    pub fn print_i64(os: &OutStream, x: i64) %isize => {
+    pub fn print_i64(os: &OutStream, x: i64) -> %isize {
         if (os.index + max_u64_base10_digits >= os.buffer.len) {
             %return os.flush();
         }
@@ -108,7 +108,7 @@ pub struct OutStream {
     }
 
 
-    pub fn flush(os: &OutStream) %void => {
+    pub fn flush(os: &OutStream) -> %void {
         const amt_written = write(os.fd, os.buffer.ptr, os.index);
         os.index = 0;
         if (amt_written < 0) {
@@ -130,7 +130,7 @@ pub struct OutStream {
 pub struct InStream {
     fd: isize,
 
-    pub fn read(is: &InStream, buf: []u8) %isize => {
+    pub fn read(is: &InStream, buf: []u8) -> %isize {
         const amt_read = read(is.fd, buf.ptr, buf.len);
         if (amt_read < 0) {
             return switch (-amt_read) {
@@ -146,7 +146,7 @@ pub struct InStream {
     }
 }
 
-pub fn os_get_random_bytes(buf: []u8) %void => {
+pub fn os_get_random_bytes(buf: []u8) -> %void {
     const amt_got = getrandom(buf.ptr, buf.len, 0);
     if (amt_got < 0) {
         return switch (-amt_got) {
@@ -162,7 +162,7 @@ pub fn os_get_random_bytes(buf: []u8) %void => {
 pub error InvalidChar;
 pub error Overflow;
 
-pub fn parse_u64(buf: []u8, radix: u8) %u64 => {
+pub fn parse_u64(buf: []u8, radix: u8) -> %u64 {
     var x : u64 = 0;
 
     for (c, buf) {
@@ -186,7 +186,7 @@ pub fn parse_u64(buf: []u8, radix: u8) %u64 => {
     return x;
 }
 
-fn char_to_digit(c: u8) u8 => {
+fn char_to_digit(c: u8) -> u8 {
     // TODO use switch with range
     if ('0' <= c && c <= '9') {
         c - '0'
@@ -199,7 +199,7 @@ fn char_to_digit(c: u8) u8 => {
     }
 }
 
-fn buf_print_i64(out_buf: []u8, x: i64) isize => {
+fn buf_print_i64(out_buf: []u8, x: i64) -> isize {
     if (x < 0) {
         out_buf[0] = '-';
         return 1 + buf_print_u64(out_buf[1...], u64(-(x + 1)) + 1);
@@ -208,7 +208,7 @@ fn buf_print_i64(out_buf: []u8, x: i64) isize => {
     }
 }
 
-fn buf_print_u64(out_buf: []u8, x: u64) isize => {
+fn buf_print_u64(out_buf: []u8, x: u64) -> isize {
     var buf: [max_u64_base10_digits]u8;
     var a = x;
     var index = buf.len;
@@ -229,6 +229,6 @@ fn buf_print_u64(out_buf: []u8, x: u64) isize => {
     return len;
 }
 
-fn min_isize(x: isize, y: isize) isize => {
+fn min_isize(x: isize, y: isize) -> isize {
     if (x < y) x else y
 }

@@ -2675,7 +2675,7 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
 }
 
 /*
-FnProto : many(Directive) option(FnVisibleMod) "fn" "Symbol" ParamDeclList option(PrefixOpExpression)
+FnProto : many(Directive) option(FnVisibleMod) "fn" "Symbol" ParamDeclList option("->" PrefixOpExpression)
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2727,8 +2727,10 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
     ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
 
     Token *next_token = &pc->tokens->at(*token_index);
-    node->data.fn_proto.return_type = ast_parse_prefix_op_expr(pc, token_index, false);
-    if (!node->data.fn_proto.return_type) {
+    if (next_token->id == TokenIdArrow) {
+        *token_index += 1;
+        node->data.fn_proto.return_type = ast_parse_prefix_op_expr(pc, token_index, false);
+    } else {
         node->data.fn_proto.return_type = ast_create_void_type_node(pc, next_token);
     }
 
@@ -2737,7 +2739,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
 }
 
 /*
-FnDef : FnProto token(FatArrow) Block
+FnDef : FnProto Block
 */
 static AstNode *ast_parse_fn_def(ParseContext *pc, int *token_index, bool mandatory) {
     AstNode *fn_proto = ast_parse_fn_proto(pc, token_index, mandatory);
@@ -2746,7 +2748,6 @@ static AstNode *ast_parse_fn_def(ParseContext *pc, int *token_index, bool mandat
     AstNode *node = ast_create_node_with_node(pc, NodeTypeFnDef, fn_proto);
 
     node->data.fn_def.fn_proto = fn_proto;
-    ast_eat_token(pc, token_index, TokenIdFatArrow);
     node->data.fn_def.body = ast_parse_block(pc, token_index, true);
 
     normalize_parent_ptrs(node);

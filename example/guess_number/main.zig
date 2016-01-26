@@ -3,7 +3,7 @@ export executable "guess_number";
 import "std.zig";
 import "rand.zig";
 
-pub fn main(args: [][]u8) %void => {
+pub fn main(args: [][]u8) -> %void {
     %%stderr.print_str("Welcome to the Guess Number Game in Zig.\n");
 
     var seed : u32;

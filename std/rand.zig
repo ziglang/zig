@@ -7,7 +7,7 @@ pub struct Rand {
     index: isize,
 
     /// Get 32 bits of randomness.
-    pub fn get_u32(r: &Rand) u32 => {
+    pub fn get_u32(r: &Rand) -> u32 {
         if (r.index == 0) {
             r.generate_numbers();
         }
@@ -24,7 +24,7 @@ pub struct Rand {
     }
 
     /// Fill `buf` with randomness.
-    pub fn get_bytes(r: &Rand, buf: []u8) => {
+    pub fn get_bytes(r: &Rand, buf: []u8) {
         var bytes_left = r.get_bytes_aligned(buf);
         if (bytes_left > 0) {
             var rand_val_array : [@sizeof(u32)]u8;
@@ -38,7 +38,7 @@ pub struct Rand {
 
     /// Get a random unsigned integer with even distribution between `start`
     /// inclusive and `end` exclusive.
-    pub fn range_u64(r: &Rand, start: u64, end: u64) u64 => {
+    pub fn range_u64(r: &Rand, start: u64, end: u64) -> u64 {
         const range = end - start;
         const leftover = @max_value(u64) % range;
         const upper_bound = @max_value(u64) - leftover;
@@ -53,7 +53,7 @@ pub struct Rand {
         }
     }
 
-    fn generate_numbers(r: &Rand) => {
+    fn generate_numbers(r: &Rand) {
         for (item, r.array, i) {
             const y : u32 = (item & 0x80000000) + (r.array[(i + 1) % ARRAY_SIZE] & 0x7fffffff);
             const untempered : u32 = r.array[(i + 397) % ARRAY_SIZE] ^ (y >> 1);
@@ -67,7 +67,7 @@ pub struct Rand {
     }
 
     // does not populate the remaining (buf.len % 4) bytes
-    fn get_bytes_aligned(r: &Rand, buf: []u8) isize => {
+    fn get_bytes_aligned(r: &Rand, buf: []u8) -> isize {
         var bytes_left = buf.len;
         while (bytes_left >= 4) {
             *((&u32)(&buf[buf.len - bytes_left])) = r.get_u32();
@@ -78,7 +78,7 @@ pub struct Rand {
 }
 
 /// Initialize random state with the given seed.
-pub fn rand_new(seed: u32) Rand => {
+pub fn rand_new(seed: u32) -> Rand {
     var r: Rand;
     r.index = 0;
     r.array[0] = seed;
