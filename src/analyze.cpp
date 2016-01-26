@@ -3627,22 +3627,25 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                         expr_node);
                 if (expr_type->id == TypeTableEntryIdInvalid) {
                     return expr_type;
-                } else if (expr_type->id == TypeTableEntryIdInt &&
-                        expr_type->data.integral.is_signed)
+                } else if ((expr_type->id == TypeTableEntryIdInt &&
+                            expr_type->data.integral.is_signed) ||
+                            expr_type->id == TypeTableEntryIdFloat ||
+                            expr_type->id == TypeTableEntryIdNumLitInt ||
+                            expr_type->id == TypeTableEntryIdNumLitFloat)
                 {
-                    return expr_type;
-                } else if (expr_type->id == TypeTableEntryIdFloat) {
-                    return expr_type;
-                } else if (expr_type->id == TypeTableEntryIdNumLitInt) {
-                    return expr_type;
-                } else if (expr_type->id == TypeTableEntryIdNumLitFloat) {
+                    ConstExprValue *target_const_val = &get_resolved_expr(expr_node)->const_val;
+                    if (!target_const_val->ok) {
+                        return expr_type;
+                    }
+                    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+                    const_val->ok = true;
+                    bignum_negate(&const_val->data.x_bignum, &target_const_val->data.x_bignum);
                     return expr_type;
                 } else {
                     add_node_error(g, node, buf_sprintf("invalid negation type: '%s'",
                             buf_ptr(&expr_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
-                // TODO const expr eval
             }
         case PrefixOpAddressOf:
         case PrefixOpConstAddressOf:

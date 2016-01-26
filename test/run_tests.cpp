@@ -1286,6 +1286,28 @@ pub fn main(args: [][]u8) -> %void {
     %%stdout.printf("OK" ++ " IT " ++ "WORKED\n");
 }
     )SOURCE", "OK IT WORKED\n");
+
+    add_simple_case("constant struct with negation", R"SOURCE(
+import "std.zig";
+struct Vertex {
+    x: f32,
+    y: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+}
+const vertices = []Vertex {
+    Vertex { .x = -0.6, .y = -0.4, .r = 1.0, .g = 0.0, .b = 0.0 },
+    Vertex { .x =  0.6, .y = -0.4, .r = 0.0, .g = 1.0, .b = 0.0 },
+    Vertex { .x =  0.0, .y =  0.6, .r = 0.0, .g = 0.0, .b = 1.0 },
+};
+pub fn main(args: [][]u8) -> %void {
+    if (vertices[0].x != -0.6) {
+        %%stdout.printf("BAD\n");
+    }
+    %%stdout.printf("OK\n");
+}
+    )SOURCE", "OK\n");
 }
 
 
