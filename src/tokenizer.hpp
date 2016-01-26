@@ -52,6 +52,7 @@ enum TokenId {
     TokenIdSemicolon,
     TokenIdNumberLiteral,
     TokenIdPlus,
+    TokenIdPlusPlus,
     TokenIdColon,
     TokenIdArrow,
     TokenIdFatArrow,

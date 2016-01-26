@@ -49,6 +49,7 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeAssignBoolAnd:       return "&&=";
         case BinOpTypeAssignBoolOr:        return "||=";
         case BinOpTypeUnwrapMaybe:         return "??";
+        case BinOpTypeStrCat:              return "++";
     }
     zig_unreachable();
 }
@@ -1769,12 +1770,13 @@ static BinOpType tok_to_add_op(Token *token) {
     switch (token->id) {
         case TokenIdPlus: return BinOpTypeAdd;
         case TokenIdDash: return BinOpTypeSub;
+        case TokenIdPlusPlus: return BinOpTypeStrCat;
         default: return BinOpTypeInvalid;
     }
 }
 
 /*
-AdditionOperator : token(Plus) | token(Minus)
+AdditionOperator : "+" | "-" | "++"
 */
 static BinOpType ast_parse_add_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);

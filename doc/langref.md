@@ -111,7 +111,7 @@ BitShiftOperator : "<<" | ">>"
 
 AdditionExpression : MultiplyExpression AdditionOperator AdditionExpression | MultiplyExpression
 
-AdditionOperator : "+" | "-"
+AdditionOperator : "+" | "-" | "++"
 
 MultiplyExpression : CurlySuffixExpression MultiplyOperator MultiplyExpression | CurlySuffixExpression
 
@@ -157,7 +157,7 @@ x() x[] x.y
 !x -x ~x *x &x ?x %x %%x
 x{}
 * / %
-+ -
++ - ++
 << >>
 &
 ^

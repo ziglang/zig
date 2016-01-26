@@ -1437,6 +1437,8 @@ static TypeTableEntry *create_and_analyze_cast_node(CodeGen *g, ImportTableEntry
         BlockContext *context, TypeTableEntry *cast_to_type, AstNode *node)
 {
     AstNode *new_parent_node = create_ast_node(g, import, NodeTypeFnCallExpr);
+    new_parent_node->line = node->line;
+    new_parent_node->column = node->column;
     *node->parent_field = new_parent_node;
     new_parent_node->parent_field = node->parent_field;
 
@@ -2146,6 +2148,7 @@ static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
         case BinOpTypeDiv:
         case BinOpTypeMod:
         case BinOpTypeUnwrapMaybe:
+        case BinOpTypeStrCat:
             zig_unreachable();
     }
     zig_unreachable();
@@ -2453,6 +2456,68 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                             buf_ptr(&lhs_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
+            }
+        case BinOpTypeStrCat:
+            {
+                AstNode **op1 = node->data.bin_op_expr.op1->parent_field;
+                AstNode **op2 = node->data.bin_op_expr.op2->parent_field;
+
+                TypeTableEntry *str_type = get_unknown_size_array_type(g, g->builtin_types.entry_u8, true);
+
+                TypeTableEntry *op1_type = analyze_expression(g, import, context, str_type, *op1);
+                TypeTableEntry *op2_type = analyze_expression(g, import, context, str_type, *op2);
+
+                if (op1_type->id == TypeTableEntryIdInvalid ||
+                    op2_type->id == TypeTableEntryIdInvalid)
+                {
+                    return g->builtin_types.entry_invalid;
+                }
+
+                ConstExprValue *op1_val = &get_resolved_expr(*op1)->const_val;
+                ConstExprValue *op2_val = &get_resolved_expr(*op2)->const_val;
+
+                AstNode *bad_node;
+                if (!op1_val->ok) {
+                    bad_node = *op1;
+                } else if (!op2_val->ok) {
+                    bad_node = *op2;
+                } else {
+                    bad_node = nullptr;
+                }
+                if (bad_node) {
+                    add_node_error(g, bad_node, buf_sprintf("string concatenation requires constant expression"));
+                    return g->builtin_types.entry_invalid;
+                }
+                ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+                const_val->ok = true;
+
+                ConstExprValue *all_fields = allocate<ConstExprValue>(2);
+                ConstExprValue *ptr_field = &all_fields[0];
+                ConstExprValue *len_field = &all_fields[1];
+
+                const_val->data.x_struct.fields = allocate<ConstExprValue*>(2);
+                const_val->data.x_struct.fields[0] = ptr_field;
+                const_val->data.x_struct.fields[1] = len_field;
+
+                len_field->ok = true;
+                uint64_t op1_len = op1_val->data.x_struct.fields[1]->data.x_bignum.data.x_uint;
+                uint64_t op2_len = op2_val->data.x_struct.fields[1]->data.x_bignum.data.x_uint;
+                uint64_t len = op1_len + op2_len;
+                bignum_init_unsigned(&len_field->data.x_bignum, len);
+
+                ptr_field->ok = true;
+                ptr_field->data.x_ptr.ptr = allocate<ConstExprValue*>(len);
+                ptr_field->data.x_ptr.len = len;
+
+                uint64_t i = 0;
+                for (uint64_t op1_i = 0; op1_i < op1_len; op1_i += 1, i += 1) {
+                    ptr_field->data.x_ptr.ptr[i] = op1_val->data.x_struct.fields[0]->data.x_ptr.ptr[op1_i];
+                }
+                for (uint64_t op2_i = 0; op2_i < op2_len; op2_i += 1, i += 1) {
+                    ptr_field->data.x_ptr.ptr[i] = op2_val->data.x_struct.fields[0]->data.x_ptr.ptr[op2_i];
+                }
+
+                return str_type;
             }
         case BinOpTypeInvalid:
             zig_unreachable();

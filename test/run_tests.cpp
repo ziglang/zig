@@ -1279,6 +1279,13 @@ pub fn main(args: [][]u8) -> %void {
     %%stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("string concatenation", R"SOURCE(
+import "std.zig";
+pub fn main(args: [][]u8) -> %void {
+    %%stdout.printf("OK" ++ " IT " ++ "WORKED\n");
+}
+    )SOURCE", "OK IT WORKED\n");
 }
 
 
@@ -1644,6 +1651,12 @@ extern {
 }
 const x = foo();
     )SOURCE", 1, ".tmp_source.zig:5:11: error: global variable initializer requires constant expression");
+
+    add_compile_fail_case("non compile time string concatenation", R"SOURCE(
+fn f(s: []u8) -> []u8 {
+    s ++ "foo"
+}
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: string concatenation requires constant expression");
 
 }
 

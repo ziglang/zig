@@ -612,6 +612,11 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
+                    case '+':
+                        t.cur_tok->id = TokenIdPlusPlus;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
                     default:
                         t.pos -= 1;
                         end_token(&t);
@@ -1067,6 +1072,7 @@ const char * token_name(TokenId id) {
         case TokenIdSemicolon: return ";";
         case TokenIdNumberLiteral: return "NumberLiteral";
         case TokenIdPlus: return "+";
+        case TokenIdPlusPlus: return "++";
         case TokenIdColon: return ":";
         case TokenIdArrow: return "->";
         case TokenIdFatArrow: return "=>";

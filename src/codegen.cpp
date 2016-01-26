@@ -951,6 +951,7 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
         case BinOpTypeAssignBoolAnd:
         case BinOpTypeAssignBoolOr:
         case BinOpTypeUnwrapMaybe:
+        case BinOpTypeStrCat:
             zig_unreachable();
     }
     zig_unreachable();
@@ -1228,6 +1229,7 @@ static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
     switch (node->data.bin_op_expr.bin_op) {
         case BinOpTypeInvalid:
+        case BinOpTypeStrCat:
             zig_unreachable();
         case BinOpTypeAssign:
         case BinOpTypeAssignTimes:

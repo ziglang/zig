@@ -296,6 +296,7 @@ enum BinOpType {
     BinOpTypeDiv,
     BinOpTypeMod,
     BinOpTypeUnwrapMaybe,
+    BinOpTypeStrCat,
 };
 
 struct AstNodeBinOpExpr {

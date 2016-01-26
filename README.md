@@ -61,6 +61,11 @@ compromises backward compatibility.
 
 ## Building
 
+### Dependencies
+
+ * LLVM 3.7
+ * libclang 3.7
+
 ### Debug / Development Build
 
 If you have gcc or clang installed, you can find out what `ZIG_LIBC_DIR` should
