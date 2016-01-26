@@ -105,8 +105,6 @@ const char *node_type_str(NodeType node_type) {
             return "ArrayAccessExpr";
         case NodeTypeSliceExpr:
             return "SliceExpr";
-        case NodeTypeExternBlock:
-            return "ExternBlock";
         case NodeTypeDirective:
             return "Directive";
         case NodeTypeReturnExpr:
@@ -256,15 +254,6 @@ void ast_print(AstNode *node, int indent) {
             {
                 Buf *name_buf = &node->data.error_value_decl.name;
                 fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
-                break;
-            }
-        case NodeTypeExternBlock:
-            {
-                fprintf(stderr, "%s\n", node_type_str(node->type));
-                for (int i = 0; i < node->data.extern_block.fn_decls.length; i += 1) {
-                    AstNode *child = node->data.extern_block.fn_decls.at(i);
-                    ast_print(child, indent + 2);
-                }
                 break;
             }
         case NodeTypeFnDecl:
@@ -482,9 +471,9 @@ struct ParseContext {
     Buf *buf;
     AstNode *root;
     ZigList<Token> *tokens;
-    ZigList<AstNode *> *directive_list;
     ImportTableEntry *owner;
     ErrColor err_color;
+    bool parsed_root_export;
     uint32_t *next_node_index;
 };
 
@@ -2146,56 +2135,32 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index, bool m
 }
 
 /*
-VariableDeclaration : option(FnVisibleMod) ("var" | "const") "Symbol" ("=" Expression | ":" PrefixOpExpression option("=" Expression))
+VariableDeclaration : ("var" | "const") "Symbol" ("=" Expression | ":" PrefixOpExpression option("=" Expression))
 */
-static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token_index, bool mandatory,
+        ZigList<AstNode*> *directives, VisibMod visib_mod)
+{
     Token *first_token = &pc->tokens->at(*token_index);
 
-    VisibMod visib_mod;
     bool is_const;
 
-    if (first_token->id == TokenIdKeywordPub) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordVar ||
-            next_token->id == TokenIdKeywordConst)
-        {
-            visib_mod = VisibModPub;
-            is_const = (next_token->id == TokenIdKeywordConst);
-            *token_index += 2;
-        } else if (mandatory) {
-            ast_invalid_token_error(pc, next_token);
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordExport) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordVar ||
-            next_token->id == TokenIdKeywordConst)
-        {
-            visib_mod = VisibModExport;
-            is_const = (next_token->id == TokenIdKeywordConst);
-            *token_index += 2;
-        } else if (mandatory) {
-            ast_invalid_token_error(pc, next_token);
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordVar ||
-               first_token->id == TokenIdKeywordConst)
-    {
-        visib_mod = VisibModPrivate;
-        is_const = (first_token->id == TokenIdKeywordConst);
-        *token_index += 1;
+    if (first_token->id == TokenIdKeywordVar) {
+        is_const = false;
+    } else if (first_token->id == TokenIdKeywordConst) {
+        is_const = true;
     } else if (mandatory) {
         ast_invalid_token_error(pc, first_token);
     } else {
         return nullptr;
     }
 
+    *token_index += 1;
+
     AstNode *node = ast_create_node(pc, NodeTypeVariableDeclaration, first_token);
 
     node->data.variable_declaration.is_const = is_const;
     node->data.variable_declaration.visib_mod = visib_mod;
+    node->data.variable_declaration.directives = directives;
 
     Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
     ast_buf_from_token(pc, name_token, &node->data.variable_declaration.symbol);
@@ -2643,7 +2608,8 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
         if (statement_node) {
             semicolon_expected = false;
         } else {
-            statement_node = ast_parse_variable_declaration_expr(pc, token_index, false);
+            statement_node = ast_parse_variable_declaration_expr(pc, token_index, false,
+                    nullptr, VisibModPrivate);
             if (statement_node) {
                 semicolon_expected = true;
             } else {
@@ -2677,47 +2643,25 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
 }
 
 /*
-FnProto : many(Directive) option(FnVisibleMod) "fn" "Symbol" ParamDeclList option("->" PrefixOpExpression)
+FnProto : "fn" "Symbol" ParamDeclList option("->" PrefixOpExpression)
 */
-static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory,
+        ZigList<AstNode*> *directives, VisibMod visib_mod)
+{
     Token *first_token = &pc->tokens->at(*token_index);
 
-    VisibMod visib_mod;
-
-    if (first_token->id == TokenIdKeywordPub) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordFn) {
-            visib_mod = VisibModPub;
-            *token_index += 2;
-        } else if (mandatory) {
-            ast_invalid_token_error(pc, first_token);
+    if (first_token->id != TokenIdKeywordFn) {
+        if (mandatory) {
+            ast_expect_token(pc, first_token, TokenIdKeywordFn);
         } else {
             return nullptr;
         }
-    } else if (first_token->id == TokenIdKeywordExport) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordFn) {
-            visib_mod = VisibModExport;
-            *token_index += 2;
-        } else if (mandatory) {
-            ast_invalid_token_error(pc, first_token);
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordFn) {
-        visib_mod = VisibModPrivate;
-        *token_index += 1;
-    } else if (mandatory) {
-        ast_invalid_token_error(pc, first_token);
-    } else {
-        return nullptr;
     }
+    *token_index += 1;
 
     AstNode *node = ast_create_node(pc, NodeTypeFnProto, first_token);
     node->data.fn_proto.visib_mod = visib_mod;
-    node->data.fn_proto.directives = pc->directive_list;
-    pc->directive_list = nullptr;
-
+    node->data.fn_proto.directives = directives;
 
     Token *fn_name = &pc->tokens->at(*token_index);
     *token_index += 1;
@@ -2743,107 +2687,59 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
 /*
 FnDef : FnProto Block
 */
-static AstNode *ast_parse_fn_def(ParseContext *pc, int *token_index, bool mandatory) {
-    AstNode *fn_proto = ast_parse_fn_proto(pc, token_index, mandatory);
+static AstNode *ast_parse_fn_def(ParseContext *pc, int *token_index, bool mandatory,
+        ZigList<AstNode*> *directives, VisibMod visib_mod)
+{
+    AstNode *fn_proto = ast_parse_fn_proto(pc, token_index, mandatory, directives, visib_mod);
     if (!fn_proto)
         return nullptr;
     AstNode *node = ast_create_node_with_node(pc, NodeTypeFnDef, fn_proto);
 
     node->data.fn_def.fn_proto = fn_proto;
     node->data.fn_def.body = ast_parse_block(pc, token_index, true);
-
     normalize_parent_ptrs(node);
     return node;
 }
 
 /*
-FnDecl : FnProto token(Semicolon)
+ExternDecl : "extern" FnProto ";"
 */
-static AstNode *ast_parse_fn_decl(ParseContext *pc, int *token_index) {
-    AstNode *fn_proto = ast_parse_fn_proto(pc, token_index, true);
-    AstNode *node = ast_create_node_with_node(pc, NodeTypeFnDecl, fn_proto);
-
-    node->data.fn_decl.fn_proto = fn_proto;
-
-    Token *semicolon = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, semicolon, TokenIdSemicolon);
-
-    normalize_parent_ptrs(node);
-    return node;
-}
-
-/*
-Directive : token(NumberSign) token(Symbol) token(LParen) token(String) token(RParen)
-*/
-/*
-ExternBlock : many(Directive) token(Extern) token(LBrace) many(FnProtoDecl) token(RBrace)
-*/
-static AstNode *ast_parse_extern_block(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_extern_decl(ParseContext *pc, int *token_index, bool mandatory,
+        ZigList<AstNode *> *directives, VisibMod visib_mod)
+{
     Token *extern_kw = &pc->tokens->at(*token_index);
     if (extern_kw->id != TokenIdKeywordExtern) {
-        if (mandatory)
+        if (mandatory) {
             ast_invalid_token_error(pc, extern_kw);
-        else
-            return nullptr;
-    }
-    *token_index += 1;
-
-    AstNode *node = ast_create_node(pc, NodeTypeExternBlock, extern_kw);
-
-    node->data.extern_block.directives = pc->directive_list;
-    pc->directive_list = nullptr;
-
-    Token *l_brace = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, l_brace, TokenIdLBrace);
-
-    for (;;) {
-        Token *directive_token = &pc->tokens->at(*token_index);
-        assert(!pc->directive_list);
-        pc->directive_list = allocate<ZigList<AstNode*>>(1);
-        ast_parse_directives(pc, token_index, pc->directive_list);
-
-        Token *token = &pc->tokens->at(*token_index);
-        if (token->id == TokenIdRBrace) {
-            if (pc->directive_list->length > 0) {
-                ast_error(pc, directive_token, "invalid directive");
-            }
-            pc->directive_list = nullptr;
-
-            *token_index += 1;
-
-            normalize_parent_ptrs(node);
-            return node;
         } else {
-            AstNode *child = ast_parse_fn_decl(pc, token_index);
-            node->data.extern_block.fn_decls.append(child);
+            return nullptr;
         }
     }
+    *token_index += 1;
 
+    AstNode *node = ast_parse_fn_proto(pc, token_index, true, directives, visib_mod);
 
-    zig_unreachable();
+    ast_eat_token(pc, token_index, TokenIdSemicolon);
+
+    node->data.fn_proto.is_extern = true;
+    normalize_parent_ptrs(node);
+    return node;
 }
 
 /*
-RootExportDecl : many(Directive) token(Export) token(Symbol) token(String) token(Semicolon)
+RootExportDecl : "export" "Symbol" "String" ";"
 */
-static AstNode *ast_parse_root_export_decl(ParseContext *pc, int *token_index, bool mandatory) {
-    assert(mandatory == false);
-
-    Token *export_kw = &pc->tokens->at(*token_index);
-    if (export_kw->id != TokenIdKeywordExport)
-        return nullptr;
-
-    Token *export_type = &pc->tokens->at(*token_index + 1);
+static AstNode *ast_parse_root_export_decl(ParseContext *pc, int *token_index,
+        ZigList<AstNode*> *directives)
+{
+    Token *export_type = &pc->tokens->at(*token_index);
     if (export_type->id != TokenIdSymbol)
         return nullptr;
 
-    *token_index += 2;
+    *token_index += 1;
 
-    AstNode *node = ast_create_node(pc, NodeTypeRootExportDecl, export_kw);
-    node->data.root_export_decl.directives = pc->directive_list;
-    pc->directive_list = nullptr;
+    AstNode *node = ast_create_node(pc, NodeTypeRootExportDecl, export_type);
+    node->data.root_export_decl.directives = directives;
 
     ast_buf_from_token(pc, export_type, &node->data.root_export_decl.type);
 
@@ -2862,11 +2758,13 @@ static AstNode *ast_parse_root_export_decl(ParseContext *pc, int *token_index, b
 }
 
 /*
-Use : many(Directive) token(Use) token(String) token(Semicolon)
+Import : "import" "String" ";"
 */
-static AstNode *ast_parse_use(ParseContext *pc, int *token_index) {
-    Token *use_kw = &pc->tokens->at(*token_index);
-    if (use_kw->id != TokenIdKeywordImport)
+static AstNode *ast_parse_import(ParseContext *pc, int *token_index,
+        ZigList<AstNode*> *directives, VisibMod visib_mod)
+{
+    Token *import_kw = &pc->tokens->at(*token_index);
+    if (import_kw->id != TokenIdKeywordImport)
         return nullptr;
     *token_index += 1;
 
@@ -2878,59 +2776,35 @@ static AstNode *ast_parse_use(ParseContext *pc, int *token_index) {
     *token_index += 1;
     ast_expect_token(pc, semicolon, TokenIdSemicolon);
 
-    AstNode *node = ast_create_node(pc, NodeTypeUse, use_kw);
+    AstNode *node = ast_create_node(pc, NodeTypeUse, import_kw);
+    node->data.use.visib_mod = visib_mod;
+    node->data.use.directives = directives;
 
     parse_string_literal(pc, use_name, &node->data.use.path, nullptr, nullptr);
-
-    node->data.use.directives = pc->directive_list;
-    pc->directive_list = nullptr;
-
     normalize_parent_ptrs(node);
     return node;
 }
 
 /*
-ContainerDecl : many(Directive) option(FnVisibleMod) (token(Struct) | token(Enum)) token(Symbol) token(LBrace) many(StructMember) token(RBrace)
-StructMember: StructField | FnDecl
-StructField : token(Symbol) option(token(Colon) Expression) token(Comma))
+ContainerDecl : ("struct" | "enum") "Symbol" "{" many(StructMember) "}"
+StructMember: many(Directive) option(VisibleMod) (StructField | FnDef)
+StructField : "Symbol" option(":" Expression) ",")
 */
-static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
+static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index,
+        ZigList<AstNode*> *directives, VisibMod visib_mod)
+{
     Token *first_token = &pc->tokens->at(*token_index);
 
-    VisibMod visib_mod;
     ContainerKind kind;
 
-    if (first_token->id == TokenIdKeywordPub) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordStruct ||
-            next_token->id == TokenIdKeywordEnum)
-        {
-            visib_mod = VisibModPub;
-            kind = (next_token->id == TokenIdKeywordStruct) ? ContainerKindStruct : ContainerKindEnum;
-            *token_index += 2;
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordExport) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordStruct ||
-            next_token->id == TokenIdKeywordEnum)
-        {
-            visib_mod = VisibModExport;
-            kind = (next_token->id == TokenIdKeywordStruct) ? ContainerKindStruct : ContainerKindEnum;
-            *token_index += 2;
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordStruct ||
-               first_token->id == TokenIdKeywordEnum)
-    {
-        visib_mod = VisibModPrivate;
-        kind = (first_token->id == TokenIdKeywordStruct) ? ContainerKindStruct : ContainerKindEnum;
-        *token_index += 1;
+    if (first_token->id == TokenIdKeywordStruct) {
+        kind = ContainerKindStruct;
+    } else if (first_token->id == TokenIdKeywordEnum) {
+        kind = ContainerKindEnum;
     } else {
         return nullptr;
     }
+    *token_index += 1;
 
     Token *struct_name = ast_eat_token(pc, token_index, TokenIdSymbol);
 
@@ -2938,19 +2812,28 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
     node->data.struct_decl.kind = kind;
     ast_buf_from_token(pc, struct_name, &node->data.struct_decl.name);
     node->data.struct_decl.visib_mod = visib_mod;
+    node->data.struct_decl.directives = directives;
 
     ast_eat_token(pc, token_index, TokenIdLBrace);
 
-    node->data.struct_decl.directives = pc->directive_list;
-    pc->directive_list = nullptr;
-
     for (;;) {
-        assert(!pc->directive_list);
-        pc->directive_list = allocate<ZigList<AstNode*>>(1);
         Token *directive_token = &pc->tokens->at(*token_index);
-        ast_parse_directives(pc, token_index, pc->directive_list);
+        ZigList<AstNode *> *directive_list = allocate<ZigList<AstNode*>>(1);
+        ast_parse_directives(pc, token_index, directive_list);
 
-        AstNode *fn_def_node = ast_parse_fn_def(pc, token_index, false);
+        Token *visib_tok = &pc->tokens->at(*token_index);
+        VisibMod visib_mod;
+        if (visib_tok->id == TokenIdKeywordPub) {
+            *token_index += 1;
+            visib_mod = VisibModPub;
+        } else if (visib_tok->id == TokenIdKeywordExport) {
+            *token_index += 1;
+            visib_mod = VisibModExport;
+        } else {
+            visib_mod = VisibModPrivate;
+        }
+
+        AstNode *fn_def_node = ast_parse_fn_def(pc, token_index, false, directive_list, visib_mod);
         if (fn_def_node) {
             node->data.struct_decl.fns.append(fn_def_node);
             continue;
@@ -2959,10 +2842,9 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
         Token *token = &pc->tokens->at(*token_index);
 
         if (token->id == TokenIdRBrace) {
-            if (pc->directive_list->length > 0) {
+            if (directive_list->length > 0) {
                 ast_error(pc, directive_token, "invalid directive");
             }
-            pc->directive_list = nullptr;
 
             *token_index += 1;
             break;
@@ -2970,8 +2852,8 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
             AstNode *field_node = ast_create_node(pc, NodeTypeStructField, token);
             *token_index += 1;
 
-            field_node->data.struct_field.directives = pc->directive_list;
-            pc->directive_list = nullptr;
+            field_node->data.struct_field.visib_mod = visib_mod;
+            field_node->data.struct_field.directives = directive_list;
 
             ast_buf_from_token(pc, token, &field_node->data.struct_field.name);
 
@@ -2997,47 +2879,24 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index) {
 }
 
 /*
-ErrorValueDecl : option(FnVisibleMod) "error" "Symbol"
+ErrorValueDecl : "error" "Symbol" ";"
 */
-static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index,
+        ZigList<AstNode*> *directives, VisibMod visib_mod)
+{
     Token *first_token = &pc->tokens->at(*token_index);
 
-    VisibMod visib_mod;
-
-    if (first_token->id == TokenIdKeywordPub) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordError) {
-            visib_mod = VisibModPub;
-            *token_index += 2;
-        } else if (mandatory) {
-            ast_invalid_token_error(pc, next_token);
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordExport) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordError) {
-            visib_mod = VisibModExport;
-            *token_index += 2;
-        } else if (mandatory) {
-            ast_invalid_token_error(pc, next_token);
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordError) {
-        visib_mod = VisibModPrivate;
-        *token_index += 1;
-    } else if (mandatory) {
-        ast_invalid_token_error(pc, first_token);
-    } else {
+    if (first_token->id != TokenIdKeywordError) {
         return nullptr;
     }
+    *token_index += 1;
 
     Token *name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
     ast_eat_token(pc, token_index, TokenIdSemicolon);
 
     AstNode *node = ast_create_node(pc, NodeTypeErrorValueDecl, first_token);
     node->data.error_value_decl.visib_mod = visib_mod;
+    node->data.error_value_decl.directives = directives;
     ast_buf_from_token(pc, name_tok, &node->data.error_value_decl.name);
 
     normalize_parent_ptrs(node);
@@ -3045,61 +2904,77 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index, b
 }
 
 /*
-TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Import | ContainerDecl | VariableDeclaration | ErrorValueDecl
+TopLevelDecl : many(Directive) option(FnVisibleMod) (FnDef | ExternFnProto | RootExportDecl | Import | ContainerDecl | VariableDeclaration | ErrorValueDecl | CImportDecl)
 */
 static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigList<AstNode *> *top_level_decls) {
     for (;;) {
         Token *directive_token = &pc->tokens->at(*token_index);
-        assert(!pc->directive_list);
-        pc->directive_list = allocate<ZigList<AstNode*>>(1);
-        ast_parse_directives(pc, token_index, pc->directive_list);
+        ZigList<AstNode *> *directives = allocate<ZigList<AstNode*>>(1);
+        ast_parse_directives(pc, token_index, directives);
 
-        AstNode *root_export_decl_node = ast_parse_root_export_decl(pc, token_index, false);
-        if (root_export_decl_node) {
-            top_level_decls->append(root_export_decl_node);
-            continue;
+        Token *visib_tok = &pc->tokens->at(*token_index);
+        VisibMod visib_mod;
+        if (visib_tok->id == TokenIdKeywordPub) {
+            *token_index += 1;
+            visib_mod = VisibModPub;
+        } else if (visib_tok->id == TokenIdKeywordExport) {
+            *token_index += 1;
+            visib_mod = VisibModExport;
+        } else {
+            visib_mod = VisibModPrivate;
         }
 
-        AstNode *fn_def_node = ast_parse_fn_def(pc, token_index, false);
+        bool try_to_parse_root_export = (visib_mod == VisibModExport && !pc->parsed_root_export);
+        pc->parsed_root_export = true;
+
+        if (try_to_parse_root_export) {
+            AstNode *root_export_decl_node = ast_parse_root_export_decl(pc, token_index, directives);
+            if (root_export_decl_node) {
+                top_level_decls->append(root_export_decl_node);
+                continue;
+            }
+        }
+
+        AstNode *fn_def_node = ast_parse_fn_def(pc, token_index, false, directives, visib_mod);
         if (fn_def_node) {
             top_level_decls->append(fn_def_node);
             continue;
         }
 
-        AstNode *extern_node = ast_parse_extern_block(pc, token_index, false);
-        if (extern_node) {
-            top_level_decls->append(extern_node);
+        AstNode *fn_proto_node = ast_parse_extern_decl(pc, token_index, false, directives, visib_mod);
+        if (fn_proto_node) {
+            top_level_decls->append(fn_proto_node);
             continue;
         }
 
-        AstNode *use_node = ast_parse_use(pc, token_index);
-        if (use_node) {
-            top_level_decls->append(use_node);
+        AstNode *import_node = ast_parse_import(pc, token_index, directives, visib_mod);
+        if (import_node) {
+            top_level_decls->append(import_node);
             continue;
         }
 
-        AstNode *struct_node = ast_parse_struct_decl(pc, token_index);
+        AstNode *struct_node = ast_parse_struct_decl(pc, token_index, directives, visib_mod);
         if (struct_node) {
             top_level_decls->append(struct_node);
             continue;
         }
 
-        if (pc->directive_list->length > 0) {
-            ast_error(pc, directive_token, "invalid directive");
-        }
-        pc->directive_list = nullptr;
-
-        AstNode *var_decl_node = ast_parse_variable_declaration_expr(pc, token_index, false);
+        AstNode *var_decl_node = ast_parse_variable_declaration_expr(pc, token_index, false,
+                directives, visib_mod);
         if (var_decl_node) {
             ast_eat_token(pc, token_index, TokenIdSemicolon);
             top_level_decls->append(var_decl_node);
             continue;
         }
 
-        AstNode *error_value_node = ast_parse_error_value_decl(pc, token_index, false);
+        AstNode *error_value_node = ast_parse_error_value_decl(pc, token_index, directives, visib_mod);
         if (error_value_node) {
             top_level_decls->append(error_value_node);
             continue;
+        }
+
+        if (directives->length > 0) {
+            ast_error(pc, directive_token, "invalid directive");
         }
 
         return;
@@ -3174,10 +3049,6 @@ void normalize_parent_ptrs(AstNode *node) {
             break;
         case NodeTypeBlock:
             set_list_fields(&node->data.block.statements);
-            break;
-        case NodeTypeExternBlock:
-            set_list_fields(node->data.extern_block.directives);
-            set_list_fields(&node->data.extern_block.fn_decls);
             break;
         case NodeTypeDirective:
             // none

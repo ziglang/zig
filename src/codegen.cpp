@@ -2249,7 +2249,6 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeFnDef:
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
-        case NodeTypeExternBlock:
         case NodeTypeDirective:
         case NodeTypeUse:
         case NodeTypeStructDecl:
@@ -3001,18 +3000,6 @@ static void init(CodeGen *g, Buf *source_path) {
 
 }
 
-static bool directives_contains_link_libc(ZigList<AstNode*> *directives) {
-    for (int i = 0; i < directives->length; i += 1) {
-        AstNode *directive_node = directives->at(i);
-        if (buf_eql_str(&directive_node->data.directive.name, "link") &&
-            buf_eql_str(&directive_node->data.directive.param, "c"))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 static int parse_version_string(Buf *buf, int *major, int *minor, int *patch) {
     char *dot1 = strstr(buf_ptr(buf), ".");
     if (!dot1)
@@ -3114,6 +3101,11 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
                     Buf *param = &directive_node->data.directive.param;
                     if (buf_eql_str(name, "version")) {
                         set_root_export_version(g, param, directive_node);
+                    } else if (buf_eql_str(name, "link")) {
+                        g->link_table.put(param, true);
+                        if (buf_eql_str(param, "c")) {
+                            g->link_libc = true;
+                        }
                     } else {
                         add_node_error(g, directive_node,
                                 buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
@@ -3204,8 +3196,6 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
             if (buf_eql_str(proto_name, "main") && !is_private) {
                 g->have_exported_main = true;
             }
-        } else if (top_level_decl->type == NodeTypeExternBlock) {
-            g->link_libc = directives_contains_link_libc(top_level_decl->data.extern_block.directives);
         }
     }
 

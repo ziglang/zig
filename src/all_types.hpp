@@ -121,7 +121,6 @@ enum NodeType {
     NodeTypeFnDecl,
     NodeTypeParamDecl,
     NodeTypeBlock,
-    NodeTypeExternBlock,
     NodeTypeDirective,
     NodeTypeReturnExpr,
     NodeTypeVariableDeclaration,
@@ -178,11 +177,10 @@ struct AstNodeFnProto {
     ZigList<AstNode *> params;
     AstNode *return_type;
     bool is_var_args;
+    bool is_extern;
 
     // populated by semantic analyzer:
 
-    // the extern block this fn proto is inside. can be null.
-    AstNode *extern_node;
     // the struct decl node this fn proto is inside. can be null.
     AstNode *struct_node;
     // the function definition this fn proto is inside. can be null.
@@ -247,6 +245,7 @@ struct AstNodeVariableDeclaration {
     // one or both of type and expr will be non null
     AstNode *type;
     AstNode *expr;
+    ZigList<AstNode *> *directives;
 
     // populated by semantic analyzer
     TopLevelDecl top_level_decl;
@@ -255,8 +254,9 @@ struct AstNodeVariableDeclaration {
 };
 
 struct AstNodeErrorValueDecl {
-    VisibMod visib_mod;
     Buf name;
+    VisibMod visib_mod;
+    ZigList<AstNode *> *directives;
 
     // populated by semantic analyzer
     TopLevelDecl top_level_decl;
@@ -378,11 +378,6 @@ struct AstNodeFieldAccessExpr {
     StructValExprCodeGen resolved_struct_val_expr; // for enum values
 };
 
-struct AstNodeExternBlock {
-    ZigList<AstNode *> *directives;
-    ZigList<AstNode *> fn_decls;
-};
-
 struct AstNodeDirective {
     Buf name;
     Buf param;
@@ -418,6 +413,7 @@ struct AstNodePrefixOpExpr {
 struct AstNodeUse {
     Buf path;
     ZigList<AstNode *> *directives;
+    VisibMod visib_mod;
 
     // populated by semantic analyzer
     ImportTableEntry *import;
@@ -559,6 +555,7 @@ struct AstNodeStructField {
     Buf name;
     AstNode *type;
     ZigList<AstNode *> *directives;
+    VisibMod visib_mod;
 };
 
 struct AstNodeStringLiteral {
@@ -697,7 +694,6 @@ struct AstNode {
         AstNodeErrorValueDecl error_value_decl;
         AstNodeBinOpExpr bin_op_expr;
         AstNodeUnwrapErrorExpr unwrap_err_expr;
-        AstNodeExternBlock extern_block;
         AstNodeDirective directive;
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodeFnCallExpr fn_call_expr;

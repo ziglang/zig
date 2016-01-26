@@ -97,10 +97,8 @@ static TestCase *add_compile_fail_case(const char *case_name, const char *source
 static void add_compiling_test_cases(void) {
     add_simple_case("hello world with libc", R"SOURCE(
 #link("c")
-extern {
-    fn puts(s: &const u8) -> c_int;
-}
-
+export executable "test";
+extern fn puts(s: &const u8) -> c_int;
 export fn main(argc: c_int, argv: &&u8) -> c_int {
     puts(c"Hello, world!");
     return 0;
@@ -482,9 +480,8 @@ pub fn main(args: [][]u8) -> %void {
 
     add_simple_case("number literals", R"SOURCE(
 #link("c")
-extern {
-    fn printf(__format: &const u8, ...) -> c_int;
-}
+export executable "test";
+extern fn printf(__format: &const u8, ...) -> c_int;
 
 export fn main(argc: c_int, argv: &&u8) -> c_int {
     printf(c"\n");
@@ -1321,13 +1318,11 @@ fn a() {}
 
     add_compile_fail_case("bad directive", R"SOURCE(
 #bogus1("")
-extern {
-    fn b();
-}
+extern fn b();
 #bogus2("")
 fn a() {}
     )SOURCE", 2, ".tmp_source.zig:2:1: error: invalid directive: 'bogus1'",
-                 ".tmp_source.zig:6:1: error: invalid directive: 'bogus2'");
+                 ".tmp_source.zig:4:1: error: invalid directive: 'bogus2'");
 
     add_compile_fail_case("unreachable with return", R"SOURCE(
 fn a() -> unreachable {return;}
@@ -1668,11 +1663,9 @@ fn f() {
     )SOURCE", 1, ".tmp_source.zig:6:9: error: multiple else prongs in switch expression");
 
     add_compile_fail_case("global variable initializer must be constant expression", R"SOURCE(
-extern {
-    fn foo() -> i32;
-}
+extern fn foo() -> i32;
 const x = foo();
-    )SOURCE", 1, ".tmp_source.zig:5:11: error: global variable initializer requires constant expression");
+    )SOURCE", 1, ".tmp_source.zig:3:11: error: global variable initializer requires constant expression");
 
     add_compile_fail_case("non compile time string concatenation", R"SOURCE(
 fn f(s: []u8) -> []u8 {

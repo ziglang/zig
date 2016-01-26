@@ -5,31 +5,33 @@
 ```
 Root : many(TopLevelDecl) "EOF"
 
-TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Import | ContainerDecl | VariableDeclaration | ErrorValueDecl
+TopLevelDecl : many(Directive) option(VisibleMod) (FnDef | ExternDecl | RootExportDecl | Import | ContainerDecl | GlobalVarDecl | ErrorValueDecl | CImportDecl)
 
-ErrorValueDecl : option(FnVisibleMod) "error" "Symbol"
+CImportDecl : "c_import" Block
 
-VariableDeclaration : option(FnVisibleMod) ("var" | "const") "Symbol" option(":" PrefixOpExpression) "=" Expression
+ErrorValueDecl : "error" "Symbol" ";"
 
-ContainerDecl : many(Directive) option(FnVisibleMod) ("struct" | "enum") "Symbol" "{" many(StructMember) "}"
+GlobalVarDecl : VariableDeclaration ";"
 
-StructMember: StructField | FnDecl
+VariableDeclaration : ("var" | "const") "Symbol" option(":" PrefixOpExpression) "=" Expression
+
+ContainerDecl : ("struct" | "enum") "Symbol" "{" many(StructMember) "}"
+
+StructMember: many(Directive) option(VisibleMod) (StructField | FnDef)
 
 StructField : "Symbol" option(":" Expression) ",")
 
-Import : many(Directive) "import" "String" ";"
+Import : "import" "String" ";"
 
-RootExportDecl : many(Directive) "export" "Symbol" "String" ";"
+RootExportDecl : "export" "Symbol" "String" ";"
 
-ExternBlock : many(Directive) "extern" "{" many(FnDecl) "}"
+ExternDecl : "extern" FnProto ";"
 
-FnProto : many(Directive) option(FnVisibleMod) "fn" "Symbol" ParamDeclList option("->" PrefixOpExpression)
+FnProto : "fn" "Symbol" ParamDeclList option("->" PrefixOpExpression)
 
 Directive : "#" "Symbol" "(" "String" ")"
 
-FnVisibleMod : "pub" | "export"
-
-FnDecl : FnProto ";"
+VisibleMod : "pub" | "export"
 
 FnDef : FnProto Block
 

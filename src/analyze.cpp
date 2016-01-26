@@ -45,7 +45,6 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeBlock:
-        case NodeTypeExternBlock:
         case NodeTypeDirective:
         case NodeTypeReturnExpr:
         case NodeTypeVariableDeclaration:
@@ -897,8 +896,8 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
         AstNode *proto_node)
 {
     AstNode *fn_def_node = proto_node->data.fn_proto.fn_def_node;
-    AstNode *extern_node = proto_node->data.fn_proto.extern_node;
     AstNode *struct_node = proto_node->data.fn_proto.struct_node;
+    bool is_extern = proto_node->data.fn_proto.is_extern;
     TypeTableEntry *struct_type;
     if (struct_node) {
         assert(struct_node->type == NodeTypeStructDecl);
@@ -914,7 +913,7 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
     auto entry = fn_table->maybe_get(proto_name);
     bool skip = false;
     bool is_internal = (proto_node->data.fn_proto.visib_mod != VisibModExport);
-    bool is_c_compat = !is_internal || extern_node;
+    bool is_c_compat = !is_internal || is_extern;
     bool is_pub = (proto_node->data.fn_proto.visib_mod != VisibModPrivate);
     if (entry) {
         add_node_error(g, proto_node,
@@ -922,7 +921,7 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
         proto_node->data.fn_proto.skip = true;
         skip = true;
     }
-    if (!extern_node && proto_node->data.fn_proto.is_var_args) {
+    if (!is_extern && proto_node->data.fn_proto.is_var_args) {
         add_node_error(g, proto_node,
                 buf_sprintf("variadic arguments only allowed in extern functions"));
     }
@@ -935,7 +934,7 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
     fn_table_entry->proto_node = proto_node;
     fn_table_entry->fn_def_node = fn_def_node;
     fn_table_entry->internal_linkage = !is_c_compat;
-    fn_table_entry->is_extern = extern_node;
+    fn_table_entry->is_extern = is_extern;
     fn_table_entry->label_table.init(8);
     fn_table_entry->member_of_struct = struct_type;
 
@@ -950,7 +949,7 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
 
     g->fn_protos.append(fn_table_entry);
 
-    if (!extern_node) {
+    if (!is_extern) {
         g->fn_defs.append(fn_table_entry);
     }
 
@@ -1021,19 +1020,6 @@ static void resolve_error_value_decl(CodeGen *g, ImportTableEntry *import, AstNo
 
 static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
-        case NodeTypeExternBlock:
-            for (int i = 0; i < node->data.extern_block.directives->length; i += 1) {
-                AstNode *directive_node = node->data.extern_block.directives->at(i);
-                Buf *name = &directive_node->data.directive.name;
-                Buf *param = &directive_node->data.directive.param;
-                if (buf_eql_str(name, "link")) {
-                    g->link_table.put(param, true);
-                } else {
-                    add_node_error(g, directive_node,
-                            buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
-                }
-            }
-            break;
         case NodeTypeFnProto:
             preview_fn_proto(g, import, node);
             break;
@@ -4051,7 +4037,6 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeParamDecl:
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
-        case NodeTypeExternBlock:
         case NodeTypeFnDef:
         case NodeTypeUse:
         case NodeTypeLabel:
@@ -4155,15 +4140,14 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
                 break;
             }
         case NodeTypeRootExportDecl:
-        case NodeTypeExternBlock:
         case NodeTypeUse:
         case NodeTypeVariableDeclaration:
         case NodeTypeErrorValueDecl:
+        case NodeTypeFnProto:
             // already took care of these
             break;
         case NodeTypeDirective:
         case NodeTypeParamDecl:
-        case NodeTypeFnProto:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
         case NodeTypeRoot:
@@ -4350,7 +4334,6 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
             break;
         case NodeTypeVariableDeclaration:
         case NodeTypeFnProto:
-        case NodeTypeExternBlock:
         case NodeTypeRootExportDecl:
         case NodeTypeFnDef:
         case NodeTypeRoot:
@@ -4453,16 +4436,6 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
 
                 break;
             }
-        case NodeTypeExternBlock:
-            for (int fn_decl_i = 0; fn_decl_i < node->data.extern_block.fn_decls.length; fn_decl_i += 1) {
-                AstNode *fn_decl = node->data.extern_block.fn_decls.at(fn_decl_i);
-                assert(fn_decl->type == NodeTypeFnDecl);
-                AstNode *fn_proto = fn_decl->data.fn_decl.fn_proto;
-                fn_proto->data.fn_proto.extern_node = node;
-                detect_top_level_decl_deps(g, import, fn_proto);
-            }
-            resolve_top_level_decl(g, import, node);
-            break;
         case NodeTypeFnDef:
             node->data.fn_def.fn_proto->data.fn_proto.fn_def_node = node;
             detect_top_level_decl_deps(g, import, node->data.fn_def.fn_proto);
@@ -4786,7 +4759,6 @@ Expr *get_resolved_expr(AstNode *node) {
         case NodeTypeFnDef:
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
-        case NodeTypeExternBlock:
         case NodeTypeDirective:
         case NodeTypeUse:
         case NodeTypeStructDecl:
@@ -4832,7 +4804,6 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeBlock:
-        case NodeTypeExternBlock:
         case NodeTypeDirective:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
