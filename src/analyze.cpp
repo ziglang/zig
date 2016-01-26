@@ -3830,8 +3830,12 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
         bool is_last = (i == node->data.block.statements.length - 1);
         TypeTableEntry *passed_expected_type = is_last ? expected_type : nullptr;
         return_type = analyze_expression(g, import, child_context, passed_expected_type, child);
-        if (!is_last && return_type->id == TypeTableEntryIdMetaType) {
-            add_node_error(g, child, buf_sprintf("expected expression, found type"));
+        if (!is_last) {
+            if (return_type->id == TypeTableEntryIdMetaType) {
+                add_node_error(g, child, buf_sprintf("expected expression, found type"));
+            } else if (return_type->id == TypeTableEntryIdErrorUnion) {
+                add_node_error(g, child, buf_sprintf("statement ignores error value"));
+            }
         }
     }
     return return_type;

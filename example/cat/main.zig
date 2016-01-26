@@ -5,11 +5,10 @@ import "std.zig";
 // Things to do to make this work:
 // * var args printing
 // * defer
-// * %% prefix operator
 // * cast err type to string
 // * string equality
 
-pub fn main(args: [][]u8) %void => {
+pub fn main(args: [][]u8) -> %void {
     const exe = args[0];
     var catted_anything = false;
     for (arg, args[1...]) {
@@ -21,7 +20,7 @@ pub fn main(args: [][]u8) %void => {
         } else {
             var is: InputStream;
             is.open(arg, OpenReadOnly) %% |err| {
-                %%stderr.print("Unable to open file: {}", ([]u8])(err));
+                %%stderr.print("Unable to open file: {}", ([]u8)(err));
                 return err;
             }
             defer is.close();
@@ -35,12 +34,12 @@ pub fn main(args: [][]u8) %void => {
     }
 }
 
-fn usage(exe: []u8) %void => {
+fn usage(exe: []u8) -> %void {
     %%stderr.print("Usage: {} [FILE]...\n", exe);
     return error.Invalid;
 }
 
-fn cat_stream(is: InputStream) %void => {
+fn cat_stream(is: InputStream) -> %void {
     var buf: [1024 * 4]u8;
 
     while (true) {

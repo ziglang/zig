@@ -5,7 +5,7 @@ import "foo.zig";
 
 pub fn main(args: [][]u8) -> %void {
     private_function();
-    stdout.printf("OK 2\n");
+    %%stdout.printf("OK 2\n");
 }
 
 fn private_function() {
