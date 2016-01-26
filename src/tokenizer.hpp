@@ -21,6 +21,7 @@ enum TokenId {
     TokenIdKeywordPub,
     TokenIdKeywordExport,
     TokenIdKeywordImport,
+    TokenIdKeywordCImport,
     TokenIdKeywordTrue,
     TokenIdKeywordFalse,
     TokenIdKeywordIf,

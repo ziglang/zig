@@ -123,8 +123,10 @@ const char *node_type_str(NodeType node_type) {
             return "Symbol";
         case NodeTypePrefixOpExpr:
             return "PrefixOpExpr";
-        case NodeTypeUse:
-            return "Use";
+        case NodeTypeImport:
+            return "Import";
+        case NodeTypeCImport:
+            return "CImport";
         case NodeTypeBoolLiteral:
             return "BoolLiteral";
         case NodeTypeNullLiteral:
@@ -329,8 +331,12 @@ void ast_print(AstNode *node, int indent) {
         case NodeTypeSymbol:
             fprintf(stderr, "Symbol %s\n", buf_ptr(&node->data.symbol_expr.symbol));
             break;
-        case NodeTypeUse:
-            fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.use.path));
+        case NodeTypeImport:
+            fprintf(stderr, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.import.path));
+            break;
+        case NodeTypeCImport:
+            fprintf(stderr, "%s\n", node_type_str(node->type));
+            ast_print(node->data.c_import.block, indent + 2);
             break;
         case NodeTypeBoolLiteral:
             fprintf(stderr, "%s '%s'\n", node_type_str(node->type),
@@ -2768,19 +2774,35 @@ static AstNode *ast_parse_import(ParseContext *pc, int *token_index,
         return nullptr;
     *token_index += 1;
 
-    Token *use_name = &pc->tokens->at(*token_index);
+    Token *import_name = ast_eat_token(pc, token_index, TokenIdStringLiteral);
+
+    ast_eat_token(pc, token_index, TokenIdSemicolon);
+
+    AstNode *node = ast_create_node(pc, NodeTypeImport, import_kw);
+    node->data.import.visib_mod = visib_mod;
+    node->data.import.directives = directives;
+
+    parse_string_literal(pc, import_name, &node->data.import.path, nullptr, nullptr);
+    normalize_parent_ptrs(node);
+    return node;
+}
+
+/*
+CImportDecl : "c_import" Block
+*/
+static AstNode *ast_parse_c_import(ParseContext *pc, int *token_index,
+        ZigList<AstNode*> *directives, VisibMod visib_mod)
+{
+    Token *c_import_kw = &pc->tokens->at(*token_index);
+    if (c_import_kw->id != TokenIdKeywordCImport)
+        return nullptr;
     *token_index += 1;
-    ast_expect_token(pc, use_name, TokenIdStringLiteral);
 
-    Token *semicolon = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, semicolon, TokenIdSemicolon);
+    AstNode *node = ast_create_node(pc, NodeTypeCImport, c_import_kw);
+    node->data.c_import.visib_mod = visib_mod;
+    node->data.c_import.directives = directives;
+    node->data.c_import.block = ast_parse_block(pc, token_index, true);
 
-    AstNode *node = ast_create_node(pc, NodeTypeUse, import_kw);
-    node->data.use.visib_mod = visib_mod;
-    node->data.use.directives = directives;
-
-    parse_string_literal(pc, use_name, &node->data.use.path, nullptr, nullptr);
     normalize_parent_ptrs(node);
     return node;
 }
@@ -2953,6 +2975,12 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
             continue;
         }
 
+        AstNode *c_import_node = ast_parse_c_import(pc, token_index, directives, visib_mod);
+        if (c_import_node) {
+            top_level_decls->append(c_import_node);
+            continue;
+        }
+
         AstNode *struct_node = ast_parse_struct_decl(pc, token_index, directives, visib_mod);
         if (struct_node) {
             top_level_decls->append(struct_node);
@@ -3103,8 +3131,12 @@ void normalize_parent_ptrs(AstNode *node) {
         case NodeTypeFieldAccessExpr:
             set_field(&node->data.field_access_expr.struct_expr);
             break;
-        case NodeTypeUse:
-            set_list_fields(node->data.use.directives);
+        case NodeTypeImport:
+            set_list_fields(node->data.import.directives);
+            break;
+        case NodeTypeCImport:
+            set_list_fields(node->data.c_import.directives);
+            set_field(&node->data.c_import.block);
             break;
         case NodeTypeBoolLiteral:
             // none

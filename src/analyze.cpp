@@ -21,6 +21,8 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         AstNode *node);
 static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, AstNode *node, Buf *err_name);
+static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node);
 
 static AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
@@ -54,7 +56,8 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeCharLiteral:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
-        case NodeTypeUse:
+        case NodeTypeImport:
+        case NodeTypeCImport:
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
@@ -1018,6 +1021,25 @@ static void resolve_error_value_decl(CodeGen *g, ImportTableEntry *import, AstNo
     }
 }
 
+static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+    assert(node->type == NodeTypeCImport);
+
+    AstNode *block_node = node->data.c_import.block;
+
+    BlockContext *child_context = new_block_context(node, import->block_context);
+    child_context->c_import_buf = buf_alloc();
+
+    TypeTableEntry *resolved_type = analyze_block_expr(g, import, child_context,
+            g->builtin_types.entry_void, block_node);
+
+    if (resolved_type->id == TypeTableEntryIdInvalid) {
+        return;
+    }
+
+    fprintf(stderr, "c import buf:\n%s\n", buf_ptr(child_context->c_import_buf));
+    zig_panic("TODO");
+}
+
 static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
         case NodeTypeFnProto:
@@ -1053,8 +1075,11 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeErrorValueDecl:
             resolve_error_value_decl(g, import, node);
             break;
-        case NodeTypeUse:
+        case NodeTypeImport:
             // nothing to do here
+            break;
+        case NodeTypeCImport:
+            resolve_c_import_decl(g, import, node);
             break;
         case NodeTypeFnDef:
         case NodeTypeDirective:
@@ -1501,6 +1526,7 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
 
     if (parent) {
         context->parent_loop_node = parent->parent_loop_node;
+        context->c_import_buf = parent->c_import_buf;
     }
 
     if (node && node->type == NodeTypeFnDef) {
@@ -1997,7 +2023,7 @@ static TypeTableEntry *resolve_expr_const_val_as_float_num_lit(CodeGen *g, AstNo
     }
 }
 
-static TypeTableEntry *resolve_expr_const_val_as_bignum_op(CodeGen *g, AstNode *node, 
+static TypeTableEntry *resolve_expr_const_val_as_bignum_op(CodeGen *g, AstNode *node,
         bool (*bignum_fn)(BigNum *, BigNum *, BigNum *), AstNode *op1, AstNode *op2,
         TypeTableEntry *resolved_type)
 {
@@ -2521,7 +2547,7 @@ static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, Block
     if (name) {
         buf_init_from_buf(&variable_entry->name, name);
         VariableTableEntry *existing_var;
-        
+
         if (context->fn_entry) {
             existing_var = find_local_variable(context, name);
         } else {
@@ -3396,6 +3422,47 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     return resolve_expr_const_val_as_type(g, node, type_entry);
                 }
             }
+        case BuiltinFnIdCInclude:
+            {
+                if (!context->c_import_buf) {
+                    add_node_error(g, node, buf_sprintf("@c_include valid only in c_import blocks"));
+                    return g->builtin_types.entry_invalid;
+                }
+
+                AstNode **str_node = node->data.fn_call_expr.params.at(0)->parent_field;
+                TypeTableEntry *str_type = get_unknown_size_array_type(g, g->builtin_types.entry_u8, true);
+                TypeTableEntry *resolved_type = analyze_expression(g, import, context, str_type, *str_node);
+
+                if (resolved_type->id == TypeTableEntryIdInvalid) {
+                    return resolved_type;
+                }
+
+                ConstExprValue *const_str_val = &get_resolved_expr(*str_node)->const_val;
+
+                if (!const_str_val->ok) {
+                    add_node_error(g, *str_node, buf_sprintf("@c_include requires constant expression"));
+                    return g->builtin_types.entry_void;
+                }
+
+                buf_appendf(context->c_import_buf, "#include \"");
+                ConstExprValue *ptr_field = const_str_val->data.x_struct.fields[0];
+                uint64_t len = ptr_field->data.x_ptr.len;
+                for (uint64_t i = 0; i < len; i += 1) {
+                    ConstExprValue *char_val = ptr_field->data.x_ptr.ptr[i];
+                    uint64_t big_c = char_val->data.x_bignum.data.x_uint;
+                    assert(big_c <= UINT8_MAX);
+                    uint8_t c = big_c;
+                    buf_appendf(context->c_import_buf, "%c", c);
+                }
+                buf_appendf(context->c_import_buf, "\"\n");
+
+                return g->builtin_types.entry_void;
+            }
+        case BuiltinFnIdCDefine:
+            zig_panic("TODO");
+        case BuiltinFnIdCUndef:
+            zig_panic("TODO");
+
     }
     zig_unreachable();
 }
@@ -4038,7 +4105,8 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeRoot:
         case NodeTypeRootExportDecl:
         case NodeTypeFnDef:
-        case NodeTypeUse:
+        case NodeTypeImport:
+        case NodeTypeCImport:
         case NodeTypeLabel:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
@@ -4140,7 +4208,8 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
                 break;
             }
         case NodeTypeRootExportDecl:
-        case NodeTypeUse:
+        case NodeTypeImport:
+        case NodeTypeCImport:
         case NodeTypeVariableDeclaration:
         case NodeTypeErrorValueDecl:
         case NodeTypeFnProto:
@@ -4340,7 +4409,8 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeDirective:
-        case NodeTypeUse:
+        case NodeTypeImport:
+        case NodeTypeCImport:
         case NodeTypeLabel:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
@@ -4486,9 +4556,24 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeRootExportDecl:
             resolve_top_level_decl(g, import, node);
             break;
-        case NodeTypeUse:
+        case NodeTypeImport:
             // already taken care of
             break;
+        case NodeTypeCImport:
+            {
+                TopLevelDecl *decl_node = &node->data.c_import.top_level_decl;
+                decl_node->deps.init(1);
+                collect_expr_decl_deps(g, import, node->data.c_import.block, decl_node);
+
+                decl_node->name = buf_sprintf("c_import_%" PRIu32, node->create_index);
+                decl_node->import = import;
+                if (decl_node->deps.size() > 0) {
+                    g->unresolved_top_level_decls.put(decl_node->name, node);
+                } else {
+                    resolve_top_level_decl(g, import, node);
+                }
+                break;
+            }
         case NodeTypeErrorValueDecl:
             // error value declarations do not depend on other top level decls
             resolve_top_level_decl(g, import, node);
@@ -4619,15 +4704,15 @@ void semantic_analyze(CodeGen *g) {
 
             for (int i = 0; i < import->root->data.root.top_level_decls.length; i += 1) {
                 AstNode *child = import->root->data.root.top_level_decls.at(i);
-                if (child->type == NodeTypeUse) {
-                    for (int i = 0; i < child->data.use.directives->length; i += 1) {
-                        AstNode *directive_node = child->data.use.directives->at(i);
+                if (child->type == NodeTypeImport) {
+                    for (int i = 0; i < child->data.import.directives->length; i += 1) {
+                        AstNode *directive_node = child->data.import.directives->at(i);
                         Buf *name = &directive_node->data.directive.name;
                         add_node_error(g, directive_node,
                                 buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
                     }
 
-                    ImportTableEntry *target_import = child->data.use.import;
+                    ImportTableEntry *target_import = child->data.import.import;
                     assert(target_import);
 
                     target_import->importers.append({import, child});
@@ -4760,7 +4845,8 @@ Expr *get_resolved_expr(AstNode *node) {
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeDirective:
-        case NodeTypeUse:
+        case NodeTypeImport:
+        case NodeTypeCImport:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
@@ -4780,6 +4866,8 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
             return &node->data.struct_decl.top_level_decl;
         case NodeTypeErrorValueDecl:
             return &node->data.error_value_decl.top_level_decl;
+        case NodeTypeCImport:
+            return &node->data.c_import.top_level_decl;
         case NodeTypeNumberLiteral:
         case NodeTypeReturnExpr:
         case NodeTypeBinOpExpr:
@@ -4808,7 +4896,7 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
         case NodeTypeSymbol:
-        case NodeTypeUse:
+        case NodeTypeImport:
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:

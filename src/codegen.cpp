@@ -177,6 +177,9 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
     switch (builtin_fn->id) {
         case BuiltinFnIdInvalid:
         case BuiltinFnIdTypeof:
+        case BuiltinFnIdCInclude:
+        case BuiltinFnIdCDefine:
+        case BuiltinFnIdCUndef:
             zig_unreachable();
         case BuiltinFnIdAddWithOverflow:
         case BuiltinFnIdSubWithOverflow:
@@ -2250,7 +2253,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeDirective:
-        case NodeTypeUse:
+        case NodeTypeImport:
+        case NodeTypeCImport:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
@@ -2930,6 +2934,9 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdAddWithOverflow, "add_with_overflow", 4);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSubWithOverflow, "sub_with_overflow", 4);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdMulWithOverflow, "mul_with_overflow", 4);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCInclude, "c_include", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCDefine, "c_define", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCUndef, "c_undef", 1);
 }
 
 
@@ -3138,8 +3145,8 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
                     }
                 }
             }
-        } else if (top_level_decl->type == NodeTypeUse) {
-            Buf *import_target_path = &top_level_decl->data.use.path;
+        } else if (top_level_decl->type == NodeTypeImport) {
+            Buf *import_target_path = &top_level_decl->data.import.path;
             Buf full_path = BUF_INIT;
             Buf *import_code = buf_alloc();
             bool found_it = false;
@@ -3163,7 +3170,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
                 auto entry = g->import_table.maybe_get(abs_full_path);
                 if (entry) {
                     found_it = true;
-                    top_level_decl->data.use.import = entry->value;
+                    top_level_decl->data.import.import = entry->value;
                 } else {
                     if ((err = os_fetch_file_path(abs_full_path, import_code))) {
                         if (err == ErrorFileNotFound) {
@@ -3175,8 +3182,8 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
                             goto done_looking_at_imports;
                         }
                     }
-                    top_level_decl->data.use.import = codegen_add_code(g,
-                            abs_full_path, search_path, &top_level_decl->data.use.path, import_code);
+                    top_level_decl->data.import.import = codegen_add_code(g,
+                            abs_full_path, search_path, &top_level_decl->data.import.path, import_code);
                     found_it = true;
                 }
                 break;

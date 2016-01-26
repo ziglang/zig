@@ -136,7 +136,8 @@ enum NodeType {
     NodeTypeArrayAccessExpr,
     NodeTypeSliceExpr,
     NodeTypeFieldAccessExpr,
-    NodeTypeUse,
+    NodeTypeImport,
+    NodeTypeCImport,
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
     NodeTypeUndefinedLiteral,
@@ -410,13 +411,22 @@ struct AstNodePrefixOpExpr {
     Expr resolved_expr;
 };
 
-struct AstNodeUse {
+struct AstNodeImport {
     Buf path;
     ZigList<AstNode *> *directives;
     VisibMod visib_mod;
 
     // populated by semantic analyzer
     ImportTableEntry *import;
+};
+
+struct AstNodeCImport {
+    ZigList<AstNode *> *directives;
+    VisibMod visib_mod;
+    AstNode *block;
+
+    // populated by semantic analyzer
+    TopLevelDecl top_level_decl;
 };
 
 struct AstNodeIfBoolExpr {
@@ -699,7 +709,8 @@ struct AstNode {
         AstNodeFnCallExpr fn_call_expr;
         AstNodeArrayAccessExpr array_access_expr;
         AstNodeSliceExpr slice_expr;
-        AstNodeUse use;
+        AstNodeImport import;
+        AstNodeCImport c_import;
         AstNodeIfBoolExpr if_bool_expr;
         AstNodeIfVarExpr if_var_expr;
         AstNodeWhileExpr while_expr;
@@ -920,6 +931,9 @@ enum BuiltinFnId {
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
     BuiltinFnIdMulWithOverflow,
+    BuiltinFnIdCInclude,
+    BuiltinFnIdCDefine,
+    BuiltinFnIdCUndef,
 };
 
 struct BuiltinFnEntry {
@@ -1051,6 +1065,7 @@ struct BlockContext {
     ZigList<VariableTableEntry *> variable_list;
     AstNode *parent_loop_node;
     LLVMZigDIScope *di_scope;
+    Buf *c_import_buf;
 };
 
 #endif
