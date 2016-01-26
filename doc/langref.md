@@ -9,7 +9,7 @@ TopLevelDecl : FnDef | ExternBlock | RootExportDecl | Import | ContainerDecl | V
 
 ErrorValueDecl : option(FnVisibleMod) "error" "Symbol"
 
-VariableDeclaration : option(FnVisibleMod) ("var" | "const") "Symbol" ("=" Expression | ":" PrefixOpExpression option("=" Expression))
+VariableDeclaration : option(FnVisibleMod) ("var" | "const") "Symbol" option(":" PrefixOpExpression) "=" Expression
 
 ContainerDecl : many(Directive) option(FnVisibleMod) ("struct" | "enum") "Symbol" "{" many(StructMember) "}"
 

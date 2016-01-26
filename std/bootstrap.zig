@@ -24,7 +24,7 @@ fn strlen(ptr: &const u8) -> isize {
 }
 
 fn call_main() -> unreachable {
-    var args: [argc][]u8;
+    var args: [argc][]u8 = undefined;
     for (arg, args, i) {
         const ptr = argv[i];
         args[i] = ptr[0...strlen(ptr)];

@@ -209,7 +209,7 @@ fn buf_print_i64(out_buf: []u8, x: i64) -> isize {
 }
 
 fn buf_print_u64(out_buf: []u8, x: u64) -> isize {
-    var buf: [max_u64_base10_digits]u8;
+    var buf: [max_u64_base10_digits]u8 = undefined;
     var a = x;
     var index = buf.len;
 

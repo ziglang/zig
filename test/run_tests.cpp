@@ -344,7 +344,7 @@ pub fn main(args: [][]u8) -> %void {
 import "std.zig";
 
 pub fn main(args: [][]u8) -> %void {
-    var array: [4]void;
+    var array: [4]void = undefined;
     array[0] = void{};
     array[1] = array[2];
     if (@sizeof(@typeof(array)) != 0) {
@@ -377,7 +377,7 @@ pub fn main(args: [][]u8) -> %void {
 import "std.zig";
 
 pub fn main(args: [][]u8) -> %void {
-    var array : [5]i32;
+    var array : [5]i32 = undefined;
 
     var i : i32 = 0;
     while (i < 5) {
@@ -613,7 +613,7 @@ export fn main(argc: c_int, argv: &&u8) -> c_int {
 import "std.zig";
 
 pub fn main(args: [][]u8) -> %void {
-    var foo : Foo;
+    var foo : Foo = undefined;
     @memset(&foo, 0, @sizeof(Foo));
     foo.a += 1;
     foo.b = foo.a == 1;
@@ -649,10 +649,10 @@ struct Val {
     x: i32,
 }
 fn test_point_to_self() {
-    var root : Node;
+    var root : Node = undefined;
     root.val.x = 1;
 
-    var node : Node;
+    var node : Node = undefined;
     node.next = &root;
     node.val.x = 2;
 
@@ -663,8 +663,8 @@ fn test_point_to_self() {
     }
 }
 fn test_byval_assign() {
-    var foo1 : Foo;
-    var foo2 : Foo;
+    var foo1 : Foo = undefined;
+    var foo2 : Foo = undefined;
 
     foo1.a = 1234;
 
@@ -829,7 +829,7 @@ import "std.zig";
 const ARRAY_SIZE : i8 = 20;
 
 pub fn main(args: [][]u8) -> %void {
-    var array : [ARRAY_SIZE]u8;
+    var array : [ARRAY_SIZE]u8 = undefined;
     %%stdout.print_u64(@sizeof(@typeof(array)));
     %%stdout.printf("\n");
 }
@@ -924,7 +924,7 @@ pub fn main(args: [][]u8) -> %void {
     add_simple_case("slicing", R"SOURCE(
 import "std.zig";
 pub fn main(args: [][]u8) -> %void {
-    var array : [20]i32;
+    var array : [20]i32 = undefined;
 
     array[5] = 1234;
 
@@ -969,7 +969,7 @@ fn f(c: u8) -> u8 {
     add_simple_case("overflow intrinsics", R"SOURCE(
 import "std.zig";
 pub fn main(args: [][]u8) -> %void {
-    var result: u8;
+    var result: u8 = undefined;
     if (!@add_with_overflow(u8, 250, 100, &result)) {
         %%stdout.printf("BAD\n");
     }
@@ -986,8 +986,8 @@ pub fn main(args: [][]u8) -> %void {
     add_simple_case("memcpy and memset intrinsics", R"SOURCE(
 import "std.zig";
 pub fn main(args: [][]u8) -> %void {
-    var foo : [20]u8;
-    var bar : [20]u8;
+    var foo : [20]u8 = undefined;
+    var bar : [20]u8 = undefined;
 
     @memset(foo.ptr, 'A', foo.len);
     @memcpy(bar.ptr, foo.ptr, bar.len);
@@ -1475,7 +1475,7 @@ fn f() {
 
     add_compile_fail_case("array access errors", R"SOURCE(
 fn f() {
-    var bad : bool;
+    var bad : bool = undefined;
     i[i] = i[i];
     bad[bad] = bad[bad];
 }
@@ -1521,7 +1521,7 @@ struct C { a : A, }
     add_compile_fail_case("invalid struct field", R"SOURCE(
 struct A { x : i32, }
 fn f() {
-    var a : A;
+    var a : A = undefined;
     a.foo = 1;
     const y = a.bar;
 }
@@ -1652,7 +1652,7 @@ struct Foo {}
 struct Bar {}
 
 fn f(Foo: i32) {
-    var Bar : i32;
+    var Bar : i32 = undefined;
 }
     )SOURCE", 2, ".tmp_source.zig:5:6: error: variable shadows type 'Foo'",
                  ".tmp_source.zig:6:5: error: variable shadows type 'Bar'");

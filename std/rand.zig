@@ -27,7 +27,7 @@ pub struct Rand {
     pub fn get_bytes(r: &Rand, buf: []u8) {
         var bytes_left = r.get_bytes_aligned(buf);
         if (bytes_left > 0) {
-            var rand_val_array : [@sizeof(u32)]u8;
+            var rand_val_array : [@sizeof(u32)]u8 = undefined;
             *((&u32)(rand_val_array.ptr)) = r.get_u32();
             while (bytes_left > 0) {
                 buf[buf.len - bytes_left] = rand_val_array[@sizeof(u32) - bytes_left];
@@ -42,7 +42,7 @@ pub struct Rand {
         const range = end - start;
         const leftover = @max_value(u64) % range;
         const upper_bound = @max_value(u64) - leftover;
-        var rand_val_array : [@sizeof(u64)]u8;
+        var rand_val_array : [@sizeof(u64)]u8 = undefined;
 
         while (true) {
             r.get_bytes_aligned(rand_val_array);
@@ -79,7 +79,7 @@ pub struct Rand {
 
 /// Initialize random state with the given seed.
 pub fn rand_new(seed: u32) -> Rand {
-    var r: Rand;
+    var r: Rand = undefined;
     r.index = 0;
     r.array[0] = seed;
     var i : isize = 1;

@@ -2625,7 +2625,7 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
     }
 
     TypeTableEntry *implicit_type = nullptr;
-    if (variable_declaration->expr != nullptr) {
+    if (variable_declaration->expr) {
         implicit_type = analyze_expression(g, import, context, explicit_type, variable_declaration->expr);
         if (implicit_type->id == TypeTableEntryIdInvalid) {
             // ignore the poison value
@@ -2657,10 +2657,8 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
                         buf_sprintf("global variable initializer requires constant expression"));
             }
         }
-    }
-
-    if (implicit_type == nullptr && is_const) {
-        add_node_error(g, source_node, buf_sprintf("const variable missing initialization"));
+    } else {
+        add_node_error(g, source_node, buf_sprintf("variables must be initialized"));
         implicit_type = g->builtin_types.entry_invalid;
     }
 

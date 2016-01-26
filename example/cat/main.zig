@@ -18,11 +18,10 @@ pub fn main(args: [][]u8) -> %void {
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
-            var is: InputStream;
-            is.open(arg, OpenReadOnly) %% |err| {
+            var is = input_stream_open(arg, OpenReadOnly) %% |err| {
                 %%stderr.print("Unable to open file: {}", ([]u8)(err));
                 return err;
-            }
+            };
             defer is.close();
 
             catted_anything = true;
@@ -40,7 +39,7 @@ fn usage(exe: []u8) -> %void {
 }
 
 fn cat_stream(is: InputStream) -> %void {
-    var buf: [1024 * 4]u8;
+    var buf: [1024 * 4]u8 = undefined;
 
     while (true) {
         const bytes_read = is.read(buf) %% |err| {

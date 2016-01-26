@@ -6,7 +6,7 @@ import "rand.zig";
 pub fn main(args: [][]u8) -> %void {
     %%stderr.print_str("Welcome to the Guess Number Game in Zig.\n");
 
-    var seed : u32;
+    var seed : u32 = undefined;
     const seed_bytes = (&u8)(&seed)[0...4];
     %%os_get_random_bytes(seed_bytes);
 
@@ -16,7 +16,7 @@ pub fn main(args: [][]u8) -> %void {
 
     while (true) {
         %%stderr.print_str("\nGuess a number between 1 and 100: ");
-        var line_buf : [20]u8;
+        var line_buf : [20]u8 = undefined;
 
         const line_len = stdin.read(line_buf) %% |err| {
             %%stderr.print_str("Unable to read from stdin.\n");
