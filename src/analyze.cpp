@@ -3466,6 +3466,10 @@ static TypeTableEntry *analyze_fn_call_raw(CodeGen *g, ImportTableEntry *import,
 
     TypeTableEntry *return_type = unwrapped_node_type(fn_proto->return_type);
 
+    if (return_type->id == TypeTableEntryIdInvalid) {
+        return return_type;
+    }
+
     if (handle_is_ptr(return_type)) {
         context->cast_alloca_list.append(node);
     }
