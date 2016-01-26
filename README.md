@@ -12,25 +12,39 @@ Zig is not afraid to roll the major version number of the language if it
 improves simplicity, fixes poor design decisions, or adds a new feature which
 compromises backward compatibility.
 
-## Goals
+## Existing Features
+
+ * Compile units do not depend on libc unless explicitly linked.
+ * Provides standard library which competes with the C standard library and is
+   always compiled against statically in source form.
+ * Pointer types do not allow the null value. Instead you can use a maybe type
+   which has several syntactic constructs to ensure that the null pointer is
+   not missed.
+ * Provides an error type with several syntatic constructs which makes writing
+   robust code convenient and straightforward. Writing correct code is easier
+   than writing buggy code.
+ * No header files required. Top level declarations are entirely
+   order-independent.
+ * Powerful constant expression evaluator. Generally, anything that *can* be
+   figured out at compile time *is* figured out at compile time.
+ * Tagged union enum type. No more accidentally reading the wrong union field.
+ * Easy to parse language so that humans and machines have no trouble with the
+   syntax.
+ * The binaries produced by Zig have complete debugging information so you can,
+   for example, use GDB to debug your software.
+ * Release mode produces heavily optimized code. What other projects call
+   "Link Time Optimization" Zig does automatically.
+ * Supported architectures: `x86_64`
+ * Supported operating systems: Linux
+
+## Planned Features
 
  * Completely compatible with C libraries with no wrapper necessary.
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
- * Do not depend on libc unless explicitly linked.
- * Provide standard library which competes with the C standard library and is
-   always compiled against statically in source form.
  * Generics so that one can write efficient data structures that work for any
    data type.
- * No null pointer. Convenient syntax for dealing with a maybe type so that
-   null pointer is not missed.
- * An error type, combined with some syntatical constructs which makes writing
-   robust code convenient and straightforward.
  * Eliminate the need for configure, make, cmake, etc.
- * Eliminate the need for header files (when using zig internally).
- * Tagged union enum type. No more accidentally reading the wrong union field.
- * Easy to parse language so that humans and machines have no trouble with the
-   syntax.
  * Eliminate the preprocessor, but (most) everything you can accomplish with
    the preprocessor, you can accomplish directly in the language.
  * Ability to mark functions as test and automatically run them in test mode.
@@ -42,22 +56,9 @@ compromises backward compatibility.
  * Shebang line OK so language can be used for "scripting" as well.
  * Debug mode optimizes for fast compilation time and crashing when undefined
    behavior *would* happen.
- * Release mode produces heavily optimized code. What other projects call
-   "Link Time Optimization" Zig does automatically.
-
-### Current Status
-
- * Have a look in the example/ folder to see some code examples.
- * Most language features are available, but many edge cases and errors are
-   not yet implemented.
- * Linux x86_64 is supported.
- * Building for the native target is supported.
- * Optimized machine code that Zig produces is indistinguishable from
-   optimized machine code produced from equivalent C program.
- * Zig can generate dynamic libraries, executables, object files, and C
-   header files.
- * The binaries produced by Zig have complete debugging information so you can,
-   for example, use GDB to debug your software.
+ * Compiler exposes itself as a library.
+ * Support for all popular architectures and operating systems.
+ * Easy cross-compiling.
 
 ## Building
 
