@@ -98,10 +98,10 @@ static void add_compiling_test_cases(void) {
     add_simple_case("hello world with libc", R"SOURCE(
 #link("c")
 extern {
-    fn puts(s: &const u8) -> i32;
+    fn puts(s: &const u8) -> c_int;
 }
 
-export fn main(argc: i32, argv: &&u8) -> i32 {
+export fn main(argc: c_int, argv: &&u8) -> c_int {
     puts(c"Hello, world!");
     return 0;
 }
@@ -483,10 +483,10 @@ pub fn main(args: [][]u8) -> %void {
     add_simple_case("number literals", R"SOURCE(
 #link("c")
 extern {
-    fn printf(__format: &const u8, ...) -> i32;
+    fn printf(__format: &const u8, ...) -> c_int;
 }
 
-export fn main(argc: i32, argv: &&u8) -> i32 {
+export fn main(argc: c_int, argv: &&u8) -> c_int {
     printf(c"\n");
 
     printf(c"0: %llu\n",

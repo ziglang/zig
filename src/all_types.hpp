@@ -752,9 +752,6 @@ struct TypeTableEntryPointer {
 
 struct TypeTableEntryInt {
     bool is_signed;
-    LLVMValueRef add_with_overflow_fn;
-    LLVMValueRef sub_with_overflow_fn;
-    LLVMValueRef mul_with_overflow_fn;
 };
 
 struct TypeTableEntryArray {
@@ -1025,6 +1022,7 @@ struct CodeGen {
     uint32_t next_error_index;
     uint32_t error_value_count;
     TypeTableEntry *err_tag_type;
+    LLVMValueRef int_overflow_fns[2][3][4]; // [0-signed,1-unsigned][0-add,1-sub,2-mul][0-8,1-16,2-32,3-64]
 };
 
 struct VariableTableEntry {

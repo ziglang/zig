@@ -15,7 +15,8 @@ syn keyword zigRepeat while for
 
 syn keyword zigConstant null undefined
 syn keyword zigKeyword fn import
-syn keyword zigType bool i8 u8 i16 u16 i32 u32 i64 u64 isize usize f32 f64 f128 void unreachable type error
+syn keyword zigType bool i8 u8 i16 u16 i32 u32 i64 u64 isize usize f32 f64 void unreachable type error
+syn keyword zigType c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong
 
 syn keyword zigBoolean true false
 

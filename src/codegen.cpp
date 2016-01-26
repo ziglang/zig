@@ -100,6 +100,74 @@ static TypeTableEntry *fn_proto_type_from_type_node(CodeGen *g, AstNode *type_no
     }
 }
 
+enum AddSubMul {
+    AddSubMulAdd = 0,
+    AddSubMulSub = 1,
+    AddSubMulMul = 2,
+};
+
+static int bits_index(int size_in_bits) {
+    switch (size_in_bits) {
+        case 8:
+            return 0;
+        case 16:
+            return 1;
+        case 32:
+            return 2;
+        case 64:
+            return 3;
+        default:
+            zig_unreachable();
+    }
+}
+
+static LLVMValueRef get_arithmetic_overflow_fn(CodeGen *g, TypeTableEntry *type_entry,
+        const char *signed_name, const char *unsigned_name)
+{
+    const char *signed_str = type_entry->data.integral.is_signed ? signed_name : unsigned_name;
+    Buf *llvm_name = buf_sprintf("llvm.%s.with.overflow.i%" PRIu64, signed_str, type_entry->size_in_bits);
+
+    LLVMTypeRef return_elem_types[] = {
+        type_entry->type_ref,
+        LLVMInt1Type(),
+    };
+    LLVMTypeRef param_types[] = {
+        type_entry->type_ref,
+        type_entry->type_ref,
+    };
+    LLVMTypeRef return_struct_type = LLVMStructType(return_elem_types, 2, false);
+    LLVMTypeRef fn_type = LLVMFunctionType(return_struct_type, param_types, 2, false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(llvm_name), fn_type);
+    assert(LLVMGetIntrinsicID(fn_val));
+    return fn_val;
+}
+
+static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, AddSubMul add_sub_mul) {
+    assert(type_entry->id == TypeTableEntryIdInt);
+    // [0-signed,1-unsigned][0-add,1-sub,2-mul][0-8,1-16,2-32,3-64]
+    int index0 = type_entry->data.integral.is_signed ? 0 : 1;
+    int index1 = add_sub_mul;
+    int index2 = bits_index(type_entry->size_in_bits);
+    LLVMValueRef *fn = &g->int_overflow_fns[index0][index1][index2];
+    if (*fn) {
+        return *fn;
+    }
+    switch (add_sub_mul) {
+        case AddSubMulAdd:
+            *fn = get_arithmetic_overflow_fn(g, type_entry, "sadd", "uadd");
+            break;
+        case AddSubMulSub:
+            *fn = get_arithmetic_overflow_fn(g, type_entry, "ssub", "usub");
+            break;
+        case AddSubMulMul:
+            *fn = get_arithmetic_overflow_fn(g, type_entry, "smul", "umul");
+            break;
+
+    }
+    return *fn;
+}
+
+
 static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
     AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
@@ -118,16 +186,17 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
                 assert(fn_call_param_count == 4);
 
                 TypeTableEntry *int_type = get_type_for_type_node(node->data.fn_call_expr.params.at(0));
-                LLVMValueRef fn_val;
+                AddSubMul add_sub_mul;
                 if (builtin_fn->id == BuiltinFnIdAddWithOverflow) {
-                    fn_val = int_type->data.integral.add_with_overflow_fn;
+                    add_sub_mul = AddSubMulAdd;
                 } else if (builtin_fn->id == BuiltinFnIdSubWithOverflow) {
-                    fn_val = int_type->data.integral.sub_with_overflow_fn;
+                    add_sub_mul = AddSubMulSub;
                 } else if (builtin_fn->id == BuiltinFnIdMulWithOverflow) {
-                    fn_val = int_type->data.integral.mul_with_overflow_fn;
+                    add_sub_mul = AddSubMulMul;
                 } else {
                     zig_unreachable();
                 }
+                LLVMValueRef fn_val = get_int_overflow_fn(g, int_type, add_sub_mul);
 
                 LLVMValueRef op1 = gen_expr(g, node->data.fn_call_expr.params.at(1));
                 LLVMValueRef op2 = gen_expr(g, node->data.fn_call_expr.params.at(2));
@@ -2559,41 +2628,58 @@ static void do_code_gen(CodeGen *g) {
 #endif
 }
 
-static LLVMValueRef get_arithmetic_overflow_fn(CodeGen *g, TypeTableEntry *type_entry,
-        const char *signed_name, const char *unsigned_name)
-{
-    const char *signed_str = type_entry->data.integral.is_signed ? signed_name : unsigned_name;
-    Buf *llvm_name = buf_sprintf("llvm.%s.with.overflow.i%" PRIu64, signed_str, type_entry->size_in_bits);
-
-    LLVMTypeRef return_elem_types[] = {
-        type_entry->type_ref,
-        LLVMInt1Type(),
-    };
-    LLVMTypeRef param_types[] = {
-        type_entry->type_ref,
-        type_entry->type_ref,
-    };
-    LLVMTypeRef return_struct_type = LLVMStructType(return_elem_types, 2, false);
-    LLVMTypeRef fn_type = LLVMFunctionType(return_struct_type, param_types, 2, false);
-    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(llvm_name), fn_type);
-    assert(LLVMGetIntrinsicID(fn_val));
-    return fn_val;
-}
-
-static void add_int_overflow_fns(CodeGen *g, TypeTableEntry *type_entry) {
-    assert(type_entry->id == TypeTableEntryIdInt);
-
-    type_entry->data.integral.add_with_overflow_fn = get_arithmetic_overflow_fn(g, type_entry, "sadd", "uadd");
-    type_entry->data.integral.sub_with_overflow_fn = get_arithmetic_overflow_fn(g, type_entry, "ssub", "usub");
-    type_entry->data.integral.mul_with_overflow_fn = get_arithmetic_overflow_fn(g, type_entry, "smul", "umul");
-}
-
 static const int int_sizes_in_bits[] = {
     8,
     16,
     32,
     64,
 };
+
+enum CIntType {
+    CIntTypeShort,
+    CIntTypeUShort,
+    CIntTypeInt,
+    CIntTypeUInt,
+    CIntTypeLong,
+    CIntTypeULong,
+    CIntTypeLongLong,
+    CIntTypeULongLong,
+};
+
+struct CIntTypeInfo {
+    CIntType id;
+    const char *name;
+    bool is_signed;
+};
+
+static const CIntTypeInfo c_int_type_infos[] = {
+    {CIntTypeShort, "c_short", true},
+    {CIntTypeUShort, "c_ushort", false},
+    {CIntTypeInt, "c_int", true},
+    {CIntTypeUInt, "c_uint", false},
+    {CIntTypeLong, "c_long", true},
+    {CIntTypeULong, "c_ulong", false},
+    {CIntTypeLongLong, "c_longlong", true},
+    {CIntTypeULongLong, "c_ulonglong", false},
+};
+
+static int get_c_type_size_in_bits(CodeGen *g, CIntType id) {
+    // TODO other architectures besides x86_64
+    switch (id) {
+        case CIntTypeShort:
+        case CIntTypeUShort:
+            return 16;
+        case CIntTypeInt:
+        case CIntTypeUInt:
+            return 32;
+        case CIntTypeLong:
+        case CIntTypeULong:
+        case CIntTypeLongLong:
+        case CIntTypeULongLong:
+            return 64;
+    }
+    zig_unreachable();
+}
 
 static void define_builtin_types(CodeGen *g) {
     {
@@ -2639,14 +2725,32 @@ static void define_builtin_types(CodeGen *g) {
 
             get_int_type_ptr(g, is_signed, size_in_bits)[0] = entry;
 
-            add_int_overflow_fns(g, entry);
-
             if (!is_signed) {
                 break;
             } else {
                 is_signed = false;
             }
         }
+    }
+
+    for (int i = 0; i < array_length(c_int_type_infos); i += 1) {
+        const CIntTypeInfo *info = &c_int_type_infos[i];
+        uint64_t size_in_bits = get_c_type_size_in_bits(g, info->id);
+        bool is_signed = info->is_signed;
+
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->type_ref = LLVMIntType(size_in_bits);
+
+        buf_init_from_str(&entry->name, info->name);
+
+        entry->size_in_bits = size_in_bits;
+        entry->align_in_bits = size_in_bits;
+
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                entry->size_in_bits, entry->align_in_bits,
+                is_signed ? LLVMZigEncoding_DW_ATE_signed() : LLVMZigEncoding_DW_ATE_unsigned());
+        entry->data.integral.is_signed = is_signed;
+        g->primitive_type_table.put(&entry->name, entry);
     }
 
     {
@@ -2669,11 +2773,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->align_in_bits = g->pointer_size_bytes * 8;
         entry->data.integral.is_signed = true;
 
-        TypeTableEntry *fixed_width_entry = get_int_type(g, entry->data.integral.is_signed, entry->size_in_bits);
-        entry->data.integral.add_with_overflow_fn = fixed_width_entry->data.integral.add_with_overflow_fn;
-        entry->data.integral.sub_with_overflow_fn = fixed_width_entry->data.integral.sub_with_overflow_fn;
-        entry->data.integral.mul_with_overflow_fn = fixed_width_entry->data.integral.mul_with_overflow_fn;
-
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
@@ -2687,11 +2786,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->size_in_bits = g->pointer_size_bytes * 8;
         entry->align_in_bits = g->pointer_size_bytes * 8;
         entry->data.integral.is_signed = false;
-
-        TypeTableEntry *fixed_width_entry = get_int_type(g, entry->data.integral.is_signed, entry->size_in_bits);
-        entry->data.integral.add_with_overflow_fn = fixed_width_entry->data.integral.add_with_overflow_fn;
-        entry->data.integral.sub_with_overflow_fn = fixed_width_entry->data.integral.sub_with_overflow_fn;
-        entry->data.integral.mul_with_overflow_fn = fixed_width_entry->data.integral.mul_with_overflow_fn;
 
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 entry->size_in_bits, entry->align_in_bits,

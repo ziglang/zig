@@ -187,7 +187,6 @@ u64             uint64_t            unsigned 64-bit integer
 
 f32             float               32-bit IEE754 floating point
 f64             double              64-bit IEE754 floating point
-f128            long double         128-bit IEE754 floating point
 
 isize           intptr_t            signed pointer sized integer
 usize           uintptr_t           unsigned pointer sized integer
