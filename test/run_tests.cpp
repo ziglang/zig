@@ -1331,6 +1331,21 @@ pub fn main(args: [][]u8) -> %void {
     return *a;
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("unwrap simple value from error", R"SOURCE(
+import "std.zig";
+fn do() -> %isize {
+    13
+}
+
+pub fn main(args: [][]u8) -> %void {
+    const i = %%do();
+    if (i != 13) {
+        %%stdout.printf("BAD\n");
+    }
+    %%stdout.printf("OK\n");
+}
+    )SOURCE", "OK\n");
 }
 
 

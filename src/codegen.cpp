@@ -916,11 +916,12 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
                 TypeTableEntry *child_type = expr_type->data.error.child_type;
                 // TODO in debug mode, put a panic here if the error is not 0
                 if (child_type->size_in_bits > 0) {
+                    add_debug_source_node(g, node);
                     LLVMValueRef child_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 1, "");
                     if (handle_is_ptr(child_type)) {
                         return child_val_ptr;
                     } else {
-                        return expr_val;
+                        return LLVMBuildLoad(g->builder, child_val_ptr, "");
                     }
                 } else {
                     return nullptr;
