@@ -1234,14 +1234,19 @@ static bool num_lit_fits_in_other_type(CodeGen *g, AstNode *literal_node, TypeTa
         {
             return true;
         }
-    } else if (other_type->id == TypeTableEntryIdNumLitFloat ||
-               other_type->id == TypeTableEntryIdNumLitInt)
+    } else if ((other_type->id == TypeTableEntryIdNumLitFloat &&
+                const_val->data.x_bignum.kind == BigNumKindFloat) ||
+               (other_type->id == TypeTableEntryIdNumLitInt &&
+                const_val->data.x_bignum.kind == BigNumKindInt))
     {
         return true;
     }
 
+    const char *num_lit_str = (const_val->data.x_bignum.kind == BigNumKindFloat) ? "float" : "integer";
+
     add_node_error(g, literal_node,
-        buf_sprintf("value %s cannot be represented in type '%s'",
+        buf_sprintf("%s value %s cannot be implicitly casted to type '%s'",
+            num_lit_str,
             buf_ptr(bignum_to_buf(&const_val->data.x_bignum)),
             buf_ptr(&other_type->name)));
     return false;
@@ -1350,14 +1355,6 @@ static TypeTableEntry *determine_peer_type_compatibility(CodeGen *g, AstNode *pa
         {
             prev_type = cur_type;
             prev_node = cur_node;
-            continue;
-        } else if (prev_type->id == TypeTableEntryIdNumLitFloat &&
-                   cur_type->id == TypeTableEntryIdNumLitFloat)
-        {
-            continue;
-        } else if (prev_type->id == TypeTableEntryIdNumLitInt &&
-                   cur_type->id == TypeTableEntryIdNumLitInt)
-        {
             continue;
         } else if (prev_type->id == TypeTableEntryIdNumLitInt ||
                     prev_type->id == TypeTableEntryIdNumLitFloat)

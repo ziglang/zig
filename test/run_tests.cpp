@@ -1445,7 +1445,7 @@ fn f() -> i32 {
 fn f() {
     if (0) {}
 }
-    )SOURCE", 1, ".tmp_source.zig:3:9: error: value 0 cannot be represented in type 'bool'");
+    )SOURCE", 1, ".tmp_source.zig:3:9: error: integer value 0 cannot be implicitly casted to type 'bool'");
 
     add_compile_fail_case("assign unreachable", R"SOURCE(
 fn f() {
@@ -1720,6 +1720,14 @@ struct Foo {
     index: @typeof(x),
 }
     )SOURCE", 1, ".tmp_source.zig:4:20: error: type '(integer literal)' not eligible for @typeof");
+
+    add_compile_fail_case("integer overflow error", R"SOURCE(
+const x : u8 = 300;
+    )SOURCE", 1, ".tmp_source.zig:2:16: error: integer value 300 cannot be implicitly casted to type 'u8'");
+
+    add_compile_fail_case("incompatible number literals", R"SOURCE(
+const x = 2 == 2.0;
+    )SOURCE", 1, ".tmp_source.zig:2:11: error: integer value 2 cannot be implicitly casted to type '(float literal)'");
 
 }
 
