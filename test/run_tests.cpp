@@ -1680,6 +1680,9 @@ c_import {
     )SOURCE", 2, ".tmp_source.zig:2:1: error: C import failed",
                  ".h:1:10: error: 'bogus.h' file not found");
 
+    add_compile_fail_case("empty file", "",
+            1, ".tmp_source.zig:1:1: error: missing export declaration and output name not provided");
+
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

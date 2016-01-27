@@ -80,9 +80,12 @@ ErrorMsg *err_msg_create_with_line(Buf *path, int line, int column,
     int line_start_offset = line_offsets->at(line);
     int end_line = line + 1;
     int line_end_offset = (end_line >= line_offsets->length) ? buf_len(source) : line_offsets->at(line + 1);
+    int len = line_end_offset - line_start_offset - 1;
+    if (len < 0) {
+        len = 0;
+    }
 
-    buf_init_from_mem(&err_msg->line_buf, buf_ptr(source) + line_start_offset,
-            line_end_offset - line_start_offset - 1);
+    buf_init_from_mem(&err_msg->line_buf, buf_ptr(source) + line_start_offset, len);
 
     return err_msg;
 }
