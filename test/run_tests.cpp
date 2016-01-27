@@ -1673,6 +1673,13 @@ fn f(s: []u8) -> []u8 {
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: string concatenation requires constant expression");
 
+    add_compile_fail_case("c_import with bogus include", R"SOURCE(
+c_import {
+    @c_include("bogus.h");
+}
+    )SOURCE", 2, ".tmp_source.zig:2:1: error: C import failed",
+                 ".h:1:10: error: 'bogus.h' file not found");
+
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

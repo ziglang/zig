@@ -3051,15 +3051,8 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
     tokenize(source_code, &tokenization);
 
     if (tokenization.err) {
-        ErrorMsg *err = allocate<ErrorMsg>(1);
-        err->line_start = tokenization.err_line;
-        err->column_start = tokenization.err_column;
-        err->line_end = -1;
-        err->column_end = -1;
-        err->msg = tokenization.err;
-        err->path = full_path;
-        err->source = source_code;
-        err->line_offsets = tokenization.line_offsets;
+        ErrorMsg *err = err_msg_create_with_line(full_path, tokenization.err_line, tokenization.err_column,
+                source_code, tokenization.line_offsets, tokenization.err);
 
         print_err_msg(err, g->err_color);
         exit(1);
@@ -3401,19 +3394,9 @@ static void generate_h_file(CodeGen *g) {
         zig_panic("unable to close h file: %s", strerror(errno));
 }
 
-static void find_libc_path(CodeGen *g) {
-    if (g->libc_path && buf_len(g->libc_path))
-        return;
-    g->libc_path = buf_create_from_str(ZIG_LIBC_DIR);
-    if (g->libc_path && buf_len(g->libc_path))
-        return;
-    fprintf(stderr, "Unable to determine libc path. Consider using `--libc-path [path]`\n");
-    exit(1);
-}
-
 static const char *get_libc_file(CodeGen *g, const char *file) {
     Buf *out_buf = buf_alloc();
-    os_path_join(g->libc_path, buf_create_from_str(file), out_buf);
+    os_path_join(g->libc_lib_path, buf_create_from_str(file), out_buf);
     return buf_ptr(out_buf);
 }
 

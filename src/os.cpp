@@ -208,3 +208,29 @@ int os_get_cwd(Buf *out_cwd) {
 bool os_stderr_tty(void) {
     return isatty(STDERR_FILENO);
 }
+
+int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
+    buf_resize(out_tmp_path, 0);
+    buf_appendf(out_tmp_path, "/tmp/XXXXXX%s", buf_ptr(suffix));
+
+    int fd = mkstemps(buf_ptr(out_tmp_path), buf_len(suffix));
+    if (fd < 0) {
+        return ErrorFileSystem;
+    }
+
+    ssize_t amt_written = write(fd, buf_ptr(contents), buf_len(contents));
+    if (amt_written != buf_len(contents))
+        zig_panic("write failed: %s", strerror(errno));
+    if (close(fd) == -1)
+        zig_panic("close failed");
+
+    return 0;
+}
+
+int os_delete_file(Buf *path) {
+    if (remove(buf_ptr(path))) {
+        return ErrorFileSystem;
+    } else {
+        return 0;
+    }
+}

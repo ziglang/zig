@@ -17,7 +17,7 @@ include_directories(${LLVM_INCLUDE_DIRS})
 link_directories(${LLVM_LIBDIRS})
 
 find_package(clang)
-include_directories(${CLANG_INCLUDE_DIR})
+include_directories(${CLANG_INCLUDE_DIRS})
 
 include_directories(
     ${CMAKE_SOURCE_DIR}
@@ -148,7 +148,7 @@ set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS})
 target_link_libraries(zig LINK_PUBLIC
     ${LLVM_LIBRARIES}
-    ${CLANG_LIBRARY}
+    ${CLANG_LIBRARIES}
 )
 install(TARGETS zig DESTINATION bin)
 

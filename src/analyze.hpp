@@ -11,7 +11,7 @@
 #include "all_types.hpp"
 
 void semantic_analyze(CodeGen *g);
-void add_node_error(CodeGen *g, AstNode *node, Buf *msg);
+ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg);
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id);
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
 VariableTableEntry *find_variable(BlockContext *context, Buf *name);
@@ -23,4 +23,6 @@ bool is_node_void_expr(AstNode *node);
 TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, int size_in_bits);
 TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, int size_in_bits);
 bool handle_is_ptr(TypeTableEntry *type_entry);
+void find_libc_path(CodeGen *g);
+
 #endif

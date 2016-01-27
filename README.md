@@ -75,7 +75,7 @@ be set to (example below).
 ```
 mkdir build
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_DIR=$(dirname $(cc -print-file-name=crt1.o))
+cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_DIR=$(dirname $(dirname $(cc -print-file-name=crt1.o)))
 make
 make install
 ./run_tests

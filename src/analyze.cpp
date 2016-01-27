@@ -10,6 +10,8 @@
 #include "error.hpp"
 #include "zig_llvm.hpp"
 #include "os.hpp"
+#include "parseh.hpp"
+#include "config.h"
 
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node);
@@ -83,18 +85,12 @@ static AstNode *first_executing_node(AstNode *node) {
     zig_unreachable();
 }
 
-void add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
-    ErrorMsg *err = allocate<ErrorMsg>(1);
-    err->line_start = node->line;
-    err->column_start = node->column;
-    err->line_end = -1;
-    err->column_end = -1;
-    err->msg = msg;
-    err->path = node->owner->path;
-    err->source = node->owner->source_code;
-    err->line_offsets = node->owner->line_offsets;
+ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
+    ErrorMsg *err = err_msg_create_with_line(node->owner->path, node->line, node->column,
+            node->owner->source_code, node->owner->line_offsets, msg);
 
     g->errors.append(err);
+    return err;
 }
 
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
@@ -1036,8 +1032,22 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *import, AstNode 
         return;
     }
 
-    fprintf(stderr, "c import buf:\n%s\n", buf_ptr(child_context->c_import_buf));
-    zig_panic("TODO");
+    find_libc_path(g);
+    int err;
+    ParseH parse_h = {{0}};
+    if ((err = parse_h_buf(&parse_h, child_context->c_import_buf, buf_ptr(g->libc_include_path)))) {
+        zig_panic("unable to parse h file: %s\n", err_str(err));
+    }
+
+    if (parse_h.errors.length > 0) {
+        ErrorMsg *parent_err_msg = add_node_error(g, node, buf_sprintf("C import failed"));
+        for (int i = 0; i < parse_h.errors.length; i += 1) {
+            ErrorMsg *err_msg = parse_h.errors.at(i);
+            err_msg_add_note(parent_err_msg, err_msg);
+        }
+    } else {
+        zig_panic("TODO integrate the parsed AST");
+    }
 }
 
 static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
@@ -3444,7 +3454,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     return g->builtin_types.entry_void;
                 }
 
-                buf_appendf(context->c_import_buf, "#include \"");
+                buf_appendf(context->c_import_buf, "#include <");
                 ConstExprValue *ptr_field = const_str_val->data.x_struct.fields[0];
                 uint64_t len = ptr_field->data.x_ptr.len;
                 for (uint64_t i = 0; i < len; i += 1) {
@@ -3454,7 +3464,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     uint8_t c = big_c;
                     buf_appendf(context->c_import_buf, "%c", c);
                 }
-                buf_appendf(context->c_import_buf, "\"\n");
+                buf_appendf(context->c_import_buf, ">\n");
 
                 return g->builtin_types.entry_void;
             }
@@ -4976,3 +4986,22 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
     }
     zig_unreachable();
 }
+
+void find_libc_path(CodeGen *g) {
+    if (!g->libc_path || buf_len(g->libc_path) == 0) {
+        g->libc_path = buf_create_from_str(ZIG_LIBC_DIR);
+        if (!g->libc_path || buf_len(g->libc_path) == 0) {
+            // later we can handle this better by reporting an error via the normal mechanism
+            zig_panic("Unable to determine libc path. You can use `--libc-path`");
+        }
+    }
+    if (!g->libc_lib_path) {
+        g->libc_lib_path = buf_alloc();
+        os_path_join(g->libc_path, buf_create_from_str("lib"), g->libc_lib_path);
+    }
+    if (!g->libc_include_path) {
+        g->libc_include_path = buf_alloc();
+        os_path_join(g->libc_path, buf_create_from_str("include"), g->libc_include_path);
+    }
+}
+

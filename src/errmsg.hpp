@@ -20,14 +20,20 @@ enum ErrColor {
 struct ErrorMsg {
     int line_start;
     int column_start;
-    int line_end;
-    int column_end;
     Buf *msg;
     Buf *path;
-    Buf *source;
-    ZigList<int> *line_offsets;
+    Buf line_buf;
+
+    ZigList<ErrorMsg *> notes;
 };
 
 void print_err_msg(ErrorMsg *msg, ErrColor color);
+
+void err_msg_add_note(ErrorMsg *parent, ErrorMsg *note);
+ErrorMsg *err_msg_create_with_offset(Buf *path, int line, int column, int offset,
+        const char *source, Buf *msg);
+
+ErrorMsg *err_msg_create_with_line(Buf *path, int line, int column,
+        Buf *source, ZigList<int> *line_offsets, Buf *msg);
 
 #endif

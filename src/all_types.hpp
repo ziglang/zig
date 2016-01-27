@@ -995,6 +995,8 @@ struct CodeGen {
     bool have_exported_main;
     bool link_libc;
     Buf *libc_path;
+    Buf *libc_lib_path;
+    Buf *libc_include_path;
     CodeGenBuildType build_type;
     LLVMTargetMachineRef target_machine;
     LLVMZigDIFile *dummy_di_file;
@@ -1066,6 +1068,14 @@ struct BlockContext {
     AstNode *parent_loop_node;
     LLVMZigDIScope *di_scope;
     Buf *c_import_buf;
+};
+
+struct ParseH {
+    ZigList<ErrorMsg*> errors;
+    ZigList<AstNode *> fn_list;
+    ZigList<AstNode *> struct_list;
+    ZigList<AstNode *> var_list;
+    ZigList<AstNode *> incomplete_struct_list;
 };
 
 #endif

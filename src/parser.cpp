@@ -488,23 +488,16 @@ __attribute__ ((noreturn))
 static void ast_asm_error(ParseContext *pc, AstNode *node, int offset, const char *format, ...) {
     assert(node->type == NodeTypeAsmExpr);
 
-    ErrorMsg *err = allocate<ErrorMsg>(1);
 
     SrcPos pos = node->data.asm_expr.offset_map.at(offset);
 
-    err->line_start = pos.line;
-    err->column_start = pos.column;
-    err->line_end = -1;
-    err->column_end = -1;
-
     va_list ap;
     va_start(ap, format);
-    err->msg = buf_vprintf(format, ap);
+    Buf *msg = buf_vprintf(format, ap);
     va_end(ap);
 
-    err->path = pc->owner->path;
-    err->source = pc->owner->source_code;
-    err->line_offsets = pc->owner->line_offsets;
+    ErrorMsg *err = err_msg_create_with_line(pc->owner->path, pos.line, pos.column,
+            pc->owner->source_code, pc->owner->line_offsets, msg);
 
     print_err_msg(err, pc->err_color);
     exit(EXIT_FAILURE);
@@ -513,20 +506,16 @@ static void ast_asm_error(ParseContext *pc, AstNode *node, int offset, const cha
 __attribute__ ((format (printf, 3, 4)))
 __attribute__ ((noreturn))
 static void ast_error(ParseContext *pc, Token *token, const char *format, ...) {
-    ErrorMsg *err = allocate<ErrorMsg>(1);
-    err->line_start = token->start_line;
-    err->column_start = token->start_column;
-    err->line_end = -1;
-    err->column_end = -1;
-
     va_list ap;
     va_start(ap, format);
-    err->msg = buf_vprintf(format, ap);
+    Buf *msg = buf_vprintf(format, ap);
     va_end(ap);
 
-    err->path = pc->owner->path;
-    err->source = pc->owner->source_code;
-    err->line_offsets = pc->owner->line_offsets;
+
+    ErrorMsg *err = err_msg_create_with_line(pc->owner->path, token->start_line, token->start_column,
+            pc->owner->source_code, pc->owner->line_offsets, msg);
+    err->line_start = token->start_line;
+    err->column_start = token->start_column;
 
     print_err_msg(err, pc->err_color);
     exit(EXIT_FAILURE);

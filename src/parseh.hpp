@@ -9,10 +9,9 @@
 #ifndef ZIG_PARSEH_HPP
 #define ZIG_PARSEH_HPP
 
-#include "buffer.hpp"
+#include "all_types.hpp"
 
-#include <stdio.h>
-
-void parse_h_file(const char *target_path, ZigList<const char *> *clang_argv, FILE *f);
+int parse_h_file(ParseH *parse_h, ZigList<const char *> *clang_argv);
+int parse_h_buf(ParseH *parse_h, Buf *buf, const char *libc_include_path);
 
 #endif
