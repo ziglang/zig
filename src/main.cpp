@@ -170,12 +170,12 @@ static void print_indent(ParseHPrint *p) {
     }
 }
 
-static Buf *type_node_to_name(AstNode *type_node) {
-    if (type_node->type == NodeTypeSymbol) {
-        return &type_node->data.symbol_expr.symbol;
-    } else if (type_node->type == NodeTypePrefixOpExpr) {
-        PrefixOp op = type_node->data.prefix_op_expr.prefix_op;
-        const char *child_type_str = buf_ptr(type_node_to_name(type_node->data.prefix_op_expr.primary_expr));
+static Buf *node_to_buf(AstNode *node) {
+    if (node->type == NodeTypeSymbol) {
+        return &node->data.symbol_expr.symbol;
+    } else if (node->type == NodeTypePrefixOpExpr) {
+        PrefixOp op = node->data.prefix_op_expr.prefix_op;
+        const char *child_type_str = buf_ptr(node_to_buf(node->data.prefix_op_expr.primary_expr));
         if (op == PrefixOpAddressOf) {
             return buf_sprintf("&%s", child_type_str);
         } else if (op == PrefixOpConstAddressOf) {
@@ -242,6 +242,24 @@ static int parseh(const char *arg0, int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    for (int var_i = 0; var_i < p->parse_h.var_list.length; var_i += 1) {
+        AstNode *var_decl = p->parse_h.var_list.at(var_i);
+        assert(var_decl->type == NodeTypeVariableDeclaration);
+        const char *pub_str = (var_decl->data.variable_declaration.visib_mod == VisibModPub) ? "pub " : "";
+        const char *extern_str = var_decl->data.variable_declaration.is_extern ? "extern " : "";
+        const char *var_name = buf_ptr(&var_decl->data.variable_declaration.symbol);
+        const char *const_or_var = var_decl->data.variable_declaration.is_const ? "const" : "var";
+        print_indent(p);
+        fprintf(p->f, "%s%s%s %s", pub_str, extern_str, const_or_var, var_name);
+        if (var_decl->data.variable_declaration.type) {
+            fprintf(p->f, ": %s", buf_ptr(node_to_buf(var_decl->data.variable_declaration.type)));
+        }
+        if (var_decl->data.variable_declaration.expr) {
+            fprintf(p->f, " = %s", buf_ptr(node_to_buf(var_decl->data.variable_declaration.expr)));
+        }
+        fprintf(p->f, ";\n");
+    }
+
     for (int struct_i = 0; struct_i < p->parse_h.struct_list.length; struct_i += 1) {
         AstNode *struct_decl = p->parse_h.struct_list.at(struct_i);
         assert(struct_decl->type == NodeTypeStructDecl);
@@ -253,7 +271,7 @@ static int parseh(const char *arg0, int argc, char **argv) {
             AstNode *field_node = struct_decl->data.struct_decl.fields.at(field_i);
             assert(field_node->type == NodeTypeStructField);
             const char *field_name = buf_ptr(&field_node->data.struct_field.name);
-            Buf *type_name = type_node_to_name(field_node->data.struct_field.type);
+            Buf *type_name = node_to_buf(field_node->data.struct_field.type);
             print_indent(p);
             fprintf(p->f, "%s: %s,\n", field_name, buf_ptr(type_name));
         }
@@ -268,14 +286,15 @@ static int parseh(const char *arg0, int argc, char **argv) {
         print_indent(p);
         const char *fn_name = buf_ptr(&fn_proto->data.fn_proto.name);
         const char *pub_str = (fn_proto->data.fn_proto.visib_mod == VisibModPub) ? "pub " : "";
-        fprintf(p->f, "%sextern fn %s(", pub_str, fn_name);
+        const char *extern_str = fn_proto->data.fn_proto.is_extern ? "extern " : "";
+        fprintf(p->f, "%s%sfn %s(", pub_str, extern_str, fn_name);
         int arg_count = fn_proto->data.fn_proto.params.length;
         bool is_var_args = fn_proto->data.fn_proto.is_var_args;
         for (int arg_i = 0; arg_i < arg_count; arg_i += 1) {
             AstNode *param_decl = fn_proto->data.fn_proto.params.at(arg_i);
             assert(param_decl->type == NodeTypeParamDecl);
             const char *arg_name = buf_ptr(&param_decl->data.param_decl.name);
-            Buf *arg_type = type_node_to_name(param_decl->data.param_decl.type);
+            Buf *arg_type = node_to_buf(param_decl->data.param_decl.type);
             const char *noalias_str = param_decl->data.param_decl.is_noalias ? "noalias " : "";
             fprintf(p->f, "%s%s: %s", noalias_str, arg_name, buf_ptr(arg_type));
             if (arg_i + 1 < arg_count || is_var_args) {
@@ -286,7 +305,7 @@ static int parseh(const char *arg0, int argc, char **argv) {
             fprintf(p->f, "...");
         }
         fprintf(p->f, ")");
-        Buf *return_type_name = type_node_to_name(fn_proto->data.fn_proto.return_type);
+        Buf *return_type_name = node_to_buf(fn_proto->data.fn_proto.return_type);
         if (!buf_eql_str(return_type_name, "void")) {
             fprintf(p->f, " -> %s", buf_ptr(return_type_name));
         }

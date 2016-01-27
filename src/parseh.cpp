@@ -20,7 +20,8 @@ using namespace clang;
 struct Context {
     ParseH *parse_h;
     bool warnings_on;
-    bool pub;
+    VisibMod visib_mod;
+    AstNode *c_void_decl_node;
 };
 
 static AstNode *type_node_from_qual_type(Context *c, QualType qt);
@@ -42,10 +43,33 @@ static const char *decl_name(const Decl *decl) {
     return (const char *)named_decl->getName().bytes_begin();
 }
 
+static AstNode *create_typedef_node(Context *c, const char *new_name, const char *target_name) {
+    AstNode *node = create_node(c, NodeTypeVariableDeclaration);
+    buf_init_from_str(&node->data.variable_declaration.symbol, new_name);
+    node->data.variable_declaration.is_const = true;
+    node->data.variable_declaration.visib_mod = c->visib_mod;
+    node->data.variable_declaration.expr = simple_type_node(c, target_name);
+    return node;
+}
+
+static AstNode *convert_to_c_void(Context *c, AstNode *type_node) {
+    if (type_node->type == NodeTypeSymbol &&
+        buf_eql_str(&type_node->data.symbol_expr.symbol, "void"))
+    {
+        if (!c->c_void_decl_node) {
+            c->c_void_decl_node = create_typedef_node(c, "c_void", "u8");
+            c->parse_h->var_list.append(c->c_void_decl_node);
+        }
+        return simple_type_node(c, "c_void");
+    } else {
+        return type_node;
+    }
+}
+
 static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
     AstNode *node = create_node(c, NodeTypePrefixOpExpr);
     node->data.prefix_op_expr.prefix_op = is_const ? PrefixOpConstAddressOf : PrefixOpAddressOf;
-    node->data.prefix_op_expr.primary_expr = type_node;
+    node->data.prefix_op_expr.primary_expr = convert_to_c_void(c, type_node);
     return node;
 }
 
@@ -187,7 +211,7 @@ static bool decl_visitor(void *context, const Decl *decl) {
                 const FunctionDecl *fn_decl = static_cast<const FunctionDecl*>(decl);
                 AstNode *node = create_node(c, NodeTypeFnProto);
                 node->data.fn_proto.is_extern = true;
-                node->data.fn_proto.visib_mod = c->pub ? VisibModPub : VisibModPrivate;
+                node->data.fn_proto.visib_mod = c->visib_mod;
                 node->data.fn_proto.is_var_args = fn_decl->isVariadic();
                 buf_init_from_str(&node->data.fn_proto.name, decl_name(decl));
 

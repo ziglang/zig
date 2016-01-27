@@ -242,6 +242,7 @@ struct AstNodeReturnExpr {
 struct AstNodeVariableDeclaration {
     Buf symbol;
     bool is_const;
+    bool is_extern;
     VisibMod visib_mod;
     // one or both of type and expr will be non null
     AstNode *type;
