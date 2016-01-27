@@ -25,6 +25,7 @@ static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *
         BlockContext *context, AstNode *node, Buf *err_name);
 static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node);
+static TypeTableEntry *resolve_expr_const_val_as_void(CodeGen *g, AstNode *node);
 
 static AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
@@ -152,17 +153,34 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
         return *parent_pointer;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
-        entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
 
         const char *const_str = is_const ? "const " : "";
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "&%s%s", const_str, buf_ptr(&child_type->name));
 
-        entry->size_in_bits = g->pointer_size_bytes * 8;
-        entry->align_in_bits = g->pointer_size_bytes * 8;
-        assert(child_type->di_type);
-        entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type->di_type,
-                entry->size_in_bits, entry->align_in_bits, buf_ptr(&entry->name));
+        bool zero_bits;
+        if (child_type->size_in_bits == 0) {
+            if (child_type->id == TypeTableEntryIdStruct) {
+                zero_bits = child_type->data.structure.complete;
+            } else if (child_type->id == TypeTableEntryIdEnum) {
+                zero_bits = child_type->data.enumeration.complete;
+            } else {
+                zero_bits = true;
+            }
+        } else {
+            zero_bits = false;
+        }
+
+        if (!zero_bits) {
+            entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
+
+            entry->size_in_bits = g->pointer_size_bytes * 8;
+            entry->align_in_bits = g->pointer_size_bytes * 8;
+            assert(child_type->di_type);
+            entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type->di_type,
+                    entry->size_in_bits, entry->align_in_bits, buf_ptr(&entry->name));
+        }
+
         entry->data.pointer.child_type = child_type;
         entry->data.pointer.is_const = is_const;
 
@@ -511,6 +529,8 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         // after the gen_param_index += 1 because 0 is the return type
         param_di_types[gen_param_index] = gen_type->di_type;
         gen_return_type = g->builtin_types.entry_void;
+    } else if (return_type->size_in_bits == 0) {
+        gen_return_type = g->builtin_types.entry_void;
     } else {
         gen_return_type = return_type;
     }
@@ -584,7 +604,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     LLVMSetLinkage(fn_table_entry->fn_value, fn_table_entry->internal_linkage ?
             LLVMInternalLinkage : LLVMExternalLinkage);
 
-    if (gen_return_type->id == TypeTableEntryIdUnreachable) {
+    if (return_type->id == TypeTableEntryIdUnreachable) {
         LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoReturnAttribute);
     }
     LLVMSetFunctionCallConv(fn_table_entry->fn_value, fn_type->data.fn.calling_convention);
@@ -707,6 +727,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
 
     // unset temporary flag
     enum_type->data.enumeration.embedded_in_current = false;
+    enum_type->data.enumeration.complete = true;
 
     if (!enum_type->data.enumeration.is_invalid) {
         enum_type->data.enumeration.gen_field_count = gen_field_index;
@@ -872,6 +893,7 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     struct_type->data.structure.embedded_in_current = false;
 
     struct_type->data.structure.gen_field_count = gen_field_index;
+    struct_type->data.structure.complete = true;
 
     if (!struct_type->data.structure.is_invalid) {
 
@@ -1186,7 +1208,9 @@ static bool type_has_codegen_value(TypeTableEntryId id) {
 
 static void add_global_const_expr(CodeGen *g, Expr *expr) {
     if (expr->const_val.ok &&
-        type_has_codegen_value(expr->type_entry->id) && !expr->has_global_const)
+        type_has_codegen_value(expr->type_entry->id) &&
+        !expr->has_global_const &&
+        expr->type_entry->size_in_bits > 0)
     {
         g->global_const_list.append(expr);
         expr->has_global_const = true;
@@ -1776,7 +1800,7 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
             add_node_error(g, node, buf_sprintf("void expression expects no arguments"));
             return g->builtin_types.entry_invalid;
         } else {
-            return container_type;
+            return resolve_expr_const_val_as_void(g, node);
         }
     } else if (container_type->id == TypeTableEntryIdUnreachable) {
         if (container_init_expr->entries.length != 0) {
@@ -1923,6 +1947,12 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
     analyze_expression(g, import, context, g->builtin_types.entry_isize, node->data.array_access_expr.subscript);
 
     return return_type;
+}
+
+static TypeTableEntry *resolve_expr_const_val_as_void(CodeGen *g, AstNode *node) {
+    Expr *expr = get_resolved_expr(node);
+    expr->const_val.ok = true;
+    return g->builtin_types.entry_void;
 }
 
 static TypeTableEntry *resolve_expr_const_val_as_type(CodeGen *g, AstNode *node, TypeTableEntry *type) {

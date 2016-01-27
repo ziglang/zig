@@ -1318,6 +1318,19 @@ pub fn main(args: [][]u8) -> %void {
     %%stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("pointer to void return type", R"SOURCE(
+import "std.zig";
+const x = void{};
+fn f() -> &void {
+    %%stdout.printf("OK\n");
+    return &x;
+}
+pub fn main(args: [][]u8) -> %void {
+    const a = f();
+    return *a;
+}
+    )SOURCE", "OK\n");
 }
 
 

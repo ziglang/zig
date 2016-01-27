@@ -510,7 +510,6 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     }
 
     TypeTableEntry *src_return_type = fn_type->data.fn.src_return_type;
-    TypeTableEntry *gen_return_type = fn_type->data.fn.gen_return_type;
 
     int fn_call_param_count = node->data.fn_call_expr.params.length;
     bool first_arg_ret = handle_is_ptr(src_return_type);
@@ -544,7 +543,7 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef result = LLVMZigBuildCall(g->builder, fn_val,
             gen_param_values, gen_param_index, fn_type->data.fn.calling_convention, "");
 
-    if (gen_return_type->id == TypeTableEntryIdUnreachable) {
+    if (src_return_type->id == TypeTableEntryIdUnreachable) {
         return LLVMBuildUnreachable(g->builder);
     } else if (first_arg_ret) {
         return node->data.fn_call_expr.tmp_ptr;
@@ -821,8 +820,6 @@ static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *expr_node, AstNode *node,
         VariableTableEntry *var = find_variable(expr_node->block_context,
                 &node->data.symbol_expr.symbol);
         assert(var);
-        // semantic checking ensures no variables are constant
-        assert(!var->is_const);
 
         *out_type_entry = var->type;
         target_ref = var->value_ref;
@@ -895,8 +892,13 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
         case PrefixOpDereference:
             {
                 LLVMValueRef expr = gen_expr(g, expr_node);
-                add_debug_source_node(g, node);
-                return LLVMBuildLoad(g->builder, expr, "");
+                TypeTableEntry *type_entry = get_expr_type(expr_node);
+                if (type_entry->size_in_bits == 0) {
+                    return nullptr;
+                } else {
+                    add_debug_source_node(g, node);
+                    return LLVMBuildLoad(g->builder, expr, "");
+                }
             }
         case PrefixOpMaybe:
             {
@@ -2182,8 +2184,12 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
     Expr *expr = get_resolved_expr(node);
     if (expr->const_val.ok) {
-        assert(expr->const_llvm_val);
-        return expr->const_llvm_val;
+        if (expr->type_entry->size_in_bits == 0) {
+            return nullptr;
+        } else {
+            assert(expr->const_llvm_val);
+            return expr->const_llvm_val;
+        }
     }
     switch (node->type) {
         case NodeTypeBinOpExpr:
@@ -2291,119 +2297,144 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         return LLVMGetUndef(type_entry->type_ref);
     }
 
-    if (type_entry->id == TypeTableEntryIdInt) {
-        return LLVMConstInt(type_entry->type_ref, bignum_to_twos_complement(&const_val->data.x_bignum), false);
-    } else if (type_entry->id == TypeTableEntryIdPureError) {
-        assert(const_val->data.x_err.err);
-        return LLVMConstInt(g->builtin_types.entry_pure_error->type_ref, const_val->data.x_err.err->value, false);
-    } else if (type_entry->id == TypeTableEntryIdFloat) {
-        if (const_val->data.x_bignum.kind == BigNumKindFloat) {
-            return LLVMConstReal(type_entry->type_ref, const_val->data.x_bignum.data.x_float);
-        } else {
-            int64_t x = const_val->data.x_bignum.data.x_uint;
-            if (const_val->data.x_bignum.is_negative) {
-                x = -x;
-            }
-            return LLVMConstReal(type_entry->type_ref, x);
-        }
-    } else if (type_entry->id == TypeTableEntryIdBool) {
-        if (const_val->data.x_bool) {
-            return LLVMConstAllOnes(LLVMInt1Type());
-        } else {
-            return LLVMConstNull(LLVMInt1Type());
-        }
-    } else if (type_entry->id == TypeTableEntryIdMaybe) {
-        TypeTableEntry *child_type = type_entry->data.maybe.child_type;
-        LLVMValueRef child_val;
-        LLVMValueRef maybe_val;
-        if (const_val->data.x_maybe) {
-            child_val = gen_const_val(g, child_type, const_val->data.x_maybe);
-            maybe_val = LLVMConstAllOnes(LLVMInt1Type());
-        } else {
-            child_val = LLVMConstNull(child_type->type_ref);
-            maybe_val = LLVMConstNull(LLVMInt1Type());
-        }
-        LLVMValueRef fields[] = {
-            child_val,
-            maybe_val,
-        };
-        return LLVMConstStruct(fields, 2, false);
-    } else if (type_entry->id == TypeTableEntryIdStruct) {
-        LLVMValueRef *fields = allocate<LLVMValueRef>(type_entry->data.structure.gen_field_count);
-        for (int i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
-            TypeStructField *type_struct_field = &type_entry->data.structure.fields[i];
-            fields[type_struct_field->gen_index] = gen_const_val(g, type_struct_field->type_entry,
-                    const_val->data.x_struct.fields[i]);
-        }
-        return LLVMConstNamedStruct(type_entry->type_ref, fields, type_entry->data.structure.gen_field_count);
-    } else if (type_entry->id == TypeTableEntryIdArray) {
-        TypeTableEntry *child_type = type_entry->data.array.child_type;
-        uint64_t len = type_entry->data.array.len;
-        LLVMValueRef *values = allocate<LLVMValueRef>(len);
-        for (int i = 0; i < len; i += 1) {
-            ConstExprValue *field_value = const_val->data.x_array.fields[i];
-            values[i] = gen_const_val(g, child_type, field_value);
-        }
-        return LLVMConstArray(child_type->type_ref, values, len);
-    } else if (type_entry->id == TypeTableEntryIdEnum) {
-        LLVMTypeRef tag_type_ref = type_entry->data.enumeration.tag_type->type_ref;
-        LLVMValueRef tag_value = LLVMConstInt(tag_type_ref, const_val->data.x_enum.tag, false);
-        if (type_entry->data.enumeration.gen_field_count == 0) {
-            return tag_value;
-        } else {
-            zig_panic("TODO");
-        }
-    } else if (type_entry->id == TypeTableEntryIdFn) {
-        return const_val->data.x_fn->fn_value;
-    } else if (type_entry->id == TypeTableEntryIdPointer) {
-        TypeTableEntry *child_type = type_entry->data.pointer.child_type;
-        int len = const_val->data.x_ptr.len;
-        LLVMValueRef target_val;
-        if (len == 1) {
-            target_val = gen_const_val(g, child_type, const_val->data.x_ptr.ptr[0]);
-        } else if (len > 1) {
-            LLVMValueRef *values = allocate<LLVMValueRef>(len);
-            for (int i = 0; i < len; i += 1) {
-                values[i] = gen_const_val(g, child_type, const_val->data.x_ptr.ptr[i]);
-            }
-            target_val = LLVMConstArray(child_type->type_ref, values, len);
-        } else {
-            zig_unreachable();
-        }
-        LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(target_val), "");
-        LLVMSetInitializer(global_value, target_val);
-        LLVMSetLinkage(global_value, LLVMPrivateLinkage);
-        LLVMSetGlobalConstant(global_value, type_entry->data.pointer.is_const);
-        LLVMSetUnnamedAddr(global_value, true);
-
-        if (len > 1) {
-            return LLVMConstBitCast(global_value, type_entry->type_ref);
-        } else {
-            return global_value;
-        }
-    } else if (type_entry->id == TypeTableEntryIdErrorUnion) {
-        TypeTableEntry *child_type = type_entry->data.error.child_type;
-        if (child_type->size_in_bits == 0) {
-            uint64_t value = const_val->data.x_err.err ? const_val->data.x_err.err->value : 0;
-            return LLVMConstInt(g->err_tag_type->type_ref, value, false);
-        } else {
-            LLVMValueRef err_tag_value;
-            LLVMValueRef err_payload_value;
-            if (const_val->data.x_err.err) {
-                err_tag_value = LLVMConstInt(g->err_tag_type->type_ref, const_val->data.x_err.err->value, false);
-                err_payload_value = LLVMConstNull(child_type->type_ref);
+    switch (type_entry->id) {
+        case TypeTableEntryIdInt:
+            return LLVMConstInt(type_entry->type_ref, bignum_to_twos_complement(&const_val->data.x_bignum), false);
+        case TypeTableEntryIdPureError:
+            assert(const_val->data.x_err.err);
+            return LLVMConstInt(g->builtin_types.entry_pure_error->type_ref,
+                    const_val->data.x_err.err->value, false);
+        case TypeTableEntryIdFloat:
+            if (const_val->data.x_bignum.kind == BigNumKindFloat) {
+                return LLVMConstReal(type_entry->type_ref, const_val->data.x_bignum.data.x_float);
             } else {
-                err_tag_value = LLVMConstNull(g->err_tag_type->type_ref);
-                err_payload_value = gen_const_val(g, child_type, const_val->data.x_err.payload);
+                int64_t x = const_val->data.x_bignum.data.x_uint;
+                if (const_val->data.x_bignum.is_negative) {
+                    x = -x;
+                }
+                return LLVMConstReal(type_entry->type_ref, x);
             }
-            LLVMValueRef fields[] = {
-                err_tag_value,
-                err_payload_value,
-            };
-            return LLVMConstStruct(fields, 2, false);
-        }
-    } else {
-        zig_unreachable();
+        case TypeTableEntryIdBool:
+            if (const_val->data.x_bool) {
+                return LLVMConstAllOnes(LLVMInt1Type());
+            } else {
+                return LLVMConstNull(LLVMInt1Type());
+            }
+        case TypeTableEntryIdMaybe:
+            {
+                TypeTableEntry *child_type = type_entry->data.maybe.child_type;
+                LLVMValueRef child_val;
+                LLVMValueRef maybe_val;
+                if (const_val->data.x_maybe) {
+                    child_val = gen_const_val(g, child_type, const_val->data.x_maybe);
+                    maybe_val = LLVMConstAllOnes(LLVMInt1Type());
+                } else {
+                    child_val = LLVMConstNull(child_type->type_ref);
+                    maybe_val = LLVMConstNull(LLVMInt1Type());
+                }
+                LLVMValueRef fields[] = {
+                    child_val,
+                    maybe_val,
+                };
+                return LLVMConstStruct(fields, 2, false);
+            }
+        case TypeTableEntryIdStruct:
+            {
+                LLVMValueRef *fields = allocate<LLVMValueRef>(type_entry->data.structure.gen_field_count);
+                for (int i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+                    TypeStructField *type_struct_field = &type_entry->data.structure.fields[i];
+                    if (type_struct_field->gen_index == -1) {
+                        continue;
+                    }
+                    fields[type_struct_field->gen_index] = gen_const_val(g, type_struct_field->type_entry,
+                            const_val->data.x_struct.fields[i]);
+                }
+                return LLVMConstNamedStruct(type_entry->type_ref, fields,
+                        type_entry->data.structure.gen_field_count);
+            }
+        case TypeTableEntryIdArray:
+            {
+                TypeTableEntry *child_type = type_entry->data.array.child_type;
+                uint64_t len = type_entry->data.array.len;
+                LLVMValueRef *values = allocate<LLVMValueRef>(len);
+                for (int i = 0; i < len; i += 1) {
+                    ConstExprValue *field_value = const_val->data.x_array.fields[i];
+                    values[i] = gen_const_val(g, child_type, field_value);
+                }
+                return LLVMConstArray(child_type->type_ref, values, len);
+            }
+        case TypeTableEntryIdEnum:
+            {
+                LLVMTypeRef tag_type_ref = type_entry->data.enumeration.tag_type->type_ref;
+                LLVMValueRef tag_value = LLVMConstInt(tag_type_ref, const_val->data.x_enum.tag, false);
+                if (type_entry->data.enumeration.gen_field_count == 0) {
+                    return tag_value;
+                } else {
+                    zig_panic("TODO");
+                }
+            }
+        case TypeTableEntryIdFn:
+            return const_val->data.x_fn->fn_value;
+        case TypeTableEntryIdPointer:
+            {
+                TypeTableEntry *child_type = type_entry->data.pointer.child_type;
+                int len = const_val->data.x_ptr.len;
+                LLVMValueRef target_val;
+                if (len == 1) {
+                    target_val = gen_const_val(g, child_type, const_val->data.x_ptr.ptr[0]);
+                } else if (len > 1) {
+                    LLVMValueRef *values = allocate<LLVMValueRef>(len);
+                    for (int i = 0; i < len; i += 1) {
+                        values[i] = gen_const_val(g, child_type, const_val->data.x_ptr.ptr[i]);
+                    }
+                    target_val = LLVMConstArray(child_type->type_ref, values, len);
+                } else {
+                    zig_unreachable();
+                }
+                LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(target_val), "");
+                LLVMSetInitializer(global_value, target_val);
+                LLVMSetLinkage(global_value, LLVMPrivateLinkage);
+                LLVMSetGlobalConstant(global_value, type_entry->data.pointer.is_const);
+                LLVMSetUnnamedAddr(global_value, true);
+
+                if (len > 1) {
+                    return LLVMConstBitCast(global_value, type_entry->type_ref);
+                } else {
+                    return global_value;
+                }
+            }
+        case TypeTableEntryIdErrorUnion:
+            {
+                TypeTableEntry *child_type = type_entry->data.error.child_type;
+                if (child_type->size_in_bits == 0) {
+                    uint64_t value = const_val->data.x_err.err ? const_val->data.x_err.err->value : 0;
+                    return LLVMConstInt(g->err_tag_type->type_ref, value, false);
+                } else {
+                    LLVMValueRef err_tag_value;
+                    LLVMValueRef err_payload_value;
+                    if (const_val->data.x_err.err) {
+                        err_tag_value = LLVMConstInt(g->err_tag_type->type_ref, const_val->data.x_err.err->value, false);
+                        err_payload_value = LLVMConstNull(child_type->type_ref);
+                    } else {
+                        err_tag_value = LLVMConstNull(g->err_tag_type->type_ref);
+                        err_payload_value = gen_const_val(g, child_type, const_val->data.x_err.payload);
+                    }
+                    LLVMValueRef fields[] = {
+                        err_tag_value,
+                        err_payload_value,
+                    };
+                    return LLVMConstStruct(fields, 2, false);
+                }
+            }
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdVoid:
+            zig_unreachable();
+
     }
 }
 
@@ -2438,7 +2469,8 @@ static void do_code_gen(CodeGen *g) {
         VariableTableEntry *var = g->global_vars.at(i);
 
         if (var->type->id == TypeTableEntryIdNumLitFloat ||
-            var->type->id == TypeTableEntryIdNumLitInt)
+            var->type->id == TypeTableEntryIdNumLitInt ||
+            var->type->size_in_bits == 0)
         {
             continue;
         }

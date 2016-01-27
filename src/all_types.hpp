@@ -788,6 +788,8 @@ struct TypeTableEntryStruct {
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;
     bool reported_infinite_err;
+    // whether we've finished resolving it
+    bool complete;
 };
 
 struct TypeTableEntryMaybe {
@@ -812,6 +814,8 @@ struct TypeTableEntryEnum {
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;
     bool reported_infinite_err;
+    // whether we've finished resolving it
+    bool complete;
 };
 
 struct TypeTableEntryFn {
