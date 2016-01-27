@@ -325,6 +325,7 @@ enum CastOp {
     CastOpNoCast, // signifies the function call expression is not a cast
     CastOpNoop, // fn call expr is a cast, but does nothing
     CastOpPtrToInt,
+    CastOpIntToPtr,
     CastOpIntWidenOrShorten,
     CastOpToUnknownSizeArray,
     CastOpMaybeWrap,

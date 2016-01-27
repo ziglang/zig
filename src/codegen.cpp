@@ -428,6 +428,9 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
         case CastOpPtrToInt:
             add_debug_source_node(g, node);
             return LLVMBuildPtrToInt(g->builder, expr_val, wanted_type->type_ref, "");
+        case CastOpIntToPtr:
+            add_debug_source_node(g, node);
+            return LLVMBuildIntToPtr(g->builder, expr_val, wanted_type->type_ref, "");
         case CastOpPointerReinterpret:
             add_debug_source_node(g, node);
             return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");

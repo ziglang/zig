@@ -3058,10 +3058,13 @@ static void eval_const_expr_implicit_cast(CodeGen *g, AstNode *node, AstNode *ex
         case CastOpNoCast:
             zig_unreachable();
         case CastOpNoop:
-        case CastOpPtrToInt:
         case CastOpIntWidenOrShorten:
         case CastOpPointerReinterpret:
             *const_val = *other_val;
+            break;
+        case CastOpPtrToInt:
+        case CastOpIntToPtr:
+            // can't do it
             break;
         case CastOpToUnknownSizeArray:
             {
@@ -3144,6 +3147,16 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         actual_type->id == TypeTableEntryIdPointer)
     {
         node->data.fn_call_expr.cast_op = CastOpPtrToInt;
+        eval_const_expr_implicit_cast(g, node, expr_node);
+        return wanted_type;
+    }
+
+
+    // explicit cast from isize or usize to pointer
+    if (wanted_type->id == TypeTableEntryIdPointer &&
+        (actual_type == g->builtin_types.entry_isize || actual_type == g->builtin_types.entry_usize))
+    {
+        node->data.fn_call_expr.cast_op = CastOpIntToPtr;
         eval_const_expr_implicit_cast(g, node, expr_node);
         return wanted_type;
     }

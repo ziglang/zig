@@ -1305,6 +1305,19 @@ pub fn main(args: [][]u8) -> %void {
     %%stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("int to ptr cast", R"SOURCE(
+import "std.zig";
+pub fn main(args: [][]u8) -> %void {
+    const x = isize(13);
+    const y = (&u8)(x);
+    const z = usize(y);
+    if (z != 13) {
+        %%stdout.printf("BAD\n");
+    }
+    %%stdout.printf("OK\n");
+}
+    )SOURCE", "OK\n");
 }
 
 
