@@ -19,12 +19,202 @@ using namespace clang;
 
 struct Context {
     ParseH *parse_h;
+    bool warnings_on;
+    bool pub;
 };
 
-static bool decl_visitor(void *context, const Decl *decl) {
-    //Context *c = (Context*)context;
+static AstNode *type_node_from_qual_type(Context *c, QualType qt);
 
-    fprintf(stderr, "got top level decl\n");
+static AstNode *create_node(Context *c, NodeType type) {
+    AstNode *node = allocate<AstNode>(1);
+    node->type = type;
+    return node;
+}
+
+static AstNode *simple_type_node(Context *c, const char *type_name) {
+    AstNode *node = create_node(c, NodeTypeSymbol);
+    buf_init_from_str(&node->data.symbol_expr.symbol, type_name);
+    return node;
+}
+
+static const char *decl_name(const Decl *decl) {
+    const NamedDecl *named_decl = static_cast<const NamedDecl *>(decl);
+    return (const char *)named_decl->getName().bytes_begin();
+}
+
+static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
+    AstNode *node = create_node(c, NodeTypePrefixOpExpr);
+    node->data.prefix_op_expr.prefix_op = is_const ? PrefixOpConstAddressOf : PrefixOpAddressOf;
+    node->data.prefix_op_expr.primary_expr = type_node;
+    return node;
+}
+
+static AstNode *type_node(Context *c, const Type *ty, bool is_const) {
+    switch (ty->getTypeClass()) {
+        case Type::Builtin:
+            {
+                const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
+                switch (builtin_ty->getKind()) {
+                    case BuiltinType::Void:
+                        return simple_type_node(c, "void");
+                    case BuiltinType::Bool:
+                        return simple_type_node(c, "bool");
+                    case BuiltinType::Char_U:
+                    case BuiltinType::UChar:
+                        return simple_type_node(c, "u8");
+                    case BuiltinType::Char_S:
+                    case BuiltinType::SChar:
+                        return simple_type_node(c, "i8");
+                    case BuiltinType::UShort:
+                        return simple_type_node(c, "c_ushort");
+                    case BuiltinType::UInt:
+                        return simple_type_node(c, "c_uint");
+                    case BuiltinType::ULong:
+                        return simple_type_node(c, "c_ulong");
+                    case BuiltinType::ULongLong:
+                        return simple_type_node(c, "c_ulonglong");
+                    case BuiltinType::Short:
+                        return simple_type_node(c, "c_short");
+                    case BuiltinType::Int:
+                        return simple_type_node(c, "c_int");
+                    case BuiltinType::Long:
+                        return simple_type_node(c, "c_long");
+                    case BuiltinType::LongLong:
+                        return simple_type_node(c, "c_longlong");
+                    case BuiltinType::Float:
+                        return simple_type_node(c, "f32");
+                    case BuiltinType::Double:
+                        return simple_type_node(c, "f64");
+                    case BuiltinType::LongDouble:
+                        return simple_type_node(c, "f128");
+                    case BuiltinType::WChar_U:
+                    case BuiltinType::Char16:
+                    case BuiltinType::Char32:
+                    case BuiltinType::UInt128:
+                    case BuiltinType::WChar_S:
+                    case BuiltinType::Int128:
+                    case BuiltinType::Half:
+                    case BuiltinType::NullPtr:
+                    case BuiltinType::ObjCId:
+                    case BuiltinType::ObjCClass:
+                    case BuiltinType::ObjCSel:
+                    case BuiltinType::OCLImage1d:
+                    case BuiltinType::OCLImage1dArray:
+                    case BuiltinType::OCLImage1dBuffer:
+                    case BuiltinType::OCLImage2d:
+                    case BuiltinType::OCLImage2dArray:
+                    case BuiltinType::OCLImage3d:
+                    case BuiltinType::OCLSampler:
+                    case BuiltinType::OCLEvent:
+                    case BuiltinType::Dependent:
+                    case BuiltinType::Overload:
+                    case BuiltinType::BoundMember:
+                    case BuiltinType::PseudoObject:
+                    case BuiltinType::UnknownAny:
+                    case BuiltinType::BuiltinFn:
+                    case BuiltinType::ARCUnbridgedCast:
+                        zig_panic("TODO - make error for these types");
+                }
+                break;
+            }
+        case Type::Pointer:
+            {
+                const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
+                AstNode *type_node = type_node_from_qual_type(c, pointer_ty->getPointeeType());
+                return pointer_to_type(c, type_node, is_const);
+            }
+        case Type::Typedef:
+        case Type::FunctionProto:
+        case Type::Record:
+        case Type::Enum:
+        case Type::BlockPointer:
+        case Type::LValueReference:
+        case Type::RValueReference:
+        case Type::MemberPointer:
+        case Type::ConstantArray:
+        case Type::IncompleteArray:
+        case Type::VariableArray:
+        case Type::DependentSizedArray:
+        case Type::DependentSizedExtVector:
+        case Type::Vector:
+        case Type::ExtVector:
+        case Type::FunctionNoProto:
+        case Type::UnresolvedUsing:
+        case Type::Paren:
+        case Type::Adjusted:
+        case Type::Decayed:
+        case Type::TypeOfExpr:
+        case Type::TypeOf:
+        case Type::Decltype:
+        case Type::UnaryTransform:
+        case Type::Elaborated:
+        case Type::Attributed:
+        case Type::TemplateTypeParm:
+        case Type::SubstTemplateTypeParm:
+        case Type::SubstTemplateTypeParmPack:
+        case Type::TemplateSpecialization:
+        case Type::Auto:
+        case Type::InjectedClassName:
+        case Type::DependentName:
+        case Type::DependentTemplateSpecialization:
+        case Type::PackExpansion:
+        case Type::ObjCObject:
+        case Type::ObjCInterface:
+        case Type::Complex:
+        case Type::ObjCObjectPointer:
+        case Type::Atomic:
+            zig_panic("TODO - make error for type: %s", ty->getTypeClassName());
+    }
+}
+
+static AstNode *type_node_from_qual_type(Context *c, QualType qt) {
+    bool is_const = qt.isConstQualified();
+    return type_node(c, qt.getTypePtr(), is_const);
+}
+
+static bool decl_visitor(void *context, const Decl *decl) {
+    Context *c = (Context*)context;
+
+    switch (decl->getKind()) {
+        case Decl::Function:
+            {
+                const FunctionDecl *fn_decl = static_cast<const FunctionDecl*>(decl);
+                AstNode *node = create_node(c, NodeTypeFnProto);
+                node->data.fn_proto.is_extern = true;
+                node->data.fn_proto.visib_mod = c->pub ? VisibModPub : VisibModPrivate;
+                node->data.fn_proto.is_var_args = fn_decl->isVariadic();
+                buf_init_from_str(&node->data.fn_proto.name, decl_name(decl));
+
+                int arg_count = fn_decl->getNumParams();
+                for (int i = 0; i < arg_count; i += 1) {
+                    const ParmVarDecl *param = fn_decl->getParamDecl(i);
+                    AstNode *param_decl_node = create_node(c, NodeTypeParamDecl);
+                    const char *name = decl_name(param);
+                    if (strlen(name) == 0) {
+                        name = buf_ptr(buf_sprintf("arg%d", i));
+                    }
+                    buf_init_from_str(&param_decl_node->data.param_decl.name, name);
+                    QualType qt = param->getOriginalType();
+                    param_decl_node->data.param_decl.is_noalias = qt.isRestrictQualified();
+                    param_decl_node->data.param_decl.type = type_node_from_qual_type(c, qt);
+                    node->data.fn_proto.params.append(param_decl_node);
+                }
+
+                if (fn_decl->isNoReturn()) {
+                    node->data.fn_proto.return_type = simple_type_node(c, "unreachable");
+                } else {
+                    node->data.fn_proto.return_type = type_node_from_qual_type(c, fn_decl->getReturnType());
+                }
+
+                c->parse_h->fn_list.append(node);
+
+                break;
+            }
+        default:
+            if (c->warnings_on) {
+                fprintf(stderr, "ignoring %s\n", decl->getDeclKindName());
+            }
+    }
 
     return true;
 }
@@ -46,7 +236,6 @@ int parse_h_buf(ParseH *parse_h, Buf *source, const char *libc_include_path) {
     os_delete_file(&tmp_file_path);
 
     return err;
-    // write to temp file, parse it, delete it
 }
 
 int parse_h_file(ParseH *parse_h, ZigList<const char *> *clang_argv) {
@@ -124,7 +313,7 @@ int parse_h_file(ParseH *parse_h, ZigList<const char *> *clang_argv) {
             }
             StringRef msg_str_ref = it->getMessage();
             FullSourceLoc fsl = it->getLocation();
-            FileID file_id = fsl.getManager().getFileID(fsl);
+            FileID file_id = fsl.getFileID();
             StringRef filename = fsl.getManager().getFilename(fsl);
             unsigned line = fsl.getSpellingLineNumber() - 1;
             unsigned column = fsl.getSpellingColumnNumber() - 1;
