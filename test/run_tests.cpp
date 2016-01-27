@@ -999,7 +999,7 @@ pub fn main(args: [][]u8) -> %void {
 
     add_simple_case("order-independent declarations", R"SOURCE(
 import "std.zig";
-const z : @typeof(stdin_fileno) = 0;
+const z = stdin_fileno;
 const x : @typeof(y) = 1234;
 const y : u16 = 5678;
 pub fn main(args: [][]u8) -> %void {
@@ -1682,6 +1682,18 @@ c_import {
 
     add_compile_fail_case("empty file", "",
             1, ".tmp_source.zig:1:1: error: missing export declaration and output name not provided");
+
+    add_compile_fail_case("address of number literal", R"SOURCE(
+const x = 3;
+const y = &x;
+    )SOURCE", 1, ".tmp_source.zig:3:12: error: unable to get address of type '(integer literal)'");
+
+    add_compile_fail_case("@typeof number literal", R"SOURCE(
+const x = 3;
+struct Foo {
+    index: @typeof(x),
+}
+    )SOURCE", 1, ".tmp_source.zig:4:20: error: type '(integer literal)' not eligible for @typeof");
 
 }
 

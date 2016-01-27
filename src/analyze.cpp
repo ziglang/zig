@@ -3426,10 +3426,30 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                 AstNode *expr_node = node->data.fn_call_expr.params.at(0);
                 TypeTableEntry *type_entry = analyze_expression(g, import, context, nullptr, expr_node);
 
-                if (type_entry->id == TypeTableEntryIdInvalid) {
-                    return g->builtin_types.entry_invalid;
-                } else {
-                    return resolve_expr_const_val_as_type(g, node, type_entry);
+                switch (type_entry->id) {
+                    case TypeTableEntryIdInvalid:
+                        return type_entry;
+                    case TypeTableEntryIdNumLitFloat:
+                    case TypeTableEntryIdNumLitInt:
+                    case TypeTableEntryIdUndefLit:
+                        add_node_error(g, expr_node,
+                                buf_sprintf("type '%s' not eligible for @typeof", buf_ptr(&type_entry->name)));
+                        return g->builtin_types.entry_invalid;
+                    case TypeTableEntryIdMetaType:
+                    case TypeTableEntryIdVoid:
+                    case TypeTableEntryIdBool:
+                    case TypeTableEntryIdUnreachable:
+                    case TypeTableEntryIdInt:
+                    case TypeTableEntryIdFloat:
+                    case TypeTableEntryIdPointer:
+                    case TypeTableEntryIdArray:
+                    case TypeTableEntryIdStruct:
+                    case TypeTableEntryIdMaybe:
+                    case TypeTableEntryIdErrorUnion:
+                    case TypeTableEntryIdPureError:
+                    case TypeTableEntryIdEnum:
+                    case TypeTableEntryIdFn:
+                        return resolve_expr_const_val_as_type(g, node, type_entry);
                 }
             }
         case BuiltinFnIdCInclude:
@@ -3729,6 +3749,12 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                         return resolve_expr_const_val_as_type(g, node,
                                 get_pointer_to_type(g, meta_type, is_const));
                     }
+                } else if (child_type->id == TypeTableEntryIdNumLitInt ||
+                           child_type->id == TypeTableEntryIdNumLitFloat)
+                {
+                    add_node_error(g, expr_node,
+                        buf_sprintf("unable to get address of type '%s'", buf_ptr(&child_type->name)));
+                    return g->builtin_types.entry_invalid;
                 } else {
                     return get_pointer_to_type(g, child_type, is_const);
                 }
