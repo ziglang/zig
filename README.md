@@ -64,8 +64,8 @@ compromises backward compatibility.
 
 ### Dependencies
 
- * LLVM 3.7
- * libclang 3.7
+ * LLVM 3.7.1
+ * libclang 3.7.1
 
 ### Debug / Development Build
 
