@@ -49,7 +49,7 @@ static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
     return node;
 }
 
-static AstNode *type_node(Context *c, const Type *ty, bool is_const) {
+static AstNode *type_node(Context *c, const Type *ty) {
     switch (ty->getTypeClass()) {
         case Type::Builtin:
             {
@@ -120,10 +120,17 @@ static AstNode *type_node(Context *c, const Type *ty, bool is_const) {
         case Type::Pointer:
             {
                 const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
-                AstNode *type_node = type_node_from_qual_type(c, pointer_ty->getPointeeType());
-                return pointer_to_type(c, type_node, is_const);
+                QualType child_qt = pointer_ty->getPointeeType();
+                AstNode *type_node = type_node_from_qual_type(c, child_qt);
+                return pointer_to_type(c, type_node, child_qt.isConstQualified());
             }
         case Type::Typedef:
+            {
+                const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
+                const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+                const char *type_name = buf_ptr(buf_create_from_str(decl_name(typedef_decl)));
+                return simple_type_node(c, type_name);
+            }
         case Type::FunctionProto:
         case Type::Record:
         case Type::Enum:
@@ -168,8 +175,7 @@ static AstNode *type_node(Context *c, const Type *ty, bool is_const) {
 }
 
 static AstNode *type_node_from_qual_type(Context *c, QualType qt) {
-    bool is_const = qt.isConstQualified();
-    return type_node(c, qt.getTypePtr(), is_const);
+    return type_node(c, qt.getTypePtr());
 }
 
 static bool decl_visitor(void *context, const Decl *decl) {
@@ -210,6 +216,16 @@ static bool decl_visitor(void *context, const Decl *decl) {
 
                 break;
             }
+            /*
+        case Decl::Typedef:
+            {
+                AstNode *node = create_node(c, NodeTypeVariableDeclaration);
+                node->data.variable_declaration.is_const = true;
+                buf_init_from_str(&node->data.variable_declaration.symbol, decl_name(decl));
+
+                break;
+            }
+            */
         default:
             if (c->warnings_on) {
                 fprintf(stderr, "ignoring %s\n", decl->getDeclKindName());

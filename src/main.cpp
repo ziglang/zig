@@ -175,8 +175,11 @@ static Buf *type_node_to_name(AstNode *type_node) {
         return &type_node->data.symbol_expr.symbol;
     } else if (type_node->type == NodeTypePrefixOpExpr) {
         PrefixOp op = type_node->data.prefix_op_expr.prefix_op;
+        const char *child_type_str = buf_ptr(type_node_to_name(type_node->data.prefix_op_expr.primary_expr));
         if (op == PrefixOpAddressOf) {
-            return buf_sprintf("&%s", buf_ptr(type_node_to_name(type_node->data.prefix_op_expr.primary_expr)));
+            return buf_sprintf("&%s", child_type_str);
+        } else if (op == PrefixOpConstAddressOf) {
+            return buf_sprintf("&const %s", child_type_str);
         } else {
             zig_unreachable();
         }
