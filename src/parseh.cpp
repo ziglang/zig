@@ -22,9 +22,10 @@ struct Context {
     bool warnings_on;
     VisibMod visib_mod;
     AstNode *c_void_decl_node;
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> type_table;
 };
 
-static AstNode *type_node_from_qual_type(Context *c, QualType qt);
+static AstNode *make_qual_type_node(Context *c, QualType qt);
 
 static AstNode *create_node(Context *c, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
@@ -43,12 +44,16 @@ static const char *decl_name(const Decl *decl) {
     return (const char *)named_decl->getName().bytes_begin();
 }
 
-static AstNode *create_typedef_node(Context *c, const char *new_name, const char *target_name) {
+static AstNode *create_typedef_node(Context *c, Buf *new_name, AstNode *target_node) {
+    if (!target_node) {
+        return nullptr;
+    }
     AstNode *node = create_node(c, NodeTypeVariableDeclaration);
-    buf_init_from_str(&node->data.variable_declaration.symbol, new_name);
+    buf_init_from_buf(&node->data.variable_declaration.symbol, new_name);
     node->data.variable_declaration.is_const = true;
     node->data.variable_declaration.visib_mod = c->visib_mod;
-    node->data.variable_declaration.expr = simple_type_node(c, target_name);
+    node->data.variable_declaration.expr = target_node;
+    c->parse_h->var_list.append(node);
     return node;
 }
 
@@ -57,8 +62,9 @@ static AstNode *convert_to_c_void(Context *c, AstNode *type_node) {
         buf_eql_str(&type_node->data.symbol_expr.symbol, "void"))
     {
         if (!c->c_void_decl_node) {
-            c->c_void_decl_node = create_typedef_node(c, "c_void", "u8");
-            c->parse_h->var_list.append(c->c_void_decl_node);
+            c->c_void_decl_node = create_typedef_node(c, buf_create_from_str("c_void"),
+                    simple_type_node(c, "u8"));
+            assert(c->c_void_decl_node);
         }
         return simple_type_node(c, "c_void");
     } else {
@@ -67,13 +73,16 @@ static AstNode *convert_to_c_void(Context *c, AstNode *type_node) {
 }
 
 static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
+    if (!type_node) {
+        return nullptr;
+    }
     AstNode *node = create_node(c, NodeTypePrefixOpExpr);
     node->data.prefix_op_expr.prefix_op = is_const ? PrefixOpConstAddressOf : PrefixOpAddressOf;
     node->data.prefix_op_expr.primary_expr = convert_to_c_void(c, type_node);
     return node;
 }
 
-static AstNode *type_node(Context *c, const Type *ty) {
+static AstNode *make_type_node(Context *c, const Type *ty) {
     switch (ty->getTypeClass()) {
         case Type::Builtin:
             {
@@ -110,7 +119,6 @@ static AstNode *type_node(Context *c, const Type *ty) {
                     case BuiltinType::Double:
                         return simple_type_node(c, "f64");
                     case BuiltinType::LongDouble:
-                        return simple_type_node(c, "f128");
                     case BuiltinType::WChar_U:
                     case BuiltinType::Char16:
                     case BuiltinType::Char32:
@@ -137,7 +145,10 @@ static AstNode *type_node(Context *c, const Type *ty) {
                     case BuiltinType::UnknownAny:
                     case BuiltinType::BuiltinFn:
                     case BuiltinType::ARCUnbridgedCast:
-                        zig_panic("TODO - make error for these types");
+                        if (c->warnings_on) {
+                            fprintf(stderr, "missed a builtin type\n");
+                        }
+                        return nullptr;
                 }
                 break;
             }
@@ -145,17 +156,53 @@ static AstNode *type_node(Context *c, const Type *ty) {
             {
                 const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
                 QualType child_qt = pointer_ty->getPointeeType();
-                AstNode *type_node = type_node_from_qual_type(c, child_qt);
+                AstNode *type_node = make_qual_type_node(c, child_qt);
                 return pointer_to_type(c, type_node, child_qt.isConstQualified());
             }
         case Type::Typedef:
             {
                 const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
                 const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
-                const char *type_name = buf_ptr(buf_create_from_str(decl_name(typedef_decl)));
-                return simple_type_node(c, type_name);
+                Buf *type_name = buf_create_from_str(decl_name(typedef_decl));
+                if (buf_eql_str(type_name, "uint8_t")) {
+                    return simple_type_node(c, "u8");
+                } else if (buf_eql_str(type_name, "int8_t")) {
+                    return simple_type_node(c, "i8");
+                } else if (buf_eql_str(type_name, "uint16_t")) {
+                    return simple_type_node(c, "u16");
+                } else if (buf_eql_str(type_name, "int16_t")) {
+                    return simple_type_node(c, "i16");
+                } else if (buf_eql_str(type_name, "uint32_t")) {
+                    return simple_type_node(c, "u32");
+                } else if (buf_eql_str(type_name, "int32_t")) {
+                    return simple_type_node(c, "i32");
+                } else if (buf_eql_str(type_name, "uint64_t")) {
+                    return simple_type_node(c, "u64");
+                } else if (buf_eql_str(type_name, "int64_t")) {
+                    return simple_type_node(c, "i64");
+                } else if (buf_eql_str(type_name, "intptr_t")) {
+                    return simple_type_node(c, "isize");
+                } else if (buf_eql_str(type_name, "uintptr_t")) {
+                    return simple_type_node(c, "usize");
+                } else {
+                    auto entry = c->type_table.maybe_get(type_name);
+                    if (entry) {
+                        return simple_type_node(c, buf_ptr(type_name));
+                    } else {
+                        return nullptr;
+                    }
+                }
             }
+        case Type::Elaborated:
+            if (c->warnings_on) {
+                fprintf(stderr, "ignoring elaborated type\n");
+            }
+            return nullptr;
         case Type::FunctionProto:
+            if (c->warnings_on) {
+                fprintf(stderr, "ignoring function type\n");
+            }
+            return nullptr;
         case Type::Record:
         case Type::Enum:
         case Type::BlockPointer:
@@ -178,7 +225,6 @@ static AstNode *type_node(Context *c, const Type *ty) {
         case Type::TypeOf:
         case Type::Decltype:
         case Type::UnaryTransform:
-        case Type::Elaborated:
         case Type::Attributed:
         case Type::TemplateTypeParm:
         case Type::SubstTemplateTypeParm:
@@ -194,12 +240,90 @@ static AstNode *type_node(Context *c, const Type *ty) {
         case Type::Complex:
         case Type::ObjCObjectPointer:
         case Type::Atomic:
-            zig_panic("TODO - make error for type: %s", ty->getTypeClassName());
+            if (c->warnings_on) {
+                fprintf(stderr, "missed a '%s' type\n", ty->getTypeClassName());
+            }
+            return nullptr;
     }
 }
 
-static AstNode *type_node_from_qual_type(Context *c, QualType qt) {
-    return type_node(c, qt.getTypePtr());
+static AstNode *make_qual_type_node(Context *c, QualType qt) {
+    return make_type_node(c, qt.getTypePtr());
+}
+
+static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
+    AstNode *node = create_node(c, NodeTypeFnProto);
+    node->data.fn_proto.is_extern = true;
+    node->data.fn_proto.visib_mod = c->visib_mod;
+    node->data.fn_proto.is_var_args = fn_decl->isVariadic();
+    buf_init_from_str(&node->data.fn_proto.name, decl_name(fn_decl));
+
+    int arg_count = fn_decl->getNumParams();
+    bool all_ok = true;
+    for (int i = 0; i < arg_count; i += 1) {
+        const ParmVarDecl *param = fn_decl->getParamDecl(i);
+        AstNode *param_decl_node = create_node(c, NodeTypeParamDecl);
+        const char *name = decl_name(param);
+        if (strlen(name) == 0) {
+            name = buf_ptr(buf_sprintf("arg%d", i));
+        }
+        buf_init_from_str(&param_decl_node->data.param_decl.name, name);
+        QualType qt = param->getOriginalType();
+        param_decl_node->data.param_decl.is_noalias = qt.isRestrictQualified();
+        param_decl_node->data.param_decl.type = make_qual_type_node(c, qt);
+        if (!param_decl_node->data.param_decl.type) {
+            all_ok = false;
+            break;
+        }
+
+        node->data.fn_proto.params.append(param_decl_node);
+    }
+
+    if (fn_decl->isNoReturn()) {
+        node->data.fn_proto.return_type = simple_type_node(c, "unreachable");
+    } else {
+        node->data.fn_proto.return_type = make_qual_type_node(c, fn_decl->getReturnType());
+    }
+
+    if (!node->data.fn_proto.return_type) {
+        all_ok = false;
+    }
+    if (!all_ok) {
+        // not all the types could be resolved, so we give up on the function decl
+        if (c->warnings_on) {
+            fprintf(stderr, "skipping function %s", buf_ptr(&node->data.fn_proto.name));
+        }
+        return;
+    }
+
+    c->parse_h->fn_list.append(node);
+
+}
+
+static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) {
+    QualType child_qt = typedef_decl->getUnderlyingType();
+    Buf *type_name = buf_create_from_str(decl_name(typedef_decl));
+
+    if (buf_eql_str(type_name, "uint8_t") ||
+        buf_eql_str(type_name, "int8_t") ||
+        buf_eql_str(type_name, "uint16_t") ||
+        buf_eql_str(type_name, "int16_t") ||
+        buf_eql_str(type_name, "uint32_t") ||
+        buf_eql_str(type_name, "int32_t") ||
+        buf_eql_str(type_name, "uint64_t") ||
+        buf_eql_str(type_name, "int64_t") ||
+        buf_eql_str(type_name, "intptr_t") ||
+        buf_eql_str(type_name, "uintptr_t"))
+    {
+        // special case we can just use the builtin types
+        return;
+    }
+
+    AstNode *node = create_typedef_node(c, type_name, make_qual_type_node(c, child_qt));
+
+    if (node) {
+        c->type_table.put(type_name, true);
+    }
 }
 
 static bool decl_visitor(void *context, const Decl *decl) {
@@ -207,49 +331,11 @@ static bool decl_visitor(void *context, const Decl *decl) {
 
     switch (decl->getKind()) {
         case Decl::Function:
-            {
-                const FunctionDecl *fn_decl = static_cast<const FunctionDecl*>(decl);
-                AstNode *node = create_node(c, NodeTypeFnProto);
-                node->data.fn_proto.is_extern = true;
-                node->data.fn_proto.visib_mod = c->visib_mod;
-                node->data.fn_proto.is_var_args = fn_decl->isVariadic();
-                buf_init_from_str(&node->data.fn_proto.name, decl_name(decl));
-
-                int arg_count = fn_decl->getNumParams();
-                for (int i = 0; i < arg_count; i += 1) {
-                    const ParmVarDecl *param = fn_decl->getParamDecl(i);
-                    AstNode *param_decl_node = create_node(c, NodeTypeParamDecl);
-                    const char *name = decl_name(param);
-                    if (strlen(name) == 0) {
-                        name = buf_ptr(buf_sprintf("arg%d", i));
-                    }
-                    buf_init_from_str(&param_decl_node->data.param_decl.name, name);
-                    QualType qt = param->getOriginalType();
-                    param_decl_node->data.param_decl.is_noalias = qt.isRestrictQualified();
-                    param_decl_node->data.param_decl.type = type_node_from_qual_type(c, qt);
-                    node->data.fn_proto.params.append(param_decl_node);
-                }
-
-                if (fn_decl->isNoReturn()) {
-                    node->data.fn_proto.return_type = simple_type_node(c, "unreachable");
-                } else {
-                    node->data.fn_proto.return_type = type_node_from_qual_type(c, fn_decl->getReturnType());
-                }
-
-                c->parse_h->fn_list.append(node);
-
-                break;
-            }
-            /*
+            visit_fn_decl(c, static_cast<const FunctionDecl*>(decl));
+            break;
         case Decl::Typedef:
-            {
-                AstNode *node = create_node(c, NodeTypeVariableDeclaration);
-                node->data.variable_declaration.is_const = true;
-                buf_init_from_str(&node->data.variable_declaration.symbol, decl_name(decl));
-
-                break;
-            }
-            */
+            visit_typedef_decl(c, static_cast<const TypedefNameDecl *>(decl));
+            break;
         default:
             if (c->warnings_on) {
                 fprintf(stderr, "ignoring %s\n", decl->getDeclKindName());
@@ -282,6 +368,7 @@ int parse_h_file(ParseH *parse_h, ZigList<const char *> *clang_argv) {
     Context context = {0};
     Context *c = &context;
     c->parse_h = parse_h;
+    c->type_table.init(64);
 
     char *ZIG_PARSEH_CFLAGS = getenv("ZIG_PARSEH_CFLAGS");
     if (ZIG_PARSEH_CFLAGS) {
