@@ -28,9 +28,36 @@ struct Context {
     AstNode *root;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> fn_table;
+    SourceManager *source_manager;
 };
 
-static AstNode *make_qual_type_node(Context *c, QualType qt);
+__attribute__ ((format (printf, 3, 4)))
+static void emit_warning(Context *c, const Decl *decl, const char *format, ...) {
+    if (!c->warnings_on) {
+        return;
+    }
+
+    va_list ap;
+    va_start(ap, format);
+    Buf *msg = buf_vprintf(format, ap);
+    va_end(ap);
+
+    SourceLocation sl = decl->getLocation();
+
+    StringRef filename = c->source_manager->getFilename(sl);
+    const char *filename_bytes = (const char *)filename.bytes_begin();
+    Buf *path;
+    if (filename_bytes) {
+        path = buf_create_from_str(filename_bytes);
+    } else {
+        path = buf_sprintf("(no file)");
+    }
+    unsigned line = c->source_manager->getSpellingLineNumber(sl);
+    unsigned column = c->source_manager->getSpellingColumnNumber(sl);
+    fprintf(stderr, "%s:%u:%u: warning: %s\n", buf_ptr(path), line, column, buf_ptr(msg));
+}
+
+static AstNode *make_qual_type_node(Context *c, QualType qt, Decl *decl);
 
 static AstNode *create_node(Context *c, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
@@ -96,7 +123,7 @@ static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
     return node;
 }
 
-static AstNode *make_type_node(Context *c, const Type *ty) {
+static AstNode *make_type_node(Context *c, const Type *ty, Decl *decl) {
     switch (ty->getTypeClass()) {
         case Type::Builtin:
             {
@@ -159,9 +186,7 @@ static AstNode *make_type_node(Context *c, const Type *ty) {
                     case BuiltinType::UnknownAny:
                     case BuiltinType::BuiltinFn:
                     case BuiltinType::ARCUnbridgedCast:
-                        if (c->warnings_on) {
-                            fprintf(stderr, "missed a builtin type\n");
-                        }
+                        emit_warning(c, decl, "missed a builtin type");
                         return nullptr;
                 }
                 break;
@@ -170,7 +195,7 @@ static AstNode *make_type_node(Context *c, const Type *ty) {
             {
                 const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
                 QualType child_qt = pointer_ty->getPointeeType();
-                AstNode *type_node = make_qual_type_node(c, child_qt);
+                AstNode *type_node = make_qual_type_node(c, child_qt, decl);
                 return pointer_to_type(c, type_node, child_qt.isConstQualified());
             }
         case Type::Typedef:
@@ -208,14 +233,10 @@ static AstNode *make_type_node(Context *c, const Type *ty) {
                 }
             }
         case Type::Elaborated:
-            if (c->warnings_on) {
-                fprintf(stderr, "ignoring elaborated type\n");
-            }
+            emit_warning(c, decl, "ignoring elaborated type");
             return nullptr;
         case Type::FunctionProto:
-            if (c->warnings_on) {
-                fprintf(stderr, "ignoring function type\n");
-            }
+            emit_warning(c, decl, "ignoring function type");
             return nullptr;
         case Type::Record:
         case Type::Enum:
@@ -254,15 +275,13 @@ static AstNode *make_type_node(Context *c, const Type *ty) {
         case Type::Complex:
         case Type::ObjCObjectPointer:
         case Type::Atomic:
-            if (c->warnings_on) {
-                fprintf(stderr, "missed a '%s' type\n", ty->getTypeClassName());
-            }
+            emit_warning(c, decl, "missed a '%s' type", ty->getTypeClassName());
             return nullptr;
     }
 }
 
-static AstNode *make_qual_type_node(Context *c, QualType qt) {
-    return make_type_node(c, qt.getTypePtr());
+static AstNode *make_qual_type_node(Context *c, QualType qt, Decl *decl) {
+    return make_type_node(c, qt.getTypePtr(), decl);
 }
 
 static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
@@ -292,7 +311,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         buf_init_from_str(&param_decl_node->data.param_decl.name, name);
         QualType qt = param->getOriginalType();
         param_decl_node->data.param_decl.is_noalias = qt.isRestrictQualified();
-        param_decl_node->data.param_decl.type = make_qual_type_node(c, qt);
+        param_decl_node->data.param_decl.type = make_qual_type_node(c, qt, (Decl*)fn_decl);
         if (!param_decl_node->data.param_decl.type) {
             all_ok = false;
             break;
@@ -305,7 +324,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     if (fn_decl->isNoReturn()) {
         node->data.fn_proto.return_type = simple_type_node(c, "unreachable");
     } else {
-        node->data.fn_proto.return_type = make_qual_type_node(c, fn_decl->getReturnType());
+        node->data.fn_proto.return_type = make_qual_type_node(c, fn_decl->getReturnType(), (Decl*)fn_decl);
     }
 
     if (!node->data.fn_proto.return_type) {
@@ -313,9 +332,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     }
     if (!all_ok) {
         // not all the types could be resolved, so we give up on the function decl
-        if (c->warnings_on) {
-            fprintf(stderr, "skipping function %s", buf_ptr(&node->data.fn_proto.name));
-        }
+        emit_warning(c, (Decl*)fn_decl, "skipping function %s\n", buf_ptr(&node->data.fn_proto.name));
         return;
     }
 
@@ -344,7 +361,7 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
         return;
     }
 
-    AstNode *node = create_typedef_node(c, type_name, make_qual_type_node(c, child_qt));
+    AstNode *node = create_typedef_node(c, type_name, make_qual_type_node(c, child_qt, (Decl*)typedef_decl));
 
     if (node) {
         normalize_parent_ptrs(node);
@@ -363,16 +380,14 @@ static bool decl_visitor(void *context, const Decl *decl) {
             visit_typedef_decl(c, static_cast<const TypedefNameDecl *>(decl));
             break;
         default:
-            if (c->warnings_on) {
-                fprintf(stderr, "ignoring %s\n", decl->getDeclKindName());
-            }
+            emit_warning(c, decl, "ignoring %s decl\n", decl->getDeclKindName());
     }
 
     return true;
 }
 
 int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
-        const char **args, int args_len, const char *libc_include_path)
+        const char **args, int args_len, const char *libc_include_path, bool warnings_on)
 {
     int err;
     Buf tmp_file_path = BUF_INIT;
@@ -389,16 +404,19 @@ int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *sour
         clang_argv.append(args[i]);
     }
 
-    err = parse_h_file(import, errors, &clang_argv);
+    err = parse_h_file(import, errors, &clang_argv, warnings_on);
 
     os_delete_file(&tmp_file_path);
 
     return err;
 }
 
-int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, ZigList<const char *> *clang_argv) {
+int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
+        ZigList<const char *> *clang_argv, bool warnings_on)
+{
     Context context = {0};
     Context *c = &context;
+    c->warnings_on = warnings_on;
     c->import = import;
     c->errors = errors;
     c->visib_mod = VisibModPub;
@@ -491,6 +509,8 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, ZigList<
 
         return 0;
     }
+
+    c->source_manager = &ast_unit->getSourceManager();
 
     c->root = create_node(c, NodeTypeRoot);
     ast_unit->visitLocalTopLevelDecls(c, decl_visitor);

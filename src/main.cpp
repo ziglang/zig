@@ -33,6 +33,7 @@ static int usage(const char *arg0) {
         "  --libc-path [path]     set the C compiler data path\n"
         "  -isystem [dir]         add additional search path for other .h files\n"
         "  -dirafter [dir]        same as -isystem but do it last\n"
+        "  --c-import-warnings    enable warnings when importing .h files\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -167,6 +168,7 @@ static int parseh(const char *arg0, int argc, char **argv) {
     char *in_file = nullptr;
     ZigList<const char *> clang_argv = {0};
     ErrColor color = ErrColorAuto;
+    bool warnings_on = false;
     for (int i = 0; i < argc; i += 1) {
         char *arg = argv[i];
         if (arg[0] == '-') {
@@ -193,7 +195,9 @@ static int parseh(const char *arg0, int argc, char **argv) {
                 } else {
                     return usage(arg0);
                 }
-        } else {
+            } else if (strcmp(arg, "--c-import-warnings") == 0) {
+                warnings_on = true;
+            } else {
                 fprintf(stderr, "unrecognized argument: %s", arg);
                 return usage(arg0);
             }
@@ -217,7 +221,7 @@ static int parseh(const char *arg0, int argc, char **argv) {
 
     ImportTableEntry import = {0};
     ZigList<ErrorMsg *> errors = {0};
-    int err = parse_h_file(&import, &errors, &clang_argv);
+    int err = parse_h_file(&import, &errors, &clang_argv, warnings_on);
 
     if (err) {
         fprintf(stderr, "unable to parse .h file: %s\n", err_str(err));
