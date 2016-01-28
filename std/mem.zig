@@ -1,5 +1,6 @@
 import "syscall.zig";
 import "std.zig";
+import "errno.zig";
 
 pub fn malloc(bytes: isize) -> ?&u8 {
     if (bytes > 4096) {
@@ -7,13 +8,28 @@ pub fn malloc(bytes: isize) -> ?&u8 {
         return null;
     }
 
-    const result = mmap(0, 4096, MMAP_PROT_READ|MMAP_PROT_WRITE, MMAP_MAP_ANON|MMAP_MAP_SHARED, -1, 0);
+    const result = mmap(isize(0), 4096, MMAP_PROT_READ|MMAP_PROT_WRITE, MMAP_MAP_ANON|MMAP_MAP_SHARED, -1, 0);
 
-    if (result == -1) {
-        return null;
+    const failed: bool = switch (-result) {
+        0          => true,
+        EINVAL     => true,
+        EACCES     => true,
+        EAGAIN     => true,
+        EBADF      => true,
+        EMFILE     => true,
+        ENODEV     => true,
+        ENOMEM     => true,
+        EOPNOTSUPP => true,
+        ENXIO      => true,
+        EOVERFLOW  => true,
+        else       => false,
+    };
+
+    if (failed) {
+        null
+    } else {
+        (&u8)(result)
     }
-
-    (&u8)(result)
 }
 
 pub fn free(ptr: &u8) {
