@@ -24,10 +24,12 @@ struct TestCase {
     ZigList<const char *> compile_errors;
     ZigList<const char *> compiler_args;
     ZigList<const char *> program_args;
+    bool is_parseh;
 };
 
 static ZigList<TestCase*> test_cases = {0};
 static const char *tmp_source_path = ".tmp_source.zig";
+static const char *tmp_h_path = ".tmp_header.h";
 static const char *tmp_exe_path = "./.tmp_exe";
 static const char *zig_exe = "./zig";
 
@@ -91,6 +93,24 @@ static TestCase *add_compile_fail_case(const char *case_name, const char *source
 
     va_end(ap);
 
+    return test_case;
+}
+
+static TestCase *add_parseh_case(const char *case_name, const char *source, const char *output) {
+    TestCase *test_case = allocate<TestCase>(1);
+    test_case->case_name = case_name;
+    test_case->output = output;
+    test_case->is_parseh = true;
+
+    test_case->source_files.resize(1);
+    test_case->source_files.at(0).relative_path = tmp_h_path;
+    test_case->source_files.at(0).source_code = source;
+
+    test_case->compiler_args.append("parseh");
+    test_case->compiler_args.append(tmp_h_path);
+    test_case->compiler_args.append("--c-import-warnings");
+
+    test_cases.append(test_case);
     return test_case;
 }
 
@@ -1771,6 +1791,39 @@ const x = 2 == 2.0;
 
 }
 
+//////////////////////////////////////////////////////////////////////////////
+
+static void add_parseh_test_cases(void) {
+    add_parseh_case("simple data types", R"SOURCE(
+#include <stdint.h>
+int foo(char a, unsigned char b, signed char c);
+void bar(uint8_t a, uint16_t b, uint32_t c, uint64_t d);
+void baz(int8_t a, int16_t b, int32_t c, int64_t d);
+    )SOURCE", R"OUTPUT(pub extern fn foo(a: u8, b: u8, c: i8) -> c_int;
+pub extern fn bar(a: u8, b: u16, c: u32, d: u64);
+pub extern fn baz(a: i8, b: i16, c: i32, d: i64);)OUTPUT");
+
+    add_parseh_case("noreturn attribute", R"SOURCE(
+void foo(void) __attribute__((noreturn));
+    )SOURCE", R"OUTPUT(pub extern fn foo() -> unreachable;)OUTPUT");
+
+    add_parseh_case("enums", R"SOURCE(
+enum Foo {
+    FooA,
+    FooB,
+    Foo1,
+};
+    )SOURCE", R"OUTPUT(export enum enum_Foo {
+    A,
+    B,
+    _1,
+}
+pub const FooA = enum_Foo.A;
+pub const FooB = enum_Foo.B;
+pub const Foo1 = enum_Foo._1;
+pub const Foo = enum_Foo;)OUTPUT");
+}
+
 static void print_compiler_invocation(TestCase *test_case) {
     printf("%s", zig_exe);
     for (int i = 0; i < test_case->compiler_args.length; i += 1) {
@@ -1822,36 +1875,55 @@ static void run_test(TestCase *test_case) {
         exit(1);
     }
 
-    Buf program_stderr = BUF_INIT;
-    Buf program_stdout = BUF_INIT;
-    os_exec_process(tmp_exe_path, test_case->program_args, &return_code, &program_stderr, &program_stdout);
-
-    if (return_code != 0) {
-        printf("\nProgram exited with return code %d:\n", return_code);
-        print_compiler_invocation(test_case);
-        printf("%s", tmp_exe_path);
-        for (int i = 0; i < test_case->program_args.length; i += 1) {
-            printf(" %s", test_case->program_args.at(i));
+    if (test_case->is_parseh) {
+        if (buf_len(&zig_stderr) > 0) {
+            printf("\nparseh emitted warnings:\n");
+            print_compiler_invocation(test_case);
+            printf("%s\n", buf_ptr(&zig_stderr));
+            exit(1);
         }
-        printf("\n");
-        printf("%s\n", buf_ptr(&program_stderr));
-        exit(1);
-    }
 
-    if (!buf_eql_str(&program_stdout, test_case->output)) {
-        printf("\n");
-        print_compiler_invocation(test_case);
-        printf("%s", tmp_exe_path);
-        for (int i = 0; i < test_case->program_args.length; i += 1) {
-            printf(" %s", test_case->program_args.at(i));
+        if (!strstr(buf_ptr(&zig_stdout), test_case->output)) {
+            printf("\n");
+            printf("========= Expected this output: =========\n");
+            printf("%s\n", test_case->output);
+            printf("================================================\n");
+            print_compiler_invocation(test_case);
+            printf("%s\n", buf_ptr(&zig_stdout));
+            exit(1);
         }
-        printf("\n");
-        printf("==== Test failed. Expected output: ====\n");
-        printf("%s\n", test_case->output);
-        printf("========= Actual output: ==============\n");
-        printf("%s\n", buf_ptr(&program_stdout));
-        printf("=======================================\n");
-        exit(1);
+    } else {
+        Buf program_stderr = BUF_INIT;
+        Buf program_stdout = BUF_INIT;
+        os_exec_process(tmp_exe_path, test_case->program_args, &return_code, &program_stderr, &program_stdout);
+
+        if (return_code != 0) {
+            printf("\nProgram exited with return code %d:\n", return_code);
+            print_compiler_invocation(test_case);
+            printf("%s", tmp_exe_path);
+            for (int i = 0; i < test_case->program_args.length; i += 1) {
+                printf(" %s", test_case->program_args.at(i));
+            }
+            printf("\n");
+            printf("%s\n", buf_ptr(&program_stderr));
+            exit(1);
+        }
+
+        if (!buf_eql_str(&program_stdout, test_case->output)) {
+            printf("\n");
+            print_compiler_invocation(test_case);
+            printf("%s", tmp_exe_path);
+            for (int i = 0; i < test_case->program_args.length; i += 1) {
+                printf(" %s", test_case->program_args.at(i));
+            }
+            printf("\n");
+            printf("==== Test failed. Expected output: ====\n");
+            printf("%s\n", test_case->output);
+            printf("========= Actual output: ==============\n");
+            printf("%s\n", buf_ptr(&program_stdout));
+            printf("=======================================\n");
+            exit(1);
+        }
     }
 
     for (int i = 0; i < test_case->source_files.length; i += 1) {
@@ -1881,6 +1953,7 @@ static void run_all_tests(bool reverse) {
 
 static void cleanup(void) {
     remove(tmp_source_path);
+    remove(tmp_h_path);
     remove(tmp_exe_path);
 }
 
@@ -1900,6 +1973,7 @@ int main(int argc, char **argv) {
     }
     add_compiling_test_cases();
     add_compile_failure_test_cases();
+    add_parseh_test_cases();
     run_all_tests(reverse);
     cleanup();
 }

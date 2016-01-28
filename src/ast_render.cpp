@@ -672,7 +672,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                 }
 
                 ar->indent -= ar->indent_size;
-                fprintf(ar->f, "}\n");
+                fprintf(ar->f, "}");
                 break;
             }
         case NodeTypeStructField:

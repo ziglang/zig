@@ -397,6 +397,9 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
     if (!enum_def) {
         // this is a type that we can point to but that's it, same as `struct Foo;`.
         add_typedef_node(c, type_name, create_symbol_node(c, "u8"));
+        AstNode *alias_node = create_var_decl_node(c, buf_ptr(&bare_name),
+                create_symbol_node(c, buf_ptr(type_name)));
+        c->aliases.append(alias_node);
         return;
     }
 
@@ -404,7 +407,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
     buf_init_from_buf(&node->data.struct_decl.name, type_name);
 
     node->data.struct_decl.kind = ContainerKindEnum;
-    node->data.struct_decl.visib_mod = c->visib_mod;
+    node->data.struct_decl.visib_mod = VisibModExport;
     node->data.struct_decl.directives = create_empty_directives(c);
 
     ZigList<AstNode *> var_decls = {0};
@@ -465,6 +468,43 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
 }
 
+static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
+    Buf bare_name = BUF_INIT;
+    buf_init_from_str(&bare_name, decl_name(record_decl));
+
+    Buf *type_name = buf_alloc();
+    buf_appendf(type_name, "struct_%s", buf_ptr(&bare_name));
+
+    if (c->type_table.maybe_get(type_name)) {
+        // we've already seen it
+        return;
+    }
+
+    RecordDecl *record_def = record_decl->getDefinition();
+    if (!record_def) {
+        // this is a type that we can point to but that's it, such as `struct Foo;`.
+        add_typedef_node(c, type_name, create_symbol_node(c, "u8"));
+        AstNode *alias_node = create_var_decl_node(c, buf_ptr(&bare_name),
+                create_symbol_node(c, buf_ptr(type_name)));
+        c->aliases.append(alias_node);
+        return;
+    }
+
+    emit_warning(c, record_decl, "skipping record %s, TODO", buf_ptr(&bare_name));
+
+    /*
+    AstNode *node = create_node(c, NodeTypeStructDecl);
+    buf_init_from_buf(&node->data.struct_decl.name, type_name);
+
+    node->data.struct_decl.kind = ContainerKindStruct;
+    node->data.struct_decl.visib_mod = VisibModExport;
+    node->data.struct_decl.directives = create_empty_directives(c);
+
+    normalize_parent_ptrs(node);
+    c->root->data.root.top_level_decls.append(node);
+    */
+}
+
 static bool decl_visitor(void *context, const Decl *decl) {
     Context *c = (Context*)context;
 
@@ -477,6 +517,9 @@ static bool decl_visitor(void *context, const Decl *decl) {
             break;
         case Decl::Enum:
             visit_enum_decl(c, static_cast<const EnumDecl *>(decl));
+            break;
+        case Decl::Record:
+            visit_record_decl(c, static_cast<const RecordDecl *>(decl));
             break;
         default:
             emit_warning(c, decl, "ignoring %s decl\n", decl->getDeclKindName());
