@@ -1057,7 +1057,9 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *import, AstNode 
     find_libc_path(g);
     int err;
     ParseH parse_h = {{0}};
-    if ((err = parse_h_buf(&parse_h, child_context->c_import_buf, buf_ptr(g->libc_include_path)))) {
+    if ((err = parse_h_buf(&parse_h, child_context->c_import_buf, g->clang_argv, g->clang_argv_len,
+                    buf_ptr(g->libc_include_path))))
+    {
         zig_panic("unable to parse h file: %s\n", err_str(err));
     }
 

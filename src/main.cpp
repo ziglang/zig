@@ -20,7 +20,7 @@ static int usage(const char *arg0) {
         "  build                  create executable, object, or library from target\n"
         "  version                print version number and exit\n"
         "  parseh                 convert a c header file to zig extern declarations\n"
-        "Command: build target\n"
+        "Options:\n"
         "  --release              build with optimizations on and debug protection off\n"
         "  --static               output will be statically linked\n"
         "  --strip                exclude debug symbols\n"
@@ -30,10 +30,8 @@ static int usage(const char *arg0) {
         "  --verbose              turn on compiler debug output\n"
         "  --color [auto|off|on]  enable or disable colored error messages\n"
         "  --libc-path [path]     set the C compiler data path\n"
-        "Command: parseh target\n"
         "  -isystem [dir]         add additional search path for other .h files\n"
         "  -dirafter [dir]        same as -isystem but do it last\n"
-        "  -B[prefix]             set the C compiler data path\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -54,6 +52,7 @@ struct Build {
     bool verbose;
     ErrColor color;
     const char *libc_path;
+    ZigList<const char *> clang_argv;
 };
 
 static int build(const char *arg0, int argc, char **argv) {
@@ -62,7 +61,7 @@ static int build(const char *arg0, int argc, char **argv) {
 
     for (int i = 0; i < argc; i += 1) {
         char *arg = argv[i];
-        if (arg[0] == '-' && arg[1] == '-') {
+        if (arg[0] == '-') {
             if (strcmp(arg, "--release") == 0) {
                 b.release = true;
             } else if (strcmp(arg, "--strip") == 0) {
@@ -103,6 +102,12 @@ static int build(const char *arg0, int argc, char **argv) {
                     b.out_name = argv[i];
                 } else if (strcmp(arg, "--libc-path") == 0) {
                     b.libc_path = argv[i];
+                } else if (strcmp(arg, "-isystem") == 0) {
+                    b.clang_argv.append("-isystem");
+                    b.clang_argv.append(argv[i]);
+                } else if (strcmp(arg, "-dirafter") == 0) {
+                    b.clang_argv.append("-dirafter");
+                    b.clang_argv.append(argv[i]);
                 } else {
                     return usage(arg0);
                 }
@@ -140,6 +145,7 @@ static int build(const char *arg0, int argc, char **argv) {
 
     CodeGen *g = codegen_create(&root_source_dir);
     codegen_set_build_type(g, b.release ? CodeGenBuildTypeRelease : CodeGenBuildTypeDebug);
+    codegen_set_clang_argv(g, b.clang_argv.items, b.clang_argv.length);
     codegen_set_strip(g, b.strip);
     codegen_set_is_static(g, b.is_static);
     if (b.out_type != OutTypeUnknown)
@@ -202,8 +208,7 @@ static int parseh(const char *arg0, int argc, char **argv) {
                 }
                 clang_argv.append("-isystem");
                 clang_argv.append(argv[i + 1]);
-            } else if (arg[1] == 'B') {
-                clang_argv.append(arg);
+                i += 1;
             } else {
                 fprintf(stderr, "unrecognized argument: %s", arg);
                 return usage(arg0);

@@ -32,6 +32,11 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     return g;
 }
 
+void codegen_set_clang_argv(CodeGen *g, const char **args, int len) {
+    g->clang_argv = args;
+    g->clang_argv_len = len;
+}
+
 void codegen_set_build_type(CodeGen *g, CodeGenBuildType build_type) {
     g->build_type = build_type;
 }

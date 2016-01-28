@@ -13,6 +13,7 @@
 
 CodeGen *codegen_create(Buf *root_source_dir);
 
+void codegen_set_clang_argv(CodeGen *codegen, const char **args, int len);
 void codegen_set_build_type(CodeGen *codegen, CodeGenBuildType build_type);
 void codegen_set_is_static(CodeGen *codegen, bool is_static);
 void codegen_set_strip(CodeGen *codegen, bool strip);

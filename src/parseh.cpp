@@ -345,7 +345,7 @@ static bool decl_visitor(void *context, const Decl *decl) {
     return true;
 }
 
-int parse_h_buf(ParseH *parse_h, Buf *source, const char *libc_include_path) {
+int parse_h_buf(ParseH *parse_h, Buf *source, const char **args, int args_len, const char *libc_include_path) {
     int err;
     Buf tmp_file_path = BUF_INIT;
     if ((err = os_buf_to_tmp_file(source, buf_create_from_str(".h"), &tmp_file_path))) {
@@ -356,6 +356,10 @@ int parse_h_buf(ParseH *parse_h, Buf *source, const char *libc_include_path) {
 
     clang_argv.append("-isystem");
     clang_argv.append(libc_include_path);
+
+    for (int i = 0; i < args_len; i += 1) {
+        clang_argv.append(args[i]);
+    }
 
     err = parse_h_file(parse_h, &clang_argv);
 
