@@ -246,15 +246,15 @@ pub fn buf_print_u64(out_buf: []u8, x: u64) -> isize {
 pub fn buf_print_f64(out_buf: []u8, x: f64) -> isize {
     if (x == f64_get_pos_inf()) {
         const buf2 = "+Inf";
-        @memcpy(&out_buf[0], &buf2[0], 4);
+        @memcpy(&out_buf[0], &buf2[0], buf2.len);
         return 4;
     } else if (x == f64_get_neg_inf()) {
         const buf2 = "-Inf";
-        @memcpy(&out_buf[0], &buf2[0], 4);
+        @memcpy(&out_buf[0], &buf2[0], buf2.len);
         return 4;
     } else if (f64_is_nan(x)) {
         const buf2 = "NaN";
-        @memcpy(&out_buf[0], &buf2[0], 3);
+        @memcpy(&out_buf[0], &buf2[0], buf2.len);
         return 3;
     }
 
