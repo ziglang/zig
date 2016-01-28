@@ -97,6 +97,14 @@ static AstNode *create_var_decl_node(Context *c, const char *var_name, AstNode *
     return node;
 }
 
+static AstNode *create_prefix_node(Context *c, PrefixOp op, AstNode *child_node) {
+    AstNode *node = create_node(c, NodeTypePrefixOpExpr);
+    node->data.prefix_op_expr.prefix_op = op;
+    node->data.prefix_op_expr.primary_expr = child_node;
+    normalize_parent_ptrs(node);
+    return node;
+}
+
 static const char *decl_name(const Decl *decl) {
     const NamedDecl *named_decl = static_cast<const NamedDecl *>(decl);
     return (const char *)named_decl->getName().bytes_begin();
@@ -132,11 +140,9 @@ static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
     if (!type_node) {
         return nullptr;
     }
-    AstNode *node = create_node(c, NodeTypePrefixOpExpr);
-    node->data.prefix_op_expr.prefix_op = is_const ? PrefixOpConstAddressOf : PrefixOpAddressOf;
-    node->data.prefix_op_expr.primary_expr = convert_to_c_void(c, type_node);
-    normalize_parent_ptrs(node);
-    return node;
+    PrefixOp op = is_const ? PrefixOpConstAddressOf : PrefixOpAddressOf;
+    AstNode *child_node = create_prefix_node(c, op, convert_to_c_void(c, type_node));
+    return create_prefix_node(c, PrefixOpMaybe, child_node);
 }
 
 static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl) {

@@ -112,3 +112,8 @@ To fix this, you have 2 options:
 
  * Compile Zig with the same compiler that LLVM was compiled with.
  * Add `-DZIG_LLVM_OLD_CXX_ABI=yes` to the cmake configure line.
+
+## Community
+
+Zig is in its infancy. However one place you can gather to chat is the `#zig`
+IRC channel on Freenode.

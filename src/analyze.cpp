@@ -199,43 +199,54 @@ static TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
-        // create a struct with a boolean whether this is the null value
         assert(child_type->type_ref);
-        LLVMTypeRef elem_types[] = {
-            child_type->type_ref,
-            LLVMInt1Type(),
-        };
-        entry->type_ref = LLVMStructType(elem_types, 2, false);
-        buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
-        entry->size_in_bits = child_type->size_in_bits + 8;
-        entry->align_in_bits = child_type->align_in_bits;
         assert(child_type->di_type);
 
+        buf_resize(&entry->name, 0);
+        buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
 
-        LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
-        LLVMZigDIFile *di_file = nullptr;
-        unsigned line = 0;
-        entry->di_type = LLVMZigCreateReplaceableCompositeType(g->dbuilder,
-            LLVMZigTag_DW_structure_type(), buf_ptr(&entry->name),
-            compile_unit_scope, di_file, line);
+        if (child_type->id == TypeTableEntryIdPointer) {
+            // this is an optimization but also is necessary for calling C
+            // functions where all pointers are maybe pointers
+            entry->size_in_bits = child_type->size_in_bits;
+            entry->align_in_bits = child_type->align_in_bits;
+            entry->type_ref = child_type->type_ref;
+            entry->di_type = child_type->di_type;
+        } else {
+            // create a struct with a boolean whether this is the null value
+            LLVMTypeRef elem_types[] = {
+                child_type->type_ref,
+                LLVMInt1Type(),
+            };
+            entry->type_ref = LLVMStructType(elem_types, 2, false);
+            entry->size_in_bits = child_type->size_in_bits + 8;
+            entry->align_in_bits = child_type->align_in_bits;
 
-        LLVMZigDIType *di_element_types[] = {
-            LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
-                    "val", di_file, line, child_type->size_in_bits, child_type->align_in_bits, 0, 0,
-                    child_type->di_type),
-            LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
-                    "maybe", di_file, line, 8, 8, child_type->size_in_bits, 0,
-                    child_type->di_type),
-        };
-        LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
-                compile_unit_scope,
-                buf_ptr(&entry->name),
-                di_file, line, entry->size_in_bits, entry->align_in_bits, 0,
-                nullptr, di_element_types, 2, 0, nullptr, "");
 
-        LLVMZigReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
-        entry->di_type = replacement_di_type;
+            LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
+            LLVMZigDIFile *di_file = nullptr;
+            unsigned line = 0;
+            entry->di_type = LLVMZigCreateReplaceableCompositeType(g->dbuilder,
+                LLVMZigTag_DW_structure_type(), buf_ptr(&entry->name),
+                compile_unit_scope, di_file, line);
+
+            LLVMZigDIType *di_element_types[] = {
+                LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
+                        "val", di_file, line, child_type->size_in_bits, child_type->align_in_bits, 0, 0,
+                        child_type->di_type),
+                LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
+                        "maybe", di_file, line, 8, 8, child_type->size_in_bits, 0,
+                        child_type->di_type),
+            };
+            LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
+                    compile_unit_scope,
+                    buf_ptr(&entry->name),
+                    di_file, line, entry->size_in_bits, entry->align_in_bits, 0,
+                    nullptr, di_element_types, 2, 0, nullptr, "");
+
+            LLVMZigReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
+            entry->di_type = replacement_di_type;
+        }
 
         entry->data.maybe.child_type = child_type;
 
@@ -5078,12 +5089,13 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
              return false;
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
-        case TypeTableEntryIdMaybe:
              return true;
         case TypeTableEntryIdErrorUnion:
              return type_entry->data.error.child_type->size_in_bits > 0;
         case TypeTableEntryIdEnum:
              return type_entry->data.enumeration.gen_field_count != 0;
+        case TypeTableEntryIdMaybe:
+             return type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer;
     }
     zig_unreachable();
 }

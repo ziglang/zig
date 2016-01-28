@@ -74,7 +74,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node);
 static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *expr_node, AstNode *node, TypeTableEntry **out_type_entry);
 static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lvalue);
 static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVariableDeclaration *var_decl,
-        bool unwrap_maybe, LLVMValueRef *init_val);
+        bool unwrap_maybe, LLVMValueRef *init_val, TypeTableEntry **init_val_type);
 static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType bin_op,
         LLVMValueRef target_ref, LLVMValueRef value,
         TypeTableEntry *op1_type, TypeTableEntry *op2_type);
@@ -389,14 +389,20 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
                 assert(wanted_type->id == TypeTableEntryIdMaybe);
                 assert(actual_type);
 
-                add_debug_source_node(g, node);
-                LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 0, "");
-                gen_assign_raw(g, node, BinOpTypeAssign,
-                        val_ptr, expr_val, wanted_type->data.maybe.child_type, actual_type);
+                TypeTableEntry *child_type = wanted_type->data.maybe.child_type;
 
-                add_debug_source_node(g, node);
-                LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 1, "");
-                LLVMBuildStore(g->builder, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr);
+                if (child_type->id == TypeTableEntryIdPointer) {
+                    return expr_val;
+                } else {
+                    add_debug_source_node(g, node);
+                    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 0, "");
+                    gen_assign_raw(g, node, BinOpTypeAssign,
+                            val_ptr, expr_val, child_type, actual_type);
+
+                    add_debug_source_node(g, node);
+                    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 1, "");
+                    LLVMBuildStore(g->builder, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr);
+                }
 
                 return cast_expr->tmp_ptr;
             }
@@ -1245,10 +1251,20 @@ static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
 }
 
 static LLVMValueRef gen_unwrap_maybe(CodeGen *g, AstNode *node, LLVMValueRef maybe_struct_ref) {
-    add_debug_source_node(g, node);
-    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_struct_ref, 0, "");
-    // TODO if it's a struct we might not want to load the pointer
-    return LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+    TypeTableEntry *type_entry = get_expr_type(node);
+    assert(type_entry->id == TypeTableEntryIdMaybe);
+    TypeTableEntry *child_type = type_entry->data.maybe.child_type;
+    if (child_type->id == TypeTableEntryIdPointer) {
+        return maybe_struct_ref;
+    } else {
+        add_debug_source_node(g, node);
+        LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_struct_ref, 0, "");
+        if (handle_is_ptr(child_type)) {
+            return maybe_field_ptr;
+        } else {
+            return LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+        }
+    }
 }
 
 static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
@@ -1260,29 +1276,32 @@ static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
 
     LLVMValueRef maybe_struct_ref = gen_expr(g, op1_node);
 
-    add_debug_source_node(g, node);
-    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_struct_ref, 1, "");
-    LLVMValueRef cond_value = LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+    TypeTableEntry *maybe_type = get_expr_type(op1_node);
+    assert(maybe_type->id == TypeTableEntryIdMaybe);
+    TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
+
+    LLVMValueRef cond_value;
+    if (child_type->id == TypeTableEntryIdPointer) {
+        cond_value = LLVMBuildICmp(g->builder, LLVMIntNE, maybe_struct_ref,
+                LLVMConstNull(child_type->type_ref), "");
+    } else {
+        add_debug_source_node(g, node);
+        LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_struct_ref, 1, "");
+        cond_value = LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+    }
 
     LLVMBasicBlockRef non_null_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeNonNull");
     LLVMBasicBlockRef null_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeNull");
-    LLVMBasicBlockRef end_block;
+    LLVMBasicBlockRef end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeEnd");
 
-    bool non_null_reachable = get_expr_type(op1_node)->id != TypeTableEntryIdUnreachable;
     bool null_reachable = get_expr_type(op2_node)->id != TypeTableEntryIdUnreachable;
-    bool end_reachable = non_null_reachable || null_reachable;
-    if (end_reachable) {
-        end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeEnd");
-    }
 
     LLVMBuildCondBr(g->builder, cond_value, non_null_block, null_block);
 
     LLVMPositionBuilderAtEnd(g->builder, non_null_block);
     LLVMValueRef non_null_result = gen_unwrap_maybe(g, op1_node, maybe_struct_ref);
-    if (non_null_reachable) {
-        add_debug_source_node(g, node);
-        LLVMBuildBr(g->builder, end_block);
-    }
+    add_debug_source_node(g, node);
+    LLVMBuildBr(g->builder, end_block);
     LLVMBasicBlockRef post_non_null_result_block = LLVMGetInsertBlock(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, null_block);
@@ -1293,18 +1312,16 @@ static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
     }
     LLVMBasicBlockRef post_null_result_block = LLVMGetInsertBlock(g->builder);
 
-    if (end_reachable) {
-        LLVMPositionBuilderAtEnd(g->builder, end_block);
-        if (null_reachable) {
-            add_debug_source_node(g, node);
-            LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(non_null_result), "");
-            LLVMValueRef incoming_values[2] = {non_null_result, null_result};
-            LLVMBasicBlockRef incoming_blocks[2] = {post_non_null_result_block, post_null_result_block};
-            LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
-            return phi;
-        } else {
-            return non_null_result;
-        }
+    LLVMPositionBuilderAtEnd(g->builder, end_block);
+    if (null_reachable) {
+        add_debug_source_node(g, node);
+        LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(non_null_result), "");
+        LLVMValueRef incoming_values[2] = {non_null_result, null_result};
+        LLVMBasicBlockRef incoming_blocks[2] = {post_non_null_result_block, post_null_result_block};
+        LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
+        return phi;
+    } else {
+        return non_null_result;
     }
 
     return nullptr;
@@ -1607,12 +1624,20 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
     assert(node->data.if_var_expr.var_decl.expr);
 
     LLVMValueRef init_val;
-    gen_var_decl_raw(g, node, &node->data.if_var_expr.var_decl, true, &init_val);
+    TypeTableEntry *expr_type;
+    gen_var_decl_raw(g, node, &node->data.if_var_expr.var_decl, true, &init_val, &expr_type);
 
     // test if value is the maybe state
-    add_debug_source_node(g, node);
-    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, init_val, 1, "");
-    LLVMValueRef cond_value = LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+    assert(expr_type->id == TypeTableEntryIdMaybe);
+    TypeTableEntry *child_type = expr_type->data.maybe.child_type;
+    LLVMValueRef cond_value;
+    if (child_type->id == TypeTableEntryIdPointer) {
+        cond_value = LLVMBuildICmp(g->builder, LLVMIntNE, init_val, LLVMConstNull(child_type->type_ref), "");
+    } else {
+        add_debug_source_node(g, node);
+        LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, init_val, 1, "");
+        cond_value = LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+    }
 
     LLVMValueRef return_value = gen_if_bool_expr_raw(g, node, cond_value,
             node->data.if_var_expr.then_block,
@@ -1978,7 +2003,7 @@ static LLVMValueRef gen_continue(CodeGen *g, AstNode *node) {
 }
 
 static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVariableDeclaration *var_decl,
-        bool unwrap_maybe, LLVMValueRef *init_value)
+        bool unwrap_maybe, LLVMValueRef *init_value, TypeTableEntry **expr_type)
 {
     VariableTableEntry *variable = var_decl->variable;
 
@@ -1987,6 +2012,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
 
     if (var_decl->expr) {
         *init_value = gen_expr(g, var_decl->expr);
+        *expr_type = get_expr_type(var_decl->expr);
     }
     if (variable->type->size_in_bits == 0) {
         return nullptr;
@@ -2005,7 +2031,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
         if (unwrap_maybe) {
             assert(var_decl->expr);
             assert(expr_type->id == TypeTableEntryIdMaybe);
-            value = gen_unwrap_maybe(g, source_node, *init_value);
+            value = gen_unwrap_maybe(g, var_decl->expr, *init_value);
             expr_type = expr_type->data.maybe.child_type;
         } else {
             value = *init_value;
@@ -2089,7 +2115,8 @@ static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
     }
 
     LLVMValueRef init_val;
-    return gen_var_decl_raw(g, node, &node->data.variable_declaration, false, &init_val);
+    TypeTableEntry *init_val_type;
+    return gen_var_decl_raw(g, node, &node->data.variable_declaration, false, &init_val, &init_val_type);
 }
 
 static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
@@ -2100,11 +2127,7 @@ static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
             return nullptr;
         } else if (variable->is_ptr) {
             assert(variable->value_ref);
-            if (variable->type->id == TypeTableEntryIdArray) {
-                return variable->value_ref;
-            } else if (variable->type->id == TypeTableEntryIdStruct ||
-                        variable->type->id == TypeTableEntryIdMaybe)
-            {
+            if (handle_is_ptr(variable->type)) {
                 return variable->value_ref;
             } else {
                 add_debug_source_node(g, node);
@@ -2330,20 +2353,28 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdMaybe:
             {
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
-                LLVMValueRef child_val;
-                LLVMValueRef maybe_val;
-                if (const_val->data.x_maybe) {
-                    child_val = gen_const_val(g, child_type, const_val->data.x_maybe);
-                    maybe_val = LLVMConstAllOnes(LLVMInt1Type());
+                if (child_type->id == TypeTableEntryIdPointer) {
+                    if (const_val->data.x_maybe) {
+                        return gen_const_val(g, child_type, const_val->data.x_maybe);
+                    } else {
+                        return LLVMConstNull(child_type->type_ref);
+                    }
                 } else {
-                    child_val = LLVMConstNull(child_type->type_ref);
-                    maybe_val = LLVMConstNull(LLVMInt1Type());
+                    LLVMValueRef child_val;
+                    LLVMValueRef maybe_val;
+                    if (const_val->data.x_maybe) {
+                        child_val = gen_const_val(g, child_type, const_val->data.x_maybe);
+                        maybe_val = LLVMConstAllOnes(LLVMInt1Type());
+                    } else {
+                        child_val = LLVMConstNull(child_type->type_ref);
+                        maybe_val = LLVMConstNull(LLVMInt1Type());
+                    }
+                    LLVMValueRef fields[] = {
+                        child_val,
+                        maybe_val,
+                    };
+                    return LLVMConstStruct(fields, 2, false);
                 }
-                LLVMValueRef fields[] = {
-                    child_val,
-                    maybe_val,
-                };
-                return LLVMConstStruct(fields, 2, false);
             }
         case TypeTableEntryIdStruct:
             {

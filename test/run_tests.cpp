@@ -1827,7 +1827,7 @@ pub const Foo = enum_Foo;)OUTPUT");
     add_parseh_case("restrict -> noalias", R"SOURCE(
 void foo(void *restrict bar, void *restrict);
     )SOURCE", R"OUTPUT(pub const c_void = u8;
-pub extern fn foo(noalias bar: &c_void, noalias arg1: &c_void);)OUTPUT");
+pub extern fn foo(noalias bar: ?&c_void, noalias arg1: ?&c_void);)OUTPUT");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
