@@ -1409,6 +1409,22 @@ pub fn main(args: [][]u8) -> %void {
     %%stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("call member function directly", R"SOURCE(
+import "std.zig";
+struct Foo {
+    x: i32,
+    fn member(foo: Foo) -> i32 { foo.x }
+}
+pub fn main(args: [][]u8) -> %void {
+    const instance = Foo { .x = 1234, };
+    const result = Foo.member(instance);
+    if (result != 1234) {
+        %%stdout.printf("BAD\n");
+    }
+    %%stdout.printf("OK\n");
+}
+    )SOURCE", "OK\n");
 }
 
 

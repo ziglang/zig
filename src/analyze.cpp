@@ -3694,17 +3694,17 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
         } else if (struct_type->id == TypeTableEntryIdInvalid) {
             return struct_type;
         } else if (struct_type->id == TypeTableEntryIdMetaType) {
-            TypeTableEntry *enum_type = resolve_type(g, first_param_expr);
+            TypeTableEntry *child_type = resolve_type(g, first_param_expr);
 
-            if (enum_type->id == TypeTableEntryIdInvalid) {
+            if (child_type->id == TypeTableEntryIdInvalid) {
                 return g->builtin_types.entry_invalid;
-            } else if (enum_type->id == TypeTableEntryIdEnum) {
+            } else if (child_type->id == TypeTableEntryIdEnum) {
                 Buf *field_name = &fn_ref_expr->data.field_access_expr.field_name;
                 int param_count = node->data.fn_call_expr.params.length;
                 if (param_count > 1) {
                     add_node_error(g, first_executing_node(node->data.fn_call_expr.params.at(1)),
                             buf_sprintf("enum values accept only one parameter"));
-                    return enum_type;
+                    return child_type;
                 } else {
                     AstNode *value_node;
                     if (param_count == 1) {
@@ -3714,7 +3714,19 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
                     }
 
                     return analyze_enum_value_expr(g, import, context, fn_ref_expr, value_node,
-                            enum_type, field_name);
+                            child_type, field_name);
+                }
+            } else if (child_type->id == TypeTableEntryIdStruct) {
+                Buf *field_name = &fn_ref_expr->data.field_access_expr.field_name;
+                auto entry = child_type->data.structure.fn_table.maybe_get(field_name);
+                if (entry) {
+                    return analyze_fn_call_raw(g, import, context, expected_type, node,
+                            entry->value, nullptr);
+                } else {
+                    add_node_error(g, node,
+                        buf_sprintf("struct '%s' has no function called '%s'",
+                            buf_ptr(&child_type->name), buf_ptr(field_name)));
+                    return g->builtin_types.entry_invalid;
                 }
             } else {
                 add_node_error(g, first_param_expr, buf_sprintf("member reference base type not struct or enum"));

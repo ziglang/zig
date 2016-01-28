@@ -496,16 +496,25 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
             assert(struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct);
             fn_table_entry = node->data.fn_call_expr.fn_entry;
         } else if (struct_type->id == TypeTableEntryIdMetaType) {
-            TypeTableEntry *enum_type = get_type_for_type_node(first_param_expr);
-            int param_count = node->data.fn_call_expr.params.length;
-            AstNode *arg1_node;
-            if (param_count == 1) {
-                arg1_node = node->data.fn_call_expr.params.at(0);
+            TypeTableEntry *child_type = get_type_for_type_node(first_param_expr);
+
+            if (child_type->id == TypeTableEntryIdEnum) {
+                int param_count = node->data.fn_call_expr.params.length;
+                AstNode *arg1_node;
+                if (param_count == 1) {
+                    arg1_node = node->data.fn_call_expr.params.at(0);
+                } else {
+                    assert(param_count == 0);
+                    arg1_node = nullptr;
+                }
+                return gen_enum_value_expr(g, fn_ref_expr, child_type, arg1_node);
+            } else if (child_type->id == TypeTableEntryIdStruct) {
+                struct_type = nullptr;
+                first_param_expr = nullptr;
+                fn_table_entry = node->data.fn_call_expr.fn_entry;
             } else {
-                assert(param_count == 0);
-                arg1_node = nullptr;
+                zig_unreachable();
             }
-            return gen_enum_value_expr(g, fn_ref_expr, enum_type, arg1_node);
         } else {
             zig_unreachable();
         }
