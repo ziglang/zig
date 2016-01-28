@@ -108,20 +108,6 @@ pub struct OutStream {
         return amt_printed;
     }
 
-    pub fn print_f64(os: &OutStream, x: f64) -> %isize {
-        if (os.index + max_f64_digits >= os.buffer.len) {
-            %return os.flush();
-        }
-        const amt_printed = buf_print_f64(os.buffer[os.index...], x);
-        os.index += amt_printed;
-
-        if (!os.buffered) {
-            %return os.flush();
-        }
-
-        return amt_printed;
-    }
-
     pub fn flush(os: &OutStream) -> %void {
         const amt_written = write(os.fd, os.buffer.ptr, os.index);
         os.index = 0;
@@ -241,67 +227,6 @@ pub fn buf_print_u64(out_buf: []u8, x: u64) -> isize {
     @memcpy(&out_buf[0], &buf[index], len);
 
     return len;
-}
-
-pub fn buf_print_f64(out_buf: []u8, x: f64) -> isize {
-    if (x == f64_get_pos_inf()) {
-        const buf2 = "+Inf";
-        @memcpy(&out_buf[0], &buf2[0], buf2.len);
-        return 4;
-    } else if (x == f64_get_neg_inf()) {
-        const buf2 = "-Inf";
-        @memcpy(&out_buf[0], &buf2[0], buf2.len);
-        return 4;
-    } else if (f64_is_nan(x)) {
-        const buf2 = "NaN";
-        @memcpy(&out_buf[0], &buf2[0], buf2.len);
-        return 3;
-    }
-
-    var buf: [max_f64_digits]u8 = undefined;
-
-    var len: isize = 0;
-
-    // 1 sign bit
-    // 11 exponent bits
-    // 52 significand bits (+ 1 implicit always non-zero bit)
-
-    const bits = f64_to_bits(x);
-    if (bits & (1 << 63) != 0) {
-        buf[0] = '-';
-        len += 1;
-    }
-
-    const rexponent: i64 = i64((bits >> 52) & ((1 << 11) - 1));
-    const exponent = rexponent - 1023 - 52;
-    /*%%stdout.printf("exponent: ");
-    %%stdout.print_i64(exponent);
-    %%stdout.printf("\n");*/
-
-    if (rexponent == 0) {
-        buf[len] = '0';
-        len += 1;
-        @memcpy(&out_buf[0], &buf[0], len);
-        return len;
-    }
-
-    const sig = (bits & ((1 << 52) - 1)) | (1 << 52);
-    /*%%stdout.printf("significand: ");
-    %%stdout.print_u64(sig);
-    %%stdout.printf("\n");*/
-
-    len += buf_print_u64(buf[len...], sig);
-    buf[len] = '*';
-    len += 1;
-    buf[len] = '2';
-    len += 1;
-    buf[len] = '^';
-    len += 1;
-    len += buf_print_i64(buf[len...], exponent);
-
-    @memcpy(&out_buf[0], &buf[0], len);
-
-    len
 }
 
 fn min_isize(x: isize, y: isize) -> isize {
