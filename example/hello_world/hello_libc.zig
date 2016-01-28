@@ -1,7 +1,9 @@
 #link("c")
 export executable "hello";
 
-extern fn printf(__format: &const u8, ...) -> c_int;
+c_import {
+    @c_include("stdio.h");
+}
 
 export fn main(argc: c_int, argv: &&u8) -> c_int {
     printf(c"Hello, world!\n");

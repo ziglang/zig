@@ -27,6 +27,7 @@ struct Context {
     AstNode *c_void_decl_node;
     AstNode *root;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> type_table;
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> fn_table;
 };
 
 static AstNode *make_qual_type_node(Context *c, QualType qt);
@@ -107,8 +108,8 @@ static AstNode *make_type_node(Context *c, const Type *ty) {
                         return simple_type_node(c, "bool");
                     case BuiltinType::Char_U:
                     case BuiltinType::UChar:
-                        return simple_type_node(c, "u8");
                     case BuiltinType::Char_S:
+                        return simple_type_node(c, "u8");
                     case BuiltinType::SChar:
                         return simple_type_node(c, "i8");
                     case BuiltinType::UShort:
@@ -266,11 +267,18 @@ static AstNode *make_qual_type_node(Context *c, QualType qt) {
 
 static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     AstNode *node = create_node(c, NodeTypeFnProto);
+    buf_init_from_str(&node->data.fn_proto.name, decl_name(fn_decl));
+
+    auto fn_entry = c->fn_table.maybe_get(&node->data.fn_proto.name);
+    if (fn_entry) {
+        // we already saw this function
+        return;
+    }
+
     node->data.fn_proto.is_extern = true;
     node->data.fn_proto.visib_mod = c->visib_mod;
     node->data.fn_proto.directives = create_empty_directives(c);
     node->data.fn_proto.is_var_args = fn_decl->isVariadic();
-    buf_init_from_str(&node->data.fn_proto.name, decl_name(fn_decl));
 
     int arg_count = fn_decl->getNumParams();
     bool all_ok = true;
@@ -313,6 +321,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     normalize_parent_ptrs(node);
 
+    c->fn_table.put(&node->data.fn_proto.name, true);
     c->root->data.root.top_level_decls.append(node);
 }
 
@@ -392,7 +401,9 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, ZigList<
     Context *c = &context;
     c->import = import;
     c->errors = errors;
-    c->type_table.init(64);
+    c->visib_mod = VisibModPub;
+    c->type_table.init(32);
+    c->fn_table.init(32);
 
     char *ZIG_PARSEH_CFLAGS = getenv("ZIG_PARSEH_CFLAGS");
     if (ZIG_PARSEH_CFLAGS) {
@@ -486,7 +497,6 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, ZigList<
     normalize_parent_ptrs(c->root);
 
     import->root = c->root;
-    import->is_c_import = true;
 
     return 0;
 }

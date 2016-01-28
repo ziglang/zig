@@ -72,6 +72,12 @@ public:
         return internal_get(key);
     }
 
+    void maybe_remove(const K &key) {
+        if (maybe_get(key)) {
+            remove(key);
+        }
+    }
+
     void remove(const K &key) {
         _modification_count += 1;
         int start_index = key_to_index(key);

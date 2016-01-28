@@ -12,6 +12,7 @@
 #include "os.hpp"
 #include "parseh.hpp"
 #include "config.h"
+#include "ast_render.hpp"
 
 static TypeTableEntry * analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node);
@@ -26,6 +27,7 @@ static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *
 static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node);
 static TypeTableEntry *resolve_expr_const_val_as_void(CodeGen *g, AstNode *node);
+static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *node);
 
 static AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
@@ -87,6 +89,8 @@ static AstNode *first_executing_node(AstNode *node) {
 }
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
+    assert(!node->owner->c_import_node);
+
     ErrorMsg *err = err_msg_create_with_line(node->owner->path, node->line, node->column,
             node->owner->source_code, node->owner->line_offsets, msg);
 
@@ -1056,11 +1060,15 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *parent_import, A
 
     find_libc_path(g);
 
-    ImportTableEntry child_import = {0};
+    ImportTableEntry *child_import = allocate<ImportTableEntry>(1);
+    child_import->fn_table.init(32);
+    child_import->fn_type_table.init(32);
+    child_import->c_import_node = node;
+
     ZigList<ErrorMsg *> errors = {0};
 
     int err;
-    if ((err = parse_h_buf(&child_import, &errors, child_context->c_import_buf, g->clang_argv, g->clang_argv_len,
+    if ((err = parse_h_buf(child_import, &errors, child_context->c_import_buf, g->clang_argv, g->clang_argv_len,
                     buf_ptr(g->libc_include_path))))
     {
         zig_panic("unable to parse h file: %s\n", err_str(err));
@@ -1075,7 +1083,24 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *parent_import, A
         return;
     }
 
-    zig_panic("TODO integrate the AST");
+    if (g->verbose) {
+        fprintf(stderr, "\nc_import:\n");
+        fprintf(stderr, "-----------\n");
+        ast_render(stderr, child_import->root, 4);
+    }
+
+    child_import->di_file = parent_import->di_file;
+    child_import->block_context = new_block_context(child_import->root, nullptr);
+    child_import->importers.append({parent_import, node});
+
+    detect_top_level_decl_deps(g, child_import, child_import->root);
+}
+
+static void satisfy_dep(CodeGen *g, AstNode *node) {
+    Buf *name = get_resolved_top_level_decl(node)->name;
+    if (name) {
+        g->unresolved_top_level_decls.maybe_remove(name);
+    }
 }
 
 static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
@@ -1085,7 +1110,7 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
             break;
         case NodeTypeRootExportDecl:
             // handled earlier
-            break;
+            return;
         case NodeTypeStructDecl:
             {
                 TypeTableEntry *type_entry = node->data.struct_decl.type_entry;
@@ -1115,7 +1140,7 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
             break;
         case NodeTypeImport:
             // nothing to do here
-            break;
+            return;
         case NodeTypeCImport:
             resolve_c_import_decl(g, import, node);
             break;
@@ -1159,6 +1184,9 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeErrorType:
             zig_unreachable();
     }
+
+
+    satisfy_dep(g, node);
 }
 
 static FnTableEntry *get_context_fn_entry(BlockContext *context) {
@@ -4512,6 +4540,12 @@ static TypeTableEntryId container_to_type(ContainerKind kind) {
 
 static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     switch (node->type) {
+        case NodeTypeRoot:
+            for (int i = 0; i < import->root->data.root.top_level_decls.length; i += 1) {
+                AstNode *child = import->root->data.root.top_level_decls.at(i);
+                detect_top_level_decl_deps(g, import, child);
+            }
+            break;
         case NodeTypeStructDecl:
             {
                 Buf *name = &node->data.struct_decl.name;
@@ -4664,7 +4698,6 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
-        case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
         case NodeTypeUnwrapErrorExpr:
@@ -4732,7 +4765,6 @@ static void recursive_resolve_decl(CodeGen *g, ImportTableEntry *import, AstNode
     }
 
     resolve_top_level_decl(g, import, node);
-    g->unresolved_top_level_decls.remove(get_resolved_top_level_decl(node)->name);
 }
 
 static void resolve_top_level_declarations_root(CodeGen *g, ImportTableEntry *import, AstNode *node) {
@@ -4823,10 +4855,7 @@ void semantic_analyze(CodeGen *g) {
 
             ImportTableEntry *import = entry->value;
 
-            for (int i = 0; i < import->root->data.root.top_level_decls.length; i += 1) {
-                AstNode *child = import->root->data.root.top_level_decls.at(i);
-                detect_top_level_decl_deps(g, import, child);
-            }
+            detect_top_level_decl_deps(g, import, import->root);
         }
     }
 
