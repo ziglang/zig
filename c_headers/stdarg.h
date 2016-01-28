@@ -49,4 +49,8 @@ typedef __builtin_va_list va_list;
 #endif
 typedef __builtin_va_list __gnuc_va_list;
 
+/* zig: added because glibc stdio.h was duplicately defining va_list
+ */
+#define _VA_LIST_DEFINED
+
 #endif /* __STDARG_H */
