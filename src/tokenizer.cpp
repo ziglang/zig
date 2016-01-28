@@ -93,6 +93,10 @@
     case DIGIT: \
     case '_'
 
+#define SYMBOL_START \
+    ALPHA: \
+    case '_'
+
 enum TokenizeState {
     TokenizeStateStart,
     TokenizeStateSymbol,
@@ -1170,3 +1174,10 @@ bool is_printable(uint8_t c) {
     }
 }
 
+bool valid_symbol_starter(uint8_t c) {
+    switch (c) {
+        case SYMBOL_START:
+            return true;
+    }
+    return false;
+}

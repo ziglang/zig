@@ -73,11 +73,18 @@ static const char *visib_mod_string(VisibMod mod) {
 }
 
 static const char *extern_string(bool is_extern) {
-    return is_extern ? "export " : "";
+    return is_extern ? "extern " : "";
 }
 
 static const char *const_or_var_string(bool is_const) {
     return is_const ? "const" : "var";
+}
+
+static const char *container_string(ContainerKind kind) {
+    switch (kind) {
+        case ContainerKindEnum: return "enum";
+        case ContainerKindStruct: return "struct";
+    }
 }
 
 static const char *node_type_str(NodeType node_type) {
@@ -486,6 +493,10 @@ static void print_indent(AstRender *ar) {
     }
 }
 
+static bool is_node_void(AstNode *node) {
+    return node->type == NodeTypeSymbol && buf_eql_str(&node->data.symbol_expr.symbol, "void");
+}
+
 static void render_node(AstRender *ar, AstNode *node) {
     assert(node->type == NodeTypeRoot || *node->parent_field == node);
 
@@ -533,9 +544,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                 fprintf(ar->f, ")");
 
                 AstNode *return_type_node = node->data.fn_proto.return_type;
-                bool is_void = return_type_node->type != NodeTypeSymbol &&
-                    buf_eql_str(&return_type_node->data.symbol_expr.symbol, "void");
-                if (!is_void) {
+                if (!is_node_void(return_type_node)) {
                     fprintf(ar->f, " -> ");
                     render_node(ar, return_type_node);
                 }
@@ -601,7 +610,13 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeSliceExpr:
             zig_panic("TODO");
         case NodeTypeFieldAccessExpr:
-            zig_panic("TODO");
+            {
+                AstNode *lhs = node->data.field_access_expr.struct_expr;
+                Buf *rhs = &node->data.field_access_expr.field_name;
+                render_node(ar, lhs);
+                fprintf(ar->f, ".%s", buf_ptr(rhs));
+                break;
+            }
         case NodeTypeImport:
             zig_panic("TODO");
         case NodeTypeCImport:
@@ -640,15 +655,19 @@ static void render_node(AstRender *ar, AstNode *node) {
             {
                 const char *struct_name = buf_ptr(&node->data.struct_decl.name);
                 const char *pub_str = visib_mod_string(node->data.struct_decl.visib_mod);
-                fprintf(ar->f, "%sstruct %s {\n", pub_str, struct_name);
+                const char *container_str = container_string(node->data.struct_decl.kind);
+                fprintf(ar->f, "%s%s %s {\n", pub_str, container_str, struct_name);
                 ar->indent += ar->indent_size;
                 for (int field_i = 0; field_i < node->data.struct_decl.fields.length; field_i += 1) {
                     AstNode *field_node = node->data.struct_decl.fields.at(field_i);
                     assert(field_node->type == NodeTypeStructField);
                     const char *field_name = buf_ptr(&field_node->data.struct_field.name);
                     print_indent(ar);
-                    fprintf(ar->f, "%s: ", field_name);
-                    render_node(ar, field_node->data.struct_field.type);
+                    fprintf(ar->f, "%s", field_name);
+                    if (!is_node_void(field_node->data.struct_field.type)) {
+                        fprintf(ar->f, ": ");
+                        render_node(ar, field_node->data.struct_field.type);
+                    }
                     fprintf(ar->f, ",\n");
                 }
 

@@ -140,6 +140,13 @@ static inline bool buf_eql_str(Buf *buf, const char *str) {
     return buf_eql_mem(buf, str, strlen(str));
 }
 
+static inline bool buf_starts_with_buf(Buf *buf, Buf *sub) {
+    if (buf_len(buf) < buf_len(sub)) {
+        return false;
+    }
+    return buf_eql_mem(sub, buf_ptr(buf), buf_len(sub));
+}
+
 bool buf_eql_buf(Buf *buf, Buf *other);
 uint32_t buf_hash(Buf *buf);
 

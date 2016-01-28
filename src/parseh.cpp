@@ -11,6 +11,7 @@
 #include "error.hpp"
 #include "parser.hpp"
 #include "all_types.hpp"
+#include "tokenizer.hpp"
 
 #include <clang/Frontend/ASTUnit.h>
 #include <clang/Frontend/CompilerInstance.h>
@@ -24,11 +25,12 @@ struct Context {
     ZigList<ErrorMsg *> *errors;
     bool warnings_on;
     VisibMod visib_mod;
-    AstNode *c_void_decl_node;
+    bool have_c_void_decl_node;
     AstNode *root;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> fn_table;
     SourceManager *source_manager;
+    ZigList<AstNode *> aliases;
 };
 
 __attribute__ ((format (printf, 3, 4)))
@@ -57,7 +59,7 @@ static void emit_warning(Context *c, const Decl *decl, const char *format, ...) 
     fprintf(stderr, "%s:%u:%u: warning: %s\n", buf_ptr(path), line, column, buf_ptr(msg));
 }
 
-static AstNode *make_qual_type_node(Context *c, QualType qt, Decl *decl);
+static AstNode *make_qual_type_node(Context *c, QualType qt, const Decl *decl);
 
 static AstNode *create_node(Context *c, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
@@ -66,9 +68,32 @@ static AstNode *create_node(Context *c, NodeType type) {
     return node;
 }
 
-static AstNode *simple_type_node(Context *c, const char *type_name) {
+static AstNode *create_symbol_node(Context *c, const char *type_name) {
     AstNode *node = create_node(c, NodeTypeSymbol);
     buf_init_from_str(&node->data.symbol_expr.symbol, type_name);
+    return node;
+}
+
+static AstNode *create_field_access_node(Context *c, const char *lhs, const char *rhs) {
+    AstNode *node = create_node(c, NodeTypeFieldAccessExpr);
+    node->data.field_access_expr.struct_expr = create_symbol_node(c, lhs);
+    buf_init_from_str(&node->data.field_access_expr.field_name, rhs);
+    normalize_parent_ptrs(node);
+    return node;
+}
+
+static ZigList<AstNode *> *create_empty_directives(Context *c) {
+    return allocate<ZigList<AstNode*>>(1);
+}
+
+static AstNode *create_var_decl_node(Context *c, const char *var_name, AstNode *expr_node) {
+    AstNode *node = create_node(c, NodeTypeVariableDeclaration);
+    buf_init_from_str(&node->data.variable_declaration.symbol, var_name);
+    node->data.variable_declaration.is_const = true;
+    node->data.variable_declaration.visib_mod = c->visib_mod;
+    node->data.variable_declaration.expr = expr_node;
+    node->data.variable_declaration.directives = create_empty_directives(c);
+    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -77,22 +102,14 @@ static const char *decl_name(const Decl *decl) {
     return (const char *)named_decl->getName().bytes_begin();
 }
 
-static ZigList<AstNode *> *create_empty_directives(Context *c) {
-    return allocate<ZigList<AstNode*>>(1);
-}
 
-static AstNode *create_typedef_node(Context *c, Buf *new_name, AstNode *target_node) {
+static AstNode *add_typedef_node(Context *c, Buf *new_name, AstNode *target_node) {
     if (!target_node) {
         return nullptr;
     }
-    AstNode *node = create_node(c, NodeTypeVariableDeclaration);
-    buf_init_from_buf(&node->data.variable_declaration.symbol, new_name);
-    node->data.variable_declaration.is_const = true;
-    node->data.variable_declaration.visib_mod = c->visib_mod;
-    node->data.variable_declaration.expr = target_node;
-    node->data.variable_declaration.directives = create_empty_directives(c);
-    normalize_parent_ptrs(node);
+    AstNode *node = create_var_decl_node(c, buf_ptr(new_name), target_node);
 
+    c->type_table.put(new_name, true);
     c->root->data.root.top_level_decls.append(node);
     return node;
 }
@@ -101,12 +118,11 @@ static AstNode *convert_to_c_void(Context *c, AstNode *type_node) {
     if (type_node->type == NodeTypeSymbol &&
         buf_eql_str(&type_node->data.symbol_expr.symbol, "void"))
     {
-        if (!c->c_void_decl_node) {
-            c->c_void_decl_node = create_typedef_node(c, buf_create_from_str("c_void"),
-                    simple_type_node(c, "u8"));
-            assert(c->c_void_decl_node);
+        if (!c->have_c_void_decl_node) {
+            add_typedef_node(c, buf_create_from_str("c_void"), create_symbol_node(c, "u8"));
+            c->have_c_void_decl_node = true;
         }
-        return simple_type_node(c, "c_void");
+        return create_symbol_node(c, "c_void");
     } else {
         return type_node;
     }
@@ -123,42 +139,42 @@ static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
     return node;
 }
 
-static AstNode *make_type_node(Context *c, const Type *ty, Decl *decl) {
+static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl) {
     switch (ty->getTypeClass()) {
         case Type::Builtin:
             {
                 const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
                 switch (builtin_ty->getKind()) {
                     case BuiltinType::Void:
-                        return simple_type_node(c, "void");
+                        return create_symbol_node(c, "void");
                     case BuiltinType::Bool:
-                        return simple_type_node(c, "bool");
+                        return create_symbol_node(c, "bool");
                     case BuiltinType::Char_U:
                     case BuiltinType::UChar:
                     case BuiltinType::Char_S:
-                        return simple_type_node(c, "u8");
+                        return create_symbol_node(c, "u8");
                     case BuiltinType::SChar:
-                        return simple_type_node(c, "i8");
+                        return create_symbol_node(c, "i8");
                     case BuiltinType::UShort:
-                        return simple_type_node(c, "c_ushort");
+                        return create_symbol_node(c, "c_ushort");
                     case BuiltinType::UInt:
-                        return simple_type_node(c, "c_uint");
+                        return create_symbol_node(c, "c_uint");
                     case BuiltinType::ULong:
-                        return simple_type_node(c, "c_ulong");
+                        return create_symbol_node(c, "c_ulong");
                     case BuiltinType::ULongLong:
-                        return simple_type_node(c, "c_ulonglong");
+                        return create_symbol_node(c, "c_ulonglong");
                     case BuiltinType::Short:
-                        return simple_type_node(c, "c_short");
+                        return create_symbol_node(c, "c_short");
                     case BuiltinType::Int:
-                        return simple_type_node(c, "c_int");
+                        return create_symbol_node(c, "c_int");
                     case BuiltinType::Long:
-                        return simple_type_node(c, "c_long");
+                        return create_symbol_node(c, "c_long");
                     case BuiltinType::LongLong:
-                        return simple_type_node(c, "c_longlong");
+                        return create_symbol_node(c, "c_longlong");
                     case BuiltinType::Float:
-                        return simple_type_node(c, "f32");
+                        return create_symbol_node(c, "f32");
                     case BuiltinType::Double:
-                        return simple_type_node(c, "f64");
+                        return create_symbol_node(c, "f64");
                     case BuiltinType::LongDouble:
                     case BuiltinType::WChar_U:
                     case BuiltinType::Char16:
@@ -204,29 +220,29 @@ static AstNode *make_type_node(Context *c, const Type *ty, Decl *decl) {
                 const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
                 Buf *type_name = buf_create_from_str(decl_name(typedef_decl));
                 if (buf_eql_str(type_name, "uint8_t")) {
-                    return simple_type_node(c, "u8");
+                    return create_symbol_node(c, "u8");
                 } else if (buf_eql_str(type_name, "int8_t")) {
-                    return simple_type_node(c, "i8");
+                    return create_symbol_node(c, "i8");
                 } else if (buf_eql_str(type_name, "uint16_t")) {
-                    return simple_type_node(c, "u16");
+                    return create_symbol_node(c, "u16");
                 } else if (buf_eql_str(type_name, "int16_t")) {
-                    return simple_type_node(c, "i16");
+                    return create_symbol_node(c, "i16");
                 } else if (buf_eql_str(type_name, "uint32_t")) {
-                    return simple_type_node(c, "u32");
+                    return create_symbol_node(c, "u32");
                 } else if (buf_eql_str(type_name, "int32_t")) {
-                    return simple_type_node(c, "i32");
+                    return create_symbol_node(c, "i32");
                 } else if (buf_eql_str(type_name, "uint64_t")) {
-                    return simple_type_node(c, "u64");
+                    return create_symbol_node(c, "u64");
                 } else if (buf_eql_str(type_name, "int64_t")) {
-                    return simple_type_node(c, "i64");
+                    return create_symbol_node(c, "i64");
                 } else if (buf_eql_str(type_name, "intptr_t")) {
-                    return simple_type_node(c, "isize");
+                    return create_symbol_node(c, "isize");
                 } else if (buf_eql_str(type_name, "uintptr_t")) {
-                    return simple_type_node(c, "usize");
+                    return create_symbol_node(c, "usize");
                 } else {
                     auto entry = c->type_table.maybe_get(type_name);
                     if (entry) {
-                        return simple_type_node(c, buf_ptr(type_name));
+                        return create_symbol_node(c, buf_ptr(type_name));
                     } else {
                         return nullptr;
                     }
@@ -280,7 +296,7 @@ static AstNode *make_type_node(Context *c, const Type *ty, Decl *decl) {
     }
 }
 
-static AstNode *make_qual_type_node(Context *c, QualType qt, Decl *decl) {
+static AstNode *make_qual_type_node(Context *c, QualType qt, const Decl *decl) {
     return make_type_node(c, qt.getTypePtr(), decl);
 }
 
@@ -311,7 +327,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         buf_init_from_str(&param_decl_node->data.param_decl.name, name);
         QualType qt = param->getOriginalType();
         param_decl_node->data.param_decl.is_noalias = qt.isRestrictQualified();
-        param_decl_node->data.param_decl.type = make_qual_type_node(c, qt, (Decl*)fn_decl);
+        param_decl_node->data.param_decl.type = make_qual_type_node(c, qt, fn_decl);
         if (!param_decl_node->data.param_decl.type) {
             all_ok = false;
             break;
@@ -322,9 +338,9 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     }
 
     if (fn_decl->isNoReturn()) {
-        node->data.fn_proto.return_type = simple_type_node(c, "unreachable");
+        node->data.fn_proto.return_type = create_symbol_node(c, "unreachable");
     } else {
-        node->data.fn_proto.return_type = make_qual_type_node(c, fn_decl->getReturnType(), (Decl*)fn_decl);
+        node->data.fn_proto.return_type = make_qual_type_node(c, fn_decl->getReturnType(), fn_decl);
     }
 
     if (!node->data.fn_proto.return_type) {
@@ -332,7 +348,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     }
     if (!all_ok) {
         // not all the types could be resolved, so we give up on the function decl
-        emit_warning(c, (Decl*)fn_decl, "skipping function %s\n", buf_ptr(&node->data.fn_proto.name));
+        emit_warning(c, fn_decl, "skipping function %s\n", buf_ptr(&node->data.fn_proto.name));
         return;
     }
 
@@ -361,12 +377,92 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
         return;
     }
 
-    AstNode *node = create_typedef_node(c, type_name, make_qual_type_node(c, child_qt, (Decl*)typedef_decl));
+    add_typedef_node(c, type_name, make_qual_type_node(c, child_qt, typedef_decl));
+}
 
-    if (node) {
-        normalize_parent_ptrs(node);
-        c->type_table.put(type_name, true);
+static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
+    Buf bare_name = BUF_INIT;
+    buf_init_from_str(&bare_name, decl_name(enum_decl));
+
+    Buf *type_name = buf_alloc();
+    buf_appendf(type_name, "enum_%s", buf_ptr(&bare_name));
+
+    if (c->type_table.maybe_get(type_name)) {
+        // we've already seen it
+        return;
     }
+
+    const EnumDecl *enum_def = enum_decl->getDefinition();
+
+    if (!enum_def) {
+        // this is a type that we can point to but that's it, same as `struct Foo;`.
+        add_typedef_node(c, type_name, create_symbol_node(c, "u8"));
+        return;
+    }
+
+    AstNode *node = create_node(c, NodeTypeStructDecl);
+    buf_init_from_buf(&node->data.struct_decl.name, type_name);
+
+    node->data.struct_decl.kind = ContainerKindEnum;
+    node->data.struct_decl.visib_mod = c->visib_mod;
+    node->data.struct_decl.directives = create_empty_directives(c);
+
+    ZigList<AstNode *> var_decls = {0};
+    int i = 0;
+    for (auto it = enum_def->enumerator_begin(),
+              it_end = enum_def->enumerator_end();
+              it != it_end; ++it, i += 1)
+    {
+        const EnumConstantDecl *enum_const = *it;
+        if (enum_const->getInitExpr()) {
+            emit_warning(c, enum_const, "skipping enum %s - has init expression\n", buf_ptr(type_name));
+            return;
+        }
+        AstNode *field_node = create_node(c, NodeTypeStructField);
+        Buf enum_val_name = BUF_INIT;
+        buf_init_from_str(&enum_val_name, decl_name(enum_const));
+
+        if (buf_starts_with_buf(&enum_val_name, &bare_name)) {
+            Buf *slice = buf_slice(&enum_val_name, buf_len(&bare_name), buf_len(&enum_val_name));
+            if (valid_symbol_starter(buf_ptr(slice)[0])) {
+                buf_init_from_buf(&field_node->data.struct_field.name, slice);
+            } else {
+                buf_resize(&field_node->data.struct_field.name, 0);
+                buf_appendf(&field_node->data.struct_field.name, "_%s", buf_ptr(slice));
+            }
+        } else {
+            buf_init_from_buf(&field_node->data.struct_field.name, &enum_val_name);
+        }
+
+        field_node->data.struct_field.directives = create_empty_directives(c);
+        field_node->data.struct_field.visib_mod = VisibModPub;
+        field_node->data.struct_field.type = create_symbol_node(c, "void");
+
+        normalize_parent_ptrs(field_node);
+        node->data.struct_decl.fields.append(field_node);
+
+        // in C each enum value is in the global namespace. so we put them there too.
+        AstNode *field_access_node = create_field_access_node(c, buf_ptr(type_name),
+                buf_ptr(&field_node->data.struct_field.name));
+        AstNode *var_node = create_var_decl_node(c, buf_ptr(&enum_val_name), field_access_node);
+        var_decls.append(var_node);
+    }
+
+    c->type_table.put(type_name, true);
+
+    normalize_parent_ptrs(node);
+    c->root->data.root.top_level_decls.append(node);
+
+    for (int i = 0; i < var_decls.length; i += 1) {
+        AstNode *var_node = var_decls.at(i);
+        c->root->data.root.top_level_decls.append(var_node);
+    }
+
+    // make an alias without the "enum_" prefix. this will get emitted at the
+    // end if it doesn't conflict with anything else
+    AstNode *alias_node = create_var_decl_node(c, buf_ptr(&bare_name), create_symbol_node(c, buf_ptr(type_name)));
+    c->aliases.append(alias_node);
+
 }
 
 static bool decl_visitor(void *context, const Decl *decl) {
@@ -379,11 +475,29 @@ static bool decl_visitor(void *context, const Decl *decl) {
         case Decl::Typedef:
             visit_typedef_decl(c, static_cast<const TypedefNameDecl *>(decl));
             break;
+        case Decl::Enum:
+            visit_enum_decl(c, static_cast<const EnumDecl *>(decl));
+            break;
         default:
             emit_warning(c, decl, "ignoring %s decl\n", decl->getDeclKindName());
     }
 
     return true;
+}
+
+static void render_aliases(Context *c) {
+    for (int i = 0; i < c->aliases.length; i += 1) {
+        AstNode *alias_node = c->aliases.at(i);
+        assert(alias_node->type == NodeTypeVariableDeclaration);
+        Buf *name = &alias_node->data.variable_declaration.symbol;
+        if (c->type_table.maybe_get(name)) {
+            continue;
+        }
+        if (c->fn_table.maybe_get(name)) {
+            continue;
+        }
+        c->root->data.root.top_level_decls.append(alias_node);
+    }
 }
 
 int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
@@ -514,8 +628,10 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
 
     c->root = create_node(c, NodeTypeRoot);
     ast_unit->visitLocalTopLevelDecls(c, decl_visitor);
-    normalize_parent_ptrs(c->root);
 
+    render_aliases(c);
+
+    normalize_parent_ptrs(c->root);
     import->root = c->root;
 
     return 0;
