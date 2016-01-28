@@ -268,7 +268,6 @@ pub fn buf_print_f64(out_buf: []u8, x: f64) -> isize {
 
     const bits = f64_to_bits(x);
     if (bits & (1 << 63) != 0) {
-        %%stdout.printf("neg\n");
         buf[0] = '-';
         len += 1;
     }
