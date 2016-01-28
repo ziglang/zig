@@ -1828,6 +1828,17 @@ pub const Foo = enum_Foo;)OUTPUT");
 void foo(void *restrict bar, void *restrict);
     )SOURCE", R"OUTPUT(pub const c_void = u8;
 pub extern fn foo(noalias bar: ?&c_void, noalias arg1: ?&c_void);)OUTPUT");
+
+    add_parseh_case("simple struct", R"SOURCE(
+struct Foo {
+    int x;
+    char *y;
+};
+    )SOURCE", R"OUTPUT(export struct struct_Foo {
+    x: c_int,
+    y: ?&u8,
+}
+pub const Foo = struct_Foo;)OUTPUT");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

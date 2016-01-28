@@ -105,6 +105,18 @@ static AstNode *create_prefix_node(Context *c, PrefixOp op, AstNode *child_node)
     return node;
 }
 
+static AstNode *create_struct_field_node(Context *c, const char *name, AstNode *type_node) {
+    assert(type_node);
+    AstNode *node = create_node(c, NodeTypeStructField);
+    buf_init_from_str(&node->data.struct_field.name, name);
+    node->data.struct_field.directives = create_empty_directives(c);
+    node->data.struct_field.visib_mod = VisibModPub;
+    node->data.struct_field.type = type_node;
+
+    normalize_parent_ptrs(node);
+    return node;
+}
+
 static const char *decl_name(const Decl *decl) {
     const NamedDecl *named_decl = static_cast<const NamedDecl *>(decl);
     return (const char *)named_decl->getName().bytes_begin();
@@ -386,6 +398,11 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
     add_typedef_node(c, type_name, make_qual_type_node(c, child_qt, typedef_decl));
 }
 
+static void add_alias(Context *c, const char *new_name, const char *target_name) {
+    AstNode *alias_node = create_var_decl_node(c, new_name, create_symbol_node(c, target_name));
+    c->aliases.append(alias_node);
+}
+
 static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
     Buf bare_name = BUF_INIT;
     buf_init_from_str(&bare_name, decl_name(enum_decl));
@@ -403,9 +420,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
     if (!enum_def) {
         // this is a type that we can point to but that's it, same as `struct Foo;`.
         add_typedef_node(c, type_name, create_symbol_node(c, "u8"));
-        AstNode *alias_node = create_var_decl_node(c, buf_ptr(&bare_name),
-                create_symbol_node(c, buf_ptr(type_name)));
-        c->aliases.append(alias_node);
+        add_alias(c, buf_ptr(&bare_name), buf_ptr(type_name));
         return;
     }
 
@@ -427,32 +442,29 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
             emit_warning(c, enum_const, "skipping enum %s - has init expression\n", buf_ptr(type_name));
             return;
         }
-        AstNode *field_node = create_node(c, NodeTypeStructField);
         Buf enum_val_name = BUF_INIT;
         buf_init_from_str(&enum_val_name, decl_name(enum_const));
+
+        Buf field_name = BUF_INIT;
 
         if (buf_starts_with_buf(&enum_val_name, &bare_name)) {
             Buf *slice = buf_slice(&enum_val_name, buf_len(&bare_name), buf_len(&enum_val_name));
             if (valid_symbol_starter(buf_ptr(slice)[0])) {
-                buf_init_from_buf(&field_node->data.struct_field.name, slice);
+                buf_init_from_buf(&field_name, slice);
             } else {
-                buf_resize(&field_node->data.struct_field.name, 0);
-                buf_appendf(&field_node->data.struct_field.name, "_%s", buf_ptr(slice));
+                buf_resize(&field_name, 0);
+                buf_appendf(&field_name, "_%s", buf_ptr(slice));
             }
         } else {
-            buf_init_from_buf(&field_node->data.struct_field.name, &enum_val_name);
+            buf_init_from_buf(&field_name, &enum_val_name);
         }
 
-        field_node->data.struct_field.directives = create_empty_directives(c);
-        field_node->data.struct_field.visib_mod = VisibModPub;
-        field_node->data.struct_field.type = create_symbol_node(c, "void");
-
-        normalize_parent_ptrs(field_node);
+        AstNode *field_node = create_struct_field_node(c, buf_ptr(&field_name), create_symbol_node(c, "void"));
         node->data.struct_decl.fields.append(field_node);
 
         // in C each enum value is in the global namespace. so we put them there too.
         AstNode *field_access_node = create_field_access_node(c, buf_ptr(type_name),
-                buf_ptr(&field_node->data.struct_field.name));
+                buf_ptr(&field_name));
         AstNode *var_node = create_var_decl_node(c, buf_ptr(&enum_val_name), field_access_node);
         var_decls.append(var_node);
     }
@@ -469,9 +481,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
     // make an alias without the "enum_" prefix. this will get emitted at the
     // end if it doesn't conflict with anything else
-    AstNode *alias_node = create_var_decl_node(c, buf_ptr(&bare_name), create_symbol_node(c, buf_ptr(type_name)));
-    c->aliases.append(alias_node);
-
+    add_alias(c, buf_ptr(&bare_name), buf_ptr(type_name));
 }
 
 static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
@@ -490,15 +500,15 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
     if (!record_def) {
         // this is a type that we can point to but that's it, such as `struct Foo;`.
         add_typedef_node(c, type_name, create_symbol_node(c, "u8"));
-        AstNode *alias_node = create_var_decl_node(c, buf_ptr(&bare_name),
-                create_symbol_node(c, buf_ptr(type_name)));
-        c->aliases.append(alias_node);
+        add_alias(c, buf_ptr(&bare_name), buf_ptr(type_name));
         return;
     }
 
-    emit_warning(c, record_decl, "skipping record %s, TODO", buf_ptr(&bare_name));
+    if (!record_def->isStruct()) {
+        emit_warning(c, record_decl, "skipping record %s, not a struct", buf_ptr(&bare_name));
+        return;
+    }
 
-    /*
     AstNode *node = create_node(c, NodeTypeStructDecl);
     buf_init_from_buf(&node->data.struct_decl.name, type_name);
 
@@ -506,9 +516,34 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
     node->data.struct_decl.visib_mod = VisibModExport;
     node->data.struct_decl.directives = create_empty_directives(c);
 
+    for (auto it = record_def->field_begin(),
+              it_end = record_def->field_end();
+              it != it_end; ++it)
+    {
+        const FieldDecl *field_decl = *it;
+
+        if (field_decl->isBitField()) {
+            emit_warning(c, field_decl, "skipping struct %s - has bitfield\n", buf_ptr(&bare_name));
+            return;
+        }
+
+        AstNode *type_node = make_qual_type_node(c, field_decl->getType(), field_decl);
+        if (!type_node) {
+            emit_warning(c, field_decl, "skipping struct %s - unhandled type\n", buf_ptr(&bare_name));
+            return;
+        }
+
+        AstNode *field_node = create_struct_field_node(c, decl_name(field_decl), type_node);
+        node->data.struct_decl.fields.append(field_node);
+    }
+
+    c->type_table.put(type_name, true);
     normalize_parent_ptrs(node);
     c->root->data.root.top_level_decls.append(node);
-    */
+
+    // make an alias without the "struct_" prefix. this will get emitted at the
+    // end if it doesn't conflict with anything else
+    add_alias(c, buf_ptr(&bare_name), buf_ptr(type_name));
 }
 
 static bool decl_visitor(void *context, const Decl *decl) {
