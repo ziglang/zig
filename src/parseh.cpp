@@ -27,11 +27,17 @@ struct Context {
     VisibMod visib_mod;
     bool have_c_void_decl_node;
     AstNode *root;
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> type_table;
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> root_type_table;
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> struct_type_table;
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> enum_type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> fn_table;
     SourceManager *source_manager;
     ZigList<AstNode *> aliases;
 };
+
+static AstNode *make_qual_type_node(Context *c, QualType qt, const Decl *decl);
+static AstNode *make_qual_type_node_with_table(Context *c, QualType qt, const Decl *decl,
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> *type_table);
 
 __attribute__ ((format (printf, 3, 4)))
 static void emit_warning(Context *c, const Decl *decl, const char *format, ...) {
@@ -58,8 +64,6 @@ static void emit_warning(Context *c, const Decl *decl, const char *format, ...) 
     unsigned column = c->source_manager->getSpellingColumnNumber(sl);
     fprintf(stderr, "%s:%u:%u: warning: %s\n", buf_ptr(path), line, column, buf_ptr(msg));
 }
-
-static AstNode *make_qual_type_node(Context *c, QualType qt, const Decl *decl);
 
 static AstNode *create_node(Context *c, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
@@ -129,7 +133,7 @@ static AstNode *add_typedef_node(Context *c, Buf *new_name, AstNode *target_node
     }
     AstNode *node = create_var_decl_node(c, buf_ptr(new_name), target_node);
 
-    c->type_table.put(new_name, true);
+    c->root_type_table.put(new_name, true);
     c->root->data.root.top_level_decls.append(node);
     return node;
 }
@@ -157,7 +161,9 @@ static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
     return create_prefix_node(c, PrefixOpMaybe, child_node);
 }
 
-static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl) {
+static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> *type_table)
+{
     switch (ty->getTypeClass()) {
         case Type::Builtin:
             {
@@ -258,7 +264,7 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl) {
                 } else if (buf_eql_str(type_name, "uintptr_t")) {
                     return create_symbol_node(c, "usize");
                 } else {
-                    auto entry = c->type_table.maybe_get(type_name);
+                    auto entry = type_table->maybe_get(type_name);
                     if (entry) {
                         return create_symbol_node(c, buf_ptr(type_name));
                     } else {
@@ -267,13 +273,63 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl) {
                 }
             }
         case Type::Elaborated:
-            emit_warning(c, decl, "ignoring elaborated type");
-            return nullptr;
+            {
+                const ElaboratedType *elaborated_ty = static_cast<const ElaboratedType*>(ty);
+                switch (elaborated_ty->getKeyword()) {
+                    case ETK_Struct:
+                        return make_qual_type_node_with_table(c, elaborated_ty->getNamedType(),
+                                decl, &c->struct_type_table);
+                    case ETK_Enum:
+                        return make_qual_type_node_with_table(c, elaborated_ty->getNamedType(),
+                                decl, &c->enum_type_table);
+                    case ETK_Interface:
+                    case ETK_Union:
+                    case ETK_Class:
+                    case ETK_Typename:
+                    case ETK_None:
+                        emit_warning(c, decl, "unsupported elaborated type");
+                        return nullptr;
+                }
+            }
         case Type::FunctionProto:
             emit_warning(c, decl, "ignoring function type");
             return nullptr;
         case Type::Record:
+            {
+                const RecordType *record_ty = static_cast<const RecordType*>(ty);
+                Buf *record_name = buf_create_from_str(decl_name(record_ty->getDecl()));
+                if (type_table->maybe_get(record_name)) {
+                    const char *prefix_str;
+                    if (type_table == &c->enum_type_table) {
+                        prefix_str = "enum_";
+                    } else if (type_table == &c->struct_type_table) {
+                        prefix_str = "struct_";
+                    } else {
+                        prefix_str = "";
+                    }
+                    return create_symbol_node(c, buf_ptr(buf_sprintf("%s%s", prefix_str, buf_ptr(record_name))));
+                } else {
+                    return nullptr;
+                }
+            }
         case Type::Enum:
+            {
+                const EnumType *enum_ty = static_cast<const EnumType*>(ty);
+                Buf *record_name = buf_create_from_str(decl_name(enum_ty->getDecl()));
+                if (type_table->maybe_get(record_name)) {
+                    const char *prefix_str;
+                    if (type_table == &c->enum_type_table) {
+                        prefix_str = "enum_";
+                    } else if (type_table == &c->struct_type_table) {
+                        prefix_str = "struct_";
+                    } else {
+                        prefix_str = "";
+                    }
+                    return create_symbol_node(c, buf_ptr(buf_sprintf("%s%s", prefix_str, buf_ptr(record_name))));
+                } else {
+                    return nullptr;
+                }
+            }
         case Type::BlockPointer:
         case Type::LValueReference:
         case Type::RValueReference:
@@ -314,8 +370,14 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl) {
     }
 }
 
+static AstNode *make_qual_type_node_with_table(Context *c, QualType qt, const Decl *decl,
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> *type_table)
+{
+    return make_type_node(c, qt.getTypePtr(), decl, type_table);
+}
+
 static AstNode *make_qual_type_node(Context *c, QualType qt, const Decl *decl) {
-    return make_type_node(c, qt.getTypePtr(), decl);
+    return make_qual_type_node_with_table(c, qt, decl, &c->root_type_table);
 }
 
 static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
@@ -334,7 +396,6 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     node->data.fn_proto.is_var_args = fn_decl->isVariadic();
 
     int arg_count = fn_decl->getNumParams();
-    bool all_ok = true;
     for (int i = 0; i < arg_count; i += 1) {
         const ParmVarDecl *param = fn_decl->getParamDecl(i);
         AstNode *param_decl_node = create_node(c, NodeTypeParamDecl);
@@ -347,8 +408,9 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         param_decl_node->data.param_decl.is_noalias = qt.isRestrictQualified();
         param_decl_node->data.param_decl.type = make_qual_type_node(c, qt, fn_decl);
         if (!param_decl_node->data.param_decl.type) {
-            all_ok = false;
-            break;
+            emit_warning(c, param, "skipping function %s, unresolved param type\n",
+                    buf_ptr(&node->data.fn_proto.name));
+            return;
         }
 
         normalize_parent_ptrs(param_decl_node);
@@ -362,11 +424,8 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     }
 
     if (!node->data.fn_proto.return_type) {
-        all_ok = false;
-    }
-    if (!all_ok) {
-        // not all the types could be resolved, so we give up on the function decl
-        emit_warning(c, fn_decl, "skipping function %s\n", buf_ptr(&node->data.fn_proto.name));
+        emit_warning(c, fn_decl, "skipping function %s, unresolved return type\n",
+                buf_ptr(&node->data.fn_proto.name));
         return;
     }
 
@@ -404,13 +463,10 @@ static void add_alias(Context *c, const char *new_name, const char *target_name)
 }
 
 static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
-    Buf bare_name = BUF_INIT;
-    buf_init_from_str(&bare_name, decl_name(enum_decl));
+    Buf *bare_name = buf_create_from_str(decl_name(enum_decl));
+    Buf *full_type_name = buf_sprintf("enum_%s", buf_ptr(bare_name));
 
-    Buf *type_name = buf_alloc();
-    buf_appendf(type_name, "enum_%s", buf_ptr(&bare_name));
-
-    if (c->type_table.maybe_get(type_name)) {
+    if (c->enum_type_table.maybe_get(bare_name)) {
         // we've already seen it
         return;
     }
@@ -419,13 +475,13 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
     if (!enum_def) {
         // this is a type that we can point to but that's it, same as `struct Foo;`.
-        add_typedef_node(c, type_name, create_symbol_node(c, "u8"));
-        add_alias(c, buf_ptr(&bare_name), buf_ptr(type_name));
+        add_typedef_node(c, full_type_name, create_symbol_node(c, "u8"));
+        add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
         return;
     }
 
     AstNode *node = create_node(c, NodeTypeStructDecl);
-    buf_init_from_buf(&node->data.struct_decl.name, type_name);
+    buf_init_from_buf(&node->data.struct_decl.name, full_type_name);
 
     node->data.struct_decl.kind = ContainerKindEnum;
     node->data.struct_decl.visib_mod = VisibModExport;
@@ -439,7 +495,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
     {
         const EnumConstantDecl *enum_const = *it;
         if (enum_const->getInitExpr()) {
-            emit_warning(c, enum_const, "skipping enum %s - has init expression\n", buf_ptr(type_name));
+            emit_warning(c, enum_const, "skipping enum %s - has init expression\n", buf_ptr(bare_name));
             return;
         }
         Buf enum_val_name = BUF_INIT;
@@ -447,8 +503,8 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
         Buf field_name = BUF_INIT;
 
-        if (buf_starts_with_buf(&enum_val_name, &bare_name)) {
-            Buf *slice = buf_slice(&enum_val_name, buf_len(&bare_name), buf_len(&enum_val_name));
+        if (buf_starts_with_buf(&enum_val_name, bare_name)) {
+            Buf *slice = buf_slice(&enum_val_name, buf_len(bare_name), buf_len(&enum_val_name));
             if (valid_symbol_starter(buf_ptr(slice)[0])) {
                 buf_init_from_buf(&field_name, slice);
             } else {
@@ -463,13 +519,12 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
         node->data.struct_decl.fields.append(field_node);
 
         // in C each enum value is in the global namespace. so we put them there too.
-        AstNode *field_access_node = create_field_access_node(c, buf_ptr(type_name),
-                buf_ptr(&field_name));
+        AstNode *field_access_node = create_field_access_node(c, buf_ptr(full_type_name), buf_ptr(&field_name));
         AstNode *var_node = create_var_decl_node(c, buf_ptr(&enum_val_name), field_access_node);
         var_decls.append(var_node);
     }
 
-    c->type_table.put(type_name, true);
+    c->enum_type_table.put(bare_name, true);
 
     normalize_parent_ptrs(node);
     c->root->data.root.top_level_decls.append(node);
@@ -481,17 +536,20 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
     // make an alias without the "enum_" prefix. this will get emitted at the
     // end if it doesn't conflict with anything else
-    add_alias(c, buf_ptr(&bare_name), buf_ptr(type_name));
+    add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
 }
 
 static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
-    Buf bare_name = BUF_INIT;
-    buf_init_from_str(&bare_name, decl_name(record_decl));
+    Buf *bare_name = buf_create_from_str(decl_name(record_decl));
 
-    Buf *type_name = buf_alloc();
-    buf_appendf(type_name, "struct_%s", buf_ptr(&bare_name));
+    if (!record_decl->isStruct()) {
+        emit_warning(c, record_decl, "skipping record %s, not a struct", buf_ptr(bare_name));
+        return;
+    }
 
-    if (c->type_table.maybe_get(type_name)) {
+    Buf *full_type_name = buf_sprintf("struct_%s", buf_ptr(bare_name));
+
+    if (c->struct_type_table.maybe_get(bare_name)) {
         // we've already seen it
         return;
     }
@@ -499,18 +557,13 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
     RecordDecl *record_def = record_decl->getDefinition();
     if (!record_def) {
         // this is a type that we can point to but that's it, such as `struct Foo;`.
-        add_typedef_node(c, type_name, create_symbol_node(c, "u8"));
-        add_alias(c, buf_ptr(&bare_name), buf_ptr(type_name));
-        return;
-    }
-
-    if (!record_def->isStruct()) {
-        emit_warning(c, record_decl, "skipping record %s, not a struct", buf_ptr(&bare_name));
+        add_typedef_node(c, full_type_name, create_symbol_node(c, "u8"));
+        add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
         return;
     }
 
     AstNode *node = create_node(c, NodeTypeStructDecl);
-    buf_init_from_buf(&node->data.struct_decl.name, type_name);
+    buf_init_from_buf(&node->data.struct_decl.name, full_type_name);
 
     node->data.struct_decl.kind = ContainerKindStruct;
     node->data.struct_decl.visib_mod = VisibModExport;
@@ -523,13 +576,13 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
         const FieldDecl *field_decl = *it;
 
         if (field_decl->isBitField()) {
-            emit_warning(c, field_decl, "skipping struct %s - has bitfield\n", buf_ptr(&bare_name));
+            emit_warning(c, field_decl, "skipping struct %s - has bitfield\n", buf_ptr(bare_name));
             return;
         }
 
         AstNode *type_node = make_qual_type_node(c, field_decl->getType(), field_decl);
         if (!type_node) {
-            emit_warning(c, field_decl, "skipping struct %s - unhandled type\n", buf_ptr(&bare_name));
+            emit_warning(c, field_decl, "skipping struct %s - unhandled type\n", buf_ptr(bare_name));
             return;
         }
 
@@ -537,13 +590,13 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
         node->data.struct_decl.fields.append(field_node);
     }
 
-    c->type_table.put(type_name, true);
+    c->struct_type_table.put(bare_name, true);
     normalize_parent_ptrs(node);
     c->root->data.root.top_level_decls.append(node);
 
     // make an alias without the "struct_" prefix. this will get emitted at the
     // end if it doesn't conflict with anything else
-    add_alias(c, buf_ptr(&bare_name), buf_ptr(type_name));
+    add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
 }
 
 static bool decl_visitor(void *context, const Decl *decl) {
@@ -574,7 +627,7 @@ static void render_aliases(Context *c) {
         AstNode *alias_node = c->aliases.at(i);
         assert(alias_node->type == NodeTypeVariableDeclaration);
         Buf *name = &alias_node->data.variable_declaration.symbol;
-        if (c->type_table.maybe_get(name)) {
+        if (c->root_type_table.maybe_get(name)) {
             continue;
         }
         if (c->fn_table.maybe_get(name)) {
@@ -618,8 +671,10 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
     c->import = import;
     c->errors = errors;
     c->visib_mod = VisibModPub;
-    c->type_table.init(32);
-    c->fn_table.init(32);
+    c->root_type_table.init(16);
+    c->enum_type_table.init(16);
+    c->struct_type_table.init(16);
+    c->fn_table.init(16);
 
     char *ZIG_PARSEH_CFLAGS = getenv("ZIG_PARSEH_CFLAGS");
     if (ZIG_PARSEH_CFLAGS) {

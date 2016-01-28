@@ -1839,6 +1839,30 @@ struct Foo {
     y: ?&u8,
 }
 pub const Foo = struct_Foo;)OUTPUT");
+
+    add_parseh_case("qualified struct and enum", R"SOURCE(
+struct Foo {
+    int x;
+    int y;
+};
+enum Bar {
+    BarA,
+    BarB,
+};
+void func(struct Foo *a, enum Bar **b);
+    )SOURCE", R"OUTPUT(export struct struct_Foo {
+    x: c_int,
+    y: c_int,
+}
+export enum enum_Bar {
+    A,
+    B,
+}
+pub const BarA = enum_Bar.A;
+pub const BarB = enum_Bar.B;
+pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);
+pub const Foo = struct_Foo;
+pub const Bar = enum_Bar;)OUTPUT");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
