@@ -1863,6 +1863,10 @@ pub const BarB = enum_Bar.B;
 pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);
 pub const Foo = struct_Foo;
 pub const Bar = enum_Bar;)OUTPUT");
+
+    add_parseh_case("constant size array", R"SOURCE(
+void func(int array[20]);
+    )SOURCE", R"OUTPUT(pub extern fn func(array: [20]c_int);)OUTPUT");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

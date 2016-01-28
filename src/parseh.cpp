@@ -121,6 +121,25 @@ static AstNode *create_struct_field_node(Context *c, const char *name, AstNode *
     return node;
 }
 
+static AstNode *create_num_lit_unsigned(Context *c, uint64_t x) {
+    AstNode *node = create_node(c, NodeTypeNumberLiteral);
+    node->data.number_literal.kind = NumLitUInt;
+    node->data.number_literal.data.x_uint = x;
+
+    normalize_parent_ptrs(node);
+    return node;
+}
+
+static AstNode *create_array_type_node(Context *c, AstNode *child_type_node, uint64_t size, bool is_const) {
+    AstNode *node = create_node(c, NodeTypeArrayType);
+    node->data.array_type.size = create_num_lit_unsigned(c, size);
+    node->data.array_type.child_type = child_type_node;
+    node->data.array_type.is_const = is_const;
+
+    normalize_parent_ptrs(node);
+    return node;
+}
+
 static const char *decl_name(const Decl *decl) {
     const NamedDecl *named_decl = static_cast<const NamedDecl *>(decl);
     return (const char *)named_decl->getName().bytes_begin();
@@ -330,11 +349,17 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                     return nullptr;
                 }
             }
+        case Type::ConstantArray:
+            {
+                const ConstantArrayType *const_arr_ty = static_cast<const ConstantArrayType *>(ty);
+                AstNode *child_type_node = make_qual_type_node(c, const_arr_ty->getElementType(), decl);
+                uint64_t size = const_arr_ty->getSize().getLimitedValue();
+                return create_array_type_node(c, child_type_node, size, false);
+            }
         case Type::BlockPointer:
         case Type::LValueReference:
         case Type::RValueReference:
         case Type::MemberPointer:
-        case Type::ConstantArray:
         case Type::IncompleteArray:
         case Type::VariableArray:
         case Type::DependentSizedArray:

@@ -587,7 +587,15 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeUnwrapErrorExpr:
             zig_panic("TODO");
         case NodeTypeNumberLiteral:
-            zig_panic("TODO");
+            switch (node->data.number_literal.kind) {
+                case NumLitUInt:
+                    fprintf(ar->f, "%" PRIu64, node->data.number_literal.data.x_uint);
+                    break;
+                case NumLitFloat:
+                    fprintf(ar->f, "%f", node->data.number_literal.data.x_float);
+                    break;
+            }
+            break;
         case NodeTypeStringLiteral:
             zig_panic("TODO");
         case NodeTypeCharLiteral:
@@ -682,7 +690,18 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeStructValueField:
             zig_panic("TODO");
         case NodeTypeArrayType:
-            zig_panic("TODO");
+            {
+                fprintf(ar->f, "[");
+                if (node->data.array_type.size) {
+                    render_node(ar, node->data.array_type.size);
+                }
+                fprintf(ar->f, "]");
+                if (node->data.array_type.is_const) {
+                    fprintf(ar->f, "const ");
+                }
+                render_node(ar, node->data.array_type.child_type);
+                break;
+            }
         case NodeTypeErrorType:
             zig_panic("TODO");
     }
