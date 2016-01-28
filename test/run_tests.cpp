@@ -1386,9 +1386,27 @@ pub fn main(args: [][]u8) -> %void {
     if (*ptr != 6) {
         %%stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
 
     free(ptr);
+
+    %%stdout.printf("OK\n");
+}
+    )SOURCE", "OK\n");
+
+    add_simple_case("store member function in variable", R"SOURCE(
+import "std.zig";
+struct Foo {
+    x: i32,
+    fn member(foo: Foo) -> i32 { foo.x }
+}
+pub fn main(args: [][]u8) -> %void {
+    const instance = Foo { .x = 1234, };
+    const member_fn = Foo.member;
+    const result = member_fn(instance);
+    if (result != 1234) {
+        %%stdout.printf("BAD\n");
+    }
+    %%stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 }

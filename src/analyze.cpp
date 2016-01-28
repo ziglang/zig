@@ -27,6 +27,7 @@ static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *
 static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node);
 static TypeTableEntry *resolve_expr_const_val_as_void(CodeGen *g, AstNode *node);
+static TypeTableEntry *resolve_expr_const_val_as_fn(CodeGen *g, AstNode *node, FnTableEntry *fn);
 static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *node);
 
 static AstNode *first_executing_node(AstNode *node) {
@@ -1895,13 +1896,23 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
             return g->builtin_types.entry_invalid;
         }
     } else if (struct_type->id == TypeTableEntryIdMetaType) {
-        TypeTableEntry *enum_type = resolve_type(g, struct_expr_node);
+        TypeTableEntry *child_type = resolve_type(g, struct_expr_node);
 
-        if (enum_type->id == TypeTableEntryIdInvalid) {
+        if (child_type->id == TypeTableEntryIdInvalid) {
             return g->builtin_types.entry_invalid;
-        } else if (enum_type->id == TypeTableEntryIdEnum) {
-            return analyze_enum_value_expr(g, import, context, node, nullptr, enum_type, field_name);
-        } else if (enum_type->id == TypeTableEntryIdPureError) {
+        } else if (child_type->id == TypeTableEntryIdEnum) {
+            return analyze_enum_value_expr(g, import, context, node, nullptr, child_type, field_name);
+        } else if (child_type->id == TypeTableEntryIdStruct) {
+            auto entry = child_type->data.structure.fn_table.maybe_get(field_name);
+            if (entry) {
+                return resolve_expr_const_val_as_fn(g, node, entry->value);
+            } else {
+                add_node_error(g, node,
+                    buf_sprintf("struct '%s' has no function called '%s'",
+                        buf_ptr(&child_type->name), buf_ptr(field_name)));
+                return g->builtin_types.entry_invalid;
+            }
+        } else if (child_type->id == TypeTableEntryIdPureError) {
             return analyze_error_literal_expr(g, import, context, node, field_name);
         } else {
             add_node_error(g, node,

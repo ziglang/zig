@@ -816,8 +816,12 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
         }
     } else if (struct_type->id == TypeTableEntryIdMetaType) {
         assert(!is_lvalue);
-        TypeTableEntry *enum_type = get_type_for_type_node(struct_expr);
-        return gen_enum_value_expr(g, node, enum_type, nullptr);
+        TypeTableEntry *child_type = get_type_for_type_node(struct_expr);
+        if (child_type->id == TypeTableEntryIdEnum) {
+            return gen_enum_value_expr(g, node, child_type, nullptr);
+        } else {
+            zig_unreachable();
+        }
     } else {
         zig_unreachable();
     }
