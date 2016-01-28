@@ -12,6 +12,7 @@ pub fn malloc(bytes: isize) -> ?&u8 {
 
     const failed: bool = switch (-result) {
         0          => true,
+        -1         => true,
         EINVAL     => true,
         EACCES     => true,
         EAGAIN     => true,
