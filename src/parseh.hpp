@@ -11,7 +11,9 @@
 
 #include "all_types.hpp"
 
-int parse_h_file(ParseH *parse_h, ZigList<const char *> *clang_argv);
-int parse_h_buf(ParseH *parse_h, Buf *source, const char **args, int args_len, const char *libc_include_path);
+int parse_h_file(ImportTableEntry *out_import, ZigList<ErrorMsg *> *out_errs,
+        ZigList<const char *> *clang_argv);
+int parse_h_buf(ImportTableEntry *out_import, ZigList<ErrorMsg *> *out_errs,
+        Buf *source, const char **args, int args_len, const char *libc_include_path);
 
 #endif

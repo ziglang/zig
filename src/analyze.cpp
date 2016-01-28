@@ -1039,15 +1039,15 @@ static void resolve_error_value_decl(CodeGen *g, ImportTableEntry *import, AstNo
     }
 }
 
-static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *parent_import, AstNode *node) {
     assert(node->type == NodeTypeCImport);
 
     AstNode *block_node = node->data.c_import.block;
 
-    BlockContext *child_context = new_block_context(node, import->block_context);
+    BlockContext *child_context = new_block_context(node, parent_import->block_context);
     child_context->c_import_buf = buf_alloc();
 
-    TypeTableEntry *resolved_type = analyze_block_expr(g, import, child_context,
+    TypeTableEntry *resolved_type = analyze_block_expr(g, parent_import, child_context,
             g->builtin_types.entry_void, block_node);
 
     if (resolved_type->id == TypeTableEntryIdInvalid) {
@@ -1055,23 +1055,27 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *import, AstNode 
     }
 
     find_libc_path(g);
+
+    ImportTableEntry child_import = {0};
+    ZigList<ErrorMsg *> errors = {0};
+
     int err;
-    ParseH parse_h = {{0}};
-    if ((err = parse_h_buf(&parse_h, child_context->c_import_buf, g->clang_argv, g->clang_argv_len,
+    if ((err = parse_h_buf(&child_import, &errors, child_context->c_import_buf, g->clang_argv, g->clang_argv_len,
                     buf_ptr(g->libc_include_path))))
     {
         zig_panic("unable to parse h file: %s\n", err_str(err));
     }
 
-    if (parse_h.errors.length > 0) {
+    if (errors.length > 0) {
         ErrorMsg *parent_err_msg = add_node_error(g, node, buf_sprintf("C import failed"));
-        for (int i = 0; i < parse_h.errors.length; i += 1) {
-            ErrorMsg *err_msg = parse_h.errors.at(i);
+        for (int i = 0; i < errors.length; i += 1) {
+            ErrorMsg *err_msg = errors.at(i);
             err_msg_add_note(parent_err_msg, err_msg);
         }
-    } else {
-        zig_panic("TODO integrate the parsed AST");
+        return;
     }
+
+    zig_panic("TODO integrate the AST");
 }
 
 static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {

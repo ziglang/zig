@@ -11,6 +11,7 @@
 #include "os.hpp"
 #include "error.hpp"
 #include "parseh.hpp"
+#include "ast_render.hpp"
 
 #include <stdio.h>
 
@@ -162,41 +163,10 @@ static int build(const char *arg0, int argc, char **argv) {
     return 0;
 }
 
-struct ParseHPrint {
-    ParseH parse_h;
-    FILE *f;
-    int cur_indent;
-};
-
-static const int indent_size = 4;
-
-static void print_indent(ParseHPrint *p) {
-    for (int i = 0; i < p->cur_indent; i += 1) {
-        fprintf(p->f, " ");
-    }
-}
-
-static Buf *node_to_buf(AstNode *node) {
-    if (node->type == NodeTypeSymbol) {
-        return &node->data.symbol_expr.symbol;
-    } else if (node->type == NodeTypePrefixOpExpr) {
-        PrefixOp op = node->data.prefix_op_expr.prefix_op;
-        const char *child_type_str = buf_ptr(node_to_buf(node->data.prefix_op_expr.primary_expr));
-        if (op == PrefixOpAddressOf) {
-            return buf_sprintf("&%s", child_type_str);
-        } else if (op == PrefixOpConstAddressOf) {
-            return buf_sprintf("&const %s", child_type_str);
-        } else {
-            zig_unreachable();
-        }
-    } else {
-        zig_unreachable();
-    }
-}
-
 static int parseh(const char *arg0, int argc, char **argv) {
     char *in_file = nullptr;
     ZigList<const char *> clang_argv = {0};
+    ErrColor color = ErrColorAuto;
     for (int i = 0; i < argc; i += 1) {
         char *arg = argv[i];
         if (arg[0] == '-') {
@@ -206,10 +176,24 @@ static int parseh(const char *arg0, int argc, char **argv) {
                 if (i + 1 >= argc) {
                     return usage(arg0);
                 }
-                clang_argv.append("-isystem");
-                clang_argv.append(argv[i + 1]);
                 i += 1;
-            } else {
+                clang_argv.append("-isystem");
+                clang_argv.append(argv[i]);
+            } else if (strcmp(arg, "--color") == 0) {
+                if (i + 1 >= argc) {
+                    return usage(arg0);
+                }
+                i += 1;
+                if (strcmp(argv[i], "auto") == 0) {
+                    color = ErrColorAuto;
+                } else if (strcmp(argv[i], "on") == 0) {
+                    color = ErrColorOn;
+                } else if (strcmp(argv[i], "off") == 0) {
+                    color = ErrColorOff;
+                } else {
+                    return usage(arg0);
+                }
+        } else {
                 fprintf(stderr, "unrecognized argument: %s", arg);
                 return usage(arg0);
             }
@@ -231,91 +215,24 @@ static int parseh(const char *arg0, int argc, char **argv) {
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(libc_include_path));
 
-    ParseHPrint parse_h_print = {{{0}}};
-    ParseHPrint *p = &parse_h_print;
-    p->f = stdout;
-    p->cur_indent = 0;
+    ImportTableEntry import = {0};
+    ZigList<ErrorMsg *> errors = {0};
+    int err = parse_h_file(&import, &errors, &clang_argv);
 
-    parse_h_file(&p->parse_h, &clang_argv);
+    if (err) {
+        fprintf(stderr, "unable to parse .h file: %s\n", err_str(err));
+        return EXIT_FAILURE;
+    }
 
-    if (p->parse_h.errors.length > 0) {
-        for (int i = 0; i < p->parse_h.errors.length; i += 1) {
-            ErrorMsg *err_msg = p->parse_h.errors.at(i);
-            // TODO respect --color arg
-            print_err_msg(err_msg, ErrColorAuto);
+    if (errors.length > 0) {
+        for (int i = 0; i < errors.length; i += 1) {
+            ErrorMsg *err_msg = errors.at(i);
+            print_err_msg(err_msg, color);
         }
         return EXIT_FAILURE;
     }
 
-    for (int var_i = 0; var_i < p->parse_h.var_list.length; var_i += 1) {
-        AstNode *var_decl = p->parse_h.var_list.at(var_i);
-        assert(var_decl->type == NodeTypeVariableDeclaration);
-        const char *pub_str = (var_decl->data.variable_declaration.visib_mod == VisibModPub) ? "pub " : "";
-        const char *extern_str = var_decl->data.variable_declaration.is_extern ? "extern " : "";
-        const char *var_name = buf_ptr(&var_decl->data.variable_declaration.symbol);
-        const char *const_or_var = var_decl->data.variable_declaration.is_const ? "const" : "var";
-        print_indent(p);
-        fprintf(p->f, "%s%s%s %s", pub_str, extern_str, const_or_var, var_name);
-        if (var_decl->data.variable_declaration.type) {
-            fprintf(p->f, ": %s", buf_ptr(node_to_buf(var_decl->data.variable_declaration.type)));
-        }
-        if (var_decl->data.variable_declaration.expr) {
-            fprintf(p->f, " = %s", buf_ptr(node_to_buf(var_decl->data.variable_declaration.expr)));
-        }
-        fprintf(p->f, ";\n");
-    }
-
-    for (int struct_i = 0; struct_i < p->parse_h.struct_list.length; struct_i += 1) {
-        AstNode *struct_decl = p->parse_h.struct_list.at(struct_i);
-        assert(struct_decl->type == NodeTypeStructDecl);
-        const char *struct_name = buf_ptr(&struct_decl->data.struct_decl.name);
-        print_indent(p);
-        fprintf(p->f, "struct %s {\n", struct_name);
-        p->cur_indent += indent_size;
-        for (int field_i = 0; field_i < struct_decl->data.struct_decl.fields.length; field_i += 1) {
-            AstNode *field_node = struct_decl->data.struct_decl.fields.at(field_i);
-            assert(field_node->type == NodeTypeStructField);
-            const char *field_name = buf_ptr(&field_node->data.struct_field.name);
-            Buf *type_name = node_to_buf(field_node->data.struct_field.type);
-            print_indent(p);
-            fprintf(p->f, "%s: %s,\n", field_name, buf_ptr(type_name));
-        }
-
-        p->cur_indent -= indent_size;
-        fprintf(p->f, "}\n\n");
-    }
-
-    for (int fn_i = 0; fn_i < p->parse_h.fn_list.length; fn_i += 1) {
-        AstNode *fn_proto = p->parse_h.fn_list.at(fn_i);
-        assert(fn_proto->type == NodeTypeFnProto);
-        print_indent(p);
-        const char *fn_name = buf_ptr(&fn_proto->data.fn_proto.name);
-        const char *pub_str = (fn_proto->data.fn_proto.visib_mod == VisibModPub) ? "pub " : "";
-        const char *extern_str = fn_proto->data.fn_proto.is_extern ? "extern " : "";
-        fprintf(p->f, "%s%sfn %s(", pub_str, extern_str, fn_name);
-        int arg_count = fn_proto->data.fn_proto.params.length;
-        bool is_var_args = fn_proto->data.fn_proto.is_var_args;
-        for (int arg_i = 0; arg_i < arg_count; arg_i += 1) {
-            AstNode *param_decl = fn_proto->data.fn_proto.params.at(arg_i);
-            assert(param_decl->type == NodeTypeParamDecl);
-            const char *arg_name = buf_ptr(&param_decl->data.param_decl.name);
-            Buf *arg_type = node_to_buf(param_decl->data.param_decl.type);
-            const char *noalias_str = param_decl->data.param_decl.is_noalias ? "noalias " : "";
-            fprintf(p->f, "%s%s: %s", noalias_str, arg_name, buf_ptr(arg_type));
-            if (arg_i + 1 < arg_count || is_var_args) {
-                fprintf(p->f, ", ");
-            }
-        }
-        if (is_var_args) {
-            fprintf(p->f, "...");
-        }
-        fprintf(p->f, ")");
-        Buf *return_type_name = node_to_buf(fn_proto->data.fn_proto.return_type);
-        if (!buf_eql_str(return_type_name, "void")) {
-            fprintf(p->f, " -> %s", buf_ptr(return_type_name));
-        }
-        fprintf(p->f, ";\n");
-    }
+    ast_render(stdout, import.root, 4);
 
     return 0;
 }

@@ -11,3 +11,6 @@ for the target when an exported or external function has a byvalue struct.
 Write the target-specific code in std.zig.
 
 Update the C integer types to be the correct size for the target.
+
+Add the conditional compilation code for the page size global. It is hardcoded
+for each target.

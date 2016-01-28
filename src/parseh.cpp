@@ -9,6 +9,8 @@
 #include "config.h"
 #include "os.hpp"
 #include "error.hpp"
+#include "parser.hpp"
+#include "all_types.hpp"
 
 #include <clang/Frontend/ASTUnit.h>
 #include <clang/Frontend/CompilerInstance.h>
@@ -18,10 +20,12 @@
 using namespace clang;
 
 struct Context {
-    ParseH *parse_h;
+    ImportTableEntry *import;
+    ZigList<ErrorMsg *> *errors;
     bool warnings_on;
     VisibMod visib_mod;
     AstNode *c_void_decl_node;
+    AstNode *root;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> type_table;
 };
 
@@ -30,6 +34,7 @@ static AstNode *make_qual_type_node(Context *c, QualType qt);
 static AstNode *create_node(Context *c, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
     node->type = type;
+    node->owner = c->import;
     return node;
 }
 
@@ -44,6 +49,10 @@ static const char *decl_name(const Decl *decl) {
     return (const char *)named_decl->getName().bytes_begin();
 }
 
+static ZigList<AstNode *> *create_empty_directives(Context *c) {
+    return allocate<ZigList<AstNode*>>(1);
+}
+
 static AstNode *create_typedef_node(Context *c, Buf *new_name, AstNode *target_node) {
     if (!target_node) {
         return nullptr;
@@ -53,7 +62,10 @@ static AstNode *create_typedef_node(Context *c, Buf *new_name, AstNode *target_n
     node->data.variable_declaration.is_const = true;
     node->data.variable_declaration.visib_mod = c->visib_mod;
     node->data.variable_declaration.expr = target_node;
-    c->parse_h->var_list.append(node);
+    node->data.variable_declaration.directives = create_empty_directives(c);
+    normalize_parent_ptrs(node);
+
+    c->root->data.root.top_level_decls.append(node);
     return node;
 }
 
@@ -79,6 +91,7 @@ static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
     AstNode *node = create_node(c, NodeTypePrefixOpExpr);
     node->data.prefix_op_expr.prefix_op = is_const ? PrefixOpConstAddressOf : PrefixOpAddressOf;
     node->data.prefix_op_expr.primary_expr = convert_to_c_void(c, type_node);
+    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -255,6 +268,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     AstNode *node = create_node(c, NodeTypeFnProto);
     node->data.fn_proto.is_extern = true;
     node->data.fn_proto.visib_mod = c->visib_mod;
+    node->data.fn_proto.directives = create_empty_directives(c);
     node->data.fn_proto.is_var_args = fn_decl->isVariadic();
     buf_init_from_str(&node->data.fn_proto.name, decl_name(fn_decl));
 
@@ -276,6 +290,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
             break;
         }
 
+        normalize_parent_ptrs(param_decl_node);
         node->data.fn_proto.params.append(param_decl_node);
     }
 
@@ -296,8 +311,9 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         return;
     }
 
-    c->parse_h->fn_list.append(node);
+    normalize_parent_ptrs(node);
 
+    c->root->data.root.top_level_decls.append(node);
 }
 
 static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) {
@@ -322,6 +338,7 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
     AstNode *node = create_typedef_node(c, type_name, make_qual_type_node(c, child_qt));
 
     if (node) {
+        normalize_parent_ptrs(node);
         c->type_table.put(type_name, true);
     }
 }
@@ -345,7 +362,9 @@ static bool decl_visitor(void *context, const Decl *decl) {
     return true;
 }
 
-int parse_h_buf(ParseH *parse_h, Buf *source, const char **args, int args_len, const char *libc_include_path) {
+int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
+        const char **args, int args_len, const char *libc_include_path)
+{
     int err;
     Buf tmp_file_path = BUF_INIT;
     if ((err = os_buf_to_tmp_file(source, buf_create_from_str(".h"), &tmp_file_path))) {
@@ -361,17 +380,18 @@ int parse_h_buf(ParseH *parse_h, Buf *source, const char **args, int args_len, c
         clang_argv.append(args[i]);
     }
 
-    err = parse_h_file(parse_h, &clang_argv);
+    err = parse_h_file(import, errors, &clang_argv);
 
     os_delete_file(&tmp_file_path);
 
     return err;
 }
 
-int parse_h_file(ParseH *parse_h, ZigList<const char *> *clang_argv) {
+int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, ZigList<const char *> *clang_argv) {
     Context context = {0};
     Context *c = &context;
-    c->parse_h = parse_h;
+    c->import = import;
+    c->errors = errors;
     c->type_table.init(64);
 
     char *ZIG_PARSEH_CFLAGS = getenv("ZIG_PARSEH_CFLAGS");
@@ -455,13 +475,18 @@ int parse_h_file(ParseH *parse_h, ZigList<const char *> *clang_argv) {
 
             ErrorMsg *err_msg = err_msg_create_with_offset(path, line, column, offset, source, msg);
 
-            parse_h->errors.append(err_msg);
+            c->errors->append(err_msg);
         }
 
         return 0;
     }
 
+    c->root = create_node(c, NodeTypeRoot);
     ast_unit->visitLocalTopLevelDecls(c, decl_visitor);
+    normalize_parent_ptrs(c->root);
+
+    import->root = c->root;
+    import->is_c_import = true;
 
     return 0;
 }

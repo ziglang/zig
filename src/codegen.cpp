@@ -13,6 +13,7 @@
 #include "error.hpp"
 #include "analyze.hpp"
 #include "errmsg.hpp"
+#include "ast_render.hpp"
 
 #include <stdio.h>
 #include <errno.h>
@@ -3117,7 +3118,7 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
             &g->next_node_index);
     assert(import_entry->root);
     if (g->verbose) {
-        ast_print(import_entry->root, 0);
+        ast_print(stderr, import_entry->root, 0);
     }
 
     import_entry->di_file = LLVMZigCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
