@@ -17,7 +17,11 @@ pub fn f64_get_neg_inf() -> f64 {
 }
 
 pub fn f64_is_nan(f: f64) -> bool {
-    0x7FFFFFFFFFFFFFFF == f64_to_bits(f) // TODO improve to catch all cases
+    const bits = f64_to_bits(f);
+    const exp: i64 = i64((bits >> 52) & ((1 << 11) - 1));
+    const sig = (bits & ((1 << 52) - 1)) | (1 << 52);
+
+    sig != 0 && exp == (1 << 11) - 1
 }
 
 pub fn f64_is_inf(f: f64) -> bool {
