@@ -1859,6 +1859,13 @@ fn f(foo: Foo, index: i32) {
     const result = members[index]();
 }
     )SOURCE", 1, ".tmp_source.zig:21:34: error: expected 1 arguments, got 0");
+
+    add_compile_fail_case("missing function name and param name", R"SOURCE(
+fn () {}
+fn f(i32) {}
+    )SOURCE", 2,
+            ".tmp_source.zig:2:1: error: missing function name",
+            ".tmp_source.zig:3:6: error: missing parameter name");
 }
 
 //////////////////////////////////////////////////////////////////////////////

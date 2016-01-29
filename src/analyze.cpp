@@ -457,6 +457,10 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     assert(node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &node->data.fn_proto;
 
+    if (fn_proto->skip) {
+        return;
+    }
+
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
     fn_table_entry->type_entry = fn_type;
     fn_type->data.fn.calling_convention = fn_table_entry->internal_linkage ? LLVMFastCallConv : LLVMCCallConv;
@@ -932,6 +936,9 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
 static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
         AstNode *proto_node)
 {
+    if (proto_node->data.fn_proto.skip) {
+        return;
+    }
     AstNode *fn_def_node = proto_node->data.fn_proto.fn_def_node;
     AstNode *struct_node = proto_node->data.fn_proto.struct_node;
     bool is_extern = proto_node->data.fn_proto.is_extern;
@@ -4307,6 +4314,10 @@ static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNo
                 buf_sprintf("byvalue struct parameters not yet supported on exported functions"));
         }
 
+        if (buf_len(&param_decl->name) == 0) {
+            add_node_error(g, param_decl_node, buf_sprintf("missing parameter name"));
+        }
+
         VariableTableEntry *var = add_local_var(g, param_decl_node, context, &param_decl->name, type, true);
         var->src_arg_index = i;
         param_decl_node->data.param_decl.variable = var;
@@ -4682,6 +4693,15 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
             }
         case NodeTypeFnProto:
             {
+                // if the name is missing, we immediately announce an error
+                Buf *name = &node->data.fn_proto.name;
+                if (buf_len(name) == 0) {
+                    node->data.fn_proto.skip = true;
+                    add_node_error(g, node, buf_sprintf("missing function name"));
+                    break;
+                }
+
+
                 // determine which other top level declarations this function prototype depends on.
                 TopLevelDecl *decl_node = &node->data.fn_proto.top_level_decl;
                 decl_node->deps.init(1);
@@ -4692,7 +4712,6 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
                 }
                 collect_expr_decl_deps(g, import, node->data.fn_proto.return_type, decl_node);
 
-                Buf *name = &node->data.fn_proto.name;
                 decl_node->name = name;
                 decl_node->import = import;
                 if (decl_node->deps.size() > 0) {

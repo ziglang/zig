@@ -569,35 +569,33 @@ static void ast_parse_directives(ParseContext *pc, int *token_index,
 }
 
 /*
-ParamDecl : option("noalias") "Symbol" ":" PrefixOpExpression | "..."
+ParamDecl = option("noalias") option("Symbol" ":") PrefixOpExpression | "..."
 */
 static AstNode *ast_parse_param_decl(ParseContext *pc, int *token_index) {
-    Token *first_token = &pc->tokens->at(*token_index);
+    Token *token = &pc->tokens->at(*token_index);
 
-    if (first_token->id == TokenIdEllipsis) {
+    if (token->id == TokenIdEllipsis) {
         *token_index += 1;
         return nullptr;
     }
 
-    AstNode *node = ast_create_node(pc, NodeTypeParamDecl, first_token);
-    Token *name_token;
+    AstNode *node = ast_create_node(pc, NodeTypeParamDecl, token);
 
-    if (first_token->id == TokenIdKeywordNoAlias) {
+    if (token->id == TokenIdKeywordNoAlias) {
         node->data.param_decl.is_noalias = true;
         *token_index += 1;
-        name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
-    } else if (first_token->id == TokenIdSymbol) {
-        name_token = first_token;
-        *token_index += 1;
-    } else {
-        ast_invalid_token_error(pc, first_token);
+        token = &pc->tokens->at(*token_index);
     }
 
-    ast_buf_from_token(pc, name_token, &node->data.param_decl.name);
+    buf_resize(&node->data.param_decl.name, 0);
 
-    Token *colon = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, colon, TokenIdColon);
+    if (token->id == TokenIdSymbol) {
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdColon) {
+            ast_buf_from_token(pc, token, &node->data.param_decl.name);
+            *token_index += 2;
+        }
+    }
 
     node->data.param_decl.type = ast_parse_prefix_op_expr(pc, token_index, true);
 
@@ -2179,7 +2177,7 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
 }
 
 /*
-FnProto : "fn" "Symbol" ParamDeclList option("->" PrefixOpExpression)
+FnProto : "fn" option("Symbol") ParamDeclList option("->" PrefixOpExpression)
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
@@ -2200,11 +2198,12 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
     node->data.fn_proto.directives = directives;
 
     Token *fn_name = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, fn_name, TokenIdSymbol);
-
-    ast_buf_from_token(pc, fn_name, &node->data.fn_proto.name);
-
+    if (fn_name->id == TokenIdSymbol) {
+        *token_index += 1;
+        ast_buf_from_token(pc, fn_name, &node->data.fn_proto.name);
+    } else {
+        buf_resize(&node->data.fn_proto.name, 0);
+    }
 
     ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
 

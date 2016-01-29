@@ -3,153 +3,153 @@
 ## Grammar
 
 ```
-Root : many(TopLevelDecl) "EOF"
+Root = many(TopLevelDecl) "EOF"
 
-TopLevelDecl : many(Directive) option(VisibleMod) (FnDef | ExternDecl | RootExportDecl | Import | ContainerDecl | GlobalVarDecl | ErrorValueDecl | CImportDecl)
+TopLevelDecl = many(Directive) option(VisibleMod) (FnDef | ExternDecl | RootExportDecl | Import | ContainerDecl | GlobalVarDecl | ErrorValueDecl | CImportDecl)
 
-CImportDecl : "c_import" Block
+CImportDecl = "c_import" Block
 
-ErrorValueDecl : "error" "Symbol" ";"
+ErrorValueDecl = "error" "Symbol" ";"
 
-GlobalVarDecl : VariableDeclaration ";"
+GlobalVarDecl = VariableDeclaration ";"
 
-VariableDeclaration : ("var" | "const") "Symbol" option(":" PrefixOpExpression) "=" Expression
+VariableDeclaration = ("var" | "const") "Symbol" option(":" PrefixOpExpression) "=" Expression
 
-ContainerDecl : ("struct" | "enum") "Symbol" "{" many(StructMember) "}"
+ContainerDecl = ("struct" | "enum") "Symbol" "{" many(StructMember) "}"
 
-StructMember: many(Directive) option(VisibleMod) (StructField | FnDef)
+StructMember = many(Directive) option(VisibleMod) (StructField | FnDef)
 
-StructField : "Symbol" option(":" Expression) ",")
+StructField = "Symbol" option(":" Expression) ",")
 
-Import : "import" "String" ";"
+Import = "import" "String" ";"
 
-RootExportDecl : "export" "Symbol" "String" ";"
+RootExportDecl = "export" "Symbol" "String" ";"
 
-ExternDecl : "extern" FnProto ";"
+ExternDecl = "extern" FnProto ";"
 
-FnProto : "fn" "Symbol" ParamDeclList option("->" PrefixOpExpression)
+FnProto = "fn" option("Symbol") ParamDeclList option("->" PrefixOpExpression)
 
-Directive : "#" "Symbol" "(" "String" ")"
+Directive = "#" "Symbol" "(" "String" ")"
 
-VisibleMod : "pub" | "export"
+VisibleMod = "pub" | "export"
 
-FnDef : FnProto Block
+FnDef = FnProto Block
 
-ParamDeclList : "(" list(ParamDecl, ",") ")"
+ParamDeclList = "(" list(ParamDecl, ",") ")"
 
-ParamDecl : option("noalias") "Symbol" ":" PrefixOpExpression | "..."
+ParamDecl = option("noalias") option("Symbol" ":") PrefixOpExpression | "..."
 
-Block : "{" list(option(Statement), ";") "}"
+Block = "{" list(option(Statement), ";") "}"
 
-Statement : Label | VariableDeclaration ";" | NonBlockExpression ";" | BlockExpression
+Statement = Label | VariableDeclaration ";" | NonBlockExpression ";" | BlockExpression
 
-Label: "Symbol" ":"
+Label = "Symbol" ":"
 
-Expression : BlockExpression | NonBlockExpression
+Expression = BlockExpression | NonBlockExpression
 
-NonBlockExpression : ReturnExpression | AssignmentExpression
+NonBlockExpression = ReturnExpression | AssignmentExpression
 
-AsmExpression : "asm" option("volatile") "(" "String" option(AsmOutput) ")"
+AsmExpression = "asm" option("volatile") "(" "String" option(AsmOutput) ")"
 
-AsmOutput : ":" list(AsmOutputItem, ",") option(AsmInput)
+AsmOutput = ":" list(AsmOutputItem, ",") option(AsmInput)
 
-AsmInput : ":" list(AsmInputItem, ",") option(AsmClobbers)
+AsmInput = ":" list(AsmInputItem, ",") option(AsmClobbers)
 
-AsmOutputItem : "[" "Symbol" "]" "String" "(" ("Symbol" | "->" PrefixOpExpression) ")"
+AsmOutputItem = "[" "Symbol" "]" "String" "(" ("Symbol" | "->" PrefixOpExpression) ")"
 
-AsmInputItem : "[" "Symbol" "]" "String" "(" Expression ")"
+AsmInputItem = "[" "Symbol" "]" "String" "(" Expression ")"
 
-AsmClobbers: ":" list("String", ",")
+AsmClobbers= ":" list("String", ",")
 
-UnwrapExpression : BoolOrExpression (UnwrapMaybe | UnwrapError) | BoolOrExpression
+UnwrapExpression = BoolOrExpression (UnwrapMaybe | UnwrapError) | BoolOrExpression
 
-UnwrapMaybe : "??" BoolOrExpression
+UnwrapMaybe = "??" BoolOrExpression
 
-UnwrapError : "%%" option("|" "Symbol" "|") BoolOrExpression
+UnwrapError = "%%" option("|" "Symbol" "|") BoolOrExpression
 
-AssignmentExpression : UnwrapExpression AssignmentOperator UnwrapExpression | UnwrapExpression
+AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | UnwrapExpression
 
-AssignmentOperator : "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||="
+AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||="
 
-BlockExpression : IfExpression | Block | WhileExpression | ForExpression | SwitchExpression
+BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression
 
-SwitchExpression : "switch" "(" Expression ")" "{" many(SwitchProng) "}"
+SwitchExpression = "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 
-SwitchProng : (list(SwitchItem, ",") | "else") option(":" "(" "Symbol" ")") "=>" Expression ","
+SwitchProng = (list(SwitchItem, ",") | "else") option(":" "(" "Symbol" ")") "=>" Expression ","
 
-SwitchItem : Expression | (Expression "..." Expression)
+SwitchItem = Expression | (Expression "..." Expression)
 
-WhileExpression : "while" "(" Expression ")" Expression
+WhileExpression = "while" "(" Expression ")" Expression
 
-ForExpression : "for" "(" "Symbol" "," Expression option("," "Symbol") ")" Expression
+ForExpression = "for" "(" "Symbol" "," Expression option("," "Symbol") ")" Expression
 
-BoolOrExpression : BoolAndExpression "||" BoolOrExpression | BoolAndExpression
+BoolOrExpression = BoolAndExpression "||" BoolOrExpression | BoolAndExpression
 
-ReturnExpression : option("%" | "?") "return" option(Expression)
+ReturnExpression = option("%" | "?") "return" option(Expression)
 
-IfExpression : IfVarExpression | IfBoolExpression
+IfExpression = IfVarExpression | IfBoolExpression
 
-IfBoolExpression : "if" "(" Expression ")" Expression option(Else)
+IfBoolExpression = "if" "(" Expression ")" Expression option(Else)
 
-IfVarExpression : "if" "(" ("const" | "var") "Symbol" option(":" PrefixOpExpression) "?=" Expression ")" Expression Option(Else)
+IfVarExpression = "if" "(" ("const" | "var") "Symbol" option(":" PrefixOpExpression) "?=" Expression ")" Expression Option(Else)
 
-Else : "else" Expression
+Else = "else" Expression
 
-BoolAndExpression : ComparisonExpression "&&" BoolAndExpression | ComparisonExpression
+BoolAndExpression = ComparisonExpression "&&" BoolAndExpression | ComparisonExpression
 
-ComparisonExpression : BinaryOrExpression ComparisonOperator BinaryOrExpression | BinaryOrExpression
+ComparisonExpression = BinaryOrExpression ComparisonOperator BinaryOrExpression | BinaryOrExpression
 
-ComparisonOperator : "==" | "!=" | "<" | ">" | "<=" | ">="
+ComparisonOperator = "==" | "!=" | "<" | ">" | "<=" | ">="
 
-BinaryOrExpression : BinaryXorExpression "|" BinaryOrExpression | BinaryXorExpression
+BinaryOrExpression = BinaryXorExpression "|" BinaryOrExpression | BinaryXorExpression
 
-BinaryXorExpression : BinaryAndExpression "^" BinaryXorExpression | BinaryAndExpression
+BinaryXorExpression = BinaryAndExpression "^" BinaryXorExpression | BinaryAndExpression
 
-BinaryAndExpression : BitShiftExpression "&" BinaryAndExpression | BitShiftExpression
+BinaryAndExpression = BitShiftExpression "&" BinaryAndExpression | BitShiftExpression
 
-BitShiftExpression : AdditionExpression BitShiftOperator BitShiftExpression | AdditionExpression
+BitShiftExpression = AdditionExpression BitShiftOperator BitShiftExpression | AdditionExpression
 
-BitShiftOperator : "<<" | ">>"
+BitShiftOperator = "<<" | ">>"
 
-AdditionExpression : MultiplyExpression AdditionOperator AdditionExpression | MultiplyExpression
+AdditionExpression = MultiplyExpression AdditionOperator AdditionExpression | MultiplyExpression
 
-AdditionOperator : "+" | "-" | "++"
+AdditionOperator = "+" | "-" | "++"
 
-MultiplyExpression : CurlySuffixExpression MultiplyOperator MultiplyExpression | CurlySuffixExpression
+MultiplyExpression = CurlySuffixExpression MultiplyOperator MultiplyExpression | CurlySuffixExpression
 
-CurlySuffixExpression : PrefixOpExpression option(ContainerInitExpression)
+CurlySuffixExpression = PrefixOpExpression option(ContainerInitExpression)
 
-MultiplyOperator : "*" | "/" | "%"
+MultiplyOperator = "*" | "/" | "%"
 
-PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
+PrefixOpExpression = PrefixOp PrefixOpExpression | SuffixOpExpression
 
-SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 
-FieldAccessExpression : "." "Symbol"
+FieldAccessExpression = "." "Symbol"
 
-FnCallExpression : "(" list(Expression, ",") ")"
+FnCallExpression = "(" list(Expression, ",") ")"
 
-ArrayAccessExpression : "[" Expression "]"
+ArrayAccessExpression = "[" Expression "]"
 
-SliceExpression : "[" Expression "..." option(Expression) "]" option("const")
+SliceExpression = "[" Expression "..." option(Expression) "]" option("const")
 
-ContainerInitExpression : "{" ContainerInitBody "}"
+ContainerInitExpression = "{" ContainerInitBody "}"
 
-ContainerInitBody : list(StructLiteralField, ",") | list(Expression, ",")
+ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
-StructLiteralField : "." "Symbol" "=" Expression
+StructLiteralField = "." "Symbol" "=" Expression
 
-PrefixOp : "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%"
+PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%"
 
-PrimaryExpression : "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | AsmExpression | ("error" "." "Symbol")
+PrimaryExpression = "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." "Symbol")
 
-ArrayType : "[" option(Expression) "]" option("const") PrefixOpExpression
+ArrayType = "[" option(Expression) "]" option("const") PrefixOpExpression
 
-GotoExpression: "goto" "Symbol"
+GotoExpression = "goto" "Symbol"
 
-GroupedExpression : "(" Expression ")"
+GroupedExpression = "(" Expression ")"
 
-KeywordLiteral : "true" | "false" | "null" | "break" | "continue" | "undefined" | "error"
+KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error"
 ```
 
 ## Operator Precedence
@@ -204,9 +204,11 @@ c_ulonglong     unsigned long long  for ABI compatibility with C
 ```
 
 ### Boolean Type
+
 The boolean type has the name `bool` and represents either true or false.
 
 ### Function Type
+
 TODO
 
 ### Fixed-Size Array Type
@@ -222,6 +224,7 @@ A slice can be obtained with the slicing syntax: `array[start...end]`
 Example: `"aoeu"[0...2]` has type `[]u8`.
 
 ### Struct Type
+
 TODO
 
 ### Enum Type
@@ -296,34 +299,44 @@ Hex floating point  TODO         TODO
 ```
 
 ### Identifiers
+
 TODO
 
 ### Declarations
+
 Declarations have type `void`.
 
 #### Function Declarations
+
 TODO
 
 #### Variable Declarations
+
 TODO
 
 #### Struct Declarations
+
 TODO
 
 #### Enum Declarations
+
 TODO
 
 
 ## Built-in Functions
+
 Built-in functions are prefixed with `@`.
 
 ### Typeof
+
 TODO
 
 ### Sizeof
+
 TODO
 
 ### Overflow Arithmetic
+
 Overflow arithmetic functions have defined behavior on overflow or underflow. TODO what is that behaviour?
 
 The functions take an integer (TODO float?) type, two variables of the specified type, and a pointer to a variable of the specified type where the result is stored. The functions return a boolean value: true of overflow/underflow occurred, false otherwise.
@@ -336,10 +349,13 @@ bool mul_with_overflow(type, a: type, b: type, x: &type)  *x = a * b
 ```
 
 ### Memory Operations
+
 TODO memset and memcpy
 
 ### Value Count
+
 TODO
 
 ### Max and Min Value
+
 TODO
