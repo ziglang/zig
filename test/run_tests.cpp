@@ -1425,6 +1425,19 @@ pub fn main(args: [][]u8) -> %void {
     %%stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
+
+    add_simple_case("call result of if else expression", R"SOURCE(
+import "std.zig";
+fn a() -> []u8 { "a\n" }
+fn b() -> []u8 { "b\n" }
+fn f(x: bool) {
+    %%stdout.printf((if (x) a else b)());
+}
+pub fn main(args: [][]u8) -> %void {
+    f(true);
+    f(false);
+}
+    )SOURCE", "a\nb\n");
 }
 
 
