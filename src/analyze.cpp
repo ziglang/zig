@@ -90,6 +90,8 @@ static AstNode *first_executing_node(AstNode *node) {
 }
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
+    // if this assert fails, then parseh generated code that
+    // failed semantic analysis, which isn't supposed to happen
     assert(!node->owner->c_import_node);
 
     ErrorMsg *err = err_msg_create_with_line(node->owner->path, node->line, node->column,
@@ -2768,6 +2770,7 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
 {
     bool is_const = variable_declaration->is_const;
     bool is_export = (variable_declaration->visib_mod == VisibModExport);
+    bool is_extern = variable_declaration->is_extern;
 
     TypeTableEntry *explicit_type = nullptr;
     if (variable_declaration->type != nullptr) {
@@ -2812,7 +2815,7 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
                         buf_sprintf("global variable initializer requires constant expression"));
             }
         }
-    } else {
+    } else if (!is_extern) {
         add_node_error(g, source_node, buf_sprintf("variables must be initialized"));
         implicit_type = g->builtin_types.entry_invalid;
     }

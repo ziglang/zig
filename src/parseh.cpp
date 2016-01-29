@@ -97,15 +97,22 @@ static ZigList<AstNode *> *create_empty_directives(Context *c) {
     return allocate<ZigList<AstNode*>>(1);
 }
 
-static AstNode *create_var_decl_node(Context *c, const char *var_name, AstNode *expr_node) {
+static AstNode *create_typed_var_decl_node(Context *c, bool is_const, const char *var_name,
+        AstNode *type_node, AstNode *init_node)
+{
     AstNode *node = create_node(c, NodeTypeVariableDeclaration);
     buf_init_from_str(&node->data.variable_declaration.symbol, var_name);
-    node->data.variable_declaration.is_const = true;
+    node->data.variable_declaration.is_const = is_const;
     node->data.variable_declaration.visib_mod = c->visib_mod;
-    node->data.variable_declaration.expr = expr_node;
+    node->data.variable_declaration.expr = init_node;
     node->data.variable_declaration.directives = create_empty_directives(c);
+    node->data.variable_declaration.type = type_node;
     normalize_parent_ptrs(node);
     return node;
+}
+
+static AstNode *create_var_decl_node(Context *c, const char *var_name, AstNode *expr_node) {
+    return create_typed_var_decl_node(c, true, var_name, nullptr, expr_node);
 }
 
 static AstNode *create_prefix_node(Context *c, PrefixOp op, AstNode *child_node) {
@@ -150,8 +157,22 @@ static AstNode *create_num_lit_unsigned(Context *c, uint64_t x) {
     AstNode *node = create_node(c, NodeTypeNumberLiteral);
     node->data.number_literal.kind = NumLitUInt;
     node->data.number_literal.data.x_uint = x;
-
     return node;
+}
+
+static AstNode *create_num_lit_signed(Context *c, int64_t x) {
+    if (x >= 0) {
+        return create_num_lit_unsigned(c, x);
+    }
+    BigNum bn_orig;
+    bignum_init_signed(&bn_orig, x);
+
+    BigNum bn_negated;
+    bignum_negate(&bn_negated, &bn_orig);
+
+    uint64_t uint = bignum_to_twos_complement(&bn_negated);
+    AstNode *num_lit_node = create_num_lit_unsigned(c, uint);
+    return create_prefix_node(c, PrefixOpNegation, num_lit_node);
 }
 
 static AstNode *create_array_type_node(Context *c, AstNode *child_type_node, uint64_t size, bool is_const) {
@@ -200,6 +221,11 @@ static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
     PrefixOp op = is_const ? PrefixOpConstAddressOf : PrefixOpAddressOf;
     AstNode *child_node = create_prefix_node(c, op, convert_to_c_void(c, type_node));
     return create_prefix_node(c, PrefixOpMaybe, child_node);
+}
+
+static bool type_is_int(AstNode *type_node) {
+    // TODO recurse through the type table
+    return true;
 }
 
 static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
@@ -689,6 +715,104 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
     add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
 }
 
+static void visit_var_decl(Context *c, const VarDecl *var_decl) {
+    Buf *name = buf_create_from_str(decl_name(var_decl));
+
+    switch (var_decl->getTLSKind()) {
+        case VarDecl::TLS_None:
+            break;
+        case VarDecl::TLS_Static:
+            emit_warning(c, var_decl, "ignoring variable '%s' - static thread local storage\n", buf_ptr(name));
+            return;
+        case VarDecl::TLS_Dynamic:
+            emit_warning(c, var_decl, "ignoring variable '%s' - dynamic thread local storage\n", buf_ptr(name));
+            return;
+    }
+
+    QualType qt = var_decl->getType();
+    AstNode *type_node = make_qual_type_node(c, qt, var_decl);
+    if (!type_node) {
+        emit_warning(c, var_decl, "ignoring variable '%s' - unresolved type\n", buf_ptr(name));
+        return;
+    }
+
+    bool is_extern = var_decl->hasExternalStorage();
+    bool is_static = var_decl->isFileVarDecl();
+    bool is_const = qt.isConstQualified();
+
+    if (is_static && !is_extern) {
+        if (!var_decl->hasInit()) {
+            emit_warning(c, var_decl, "ignoring variable '%s' - no initializer\n", buf_ptr(name));
+            return;
+        }
+        APValue *ap_value = var_decl->evaluateValue();
+        if (!ap_value) {
+            emit_warning(c, var_decl, "ignoring variable '%s' - unable to evaluate initializer\n", buf_ptr(name));
+            return;
+        }
+        AstNode *init_node;
+        switch (ap_value->getKind()) {
+            case APValue::Int:
+                {
+                    if (!type_is_int(type_node)) {
+                        emit_warning(c, var_decl,
+                            "ignoring variable '%s' - int initializer for non int type\n", buf_ptr(name));
+                        return;
+                    }
+                    llvm::APSInt aps_int = ap_value->getInt();
+                    if (aps_int.isSigned()) {
+                        if (aps_int > INT64_MAX || aps_int < INT64_MIN) {
+                            emit_warning(c, var_decl,
+                                "ignoring variable '%s' - initializer overflow\n", buf_ptr(name));
+                            return;
+                        } else {
+                            init_node = create_num_lit_signed(c, aps_int.getExtValue());
+                        }
+                    } else {
+                        if (aps_int > UINT64_MAX) {
+                            emit_warning(c, var_decl,
+                                "ignoring variable '%s' - initializer overflow\n", buf_ptr(name));
+                            return;
+                        } else {
+                            init_node = create_num_lit_unsigned(c, aps_int.getExtValue());
+                        }
+                    }
+                    break;
+                }
+            case APValue::Uninitialized:
+            case APValue::Float:
+            case APValue::ComplexInt:
+            case APValue::ComplexFloat:
+            case APValue::LValue:
+            case APValue::Vector:
+            case APValue::Array:
+            case APValue::Struct:
+            case APValue::Union:
+            case APValue::MemberPointer:
+            case APValue::AddrLabelDiff:
+                emit_warning(c, var_decl,
+                        "ignoring variable '%s' - unrecognized initializer value kind\n", buf_ptr(name));
+                return;
+        }
+
+        AstNode *var_node = create_typed_var_decl_node(c, true, buf_ptr(name), type_node, init_node);
+        c->root->data.root.top_level_decls.append(var_node);
+        c->root_name_table.put(name, true);
+        return;
+    }
+
+    if (is_extern) {
+        AstNode *var_node = create_typed_var_decl_node(c, is_const, buf_ptr(name), type_node, nullptr);
+        var_node->data.variable_declaration.is_extern = true;
+        c->root->data.root.top_level_decls.append(var_node);
+        c->root_name_table.put(name, true);
+        return;
+    }
+
+    emit_warning(c, var_decl, "ignoring variable '%s' - non-extern, non-static variable\n", buf_ptr(name));
+    return;
+}
+
 static bool decl_visitor(void *context, const Decl *decl) {
     Context *c = (Context*)context;
 
@@ -704,6 +828,9 @@ static bool decl_visitor(void *context, const Decl *decl) {
             break;
         case Decl::Record:
             visit_record_decl(c, static_cast<const RecordDecl *>(decl));
+            break;
+        case Decl::Var:
+            visit_var_decl(c, static_cast<const VarDecl *>(decl));
             break;
         default:
             emit_warning(c, decl, "ignoring %s decl\n", decl->getDeclKindName());

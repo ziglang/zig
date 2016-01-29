@@ -2011,6 +2011,14 @@ pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;)OUTPUT",
     )SOURCE", 2,
             "pub const THING1 = 1234;",
             "pub const THING2 = THING1;");
+
+
+    add_parseh_case("variables", R"SOURCE(
+extern int extern_var;
+static const int int_var = 13;
+    )SOURCE", 2,
+            "pub extern var extern_var: c_int;",
+            "pub const int_var: c_int = 13;");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

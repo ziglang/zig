@@ -25,7 +25,7 @@ Import = "import" "String" ";"
 
 RootExportDecl = "export" "Symbol" "String" ";"
 
-ExternDecl = "extern" FnProto ";"
+ExternDecl = "extern" (FnProto | VariableDeclaration) ";"
 
 FnProto = "fn" option("Symbol") ParamDeclList option("->" PrefixOpExpression)
 
