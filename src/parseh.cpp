@@ -20,6 +20,11 @@
 
 using namespace clang;
 
+struct MacroSymbol {
+    Buf *name;
+    Buf *value;
+};
+
 struct Context {
     ImportTableEntry *import;
     ZigList<ErrorMsg *> *errors;
@@ -27,13 +32,14 @@ struct Context {
     VisibMod visib_mod;
     bool have_c_void_decl_node;
     AstNode *root;
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> root_type_table;
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> root_name_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> struct_type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> enum_type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> fn_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
     SourceManager *source_manager;
     ZigList<AstNode *> aliases;
+    ZigList<MacroSymbol> macro_symbols;
 };
 
 static AstNode *make_qual_type_node(Context *c, QualType qt, const Decl *decl);
@@ -169,7 +175,7 @@ static AstNode *add_typedef_node(Context *c, Buf *new_name, AstNode *target_node
     }
     AstNode *node = create_var_decl_node(c, buf_ptr(new_name), target_node);
 
-    c->root_type_table.put(new_name, true);
+    c->root_name_table.put(new_name, true);
     c->root->data.root.top_level_decls.append(node);
     return node;
 }
@@ -453,7 +459,7 @@ static AstNode *make_qual_type_node_with_table(Context *c, QualType qt, const De
 }
 
 static AstNode *make_qual_type_node(Context *c, QualType qt, const Decl *decl) {
-    return make_qual_type_node_with_table(c, qt, decl, &c->root_type_table);
+    return make_qual_type_node_with_table(c, qt, decl, &c->root_name_table);
 }
 
 static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
@@ -576,13 +582,12 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
             emit_warning(c, enum_const, "skipping enum %s - has init expression\n", buf_ptr(bare_name));
             return;
         }
-        Buf enum_val_name = BUF_INIT;
-        buf_init_from_str(&enum_val_name, decl_name(enum_const));
+        Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
 
         Buf field_name = BUF_INIT;
 
-        if (buf_starts_with_buf(&enum_val_name, bare_name)) {
-            Buf *slice = buf_slice(&enum_val_name, buf_len(bare_name), buf_len(&enum_val_name));
+        if (buf_starts_with_buf(enum_val_name, bare_name)) {
+            Buf *slice = buf_slice(enum_val_name, buf_len(bare_name), buf_len(enum_val_name));
             if (valid_symbol_starter(buf_ptr(slice)[0])) {
                 buf_init_from_buf(&field_name, slice);
             } else {
@@ -590,7 +595,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
                 buf_appendf(&field_name, "_%s", buf_ptr(slice));
             }
         } else {
-            buf_init_from_buf(&field_name, &enum_val_name);
+            buf_init_from_buf(&field_name, enum_val_name);
         }
 
         AstNode *field_node = create_struct_field_node(c, buf_ptr(&field_name), create_symbol_node(c, "void"));
@@ -598,8 +603,9 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
         // in C each enum value is in the global namespace. so we put them there too.
         AstNode *field_access_node = create_field_access_node(c, buf_ptr(full_type_name), buf_ptr(&field_name));
-        AstNode *var_node = create_var_decl_node(c, buf_ptr(&enum_val_name), field_access_node);
+        AstNode *var_node = create_var_decl_node(c, buf_ptr(enum_val_name), field_access_node);
         var_decls.append(var_node);
+        c->root_name_table.put(enum_val_name, true);
     }
 
     normalize_parent_ptrs(node);
@@ -704,18 +710,25 @@ static bool decl_visitor(void *context, const Decl *decl) {
     return true;
 }
 
+static bool name_exists(Context *c, Buf *name) {
+    if (c->root_name_table.maybe_get(name)) {
+        return true;
+    }
+    if (c->fn_table.maybe_get(name)) {
+        return true;
+    }
+    if (c->macro_table.maybe_get(name)) {
+        return true;
+    }
+    return false;
+}
+
 static void render_aliases(Context *c) {
     for (int i = 0; i < c->aliases.length; i += 1) {
         AstNode *alias_node = c->aliases.at(i);
         assert(alias_node->type == NodeTypeVariableDeclaration);
         Buf *name = &alias_node->data.variable_declaration.symbol;
-        if (c->root_type_table.maybe_get(name)) {
-            continue;
-        }
-        if (c->fn_table.maybe_get(name)) {
-            continue;
-        }
-        if (c->macro_table.maybe_get(name)) {
+        if (name_exists(c, name)) {
             continue;
         }
         c->root->data.root.top_level_decls.append(alias_node);
@@ -791,7 +804,30 @@ static int parse_c_num_lit_unsigned(Buf *buf, uint64_t *out_val) {
     return 0;
 }
 
+static bool is_simple_symbol(Buf *buf) {
+    bool first = true;
+    for (int i = 0; i < buf_len(buf); i += 1) {
+        uint8_t c = buf_ptr(buf)[i];
+        bool valid_alpha = (c >= 'a' && c <= 'z') ||
+            (c >= 'A' && c <= 'Z') || c == '_';
+        bool valid_digit = (c >= '0' && c <= '9');
+
+        bool ok = (valid_alpha || (!first && valid_digit));
+        first = false;
+
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void process_macro(Context *c, Buf *name, Buf *value) {
+    //fprintf(stderr, "macro '%s' = '%s'\n", buf_ptr(name), buf_ptr(value));
+    if (is_zig_keyword(name)) {
+        return;
+    }
+
     // maybe it's a character literal
     uint8_t ch;
     if (!parse_c_char_lit(value, &ch)) {
@@ -811,7 +847,20 @@ static void process_macro(Context *c, Buf *name, Buf *value) {
     }
 
     // maybe it's a symbol
-    // TODO
+    if (is_simple_symbol(value)) {
+        c->macro_symbols.append({name, value});
+    }
+}
+
+static void process_symbol_macros(Context *c) {
+    for (int i = 0; i < c->macro_symbols.length; i += 1) {
+        MacroSymbol ms = c->macro_symbols.at(i);
+        if (name_exists(c, ms.value)) {
+            AstNode *var_node = create_var_decl_node(c, buf_ptr(ms.name),
+                    create_symbol_node(c, buf_ptr(ms.value)));
+            c->macro_table.put(ms.name, var_node);
+        }
+    }
 }
 
 static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
@@ -885,7 +934,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
     c->import = import;
     c->errors = errors;
     c->visib_mod = VisibModPub;
-    c->root_type_table.init(8);
+    c->root_name_table.init(8);
     c->enum_type_table.init(8);
     c->struct_type_table.init(8);
     c->fn_table.init(8);
@@ -990,6 +1039,8 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
     ast_unit->visitLocalTopLevelDecls(c, decl_visitor);
 
     process_preprocessor_entities(c, *ast_unit);
+
+    process_symbol_macros(c);
 
     render_macros(c);
     render_aliases(c);

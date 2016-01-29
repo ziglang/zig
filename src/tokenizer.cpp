@@ -97,6 +97,22 @@
     ALPHA: \
     case '_'
 
+const char * zig_keywords[] = {
+    "true", "false", "null", "fn", "return", "var", "const", "extern",
+    "pub", "export", "import", "c_import", "if", "else", "goto", "asm",
+    "volatile", "struct", "enum", "while", "for", "continue", "break",
+    "null", "noalias", "switch", "undefined", "error"
+};
+
+bool is_zig_keyword(Buf *buf) {
+    for (int i = 0; i < array_length(zig_keywords); i += 1) {
+        if (buf_eql_str(buf, zig_keywords[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+
 enum TokenizeState {
     TokenizeStateStart,
     TokenizeStateSymbol,

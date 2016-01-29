@@ -1998,10 +1998,19 @@ pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;)OUTPUT",
 #define CHANNEL_COUNT 24
     )SOURCE", 1, R"OUTPUT(pub const CHANNEL_COUNT = 24;)OUTPUT");
 
+
     add_parseh_case("overide previous #define", R"SOURCE(
 #define A_CHAR 'a'
 #define A_CHAR 'b'
     )SOURCE", 1, "pub const A_CHAR = 'b';");
+
+
+    add_parseh_case("#define referencing another #define", R"SOURCE(
+#define THING2 THING1
+#define THING1 1234
+    )SOURCE", 2,
+            "pub const THING1 = 1234;",
+            "pub const THING2 = THING1;");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

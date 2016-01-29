@@ -131,5 +131,6 @@ int get_digit_value(uint8_t c);
 const char * token_name(TokenId id);
 
 bool valid_symbol_starter(uint8_t c);
+bool is_zig_keyword(Buf *buf);
 
 #endif
