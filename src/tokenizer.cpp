@@ -1140,42 +1140,6 @@ void print_tokens(Buf *buf, ZigList<Token> *tokens) {
     }
 }
 
-bool is_printable(uint8_t c) {
-    switch (c) {
-        default:
-            return false;
-        case DIGIT:
-        case ALPHA:
-        case '!':
-        case '#':
-        case '$':
-        case '%':
-        case '&':
-        case '\'':
-        case '(':
-        case ')':
-        case '*':
-        case '+':
-        case ',':
-        case '-':
-        case '.':
-        case '/':
-        case ':':
-        case ';':
-        case '<':
-        case '=':
-        case '>':
-        case '?':
-        case '@':
-        case '^':
-        case '_':
-        case '`':
-        case '~':
-        case ' ':
-            return true;
-    }
-}
-
 bool valid_symbol_starter(uint8_t c) {
     switch (c) {
         case SYMBOL_START:

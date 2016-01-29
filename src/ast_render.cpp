@@ -497,6 +497,12 @@ static bool is_node_void(AstNode *node) {
     return node->type == NodeTypeSymbol && buf_eql_str(&node->data.symbol_expr.symbol, "void");
 }
 
+static bool is_printable(uint8_t c) {
+    return (c >= 'a' && c <= 'z') ||
+           (c >= 'A' && c <= 'A') ||
+           (c >= '0' && c <= '9');
+}
+
 static void render_node(AstRender *ar, AstNode *node) {
     assert(node->type == NodeTypeRoot || *node->parent_field == node);
 
@@ -601,7 +607,15 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeStringLiteral:
             zig_panic("TODO");
         case NodeTypeCharLiteral:
-            zig_panic("TODO");
+            {
+                uint8_t c = node->data.char_literal.value;
+                if (is_printable(c)) {
+                    fprintf(ar->f, "'%c'", c);
+                } else {
+                    fprintf(ar->f, "'\\x%x'", (int)c);
+                }
+                break;
+            }
         case NodeTypeSymbol:
             fprintf(ar->f, "%s", buf_ptr(&node->data.symbol_expr.symbol));
             break;

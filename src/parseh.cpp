@@ -31,6 +31,7 @@ struct Context {
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> struct_type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> enum_type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> fn_table;
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> macro_table;
     SourceManager *source_manager;
     ZigList<AstNode *> aliases;
 };
@@ -132,12 +133,17 @@ static AstNode *create_param_decl_node(Context *c, const char *name, AstNode *ty
     return node;
 }
 
+static AstNode *create_char_lit_node(Context *c, uint8_t value) {
+    AstNode *node = create_node(c, NodeTypeCharLiteral);
+    node->data.char_literal.value = value;
+    return node;
+}
+
 static AstNode *create_num_lit_unsigned(Context *c, uint64_t x) {
     AstNode *node = create_node(c, NodeTypeNumberLiteral);
     node->data.number_literal.kind = NumLitUInt;
     node->data.number_literal.data.x_uint = x;
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -713,6 +719,69 @@ static void render_aliases(Context *c) {
     }
 }
 
+static int parse_c_char_lit(Buf *value, uint8_t *out_c) {
+    enum State {
+        StateExpectStartQuot,
+        StateExpectChar,
+        StateExpectEndQuot,
+        StateExpectEnd,
+    };
+    State state = StateExpectStartQuot;
+    for (int i = 0; i < buf_len(value); i += 1) {
+        uint8_t c = buf_ptr(value)[i];
+        switch (state) {
+            case StateExpectStartQuot:
+                switch (c) {
+                    case '\'':
+                        state = StateExpectChar;
+                        break;
+                    default:
+                        return -1;
+                }
+                break;
+            case StateExpectChar:
+                switch (c) {
+                    case '\\':
+                    case '\'':
+                        return -1;
+                    default:
+                        *out_c = c;
+                        state = StateExpectEndQuot;
+                }
+                break;
+            case StateExpectEndQuot:
+                switch (c) {
+                    case '\'':
+                        state = StateExpectEnd;
+                        break;
+                    default:
+                        return -1;
+                }
+                break;
+            case StateExpectEnd:
+                return -1;
+        }
+    }
+    return (state == StateExpectEnd) ? 0 : -1;
+}
+
+static void process_macro(Context *c, Buf *name, Buf *value) {
+    // maybe it's a character literal
+    uint8_t ch;
+    if (!parse_c_char_lit(value, &ch)) {
+        c->macro_table.put(name, true);
+        AstNode *var_node = create_var_decl_node(c, buf_ptr(name), create_char_lit_node(c, ch));
+        c->root->data.root.top_level_decls.append(var_node);
+        return;
+    }
+    // maybe it's a string literal
+    // TODO
+    // maybe it's a number literal
+    // TODO
+    // maybe it's a symbol
+    // TODO
+}
+
 static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
     for (PreprocessedEntity *entity : unit.getLocalPreprocessingEntities()) {
         switch (entity->getKind()) {
@@ -724,14 +793,27 @@ static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
                 {
                     MacroDefinitionRecord *macro = static_cast<MacroDefinitionRecord *>(entity);
                     const char *name = macro->getName()->getNameStart();
-                    fprintf(stderr, "definition macro: %s\n", name);
                     SourceRange range = macro->getSourceRange();
                     SourceLocation begin_loc = range.getBegin();
                     SourceLocation end_loc = range.getEnd();
 
-                    const char *start_c = c->source_manager->getCharacterData(begin_loc);
+                    if (begin_loc == end_loc) {
+                        // this means it is a macro without a value
+                        // we don't care about such things
+                        continue;
+                    }
+
                     const char *end_c = c->source_manager->getCharacterData(end_loc);
-                    fprintf(stderr, "source: '%.*s'\n", (int)(end_c - start_c), start_c);
+                    Buf *value = buf_alloc();
+                    while (*end_c && *end_c != '\n') {
+                        buf_append_char(value, *end_c);
+                        if (end_c[0] == '\\' && end_c[1] == '\n') {
+                            end_c += 2;
+                        } else {
+                            end_c += 1;
+                        }
+                    }
+                    process_macro(c, buf_create_from_str(name), value);
                 }
         }
     }
@@ -771,10 +853,11 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
     c->import = import;
     c->errors = errors;
     c->visib_mod = VisibModPub;
-    c->root_type_table.init(16);
-    c->enum_type_table.init(16);
-    c->struct_type_table.init(16);
-    c->fn_table.init(16);
+    c->root_type_table.init(8);
+    c->enum_type_table.init(8);
+    c->struct_type_table.init(8);
+    c->fn_table.init(8);
+    c->macro_table.init(8);
 
     char *ZIG_PARSEH_CFLAGS = getenv("ZIG_PARSEH_CFLAGS");
     if (ZIG_PARSEH_CFLAGS) {

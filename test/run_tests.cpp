@@ -1979,6 +1979,11 @@ struct Foo *some_func(struct Foo *foo, int x);
     )SOURCE", R"OUTPUT(pub const struct_Foo = u8;
 pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;
 pub const Foo = struct_Foo;)OUTPUT");
+
+
+    add_parseh_case("#define a char literal", R"SOURCE(
+#define A_CHAR  'a'
+    )SOURCE", R"OUTPUT(pub const A_CHAR = 'a';)OUTPUT");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
