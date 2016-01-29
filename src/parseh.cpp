@@ -713,6 +713,30 @@ static void render_aliases(Context *c) {
     }
 }
 
+static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
+    for (PreprocessedEntity *entity : unit.getLocalPreprocessingEntities()) {
+        switch (entity->getKind()) {
+            case PreprocessedEntity::InvalidKind:
+            case PreprocessedEntity::InclusionDirectiveKind:
+            case PreprocessedEntity::MacroExpansionKind:
+                continue;
+            case PreprocessedEntity::MacroDefinitionKind:
+                {
+                    MacroDefinitionRecord *macro = static_cast<MacroDefinitionRecord *>(entity);
+                    const char *name = macro->getName()->getNameStart();
+                    fprintf(stderr, "definition macro: %s\n", name);
+                    SourceRange range = macro->getSourceRange();
+                    SourceLocation begin_loc = range.getBegin();
+                    SourceLocation end_loc = range.getEnd();
+
+                    const char *start_c = c->source_manager->getCharacterData(begin_loc);
+                    const char *end_c = c->source_manager->getCharacterData(end_loc);
+                    fprintf(stderr, "source: '%.*s'\n", (int)(end_c - start_c), start_c);
+                }
+        }
+    }
+}
+
 int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
         const char **args, int args_len, const char *libc_include_path, bool warnings_on)
 {
@@ -774,6 +798,12 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
 
     // we don't need spell checking and it slows things down
     clang_argv->append("-fno-spell-checking");
+
+    // this gives us access to preprocessing entities, presumably at
+    // the cost of performance
+    clang_argv->append("-Xclang");
+    clang_argv->append("-detailed-preprocessing-record");
+
     // to make the end argument work
     clang_argv->append(nullptr);
 
@@ -843,6 +873,8 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
 
     c->root = create_node(c, NodeTypeRoot);
     ast_unit->visitLocalTopLevelDecls(c, decl_visitor);
+
+    process_preprocessor_entities(c, *ast_unit);
 
     render_aliases(c);
 
