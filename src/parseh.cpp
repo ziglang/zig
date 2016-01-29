@@ -109,6 +109,7 @@ static AstNode *create_var_decl_node(Context *c, const char *var_name, AstNode *
 }
 
 static AstNode *create_prefix_node(Context *c, PrefixOp op, AstNode *child_node) {
+    assert(child_node);
     AstNode *node = create_node(c, NodeTypePrefixOpExpr);
     node->data.prefix_op_expr.prefix_op = op;
     node->data.prefix_op_expr.primary_expr = child_node;
@@ -195,9 +196,7 @@ static AstNode *convert_to_c_void(Context *c, AstNode *type_node) {
 }
 
 static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
-    if (!type_node) {
-        return nullptr;
-    }
+    assert(type_node);
     PrefixOp op = is_const ? PrefixOpConstAddressOf : PrefixOpAddressOf;
     AstNode *child_node = create_prefix_node(c, op, convert_to_c_void(c, type_node));
     return create_prefix_node(c, PrefixOpMaybe, child_node);
@@ -278,6 +277,9 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                 const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
                 QualType child_qt = pointer_ty->getPointeeType();
                 AstNode *type_node = make_qual_type_node(c, child_qt, decl);
+                if (!type_node) {
+                    return nullptr;
+                }
                 if (child_qt.getTypePtr()->getTypeClass() == Type::Paren) {
                     const ParenType *paren_type = static_cast<const ParenType *>(child_qt.getTypePtr());
                     if (paren_type->getInnerType()->getTypeClass() == Type::FunctionProto) {
