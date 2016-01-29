@@ -244,6 +244,10 @@ pub fn buf_print_u64(out_buf: []u8, x: u64) -> isize {
 }
 
 pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
+    const numExpBits = 11;
+    const numRawSigBits = 52; // not including implicit 1 bit
+    const expBias = 1023;
+
     var decs = decimals;
     if (decs >= max_u64_base10_digits) {
         decs = max_u64_base10_digits - 1;
@@ -277,8 +281,8 @@ pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
         len += 1;
     }
 
-    const rexponent: i64 = i64((bits >> 52) & ((1 << 11) - 1));
-    const exponent = rexponent - 1023 - 52;
+    const rexponent: i64 = i64((bits >> numRawSigBits) & ((1 << numExpBits) - 1));
+    const exponent = rexponent - expBias - numRawSigBits;
 
     if (rexponent == 0) {
         buf[len] = '0';
@@ -287,12 +291,12 @@ pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
         return len;
     }
 
-    const sig = (bits & ((1 << 52) - 1)) | (1 << 52);
+    const sig = (bits & ((1 << numRawSigBits) - 1)) | (1 << numRawSigBits);
 
     if (exponent >= 0) {
         // number is an integer
 
-        if (exponent >= 11) {
+        if (exponent >= 64 - 53) {
             // use XeX form
 
             // TODO support printing large floats
