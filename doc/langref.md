@@ -141,7 +141,7 @@ StructLiteralField = "." "Symbol" "=" Expression
 
 PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%"
 
-PrimaryExpression = "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." "Symbol")
+PrimaryExpression = "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." "Symbol")
 
 ArrayType = "[" option(Expression) "]" option("const") PrefixOpExpression
 

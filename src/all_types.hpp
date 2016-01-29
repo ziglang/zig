@@ -189,6 +189,7 @@ struct AstNodeFnProto {
     FnTableEntry *fn_table_entry;
     bool skip;
     TopLevelDecl top_level_decl;
+    Expr resolved_expr;
 };
 
 struct AstNodeFnDef {
@@ -828,6 +829,7 @@ struct TypeTableEntryFn {
     bool is_var_args;
     int gen_param_count;
     LLVMCallConv calling_convention;
+    bool is_extern;
     bool is_naked;
 };
 

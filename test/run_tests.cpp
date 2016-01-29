@@ -1866,6 +1866,23 @@ fn f(i32) {}
     )SOURCE", 2,
             ".tmp_source.zig:2:1: error: missing function name",
             ".tmp_source.zig:3:6: error: missing parameter name");
+
+    add_compile_fail_case("wrong function type", R"SOURCE(
+const fns = []fn(){ a, b, c };
+fn a() -> i32 {0}
+fn b() -> i32 {1}
+fn c() -> i32 {2}
+    )SOURCE", 3,
+            ".tmp_source.zig:2:21: error: expected type 'fn()', got 'fn() -> i32'",
+            ".tmp_source.zig:2:24: error: expected type 'fn()', got 'fn() -> i32'",
+            ".tmp_source.zig:2:27: error: expected type 'fn()', got 'fn() -> i32'");
+
+    add_compile_fail_case("extern function pointer mismatch", R"SOURCE(
+const fns = [](fn(i32)->i32){ a, b, c };
+pub fn a(x: i32) -> i32 {x + 0}
+pub fn b(x: i32) -> i32 {x + 1}
+export fn c(x: i32) -> i32 {x + 2}
+    )SOURCE", 1, ".tmp_source.zig:2:37: error: expected type 'fn(i32) -> i32', got 'extern fn(i32) -> i32'");
 }
 
 //////////////////////////////////////////////////////////////////////////////
