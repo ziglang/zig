@@ -31,7 +31,7 @@ struct Context {
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> struct_type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> enum_type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> fn_table;
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> macro_table;
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
     SourceManager *source_manager;
     ZigList<AstNode *> aliases;
 };
@@ -715,7 +715,22 @@ static void render_aliases(Context *c) {
         if (c->fn_table.maybe_get(name)) {
             continue;
         }
+        if (c->macro_table.maybe_get(name)) {
+            continue;
+        }
         c->root->data.root.top_level_decls.append(alias_node);
+    }
+}
+
+static void render_macros(Context *c) {
+    auto it = c->macro_table.entry_iterator();
+    for (;;) {
+        auto *entry = it.next();
+        if (!entry)
+            break;
+
+        AstNode *var_node = entry->value;
+        c->root->data.root.top_level_decls.append(var_node);
     }
 }
 
@@ -765,19 +780,36 @@ static int parse_c_char_lit(Buf *value, uint8_t *out_c) {
     return (state == StateExpectEnd) ? 0 : -1;
 }
 
+static int parse_c_num_lit_unsigned(Buf *buf, uint64_t *out_val) {
+    char *temp;
+    *out_val = strtoull(buf_ptr(buf), &temp, 0);
+
+    if (temp == buf_ptr(buf) || *temp != 0 || *out_val == ULLONG_MAX) {
+        return -1;
+    }
+
+    return 0;
+}
+
 static void process_macro(Context *c, Buf *name, Buf *value) {
     // maybe it's a character literal
     uint8_t ch;
     if (!parse_c_char_lit(value, &ch)) {
-        c->macro_table.put(name, true);
         AstNode *var_node = create_var_decl_node(c, buf_ptr(name), create_char_lit_node(c, ch));
-        c->root->data.root.top_level_decls.append(var_node);
+        c->macro_table.put(name, var_node);
         return;
     }
     // maybe it's a string literal
     // TODO
-    // maybe it's a number literal
-    // TODO
+
+    // maybe it's an unsigned integer
+    uint64_t uint;
+    if (!parse_c_num_lit_unsigned(value, &uint)) {
+        AstNode *var_node = create_var_decl_node(c, buf_ptr(name), create_num_lit_unsigned(c, uint));
+        c->macro_table.put(name, var_node);
+        return;
+    }
+
     // maybe it's a symbol
     // TODO
 }
@@ -959,6 +991,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
 
     process_preprocessor_entities(c, *ast_unit);
 
+    render_macros(c);
     render_aliases(c);
 
     normalize_parent_ptrs(c->root);

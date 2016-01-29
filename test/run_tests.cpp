@@ -96,21 +96,30 @@ static TestCase *add_compile_fail_case(const char *case_name, const char *source
     return test_case;
 }
 
-static TestCase *add_parseh_case(const char *case_name, const char *source, const char *output) {
+static TestCase *add_parseh_case(const char *case_name, const char *source, int count, ...) {
+    va_list ap;
+    va_start(ap, count);
+
     TestCase *test_case = allocate<TestCase>(1);
     test_case->case_name = case_name;
-    test_case->output = output;
     test_case->is_parseh = true;
 
     test_case->source_files.resize(1);
     test_case->source_files.at(0).relative_path = tmp_h_path;
     test_case->source_files.at(0).source_code = source;
 
+    for (int i = 0; i < count; i += 1) {
+        const char *arg = va_arg(ap, const char *);
+        test_case->compile_errors.append(arg);
+    }
+
     test_case->compiler_args.append("parseh");
     test_case->compiler_args.append(tmp_h_path);
     test_case->compiler_args.append("--c-import-warnings");
 
     test_cases.append(test_case);
+
+    va_end(ap);
     return test_case;
 }
 
@@ -1894,13 +1903,13 @@ int foo(char a, unsigned char b, signed char c);
 int foo(char a, unsigned char b, signed char c); // test a duplicate prototype
 void bar(uint8_t a, uint16_t b, uint32_t c, uint64_t d);
 void baz(int8_t a, int16_t b, int32_t c, int64_t d);
-    )SOURCE", R"OUTPUT(pub extern fn foo(a: u8, b: u8, c: i8) -> c_int;
+    )SOURCE", 1, R"OUTPUT(pub extern fn foo(a: u8, b: u8, c: i8) -> c_int;
 pub extern fn bar(a: u8, b: u16, c: u32, d: u64);
 pub extern fn baz(a: i8, b: i16, c: i32, d: i64);)OUTPUT");
 
     add_parseh_case("noreturn attribute", R"SOURCE(
 void foo(void) __attribute__((noreturn));
-    )SOURCE", R"OUTPUT(pub extern fn foo() -> unreachable;)OUTPUT");
+    )SOURCE", 1, R"OUTPUT(pub extern fn foo() -> unreachable;)OUTPUT");
 
     add_parseh_case("enums", R"SOURCE(
 enum Foo {
@@ -1908,19 +1917,19 @@ enum Foo {
     FooB,
     Foo1,
 };
-    )SOURCE", R"OUTPUT(export enum enum_Foo {
+    )SOURCE", 1, R"OUTPUT(export enum enum_Foo {
     A,
     B,
     _1,
 }
 pub const FooA = enum_Foo.A;
 pub const FooB = enum_Foo.B;
-pub const Foo1 = enum_Foo._1;
-pub const Foo = enum_Foo;)OUTPUT");
+pub const Foo1 = enum_Foo._1;)OUTPUT",
+            R"OUTPUT(pub const Foo = enum_Foo;)OUTPUT");
 
     add_parseh_case("restrict -> noalias", R"SOURCE(
 void foo(void *restrict bar, void *restrict);
-    )SOURCE", R"OUTPUT(pub const c_void = u8;
+    )SOURCE", 1, R"OUTPUT(pub const c_void = u8;
 pub extern fn foo(noalias bar: ?&c_void, noalias arg1: ?&c_void);)OUTPUT");
 
     add_parseh_case("simple struct", R"SOURCE(
@@ -1928,11 +1937,11 @@ struct Foo {
     int x;
     char *y;
 };
-    )SOURCE", R"OUTPUT(export struct struct_Foo {
+    )SOURCE", 2,
+            R"OUTPUT(export struct struct_Foo {
     x: c_int,
     y: ?&u8,
-}
-pub const Foo = struct_Foo;)OUTPUT");
+})OUTPUT", R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
     add_parseh_case("qualified struct and enum", R"SOURCE(
 struct Foo {
@@ -1944,7 +1953,7 @@ enum Bar {
     BarB,
 };
 void func(struct Foo *a, enum Bar **b);
-    )SOURCE", R"OUTPUT(export struct struct_Foo {
+    )SOURCE", 2, R"OUTPUT(export struct struct_Foo {
     x: c_int,
     y: c_int,
 }
@@ -1954,36 +1963,45 @@ export enum enum_Bar {
 }
 pub const BarA = enum_Bar.A;
 pub const BarB = enum_Bar.B;
-pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);
-pub const Foo = struct_Foo;
+pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);)OUTPUT",
+    R"OUTPUT(pub const Foo = struct_Foo;
 pub const Bar = enum_Bar;)OUTPUT");
 
     add_parseh_case("constant size array", R"SOURCE(
 void func(int array[20]);
-    )SOURCE", R"OUTPUT(pub extern fn func(array: [20]c_int);)OUTPUT");
+    )SOURCE", 1, R"OUTPUT(pub extern fn func(array: [20]c_int);)OUTPUT");
 
 
     add_parseh_case("self referential struct with function pointer", R"SOURCE(
 struct Foo {
     void (*derp)(struct Foo *foo);
 };
-    )SOURCE", R"OUTPUT(export struct struct_Foo {
+    )SOURCE", 2, R"OUTPUT(export struct struct_Foo {
     derp: ?extern fn (?&struct_Foo),
-}
-pub const Foo = struct_Foo;)OUTPUT");
+})OUTPUT", R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
 
     add_parseh_case("struct prototype used in func", R"SOURCE(
 struct Foo;
 struct Foo *some_func(struct Foo *foo, int x);
-    )SOURCE", R"OUTPUT(pub const struct_Foo = u8;
-pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;
-pub const Foo = struct_Foo;)OUTPUT");
+    )SOURCE", 2, R"OUTPUT(pub const struct_Foo = u8;
+pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;)OUTPUT",
+        R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
 
     add_parseh_case("#define a char literal", R"SOURCE(
 #define A_CHAR  'a'
-    )SOURCE", R"OUTPUT(pub const A_CHAR = 'a';)OUTPUT");
+    )SOURCE", 1, R"OUTPUT(pub const A_CHAR = 'a';)OUTPUT");
+
+
+    add_parseh_case("#define an unsigned integer literal", R"SOURCE(
+#define CHANNEL_COUNT 24
+    )SOURCE", 1, R"OUTPUT(pub const CHANNEL_COUNT = 24;)OUTPUT");
+
+    add_parseh_case("overide previous #define", R"SOURCE(
+#define A_CHAR 'a'
+#define A_CHAR 'b'
+    )SOURCE", 1, "pub const A_CHAR = 'b';");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
@@ -2007,7 +2025,7 @@ static void run_test(TestCase *test_case) {
     int return_code;
     os_exec_process(zig_exe, test_case->compiler_args, &return_code, &zig_stderr, &zig_stdout);
 
-    if (test_case->compile_errors.length) {
+    if (!test_case->is_parseh && test_case->compile_errors.length) {
         if (return_code) {
             for (int i = 0; i < test_case->compile_errors.length; i += 1) {
                 const char *err_text = test_case->compile_errors.at(i);
@@ -2045,14 +2063,18 @@ static void run_test(TestCase *test_case) {
             exit(1);
         }
 
-        if (!strstr(buf_ptr(&zig_stdout), test_case->output)) {
-            printf("\n");
-            printf("========= Expected this output: =========\n");
-            printf("%s\n", test_case->output);
-            printf("================================================\n");
-            print_compiler_invocation(test_case);
-            printf("%s\n", buf_ptr(&zig_stdout));
-            exit(1);
+        for (int i = 0; i < test_case->compile_errors.length; i += 1) {
+            const char *output = test_case->compile_errors.at(i);
+
+            if (!strstr(buf_ptr(&zig_stdout), output)) {
+                printf("\n");
+                printf("========= Expected this output: =========\n");
+                printf("%s\n", output);
+                printf("================================================\n");
+                print_compiler_invocation(test_case);
+                printf("%s\n", buf_ptr(&zig_stdout));
+                exit(1);
+            }
         }
     } else {
         Buf program_stderr = BUF_INIT;
