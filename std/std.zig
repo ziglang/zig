@@ -332,7 +332,7 @@ pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
 
         var a: isize = 1;
         var i: isize = 0;
-        while (i < decs) {
+        while (i < decs + 5) {
             a *= 10;
             i += 1;
         }
@@ -349,6 +349,8 @@ pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
 
             i -= 1;
         }
+
+        dec_num /= 100000;
 
         len += decs;
 
