@@ -537,6 +537,10 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
         return;
     }
 
+    // eagerly put the name in the table, but we need to remember to remove it if it fails 
+    // boy it would be nice to have defer here wouldn't it
+    c->enum_type_table.put(bare_name, true);
+
     const EnumDecl *enum_def = enum_decl->getDefinition();
 
     if (!enum_def) {
@@ -552,10 +556,6 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
     node->data.struct_decl.kind = ContainerKindEnum;
     node->data.struct_decl.visib_mod = VisibModExport;
     node->data.struct_decl.directives = create_empty_directives(c);
-
-    // eagerly put the name in the table, but we need to remember to remove it if it fails 
-    // boy it would be nice to have defer here wouldn't it
-    c->enum_type_table.put(bare_name, true);
 
 
     ZigList<AstNode *> var_decls = {0};
@@ -624,6 +624,11 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
         return;
     }
 
+    // eagerly put the name in the table, but we need to remember to remove it if it fails 
+    // boy it would be nice to have defer here wouldn't it
+    c->struct_type_table.put(bare_name, true);
+
+
     RecordDecl *record_def = record_decl->getDefinition();
     if (!record_def) {
         // this is a type that we can point to but that's it, such as `struct Foo;`.
@@ -638,10 +643,6 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
     node->data.struct_decl.kind = ContainerKindStruct;
     node->data.struct_decl.visib_mod = VisibModExport;
     node->data.struct_decl.directives = create_empty_directives(c);
-
-    // eagerly put the name in the table, but we need to remember to remove it if it fails 
-    // boy it would be nice to have defer here wouldn't it
-    c->struct_type_table.put(bare_name, true);
 
     for (auto it = record_def->field_begin(),
               it_end = record_def->field_end();

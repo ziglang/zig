@@ -1962,6 +1962,7 @@ pub const Bar = enum_Bar;)OUTPUT");
 void func(int array[20]);
     )SOURCE", R"OUTPUT(pub extern fn func(array: [20]c_int);)OUTPUT");
 
+
     add_parseh_case("self referential struct with function pointer", R"SOURCE(
 struct Foo {
     void (*derp)(struct Foo *foo);
@@ -1969,6 +1970,14 @@ struct Foo {
     )SOURCE", R"OUTPUT(export struct struct_Foo {
     derp: ?extern fn (?&struct_Foo),
 }
+pub const Foo = struct_Foo;)OUTPUT");
+
+
+    add_parseh_case("struct prototype used in func", R"SOURCE(
+struct Foo;
+struct Foo *some_func(struct Foo *foo, int x);
+    )SOURCE", R"OUTPUT(pub const struct_Foo = u8;
+pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;
 pub const Foo = struct_Foo;)OUTPUT");
 }
 
