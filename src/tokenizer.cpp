@@ -878,6 +878,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     if (digit_value >= 0) {
                         if (digit_value >= t.cur_tok->radix) {
                             tokenize_error(&t, "invalid character: '%c'", c);
+                            break;
                         }
                         // normal digit
                     } else {
@@ -904,6 +905,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     if (digit_value >= 0) {
                         if (digit_value >= t.cur_tok->radix) {
                             tokenize_error(&t, "invalid character: '%c'", c);
+                            break;
                         }
                         // normal digit
                     } else {

@@ -43,7 +43,7 @@ static int read_all_fd_stream(int fd, Buf *out_buf) {
     buf_resize(out_buf, buf_size);
     ssize_t actual_buf_len = 0;
     for (;;) {
-        ssize_t amt_read = read(fd, buf_ptr(out_buf), buf_len(out_buf));
+        ssize_t amt_read = read(fd, buf_ptr(out_buf) + actual_buf_len, buf_size);
         if (amt_read < 0) {
             return ErrorFileSystem;
         }
