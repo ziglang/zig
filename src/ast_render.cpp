@@ -509,7 +509,8 @@ static void render_node(AstRender *ar, AstNode *node) {
 
                 if (child->type == NodeTypeImport ||
                     child->type == NodeTypeVariableDeclaration ||
-                    child->type == NodeTypeErrorValueDecl)
+                    child->type == NodeTypeErrorValueDecl ||
+                    child->type == NodeTypeFnProto)
                 {
                     fprintf(ar->f, ";");
                 }
@@ -530,8 +531,10 @@ static void render_node(AstRender *ar, AstNode *node) {
                     AstNode *param_decl = node->data.fn_proto.params.at(arg_i);
                     assert(param_decl->type == NodeTypeParamDecl);
                     const char *arg_name = buf_ptr(&param_decl->data.param_decl.name);
-                    const char *noalias_str = param_decl->data.param_decl.is_noalias ? "noalias " : "";
-                    fprintf(ar->f, "%s%s: ", noalias_str, arg_name);
+                    if (buf_len(&param_decl->data.param_decl.name) > 0) {
+                        const char *noalias_str = param_decl->data.param_decl.is_noalias ? "noalias " : "";
+                        fprintf(ar->f, "%s%s: ", noalias_str, arg_name);
+                    }
                     render_node(ar, param_decl->data.param_decl.type);
 
                     if (arg_i + 1 < arg_count || is_var_args) {
@@ -548,7 +551,6 @@ static void render_node(AstRender *ar, AstNode *node) {
                     fprintf(ar->f, " -> ");
                     render_node(ar, return_type_node);
                 }
-                fprintf(ar->f, ";");
                 break;
             }
         case NodeTypeFnDef:

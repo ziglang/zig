@@ -121,6 +121,17 @@ static AstNode *create_struct_field_node(Context *c, const char *name, AstNode *
     return node;
 }
 
+static AstNode *create_param_decl_node(Context *c, const char *name, AstNode *type_node, bool is_noalias) {
+    assert(type_node);
+    AstNode *node = create_node(c, NodeTypeParamDecl);
+    buf_init_from_str(&node->data.param_decl.name, name);
+    node->data.param_decl.type = type_node;
+    node->data.param_decl.is_noalias = is_noalias;
+
+    normalize_parent_ptrs(node);
+    return node;
+}
+
 static AstNode *create_num_lit_unsigned(Context *c, uint64_t x) {
     AstNode *node = create_node(c, NodeTypeNumberLiteral);
     node->data.number_literal.kind = NumLitUInt;
@@ -255,6 +266,12 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                 const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
                 QualType child_qt = pointer_ty->getPointeeType();
                 AstNode *type_node = make_qual_type_node(c, child_qt, decl);
+                if (child_qt.getTypePtr()->getTypeClass() == Type::Paren) {
+                    const ParenType *paren_type = static_cast<const ParenType *>(child_qt.getTypePtr());
+                    if (paren_type->getInnerType()->getTypeClass() == Type::FunctionProto) {
+                        return create_prefix_node(c, PrefixOpMaybe, type_node);
+                    }
+                }
                 return pointer_to_type(c, type_node, child_qt.isConstQualified());
             }
         case Type::Typedef:
@@ -311,8 +328,32 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                 }
             }
         case Type::FunctionProto:
-            emit_warning(c, decl, "ignoring function type");
-            return nullptr;
+            {
+                const FunctionProtoType *fn_proto_ty = static_cast<const FunctionProtoType*>(ty);
+                AstNode *node = create_node(c, NodeTypeFnProto);
+                buf_resize(&node->data.fn_proto.name, 0);
+                node->data.fn_proto.is_extern = true;
+                node->data.fn_proto.is_var_args = fn_proto_ty->isVariadic();
+                node->data.fn_proto.return_type = make_qual_type_node(c, fn_proto_ty->getReturnType(), decl);
+
+                if (!node->data.fn_proto.return_type) {
+                    return nullptr;
+                }
+
+                int arg_count = fn_proto_ty->getNumParams();
+                for (int i = 0; i < arg_count; i += 1) {
+                    QualType qt = fn_proto_ty->getParamType(i);
+                    bool is_noalias = qt.isRestrictQualified();
+                    AstNode *type_node = make_qual_type_node(c, qt, decl);
+                    if (!type_node) {
+                        return nullptr;
+                    }
+                    node->data.fn_proto.params.append(create_param_decl_node(c, "", type_node, is_noalias));
+                }
+
+                normalize_parent_ptrs(node);
+                return node;
+            }
         case Type::Record:
             {
                 const RecordType *record_ty = static_cast<const RecordType*>(ty);
@@ -356,6 +397,11 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                 uint64_t size = const_arr_ty->getSize().getLimitedValue();
                 return create_array_type_node(c, child_type_node, size, false);
             }
+        case Type::Paren:
+            {
+                const ParenType *paren_ty = static_cast<const ParenType *>(ty);
+                return make_qual_type_node(c, paren_ty->getInnerType(), decl);
+            }
         case Type::BlockPointer:
         case Type::LValueReference:
         case Type::RValueReference:
@@ -368,7 +414,6 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
         case Type::ExtVector:
         case Type::FunctionNoProto:
         case Type::UnresolvedUsing:
-        case Type::Paren:
         case Type::Adjusted:
         case Type::Decayed:
         case Type::TypeOfExpr:
@@ -423,23 +468,19 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     int arg_count = fn_decl->getNumParams();
     for (int i = 0; i < arg_count; i += 1) {
         const ParmVarDecl *param = fn_decl->getParamDecl(i);
-        AstNode *param_decl_node = create_node(c, NodeTypeParamDecl);
         const char *name = decl_name(param);
         if (strlen(name) == 0) {
             name = buf_ptr(buf_sprintf("arg%d", i));
         }
-        buf_init_from_str(&param_decl_node->data.param_decl.name, name);
         QualType qt = param->getOriginalType();
-        param_decl_node->data.param_decl.is_noalias = qt.isRestrictQualified();
-        param_decl_node->data.param_decl.type = make_qual_type_node(c, qt, fn_decl);
-        if (!param_decl_node->data.param_decl.type) {
-            emit_warning(c, param, "skipping function %s, unresolved param type\n",
-                    buf_ptr(&node->data.fn_proto.name));
+        bool is_noalias = qt.isRestrictQualified();
+        AstNode *type_node = make_qual_type_node(c, qt, fn_decl);
+        if (!type_node) {
+            emit_warning(c, param, "skipping function %s, unresolved param type\n", name);
             return;
         }
 
-        normalize_parent_ptrs(param_decl_node);
-        node->data.fn_proto.params.append(param_decl_node);
+        node->data.fn_proto.params.append(create_param_decl_node(c, name, type_node, is_noalias));
     }
 
     if (fn_decl->isNoReturn()) {
@@ -512,6 +553,11 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
     node->data.struct_decl.visib_mod = VisibModExport;
     node->data.struct_decl.directives = create_empty_directives(c);
 
+    // eagerly put the name in the table, but we need to remember to remove it if it fails 
+    // boy it would be nice to have defer here wouldn't it
+    c->enum_type_table.put(bare_name, true);
+
+
     ZigList<AstNode *> var_decls = {0};
     int i = 0;
     for (auto it = enum_def->enumerator_begin(),
@@ -520,6 +566,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
     {
         const EnumConstantDecl *enum_const = *it;
         if (enum_const->getInitExpr()) {
+            c->enum_type_table.remove(bare_name);
             emit_warning(c, enum_const, "skipping enum %s - has init expression\n", buf_ptr(bare_name));
             return;
         }
@@ -548,8 +595,6 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
         AstNode *var_node = create_var_decl_node(c, buf_ptr(&enum_val_name), field_access_node);
         var_decls.append(var_node);
     }
-
-    c->enum_type_table.put(bare_name, true);
 
     normalize_parent_ptrs(node);
     c->root->data.root.top_level_decls.append(node);
@@ -594,6 +639,10 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
     node->data.struct_decl.visib_mod = VisibModExport;
     node->data.struct_decl.directives = create_empty_directives(c);
 
+    // eagerly put the name in the table, but we need to remember to remove it if it fails 
+    // boy it would be nice to have defer here wouldn't it
+    c->struct_type_table.put(bare_name, true);
+
     for (auto it = record_def->field_begin(),
               it_end = record_def->field_end();
               it != it_end; ++it)
@@ -601,12 +650,14 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
         const FieldDecl *field_decl = *it;
 
         if (field_decl->isBitField()) {
+            c->struct_type_table.remove(bare_name);
             emit_warning(c, field_decl, "skipping struct %s - has bitfield\n", buf_ptr(bare_name));
             return;
         }
 
         AstNode *type_node = make_qual_type_node(c, field_decl->getType(), field_decl);
         if (!type_node) {
+            c->struct_type_table.remove(bare_name);
             emit_warning(c, field_decl, "skipping struct %s - unhandled type\n", buf_ptr(bare_name));
             return;
         }
@@ -615,7 +666,6 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
         node->data.struct_decl.fields.append(field_node);
     }
 
-    c->struct_type_table.put(bare_name, true);
     normalize_parent_ptrs(node);
     c->root->data.root.top_level_decls.append(node);
 

@@ -1961,6 +1961,15 @@ pub const Bar = enum_Bar;)OUTPUT");
     add_parseh_case("constant size array", R"SOURCE(
 void func(int array[20]);
     )SOURCE", R"OUTPUT(pub extern fn func(array: [20]c_int);)OUTPUT");
+
+    add_parseh_case("self referential struct with function pointer", R"SOURCE(
+struct Foo {
+    void (*derp)(struct Foo *foo);
+};
+    )SOURCE", R"OUTPUT(export struct struct_Foo {
+    derp: ?extern fn (?&struct_Foo),
+}
+pub const Foo = struct_Foo;)OUTPUT");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
