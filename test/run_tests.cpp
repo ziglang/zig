@@ -1823,6 +1823,29 @@ const x : u8 = 300;
 const x = 2 == 2.0;
     )SOURCE", 1, ".tmp_source.zig:2:11: error: integer value 2 cannot be implicitly casted to type '(float literal)'");
 
+    add_compile_fail_case("missing function call param", R"SOURCE(
+struct Foo {
+    a: i32,
+    b: i32,
+
+    fn member_a(foo: Foo) -> i32 {
+        return foo.a;
+    }
+    fn member_b(foo: Foo) -> i32 {
+        return foo.b;
+    }
+}
+
+const member_fn_type = @typeof(Foo.member_a);
+const members = []member_fn_type {
+    Foo.member_a,
+    Foo.member_b,
+};
+
+fn f(foo: Foo, index: i32) {
+    const result = members[index]();
+}
+    )SOURCE", 1, ".tmp_source.zig:21:34: error: expected 1 arguments, got 0");
 }
 
 //////////////////////////////////////////////////////////////////////////////

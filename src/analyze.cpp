@@ -3593,33 +3593,27 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
     zig_unreachable();
 }
 
-static TypeTableEntry *analyze_fn_call_raw(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        TypeTableEntry *expected_type, AstNode *node, FnTableEntry *fn_table_entry, TypeTableEntry *struct_type)
+static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node, TypeTableEntry *fn_type, TypeTableEntry *struct_type)
 {
     assert(node->type == NodeTypeFnCallExpr);
 
-    node->data.fn_call_expr.fn_entry = fn_table_entry;
-    assert(fn_table_entry->proto_node->type == NodeTypeFnProto);
-    AstNodeFnProto *fn_proto = &fn_table_entry->proto_node->data.fn_proto;
-
     // count parameters
-    int expected_param_count = fn_proto->params.length;
+    int src_param_count = fn_type->data.fn.src_param_count;
     int actual_param_count = node->data.fn_call_expr.params.length;
 
     if (struct_type) {
         actual_param_count += 1;
     }
 
-    if (fn_proto->is_var_args) {
-        if (actual_param_count < expected_param_count) {
+    if (fn_type->data.fn.is_var_args) {
+        if (actual_param_count < src_param_count) {
             add_node_error(g, node,
-                    buf_sprintf("expected at least %d arguments, got %d",
-                        expected_param_count, actual_param_count));
+                buf_sprintf("expected at least %d arguments, got %d", src_param_count, actual_param_count));
         }
-    } else if (expected_param_count != actual_param_count) {
+    } else if (src_param_count != actual_param_count) {
         add_node_error(g, node,
-                buf_sprintf("expected %d arguments, got %d",
-                    expected_param_count, actual_param_count));
+                buf_sprintf("expected %d arguments, got %d", src_param_count, actual_param_count));
     }
 
     // analyze each parameter. in the case of a method, we already analyzed the
@@ -3629,19 +3623,13 @@ static TypeTableEntry *analyze_fn_call_raw(CodeGen *g, ImportTableEntry *import,
         // determine the expected type for each parameter
         TypeTableEntry *expected_param_type = nullptr;
         int fn_proto_i = i + (struct_type ? 1 : 0);
-        if (fn_proto_i < fn_proto->params.length) {
-            AstNode *param_decl_node = fn_proto->params.at(fn_proto_i);
-            assert(param_decl_node->type == NodeTypeParamDecl);
-            AstNode *param_type_node = param_decl_node->data.param_decl.type;
-            TypeTableEntry *param_type_entry = get_resolved_expr(param_type_node)->type_entry;
-            if (param_type_entry) {
-                expected_param_type = unwrapped_node_type(param_type_node);
-            }
+        if (fn_proto_i < src_param_count) {
+            expected_param_type = fn_type->data.fn.param_types[fn_proto_i];
         }
         analyze_expression(g, import, context, expected_param_type, child);
     }
 
-    TypeTableEntry *return_type = unwrapped_node_type(fn_proto->return_type);
+    TypeTableEntry *return_type = fn_type->data.fn.src_return_type;
 
     if (return_type->id == TypeTableEntryIdInvalid) {
         return return_type;
@@ -3652,6 +3640,17 @@ static TypeTableEntry *analyze_fn_call_raw(CodeGen *g, ImportTableEntry *import,
     }
 
     return return_type;
+}
+
+static TypeTableEntry *analyze_fn_call_raw(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node, FnTableEntry *fn_table_entry, TypeTableEntry *struct_type)
+{
+    assert(node->type == NodeTypeFnCallExpr);
+
+    node->data.fn_call_expr.fn_entry = fn_table_entry;
+
+    return analyze_fn_call_ptr(g, import, context, expected_type, node, fn_table_entry->type_entry, struct_type);
+
 }
 
 static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -3761,7 +3760,7 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
 
     // function pointer
     if (invoke_type_entry->id == TypeTableEntryIdFn) {
-        return invoke_type_entry->data.fn.src_return_type;
+        return analyze_fn_call_ptr(g, import, context, expected_type, node, invoke_type_entry, nullptr);
     } else {
         add_node_error(g, fn_ref_expr,
             buf_sprintf("type '%s' not a function", buf_ptr(&invoke_type_entry->name)));
