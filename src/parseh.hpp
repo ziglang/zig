@@ -12,9 +12,9 @@
 #include "all_types.hpp"
 
 int parse_h_file(ImportTableEntry *out_import, ZigList<ErrorMsg *> *out_errs,
-        ZigList<const char *> *clang_argv, bool warnings_on);
+        ZigList<const char *> *clang_argv, bool warnings_on, uint32_t *next_node_index);
 int parse_h_buf(ImportTableEntry *out_import, ZigList<ErrorMsg *> *out_errs,
         Buf *source, const char **args, int args_len, const char *libc_include_path,
-        bool warnings_on);
+        bool warnings_on, uint32_t *next_node_index);
 
 #endif

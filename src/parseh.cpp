@@ -40,6 +40,7 @@ struct Context {
     SourceManager *source_manager;
     ZigList<AstNode *> aliases;
     ZigList<MacroSymbol> macro_symbols;
+    uint32_t *next_node_index;
 };
 
 static AstNode *make_qual_type_node(Context *c, QualType qt, const Decl *decl);
@@ -76,6 +77,8 @@ static AstNode *create_node(Context *c, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
     node->type = type;
     node->owner = c->import;
+    node->create_index = *c->next_node_index;
+    *c->next_node_index += 1;
     return node;
 }
 
@@ -398,7 +401,10 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
             {
                 const RecordType *record_ty = static_cast<const RecordType*>(ty);
                 Buf *record_name = buf_create_from_str(decl_name(record_ty->getDecl()));
-                if (type_table->maybe_get(record_name)) {
+                if (buf_len(record_name) == 0) {
+                    emit_warning(c, decl, "unhandled anonymous struct");
+                    return nullptr;
+                } else if (type_table->maybe_get(record_name)) {
                     const char *prefix_str;
                     if (type_table == &c->enum_type_table) {
                         prefix_str = "enum_";
@@ -416,7 +422,10 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
             {
                 const EnumType *enum_ty = static_cast<const EnumType*>(ty);
                 Buf *record_name = buf_create_from_str(decl_name(enum_ty->getDecl()));
-                if (type_table->maybe_get(record_name)) {
+                if (buf_len(record_name) == 0) {
+                    emit_warning(c, decl, "unhandled anonymous enum");
+                    return nullptr;
+                } else if (type_table->maybe_get(record_name)) {
                     const char *prefix_str;
                     if (type_table == &c->enum_type_table) {
                         prefix_str = "enum_";
@@ -560,6 +569,10 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
         return;
     }
 
+    // if the underlying type is anonymous, we can special case it to just
+    // use the name of this typedef
+    // TODO
+
     add_typedef_node(c, type_name, make_qual_type_node(c, child_qt, typedef_decl));
 }
 
@@ -650,10 +663,21 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 }
 
 static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
-    Buf *bare_name = buf_create_from_str(decl_name(record_decl));
+    const char *raw_name = decl_name(record_decl);
+
+    if (record_decl->isAnonymousStructOrUnion() || raw_name[0] == 0) {
+        return;
+    }
+
+    Buf *bare_name = buf_create_from_str(raw_name);
 
     if (!record_decl->isStruct()) {
         emit_warning(c, record_decl, "skipping record %s, not a struct", buf_ptr(bare_name));
+        return;
+    }
+
+    if (buf_len(bare_name) == 0) {
+        emit_warning(c, record_decl, "skipping anonymous struct");
         return;
     }
 
@@ -1030,7 +1054,8 @@ static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
 }
 
 int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
-        const char **args, int args_len, const char *libc_include_path, bool warnings_on)
+        const char **args, int args_len, const char *libc_include_path, bool warnings_on,
+        uint32_t *next_node_index)
 {
     int err;
     Buf tmp_file_path = BUF_INIT;
@@ -1047,7 +1072,7 @@ int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *sour
         clang_argv.append(args[i]);
     }
 
-    err = parse_h_file(import, errors, &clang_argv, warnings_on);
+    err = parse_h_file(import, errors, &clang_argv, warnings_on, next_node_index);
 
     os_delete_file(&tmp_file_path);
 
@@ -1055,7 +1080,7 @@ int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *sour
 }
 
 int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
-        ZigList<const char *> *clang_argv, bool warnings_on)
+        ZigList<const char *> *clang_argv, bool warnings_on, uint32_t *next_node_index)
 {
     Context context = {0};
     Context *c = &context;
@@ -1068,6 +1093,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
     c->struct_type_table.init(8);
     c->fn_table.init(8);
     c->macro_table.init(8);
+    c->next_node_index = next_node_index;
 
     char *ZIG_PARSEH_CFLAGS = getenv("ZIG_PARSEH_CFLAGS");
     if (ZIG_PARSEH_CFLAGS) {

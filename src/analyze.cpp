@@ -1111,7 +1111,7 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *parent_import, A
 
     int err;
     if ((err = parse_h_buf(child_import, &errors, child_context->c_import_buf, g->clang_argv, g->clang_argv_len,
-                    buf_ptr(g->libc_include_path), false)))
+                    buf_ptr(g->libc_include_path), false, &g->next_node_index)))
     {
         zig_panic("unable to parse h file: %s\n", err_str(err));
     }

@@ -221,7 +221,8 @@ static int parseh(const char *arg0, int argc, char **argv) {
 
     ImportTableEntry import = {0};
     ZigList<ErrorMsg *> errors = {0};
-    int err = parse_h_file(&import, &errors, &clang_argv, warnings_on);
+    uint32_t next_node_index = 0;
+    int err = parse_h_file(&import, &errors, &clang_argv, warnings_on, &next_node_index);
 
     if (err) {
         fprintf(stderr, "unable to parse .h file: %s\n", err_str(err));
