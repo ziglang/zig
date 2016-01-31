@@ -31,7 +31,6 @@ static int usage(const char *arg0) {
         "  --libc-path [path]     set the C compiler data path\n"
         "  -isystem [dir]         add additional search path for other .h files\n"
         "  -dirafter [dir]        same as -isystem but do it last\n"
-        "  --c-import-warnings    enable warnings when importing .h files\n"
     , arg0);
     return EXIT_FAILURE;
 }
