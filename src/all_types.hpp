@@ -1023,6 +1023,7 @@ struct CodeGen {
         TypeTableEntry *entry_bool;
         TypeTableEntry *entry_int[2][4]; // [signed,unsigned][8,16,32,64]
         TypeTableEntry *entry_c_int[8];
+        TypeTableEntry *entry_c_long_double;
         TypeTableEntry *entry_u8;
         TypeTableEntry *entry_u16;
         TypeTableEntry *entry_u32;

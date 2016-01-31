@@ -1903,9 +1903,10 @@ int foo(char a, unsigned char b, signed char c);
 int foo(char a, unsigned char b, signed char c); // test a duplicate prototype
 void bar(uint8_t a, uint16_t b, uint32_t c, uint64_t d);
 void baz(int8_t a, int16_t b, int32_t c, int64_t d);
-    )SOURCE", 1, R"OUTPUT(pub extern fn foo(a: u8, b: u8, c: i8) -> c_int;
-pub extern fn bar(a: u8, b: u16, c: u32, d: u64);
-pub extern fn baz(a: i8, b: i16, c: i32, d: i64);)OUTPUT");
+    )SOURCE", 3,
+            "pub extern fn foo(a: u8, b: u8, c: i8) -> c_int;",
+            "pub extern fn bar(a: u8, b: u16, c: u32, d: u64);",
+            "pub extern fn baz(a: i8, b: i16, c: i32, d: i64);");
 
     add_parseh_case("noreturn attribute", R"SOURCE(
 void foo(void) __attribute__((noreturn));
@@ -1953,7 +1954,7 @@ enum Bar {
     BarB,
 };
 void func(struct Foo *a, enum Bar **b);
-    )SOURCE", 2, R"OUTPUT(export struct struct_Foo {
+    )SOURCE", 3, R"OUTPUT(export struct struct_Foo {
     x: c_int,
     y: c_int,
 }
@@ -1962,8 +1963,8 @@ export enum enum_Bar {
     B,
 }
 pub const BarA = enum_Bar.A;
-pub const BarB = enum_Bar.B;
-pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);)OUTPUT",
+pub const BarB = enum_Bar.B;)OUTPUT",
+            "pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);",
     R"OUTPUT(pub const Foo = struct_Foo;
 pub const Bar = enum_Bar;)OUTPUT");
 
@@ -2038,6 +2039,15 @@ struct Bar {
             R"SOURCE(export struct struct_Foo {
     next: ?&struct_Bar,
 })SOURCE");
+
+
+    add_parseh_case("typedef void", R"SOURCE(
+typedef void Foo;
+Foo fun(Foo *a);
+    )SOURCE", 3,
+            "pub type c_void = u8;",
+            "pub type Foo = c_void;",
+            "pub extern fn fun(a: ?&Foo);");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

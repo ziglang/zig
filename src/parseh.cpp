@@ -234,6 +234,19 @@ static TypeTableEntry *get_c_void_type(Context *c) {
     return c->c_void_type;
 }
 
+static bool is_c_void_type(Context *c, TypeTableEntry *type_entry) {
+    if (!c->c_void_type) {
+        return false;
+    }
+    while (type_entry->id == TypeTableEntryIdTypeDecl) {
+        if (type_entry == c->c_void_type) {
+            return true;
+        }
+        type_entry = type_entry->data.type_decl.child_type;
+    }
+    return false;
+}
+
 static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const Decl *decl,
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> *type_table)
 {
@@ -243,7 +256,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                 const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
                 switch (builtin_ty->getKind()) {
                     case BuiltinType::Void:
-                        return c->codegen->builtin_types.entry_void;
+                        return get_c_void_type(c);
                     case BuiltinType::Bool:
                         return c->codegen->builtin_types.entry_bool;
                     case BuiltinType::Char_U:
@@ -273,6 +286,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     case BuiltinType::Double:
                         return c->codegen->builtin_types.entry_f64;
                     case BuiltinType::LongDouble:
+                        return c->codegen->builtin_types.entry_c_long_double;
                     case BuiltinType::WChar_U:
                     case BuiltinType::Char16:
                     case BuiltinType::Char32:
@@ -321,10 +335,6 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     }
                 }
                 bool is_const = child_qt.isConstQualified();
-
-                if (child_type->id == TypeTableEntryIdVoid) {
-                    child_type = get_c_void_type(c);
-                }
 
                 TypeTableEntry *non_null_pointer_type = get_pointer_to_type(c->codegen, child_type, is_const);
                 return get_maybe_type(c->codegen, non_null_pointer_type);
@@ -421,7 +431,12 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                 } else {
                     fn_type_id.return_type = resolve_qual_type(c, fn_proto_ty->getReturnType(), decl);
                     if (get_underlying_type(fn_type_id.return_type)->id == TypeTableEntryIdInvalid) {
+                        emit_warning(c, decl, "unresolved function proto return type");
                         return c->codegen->builtin_types.entry_invalid;
+                    }
+                    // convert c_void to actual void (only for return type)
+                    if (is_c_void_type(c, fn_type_id.return_type)) {
+                        fn_type_id.return_type = c->codegen->builtin_types.entry_void;
                     }
                 }
 
@@ -431,6 +446,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     TypeTableEntry *param_type = resolve_qual_type(c, qt, decl);
 
                     if (get_underlying_type(param_type)->id == TypeTableEntryIdInvalid) {
+                        emit_warning(c, decl, "unresolved function proto parameter type");
                         return c->codegen->builtin_types.entry_invalid;
                     }
 
@@ -466,6 +482,10 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
             {
                 const ConstantArrayType *const_arr_ty = static_cast<const ConstantArrayType *>(ty);
                 TypeTableEntry *child_type = resolve_qual_type(c, const_arr_ty->getElementType(), decl);
+                if (child_type->id == TypeTableEntryIdInvalid) {
+                    emit_warning(c, decl, "unresolved array element type");
+                    return child_type;
+                }
                 uint64_t size = const_arr_ty->getSize().getLimitedValue();
                 return get_array_type(c->codegen, child_type, size);
             }
@@ -601,6 +621,10 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
     // TODO
 
     TypeTableEntry *child_type = resolve_qual_type(c, child_qt, typedef_decl);
+    if (child_type->id == TypeTableEntryIdInvalid) {
+        emit_warning(c, typedef_decl, "typedef %s - unresolved child type", buf_ptr(type_name));
+        return;
+    }
     TypeTableEntry *decl_type = get_typedecl_type(c->codegen, buf_ptr(type_name), child_type);
     add_typedef_node(c, decl_type);
 }

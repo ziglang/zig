@@ -2919,6 +2919,18 @@ static void define_builtin_types(CodeGen *g) {
         g->primitive_type_table.put(&entry->name, entry);
     }
     {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
+        entry->type_ref = LLVMX86FP80Type();
+        buf_init_from_str(&entry->name, "c_long_double");
+        entry->size_in_bits = 128;
+        entry->align_in_bits = 128;
+        entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                80, entry->align_in_bits,
+                LLVMZigEncoding_DW_ATE_float());
+        g->builtin_types.entry_c_long_double = entry;
+        g->primitive_type_table.put(&entry->name, entry);
+    }
+    {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);
         entry->type_ref = LLVMVoidType();
         buf_init_from_str(&entry->name, "void");

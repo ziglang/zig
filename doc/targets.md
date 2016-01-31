@@ -17,3 +17,5 @@ for each target.
 
 Make sure that parseh sends the correct command line parameters to libclang for
 the given target.
+
+Make sure that `c_long_double` codegens the correct floating point value.
