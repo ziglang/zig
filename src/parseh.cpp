@@ -36,6 +36,7 @@ struct Context {
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> global_type_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> global_value_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> struct_type_table;
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> struct_decl_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> enum_type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> fn_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
@@ -51,6 +52,7 @@ static TypeTableEntry *resolve_qual_type_with_table(Context *c, QualType qt, con
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> *type_table);
 
 static TypeTableEntry *resolve_qual_type(Context *c, QualType qt, const Decl *decl);
+static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_decl);
 
 
 __attribute__ ((format (printf, 3, 4)))
@@ -79,12 +81,17 @@ static void emit_warning(Context *c, const Decl *decl, const char *format, ...) 
     fprintf(stderr, "%s:%u:%u: warning: %s\n", buf_ptr(path), line, column, buf_ptr(msg));
 }
 
+static uint32_t get_next_node_index(Context *c) {
+    uint32_t result = c->codegen->next_node_index;
+    c->codegen->next_node_index += 1;
+    return result;
+}
+
 static AstNode *create_node(Context *c, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
     node->type = type;
     node->owner = c->import;
-    node->create_index = c->codegen->next_node_index;
-    c->codegen->next_node_index += 1;
+    node->create_index = get_next_node_index(c);
     return node;
 }
 
@@ -437,18 +444,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
         case Type::Record:
             {
                 const RecordType *record_ty = static_cast<const RecordType*>(ty);
-                Buf *record_name = buf_create_from_str(decl_name(record_ty->getDecl()));
-                if (buf_len(record_name) == 0) {
-                    emit_warning(c, decl, "unhandled anonymous struct");
-                    return c->codegen->builtin_types.entry_invalid;
-                }
-
-                auto entry = type_table->maybe_get(record_name);
-                if (!entry) {
-                    return c->codegen->builtin_types.entry_invalid;
-                }
-
-                return entry->value;
+                return resolve_record_decl(c, record_ty->getDecl());
             }
         case Type::Enum:
             {
@@ -754,47 +750,39 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
 }
 
-static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
+static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
     const char *raw_name = decl_name(record_decl);
-
-    // we have no interest in top level anonymous structs since they're
-    // not exposing anything.
-    if (record_decl->isAnonymousStructOrUnion() || raw_name[0] == 0) {
-        return;
-    }
 
     if (!record_decl->isStruct()) {
         emit_warning(c, record_decl, "skipping record %s, not a struct", raw_name);
-        return;
+        return c->codegen->builtin_types.entry_invalid;
     }
 
-    Buf *bare_name = buf_create_from_str(raw_name);
+    Buf *bare_name;
+    if (record_decl->isAnonymousStructOrUnion() || raw_name[0] == 0) {
+        bare_name = buf_sprintf("anon_$%" PRIu32, get_next_node_index(c));
+    } else {
+        bare_name = buf_create_from_str(raw_name);
+
+        auto existing_entry = c->struct_type_table.maybe_get(bare_name);
+        if (existing_entry) {
+            return existing_entry->value;
+        }
+    }
+
     Buf *full_type_name = buf_sprintf("struct_%s", buf_ptr(bare_name));
 
-    if (c->struct_type_table.maybe_get(bare_name)) {
-        // we've already seen it
-        return;
-    }
-
-    RecordDecl *record_def = record_decl->getDefinition();
-    if (!record_def) {
-        TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(full_type_name),
-                c->codegen->builtin_types.entry_u8);
-        c->struct_type_table.put(bare_name, typedecl_type);
-
-        // this is a type that we can point to but that's it, such as `struct Foo;`.
-        add_typedef_node(c, typedecl_type);
-        add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
-        return;
-    }
 
     TypeTableEntry *struct_type = get_partial_container_type(c->codegen, c->import,
             ContainerKindStruct, c->source_node, buf_ptr(full_type_name));
 
     c->struct_type_table.put(bare_name, struct_type);
-    // make an alias without the "struct_" prefix. this will get emitted at the
-    // end if it doesn't conflict with anything else
-    add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
+
+    RecordDecl *record_def = record_decl->getDefinition();
+    if (!record_def) {
+        return struct_type;
+    }
+
 
     // count fields and validate
     uint32_t field_count = 0;
@@ -805,8 +793,8 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
         const FieldDecl *field_decl = *it;
 
         if (field_decl->isBitField()) {
-            emit_warning(c, field_decl, "skipping struct %s - has bitfield\n", buf_ptr(bare_name));
-            return;
+            emit_warning(c, field_decl, "struct %s demoted to typedef - has bitfield\n", buf_ptr(bare_name));
+            return struct_type;
         }
     }
 
@@ -837,8 +825,8 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
         type_struct_field->type_entry = resolve_qual_type(c, field_decl->getType(), field_decl);
 
         if (type_struct_field->type_entry->id == TypeTableEntryIdInvalid) {
-            emit_warning(c, field_decl, "skipping struct %s - unresolved type\n", buf_ptr(bare_name));
-            return;
+            emit_warning(c, field_decl, "struct %s demoted to typedef - unresolved type\n", buf_ptr(bare_name));
+            return struct_type;
         }
 
         di_element_types[i] = LLVMZigCreateDebugMemberType(c->codegen->dbuilder,
@@ -878,25 +866,52 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
     LLVMZigReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);
     struct_type->di_type = replacement_di_type;
 
-    //////
+    return struct_type;
+}
 
-    // now create a top level decl node for the type
-    AstNode *struct_node = create_node(c, NodeTypeStructDecl);
-    buf_init_from_buf(&struct_node->data.struct_decl.name, full_type_name);
-    struct_node->data.struct_decl.kind = ContainerKindStruct;
-    struct_node->data.struct_decl.visib_mod = VisibModExport;
-    struct_node->data.struct_decl.directives = create_empty_directives(c);
-    struct_node->data.struct_decl.type_entry = struct_type;
+static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
+    TypeTableEntry *struct_type = resolve_record_decl(c, record_decl);
 
-    for (uint32_t i = 0; i < field_count; i += 1) {
-        TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
-        AstNode *type_node = make_type_node(c, type_struct_field->type_entry);
-        AstNode *field_node = create_struct_field_node(c, buf_ptr(type_struct_field->name), type_node);
-        struct_node->data.struct_decl.fields.append(field_node);
+    if (struct_type->id == TypeTableEntryIdInvalid) {
+        return;
     }
 
-    normalize_parent_ptrs(struct_node);
-    c->root->data.root.top_level_decls.append(struct_node);
+    assert(struct_type->id == TypeTableEntryIdStruct);
+
+    if (c->struct_decl_table.maybe_get(&struct_type->name)) {
+        return;
+    }
+    c->struct_decl_table.put(&struct_type->name, struct_type);
+
+    // make an alias without the "struct_" prefix. this will get emitted at the
+    // end if it doesn't conflict with anything else
+    if (decl_name(record_decl)[0] != 0) {
+        add_alias(c, decl_name(record_decl), buf_ptr(&struct_type->name));
+    }
+
+    if (struct_type->data.structure.complete) {
+        // now create a top level decl node for the type
+        AstNode *struct_node = create_node(c, NodeTypeStructDecl);
+        buf_init_from_buf(&struct_node->data.struct_decl.name, &struct_type->name);
+        struct_node->data.struct_decl.kind = ContainerKindStruct;
+        struct_node->data.struct_decl.visib_mod = VisibModExport;
+        struct_node->data.struct_decl.directives = create_empty_directives(c);
+        struct_node->data.struct_decl.type_entry = struct_type;
+
+        for (uint32_t i = 0; i < struct_type->data.structure.src_field_count; i += 1) {
+            TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+            AstNode *type_node = make_type_node(c, type_struct_field->type_entry);
+            AstNode *field_node = create_struct_field_node(c, buf_ptr(type_struct_field->name), type_node);
+            struct_node->data.struct_decl.fields.append(field_node);
+        }
+
+        normalize_parent_ptrs(struct_node);
+        c->root->data.root.top_level_decls.append(struct_node);
+    } else {
+        TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(&struct_type->name),
+                c->codegen->builtin_types.entry_u8);
+        add_typedef_node(c, typedecl_type);
+    }
 }
 
 static void visit_var_decl(Context *c, const VarDecl *var_decl) {
@@ -1253,6 +1268,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->global_value_table.init(8);
     c->enum_type_table.init(8);
     c->struct_type_table.init(8);
+    c->struct_decl_table.init(8);
     c->fn_table.init(8);
     c->macro_table.init(8);
     c->codegen = codegen;

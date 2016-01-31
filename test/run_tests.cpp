@@ -2019,6 +2019,25 @@ static const int int_var = 13;
     )SOURCE", 2,
             "pub extern var extern_var: c_int;",
             "pub const int_var: c_int = 13;");
+
+
+    add_parseh_case("circular struct definitions", R"SOURCE(
+struct Bar;
+
+struct Foo {
+    struct Bar *next;
+};
+
+struct Bar {
+    struct Foo *next;
+};
+    )SOURCE", 2,
+            R"SOURCE(export struct struct_Bar {
+    next: ?&struct_Foo,
+})SOURCE",
+            R"SOURCE(export struct struct_Foo {
+    next: ?&struct_Bar,
+})SOURCE");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
