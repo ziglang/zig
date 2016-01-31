@@ -2256,7 +2256,7 @@ static AstNode *ast_parse_fn_def(ParseContext *pc, int *token_index, bool mandat
 }
 
 /*
-ExternDecl : "extern" FnProto ";"
+ExternDecl = "extern" (FnProto | VariableDeclaration) ";"
 */
 static AstNode *ast_parse_extern_decl(ParseContext *pc, int *token_index, bool mandatory,
         ZigList<AstNode *> *directives, VisibMod visib_mod)
@@ -2271,13 +2271,28 @@ static AstNode *ast_parse_extern_decl(ParseContext *pc, int *token_index, bool m
     }
     *token_index += 1;
 
-    AstNode *node = ast_parse_fn_proto(pc, token_index, true, directives, visib_mod);
+    AstNode *fn_proto_node = ast_parse_fn_proto(pc, token_index, false, directives, visib_mod);
+    if (fn_proto_node) {
+        ast_eat_token(pc, token_index, TokenIdSemicolon);
 
-    ast_eat_token(pc, token_index, TokenIdSemicolon);
+        fn_proto_node->data.fn_proto.is_extern = true;
 
-    node->data.fn_proto.is_extern = true;
-    normalize_parent_ptrs(node);
-    return node;
+        normalize_parent_ptrs(fn_proto_node);
+        return fn_proto_node;
+    }
+
+    AstNode *var_decl_node = ast_parse_variable_declaration_expr(pc, token_index, false, directives, visib_mod);
+    if (var_decl_node) {
+        ast_eat_token(pc, token_index, TokenIdSemicolon);
+
+        var_decl_node->data.variable_declaration.is_extern = true;
+
+        normalize_parent_ptrs(var_decl_node);
+        return var_decl_node;
+    }
+
+    Token *token = &pc->tokens->at(*token_index);
+    ast_invalid_token_error(pc, token);
 }
 
 /*

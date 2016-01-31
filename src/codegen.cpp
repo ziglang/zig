@@ -2533,26 +2533,34 @@ static void do_code_gen(CodeGen *g) {
             continue;
         }
 
-        // TODO if the global is exported, set external linkage
-        LLVMValueRef init_val;
-
         assert(var->decl_node);
         assert(var->decl_node->type == NodeTypeVariableDeclaration);
-        AstNode *expr_node = var->decl_node->data.variable_declaration.expr;
-        if (expr_node) {
-            Expr *expr = get_resolved_expr(expr_node);
-            ConstExprValue *const_val = &expr->const_val;
-            assert(const_val->ok);
-            TypeTableEntry *type_entry = expr->type_entry;
-            init_val = gen_const_val(g, type_entry, const_val);
+
+        LLVMValueRef global_value;
+        if (var->decl_node->data.variable_declaration.is_extern) {
+            global_value = LLVMAddGlobal(g->module, var->type->type_ref, buf_ptr(&var->name));
+
+            LLVMSetLinkage(global_value, LLVMExternalLinkage);
         } else {
-            init_val = LLVMConstNull(var->type->type_ref);
+            AstNode *expr_node = var->decl_node->data.variable_declaration.expr;
+            LLVMValueRef init_val;
+            if (expr_node) {
+                Expr *expr = get_resolved_expr(expr_node);
+                ConstExprValue *const_val = &expr->const_val;
+                assert(const_val->ok);
+                TypeTableEntry *type_entry = expr->type_entry;
+                init_val = gen_const_val(g, type_entry, const_val);
+            } else {
+                init_val = LLVMConstNull(var->type->type_ref);
+            }
+
+            global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_val), buf_ptr(&var->name));
+            LLVMSetInitializer(global_value, init_val);
+            LLVMSetLinkage(global_value, LLVMInternalLinkage);
+            LLVMSetUnnamedAddr(global_value, true);
         }
-        LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_val), buf_ptr(&var->name));
-        LLVMSetInitializer(global_value, init_val);
+
         LLVMSetGlobalConstant(global_value, var->is_const);
-        LLVMSetUnnamedAddr(global_value, true);
-        LLVMSetLinkage(global_value, LLVMInternalLinkage);
 
         var->value_ref = global_value;
     }
