@@ -11,6 +11,8 @@
 #include "parser.hpp"
 #include "errmsg.hpp"
 
+#include <stdio.h>
+
 CodeGen *codegen_create(Buf *root_source_dir);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, int len);
@@ -26,5 +28,8 @@ void codegen_set_libc_path(CodeGen *codegen, Buf *libc_path);
 void codegen_add_root_code(CodeGen *g, Buf *source_dir, Buf *source_basename, Buf *source_code);
 
 void codegen_link(CodeGen *g, const char *out_file);
+
+void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code);
+void codegen_render_ast(CodeGen *g, FILE *f, int indent_size);
 
 #endif

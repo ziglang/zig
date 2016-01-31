@@ -12,6 +12,7 @@
 #include "parser.hpp"
 #include "all_types.hpp"
 #include "tokenizer.hpp"
+#include "analyze.hpp"
 
 #include <clang/Frontend/ASTUnit.h>
 #include <clang/Frontend/CompilerInstance.h>
@@ -30,22 +31,27 @@ struct Context {
     ZigList<ErrorMsg *> *errors;
     bool warnings_on;
     VisibMod visib_mod;
-    bool have_c_void_decl_node;
+    TypeTableEntry *c_void_type;
     AstNode *root;
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> root_name_table;
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> struct_type_table;
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> enum_type_table;
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> global_type_table;
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> global_value_table;
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> struct_type_table;
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> enum_type_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> fn_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
     SourceManager *source_manager;
     ZigList<AstNode *> aliases;
     ZigList<MacroSymbol> macro_symbols;
-    uint32_t *next_node_index;
+    AstNode *source_node;
+
+    CodeGen *codegen;
 };
 
-static AstNode *make_qual_type_node(Context *c, QualType qt, const Decl *decl);
-static AstNode *make_qual_type_node_with_table(Context *c, QualType qt, const Decl *decl,
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> *type_table);
+static TypeTableEntry *resolve_qual_type_with_table(Context *c, QualType qt, const Decl *decl,
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> *type_table);
+
+static TypeTableEntry *resolve_qual_type(Context *c, QualType qt, const Decl *decl);
+
 
 __attribute__ ((format (printf, 3, 4)))
 static void emit_warning(Context *c, const Decl *decl, const char *format, ...) {
@@ -77,8 +83,8 @@ static AstNode *create_node(Context *c, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
     node->type = type;
     node->owner = c->import;
-    node->create_index = *c->next_node_index;
-    *c->next_node_index += 1;
+    node->create_index = c->codegen->next_node_index;
+    c->codegen->next_node_index += 1;
     return node;
 }
 
@@ -178,13 +184,20 @@ static AstNode *create_num_lit_signed(Context *c, int64_t x) {
     return create_prefix_node(c, PrefixOpNegation, num_lit_node);
 }
 
-static AstNode *create_array_type_node(Context *c, AstNode *child_type_node, uint64_t size, bool is_const) {
-    AstNode *node = create_node(c, NodeTypeArrayType);
-    node->data.array_type.size = create_num_lit_unsigned(c, size);
-    node->data.array_type.child_type = child_type_node;
-    node->data.array_type.is_const = is_const;
+static AstNode *create_type_decl_node(Context *c, const char *name, AstNode *child_type_node) {
+    AstNode *node = create_node(c, NodeTypeTypeDecl);
+    buf_init_from_str(&node->data.type_decl.symbol, name);
+    node->data.type_decl.visib_mod = c->visib_mod;
+    node->data.type_decl.directives = create_empty_directives(c);
+    node->data.type_decl.child_type = child_type_node;
 
     normalize_parent_ptrs(node);
+    return node;
+}
+
+static AstNode *make_type_node(Context *c, TypeTableEntry *type_entry) {
+    AstNode *node = create_node(c, NodeTypeSymbol);
+    node->data.symbol_expr.override_type_entry = type_entry;
     return node;
 }
 
@@ -193,46 +206,29 @@ static const char *decl_name(const Decl *decl) {
     return (const char *)named_decl->getName().bytes_begin();
 }
 
+static AstNode *add_typedef_node(Context *c, TypeTableEntry *type_decl) {
+    assert(type_decl);
 
-static AstNode *add_typedef_node(Context *c, Buf *new_name, AstNode *target_node) {
-    if (!target_node) {
-        return nullptr;
-    }
-    AstNode *node = create_var_decl_node(c, buf_ptr(new_name), target_node);
+    AstNode *node = create_type_decl_node(c, buf_ptr(&type_decl->name),
+            make_type_node(c, type_decl->data.type_decl.child_type));
+    node->data.type_decl.override_type = type_decl;
 
-    c->root_name_table.put(new_name, true);
+    c->global_type_table.put(&type_decl->name, type_decl);
     c->root->data.root.top_level_decls.append(node);
     return node;
 }
 
-static AstNode *convert_to_c_void(Context *c, AstNode *type_node) {
-    if (type_node->type == NodeTypeSymbol &&
-        buf_eql_str(&type_node->data.symbol_expr.symbol, "void"))
-    {
-        if (!c->have_c_void_decl_node) {
-            add_typedef_node(c, buf_create_from_str("c_void"), create_symbol_node(c, "u8"));
-            c->have_c_void_decl_node = true;
-        }
-        return create_symbol_node(c, "c_void");
-    } else {
-        return type_node;
+static TypeTableEntry *get_c_void_type(Context *c) {
+    if (!c->c_void_type) {
+        c->c_void_type = get_typedecl_type(c->codegen, "c_void", c->codegen->builtin_types.entry_u8);
+        add_typedef_node(c, c->c_void_type);
     }
+
+    return c->c_void_type;
 }
 
-static AstNode *pointer_to_type(Context *c, AstNode *type_node, bool is_const) {
-    assert(type_node);
-    PrefixOp op = is_const ? PrefixOpConstAddressOf : PrefixOpAddressOf;
-    AstNode *child_node = create_prefix_node(c, op, convert_to_c_void(c, type_node));
-    return create_prefix_node(c, PrefixOpMaybe, child_node);
-}
-
-static bool type_is_int(AstNode *type_node) {
-    // TODO recurse through the type table
-    return true;
-}
-
-static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> *type_table)
+static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const Decl *decl,
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> *type_table)
 {
     switch (ty->getTypeClass()) {
         case Type::Builtin:
@@ -240,35 +236,35 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                 const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
                 switch (builtin_ty->getKind()) {
                     case BuiltinType::Void:
-                        return create_symbol_node(c, "void");
+                        return c->codegen->builtin_types.entry_void;
                     case BuiltinType::Bool:
-                        return create_symbol_node(c, "bool");
+                        return c->codegen->builtin_types.entry_bool;
                     case BuiltinType::Char_U:
                     case BuiltinType::UChar:
                     case BuiltinType::Char_S:
-                        return create_symbol_node(c, "u8");
+                        return c->codegen->builtin_types.entry_u8;
                     case BuiltinType::SChar:
-                        return create_symbol_node(c, "i8");
+                        return c->codegen->builtin_types.entry_i8;
                     case BuiltinType::UShort:
-                        return create_symbol_node(c, "c_ushort");
+                        return get_c_int_type(c->codegen, CIntTypeUShort);
                     case BuiltinType::UInt:
-                        return create_symbol_node(c, "c_uint");
+                        return get_c_int_type(c->codegen, CIntTypeUInt);
                     case BuiltinType::ULong:
-                        return create_symbol_node(c, "c_ulong");
+                        return get_c_int_type(c->codegen, CIntTypeULong);
                     case BuiltinType::ULongLong:
-                        return create_symbol_node(c, "c_ulonglong");
+                        return get_c_int_type(c->codegen, CIntTypeULongLong);
                     case BuiltinType::Short:
-                        return create_symbol_node(c, "c_short");
+                        return get_c_int_type(c->codegen, CIntTypeShort);
                     case BuiltinType::Int:
-                        return create_symbol_node(c, "c_int");
+                        return get_c_int_type(c->codegen, CIntTypeInt);
                     case BuiltinType::Long:
-                        return create_symbol_node(c, "c_long");
+                        return get_c_int_type(c->codegen, CIntTypeLong);
                     case BuiltinType::LongLong:
-                        return create_symbol_node(c, "c_longlong");
+                        return get_c_int_type(c->codegen, CIntTypeLongLong);
                     case BuiltinType::Float:
-                        return create_symbol_node(c, "f32");
+                        return c->codegen->builtin_types.entry_f32;
                     case BuiltinType::Double:
-                        return create_symbol_node(c, "f64");
+                        return c->codegen->builtin_types.entry_f64;
                     case BuiltinType::LongDouble:
                     case BuiltinType::WChar_U:
                     case BuiltinType::Char16:
@@ -297,7 +293,7 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                     case BuiltinType::BuiltinFn:
                     case BuiltinType::ARCUnbridgedCast:
                         emit_warning(c, decl, "missed a builtin type");
-                        return nullptr;
+                        return c->codegen->builtin_types.entry_invalid;
                 }
                 break;
             }
@@ -305,17 +301,26 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
             {
                 const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
                 QualType child_qt = pointer_ty->getPointeeType();
-                AstNode *type_node = make_qual_type_node(c, child_qt, decl);
-                if (!type_node) {
-                    return nullptr;
+                TypeTableEntry *child_type = resolve_qual_type(c, child_qt, decl);
+                if (get_underlying_type(child_type)->id == TypeTableEntryIdInvalid) {
+                    emit_warning(c, decl, "pointer to unresolved type");
+                    return c->codegen->builtin_types.entry_invalid;
                 }
+
                 if (child_qt.getTypePtr()->getTypeClass() == Type::Paren) {
                     const ParenType *paren_type = static_cast<const ParenType *>(child_qt.getTypePtr());
                     if (paren_type->getInnerType()->getTypeClass() == Type::FunctionProto) {
-                        return create_prefix_node(c, PrefixOpMaybe, type_node);
+                        return get_maybe_type(c->codegen, child_type);
                     }
                 }
-                return pointer_to_type(c, type_node, child_qt.isConstQualified());
+                bool is_const = child_qt.isConstQualified();
+
+                if (child_type->id == TypeTableEntryIdVoid) {
+                    child_type = get_c_void_type(c);
+                }
+
+                TypeTableEntry *non_null_pointer_type = get_pointer_to_type(c->codegen, child_type, is_const);
+                return get_maybe_type(c->codegen, non_null_pointer_type);
             }
         case Type::Typedef:
             {
@@ -323,32 +328,28 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                 const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
                 Buf *type_name = buf_create_from_str(decl_name(typedef_decl));
                 if (buf_eql_str(type_name, "uint8_t")) {
-                    return create_symbol_node(c, "u8");
+                    return c->codegen->builtin_types.entry_u8;
                 } else if (buf_eql_str(type_name, "int8_t")) {
-                    return create_symbol_node(c, "i8");
+                    return c->codegen->builtin_types.entry_i8;
                 } else if (buf_eql_str(type_name, "uint16_t")) {
-                    return create_symbol_node(c, "u16");
+                    return c->codegen->builtin_types.entry_u16;
                 } else if (buf_eql_str(type_name, "int16_t")) {
-                    return create_symbol_node(c, "i16");
+                    return c->codegen->builtin_types.entry_i16;
                 } else if (buf_eql_str(type_name, "uint32_t")) {
-                    return create_symbol_node(c, "u32");
+                    return c->codegen->builtin_types.entry_u32;
                 } else if (buf_eql_str(type_name, "int32_t")) {
-                    return create_symbol_node(c, "i32");
+                    return c->codegen->builtin_types.entry_i32;
                 } else if (buf_eql_str(type_name, "uint64_t")) {
-                    return create_symbol_node(c, "u64");
+                    return c->codegen->builtin_types.entry_u64;
                 } else if (buf_eql_str(type_name, "int64_t")) {
-                    return create_symbol_node(c, "i64");
+                    return c->codegen->builtin_types.entry_i64;
                 } else if (buf_eql_str(type_name, "intptr_t")) {
-                    return create_symbol_node(c, "isize");
+                    return c->codegen->builtin_types.entry_isize;
                 } else if (buf_eql_str(type_name, "uintptr_t")) {
-                    return create_symbol_node(c, "usize");
+                    return c->codegen->builtin_types.entry_usize;
                 } else {
                     auto entry = type_table->maybe_get(type_name);
-                    if (entry) {
-                        return create_symbol_node(c, buf_ptr(type_name));
-                    } else {
-                        return nullptr;
-                    }
+                    return entry ? entry->value : c->codegen->builtin_types.entry_invalid;
                 }
             }
         case Type::Elaborated:
@@ -356,10 +357,10 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                 const ElaboratedType *elaborated_ty = static_cast<const ElaboratedType*>(ty);
                 switch (elaborated_ty->getKeyword()) {
                     case ETK_Struct:
-                        return make_qual_type_node_with_table(c, elaborated_ty->getNamedType(),
+                        return resolve_qual_type_with_table(c, elaborated_ty->getNamedType(),
                                 decl, &c->struct_type_table);
                     case ETK_Enum:
-                        return make_qual_type_node_with_table(c, elaborated_ty->getNamedType(),
+                        return resolve_qual_type_with_table(c, elaborated_ty->getNamedType(),
                                 decl, &c->enum_type_table);
                     case ETK_Interface:
                     case ETK_Union:
@@ -367,35 +368,63 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                     case ETK_Typename:
                     case ETK_None:
                         emit_warning(c, decl, "unsupported elaborated type");
-                        return nullptr;
+                        return c->codegen->builtin_types.entry_invalid;
                 }
             }
         case Type::FunctionProto:
             {
                 const FunctionProtoType *fn_proto_ty = static_cast<const FunctionProtoType*>(ty);
-                AstNode *node = create_node(c, NodeTypeFnProto);
-                buf_resize(&node->data.fn_proto.name, 0);
-                node->data.fn_proto.is_extern = true;
-                node->data.fn_proto.is_var_args = fn_proto_ty->isVariadic();
-                node->data.fn_proto.return_type = make_qual_type_node(c, fn_proto_ty->getReturnType(), decl);
 
-                if (!node->data.fn_proto.return_type) {
-                    return nullptr;
+                switch (fn_proto_ty->getCallConv()) {
+                    case CC_C:           // __attribute__((cdecl))
+                        break;
+                    case CC_X86StdCall:  // __attribute__((stdcall))
+                    case CC_X86FastCall: // __attribute__((fastcall))
+                    case CC_X86ThisCall: // __attribute__((thiscall))
+                    case CC_X86VectorCall: // __attribute__((vectorcall))
+                    case CC_X86Pascal:   // __attribute__((pascal))
+                    case CC_X86_64Win64: // __attribute__((ms_abi))
+                    case CC_X86_64SysV:  // __attribute__((sysv_abi))
+                    case CC_AAPCS:       // __attribute__((pcs("aapcs")))
+                    case CC_AAPCS_VFP:   // __attribute__((pcs("aapcs-vfp")))
+                    case CC_IntelOclBicc: // __attribute__((intel_ocl_bicc))
+                    case CC_SpirFunction: // default for OpenCL functions on SPIR target
+                    case CC_SpirKernel:    // inferred for OpenCL kernels on SPIR target
+                        emit_warning(c, decl, "function type has non C calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                 }
 
-                int arg_count = fn_proto_ty->getNumParams();
-                for (int i = 0; i < arg_count; i += 1) {
-                    QualType qt = fn_proto_ty->getParamType(i);
-                    bool is_noalias = qt.isRestrictQualified();
-                    AstNode *type_node = make_qual_type_node(c, qt, decl);
-                    if (!type_node) {
-                        return nullptr;
+                FnTypeId fn_type_id;
+                fn_type_id.is_naked = false;
+                fn_type_id.is_extern = true;
+                fn_type_id.is_var_args = fn_proto_ty->isVariadic();
+                fn_type_id.param_count = fn_proto_ty->getNumParams();
+
+
+                if (fn_proto_ty->getNoReturnAttr()) {
+                    fn_type_id.return_type = c->codegen->builtin_types.entry_unreachable;
+                } else {
+                    fn_type_id.return_type = resolve_qual_type(c, fn_proto_ty->getReturnType(), decl);
+                    if (fn_type_id.return_type->id == TypeTableEntryIdInvalid) {
+                        return c->codegen->builtin_types.entry_invalid;
                     }
-                    node->data.fn_proto.params.append(create_param_decl_node(c, "", type_node, is_noalias));
                 }
 
-                normalize_parent_ptrs(node);
-                return node;
+                fn_type_id.param_info = allocate<FnTypeParamInfo>(fn_type_id.param_count);
+                for (int i = 0; i < fn_type_id.param_count; i += 1) {
+                    QualType qt = fn_proto_ty->getParamType(i);
+                    TypeTableEntry *param_type = resolve_qual_type(c, qt, decl);
+
+                    if (param_type->id == TypeTableEntryIdInvalid) {
+                        return c->codegen->builtin_types.entry_invalid;
+                    }
+
+                    FnTypeParamInfo *param_info = &fn_type_id.param_info[i];
+                    param_info->type = param_type;
+                    param_info->is_noalias = qt.isRestrictQualified();
+                }
+
+                return get_fn_type(c->codegen, fn_type_id);
             }
         case Type::Record:
             {
@@ -403,20 +432,15 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                 Buf *record_name = buf_create_from_str(decl_name(record_ty->getDecl()));
                 if (buf_len(record_name) == 0) {
                     emit_warning(c, decl, "unhandled anonymous struct");
-                    return nullptr;
-                } else if (type_table->maybe_get(record_name)) {
-                    const char *prefix_str;
-                    if (type_table == &c->enum_type_table) {
-                        prefix_str = "enum_";
-                    } else if (type_table == &c->struct_type_table) {
-                        prefix_str = "struct_";
-                    } else {
-                        prefix_str = "";
-                    }
-                    return create_symbol_node(c, buf_ptr(buf_sprintf("%s%s", prefix_str, buf_ptr(record_name))));
-                } else {
-                    return nullptr;
+                    return c->codegen->builtin_types.entry_invalid;
                 }
+
+                auto entry = type_table->maybe_get(record_name);
+                if (!entry) {
+                    return c->codegen->builtin_types.entry_invalid;
+                }
+
+                return entry->value;
             }
         case Type::Enum:
             {
@@ -424,32 +448,32 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
                 Buf *record_name = buf_create_from_str(decl_name(enum_ty->getDecl()));
                 if (buf_len(record_name) == 0) {
                     emit_warning(c, decl, "unhandled anonymous enum");
-                    return nullptr;
-                } else if (type_table->maybe_get(record_name)) {
-                    const char *prefix_str;
-                    if (type_table == &c->enum_type_table) {
-                        prefix_str = "enum_";
-                    } else if (type_table == &c->struct_type_table) {
-                        prefix_str = "struct_";
-                    } else {
-                        prefix_str = "";
-                    }
-                    return create_symbol_node(c, buf_ptr(buf_sprintf("%s%s", prefix_str, buf_ptr(record_name))));
-                } else {
-                    return nullptr;
+                    return c->codegen->builtin_types.entry_invalid;
                 }
+
+                auto entry = type_table->maybe_get(record_name);
+                if (!entry) {
+                    return c->codegen->builtin_types.entry_invalid;
+                }
+
+                return entry->value;
             }
         case Type::ConstantArray:
             {
                 const ConstantArrayType *const_arr_ty = static_cast<const ConstantArrayType *>(ty);
-                AstNode *child_type_node = make_qual_type_node(c, const_arr_ty->getElementType(), decl);
+                TypeTableEntry *child_type = resolve_qual_type(c, const_arr_ty->getElementType(), decl);
                 uint64_t size = const_arr_ty->getSize().getLimitedValue();
-                return create_array_type_node(c, child_type_node, size, false);
+                return get_array_type(c->codegen, child_type, size);
             }
         case Type::Paren:
             {
                 const ParenType *paren_ty = static_cast<const ParenType *>(ty);
-                return make_qual_type_node(c, paren_ty->getInnerType(), decl);
+                return resolve_qual_type(c, paren_ty->getInnerType(), decl);
+            }
+        case Type::Decayed:
+            {
+                const DecayedType *decayed_ty = static_cast<const DecayedType *>(ty);
+                return resolve_qual_type(c, decayed_ty->getOriginalType(), decl);
             }
         case Type::BlockPointer:
         case Type::LValueReference:
@@ -464,7 +488,6 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
         case Type::FunctionNoProto:
         case Type::UnresolvedUsing:
         case Type::Adjusted:
-        case Type::Decayed:
         case Type::TypeOfExpr:
         case Type::TypeOf:
         case Type::Decltype:
@@ -485,68 +508,68 @@ static AstNode *make_type_node(Context *c, const Type *ty, const Decl *decl,
         case Type::ObjCObjectPointer:
         case Type::Atomic:
             emit_warning(c, decl, "missed a '%s' type", ty->getTypeClassName());
-            return nullptr;
+            return c->codegen->builtin_types.entry_invalid;
     }
 }
 
-static AstNode *make_qual_type_node_with_table(Context *c, QualType qt, const Decl *decl,
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> *type_table)
+static TypeTableEntry *resolve_qual_type_with_table(Context *c, QualType qt, const Decl *decl,
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> *type_table)
 {
-    return make_type_node(c, qt.getTypePtr(), decl, type_table);
+    return resolve_type_with_table(c, qt.getTypePtr(), decl, type_table);
 }
 
-static AstNode *make_qual_type_node(Context *c, QualType qt, const Decl *decl) {
-    return make_qual_type_node_with_table(c, qt, decl, &c->root_name_table);
+static TypeTableEntry *resolve_qual_type(Context *c, QualType qt, const Decl *decl) {
+    return resolve_qual_type_with_table(c, qt, decl, &c->global_type_table);
 }
 
 static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
-    AstNode *node = create_node(c, NodeTypeFnProto);
-    buf_init_from_str(&node->data.fn_proto.name, decl_name(fn_decl));
+    Buf fn_name = BUF_INIT;
+    buf_init_from_str(&fn_name, decl_name(fn_decl));
 
-    auto fn_entry = c->fn_table.maybe_get(&node->data.fn_proto.name);
-    if (fn_entry) {
+    if (c->fn_table.maybe_get(&fn_name)) {
         // we already saw this function
         return;
     }
 
-    node->data.fn_proto.is_extern = true;
+    TypeTableEntry *fn_type = resolve_qual_type(c, fn_decl->getType(), fn_decl);
+
+    if (fn_type->id == TypeTableEntryIdInvalid) {
+        emit_warning(c, fn_decl, "ignoring function '%s' - unable to resolve type", buf_ptr(&fn_name));
+        return;
+    }
+    assert(fn_type->id == TypeTableEntryIdFn);
+
+
+    AstNode *node = create_node(c, NodeTypeFnProto);
+    buf_init_from_buf(&node->data.fn_proto.name, &fn_name);
+
+    node->data.fn_proto.is_extern = fn_type->data.fn.fn_type_id.is_extern;
     node->data.fn_proto.visib_mod = c->visib_mod;
     node->data.fn_proto.directives = create_empty_directives(c);
-    node->data.fn_proto.is_var_args = fn_decl->isVariadic();
+    node->data.fn_proto.is_var_args = fn_type->data.fn.fn_type_id.is_var_args;
+    node->data.fn_proto.return_type = make_type_node(c, fn_type->data.fn.fn_type_id.return_type);
 
-    int arg_count = fn_decl->getNumParams();
+    assert(!fn_type->data.fn.fn_type_id.is_naked);
+
+    int arg_count = fn_type->data.fn.fn_type_id.param_count;
+    Buf name_buf = BUF_INIT;
     for (int i = 0; i < arg_count; i += 1) {
+        FnTypeParamInfo *param_info = &fn_type->data.fn.fn_type_id.param_info[i];
+        AstNode *type_node = make_type_node(c, param_info->type);
         const ParmVarDecl *param = fn_decl->getParamDecl(i);
         const char *name = decl_name(param);
         if (strlen(name) == 0) {
-            name = buf_ptr(buf_sprintf("arg%d", i));
-        }
-        QualType qt = param->getOriginalType();
-        bool is_noalias = qt.isRestrictQualified();
-        AstNode *type_node = make_qual_type_node(c, qt, fn_decl);
-        if (!type_node) {
-            emit_warning(c, param, "skipping function %s, unresolved param type\n", name);
-            return;
+            buf_resize(&name_buf, 0);
+            buf_appendf(&name_buf, "arg%d", i);
+            name = buf_ptr(&name_buf);
         }
 
-        node->data.fn_proto.params.append(create_param_decl_node(c, name, type_node, is_noalias));
-    }
-
-    if (fn_decl->isNoReturn()) {
-        node->data.fn_proto.return_type = create_symbol_node(c, "unreachable");
-    } else {
-        node->data.fn_proto.return_type = make_qual_type_node(c, fn_decl->getReturnType(), fn_decl);
-    }
-
-    if (!node->data.fn_proto.return_type) {
-        emit_warning(c, fn_decl, "skipping function %s, unresolved return type\n",
-                buf_ptr(&node->data.fn_proto.name));
-        return;
+        node->data.fn_proto.params.append(create_param_decl_node(c, name, type_node, param_info->is_noalias));
     }
 
     normalize_parent_ptrs(node);
 
-    c->fn_table.put(&node->data.fn_proto.name, true);
+    c->fn_table.put(buf_create_from_buf(&fn_name), true);
     c->root->data.root.top_level_decls.append(node);
 }
 
@@ -573,7 +596,9 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
     // use the name of this typedef
     // TODO
 
-    add_typedef_node(c, type_name, make_qual_type_node(c, child_qt, typedef_decl));
+    TypeTableEntry *child_type = resolve_qual_type(c, child_qt, typedef_decl);
+    TypeTableEntry *decl_type = get_typedecl_type(c->codegen, buf_ptr(type_name), child_type);
+    add_typedef_node(c, decl_type);
 }
 
 static void add_alias(Context *c, const char *new_name, const char *target_name) {
@@ -582,7 +607,14 @@ static void add_alias(Context *c, const char *new_name, const char *target_name)
 }
 
 static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
-    Buf *bare_name = buf_create_from_str(decl_name(enum_decl));
+    const char *raw_name = decl_name(enum_decl);
+    // we have no interest in top level anonymous enums since they're
+    // not exposing anything.
+    if (raw_name[0] == 0) {
+        return;
+    }
+
+    Buf *bare_name = buf_create_from_str(raw_name);
     Buf *full_type_name = buf_sprintf("enum_%s", buf_ptr(bare_name));
 
     if (c->enum_type_table.maybe_get(bare_name)) {
@@ -590,97 +622,145 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
         return;
     }
 
-    // eagerly put the name in the table, but we need to remember to remove it if it fails 
-    // boy it would be nice to have defer here wouldn't it
-    c->enum_type_table.put(bare_name, true);
-
     const EnumDecl *enum_def = enum_decl->getDefinition();
 
     if (!enum_def) {
+        TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(full_type_name),
+                c->codegen->builtin_types.entry_u8);
+        c->enum_type_table.put(bare_name, typedecl_type);
+
         // this is a type that we can point to but that's it, same as `struct Foo;`.
-        add_typedef_node(c, full_type_name, create_symbol_node(c, "u8"));
+        add_typedef_node(c, typedecl_type);
         add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
         return;
     }
 
-    AstNode *node = create_node(c, NodeTypeStructDecl);
-    buf_init_from_buf(&node->data.struct_decl.name, full_type_name);
+    // count and validate
+    uint32_t field_count = 0;
+    for (auto it = enum_def->enumerator_begin(),
+              it_end = enum_def->enumerator_end();
+              it != it_end; ++it, field_count += 1)
+    {
+        const EnumConstantDecl *enum_const = *it;
+        if (enum_const->getInitExpr()) {
+            emit_warning(c, enum_const, "skipping enum %s - has init expression\n", buf_ptr(bare_name));
+            return;
+        }
+    }
 
-    node->data.struct_decl.kind = ContainerKindEnum;
-    node->data.struct_decl.visib_mod = VisibModExport;
-    node->data.struct_decl.directives = create_empty_directives(c);
+    TypeTableEntry *enum_type = get_partial_container_type(c->codegen, c->import,
+            ContainerKindEnum, c->source_node, buf_ptr(full_type_name));
 
+    enum_type->data.enumeration.gen_field_count = 0;
+    enum_type->data.enumeration.complete = true;
+
+    TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(c->codegen, field_count);
+    enum_type->align_in_bits = tag_type_entry->size_in_bits;
+    enum_type->size_in_bits = tag_type_entry->size_in_bits;
+    enum_type->data.enumeration.tag_type = tag_type_entry;
+
+    c->enum_type_table.put(bare_name, enum_type);
+    // make an alias without the "enum_" prefix. this will get emitted at the
+    // end if it doesn't conflict with anything else
+    add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
+
+    enum_type->data.enumeration.field_count = field_count;
+    enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+    LLVMZigDIEnumerator **di_enumerators = allocate<LLVMZigDIEnumerator*>(field_count);
 
     ZigList<AstNode *> var_decls = {0};
-    int i = 0;
+    uint32_t i = 0;
     for (auto it = enum_def->enumerator_begin(),
               it_end = enum_def->enumerator_end();
               it != it_end; ++it, i += 1)
     {
         const EnumConstantDecl *enum_const = *it;
-        if (enum_const->getInitExpr()) {
-            c->enum_type_table.remove(bare_name);
-            emit_warning(c, enum_const, "skipping enum %s - has init expression\n", buf_ptr(bare_name));
-            return;
-        }
+
         Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
-
-        Buf field_name = BUF_INIT;
-
+        Buf *field_name;
         if (buf_starts_with_buf(enum_val_name, bare_name)) {
             Buf *slice = buf_slice(enum_val_name, buf_len(bare_name), buf_len(enum_val_name));
             if (valid_symbol_starter(buf_ptr(slice)[0])) {
-                buf_init_from_buf(&field_name, slice);
+                field_name = slice;
             } else {
-                buf_resize(&field_name, 0);
-                buf_appendf(&field_name, "_%s", buf_ptr(slice));
+                field_name = buf_sprintf("_%s", buf_ptr(slice));
             }
         } else {
-            buf_init_from_buf(&field_name, enum_val_name);
+            field_name = enum_val_name;
         }
 
-        AstNode *field_node = create_struct_field_node(c, buf_ptr(&field_name), create_symbol_node(c, "void"));
-        node->data.struct_decl.fields.append(field_node);
+        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
+        type_enum_field->name = field_name;
+        type_enum_field->type_entry = c->codegen->builtin_types.entry_void;
+        type_enum_field->value = i;
+
+        di_enumerators[i] = LLVMZigCreateDebugEnumerator(c->codegen->dbuilder, buf_ptr(type_enum_field->name), i);
+
 
         // in C each enum value is in the global namespace. so we put them there too.
-        AstNode *field_access_node = create_field_access_node(c, buf_ptr(full_type_name), buf_ptr(&field_name));
+        // at this point we can rely on the enum emitting successfully
+        AstNode *field_access_node = create_field_access_node(c, buf_ptr(full_type_name), buf_ptr(field_name));
         AstNode *var_node = create_var_decl_node(c, buf_ptr(enum_val_name), field_access_node);
         var_decls.append(var_node);
-        c->root_name_table.put(enum_val_name, true);
+        c->global_value_table.put(enum_val_name, enum_type);
     }
 
-    normalize_parent_ptrs(node);
-    c->root->data.root.top_level_decls.append(node);
+    // create llvm type for root struct
+    enum_type->type_ref = tag_type_entry->type_ref;
+
+    // create debug type for tag
+    unsigned line = c->source_node ? (c->source_node->line + 1) : 0;
+    LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(c->codegen->dbuilder,
+            LLVMZigFileToScope(c->import->di_file), buf_ptr(bare_name),
+            c->import->di_file, line,
+            tag_type_entry->size_in_bits, tag_type_entry->align_in_bits, di_enumerators, field_count,
+            tag_type_entry->di_type, "");
+
+    LLVMZigReplaceTemporary(c->codegen->dbuilder, enum_type->di_type, tag_di_type);
+    enum_type->di_type = tag_di_type;
+
+    //////////
+
+    // now create top level decl for the type
+    AstNode *enum_node = create_node(c, NodeTypeStructDecl);
+    buf_init_from_buf(&enum_node->data.struct_decl.name, full_type_name);
+    enum_node->data.struct_decl.kind = ContainerKindEnum;
+    enum_node->data.struct_decl.visib_mod = VisibModExport;
+    enum_node->data.struct_decl.directives = create_empty_directives(c);
+    enum_node->data.struct_decl.type_entry = enum_type;
+
+    for (uint32_t i = 0; i < field_count; i += 1) {
+        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
+        AstNode *type_node = make_type_node(c, type_enum_field->type_entry);
+        AstNode *field_node = create_struct_field_node(c, buf_ptr(type_enum_field->name), type_node);
+        enum_node->data.struct_decl.fields.append(field_node);
+    }
+
+    normalize_parent_ptrs(enum_node);
+    c->root->data.root.top_level_decls.append(enum_node);
 
     for (int i = 0; i < var_decls.length; i += 1) {
         AstNode *var_node = var_decls.at(i);
         c->root->data.root.top_level_decls.append(var_node);
     }
 
-    // make an alias without the "enum_" prefix. this will get emitted at the
-    // end if it doesn't conflict with anything else
-    add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
 }
 
 static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
     const char *raw_name = decl_name(record_decl);
 
+    // we have no interest in top level anonymous structs since they're
+    // not exposing anything.
     if (record_decl->isAnonymousStructOrUnion() || raw_name[0] == 0) {
         return;
     }
 
-    Buf *bare_name = buf_create_from_str(raw_name);
-
     if (!record_decl->isStruct()) {
-        emit_warning(c, record_decl, "skipping record %s, not a struct", buf_ptr(bare_name));
+        emit_warning(c, record_decl, "skipping record %s, not a struct", raw_name);
         return;
     }
 
-    if (buf_len(bare_name) == 0) {
-        emit_warning(c, record_decl, "skipping anonymous struct");
-        return;
-    }
-
+    Buf *bare_name = buf_create_from_str(raw_name);
     Buf *full_type_name = buf_sprintf("struct_%s", buf_ptr(bare_name));
 
     if (c->struct_type_table.maybe_get(bare_name)) {
@@ -688,55 +768,127 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
         return;
     }
 
-    // eagerly put the name in the table, but we need to remember to remove it if it fails 
-    // boy it would be nice to have defer here wouldn't it
-    c->struct_type_table.put(bare_name, true);
-
-
     RecordDecl *record_def = record_decl->getDefinition();
     if (!record_def) {
+        TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(full_type_name),
+                c->codegen->builtin_types.entry_u8);
+        c->struct_type_table.put(bare_name, typedecl_type);
+
         // this is a type that we can point to but that's it, such as `struct Foo;`.
-        add_typedef_node(c, full_type_name, create_symbol_node(c, "u8"));
+        add_typedef_node(c, typedecl_type);
         add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
         return;
     }
 
-    AstNode *node = create_node(c, NodeTypeStructDecl);
-    buf_init_from_buf(&node->data.struct_decl.name, full_type_name);
+    TypeTableEntry *struct_type = get_partial_container_type(c->codegen, c->import,
+            ContainerKindStruct, c->source_node, buf_ptr(full_type_name));
 
-    node->data.struct_decl.kind = ContainerKindStruct;
-    node->data.struct_decl.visib_mod = VisibModExport;
-    node->data.struct_decl.directives = create_empty_directives(c);
+    c->struct_type_table.put(bare_name, struct_type);
+    // make an alias without the "struct_" prefix. this will get emitted at the
+    // end if it doesn't conflict with anything else
+    add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
 
+    // count fields and validate
+    uint32_t field_count = 0;
     for (auto it = record_def->field_begin(),
               it_end = record_def->field_end();
-              it != it_end; ++it)
+              it != it_end; ++it, field_count += 1)
     {
         const FieldDecl *field_decl = *it;
 
         if (field_decl->isBitField()) {
-            c->struct_type_table.remove(bare_name);
             emit_warning(c, field_decl, "skipping struct %s - has bitfield\n", buf_ptr(bare_name));
             return;
         }
+    }
 
-        AstNode *type_node = make_qual_type_node(c, field_decl->getType(), field_decl);
-        if (!type_node) {
-            c->struct_type_table.remove(bare_name);
-            emit_warning(c, field_decl, "skipping struct %s - unhandled type\n", buf_ptr(bare_name));
+    struct_type->data.structure.src_field_count = field_count;
+    struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
+
+    // we possibly allocate too much here since gen_field_count can be lower than field_count.
+    // the only problem is potential wasted space though.
+    LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
+    LLVMZigDIType **di_element_types = allocate<LLVMZigDIType*>(field_count);
+
+    uint64_t total_size_in_bits = 0;
+    uint64_t first_field_align_in_bits = 0;
+    uint64_t offset_in_bits = 0;
+
+    uint32_t i = 0;
+    unsigned line = c->source_node ? c->source_node->line : 0;
+    for (auto it = record_def->field_begin(),
+              it_end = record_def->field_end();
+              it != it_end; ++it, i += 1)
+    {
+        const FieldDecl *field_decl = *it;
+
+        TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+        type_struct_field->name = buf_create_from_str(decl_name(field_decl));
+        type_struct_field->src_index = i;
+        type_struct_field->gen_index = i;
+        type_struct_field->type_entry = resolve_qual_type(c, field_decl->getType(), field_decl);
+
+        if (type_struct_field->type_entry->id == TypeTableEntryIdInvalid) {
+            emit_warning(c, field_decl, "skipping struct %s - unresolved type\n", buf_ptr(bare_name));
             return;
         }
 
-        AstNode *field_node = create_struct_field_node(c, decl_name(field_decl), type_node);
-        node->data.struct_decl.fields.append(field_node);
+        di_element_types[i] = LLVMZigCreateDebugMemberType(c->codegen->dbuilder,
+                LLVMZigTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
+                c->import->di_file, line + 1,
+                type_struct_field->type_entry->size_in_bits,
+                type_struct_field->type_entry->align_in_bits,
+                offset_in_bits, 0, type_struct_field->type_entry->di_type);
+
+        element_types[i] = type_struct_field->type_entry->type_ref;
+        assert(di_element_types[i]);
+        assert(element_types[i]);
+
+        total_size_in_bits += type_struct_field->type_entry->size_in_bits;
+        if (first_field_align_in_bits == 0) {
+            first_field_align_in_bits = type_struct_field->type_entry->align_in_bits;
+        }
+        offset_in_bits += type_struct_field->type_entry->size_in_bits;
+
+    }
+    struct_type->data.structure.embedded_in_current = false;
+
+    struct_type->data.structure.gen_field_count = field_count;
+    struct_type->data.structure.complete = true;
+
+    LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
+
+    struct_type->align_in_bits = first_field_align_in_bits;
+    struct_type->size_in_bits = total_size_in_bits;
+
+    LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(c->codegen->dbuilder,
+            LLVMZigFileToScope(c->import->di_file),
+            buf_ptr(full_type_name),
+            c->import->di_file, line + 1, struct_type->size_in_bits, struct_type->align_in_bits, 0,
+            nullptr, di_element_types, field_count, 0, nullptr, "");
+
+    LLVMZigReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);
+    struct_type->di_type = replacement_di_type;
+
+    //////
+
+    // now create a top level decl node for the type
+    AstNode *struct_node = create_node(c, NodeTypeStructDecl);
+    buf_init_from_buf(&struct_node->data.struct_decl.name, full_type_name);
+    struct_node->data.struct_decl.kind = ContainerKindStruct;
+    struct_node->data.struct_decl.visib_mod = VisibModExport;
+    struct_node->data.struct_decl.directives = create_empty_directives(c);
+    struct_node->data.struct_decl.type_entry = struct_type;
+
+    for (uint32_t i = 0; i < field_count; i += 1) {
+        TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+        AstNode *type_node = make_type_node(c, type_struct_field->type_entry);
+        AstNode *field_node = create_struct_field_node(c, buf_ptr(type_struct_field->name), type_node);
+        struct_node->data.struct_decl.fields.append(field_node);
     }
 
-    normalize_parent_ptrs(node);
-    c->root->data.root.top_level_decls.append(node);
-
-    // make an alias without the "struct_" prefix. this will get emitted at the
-    // end if it doesn't conflict with anything else
-    add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
+    normalize_parent_ptrs(struct_node);
+    c->root->data.root.top_level_decls.append(struct_node);
 }
 
 static void visit_var_decl(Context *c, const VarDecl *var_decl) {
@@ -754,8 +906,8 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
     }
 
     QualType qt = var_decl->getType();
-    AstNode *type_node = make_qual_type_node(c, qt, var_decl);
-    if (!type_node) {
+    TypeTableEntry *var_type = resolve_qual_type(c, qt, var_decl);
+    if (var_type->id == TypeTableEntryIdInvalid) {
         emit_warning(c, var_decl, "ignoring variable '%s' - unresolved type\n", buf_ptr(name));
         return;
     }
@@ -778,7 +930,8 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
         switch (ap_value->getKind()) {
             case APValue::Int:
                 {
-                    if (!type_is_int(type_node)) {
+                    TypeTableEntry *canon_type = get_underlying_type(var_type);
+                    if (canon_type->id != TypeTableEntryIdInt) {
                         emit_warning(c, var_decl,
                             "ignoring variable '%s' - int initializer for non int type\n", buf_ptr(name));
                         return;
@@ -819,17 +972,19 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                 return;
         }
 
+        AstNode *type_node = make_type_node(c, var_type);
         AstNode *var_node = create_typed_var_decl_node(c, true, buf_ptr(name), type_node, init_node);
         c->root->data.root.top_level_decls.append(var_node);
-        c->root_name_table.put(name, true);
+        c->global_value_table.put(name, var_type);
         return;
     }
 
     if (is_extern) {
+        AstNode *type_node = make_type_node(c, var_type);
         AstNode *var_node = create_typed_var_decl_node(c, is_const, buf_ptr(name), type_node, nullptr);
         var_node->data.variable_declaration.is_extern = true;
         c->root->data.root.top_level_decls.append(var_node);
-        c->root_name_table.put(name, true);
+        c->global_value_table.put(name, var_type);
         return;
     }
 
@@ -864,7 +1019,10 @@ static bool decl_visitor(void *context, const Decl *decl) {
 }
 
 static bool name_exists(Context *c, Buf *name) {
-    if (c->root_name_table.maybe_get(name)) {
+    if (c->global_type_table.maybe_get(name)) {
+        return true;
+    }
+    if (c->global_value_table.maybe_get(name)) {
         return true;
     }
     if (c->fn_table.maybe_get(name)) {
@@ -1001,6 +1159,11 @@ static void process_macro(Context *c, Buf *name, Buf *value) {
 
     // maybe it's a symbol
     if (is_simple_symbol(value)) {
+        // if it equals itself, ignore. for example, from stdio.h:
+        // #define stdin stdin
+        if (buf_eql_buf(name, value)) {
+            return;
+        }
         c->macro_symbols.append({name, value});
     }
 }
@@ -1054,46 +1217,43 @@ static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
 }
 
 int parse_h_buf(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, Buf *source,
-        const char **args, int args_len, const char *libc_include_path, bool warnings_on,
-        uint32_t *next_node_index)
+        CodeGen *codegen, AstNode *source_node)
 {
     int err;
     Buf tmp_file_path = BUF_INIT;
     if ((err = os_buf_to_tmp_file(source, buf_create_from_str(".h"), &tmp_file_path))) {
         return err;
     }
-    ZigList<const char *> clang_argv = {0};
-    clang_argv.append(buf_ptr(&tmp_file_path));
 
-    clang_argv.append("-isystem");
-    clang_argv.append(libc_include_path);
-
-    for (int i = 0; i < args_len; i += 1) {
-        clang_argv.append(args[i]);
-    }
-
-    err = parse_h_file(import, errors, &clang_argv, warnings_on, next_node_index);
+    err = parse_h_file(import, errors, buf_ptr(&tmp_file_path), codegen, source_node);
 
     os_delete_file(&tmp_file_path);
 
     return err;
 }
 
-int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
-        ZigList<const char *> *clang_argv, bool warnings_on, uint32_t *next_node_index)
+int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const char *target_file,
+        CodeGen *codegen, AstNode *source_node)
 {
     Context context = {0};
     Context *c = &context;
-    c->warnings_on = warnings_on;
+    c->warnings_on = codegen->verbose;
     c->import = import;
     c->errors = errors;
     c->visib_mod = VisibModPub;
-    c->root_name_table.init(8);
+    c->global_type_table.init(8);
+    c->global_value_table.init(8);
     c->enum_type_table.init(8);
     c->struct_type_table.init(8);
     c->fn_table.init(8);
     c->macro_table.init(8);
-    c->next_node_index = next_node_index;
+    c->codegen = codegen;
+    c->source_node = source_node;
+
+    ZigList<const char *> clang_argv = {0};
+
+    clang_argv.append("-x");
+    clang_argv.append("c");
 
     char *ZIG_PARSEH_CFLAGS = getenv("ZIG_PARSEH_CFLAGS");
     if (ZIG_PARSEH_CFLAGS) {
@@ -1103,28 +1263,37 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
         while (space) {
             if (space - start > 0) {
                 buf_init_from_mem(&tmp_buf, start, space - start);
-                clang_argv->append(buf_ptr(buf_create_from_buf(&tmp_buf)));
+                clang_argv.append(buf_ptr(buf_create_from_buf(&tmp_buf)));
             }
             start = space + 1;
             space = strstr(start, " ");
         }
         buf_init_from_str(&tmp_buf, start);
-        clang_argv->append(buf_ptr(buf_create_from_buf(&tmp_buf)));
+        clang_argv.append(buf_ptr(buf_create_from_buf(&tmp_buf)));
     }
 
-    clang_argv->append("-isystem");
-    clang_argv->append(ZIG_HEADERS_DIR);
+    clang_argv.append("-isystem");
+    clang_argv.append(ZIG_HEADERS_DIR);
+
+    clang_argv.append("-isystem");
+    clang_argv.append(buf_ptr(codegen->libc_include_path));
+
+    for (int i = 0; i < codegen->clang_argv_len; i += 1) {
+        clang_argv.append(codegen->clang_argv[i]);
+    }
 
     // we don't need spell checking and it slows things down
-    clang_argv->append("-fno-spell-checking");
+    clang_argv.append("-fno-spell-checking");
 
     // this gives us access to preprocessing entities, presumably at
     // the cost of performance
-    clang_argv->append("-Xclang");
-    clang_argv->append("-detailed-preprocessing-record");
+    clang_argv.append("-Xclang");
+    clang_argv.append("-detailed-preprocessing-record");
 
-    // to make the end argument work
-    clang_argv->append(nullptr);
+    clang_argv.append(target_file);
+
+    // to make the [start...end] argument work
+    clang_argv.append(nullptr);
 
     IntrusiveRefCntPtr<DiagnosticsEngine> diags(CompilerInstance::createDiagnostics(new DiagnosticOptions));
 
@@ -1138,7 +1307,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors,
     const char *resources_path = ZIG_HEADERS_DIR;
     std::unique_ptr<ASTUnit> err_unit;
     std::unique_ptr<ASTUnit> ast_unit(ASTUnit::LoadFromCommandLine(
-            &clang_argv->at(0), &clang_argv->last(),
+            &clang_argv.at(0), &clang_argv.last(),
             pch_container_ops, diags, resources_path,
             only_local_decls, capture_diagnostics, None, true, false, TU_Complete,
             false, false, allow_pch_with_compiler_errors, skip_function_bodies,

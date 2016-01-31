@@ -124,6 +124,7 @@ enum NodeType {
     NodeTypeDirective,
     NodeTypeReturnExpr,
     NodeTypeVariableDeclaration,
+    NodeTypeTypeDecl,
     NodeTypeErrorValueDecl,
     NodeTypeBinOpExpr,
     NodeTypeUnwrapErrorExpr,
@@ -159,6 +160,7 @@ enum NodeType {
     NodeTypeStructValueField,
     NodeTypeArrayType,
     NodeTypeErrorType,
+    NodeTypeTypeLiteral,
 };
 
 struct AstNodeRoot {
@@ -212,9 +214,6 @@ struct AstNodeParamDecl {
 
     // populated by semantic analyzer
     VariableTableEntry *variable;
-    bool is_byval;
-    int src_index;
-    int gen_index;
 };
 
 struct AstNodeBlock {
@@ -254,6 +253,19 @@ struct AstNodeVariableDeclaration {
     TopLevelDecl top_level_decl;
     Expr resolved_expr;
     VariableTableEntry *variable;
+};
+
+struct AstNodeTypeDecl {
+    VisibMod visib_mod;
+    ZigList<AstNode *> *directives;
+    Buf symbol;
+    AstNode *child_type;
+
+    // populated by semantic analyzer
+    TopLevelDecl top_level_decl;
+    // if this is set, don't process the node; we've already done so
+    // and here is the type (with id TypeTableEntryIdTypeDecl)
+    TypeTableEntry *override_type;
 };
 
 struct AstNodeErrorValueDecl {
@@ -684,6 +696,11 @@ struct AstNodeErrorType {
     Expr resolved_expr;
 };
 
+struct AstNodeTypeLiteral {
+    // populated by semantic analyzer
+    Expr resolved_expr;
+};
+
 struct AstNode {
     enum NodeType type;
     int line;
@@ -704,6 +721,7 @@ struct AstNode {
         AstNodeBlock block;
         AstNodeReturnExpr return_expr;
         AstNodeVariableDeclaration variable_declaration;
+        AstNodeTypeDecl type_decl;
         AstNodeErrorValueDecl error_value_decl;
         AstNodeBinOpExpr bin_op_expr;
         AstNodeUnwrapErrorExpr unwrap_err_expr;
@@ -740,6 +758,7 @@ struct AstNode {
         AstNodeContinueExpr continue_expr;
         AstNodeArrayType array_type;
         AstNodeErrorType error_type;
+        AstNodeTypeLiteral type_literal;
     } data;
 };
 
@@ -754,6 +773,24 @@ struct AsmToken {
     int start;
     int end;
 };
+
+struct FnTypeParamInfo {
+    bool is_noalias;
+    TypeTableEntry *type;
+};
+
+struct FnTypeId {
+    TypeTableEntry *return_type;
+    FnTypeParamInfo *param_info;
+    int param_count;
+    bool is_var_args;
+    bool is_naked;
+    bool is_extern;
+};
+
+uint32_t fn_type_id_hash(FnTypeId);
+bool fn_type_id_eql(FnTypeId a, FnTypeId b);
+
 
 struct TypeTableEntryPointer {
     TypeTableEntry *child_type;
@@ -820,17 +857,25 @@ struct TypeTableEntryEnum {
     bool complete;
 };
 
+struct FnGenParamInfo {
+    int src_index;
+    int gen_index;
+    bool is_byval;
+};
+
 struct TypeTableEntryFn {
-    TypeTableEntry *src_return_type;
+    FnTypeId fn_type_id;
     TypeTableEntry *gen_return_type;
-    TypeTableEntry **param_types;
-    int src_param_count;
-    LLVMTypeRef raw_type_ref;
-    bool is_var_args;
     int gen_param_count;
+    FnGenParamInfo *gen_param_info;
+
+    LLVMTypeRef raw_type_ref;
     LLVMCallConv calling_convention;
-    bool is_extern;
-    bool is_naked;
+};
+
+struct TypeTableEntryTypeDecl {
+    TypeTableEntry *child_type;
+    TypeTableEntry *canonical_type;
 };
 
 enum TypeTableEntryId {
@@ -852,6 +897,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdPureError,
     TypeTableEntryIdEnum,
     TypeTableEntryIdFn,
+    TypeTableEntryIdTypeDecl,
 };
 
 struct TypeTableEntry {
@@ -873,6 +919,7 @@ struct TypeTableEntry {
         TypeTableEntryError error;
         TypeTableEntryEnum enumeration;
         TypeTableEntryFn fn;
+        TypeTableEntryTypeDecl type_decl;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
@@ -900,7 +947,6 @@ struct ImportTableEntry {
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
-    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> fn_type_table;
 };
 
 struct LabelTableEntry {
@@ -969,12 +1015,14 @@ struct CodeGen {
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> unresolved_top_level_decls;
+    HashMap<FnTypeId, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
 
     uint32_t next_unresolved_index;
 
     struct {
         TypeTableEntry *entry_bool;
         TypeTableEntry *entry_int[2][4]; // [signed,unsigned][8,16,32,64]
+        TypeTableEntry *entry_c_int[8];
         TypeTableEntry *entry_u8;
         TypeTableEntry *entry_u16;
         TypeTableEntry *entry_u32;
@@ -1082,12 +1130,16 @@ struct BlockContext {
     Buf *c_import_buf;
 };
 
-struct ParseH {
-    ZigList<ErrorMsg*> errors;
-    ZigList<AstNode *> fn_list;
-    ZigList<AstNode *> struct_list;
-    ZigList<AstNode *> var_list;
-    ZigList<AstNode *> incomplete_struct_list;
+enum CIntType {
+    CIntTypeShort,
+    CIntTypeUShort,
+    CIntTypeInt,
+    CIntTypeUInt,
+    CIntTypeLong,
+    CIntTypeULong,
+    CIntTypeLongLong,
+    CIntTypeULongLong,
 };
+
 
 #endif

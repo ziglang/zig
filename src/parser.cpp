@@ -908,7 +908,7 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, int *token_index, bool mand
 
 /*
 PrimaryExpression = "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." "Symbol")
-KeywordLiteral : "true" | "false" | "null" | "break" | "continue" | "undefined" | "error"
+KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -952,6 +952,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         return node;
     } else if (token->id == TokenIdKeywordUndefined) {
         AstNode *node = ast_create_node(pc, NodeTypeUndefinedLiteral, token);
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordType) {
+        AstNode *node = ast_create_node(pc, NodeTypeTypeLiteral, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordError) {
@@ -2470,7 +2474,34 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index,
 }
 
 /*
-TopLevelDecl : many(Directive) option(FnVisibleMod) (FnDef | ExternFnProto | RootExportDecl | Import | ContainerDecl | VariableDeclaration | ErrorValueDecl | CImportDecl)
+TypeDecl = "type" "Symbol" "=" TypeExpr ";"
+*/
+static AstNode *ast_parse_type_decl(ParseContext *pc, int *token_index,
+        ZigList<AstNode*> *directives, VisibMod visib_mod)
+{
+    Token *first_token = &pc->tokens->at(*token_index);
+
+    if (first_token->id != TokenIdKeywordType) {
+        return nullptr;
+    }
+    *token_index += 1;
+
+    Token *name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+    ast_eat_token(pc, token_index, TokenIdEq);
+
+    AstNode *node = ast_create_node(pc, NodeTypeTypeDecl, first_token);
+    ast_buf_from_token(pc, name_tok, &node->data.type_decl.symbol);
+    node->data.type_decl.child_type = ast_parse_prefix_op_expr(pc, token_index, true);
+
+    node->data.type_decl.visib_mod = visib_mod;
+    node->data.type_decl.directives = directives;
+
+    normalize_parent_ptrs(node);
+    return node;
+}
+
+/*
+TopLevelDecl = many(Directive) option(VisibleMod) (FnDef | ExternDecl | RootExportDecl | Import | ContainerDecl | GlobalVarDecl | ErrorValueDecl | CImportDecl | TypeDecl)
 */
 static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigList<AstNode *> *top_level_decls) {
     for (;;) {
@@ -2542,6 +2573,12 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
         AstNode *error_value_node = ast_parse_error_value_decl(pc, token_index, directives, visib_mod);
         if (error_value_node) {
             top_level_decls->append(error_value_node);
+            continue;
+        }
+
+        AstNode *type_decl_node = ast_parse_type_decl(pc, token_index, directives, visib_mod);
+        if (type_decl_node) {
+            top_level_decls->append(type_decl_node);
             continue;
         }
 
@@ -2631,8 +2668,15 @@ void normalize_parent_ptrs(AstNode *node) {
             set_field(&node->data.return_expr.expr);
             break;
         case NodeTypeVariableDeclaration:
+            if (node->data.variable_declaration.directives) {
+                set_list_fields(node->data.variable_declaration.directives);
+            }
             set_field(&node->data.variable_declaration.type);
             set_field(&node->data.variable_declaration.expr);
+            break;
+        case NodeTypeTypeDecl:
+            set_list_fields(node->data.type_decl.directives);
+            set_field(&node->data.type_decl.child_type);
             break;
         case NodeTypeErrorValueDecl:
             // none
@@ -2770,6 +2814,9 @@ void normalize_parent_ptrs(AstNode *node) {
             set_field(&node->data.array_type.child_type);
             break;
         case NodeTypeErrorType:
+            // none
+            break;
+        case NodeTypeTypeLiteral:
             // none
             break;
     }

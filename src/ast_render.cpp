@@ -119,6 +119,8 @@ static const char *node_type_str(NodeType node_type) {
             return "ReturnExpr";
         case NodeTypeVariableDeclaration:
             return "VariableDeclaration";
+        case NodeTypeTypeDecl:
+            return "TypeDecl";
         case NodeTypeErrorValueDecl:
             return "ErrorValueDecl";
         case NodeTypeNumberLiteral:
@@ -179,6 +181,8 @@ static const char *node_type_str(NodeType node_type) {
             return "ArrayType";
         case NodeTypeErrorType:
             return "ErrorType";
+        case NodeTypeTypeLiteral:
+            return "TypeLiteral";
     }
 }
 
@@ -258,6 +262,13 @@ void ast_print(FILE *f, AstNode *node, int indent) {
                     ast_print(f, node->data.variable_declaration.type, indent + 2);
                 if (node->data.variable_declaration.expr)
                     ast_print(f, node->data.variable_declaration.expr, indent + 2);
+                break;
+            }
+        case NodeTypeTypeDecl:
+            {
+                Buf *name_buf = &node->data.type_decl.symbol;
+                fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
+                ast_print(f, node->data.type_decl.child_type, indent + 2);
                 break;
             }
         case NodeTypeErrorValueDecl:
@@ -478,6 +489,9 @@ void ast_print(FILE *f, AstNode *node, int indent) {
         case NodeTypeErrorType:
             fprintf(f, "%s\n", node_type_str(node->type));
             break;
+        case NodeTypeTypeLiteral:
+            fprintf(f, "%s\n", node_type_str(node->type));
+            break;
     }
 }
 
@@ -494,7 +508,14 @@ static void print_indent(AstRender *ar) {
 }
 
 static bool is_node_void(AstNode *node) {
-    return node->type == NodeTypeSymbol && buf_eql_str(&node->data.symbol_expr.symbol, "void");
+    if (node->type == NodeTypeSymbol) {
+        if (node->data.symbol_expr.override_type_entry) {
+            return node->data.symbol_expr.override_type_entry->id == TypeTableEntryIdVoid;
+        } else if (buf_eql_str(&node->data.symbol_expr.symbol, "void")) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool is_printable(uint8_t c) {
@@ -515,6 +536,7 @@ static void render_node(AstRender *ar, AstNode *node) {
 
                 if (child->type == NodeTypeImport ||
                     child->type == NodeTypeVariableDeclaration ||
+                    child->type == NodeTypeTypeDecl ||
                     child->type == NodeTypeErrorValueDecl ||
                     child->type == NodeTypeFnProto)
                 {
@@ -588,6 +610,14 @@ static void render_node(AstRender *ar, AstNode *node) {
                 }
                 break;
             }
+        case NodeTypeTypeDecl:
+            {
+                const char *pub_str = visib_mod_string(node->data.type_decl.visib_mod);
+                const char *var_name = buf_ptr(&node->data.type_decl.symbol);
+                fprintf(ar->f, "%stype %s = ", pub_str, var_name);
+                render_node(ar, node->data.type_decl.child_type);
+                break;
+            }
         case NodeTypeErrorValueDecl:
             zig_panic("TODO");
         case NodeTypeBinOpExpr:
@@ -617,7 +647,14 @@ static void render_node(AstRender *ar, AstNode *node) {
                 break;
             }
         case NodeTypeSymbol:
-            fprintf(ar->f, "%s", buf_ptr(&node->data.symbol_expr.symbol));
+            {
+                TypeTableEntry *override_type = node->data.symbol_expr.override_type_entry;
+                if (override_type) {
+                    fprintf(ar->f, "%s", buf_ptr(&override_type->name));
+                } else {
+                    fprintf(ar->f, "%s", buf_ptr(&node->data.symbol_expr.symbol));
+                }
+            }
             break;
         case NodeTypePrefixOpExpr:
             {
@@ -719,7 +756,11 @@ static void render_node(AstRender *ar, AstNode *node) {
                 break;
             }
         case NodeTypeErrorType:
-            zig_panic("TODO");
+            fprintf(ar->f, "error");
+            break;
+        case NodeTypeTypeLiteral:
+            fprintf(ar->f, "type");
+            break;
     }
 }
 

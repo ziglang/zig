@@ -40,6 +40,7 @@ enum TokenId {
     TokenIdKeywordSwitch,
     TokenIdKeywordUndefined,
     TokenIdKeywordError,
+    TokenIdKeywordType,
     TokenIdLParen,
     TokenIdRParen,
     TokenIdComma,

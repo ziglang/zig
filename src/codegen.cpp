@@ -13,10 +13,12 @@
 #include "error.hpp"
 #include "analyze.hpp"
 #include "errmsg.hpp"
+#include "parseh.hpp"
 #include "ast_render.hpp"
 
 #include <stdio.h>
 #include <errno.h>
+
 
 CodeGen *codegen_create(Buf *root_source_dir) {
     CodeGen *g = allocate<CodeGen>(1);
@@ -25,6 +27,7 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->builtin_fn_table.init(32);
     g->primitive_type_table.init(32);
     g->unresolved_top_level_decls.init(32);
+    g->fn_type_table.init(32);
     g->build_type = CodeGenBuildTypeDebug;
     g->root_source_dir = root_source_dir;
     g->next_error_index = 1;
@@ -530,12 +533,12 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         fn_type = get_expr_type(fn_ref_expr);
     }
 
-    TypeTableEntry *src_return_type = fn_type->data.fn.src_return_type;
+    TypeTableEntry *src_return_type = fn_type->data.fn.fn_type_id.return_type;
 
     int fn_call_param_count = node->data.fn_call_expr.params.length;
     bool first_arg_ret = handle_is_ptr(src_return_type);
     int actual_param_count = fn_call_param_count + (struct_type ? 1 : 0) + (first_arg_ret ? 1 : 0);
-    bool is_var_args = fn_type->data.fn.is_var_args;
+    bool is_var_args = fn_type->data.fn.fn_type_id.is_var_args;
 
     // don't really include void values
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
@@ -1460,7 +1463,7 @@ static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
 }
 
 static LLVMValueRef gen_return(CodeGen *g, AstNode *source_node, LLVMValueRef value) {
-    TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.src_return_type;
+    TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
     if (handle_is_ptr(return_type)) {
         assert(g->cur_ret_ptr);
         gen_assign_raw(g, source_node, BinOpTypeAssign, g->cur_ret_ptr, value, return_type, return_type);
@@ -1503,7 +1506,7 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                 LLVMBuildCondBr(g->builder, cond_val, continue_block, return_block);
 
                 LLVMPositionBuilderAtEnd(g->builder, return_block);
-                TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.src_return_type;
+                TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
                 if (return_type->id == TypeTableEntryIdPureError) {
                     gen_return(g, node, err_val);
                 } else if (return_type->id == TypeTableEntryIdErrorUnion) {
@@ -2296,6 +2299,9 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeCharLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
+        case NodeTypeErrorType:
+        case NodeTypeTypeLiteral:
+        case NodeTypeArrayType:
             // caught by constant expression eval codegen
             zig_unreachable();
         case NodeTypeRoot:
@@ -2310,11 +2316,10 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
-        case NodeTypeArrayType:
-        case NodeTypeErrorType:
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
         case NodeTypeErrorValueDecl:
+        case NodeTypeTypeDecl:
             zig_unreachable();
     }
     zig_unreachable();
@@ -2341,6 +2346,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
     }
 
     switch (type_entry->id) {
+        case TypeTableEntryIdTypeDecl:
+            return gen_const_val(g, type_entry->data.type_decl.canonical_type, const_val);
         case TypeTableEntryIdInt:
             return LLVMConstInt(type_entry->type_ref, bignum_to_twos_complement(&const_val->data.x_bignum), false);
         case TypeTableEntryIdPureError:
@@ -2557,7 +2564,9 @@ static void do_code_gen(CodeGen *g) {
         assert(proto_node->type == NodeTypeFnProto);
         AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-        if (handle_is_ptr(fn_table_entry->type_entry->data.fn.src_return_type)) {
+        TypeTableEntry *fn_type = fn_table_entry->type_entry;
+
+        if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type)) {
             LLVMValueRef first_arg = LLVMGetParam(fn_table_entry->fn_value, 0);
             LLVMAddAttribute(first_arg, LLVMStructRetAttribute);
         }
@@ -2567,7 +2576,9 @@ static void do_code_gen(CodeGen *g) {
             AstNode *param_node = fn_proto->params.at(param_decl_i);
             assert(param_node->type == NodeTypeParamDecl);
 
-            int gen_index = param_node->data.param_decl.gen_index;
+            FnGenParamInfo *info = &fn_type->data.fn.gen_param_info[param_decl_i];
+            int gen_index = info->gen_index;
+            bool is_byval = info->is_byval;
 
             if (gen_index < 0) {
                 continue;
@@ -2587,7 +2598,7 @@ static void do_code_gen(CodeGen *g) {
                 // when https://github.com/andrewrk/zig/issues/82 is fixed, add
                 // non null attribute here
             }
-            if (param_node->data.param_decl.is_byval) {
+            if (is_byval) {
                 LLVMAddAttribute(argument_val, LLVMByValAttribute);
             }
         }
@@ -2601,7 +2612,7 @@ static void do_code_gen(CodeGen *g) {
         AstNode *fn_def_node = fn_table_entry->fn_def_node;
         LLVMValueRef fn = fn_table_entry->fn_value;
         g->cur_fn = fn_table_entry;
-        if (handle_is_ptr(fn_table_entry->type_entry->data.fn.src_return_type)) {
+        if (handle_is_ptr(fn_table_entry->type_entry->data.fn.fn_type_id.return_type)) {
             g->cur_ret_ptr = LLVMGetParam(fn, 0);
         } else {
             g->cur_ret_ptr = nullptr;
@@ -2685,7 +2696,9 @@ static void do_code_gen(CodeGen *g) {
             AstNode *param_decl = fn_proto->params.at(param_i);
             assert(param_decl->type == NodeTypeParamDecl);
 
-            if (param_decl->data.param_decl.gen_index < 0) {
+            FnGenParamInfo *info = &fn_table_entry->type_entry->data.fn.gen_param_info[param_i];
+
+            if (info->gen_index < 0) {
                 continue;
             }
 
@@ -2722,17 +2735,6 @@ static const int int_sizes_in_bits[] = {
     16,
     32,
     64,
-};
-
-enum CIntType {
-    CIntTypeShort,
-    CIntTypeUShort,
-    CIntTypeInt,
-    CIntTypeUInt,
-    CIntTypeLong,
-    CIntTypeULong,
-    CIntTypeLongLong,
-    CIntTypeULongLong,
 };
 
 struct CIntTypeInfo {
@@ -2840,6 +2842,8 @@ static void define_builtin_types(CodeGen *g) {
                 is_signed ? LLVMZigEncoding_DW_ATE_signed() : LLVMZigEncoding_DW_ATE_unsigned());
         entry->data.integral.is_signed = is_signed;
         g->primitive_type_table.put(&entry->name, entry);
+
+        get_c_int_type_ptr(g, info->id)[0] = entry;
     }
 
     {
@@ -3093,6 +3097,42 @@ static void init(CodeGen *g, Buf *source_path) {
 
 }
 
+void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code) {
+    find_libc_path(g);
+    Buf *full_path = buf_alloc();
+    os_path_join(src_dirname, src_basename, full_path);
+
+    ImportTableEntry *import = allocate<ImportTableEntry>(1);
+    import->source_code = source_code;
+    import->path = full_path;
+    import->fn_table.init(32);
+    g->root_import = import;
+
+    init(g, full_path);
+
+    import->di_file = LLVMZigCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
+
+    ZigList<ErrorMsg *> errors = {0};
+    int err = parse_h_buf(import, &errors, source_code, g, nullptr);
+    if (err) {
+        fprintf(stderr, "unable to parse .h file: %s\n", err_str(err));
+        exit(1);
+    }
+
+    if (errors.length > 0) {
+        for (int i = 0; i < errors.length; i += 1) {
+            ErrorMsg *err_msg = errors.at(i);
+            print_err_msg(err_msg, g->err_color);
+        }
+        exit(1);
+    }
+}
+
+void codegen_render_ast(CodeGen *g, FILE *f, int indent_size) {
+    ast_render(stdout, g->root_import->root, 4);
+}
+
+
 static int parse_version_string(Buf *buf, int *major, int *minor, int *patch) {
     char *dot1 = strstr(buf_ptr(buf), ".");
     if (!dot1)
@@ -3156,7 +3196,6 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
     import_entry->line_offsets = tokenization.line_offsets;
     import_entry->path = full_path;
     import_entry->fn_table.init(32);
-    import_entry->fn_type_table.init(32);
 
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color,
             &g->next_node_index);

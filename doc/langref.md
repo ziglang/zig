@@ -5,15 +5,17 @@
 ```
 Root = many(TopLevelDecl) "EOF"
 
-TopLevelDecl = many(Directive) option(VisibleMod) (FnDef | ExternDecl | RootExportDecl | Import | ContainerDecl | GlobalVarDecl | ErrorValueDecl | CImportDecl)
+TopLevelDecl = many(Directive) option(VisibleMod) (FnDef | ExternDecl | RootExportDecl | Import | ContainerDecl | GlobalVarDecl | ErrorValueDecl | CImportDecl | TypeDecl)
 
 CImportDecl = "c_import" Block
+
+TypeDecl = "type" "Symbol" "=" TypeExpr ";"
 
 ErrorValueDecl = "error" "Symbol" ";"
 
 GlobalVarDecl = VariableDeclaration ";"
 
-VariableDeclaration = ("var" | "const") "Symbol" option(":" PrefixOpExpression) "=" Expression
+VariableDeclaration = ("var" | "const") "Symbol" option(":" TypeExpr) "=" Expression
 
 ContainerDecl = ("struct" | "enum") "Symbol" "{" many(StructMember) "}"
 
@@ -27,7 +29,7 @@ RootExportDecl = "export" "Symbol" "String" ";"
 
 ExternDecl = "extern" (FnProto | VariableDeclaration) ";"
 
-FnProto = "fn" option("Symbol") ParamDeclList option("->" PrefixOpExpression)
+FnProto = "fn" option("Symbol") ParamDeclList option("->" TypeExpr)
 
 Directive = "#" "Symbol" "(" "String" ")"
 
@@ -37,7 +39,7 @@ FnDef = FnProto Block
 
 ParamDeclList = "(" list(ParamDecl, ",") ")"
 
-ParamDecl = option("noalias") option("Symbol" ":") PrefixOpExpression | "..."
+ParamDecl = option("noalias") option("Symbol" ":") TypeExpr | "..."
 
 Block = "{" list(option(Statement), ";") "}"
 
@@ -47,6 +49,8 @@ Label = "Symbol" ":"
 
 Expression = BlockExpression | NonBlockExpression
 
+TypeExpr = PrefixOpExpression
+
 NonBlockExpression = ReturnExpression | AssignmentExpression
 
 AsmExpression = "asm" option("volatile") "(" "String" option(AsmOutput) ")"
@@ -55,7 +59,7 @@ AsmOutput = ":" list(AsmOutputItem, ",") option(AsmInput)
 
 AsmInput = ":" list(AsmInputItem, ",") option(AsmClobbers)
 
-AsmOutputItem = "[" "Symbol" "]" "String" "(" ("Symbol" | "->" PrefixOpExpression) ")"
+AsmOutputItem = "[" "Symbol" "]" "String" "(" ("Symbol" | "->" TypeExpr) ")"
 
 AsmInputItem = "[" "Symbol" "]" "String" "(" Expression ")"
 
@@ -91,7 +95,7 @@ IfExpression = IfVarExpression | IfBoolExpression
 
 IfBoolExpression = "if" "(" Expression ")" Expression option(Else)
 
-IfVarExpression = "if" "(" ("const" | "var") "Symbol" option(":" PrefixOpExpression) "?=" Expression ")" Expression Option(Else)
+IfVarExpression = "if" "(" ("const" | "var") "Symbol" option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
 
 Else = "else" Expression
 
@@ -117,7 +121,7 @@ AdditionOperator = "+" | "-" | "++"
 
 MultiplyExpression = CurlySuffixExpression MultiplyOperator MultiplyExpression | CurlySuffixExpression
 
-CurlySuffixExpression = PrefixOpExpression option(ContainerInitExpression)
+CurlySuffixExpression = TypeExpr option(ContainerInitExpression)
 
 MultiplyOperator = "*" | "/" | "%"
 
@@ -143,13 +147,13 @@ PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%"
 
 PrimaryExpression = "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." "Symbol")
 
-ArrayType = "[" option(Expression) "]" option("const") PrefixOpExpression
+ArrayType = "[" option(Expression) "]" option("const") TypeExpr
 
 GotoExpression = "goto" "Symbol"
 
 GroupedExpression = "(" Expression ")"
 
-KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error"
+KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type"
 ```
 
 ## Operator Precedence

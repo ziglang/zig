@@ -115,7 +115,7 @@ static TestCase *add_parseh_case(const char *case_name, const char *source, int 
 
     test_case->compiler_args.append("parseh");
     test_case->compiler_args.append(tmp_h_path);
-    test_case->compiler_args.append("--c-import-warnings");
+    test_case->compiler_args.append("--verbose");
 
     test_cases.append(test_case);
 
@@ -1689,7 +1689,7 @@ var a : i32 = 2;
     add_compile_fail_case("byvalue struct on exported functions", R"SOURCE(
 struct A { x : i32, }
 export fn f(a : A) {}
-    )SOURCE", 1, ".tmp_source.zig:3:13: error: byvalue struct parameters not yet supported on exported functions");
+    )SOURCE", 1, ".tmp_source.zig:3:13: error: byvalue struct parameters not yet supported on extern functions");
 
     add_compile_fail_case("duplicate field in struct value expression", R"SOURCE(
 struct A {
@@ -1929,7 +1929,7 @@ pub const Foo1 = enum_Foo._1;)OUTPUT",
 
     add_parseh_case("restrict -> noalias", R"SOURCE(
 void foo(void *restrict bar, void *restrict);
-    )SOURCE", 1, R"OUTPUT(pub const c_void = u8;
+    )SOURCE", 1, R"OUTPUT(pub type c_void = u8;
 pub extern fn foo(noalias bar: ?&c_void, noalias arg1: ?&c_void);)OUTPUT");
 
     add_parseh_case("simple struct", R"SOURCE(
@@ -1977,14 +1977,14 @@ struct Foo {
     void (*derp)(struct Foo *foo);
 };
     )SOURCE", 2, R"OUTPUT(export struct struct_Foo {
-    derp: ?extern fn (?&struct_Foo),
+    derp: ?extern fn(?&struct_Foo),
 })OUTPUT", R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
 
     add_parseh_case("struct prototype used in func", R"SOURCE(
 struct Foo;
 struct Foo *some_func(struct Foo *foo, int x);
-    )SOURCE", 2, R"OUTPUT(pub const struct_Foo = u8;
+    )SOURCE", 2, R"OUTPUT(pub type struct_Foo = u8;
 pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;)OUTPUT",
         R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
