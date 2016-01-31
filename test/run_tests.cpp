@@ -1969,7 +1969,7 @@ pub const Bar = enum_Bar;)OUTPUT");
 
     add_parseh_case("constant size array", R"SOURCE(
 void func(int array[20]);
-    )SOURCE", 1, R"OUTPUT(pub extern fn func(array: [20]c_int);)OUTPUT");
+    )SOURCE", 1, "pub extern fn func(array: ?&c_int);");
 
 
     add_parseh_case("self referential struct with function pointer", R"SOURCE(

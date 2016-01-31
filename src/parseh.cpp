@@ -481,7 +481,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
         case Type::Decayed:
             {
                 const DecayedType *decayed_ty = static_cast<const DecayedType *>(ty);
-                return resolve_qual_type(c, decayed_ty->getOriginalType(), decl);
+                return resolve_qual_type(c, decayed_ty->getDecayedType(), decl);
             }
         case Type::BlockPointer:
         case Type::LValueReference:
