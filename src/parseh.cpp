@@ -349,7 +349,15 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     return c->codegen->builtin_types.entry_usize;
                 } else {
                     auto entry = type_table->maybe_get(type_name);
-                    return entry ? entry->value : c->codegen->builtin_types.entry_invalid;
+                    if (entry) {
+                        if (get_underlying_type(entry->value)->id == TypeTableEntryIdInvalid) {
+                            return c->codegen->builtin_types.entry_invalid;
+                        } else {
+                            return entry->value;
+                        }
+                    } else {
+                        return c->codegen->builtin_types.entry_invalid;
+                    }
                 }
             }
         case Type::Elaborated:
@@ -405,7 +413,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     fn_type_id.return_type = c->codegen->builtin_types.entry_unreachable;
                 } else {
                     fn_type_id.return_type = resolve_qual_type(c, fn_proto_ty->getReturnType(), decl);
-                    if (fn_type_id.return_type->id == TypeTableEntryIdInvalid) {
+                    if (get_underlying_type(fn_type_id.return_type)->id == TypeTableEntryIdInvalid) {
                         return c->codegen->builtin_types.entry_invalid;
                     }
                 }
@@ -415,7 +423,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     QualType qt = fn_proto_ty->getParamType(i);
                     TypeTableEntry *param_type = resolve_qual_type(c, qt, decl);
 
-                    if (param_type->id == TypeTableEntryIdInvalid) {
+                    if (get_underlying_type(param_type)->id == TypeTableEntryIdInvalid) {
                         return c->codegen->builtin_types.entry_invalid;
                     }
 
