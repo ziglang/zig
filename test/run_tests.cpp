@@ -1493,7 +1493,8 @@ c_import {
     @c_include("stdio.h");
 }
 export fn main(argc: c_int, argv: &&u8) -> c_int {
-    const x : f64 = 3.25;
+    const small: f32 = 3.25;
+    const x: f64 = small;
     const y = i32(x);
     const z = f64(y);
     printf(c"%.2f\n%d\n%.2f\n", x, y, z);
@@ -1945,6 +1946,12 @@ pub fn a(x: i32) -> i32 {x + 0}
 pub fn b(x: i32) -> i32 {x + 1}
 export fn c(x: i32) -> i32 {x + 2}
     )SOURCE", 1, ".tmp_source.zig:2:37: error: expected type 'fn(i32) -> i32', got 'extern fn(i32) -> i32'");
+
+
+    add_compile_fail_case("implicit cast from f64 to f32", R"SOURCE(
+const x : f64 = 1.0;
+const y : f32 = x;
+    )SOURCE", 1, ".tmp_source.zig:3:17: error: expected type 'f32', got 'f64'");
 }
 
 //////////////////////////////////////////////////////////////////////////////

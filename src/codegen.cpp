@@ -349,20 +349,36 @@ static LLVMValueRef gen_enum_value_expr(CodeGen *g, AstNode *node, TypeTableEntr
 static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeTableEntry *actual_type,
         TypeTableEntry *wanted_type, LLVMValueRef expr_val)
 {
+    assert(actual_type->id == wanted_type->id);
     if (actual_type->size_in_bits == wanted_type->size_in_bits) {
         return expr_val;
     } else if (actual_type->size_in_bits < wanted_type->size_in_bits) {
-        if (actual_type->data.integral.is_signed) {
+        if (actual_type->id == TypeTableEntryIdFloat) {
             add_debug_source_node(g, source_node);
-            return LLVMBuildSExt(g->builder, expr_val, wanted_type->type_ref, "");
+            return LLVMBuildFPExt(g->builder, expr_val, wanted_type->type_ref, "");
+        } else if (actual_type->id == TypeTableEntryIdInt) {
+            if (actual_type->data.integral.is_signed) {
+                add_debug_source_node(g, source_node);
+                return LLVMBuildSExt(g->builder, expr_val, wanted_type->type_ref, "");
+            } else {
+                add_debug_source_node(g, source_node);
+                return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
+            }
         } else {
+            zig_unreachable();
+        }
+    } else if (actual_type->size_in_bits > wanted_type->size_in_bits) {
+        if (actual_type->id == TypeTableEntryIdFloat) {
             add_debug_source_node(g, source_node);
-            return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
+            return LLVMBuildFPTrunc(g->builder, expr_val, wanted_type->type_ref, "");
+        } else if (actual_type->id == TypeTableEntryIdInt) {
+            add_debug_source_node(g, source_node);
+            return LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
+        } else {
+            zig_unreachable();
         }
     } else {
-        assert(actual_type->size_in_bits > wanted_type->size_in_bits);
-        add_debug_source_node(g, source_node);
-        return LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
+        zig_unreachable();
     }
 }
 
@@ -455,7 +471,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
         case CastOpPointerReinterpret:
             add_debug_source_node(g, node);
             return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");
-        case CastOpIntWidenOrShorten:
+        case CastOpWidenOrShorten:
             return gen_widen_or_shorten(g, node, actual_type, wanted_type, expr_val);
         case CastOpToUnknownSizeArray:
             {

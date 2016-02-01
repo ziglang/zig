@@ -1681,6 +1681,14 @@ static bool types_match_with_implicit_cast(CodeGen *g, TypeTableEntry *expected_
         return true;
     }
 
+    // implicit float widening conversion
+    if (expected_type->id == TypeTableEntryIdFloat &&
+        actual_type->id == TypeTableEntryIdFloat &&
+        expected_type->size_in_bits >= actual_type->size_in_bits)
+    {
+        return true;
+    }
+
     // implicit constant sized array to unknown size array conversion
     if (expected_type->id == TypeTableEntryIdStruct &&
         expected_type->data.structure.is_unknown_size_array &&
@@ -3366,7 +3374,7 @@ static void eval_const_expr_implicit_cast(CodeGen *g, AstNode *node, AstNode *ex
         case CastOpNoCast:
             zig_unreachable();
         case CastOpNoop:
-        case CastOpIntWidenOrShorten:
+        case CastOpWidenOrShorten:
         case CastOpPointerReinterpret:
             *const_val = *other_val;
             break;
@@ -3477,11 +3485,13 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         return wanted_type;
     }
 
-    // explicit cast from any int to any other int
-    if (wanted_type->id == TypeTableEntryIdInt &&
-        actual_type->id == TypeTableEntryIdInt)
+    // explicit widening or shortening cast
+    if ((wanted_type->id == TypeTableEntryIdInt &&
+        actual_type->id == TypeTableEntryIdInt) ||
+        (wanted_type->id == TypeTableEntryIdFloat &&
+        actual_type->id == TypeTableEntryIdFloat))
     {
-        node->data.fn_call_expr.cast_op = CastOpIntWidenOrShorten;
+        node->data.fn_call_expr.cast_op = CastOpWidenOrShorten;
         eval_const_expr_implicit_cast(g, node, expr_node);
         return wanted_type;
     }

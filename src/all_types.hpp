@@ -340,7 +340,7 @@ enum CastOp {
     CastOpNoop, // fn call expr is a cast, but does nothing
     CastOpPtrToInt,
     CastOpIntToPtr,
-    CastOpIntWidenOrShorten,
+    CastOpWidenOrShorten,
     CastOpToUnknownSizeArray,
     CastOpMaybeWrap,
     CastOpErrorWrap,
