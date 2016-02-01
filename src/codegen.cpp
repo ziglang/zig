@@ -478,6 +478,25 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 return cast_expr->tmp_ptr;
             }
+        case CastOpIntToFloat:
+            assert(actual_type->id == TypeTableEntryIdInt);
+            if (actual_type->data.integral.is_signed) {
+                add_debug_source_node(g, node);
+                return LLVMBuildSIToFP(g->builder, expr_val, wanted_type->type_ref, "");
+            } else {
+                add_debug_source_node(g, node);
+                return LLVMBuildUIToFP(g->builder, expr_val, wanted_type->type_ref, "");
+            }
+        case CastOpFloatToInt:
+            assert(wanted_type->id == TypeTableEntryIdInt);
+            if (wanted_type->data.integral.is_signed) {
+                add_debug_source_node(g, node);
+                return LLVMBuildFPToSI(g->builder, expr_val, wanted_type->type_ref, "");
+            } else {
+                add_debug_source_node(g, node);
+                return LLVMBuildFPToUI(g->builder, expr_val, wanted_type->type_ref, "");
+            }
+
     }
     zig_unreachable();
 }

@@ -120,6 +120,30 @@ void bignum_negate(BigNum *dest, BigNum *op) {
     }
 }
 
+void bignum_cast_to_float(BigNum *dest, BigNum *op) {
+    assert(op->kind == BigNumKindInt);
+    dest->kind = BigNumKindFloat;
+
+    dest->data.x_float = op->data.x_uint;
+
+    if (op->is_negative) {
+        dest->data.x_float = -dest->data.x_float;
+    }
+}
+
+void bignum_cast_to_int(BigNum *dest, BigNum *op) {
+    assert(op->kind == BigNumKindFloat);
+    dest->kind = BigNumKindInt;
+
+    if (op->data.x_float >= 0) {
+        dest->data.x_uint = op->data.x_float;
+        dest->is_negative = false;
+    } else {
+        dest->data.x_uint = -op->data.x_float;
+        dest->is_negative = true;
+    }
+}
+
 bool bignum_sub(BigNum *dest, BigNum *op1, BigNum *op2) {
     BigNum op2_negated;
     bignum_negate(&op2_negated, op2);

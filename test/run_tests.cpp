@@ -1483,6 +1483,23 @@ export fn main(args: c_int, argv: &&u8) -> c_int {
     return 0;
 }
     )SOURCE", "");
+
+
+
+    add_simple_case("casting between float and integer types", R"SOURCE(
+#link("c")
+export executable "test";
+c_import {
+    @c_include("stdio.h");
+}
+export fn main(argc: c_int, argv: &&u8) -> c_int {
+    const x : f64 = 3.25;
+    const y = i32(x);
+    const z = f64(y);
+    printf(c"%.2f\n%d\n%.2f\n", x, y, z);
+    return 0;
+}
+    )SOURCE", "3.25\n3\n3.00\n");
 }
 
 

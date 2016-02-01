@@ -347,6 +347,8 @@ enum CastOp {
     CastOpPureErrorWrap,
     CastOpPointerReinterpret,
     CastOpErrToInt,
+    CastOpIntToFloat,
+    CastOpFloatToInt,
 };
 
 struct AstNodeFnCallExpr {

@@ -44,6 +44,8 @@ bool bignum_shl(BigNum *dest, BigNum *op1, BigNum *op2);
 bool bignum_shr(BigNum *dest, BigNum *op1, BigNum *op2);
 
 void bignum_negate(BigNum *dest, BigNum *op);
+void bignum_cast_to_float(BigNum *dest, BigNum *op);
+void bignum_cast_to_int(BigNum *dest, BigNum *op);
 
 // returns the result of the comparison
 bool bignum_cmp_eq(BigNum *op1, BigNum *op2);

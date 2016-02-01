@@ -3417,6 +3417,14 @@ static void eval_const_expr_implicit_cast(CodeGen *g, AstNode *node, AstNode *ex
                 const_val->ok = true;
                 break;
             }
+        case CastOpIntToFloat:
+            bignum_cast_to_float(&const_val->data.x_bignum, &other_val->data.x_bignum);
+            const_val->ok = true;
+            break;
+        case CastOpFloatToInt:
+            bignum_cast_to_int(&const_val->data.x_bignum, &other_val->data.x_bignum);
+            const_val->ok = true;
+            break;
     }
 }
 
@@ -3474,6 +3482,24 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         actual_type->id == TypeTableEntryIdInt)
     {
         node->data.fn_call_expr.cast_op = CastOpIntWidenOrShorten;
+        eval_const_expr_implicit_cast(g, node, expr_node);
+        return wanted_type;
+    }
+
+    // explicit cast from int to float
+    if (wanted_type->id == TypeTableEntryIdFloat &&
+        actual_type->id == TypeTableEntryIdInt)
+    {
+        node->data.fn_call_expr.cast_op = CastOpIntToFloat;
+        eval_const_expr_implicit_cast(g, node, expr_node);
+        return wanted_type;
+    }
+
+    // explicit cast from float to int
+    if (wanted_type->id == TypeTableEntryIdInt &&
+        actual_type->id == TypeTableEntryIdFloat)
+    {
+        node->data.fn_call_expr.cast_op = CastOpFloatToInt;
         eval_const_expr_implicit_cast(g, node, expr_node);
         return wanted_type;
     }
