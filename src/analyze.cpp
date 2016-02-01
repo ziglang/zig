@@ -738,12 +738,13 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
 
     TypeTableEntry *fn_type = analyze_fn_proto_type(g, import, import->block_context, nullptr, node, is_naked);
 
+    fn_table_entry->type_entry = fn_type;
+
     if (fn_type->id == TypeTableEntryIdInvalid) {
         fn_proto->skip = true;
         return;
     }
 
-    fn_table_entry->type_entry = fn_type;
 
     fn_table_entry->fn_value = LLVMAddFunction(g->module, buf_ptr(&fn_table_entry->symbol_name),
             fn_type->data.fn.raw_type_ref);
@@ -1293,19 +1294,34 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
                 AstNode *type_node = node->data.type_decl.child_type;
                 Buf *decl_name = &node->data.type_decl.symbol;
 
-                TypeTableEntry *typedecl_type;
+                TypeTableEntry *entry;
                 if (node->data.type_decl.override_type) {
-                    typedecl_type = node->data.type_decl.override_type;
+                    entry = node->data.type_decl.override_type;
                 } else {
                     TypeTableEntry *child_type = analyze_type_expr(g, import, import->block_context, type_node);
                     if (child_type->id == TypeTableEntryIdInvalid) {
-                        typedecl_type = child_type;
+                        entry = child_type;
                     } else {
-                        typedecl_type = get_typedecl_type(g, buf_ptr(decl_name), child_type);
+                        entry = get_typedecl_type(g, buf_ptr(decl_name), child_type);
                     }
                 }
 
-                import->block_context->type_table.put(decl_name, typedecl_type);
+                import->block_context->type_table.put(decl_name, entry);
+
+                bool is_pub = (node->data.type_decl.visib_mod != VisibModPrivate);
+                if (is_pub) {
+                    for (int i = 0; i < import->importers.length; i += 1) {
+                        ImporterInfo importer = import->importers.at(i);
+                        auto table_entry = importer.import->block_context->type_table.maybe_get(&entry->name);
+                        if (table_entry) {
+                            add_node_error(g, importer.source_node,
+                                buf_sprintf("import of type '%s' overrides existing definition",
+                                    buf_ptr(&entry->name)));
+                        } else {
+                            importer.import->block_context->type_table.put(&entry->name, entry);
+                        }
+                    }
+                }
 
                 break;
             }
@@ -1388,8 +1404,8 @@ static TypeTableEntry *get_return_type(BlockContext *context) {
     return unwrapped_node_type(return_type_node);
 }
 
-static bool type_has_codegen_value(TypeTableEntryId id) {
-    switch (id) {
+static bool type_has_codegen_value(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdVoid:
@@ -1413,13 +1429,13 @@ static bool type_has_codegen_value(TypeTableEntryId id) {
             return true;
 
         case TypeTableEntryIdTypeDecl:
-            zig_unreachable();
+            return type_has_codegen_value(type_entry->data.type_decl.canonical_type);
     }
 }
 
 static void add_global_const_expr(CodeGen *g, Expr *expr) {
     if (expr->const_val.ok &&
-        type_has_codegen_value(expr->type_entry->id) &&
+        type_has_codegen_value(expr->type_entry) &&
         !expr->has_global_const &&
         expr->type_entry->size_in_bits > 0)
     {
@@ -2381,6 +2397,7 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
 
     auto fn_table_entry = import->fn_table.maybe_get(variable_name);
     if (fn_table_entry) {
+        assert(fn_table_entry->value->type_entry);
         node->data.symbol_expr.fn_entry = fn_table_entry->value;
         return resolve_expr_const_val_as_fn(g, node, fn_table_entry->value);
     }
