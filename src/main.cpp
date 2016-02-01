@@ -31,6 +31,7 @@ static int usage(const char *arg0) {
         "  --libc-path [path]     set the C compiler data path\n"
         "  -isystem [dir]         add additional search path for other .h files\n"
         "  -dirafter [dir]        same as -isystem but do it last\n"
+        "  --library-path [dir]   add a directory to the library search path\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -56,6 +57,7 @@ int main(int argc, char **argv) {
     ErrColor color = ErrColorAuto;
     const char *libc_path = nullptr;
     ZigList<const char *> clang_argv = {0};
+    ZigList<const char *> lib_dirs = {0};
     int err;
 
     for (int i = 1; i < argc; i += 1) {
@@ -108,6 +110,8 @@ int main(int argc, char **argv) {
                 } else if (strcmp(arg, "-dirafter") == 0) {
                     clang_argv.append("-dirafter");
                     clang_argv.append(argv[i]);
+                } else if (strcmp(arg, "--library-path") == 0) {
+                    lib_dirs.append(argv[i]);
                 } else {
                     return usage(arg0);
                 }
@@ -182,6 +186,10 @@ int main(int argc, char **argv) {
                 codegen_set_libc_path(g, buf_create_from_str(libc_path));
             codegen_set_verbose(g, verbose);
             codegen_set_errmsg_color(g, color);
+
+            for (int i = 0; i < lib_dirs.length; i += 1) {
+                codegen_add_lib_dir(g, lib_dirs.at(i));
+            }
 
             if (cmd == CmdBuild) {
                 codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);

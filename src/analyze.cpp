@@ -538,7 +538,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
     fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
             gen_param_types, gen_param_index, fn_type_id.is_var_args);
     fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
-    LLVMZigDIFile *di_file = nullptr; // TODO if we get a crash maybe this is the culprit
+    LLVMZigDIFile *di_file = nullptr;
     fn_type->di_type = LLVMZigCreateSubroutineType(g->dbuilder, di_file,
             param_di_types, gen_param_index + 1, 0);
 

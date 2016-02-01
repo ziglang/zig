@@ -1096,6 +1096,7 @@ struct CodeGen {
 
     const char **clang_argv;
     int clang_argv_len;
+    ZigList<const char *> lib_dirs;
 };
 
 struct VariableTableEntry {

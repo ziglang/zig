@@ -73,6 +73,10 @@ void codegen_set_libc_path(CodeGen *g, Buf *libc_path) {
     g->libc_path = libc_path;
 }
 
+void codegen_add_lib_dir(CodeGen *g, const char *dir) {
+    g->lib_dirs.append(dir);
+}
+
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node);
 static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *expr_node, AstNode *node, TypeTableEntry **out_type_entry);
 static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lvalue);
@@ -3648,6 +3652,12 @@ void codegen_link(CodeGen *g, const char *out_file) {
         args.append(get_libc_file(g, "crtn.o"));
     }
 
+    for (int i = 0; i < g->lib_dirs.length; i += 1) {
+        const char *lib_dir = g->lib_dirs.at(i);
+        args.append("-L");
+        args.append(lib_dir);
+    }
+
     auto it = g->link_table.entry_iterator();
     for (;;) {
         auto *entry = it.next();
@@ -3673,7 +3683,11 @@ void codegen_link(CodeGen *g, const char *out_file) {
 
     if (return_code != 0) {
         fprintf(stderr, "ld failed with return code %d\n", return_code);
-        fprintf(stderr, "%s\n", buf_ptr(&ld_stderr));
+        fprintf(stderr, "ld ");
+        for (int i = 0; i < args.length; i += 1) {
+            fprintf(stderr, "%s ", args.at(i));
+        }
+        fprintf(stderr, "\n%s\n", buf_ptr(&ld_stderr));
         exit(1);
     } else if (buf_len(&ld_stderr)) {
         fprintf(stderr, "%s\n", buf_ptr(&ld_stderr));
