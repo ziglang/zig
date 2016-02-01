@@ -26,6 +26,11 @@ struct MacroSymbol {
     Buf *value;
 };
 
+struct GlobalValue {
+    TypeTableEntry *type;
+    bool is_const;
+};
+
 struct Context {
     ImportTableEntry *import;
     ZigList<ErrorMsg *> *errors;
@@ -34,7 +39,7 @@ struct Context {
     TypeTableEntry *c_void_type;
     AstNode *root;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> global_type_table;
-    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> global_value_table;
+    HashMap<Buf *, GlobalValue, buf_hash, buf_eql_buf> global_value_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> struct_type_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> struct_decl_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> enum_type_table;
@@ -737,7 +742,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
         AstNode *field_access_node = create_field_access_node(c, buf_ptr(full_type_name), buf_ptr(field_name));
         AstNode *var_node = create_var_decl_node(c, buf_ptr(enum_val_name), field_access_node);
         var_decls.append(var_node);
-        c->global_value_table.put(enum_val_name, enum_type);
+        c->global_value_table.put(enum_val_name, {enum_type, true});
     }
 
     // create llvm type for root struct
@@ -1036,7 +1041,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
         AstNode *type_node = make_type_node(c, var_type);
         AstNode *var_node = create_typed_var_decl_node(c, true, buf_ptr(name), type_node, init_node);
         c->root->data.root.top_level_decls.append(var_node);
-        c->global_value_table.put(name, var_type);
+        c->global_value_table.put(name, {var_type, true});
         return;
     }
 
@@ -1045,7 +1050,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
         AstNode *var_node = create_typed_var_decl_node(c, is_const, buf_ptr(name), type_node, nullptr);
         var_node->data.variable_declaration.is_extern = true;
         c->root->data.root.top_level_decls.append(var_node);
-        c->global_value_table.put(name, var_type);
+        c->global_value_table.put(name, {var_type, is_const});
         return;
     }
 
@@ -1091,6 +1096,22 @@ static bool name_exists(Context *c, Buf *name) {
     }
     if (c->macro_table.maybe_get(name)) {
         return true;
+    }
+    return false;
+}
+
+static bool name_exists_and_const(Context *c, Buf *name) {
+    if (c->global_type_table.maybe_get(name)) {
+        return true;
+    }
+    if (c->fn_table.maybe_get(name)) {
+        return true;
+    }
+    if (c->macro_table.maybe_get(name)) {
+        return true;
+    }
+    if (auto entry = c->global_value_table.maybe_get(name)) {
+        return entry->value.is_const;
     }
     return false;
 }
@@ -1232,7 +1253,7 @@ static void process_macro(Context *c, Buf *name, Buf *value) {
 static void process_symbol_macros(Context *c) {
     for (int i = 0; i < c->macro_symbols.length; i += 1) {
         MacroSymbol ms = c->macro_symbols.at(i);
-        if (name_exists(c, ms.value)) {
+        if (name_exists_and_const(c, ms.value)) {
             AstNode *var_node = create_var_decl_node(c, buf_ptr(ms.name),
                     create_symbol_node(c, buf_ptr(ms.value)));
             c->macro_table.put(ms.name, var_node);

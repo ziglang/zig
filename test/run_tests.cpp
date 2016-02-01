@@ -2108,6 +2108,19 @@ Foo fun(Foo *a);
             "pub type c_void = u8;",
             "pub const Foo = c_void;",
             "pub extern fn fun(a: ?&c_void);");
+
+    add_parseh_case("ignore #define for non-const", R"SOURCE(
+struct Foo {
+    int x;
+};
+extern void (*fn_ptr)(void);
+#define Foo fn_ptr
+    )SOURCE", 3,
+            "pub type c_void = u8;",
+            "pub const Foo = struct_Foo;",
+            R"OUTPUT(export struct struct_Foo {
+    x: c_int,
+})OUTPUT");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
