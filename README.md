@@ -14,6 +14,8 @@ compromises backward compatibility.
 
 ## Existing Features
 
+ * Compatible with C libraries with no wrapper necessary. Directly include
+   C .h files and get access to the functions and symbols therein.
  * Compile units do not depend on libc unless explicitly linked.
  * Provides standard library which competes with the C standard library and is
    always compiled against statically in source form.
@@ -39,7 +41,6 @@ compromises backward compatibility.
 
 ## Planned Features
 
- * Completely compatible with C libraries with no wrapper necessary.
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
  * Generics so that one can write efficient data structures that work for any
