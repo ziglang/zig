@@ -928,6 +928,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
     assert(node->data.prefix_op_expr.primary_expr);
 
     AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
+    TypeTableEntry *expr_type = get_expr_type(expr_node);
 
     switch (node->data.prefix_op_expr.prefix_op) {
         case PrefixOpInvalid:
@@ -935,8 +936,15 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
         case PrefixOpNegation:
             {
                 LLVMValueRef expr = gen_expr(g, expr_node);
-                add_debug_source_node(g, node);
-                return LLVMBuildNeg(g->builder, expr, "");
+                if (expr_type->id == TypeTableEntryIdInt) {
+                    add_debug_source_node(g, node);
+                    return LLVMBuildNeg(g->builder, expr, "");
+                } else if (expr_type->id == TypeTableEntryIdFloat) {
+                    add_debug_source_node(g, node);
+                    return LLVMBuildFNeg(g->builder, expr, "");
+                } else {
+                    zig_unreachable();
+                }
             }
         case PrefixOpBoolNot:
             {
@@ -961,8 +969,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
         case PrefixOpDereference:
             {
                 LLVMValueRef expr = gen_expr(g, expr_node);
-                TypeTableEntry *type_entry = get_expr_type(expr_node);
-                if (type_entry->size_in_bits == 0) {
+                if (expr_type->size_in_bits == 0) {
                     return nullptr;
                 } else {
                     add_debug_source_node(g, node);
