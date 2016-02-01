@@ -112,7 +112,7 @@ void bignum_negate(BigNum *dest, BigNum *op) {
     dest->kind = op->kind;
 
     if (dest->kind == BigNumKindFloat) {
-        dest->data.x_float = -dest->data.x_float;
+        dest->data.x_float = -op->data.x_float;
     } else {
         dest->data.x_uint = op->data.x_uint;
         dest->is_negative = !op->is_negative;

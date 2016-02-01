@@ -1497,10 +1497,10 @@ export fn main(argc: c_int, argv: &&u8) -> c_int {
     const x: f64 = small;
     const y = i32(x);
     const z = f64(y);
-    printf(c"%.2f\n%d\n%.2f\n", x, y, z);
+    printf(c"%.2f\n%d\n%.2f\n%.2f\n", x, y, z, f64(-0.4));
     return 0;
 }
-    )SOURCE", "3.25\n3\n3.00\n");
+    )SOURCE", "3.25\n3\n3.00\n-0.40\n");
 }
 
 
