@@ -75,6 +75,9 @@ LLVMZigDIType *LLVMZigCreateDebugMemberType(LLVMZigDIBuilder *dibuilder, LLVMZig
 LLVMZigDIType *LLVMZigCreateReplaceableCompositeType(LLVMZigDIBuilder *dibuilder, unsigned tag,
         const char *name, LLVMZigDIScope *scope, LLVMZigDIFile *file, unsigned line);
 
+LLVMZigDIType *LLVMZigCreateDebugForwardDeclType(LLVMZigDIBuilder *dibuilder, unsigned tag,
+        const char *name, LLVMZigDIScope *scope, LLVMZigDIFile *file, unsigned line);
+
 void LLVMZigReplaceTemporary(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
         LLVMZigDIType *replacement);
 

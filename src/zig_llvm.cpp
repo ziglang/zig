@@ -262,6 +262,17 @@ LLVMZigDIType *LLVMZigCreateReplaceableCompositeType(LLVMZigDIBuilder *dibuilder
     return reinterpret_cast<LLVMZigDIType*>(di_type);
 }
 
+LLVMZigDIType *LLVMZigCreateDebugForwardDeclType(LLVMZigDIBuilder *dibuilder, unsigned tag,
+        const char *name, LLVMZigDIScope *scope, LLVMZigDIFile *file, unsigned line)
+{
+    DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createForwardDecl(
+            tag, name,
+            reinterpret_cast<DIScope*>(scope),
+            reinterpret_cast<DIFile*>(file),
+            line);
+    return reinterpret_cast<LLVMZigDIType*>(di_type);
+}
+
 void LLVMZigReplaceTemporary(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
         LLVMZigDIType *replacement)
 {

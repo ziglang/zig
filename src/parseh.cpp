@@ -225,6 +225,14 @@ static AstNode *add_typedef_node(Context *c, TypeTableEntry *type_decl) {
     return node;
 }
 
+static AstNode *add_const_var_node(Context *c, Buf *name, TypeTableEntry *type_entry) {
+    AstNode *node = create_var_decl_node(c, buf_ptr(name), make_type_node(c, type_entry));
+
+    c->global_type_table.put(name, type_entry);
+    c->root->data.root.top_level_decls.append(node);
+    return node;
+}
+
 static TypeTableEntry *get_c_void_type(Context *c) {
     if (!c->c_void_type) {
         c->c_void_type = get_typedecl_type(c->codegen, "c_void", c->codegen->builtin_types.entry_u8);
@@ -625,8 +633,7 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
         emit_warning(c, typedef_decl, "typedef %s - unresolved child type", buf_ptr(type_name));
         return;
     }
-    TypeTableEntry *decl_type = get_typedecl_type(c->codegen, buf_ptr(type_name), child_type);
-    add_typedef_node(c, decl_type);
+    add_const_var_node(c, type_name, child_type);
 }
 
 static void add_alias(Context *c, const char *new_name, const char *target_name) {
@@ -803,7 +810,15 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
     c->struct_type_table.put(bare_name, struct_type);
 
     RecordDecl *record_def = record_decl->getDefinition();
+    unsigned line = c->source_node ? c->source_node->line : 0;
     if (!record_def) {
+        LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugForwardDeclType(c->codegen->dbuilder,
+            LLVMZigTag_DW_structure_type(), buf_ptr(full_type_name), 
+            LLVMZigFileToScope(c->import->di_file), c->import->di_file, line);
+
+        LLVMZigReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);
+        struct_type->di_type = replacement_di_type;
+
         return struct_type;
     }
 
@@ -835,7 +850,6 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
     uint64_t offset_in_bits = 0;
 
     uint32_t i = 0;
-    unsigned line = c->source_node ? c->source_node->line : 0;
     for (auto it = record_def->field_begin(),
               it_end = record_def->field_end();
               it != it_end; ++it, i += 1)

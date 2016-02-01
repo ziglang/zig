@@ -2046,8 +2046,8 @@ typedef void Foo;
 Foo fun(Foo *a);
     )SOURCE", 3,
             "pub type c_void = u8;",
-            "pub type Foo = c_void;",
-            "pub extern fn fun(a: ?&Foo);");
+            "pub const Foo = c_void;",
+            "pub extern fn fun(a: ?&c_void);");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
