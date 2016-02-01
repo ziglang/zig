@@ -398,7 +398,9 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 TypeTableEntry *child_type = wanted_type->data.maybe.child_type;
 
-                if (child_type->id == TypeTableEntryIdPointer) {
+                if (child_type->id == TypeTableEntryIdPointer ||
+                    child_type->id == TypeTableEntryIdFn)
+                {
                     return expr_val;
                 } else {
                     add_debug_source_node(g, node);
@@ -1274,7 +1276,9 @@ static LLVMValueRef gen_unwrap_maybe(CodeGen *g, AstNode *node, LLVMValueRef may
     TypeTableEntry *type_entry = get_expr_type(node);
     assert(type_entry->id == TypeTableEntryIdMaybe);
     TypeTableEntry *child_type = type_entry->data.maybe.child_type;
-    if (child_type->id == TypeTableEntryIdPointer) {
+    if (child_type->id == TypeTableEntryIdPointer ||
+        child_type->id == TypeTableEntryIdFn)
+    {
         return maybe_struct_ref;
     } else {
         add_debug_source_node(g, node);
@@ -1301,7 +1305,9 @@ static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
     TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
 
     LLVMValueRef cond_value;
-    if (child_type->id == TypeTableEntryIdPointer) {
+    if (child_type->id == TypeTableEntryIdPointer ||
+        child_type->id == TypeTableEntryIdFn)
+    {
         cond_value = LLVMBuildICmp(g->builder, LLVMIntNE, maybe_struct_ref,
                 LLVMConstNull(child_type->type_ref), "");
     } else {
@@ -1651,7 +1657,9 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
     assert(expr_type->id == TypeTableEntryIdMaybe);
     TypeTableEntry *child_type = expr_type->data.maybe.child_type;
     LLVMValueRef cond_value;
-    if (child_type->id == TypeTableEntryIdPointer) {
+    if (child_type->id == TypeTableEntryIdPointer ||
+        child_type->id == TypeTableEntryIdFn)
+    {
         cond_value = LLVMBuildICmp(g->builder, LLVMIntNE, init_val, LLVMConstNull(child_type->type_ref), "");
     } else {
         add_debug_source_node(g, node);
@@ -2377,7 +2385,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdMaybe:
             {
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
-                if (child_type->id == TypeTableEntryIdPointer) {
+                if (child_type->id == TypeTableEntryIdPointer ||
+                    child_type->id == TypeTableEntryIdFn)
+                {
                     if (const_val->data.x_maybe) {
                         return gen_const_val(g, child_type, const_val->data.x_maybe);
                     } else {

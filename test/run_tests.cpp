@@ -1447,6 +1447,42 @@ pub fn main(args: [][]u8) -> %void {
     f(false);
 }
     )SOURCE", "a\nb\n");
+
+
+    add_simple_case("expose function pointer to C land", R"SOURCE(
+#link("c")
+export executable "test";
+
+c_import {
+    @c_include("stdlib.h");
+}
+
+export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
+    const a_int = (&i32)(a ?? unreachable{});
+    const b_int = (&i32)(b ?? unreachable{});
+    if (*a_int < *b_int) {
+        -1
+    } else if (*a_int > *b_int) {
+        1
+    } else {
+        0
+    }
+}
+
+export fn main(args: c_int, argv: &&u8) -> c_int {
+    var array = []i32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
+
+    qsort((&c_void)(array.ptr), c_ulong(array.len), @sizeof(i32), compare_fn);
+
+    for (item, array, i) {
+        if (item != i) {
+            abort();
+        }
+    }
+
+    return 0;
+}
+    )SOURCE", "");
 }
 
 

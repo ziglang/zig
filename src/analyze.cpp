@@ -214,9 +214,12 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
 
-        if (child_type->id == TypeTableEntryIdPointer) {
+        if (child_type->id == TypeTableEntryIdPointer ||
+            child_type->id == TypeTableEntryIdFn)
+        {
             // this is an optimization but also is necessary for calling C
             // functions where all pointers are maybe pointers
+            // function types are technically pointers
             entry->size_in_bits = child_type->size_in_bits;
             entry->align_in_bits = child_type->align_in_bits;
             entry->type_ref = child_type->type_ref;
@@ -5384,7 +5387,8 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdEnum:
              return type_entry->data.enumeration.gen_field_count != 0;
         case TypeTableEntryIdMaybe:
-             return type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer;
+             return type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
+                    type_entry->data.maybe.child_type->id != TypeTableEntryIdFn;
         case TypeTableEntryIdTypeDecl:
              return handle_is_ptr(type_entry->data.type_decl.canonical_type);
     }
