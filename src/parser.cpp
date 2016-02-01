@@ -2508,6 +2508,8 @@ static AstNode *ast_parse_type_decl(ParseContext *pc, int *token_index,
     ast_buf_from_token(pc, name_tok, &node->data.type_decl.symbol);
     node->data.type_decl.child_type = ast_parse_prefix_op_expr(pc, token_index, true);
 
+    ast_eat_token(pc, token_index, TokenIdSemicolon);
+
     node->data.type_decl.visib_mod = visib_mod;
     node->data.type_decl.directives = directives;
 
