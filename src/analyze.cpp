@@ -29,6 +29,7 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
 static TypeTableEntry *resolve_expr_const_val_as_void(CodeGen *g, AstNode *node);
 static TypeTableEntry *resolve_expr_const_val_as_fn(CodeGen *g, AstNode *node, FnTableEntry *fn);
 static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *node);
+static void analyze_top_level_decls_root(CodeGen *g, ImportTableEntry *import, AstNode *node);
 
 static AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
@@ -1251,6 +1252,7 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *parent_import, A
     child_import->importers.append({parent_import, node});
 
     detect_top_level_decl_deps(g, child_import, child_import->root);
+    analyze_top_level_decls_root(g, child_import, child_import->root);
 }
 
 static void satisfy_dep(CodeGen *g, AstNode *node) {

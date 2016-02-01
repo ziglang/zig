@@ -51,6 +51,7 @@ struct Context {
     AstNode *source_node;
 
     CodeGen *codegen;
+    bool transform_extern_fn_ptr;
 };
 
 static TypeTableEntry *resolve_qual_type_with_table(Context *c, QualType qt, const Decl *decl,
@@ -196,6 +197,13 @@ static AstNode *create_num_lit_signed(Context *c, int64_t x) {
     return create_prefix_node(c, PrefixOpNegation, num_lit_node);
 }
 
+static AstNode *create_directive_node(Context *c, const char *name, const char *value) {
+    AstNode *node = create_node(c, NodeTypeDirective);
+    buf_init_from_str(&node->data.directive.name, name);
+    buf_init_from_str(&node->data.directive.param, value);
+    return node;
+}
+
 static AstNode *create_type_decl_node(Context *c, const char *name, AstNode *child_type_node) {
     AstNode *node = create_node(c, NodeTypeTypeDecl);
     buf_init_from_str(&node->data.type_decl.symbol, name);
@@ -212,6 +220,80 @@ static AstNode *make_type_node(Context *c, TypeTableEntry *type_entry) {
     node->data.symbol_expr.override_type_entry = type_entry;
     return node;
 }
+
+static AstNode *create_fn_proto_node(Context *c, Buf *name, TypeTableEntry *fn_type) {
+    assert(fn_type->id == TypeTableEntryIdFn);
+    AstNode *node = create_node(c, NodeTypeFnProto);
+    node->data.fn_proto.directives = create_empty_directives(c);
+    node->data.fn_proto.directives->append(create_directive_node(c, "attribute", "inline"));
+    node->data.fn_proto.visib_mod = c->visib_mod;
+    buf_init_from_buf(&node->data.fn_proto.name, name);
+    node->data.fn_proto.return_type = make_type_node(c, fn_type->data.fn.fn_type_id.return_type);
+
+    for (int i = 0; i < fn_type->data.fn.fn_type_id.param_count; i += 1) {
+        FnTypeParamInfo *info = &fn_type->data.fn.fn_type_id.param_info[i];
+        Buf *name = buf_sprintf("arg_%d", i);
+        node->data.fn_proto.params.append(create_param_decl_node(c, buf_ptr(name),
+                    make_type_node(c, info->type), info->is_noalias));
+    }
+
+    normalize_parent_ptrs(node);
+    return node;
+}
+
+static AstNode *create_one_statement_block(Context *c, AstNode *statement) {
+    AstNode *node = create_node(c, NodeTypeBlock);
+    node->data.block.statements.append(statement);
+
+    normalize_parent_ptrs(node);
+    return node;
+}
+
+static AstNode *create_container_init_node(Context *c, AstNode *type_node) {
+    AstNode *node = create_node(c, NodeTypeContainerInitExpr);
+    node->data.container_init_expr.kind = ContainerInitKindArray;
+    node->data.container_init_expr.type = type_node;
+
+    normalize_parent_ptrs(node);
+    return node;
+}
+
+static AstNode *create_bin_op_node(Context *c, AstNode *lhs, BinOpType op, AstNode *rhs) {
+    AstNode *node = create_node(c, NodeTypeBinOpExpr);
+    node->data.bin_op_expr.op1 = lhs;
+    node->data.bin_op_expr.bin_op = op;
+    node->data.bin_op_expr.op2 = rhs;
+
+    normalize_parent_ptrs(node);
+    return node;
+}
+
+static AstNode *create_inline_fn_node(Context *c, Buf *fn_name, Buf *var_name, TypeTableEntry *fn_type) {
+    AstNode *node = create_node(c, NodeTypeFnDef);
+    node->data.fn_def.fn_proto = create_fn_proto_node(c, fn_name, fn_type);
+
+    AstNode *unreach_type_node = make_type_node(c, c->codegen->builtin_types.entry_unreachable);
+    AstNode *unreach_node = create_container_init_node(c, unreach_type_node);
+    AstNode *unwrap_node = create_bin_op_node(c, create_symbol_node(c, buf_ptr(var_name)),
+            BinOpTypeUnwrapMaybe, unreach_node);
+
+    AstNode *fn_call_node = create_node(c, NodeTypeFnCallExpr);
+    fn_call_node->data.fn_call_expr.fn_ref_expr = unwrap_node;
+    for (int i = 0; i < fn_type->data.fn.fn_type_id.param_count; i += 1) {
+        AstNode *decl_node = node->data.fn_def.fn_proto->data.fn_proto.params.at(i);
+        Buf *param_name = &decl_node->data.param_decl.name;
+        fn_call_node->data.fn_call_expr.params.append(create_symbol_node(c, buf_ptr(param_name)));
+    }
+
+    normalize_parent_ptrs(fn_call_node);
+
+    node->data.fn_def.body = create_one_statement_block(c, fn_call_node);
+
+    normalize_parent_ptrs(node);
+    return node;
+}
+
+
 
 static const char *decl_name(const Decl *decl) {
     const NamedDecl *named_decl = static_cast<const NamedDecl *>(decl);
@@ -1257,6 +1339,17 @@ static void process_symbol_macros(Context *c) {
             AstNode *var_node = create_var_decl_node(c, buf_ptr(ms.name),
                     create_symbol_node(c, buf_ptr(ms.value)));
             c->macro_table.put(ms.name, var_node);
+        } else if (c->transform_extern_fn_ptr || true) { // TODO take off the || true
+            if (auto entry = c->global_value_table.maybe_get(ms.value)) {
+                TypeTableEntry *maybe_type = entry->value.type;
+                if (maybe_type->id == TypeTableEntryIdMaybe) {
+                    TypeTableEntry *fn_type = maybe_type->data.maybe.child_type;
+                    if (fn_type->id == TypeTableEntryIdFn) {
+                        AstNode *fn_node = create_inline_fn_node(c, ms.name, ms.value, fn_type);
+                        c->macro_table.put(ms.name, fn_node);
+                    }
+                }
+            }
         }
     }
 }

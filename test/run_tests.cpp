@@ -2109,18 +2109,15 @@ Foo fun(Foo *a);
             "pub const Foo = c_void;",
             "pub extern fn fun(a: ?&c_void);");
 
-    add_parseh_case("ignore #define for non-const", R"SOURCE(
-struct Foo {
-    int x;
-};
+    add_parseh_case("generate inline func for #define global extern fn", R"SOURCE(
 extern void (*fn_ptr)(void);
-#define Foo fn_ptr
-    )SOURCE", 3,
-            "pub type c_void = u8;",
-            "pub const Foo = struct_Foo;",
-            R"OUTPUT(export struct struct_Foo {
-    x: c_int,
-})OUTPUT");
+#define foo fn_ptr
+    )SOURCE", 2,
+            "pub extern var fn_ptr: ?extern fn();",
+            R"SOURCE(#attribute("inline")
+pub fn foo() {
+    (fn_ptr ?? (unreachable){})()
+})SOURCE");
 }
 
 static void print_compiler_invocation(TestCase *test_case) {

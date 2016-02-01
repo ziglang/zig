@@ -612,6 +612,8 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         return LLVMBuildUnreachable(g->builder);
     } else if (first_arg_ret) {
         return node->data.fn_call_expr.tmp_ptr;
+    } else if (src_return_type->size_in_bits == 0) {
+        return nullptr;
     } else {
         return result;
     }
@@ -2767,6 +2769,7 @@ static void do_code_gen(CodeGen *g) {
             }
 
             VariableTableEntry *variable = param_decl->data.param_decl.variable;
+            assert(variable);
 
             LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(param_decl->line + 1, param_decl->column + 1,
                     fn_def_node->data.fn_def.block_context->di_scope);

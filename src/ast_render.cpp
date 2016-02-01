@@ -582,15 +582,34 @@ static void render_node(AstRender *ar, AstNode *node) {
                 break;
             }
         case NodeTypeFnDef:
-            zig_panic("TODO");
+            for (int i = 0; i < node->data.fn_def.fn_proto->data.fn_proto.directives->length; i += 1) {
+                render_node(ar, node->data.fn_def.fn_proto->data.fn_proto.directives->at(i));
+            }
+            render_node(ar, node->data.fn_def.fn_proto);
+            fprintf(ar->f, " ");
+            render_node(ar, node->data.fn_def.body);
+            break;
         case NodeTypeFnDecl:
             zig_panic("TODO");
         case NodeTypeParamDecl:
             zig_panic("TODO");
         case NodeTypeBlock:
-            zig_panic("TODO");
+            fprintf(ar->f, "{\n");
+            ar->indent += ar->indent_size;
+            for (int i = 0; i < node->data.block.statements.length; i += 1) {
+                AstNode *statement = node->data.block.statements.at(i);
+                print_indent(ar);
+                render_node(ar, statement);
+            }
+            ar->indent -= ar->indent_size;
+            fprintf(ar->f, "\n");
+            print_indent(ar);
+            fprintf(ar->f, "}");
+            break;
         case NodeTypeDirective:
-            zig_panic("TODO");
+            fprintf(ar->f, "#%s(\"%s\")\n", buf_ptr(&node->data.directive.name),
+                    buf_ptr(&node->data.directive.param));
+            break;
         case NodeTypeReturnExpr:
             zig_panic("TODO");
         case NodeTypeVariableDeclaration:
@@ -621,7 +640,12 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeErrorValueDecl:
             zig_panic("TODO");
         case NodeTypeBinOpExpr:
-            zig_panic("TODO");
+            fprintf(ar->f, "(");
+            render_node(ar, node->data.bin_op_expr.op1);
+            fprintf(ar->f, " %s ", bin_op_str(node->data.bin_op_expr.bin_op));
+            render_node(ar, node->data.bin_op_expr.op2);
+            fprintf(ar->f, ")");
+            break;
         case NodeTypeUnwrapErrorExpr:
             zig_panic("TODO");
         case NodeTypeNumberLiteral:
@@ -635,7 +659,11 @@ static void render_node(AstRender *ar, AstNode *node) {
             }
             break;
         case NodeTypeStringLiteral:
-            zig_panic("TODO");
+            if (node->data.string_literal.c) {
+                fprintf(ar->f, "c");
+            }
+            fprintf(ar->f, "\"%s\"", buf_ptr(&node->data.string_literal.buf));
+            break;
         case NodeTypeCharLiteral:
             {
                 uint8_t c = node->data.char_literal.value;
@@ -665,7 +693,20 @@ static void render_node(AstRender *ar, AstNode *node) {
                 break;
             }
         case NodeTypeFnCallExpr:
-            zig_panic("TODO");
+            if (node->data.fn_call_expr.is_builtin) {
+                fprintf(ar->f, "@");
+            }
+            render_node(ar, node->data.fn_call_expr.fn_ref_expr);
+            fprintf(ar->f, "(");
+            for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
+                AstNode *param = node->data.fn_call_expr.params.at(i);
+                if (i != 0) {
+                    fprintf(ar->f, ", ");
+                }
+                render_node(ar, param);
+            }
+            fprintf(ar->f, ")");
+            break;
         case NodeTypeArrayAccessExpr:
             zig_panic("TODO");
         case NodeTypeSliceExpr:
@@ -739,7 +780,12 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeStructField:
             zig_panic("TODO");
         case NodeTypeContainerInitExpr:
-            zig_panic("TODO");
+            fprintf(ar->f, "(");
+            render_node(ar, node->data.container_init_expr.type);
+            fprintf(ar->f, "){");
+            assert(node->data.container_init_expr.entries.length == 0);
+            fprintf(ar->f, "}");
+            break;
         case NodeTypeStructValueField:
             zig_panic("TODO");
         case NodeTypeArrayType:
