@@ -85,6 +85,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
 static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType bin_op,
         LLVMValueRef target_ref, LLVMValueRef value,
         TypeTableEntry *op1_type, TypeTableEntry *op2_type);
+static LLVMValueRef gen_unwrap_maybe(CodeGen *g, AstNode *node, LLVMValueRef maybe_struct_ref);
 
 static TypeTableEntry *get_type_for_type_node(AstNode *node) {
     Expr *expr = get_resolved_expr(node);
@@ -1004,6 +1005,12 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
                 } else {
                     return nullptr;
                 }
+            }
+        case PrefixOpUnwrapMaybe:
+            {
+                LLVMValueRef expr_val = gen_expr(g, expr_node);
+                // TODO in debug mode, put a panic here if null
+                return gen_unwrap_maybe(g, expr_node, expr_val);
             }
     }
     zig_unreachable();

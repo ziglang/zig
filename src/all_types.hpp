@@ -418,6 +418,7 @@ enum PrefixOp {
     PrefixOpMaybe,
     PrefixOpError,
     PrefixOpUnwrapError,
+    PrefixOpUnwrapMaybe,
 };
 
 struct AstNodePrefixOpExpr {

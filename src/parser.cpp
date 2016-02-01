@@ -1206,6 +1206,7 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdMaybe: return PrefixOpMaybe;
         case TokenIdPercent: return PrefixOpError;
         case TokenIdPercentPercent: return PrefixOpUnwrapError;
+        case TokenIdDoubleQuestion: return PrefixOpUnwrapMaybe;
         case TokenIdBoolAnd: return PrefixOpAddressOf;
         default: return PrefixOpInvalid;
     }

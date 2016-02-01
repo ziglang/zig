@@ -2116,7 +2116,7 @@ extern void (*fn_ptr)(void);
             "pub extern var fn_ptr: ?extern fn();",
             R"SOURCE(#attribute("inline")
 pub fn foo() {
-    (fn_ptr ?? (unreachable){})()
+    (??fn_ptr)()
 })SOURCE");
 }
 

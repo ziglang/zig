@@ -53,6 +53,7 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpMaybe: return "?";
         case PrefixOpError: return "%";
         case PrefixOpUnwrapError: return "%%";
+        case PrefixOpUnwrapMaybe: return "??";
     }
 }
 
@@ -696,8 +697,9 @@ static void render_node(AstRender *ar, AstNode *node) {
             if (node->data.fn_call_expr.is_builtin) {
                 fprintf(ar->f, "@");
             }
-            render_node(ar, node->data.fn_call_expr.fn_ref_expr);
             fprintf(ar->f, "(");
+            render_node(ar, node->data.fn_call_expr.fn_ref_expr);
+            fprintf(ar->f, ")(");
             for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
                 AstNode *param = node->data.fn_call_expr.params.at(i);
                 if (i != 0) {

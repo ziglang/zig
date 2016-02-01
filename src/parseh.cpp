@@ -249,33 +249,11 @@ static AstNode *create_one_statement_block(Context *c, AstNode *statement) {
     return node;
 }
 
-static AstNode *create_container_init_node(Context *c, AstNode *type_node) {
-    AstNode *node = create_node(c, NodeTypeContainerInitExpr);
-    node->data.container_init_expr.kind = ContainerInitKindArray;
-    node->data.container_init_expr.type = type_node;
-
-    normalize_parent_ptrs(node);
-    return node;
-}
-
-static AstNode *create_bin_op_node(Context *c, AstNode *lhs, BinOpType op, AstNode *rhs) {
-    AstNode *node = create_node(c, NodeTypeBinOpExpr);
-    node->data.bin_op_expr.op1 = lhs;
-    node->data.bin_op_expr.bin_op = op;
-    node->data.bin_op_expr.op2 = rhs;
-
-    normalize_parent_ptrs(node);
-    return node;
-}
-
 static AstNode *create_inline_fn_node(Context *c, Buf *fn_name, Buf *var_name, TypeTableEntry *fn_type) {
     AstNode *node = create_node(c, NodeTypeFnDef);
     node->data.fn_def.fn_proto = create_fn_proto_node(c, fn_name, fn_type);
 
-    AstNode *unreach_type_node = make_type_node(c, c->codegen->builtin_types.entry_unreachable);
-    AstNode *unreach_node = create_container_init_node(c, unreach_type_node);
-    AstNode *unwrap_node = create_bin_op_node(c, create_symbol_node(c, buf_ptr(var_name)),
-            BinOpTypeUnwrapMaybe, unreach_node);
+    AstNode *unwrap_node = create_prefix_node(c, PrefixOpUnwrapMaybe, create_symbol_node(c, buf_ptr(var_name)));
 
     AstNode *fn_call_node = create_node(c, NodeTypeFnCallExpr);
     fn_call_node->data.fn_call_expr.fn_ref_expr = unwrap_node;
