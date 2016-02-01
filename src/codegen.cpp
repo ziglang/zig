@@ -2582,8 +2582,27 @@ static void gen_const_globals(CodeGen *g) {
     }
 }
 
+static void delete_unused_builtin_fns(CodeGen *g) {
+    auto it = g->builtin_fn_table.entry_iterator();
+    for (;;) {
+        auto *entry = it.next();
+        if (!entry)
+            break;
+
+        BuiltinFnEntry *builtin_fn = entry->value;
+        if (builtin_fn->ref_count == 0 &&
+            builtin_fn->fn_val)
+        {
+            LLVMDeleteFunction(entry->value->fn_val);
+        }
+    }
+}
+
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
+
+    delete_unused_builtin_fns(g);
+
 
     gen_const_globals(g);
 
@@ -2633,6 +2652,12 @@ static void do_code_gen(CodeGen *g) {
     // Generate function prototypes
     for (int fn_proto_i = 0; fn_proto_i < g->fn_protos.length; fn_proto_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_protos.at(fn_proto_i);
+        if (fn_table_entry->ref_count == 0) {
+            // huge time saver
+            LLVMDeleteFunction(fn_table_entry->fn_value);
+            continue;
+        }
+
         AstNode *proto_node = fn_table_entry->proto_node;
         assert(proto_node->type == NodeTypeFnProto);
         AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
@@ -2681,6 +2706,11 @@ static void do_code_gen(CodeGen *g) {
     // Generate function definitions.
     for (int fn_i = 0; fn_i < g->fn_defs.length; fn_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_defs.at(fn_i);
+        if (fn_table_entry->ref_count == 0) {
+            // huge time saver
+            continue;
+        }
+
         ImportTableEntry *import = fn_table_entry->import_entry;
         AstNode *fn_def_node = fn_table_entry->fn_def_node;
         LLVMValueRef fn = fn_table_entry->fn_value;
@@ -3064,6 +3094,7 @@ static void define_builtin_fns(CodeGen *g) {
         builtin_fn->param_types[0] = nullptr; // manually checked later
         builtin_fn->param_types[1] = nullptr; // manually checked later
         builtin_fn->param_types[2] = g->builtin_types.entry_isize;
+        builtin_fn->ref_count = 1;
 
         LLVMTypeRef param_types[] = {
             LLVMPointerType(LLVMInt8Type(), 0),
@@ -3087,6 +3118,7 @@ static void define_builtin_fns(CodeGen *g) {
         builtin_fn->param_types[0] = nullptr; // manually checked later
         builtin_fn->param_types[1] = g->builtin_types.entry_u8;
         builtin_fn->param_types[2] = g->builtin_types.entry_isize;
+        builtin_fn->ref_count = 1;
 
         LLVMTypeRef param_types[] = {
             LLVMPointerType(LLVMInt8Type(), 0),

@@ -1123,6 +1123,7 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
     fn_table_entry->is_extern = is_extern;
     fn_table_entry->label_table.init(8);
     fn_table_entry->member_of_struct = struct_type;
+    fn_table_entry->ref_count = (proto_node->data.fn_proto.visib_mod == VisibModExport) ? 1 : 0;
 
     if (struct_type) {
         buf_resize(&fn_table_entry->symbol_name, 0);
@@ -2244,6 +2245,7 @@ static TypeTableEntry *resolve_expr_const_val_as_other_expr(CodeGen *g, AstNode 
 }
 
 static TypeTableEntry *resolve_expr_const_val_as_fn(CodeGen *g, AstNode *node, FnTableEntry *fn) {
+    fn->ref_count += 1;
     Expr *expr = get_resolved_expr(node);
     expr->const_val.ok = true;
     expr->const_val.data.x_fn = fn;
@@ -3658,6 +3660,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
         return g->builtin_types.entry_invalid;
     }
 
+    builtin_fn->ref_count += 1;
+
     switch (builtin_fn->id) {
         case BuiltinFnIdInvalid:
             zig_unreachable();
@@ -3912,6 +3916,8 @@ static TypeTableEntry *analyze_fn_call_raw(CodeGen *g, ImportTableEntry *import,
     assert(node->type == NodeTypeFnCallExpr);
 
     node->data.fn_call_expr.fn_entry = fn_table_entry;
+
+    fn_table_entry->ref_count += 1;
 
     return analyze_fn_call_ptr(g, import, context, expected_type, node, fn_table_entry->type_entry, struct_type);
 

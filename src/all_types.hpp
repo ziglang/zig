@@ -972,6 +972,7 @@ struct FnTableEntry {
     bool is_inline;
     bool internal_linkage;
     bool is_extern;
+    uint32_t ref_count; // if this is 0 we don't have to codegen it
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
@@ -1000,6 +1001,7 @@ struct BuiltinFnEntry {
     int param_count;
     TypeTableEntry *return_type;
     TypeTableEntry **param_types;
+    uint32_t ref_count;
     LLVMValueRef fn_val;
 };
 
