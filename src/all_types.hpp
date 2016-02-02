@@ -1097,6 +1097,7 @@ struct CodeGen {
     ImportTableEntry *bootstrap_import;
     LLVMValueRef memcpy_fn_val;
     LLVMValueRef memset_fn_val;
+    LLVMValueRef trap_fn_val;
     bool error_during_imports;
     uint32_t next_node_index;
     uint32_t next_error_index;

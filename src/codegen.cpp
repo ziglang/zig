@@ -991,9 +991,30 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
                 TypeTableEntry *expr_type = get_expr_type(expr_node);
                 assert(expr_type->id == TypeTableEntryIdErrorUnion);
                 TypeTableEntry *child_type = expr_type->data.error.child_type;
-                // TODO in debug mode, put a panic here if the error is not 0
+
+                if (g->build_type != CodeGenBuildTypeRelease) {
+                    LLVMValueRef err_val;
+                    if (child_type->size_in_bits > 0) {
+                        add_debug_source_node(g, node);
+                        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 0, "");
+                        err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
+                    } else {
+                        err_val = expr_val;
+                    }
+                    LLVMValueRef zero = LLVMConstNull(g->err_tag_type->type_ref);
+                    LLVMValueRef cond_val = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, zero, "");
+                    LLVMBasicBlockRef err_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "UnwrapErrError");
+                    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "UnwrapErrOk");
+                    LLVMBuildCondBr(g->builder, cond_val, ok_block, err_block);
+
+                    LLVMPositionBuilderAtEnd(g->builder, err_block);
+                    LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
+                    LLVMBuildUnreachable(g->builder);
+
+                    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+                }
+
                 if (child_type->size_in_bits > 0) {
-                    add_debug_source_node(g, node);
                     LLVMValueRef child_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 1, "");
                     if (handle_is_ptr(child_type)) {
                         return child_val_ptr;
@@ -1898,6 +1919,9 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
     } else if (type_entry->id == TypeTableEntryIdUnreachable) {
         assert(node->data.container_init_expr.entries.length == 0);
         add_debug_source_node(g, node);
+        if (g->build_type != CodeGenBuildTypeRelease) {
+            LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
+        }
         return LLVMBuildUnreachable(g->builder);
     } else if (type_entry->id == TypeTableEntryIdVoid) {
         assert(node->data.container_init_expr.entries.length == 0);
@@ -3084,6 +3108,11 @@ static BuiltinFnEntry *create_builtin_fn_with_arg_count(CodeGen *g, BuiltinFnId 
 }
 
 static void define_builtin_fns(CodeGen *g) {
+    {
+        LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), nullptr, 0, false);
+        g->trap_fn_val = LLVMAddFunction(g->module, "llvm.debugtrap", fn_type);
+        assert(LLVMGetIntrinsicID(g->trap_fn_val));
+    }
     {
         BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy");
         builtin_fn->return_type = g->builtin_types.entry_void;

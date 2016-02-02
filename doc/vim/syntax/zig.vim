@@ -7,7 +7,7 @@ if exists("b:current_syntax")
   finish
 endif
 
-syn keyword zigStorage const var extern volatile export pub noalias
+syn keyword zigStorage const var extern volatile export pub noalias inline
 syn keyword zigStructure struct enum
 syn keyword zigStatement goto break return continue asm defer
 syn keyword zigConditional if else switch

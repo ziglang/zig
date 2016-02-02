@@ -372,7 +372,3 @@ pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
 
     len
 }
-
-fn min_isize(x: isize, y: isize) -> isize {
-    if (x < y) x else y
-}

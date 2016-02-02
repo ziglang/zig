@@ -27,3 +27,8 @@ pub fn f64_is_nan(f: f64) -> bool {
 pub fn f64_is_inf(f: f64) -> bool {
     f == f64_get_neg_inf() || f == f64_get_pos_inf()
 }
+
+pub fn min_isize(x: isize, y: isize) -> isize {
+    if (x < y) x else y
+}
+
