@@ -1252,6 +1252,13 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *parent_import, A
     child_import->block_context = new_block_context(child_import->root, nullptr);
     child_import->importers.append({parent_import, node});
 
+    if (node->data.c_import.visib_mod != VisibModPrivate) {
+        for (int i = 0; i < parent_import->importers.length; i += 1) {
+            ImporterInfo importer = parent_import->importers.at(i);
+            child_import->importers.append(importer);
+        }
+    }
+
     detect_top_level_decl_deps(g, child_import, child_import->root);
     analyze_top_level_decls_root(g, child_import, child_import->root);
 }
@@ -4743,7 +4750,9 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
             collect_expr_decl_deps(g, import, node->data.prefix_op_expr.primary_expr, decl_node);
             break;
         case NodeTypeFnCallExpr:
-            collect_expr_decl_deps(g, import, node->data.fn_call_expr.fn_ref_expr, decl_node);
+            if (!node->data.fn_call_expr.is_builtin) {
+                collect_expr_decl_deps(g, import, node->data.fn_call_expr.fn_ref_expr, decl_node);
+            }
             for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
                 AstNode *arg_node = node->data.fn_call_expr.params.at(i);
                 collect_expr_decl_deps(g, import, arg_node, decl_node);
