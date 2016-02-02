@@ -151,7 +151,7 @@ private:
     int _size;
     int _max_distance_from_start_index;
     // this is used to detect bugs where a hashtable is edited while an iterator is running.
-    uint32_t _modification_count = 0;
+    uint32_t _modification_count;
 
     void init_capacity(int capacity) {
         _capacity = capacity;
