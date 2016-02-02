@@ -33,6 +33,9 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->next_error_index = 1;
     g->error_value_count = 1;
 
+    g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
+    g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
+
     return g;
 }
 
@@ -69,8 +72,12 @@ void codegen_set_out_name(CodeGen *g, Buf *out_name) {
     g->root_out_name = out_name;
 }
 
-void codegen_set_libc_path(CodeGen *g, Buf *libc_path) {
-    g->libc_path = libc_path;
+void codegen_set_libc_lib_dir(CodeGen *g, Buf *libc_lib_dir) {
+    g->libc_lib_dir = libc_lib_dir;
+}
+
+void codegen_set_libc_include_dir(CodeGen *g, Buf *libc_include_dir) {
+    g->libc_include_dir = libc_include_dir;
 }
 
 void codegen_add_lib_dir(CodeGen *g, const char *dir) {
@@ -3710,7 +3717,7 @@ static void generate_h_file(CodeGen *g) {
 
 static const char *get_libc_file(CodeGen *g, const char *file) {
     Buf *out_buf = buf_alloc();
-    os_path_join(g->libc_lib_path, buf_create_from_str(file), out_buf);
+    os_path_join(g->libc_lib_dir, buf_create_from_str(file), out_buf);
     return buf_ptr(out_buf);
 }
 

@@ -1413,7 +1413,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     clang_argv.append(ZIG_HEADERS_DIR);
 
     clang_argv.append("-isystem");
-    clang_argv.append(buf_ptr(codegen->libc_include_path));
+    clang_argv.append(buf_ptr(codegen->libc_include_dir));
 
     for (int i = 0; i < codegen->clang_argv_len; i += 1) {
         clang_argv.append(codegen->clang_argv[i]);

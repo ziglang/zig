@@ -70,13 +70,13 @@ compromises backward compatibility.
 
 ### Debug / Development Build
 
-If you have gcc or clang installed, you can find out what `ZIG_LIBC_DIR` should
-be set to (example below).
+If you have gcc or clang installed, you can find out what `ZIG_LIBC_LIB_DIR` should
+be set to (example below). `ZIG_LIBC_INCLUDE_DIR` likely can be set to `/usr/include`.
 
 ```
 mkdir build
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_DIR=$(dirname $(dirname $(cc -print-file-name=crt1.o)))
+cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $(cc -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=/usr/include
 make
 make install
 ./run_tests
@@ -84,13 +84,13 @@ make install
 
 ### Release / Install Build
 
-Once installed, `ZIG_LIBC_DIR` can be overridden by the `--libc-path` parameter
-to the zig binary.
+Once installed, `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_INCLUDE_DIR` can be overridden
+by the `--libc-lib-dir` and `--libc-include-dir` parameters to the zig binary.
 
 ```
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DZIG_LIBC_DIR=path/to/libc/dir
+cmake .. -DCMAKE_BUILD_TYPE=Release -DZIG_LIBC_LIB_DIR=/some/path -DZIG_LIBC_INCLUDE_DIR=/some/path
 make
 sudo make install
 ```

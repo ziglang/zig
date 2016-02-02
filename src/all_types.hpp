@@ -1062,9 +1062,8 @@ struct CodeGen {
     bool strip_debug_symbols;
     bool have_exported_main;
     bool link_libc;
-    Buf *libc_path;
-    Buf *libc_lib_path;
-    Buf *libc_include_path;
+    Buf *libc_lib_dir;
+    Buf *libc_include_dir;
     CodeGenBuildType build_type;
     LLVMTargetMachineRef target_machine;
     LLVMZigDIFile *dummy_di_file;

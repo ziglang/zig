@@ -5486,20 +5486,12 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
 }
 
 void find_libc_path(CodeGen *g) {
-    if (!g->libc_path || buf_len(g->libc_path) == 0) {
-        g->libc_path = buf_create_from_str(ZIG_LIBC_DIR);
-        if (!g->libc_path || buf_len(g->libc_path) == 0) {
-            // later we can handle this better by reporting an error via the normal mechanism
-            zig_panic("Unable to determine libc path. You can use `--libc-path`");
-        }
+    // later we can handle this better by reporting an error via the normal mechanism
+    if (!g->libc_lib_dir || buf_len(g->libc_lib_dir) == 0) {
+        zig_panic("Unable to determine libc lib path. probably need to reconfigure");
     }
-    if (!g->libc_lib_path) {
-        g->libc_lib_path = buf_alloc();
-        os_path_join(g->libc_path, buf_create_from_str("lib"), g->libc_lib_path);
-    }
-    if (!g->libc_include_path) {
-        g->libc_include_path = buf_alloc();
-        os_path_join(g->libc_path, buf_create_from_str("include"), g->libc_include_path);
+    if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
+        zig_panic("Unable to determine libc include path. probably need to reconfigure");
     }
 }
 
