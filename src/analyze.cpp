@@ -5038,7 +5038,12 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
                 decl_node->name = name;
                 decl_node->import = import;
                 if (decl_node->deps.size() > 0) {
-                    g->unresolved_top_level_decls.put(name, node);
+                    if (g->unresolved_top_level_decls.maybe_get(name)) {
+                        node->data.fn_proto.skip = true;
+                        add_node_error(g, node, buf_sprintf("redefinition of '%s'", buf_ptr(name)));
+                    } else {
+                        g->unresolved_top_level_decls.put(name, node);
+                    }
                 } else {
                     resolve_top_level_decl(g, import, node);
                 }

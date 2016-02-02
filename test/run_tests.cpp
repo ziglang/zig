@@ -1964,6 +1964,14 @@ export fn c(x: i32) -> i32 {x + 2}
 const x : f64 = 1.0;
 const y : f32 = x;
     )SOURCE", 1, ".tmp_source.zig:3:17: error: expected type 'f32', got 'f64'");
+
+
+    add_compile_fail_case("colliding invalid top level functions", R"SOURCE(
+fn func() -> bogus {}
+fn func() -> bogus {}
+    )SOURCE", 2,
+            ".tmp_source.zig:3:1: error: redefinition of 'func'",
+            ".tmp_source.zig:2:14: error: use of undeclared identifier 'bogus'");
 }
 
 //////////////////////////////////////////////////////////////////////////////
