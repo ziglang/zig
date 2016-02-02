@@ -2431,19 +2431,6 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
     return g->builtin_types.entry_invalid;
 }
 
-static TypeTableEntry *analyze_variable_name(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        AstNode *node, Buf *variable_name)
-{
-    VariableTableEntry *var = find_variable(context, variable_name);
-    if (var) {
-        return var->type;
-    } else {
-        add_node_error(g, node,
-                buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
-        return g->builtin_types.entry_invalid;
-    }
-}
-
 static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
     switch (op) {
         case BinOpTypeAssign:
@@ -4402,6 +4389,42 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
     return return_type;
 }
 
+static TypeTableEntry *analyze_asm_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    node->data.asm_expr.return_count = 0;
+    TypeTableEntry *return_type = g->builtin_types.entry_void;
+    for (int i = 0; i < node->data.asm_expr.output_list.length; i += 1) {
+        AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
+        if (asm_output->return_type) {
+            node->data.asm_expr.return_count += 1;
+            return_type = analyze_type_expr(g, import, context, asm_output->return_type);
+            if (node->data.asm_expr.return_count > 1) {
+                add_node_error(g, node,
+                    buf_sprintf("inline assembly allows up to one output value"));
+                break;
+            }
+        } else {
+            Buf *variable_name = &asm_output->variable_name;
+            VariableTableEntry *var = find_variable(context, variable_name);
+            if (var) {
+                asm_output->variable = var;
+                return var->type;
+            } else {
+                add_node_error(g, node,
+                        buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
+                return g->builtin_types.entry_invalid;
+            }
+        }
+    }
+    for (int i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
+        AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
+        analyze_expression(g, import, context, nullptr, asm_input->expr);
+    }
+
+    return return_type;
+}
+
 // When you call analyze_expression, the node you pass might no longer be the child node
 // you thought it was due to implicit casting rewriting the AST.
 static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -4441,30 +4464,8 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
             return_type = analyze_continue_expr(g, import, context, expected_type, node);
             break;
         case NodeTypeAsmExpr:
-            {
-                node->data.asm_expr.return_count = 0;
-                return_type = g->builtin_types.entry_void;
-                for (int i = 0; i < node->data.asm_expr.output_list.length; i += 1) {
-                    AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
-                    if (asm_output->return_type) {
-                        node->data.asm_expr.return_count += 1;
-                        return_type = analyze_type_expr(g, import, context, asm_output->return_type);
-                        if (node->data.asm_expr.return_count > 1) {
-                            add_node_error(g, node,
-                                buf_sprintf("inline assembly allows up to one output value"));
-                            break;
-                        }
-                    } else {
-                        analyze_variable_name(g, import, context, node, &asm_output->variable_name);
-                    }
-                }
-                for (int i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
-                    AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
-                    analyze_expression(g, import, context, nullptr, asm_input->expr);
-                }
-
-                break;
-            }
+            return_type = analyze_asm_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeBinOpExpr:
             return_type = analyze_bin_op_expr(g, import, context, expected_type, node);
             break;

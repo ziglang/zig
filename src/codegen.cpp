@@ -1822,7 +1822,7 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
         }
 
         if (!is_return) {
-            VariableTableEntry *variable = find_variable( node->block_context, &asm_output->variable_name);
+            VariableTableEntry *variable = asm_output->variable;
             assert(variable);
             param_types[param_index] = LLVMTypeOf(variable->value_ref);
             param_values[param_index] = variable->value_ref;

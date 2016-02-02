@@ -535,6 +535,9 @@ struct AsmOutput {
     Buf constraint;
     Buf variable_name;
     AstNode *return_type; // null unless "=r" and return
+
+    // populated by semantic analyzer
+    VariableTableEntry *variable;
 };
 
 struct AsmInput {
