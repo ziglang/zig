@@ -1028,8 +1028,49 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
         case PrefixOpUnwrapMaybe:
             {
                 LLVMValueRef expr_val = gen_expr(g, expr_node);
-                // TODO in debug mode, put a panic here if null
-                return gen_unwrap_maybe(g, expr_node, expr_val);
+
+                TypeTableEntry *expr_type = get_expr_type(expr_node);
+                assert(expr_type->id == TypeTableEntryIdMaybe);
+                TypeTableEntry *child_type = expr_type->data.maybe.child_type;
+
+                if (g->build_type != CodeGenBuildTypeRelease) {
+                    add_debug_source_node(g, node);
+                    LLVMValueRef cond_val;
+                    if (child_type->id == TypeTableEntryIdPointer ||
+                        child_type->id == TypeTableEntryIdFn)
+                    {
+                        cond_val = LLVMBuildICmp(g->builder, LLVMIntNE, expr_val,
+                                LLVMConstNull(child_type->type_ref), "");
+                    } else {
+                        LLVMValueRef maybe_null_ptr = LLVMBuildStructGEP(g->builder, expr_val, 1, "");
+                        cond_val = LLVMBuildLoad(g->builder, maybe_null_ptr, "");
+                    }
+
+                    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "UnwrapMaybeOk");
+                    LLVMBasicBlockRef null_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "UnwrapMaybeNull");
+                    LLVMBuildCondBr(g->builder, cond_val, ok_block, null_block);
+
+                    LLVMPositionBuilderAtEnd(g->builder, null_block);
+                    LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
+                    LLVMBuildUnreachable(g->builder);
+
+                    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+                }
+
+
+                if (child_type->id == TypeTableEntryIdPointer ||
+                    child_type->id == TypeTableEntryIdFn)
+                {
+                    return expr_val;
+                } else {
+                    add_debug_source_node(g, node);
+                    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, expr_val, 0, "");
+                    if (handle_is_ptr(child_type)) {
+                        return maybe_field_ptr;
+                    } else {
+                        return LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+                    }
+                }
             }
     }
     zig_unreachable();
