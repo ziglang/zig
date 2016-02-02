@@ -697,8 +697,7 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
 
     LLVMValueRef struct_ptr;
     if (struct_expr_node->type == NodeTypeSymbol) {
-        VariableTableEntry *var = find_variable(struct_expr_node->block_context,
-                &struct_expr_node->data.symbol_expr.symbol);
+        VariableTableEntry *var = struct_expr_node->data.symbol_expr.variable;
         assert(var);
 
         if (var->is_ptr && var->type->id == TypeTableEntryIdPointer) {
