@@ -457,7 +457,14 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
 
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
     fn_type->data.fn.fn_type_id = fn_type_id;
-    fn_type->data.fn.calling_convention = fn_type_id.is_extern ? LLVMCCallConv : LLVMFastCallConv;
+
+    if (fn_type_id.is_cold) {
+        fn_type->data.fn.calling_convention = LLVMColdCallConv;
+    } else if (fn_type_id.is_extern) {
+        fn_type->data.fn.calling_convention = LLVMCCallConv;
+    } else {
+        fn_type->data.fn.calling_convention = LLVMFastCallConv;
+    }
 
     fn_type->size_in_bits = g->pointer_size_bytes * 8;
     fn_type->align_in_bits = g->pointer_size_bytes * 8;
@@ -466,7 +473,8 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
     buf_resize(&fn_type->name, 0);
     const char *extern_str = fn_type_id.is_extern ? "extern " : "";
     const char *naked_str = fn_type_id.is_naked ? "naked " : "";
-    buf_appendf(&fn_type->name, "%s%sfn(", extern_str, naked_str);
+    const char *cold_str = fn_type_id.is_cold ? "cold " : "";
+    buf_appendf(&fn_type->name, "%s%s%sfn(", extern_str, naked_str, cold_str);
     for (int i = 0; i < fn_type_id.param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id.param_info[i];
 
@@ -634,7 +642,7 @@ static TypeTableEntry *analyze_type_expr(CodeGen *g, ImportTableEntry *import, B
 }
 
 static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        TypeTableEntry *expected_type, AstNode *node, bool is_naked)
+        TypeTableEntry *expected_type, AstNode *node, bool is_naked, bool is_cold)
 {
     assert(node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &node->data.fn_proto;
@@ -646,6 +654,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
     FnTypeId fn_type_id;
     fn_type_id.is_extern = fn_proto->is_extern || (fn_proto->visib_mod == VisibModExport);
     fn_type_id.is_naked = is_naked;
+    fn_type_id.is_cold = is_cold;
     fn_type_id.param_count = node->data.fn_proto.params.length;
     fn_type_id.param_info = allocate<FnTypeParamInfo>(fn_type_id.param_count);
     fn_type_id.is_var_args = fn_proto->is_var_args;
@@ -716,6 +725,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
 
     fn_table_entry->is_inline = fn_proto->is_inline;
 
+    bool is_cold = false;
     bool is_naked = false;
 
     if (fn_proto->directives) {
@@ -728,6 +738,8 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
                 if (fn_table_entry->fn_def_node) {
                     if (buf_eql_str(attr_name, "naked")) {
                         is_naked = true;
+                    } else if (buf_eql_str(attr_name, "cold")) {
+                        is_cold = true;
                     } else {
                         add_node_error(g, directive_node,
                                 buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
@@ -743,7 +755,8 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         }
     }
 
-    TypeTableEntry *fn_type = analyze_fn_proto_type(g, import, import->block_context, nullptr, node, is_naked);
+    TypeTableEntry *fn_type = analyze_fn_proto_type(g, import, import->block_context, nullptr, node,
+            is_naked, is_cold);
 
     fn_table_entry->type_entry = fn_type;
 
@@ -1547,6 +1560,9 @@ static bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTable
             return false;
         }
         if (expected_type->data.fn.fn_type_id.is_naked != actual_type->data.fn.fn_type_id.is_naked) {
+            return false;
+        }
+        if (expected_type->data.fn.fn_type_id.is_cold != actual_type->data.fn.fn_type_id.is_cold) {
             return false;
         }
         if (!types_match_const_cast_only(expected_type->data.fn.fn_type_id.return_type,
@@ -3121,7 +3137,7 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
 static TypeTableEntry *analyze_fn_proto_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    TypeTableEntry *type_entry = analyze_fn_proto_type(g, import, context, expected_type, node, false);
+    TypeTableEntry *type_entry = analyze_fn_proto_type(g, import, context, expected_type, node, false, false);
 
     if (type_entry->id == TypeTableEntryIdInvalid) {
         return type_entry;
@@ -5498,6 +5514,7 @@ uint32_t fn_type_id_hash(FnTypeId id) {
     uint32_t result = 0;
     result += id.is_extern ? 3349388391 : 0;
     result += id.is_naked ? 608688877 : 0;
+    result += id.is_cold ? 3605523458 : 0;
     result += id.is_var_args ? 1931444534 : 0;
     result += hash_ptr(id.return_type);
     result += id.param_count;
@@ -5512,6 +5529,7 @@ uint32_t fn_type_id_hash(FnTypeId id) {
 bool fn_type_id_eql(FnTypeId a, FnTypeId b) {
     if (a.is_extern != b.is_extern ||
         a.is_naked != b.is_naked ||
+        a.is_cold != b.is_cold ||
         a.return_type != b.return_type ||
         a.is_var_args != b.is_var_args ||
         a.param_count != b.param_count)

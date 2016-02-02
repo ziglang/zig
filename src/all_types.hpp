@@ -792,6 +792,7 @@ struct FnTypeId {
     int param_count;
     bool is_var_args;
     bool is_naked;
+    bool is_cold;
     bool is_extern;
 };
 

@@ -172,6 +172,12 @@ pub fn os_get_random_bytes(buf: []u8) -> %void {
     }
 }
 
+#attribute("cold")
+pub fn abort() -> unreachable {
+    raise(SIGABRT);
+    raise(SIGKILL);
+    while (true) {}
+}
 
 pub error InvalidChar;
 pub error Overflow;
