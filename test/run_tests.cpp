@@ -1501,6 +1501,18 @@ export fn main(argc: c_int, argv: &&u8) -> c_int {
     return 0;
 }
     )SOURCE", "3.25\n3\n3.00\n-0.40\n");
+
+
+    add_simple_case("const expression eval handling of variables", R"SOURCE(
+import "std.zig";
+pub fn main(args: [][]u8) -> %void {
+    var x = true;
+    while (x) {
+        x = false;
+    }
+    %%stdout.printf("OK\n");
+}
+    )SOURCE", "OK\n");
 }
 
 
