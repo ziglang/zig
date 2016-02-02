@@ -152,8 +152,8 @@ add_executable(zig ${ZIG_SOURCES})
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS})
 target_link_libraries(zig LINK_PUBLIC
-    ${LLVM_LIBRARIES}
     ${CLANG_LIBRARIES}
+    ${LLVM_LIBRARIES}
 )
 install(TARGETS zig DESTINATION bin)
 
