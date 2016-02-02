@@ -3338,20 +3338,23 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
                 add_node_error(g, top_level_decl,
                         buf_sprintf("root export declaration only valid in root source file"));
             } else {
-                for (int i = 0; i < top_level_decl->data.root_export_decl.directives->length; i += 1) {
-                    AstNode *directive_node = top_level_decl->data.root_export_decl.directives->at(i);
-                    Buf *name = &directive_node->data.directive.name;
-                    Buf *param = &directive_node->data.directive.param;
-                    if (buf_eql_str(name, "version")) {
-                        set_root_export_version(g, param, directive_node);
-                    } else if (buf_eql_str(name, "link")) {
-                        g->link_table.put(param, true);
-                        if (buf_eql_str(param, "c")) {
-                            g->link_libc = true;
+                ZigList<AstNode *> *directives = top_level_decl->data.root_export_decl.directives;
+                if (directives) {
+                    for (int i = 0; i < directives->length; i += 1) {
+                        AstNode *directive_node = directives->at(i);
+                        Buf *name = &directive_node->data.directive.name;
+                        Buf *param = &directive_node->data.directive.param;
+                        if (buf_eql_str(name, "version")) {
+                            set_root_export_version(g, param, directive_node);
+                        } else if (buf_eql_str(name, "link")) {
+                            g->link_table.put(param, true);
+                            if (buf_eql_str(param, "c")) {
+                                g->link_libc = true;
+                            }
+                        } else {
+                            add_node_error(g, directive_node,
+                                    buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
                         }
-                    } else {
-                        add_node_error(g, directive_node,
-                                buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
                     }
                 }
 

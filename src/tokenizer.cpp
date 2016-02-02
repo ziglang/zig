@@ -101,7 +101,7 @@ const char * zig_keywords[] = {
     "true", "false", "null", "fn", "return", "var", "const", "extern",
     "pub", "export", "import", "c_import", "if", "else", "goto", "asm",
     "volatile", "struct", "enum", "while", "for", "continue", "break",
-    "null", "noalias", "switch", "undefined", "error", "type"
+    "null", "noalias", "switch", "undefined", "error", "type", "inline",
 };
 
 bool is_zig_keyword(Buf *buf) {
@@ -273,6 +273,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordError;
     } else if (mem_eql_str(token_mem, token_len, "type")) {
         t->cur_tok->id = TokenIdKeywordType;
+    } else if (mem_eql_str(token_mem, token_len, "inline")) {
+        t->cur_tok->id = TokenIdKeywordInline;
     }
 
     t->cur_tok = nullptr;
@@ -1087,6 +1089,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordUndefined: return "undefined";
         case TokenIdKeywordError: return "error";
         case TokenIdKeywordType: return "type";
+        case TokenIdKeywordInline: return "inline";
         case TokenIdLParen: return "(";
         case TokenIdRParen: return ")";
         case TokenIdComma: return ",";

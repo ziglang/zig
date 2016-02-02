@@ -82,13 +82,6 @@ static AstNode *ast_create_node(ParseContext *pc, NodeType type, Token *first_to
     return node;
 }
 
-static AstNode *ast_create_node_with_node(ParseContext *pc, NodeType type, AstNode *other_node) {
-    AstNode *node = ast_create_node_no_line_info(pc, type);
-    node->line = other_node->line;
-    node->column = other_node->column;
-    return node;
-}
-
 static AstNode *ast_create_void_type_node(ParseContext *pc, Token *token) {
     AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
     buf_init_from_str(&node->data.symbol_expr.symbol, "void");
@@ -2240,15 +2233,26 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
 }
 
 /*
-FnDef : FnProto Block
+FnDef = option("inline") FnProto Block
 */
 static AstNode *ast_parse_fn_def(ParseContext *pc, int *token_index, bool mandatory,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
 {
+    Token *first_token = &pc->tokens->at(*token_index);
+    bool is_inline;
+    if (first_token->id == TokenIdKeywordInline) {
+        *token_index += 1;
+        is_inline = true;
+    } else {
+        is_inline = false;
+    }
+
     AstNode *fn_proto = ast_parse_fn_proto(pc, token_index, mandatory, directives, visib_mod);
     if (!fn_proto)
         return nullptr;
-    AstNode *node = ast_create_node_with_node(pc, NodeTypeFnDef, fn_proto);
+    AstNode *node = ast_create_node(pc, NodeTypeFnDef, first_token);
+
+    fn_proto->data.fn_proto.is_inline = is_inline;
 
     node->data.fn_def.fn_proto = fn_proto;
     node->data.fn_def.body = ast_parse_block(pc, token_index, true);
@@ -2646,8 +2650,10 @@ static void set_field(AstNode **field) {
 }
 
 static void set_list_fields(ZigList<AstNode*> *list) {
-    for (int i = 0; i < list->length; i += 1) {
-        set_field(&list->at(i));
+    if (list) {
+        for (int i = 0; i < list->length; i += 1) {
+            set_field(&list->at(i));
+        }
     }
 }
 
@@ -2661,9 +2667,7 @@ void normalize_parent_ptrs(AstNode *node) {
             break;
         case NodeTypeFnProto:
             set_field(&node->data.fn_proto.return_type);
-            if (node->data.fn_proto.directives) {
-                set_list_fields(node->data.fn_proto.directives);
-            }
+            set_list_fields(node->data.fn_proto.directives);
             set_list_fields(&node->data.fn_proto.params);
             break;
         case NodeTypeFnDef:
@@ -2686,9 +2690,7 @@ void normalize_parent_ptrs(AstNode *node) {
             set_field(&node->data.return_expr.expr);
             break;
         case NodeTypeVariableDeclaration:
-            if (node->data.variable_declaration.directives) {
-                set_list_fields(node->data.variable_declaration.directives);
-            }
+            set_list_fields(node->data.variable_declaration.directives);
             set_field(&node->data.variable_declaration.type);
             set_field(&node->data.variable_declaration.expr);
             break;

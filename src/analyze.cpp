@@ -714,29 +714,32 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         return;
     }
 
-    bool is_naked = false;
-    for (int i = 0; i < fn_proto->directives->length; i += 1) {
-        AstNode *directive_node = fn_proto->directives->at(i);
-        Buf *name = &directive_node->data.directive.name;
+    fn_table_entry->is_inline = fn_proto->is_inline;
 
-        if (buf_eql_str(name, "attribute")) {
-            Buf *attr_name = &directive_node->data.directive.param;
-            if (fn_table_entry->fn_def_node) {
-                if (buf_eql_str(attr_name, "naked")) {
-                    is_naked = true;
-                } else if (buf_eql_str(attr_name, "inline")) {
-                    fn_table_entry->is_inline = true;
+    bool is_naked = false;
+
+    if (fn_proto->directives) {
+        for (int i = 0; i < fn_proto->directives->length; i += 1) {
+            AstNode *directive_node = fn_proto->directives->at(i);
+            Buf *name = &directive_node->data.directive.name;
+
+            if (buf_eql_str(name, "attribute")) {
+                Buf *attr_name = &directive_node->data.directive.param;
+                if (fn_table_entry->fn_def_node) {
+                    if (buf_eql_str(attr_name, "naked")) {
+                        is_naked = true;
+                    } else {
+                        add_node_error(g, directive_node,
+                                buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
+                    }
                 } else {
                     add_node_error(g, directive_node,
                             buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
                 }
             } else {
                 add_node_error(g, directive_node,
-                        buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
+                        buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
             }
-        } else {
-            add_node_error(g, directive_node,
-                    buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
         }
     }
 
@@ -5174,11 +5177,13 @@ void semantic_analyze(CodeGen *g) {
             for (int i = 0; i < import->root->data.root.top_level_decls.length; i += 1) {
                 AstNode *child = import->root->data.root.top_level_decls.at(i);
                 if (child->type == NodeTypeImport) {
-                    for (int i = 0; i < child->data.import.directives->length; i += 1) {
-                        AstNode *directive_node = child->data.import.directives->at(i);
-                        Buf *name = &directive_node->data.directive.name;
-                        add_node_error(g, directive_node,
-                                buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+                    if (child->data.import.directives) {
+                        for (int i = 0; i < child->data.import.directives->length; i += 1) {
+                            AstNode *directive_node = child->data.import.directives->at(i);
+                            Buf *name = &directive_node->data.directive.name;
+                            add_node_error(g, directive_node,
+                                    buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
+                        }
                     }
 
                     ImportTableEntry *target_import = child->data.import.import;

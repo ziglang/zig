@@ -174,13 +174,14 @@ enum VisibMod {
 };
 
 struct AstNodeFnProto {
-    ZigList<AstNode *> *directives;
+    ZigList<AstNode *> *directives; // can be null if no directives
     VisibMod visib_mod;
     Buf name;
     ZigList<AstNode *> params;
     AstNode *return_type;
     bool is_var_args;
     bool is_extern;
+    bool is_inline;
 
     // populated by semantic analyzer:
 

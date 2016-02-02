@@ -35,7 +35,7 @@ Directive = "#" "Symbol" "(" "String" ")"
 
 VisibleMod = "pub" | "export"
 
-FnDef = FnProto Block
+FnDef = option("inline") FnProto Block
 
 ParamDeclList = "(" list(ParamDecl, ",") ")"
 

@@ -2114,8 +2114,7 @@ extern void (*fn_ptr)(void);
 #define foo fn_ptr
     )SOURCE", 2,
             "pub extern var fn_ptr: ?extern fn();",
-            R"SOURCE(#attribute("inline")
-pub fn foo() {
+            R"SOURCE(pub inline fn foo() {
     (??fn_ptr)()
 })SOURCE");
 }

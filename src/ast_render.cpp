@@ -77,6 +77,10 @@ static const char *extern_string(bool is_extern) {
     return is_extern ? "extern " : "";
 }
 
+static const char *inline_string(bool is_inline) {
+    return is_inline ? "inline " : "";
+}
+
 static const char *const_or_var_string(bool is_const) {
     return is_const ? "const" : "var";
 }
@@ -553,7 +557,8 @@ static void render_node(AstRender *ar, AstNode *node) {
                 const char *fn_name = buf_ptr(&node->data.fn_proto.name);
                 const char *pub_str = visib_mod_string(node->data.fn_proto.visib_mod);
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
-                fprintf(ar->f, "%s%sfn %s(", pub_str, extern_str, fn_name);
+                const char *inline_str = inline_string(node->data.fn_proto.is_inline);
+                fprintf(ar->f, "%s%s%sfn %s(", pub_str, inline_str, extern_str, fn_name);
                 int arg_count = node->data.fn_proto.params.length;
                 bool is_var_args = node->data.fn_proto.is_var_args;
                 for (int arg_i = 0; arg_i < arg_count; arg_i += 1) {
@@ -583,8 +588,10 @@ static void render_node(AstRender *ar, AstNode *node) {
                 break;
             }
         case NodeTypeFnDef:
-            for (int i = 0; i < node->data.fn_def.fn_proto->data.fn_proto.directives->length; i += 1) {
-                render_node(ar, node->data.fn_def.fn_proto->data.fn_proto.directives->at(i));
+            if (node->data.fn_def.fn_proto->data.fn_proto.directives) {
+                for (int i = 0; i < node->data.fn_def.fn_proto->data.fn_proto.directives->length; i += 1) {
+                    render_node(ar, node->data.fn_def.fn_proto->data.fn_proto.directives->at(i));
+                }
             }
             render_node(ar, node->data.fn_def.fn_proto);
             fprintf(ar->f, " ");
