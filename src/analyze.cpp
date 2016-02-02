@@ -2515,6 +2515,7 @@ static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, Bloc
                     expected_rhs_type = g->builtin_types.entry_invalid;
                 } else {
                     expected_rhs_type = var->type;
+                    lhs_node->data.symbol_expr.variable = var;
                 }
             } else {
                 add_node_error(g, lhs_node,

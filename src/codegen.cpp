@@ -889,8 +889,7 @@ static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *expr_node, AstNode *node,
     LLVMValueRef target_ref;
 
     if (node->type == NodeTypeSymbol) {
-        VariableTableEntry *var = find_variable(expr_node->block_context,
-                &node->data.symbol_expr.symbol);
+        VariableTableEntry *var = node->data.symbol_expr.variable;
         assert(var);
 
         *out_type_entry = var->type;
