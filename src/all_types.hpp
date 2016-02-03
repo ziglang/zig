@@ -998,6 +998,7 @@ enum BuiltinFnId {
     BuiltinFnIdCInclude,
     BuiltinFnIdCDefine,
     BuiltinFnIdCUndef,
+    BuiltinFnIdCompileVar,
 };
 
 struct BuiltinFnEntry {
@@ -1058,6 +1059,7 @@ struct CodeGen {
 
     LLVMTargetDataRef target_data_ref;
     unsigned pointer_size_bytes;
+    bool is_big_endian;
     bool is_static;
     bool strip_debug_symbols;
     bool have_exported_main;

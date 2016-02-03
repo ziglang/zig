@@ -304,6 +304,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdMinValue:
         case BuiltinFnIdMaxValue:
         case BuiltinFnIdMemberCount:
+        case BuiltinFnIdCompileVar:
             // caught by constant expression eval codegen
             zig_unreachable();
     }
@@ -3221,6 +3222,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCInclude, "c_include", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCDefine, "c_define", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCUndef, "c_undef", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileVar, "compile_var", 1);
 }
 
 
@@ -3267,6 +3269,7 @@ static void init(CodeGen *g, Buf *source_path) {
 
 
     g->pointer_size_bytes = LLVMPointerSize(g->target_data_ref);
+    g->is_big_endian = (LLVMByteOrder(g->target_data_ref) == LLVMBigEndian);
 
     g->builder = LLVMCreateBuilder();
     g->dbuilder = LLVMZigCreateDIBuilder(g->module, true);

@@ -2033,6 +2033,11 @@ fn func() -> bogus {}
     )SOURCE", 2,
             ".tmp_source.zig:3:1: error: redefinition of 'func'",
             ".tmp_source.zig:2:14: error: use of undeclared identifier 'bogus'");
+
+
+    add_compile_fail_case("bogus compile var", R"SOURCE(
+const x = @compile_var("bogus");
+    )SOURCE", 1, ".tmp_source.zig:2:24: error: unrecognized compile variable: 'bogus'");
 }
 
 //////////////////////////////////////////////////////////////////////////////

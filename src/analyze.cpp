@@ -3896,7 +3896,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     uint64_t big_c = char_val->data.x_bignum.data.x_uint;
                     assert(big_c <= UINT8_MAX);
                     uint8_t c = big_c;
-                    buf_appendf(context->c_import_buf, "%c", c);
+                    buf_append_char(context->c_import_buf, c);
                 }
                 buf_appendf(context->c_import_buf, ">\n");
 
@@ -3906,6 +3906,50 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             zig_panic("TODO");
         case BuiltinFnIdCUndef:
             zig_panic("TODO");
+
+        case BuiltinFnIdCompileVar:
+            {
+                AstNode **str_node = node->data.fn_call_expr.params.at(0)->parent_field;
+
+                TypeTableEntry *str_type = get_unknown_size_array_type(g, g->builtin_types.entry_u8, true);
+                TypeTableEntry *resolved_type = analyze_expression(g, import, context, str_type, *str_node);
+
+                if (resolved_type->id == TypeTableEntryIdInvalid) {
+                    return resolved_type;
+                }
+
+                ConstExprValue *const_str_val = &get_resolved_expr(*str_node)->const_val;
+
+                if (!const_str_val->ok) {
+                    add_node_error(g, *str_node, buf_sprintf("@compile_var requires constant expression"));
+                    return g->builtin_types.entry_void;
+                }
+
+                ConstExprValue *ptr_field = const_str_val->data.x_struct.fields[0];
+                uint64_t len = ptr_field->data.x_ptr.len;
+                Buf var_name = BUF_INIT;
+                buf_resize(&var_name, 0);
+                for (uint64_t i = 0; i < len; i += 1) {
+                    ConstExprValue *char_val = ptr_field->data.x_ptr.ptr[i];
+                    uint64_t big_c = char_val->data.x_bignum.data.x_uint;
+                    assert(big_c <= UINT8_MAX);
+                    uint8_t c = big_c;
+                    buf_append_char(&var_name, c);
+                }
+
+                ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+                const_val->depends_on_compile_var = true;
+
+                if (buf_eql_str(&var_name, "is_big_endian")) {
+                    return resolve_expr_const_val_as_bool(g, node, g->is_big_endian);
+                } else {
+                    add_node_error(g, *str_node,
+                        buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(&var_name)));
+                    return g->builtin_types.entry_invalid;
+                }
+
+                break;
+            }
 
     }
     zig_unreachable();
