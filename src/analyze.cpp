@@ -153,6 +153,34 @@ static int bits_needed_for_unsigned(uint64_t x) {
     }
 }
 
+static bool type_is_complete(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+            zig_unreachable();
+        case TypeTableEntryIdStruct:
+            return type_entry->data.structure.complete;
+        case TypeTableEntryIdEnum:
+            return type_entry->data.enumeration.complete;
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdTypeDecl:
+            return true;
+    }
+}
+
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
     return get_int_type(g, false, bits_needed_for_unsigned(x));
 }
@@ -391,6 +419,7 @@ static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, TypeTableEntry *c
 
         entry->type_ref = var_peer->type_ref;
         entry->di_type = var_peer->di_type;
+        entry->data.structure.complete = true;
 
         *parent_pointer = entry;
         return entry;
@@ -420,6 +449,8 @@ static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, TypeTableEntry *c
         entry->di_type = LLVMZigCreateDebugStructType(g->dbuilder, compile_unit_scope,
                 buf_ptr(&entry->name), g->dummy_di_file, 0, entry->size_in_bits, entry->align_in_bits, 0,
                 nullptr, di_element_types, element_count, 0, nullptr, "");
+
+        entry->data.structure.complete = true;
 
         *parent_pointer = entry;
         return entry;
@@ -527,6 +558,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
         gen_param_info->src_index = i;
         gen_param_info->gen_index = -1;
 
+        assert(type_is_complete(type_entry));
         if (type_entry->size_in_bits > 0) {
             TypeTableEntry *gen_type;
             if (handle_is_ptr(type_entry)) {
@@ -4751,7 +4783,7 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
                 if (!table_entry) {
                     table_entry = import->block_context->type_table.maybe_get(name);
                 }
-                if (!table_entry) {
+                if (!table_entry || !type_is_complete(table_entry->value)) {
                     decl_node->deps.put(name, node);
                 }
                 break;

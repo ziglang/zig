@@ -2830,6 +2830,7 @@ static void do_code_gen(CodeGen *g) {
                     arg_no = var->gen_arg_index + 1;
 
                     var->is_ptr = false;
+                    assert(var->gen_arg_index >= 0);
                     var->value_ref = LLVMGetParam(fn, var->gen_arg_index);
                 } else {
                     tag = LLVMZigTag_DW_auto_variable();

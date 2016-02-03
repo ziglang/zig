@@ -1513,6 +1513,42 @@ pub fn main(args: [][]u8) -> %void {
     %%stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
+
+
+    add_simple_case("incomplete struct parameter top level decl", R"SOURCE(
+import "std.zig";
+struct A {
+    b: B,
+}
+
+struct B {
+    c: C,
+}
+
+struct C {
+    x: i32,
+
+    fn d(c: C) {
+        %%stdout.printf("OK\n");
+    }
+}
+
+fn foo(a: A) {
+    a.b.c.d();
+}
+
+pub fn main(args: [][]u8) -> %void {
+    const a = A {
+        .b = B {
+            .c = C {
+                .x = 13,
+            },
+        },
+    };
+    foo(a);
+}
+
+    )SOURCE", "OK\n");
 }
 
 
