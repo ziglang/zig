@@ -2736,7 +2736,9 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
 
                 TypeTableEntry *expected_rhs_type = analyze_lvalue(g, import, context, lhs_node,
                         LValPurposeAssign, false);
-                if (!is_op_allowed(expected_rhs_type, node->data.bin_op_expr.bin_op)) {
+                if (expected_rhs_type->id == TypeTableEntryIdInvalid) {
+                    return g->builtin_types.entry_invalid;
+                } else if (!is_op_allowed(expected_rhs_type, node->data.bin_op_expr.bin_op)) {
                     if (expected_rhs_type->id != TypeTableEntryIdInvalid) {
                         add_node_error(g, lhs_node,
                             buf_sprintf("operator not allowed for type '%s'",
@@ -3001,7 +3003,9 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
     }
 
     TypeTableEntry *implicit_type = nullptr;
-    if (variable_declaration->expr) {
+    if (explicit_type && explicit_type->id == TypeTableEntryIdInvalid) {
+        implicit_type = explicit_type;
+    } else if (variable_declaration->expr) {
         implicit_type = analyze_expression(g, import, context, explicit_type, variable_declaration->expr);
         if (implicit_type->id == TypeTableEntryIdInvalid) {
             // ignore the poison value
@@ -3912,6 +3916,10 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
 {
     assert(node->type == NodeTypeFnCallExpr);
 
+    if (fn_type->id == TypeTableEntryIdInvalid) {
+        return fn_type;
+    }
+
     // count parameters
     int src_param_count = fn_type->data.fn.fn_type_id.param_count;
     int actual_param_count = node->data.fn_call_expr.params.length;
@@ -4478,6 +4486,7 @@ static TypeTableEntry *analyze_asm_expr(CodeGen *g, ImportTableEntry *import, Bl
 static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
+    assert(!expected_type || expected_type->id != TypeTableEntryIdInvalid);
     TypeTableEntry *return_type = nullptr;
     switch (node->type) {
         case NodeTypeBlock:

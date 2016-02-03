@@ -1718,14 +1718,10 @@ fn f() {
     i[i] = i[i];
     bad[bad] = bad[bad];
 }
-    )SOURCE", 8, ".tmp_source.zig:4:5: error: use of undeclared identifier 'i'",
+    )SOURCE", 4, ".tmp_source.zig:4:5: error: use of undeclared identifier 'i'",
                  ".tmp_source.zig:4:7: error: use of undeclared identifier 'i'",
-                 ".tmp_source.zig:4:12: error: use of undeclared identifier 'i'",
-                 ".tmp_source.zig:4:14: error: use of undeclared identifier 'i'",
                  ".tmp_source.zig:5:8: error: array access of non-array",
-                 ".tmp_source.zig:5:9: error: expected type 'isize', got 'bool'",
-                 ".tmp_source.zig:5:19: error: array access of non-array",
-                 ".tmp_source.zig:5:20: error: expected type 'isize', got 'bool'");
+                 ".tmp_source.zig:5:9: error: expected type 'isize', got 'bool'");
 
     add_compile_fail_case("variadic functions only allowed in extern", R"SOURCE(
 fn f(...) {}
