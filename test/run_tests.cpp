@@ -379,10 +379,10 @@ pub fn main(args: [][]u8) -> %void {
     array[0] = void{};
     array[1] = array[2];
     if (@sizeof(@typeof(array)) != 0) {
-        %%stdout.printf("BAD\n");
+        %%stdout.printf("BAD sizeof\n");
     }
     if (array.len != 4) {
-        %%stdout.printf("BAD\n");
+        %%stdout.printf("BAD len\n");
     }
     %%stdout.printf("OK\n");
 }
@@ -1075,22 +1075,22 @@ pub fn main(args: [][]u8) -> %void {
     const bar = Bar.B;
 
     if (bar != Bar.B) {
-        %%stdout.printf("BAD\n");
+        %%stdout.printf("BAD 1\n");
     }
 
     if (@member_count(Foo) != 3) {
-        %%stdout.printf("BAD\n");
+        %%stdout.printf("BAD 2\n");
     }
 
     if (@member_count(Bar) != 4) {
-        %%stdout.printf("BAD\n");
+        %%stdout.printf("BAD 3\n");
     }
 
-    if (@sizeof(Foo) != 17) {
-        %%stdout.printf("BAD\n");
+    if (@sizeof(Foo) != 24) {
+        %%stdout.printf("BAD 4\n");
     }
     if (@sizeof(Bar) != 1) {
-        %%stdout.printf("BAD\n");
+        %%stdout.printf("BAD 5\n");
     }
 
     %%stdout.printf("OK\n");

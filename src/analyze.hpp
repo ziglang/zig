@@ -35,5 +35,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry);
 void find_libc_path(CodeGen *g);
 
 TypeTableEntry *get_underlying_type(TypeTableEntry *type_entry);
+bool type_has_bits(TypeTableEntry *type_entry);
+uint64_t get_memcpy_align(CodeGen *g, TypeTableEntry *type_entry);
 
 #endif

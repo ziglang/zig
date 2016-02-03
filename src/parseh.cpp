@@ -740,8 +740,6 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
     enum_type->data.enumeration.complete = true;
 
     TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(c->codegen, field_count);
-    enum_type->align_in_bits = tag_type_entry->size_in_bits;
-    enum_type->size_in_bits = tag_type_entry->size_in_bits;
     enum_type->data.enumeration.tag_type = tag_type_entry;
 
     c->enum_type_table.put(bare_name, enum_type);
@@ -795,11 +793,14 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
     // create debug type for tag
     unsigned line = c->source_node ? (c->source_node->line + 1) : 0;
+    uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(c->codegen->target_data_ref, enum_type->type_ref);
+    uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, enum_type->type_ref);
     LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(c->codegen->dbuilder,
             LLVMZigFileToScope(c->import->di_file), buf_ptr(bare_name),
             c->import->di_file, line,
-            tag_type_entry->size_in_bits, tag_type_entry->align_in_bits, di_enumerators, field_count,
-            tag_type_entry->di_type, "");
+            debug_size_in_bits,
+            debug_align_in_bits,
+            di_enumerators, field_count, tag_type_entry->di_type, "");
 
     LLVMZigReplaceTemporary(c->codegen->dbuilder, enum_type->di_type, tag_di_type);
     enum_type->di_type = tag_di_type;
@@ -894,10 +895,6 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
     LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
     LLVMZigDIType **di_element_types = allocate<LLVMZigDIType*>(field_count);
 
-    uint64_t total_size_in_bits = 0;
-    uint64_t first_field_align_in_bits = 0;
-    uint64_t offset_in_bits = 0;
-
     uint32_t i = 0;
     for (auto it = record_def->field_begin(),
               it_end = record_def->field_end();
@@ -909,29 +906,28 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
         type_struct_field->name = buf_create_from_str(decl_name(field_decl));
         type_struct_field->src_index = i;
         type_struct_field->gen_index = i;
-        type_struct_field->type_entry = resolve_qual_type(c, field_decl->getType(), field_decl);
+        TypeTableEntry *field_type = resolve_qual_type(c, field_decl->getType(), field_decl);
+        type_struct_field->type_entry = field_type;
 
-        if (type_struct_field->type_entry->id == TypeTableEntryIdInvalid) {
+        if (field_type->id == TypeTableEntryIdInvalid) {
             emit_warning(c, field_decl, "struct %s demoted to typedef - unresolved type\n", buf_ptr(bare_name));
             return struct_type;
         }
 
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(c->codegen->target_data_ref, field_type->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, field_type->type_ref);
+        uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(c->codegen->target_data_ref, struct_type->type_ref, i);
         di_element_types[i] = LLVMZigCreateDebugMemberType(c->codegen->dbuilder,
                 LLVMZigTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
                 c->import->di_file, line + 1,
-                type_struct_field->type_entry->size_in_bits,
-                type_struct_field->type_entry->align_in_bits,
-                offset_in_bits, 0, type_struct_field->type_entry->di_type);
+                debug_size_in_bits,
+                debug_align_in_bits,
+                debug_offset_in_bits,
+                0, field_type->di_type);
 
-        element_types[i] = type_struct_field->type_entry->type_ref;
+        element_types[i] = field_type->type_ref;
         assert(di_element_types[i]);
         assert(element_types[i]);
-
-        total_size_in_bits += type_struct_field->type_entry->size_in_bits;
-        if (first_field_align_in_bits == 0) {
-            first_field_align_in_bits = type_struct_field->type_entry->align_in_bits;
-        }
-        offset_in_bits += type_struct_field->type_entry->size_in_bits;
 
     }
     struct_type->data.structure.embedded_in_current = false;
@@ -941,13 +937,14 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
 
     LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
 
-    struct_type->align_in_bits = first_field_align_in_bits;
-    struct_type->size_in_bits = total_size_in_bits;
-
+    uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(c->codegen->target_data_ref, struct_type->type_ref);
+    uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, struct_type->type_ref);
     LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(c->codegen->dbuilder,
             LLVMZigFileToScope(c->import->di_file),
-            buf_ptr(full_type_name),
-            c->import->di_file, line + 1, struct_type->size_in_bits, struct_type->align_in_bits, 0,
+            buf_ptr(full_type_name), c->import->di_file, line + 1,
+            debug_size_in_bits,
+            debug_align_in_bits,
+            0,
             nullptr, di_element_types, field_count, 0, nullptr, "");
 
     LLVMZigReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);

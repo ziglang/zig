@@ -145,8 +145,9 @@ static int bits_index(int size_in_bits) {
 static LLVMValueRef get_arithmetic_overflow_fn(CodeGen *g, TypeTableEntry *type_entry,
         const char *signed_name, const char *unsigned_name)
 {
+    assert(type_entry->id == TypeTableEntryIdInt);
     const char *signed_str = type_entry->data.integral.is_signed ? signed_name : unsigned_name;
-    Buf *llvm_name = buf_sprintf("llvm.%s.with.overflow.i%" PRIu64, signed_str, type_entry->size_in_bits);
+    Buf *llvm_name = buf_sprintf("llvm.%s.with.overflow.i%d", signed_str, type_entry->data.integral.bit_count);
 
     LLVMTypeRef return_elem_types[] = {
         type_entry->type_ref,
@@ -168,7 +169,7 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, 
     // [0-signed,1-unsigned][0-add,1-sub,2-mul][0-8,1-16,2-32,3-64]
     int index0 = type_entry->data.integral.is_signed ? 0 : 1;
     int index1 = add_sub_mul;
-    int index2 = bits_index(type_entry->size_in_bits);
+    int index2 = bits_index(type_entry->data.integral.bit_count);
     LLVMValueRef *fn = &g->int_overflow_fns[index0][index1][index2];
     if (*fn) {
         return *fn;
@@ -187,7 +188,6 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, 
     }
     return *fn;
 }
-
 
 static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
@@ -257,7 +257,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
                 LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
                 LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr, ptr_u8, "");
 
-                uint64_t align_in_bytes = dest_type->data.pointer.child_type->align_in_bits / 8;
+                uint64_t align_in_bytes = get_memcpy_align(g, dest_type->data.pointer.child_type);
 
                 LLVMValueRef params[] = {
                     dest_ptr_casted, // dest pointer
@@ -287,7 +287,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
                 add_debug_source_node(g, node);
                 LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
 
-                uint64_t align_in_bytes = dest_type->data.pointer.child_type->align_in_bits / 8;
+                uint64_t align_in_bytes = get_memcpy_align(g, dest_type->data.pointer.child_type);
 
                 LLVMValueRef params[] = {
                     dest_ptr_casted, // dest pointer
@@ -301,6 +301,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
                 return nullptr;
             }
         case BuiltinFnIdSizeof:
+        case BuiltinFnIdAlignof:
         case BuiltinFnIdMinValue:
         case BuiltinFnIdMaxValue:
         case BuiltinFnIdMemberCount:
@@ -359,9 +360,21 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeT
         TypeTableEntry *wanted_type, LLVMValueRef expr_val)
 {
     assert(actual_type->id == wanted_type->id);
-    if (actual_type->size_in_bits == wanted_type->size_in_bits) {
+    uint64_t actual_bits;
+    uint64_t wanted_bits;
+    if (actual_type->id == TypeTableEntryIdFloat) {
+        actual_bits = actual_type->data.floating.bit_count;
+        wanted_bits = wanted_type->data.floating.bit_count;
+    } else if (actual_type->id == TypeTableEntryIdInt) {
+        actual_bits = actual_type->data.integral.bit_count;
+        wanted_bits = wanted_type->data.integral.bit_count;
+    } else {
+        zig_unreachable();
+    }
+
+    if (actual_bits == wanted_bits) {
         return expr_val;
-    } else if (actual_type->size_in_bits < wanted_type->size_in_bits) {
+    } else if (actual_bits < wanted_bits) {
         if (actual_type->id == TypeTableEntryIdFloat) {
             add_debug_source_node(g, source_node);
             return LLVMBuildFPExt(g->builder, expr_val, wanted_type->type_ref, "");
@@ -376,7 +389,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeT
         } else {
             zig_unreachable();
         }
-    } else if (actual_type->size_in_bits > wanted_type->size_in_bits) {
+    } else if (actual_bits > wanted_bits) {
         if (actual_type->id == TypeTableEntryIdFloat) {
             add_debug_source_node(g, source_node);
             return LLVMBuildFPTrunc(g->builder, expr_val, wanted_type->type_ref, "");
@@ -410,7 +423,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
             return expr_val;
         case CastOpErrToInt:
             assert(actual_type->id == TypeTableEntryIdErrorUnion);
-            if (actual_type->data.error.child_type->size_in_bits == 0) {
+            if (!type_has_bits(actual_type->data.error.child_type)) {
                 return gen_widen_or_shorten(g, node, g->err_tag_type, wanted_type, expr_val);
             } else {
                 zig_panic("TODO");
@@ -446,7 +459,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
                 TypeTableEntry *child_type = wanted_type->data.error.child_type;
                 LLVMValueRef ok_err_val = LLVMConstNull(g->err_tag_type->type_ref);
 
-                if (child_type->size_in_bits == 0) {
+                if (!type_has_bits(child_type)) {
                     return ok_err_val;
                 } else {
                     assert(cast_expr->tmp_ptr);
@@ -466,7 +479,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
             }
         case CastOpPureErrorWrap:
             assert(wanted_type->id == TypeTableEntryIdErrorUnion);
-            if (wanted_type->data.error.child_type->size_in_bits == 0) {
+            if (!type_has_bits(wanted_type->data.error.child_type)) {
                 return expr_val;
             } else {
                 zig_panic("TODO");
@@ -607,7 +620,7 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         AstNode *expr_node = node->data.fn_call_expr.params.at(i);
         LLVMValueRef param_value = gen_expr(g, expr_node);
         TypeTableEntry *param_type = get_expr_type(expr_node);
-        if (is_var_args || param_type->size_in_bits > 0) {
+        if (is_var_args || type_has_bits(param_type)) {
             gen_param_values[gen_param_index] = param_value;
             gen_param_index += 1;
         }
@@ -621,7 +634,7 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         return LLVMBuildUnreachable(g->builder);
     } else if (first_arg_ret) {
         return node->data.fn_call_expr.tmp_ptr;
-    } else if (src_return_type->size_in_bits == 0) {
+    } else if (!type_has_bits(src_return_type)) {
         return nullptr;
     } else {
         return result;
@@ -653,7 +666,7 @@ static LLVMValueRef gen_array_elem_ptr(CodeGen *g, AstNode *source_node, LLVMVal
 {
     assert(subscript_value);
 
-    if (array_type->size_in_bits == 0) {
+    if (!type_has_bits(array_type)) {
         return nullptr;
     }
 
@@ -978,7 +991,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
         case PrefixOpDereference:
             {
                 LLVMValueRef expr = gen_expr(g, expr_node);
-                if (expr_type->size_in_bits == 0) {
+                if (!type_has_bits(expr_type)) {
                     return nullptr;
                 } else {
                     add_debug_source_node(g, node);
@@ -1002,7 +1015,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
 
                 if (g->build_type != CodeGenBuildTypeRelease) {
                     LLVMValueRef err_val;
-                    if (child_type->size_in_bits > 0) {
+                    if (type_has_bits(child_type)) {
                         add_debug_source_node(g, node);
                         LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 0, "");
                         err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
@@ -1022,7 +1035,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
                     LLVMPositionBuilderAtEnd(g->builder, ok_block);
                 }
 
-                if (child_type->size_in_bits > 0) {
+                if (type_has_bits(child_type)) {
                     LLVMValueRef child_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 1, "");
                     if (handle_is_ptr(child_type)) {
                         return child_val_ptr;
@@ -1337,11 +1350,15 @@ static LLVMValueRef gen_struct_memcpy(CodeGen *g, AstNode *source_node, LLVMValu
     LLVMValueRef src_ptr = LLVMBuildBitCast(g->builder, src, ptr_u8, "");
     LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, dest, ptr_u8, "");
 
+    TypeTableEntry *isize = g->builtin_types.entry_isize;
+    uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
+    uint64_t align_bytes = get_memcpy_align(g, type_entry);
+
     LLVMValueRef params[] = {
         dest_ptr, // dest pointer
         src_ptr, // source pointer
-        LLVMConstInt(LLVMIntType(g->pointer_size_bytes * 8), type_entry->size_in_bits / 8, false), // byte count
-        LLVMConstInt(LLVMInt32Type(), type_entry->align_in_bits / 8, false), // align in bytes
+        LLVMConstInt(isize->type_ref, size_bytes, false),
+        LLVMConstInt(LLVMInt32Type(), align_bytes, false),
         LLVMConstNull(LLVMInt1Type()), // is volatile
     };
 
@@ -1384,7 +1401,7 @@ static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
 
     LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
 
-    if (op1_type->size_in_bits == 0) {
+    if (!type_has_bits(op1_type)) {
         return nullptr;
     }
 
@@ -1546,7 +1563,7 @@ static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
     LLVMBasicBlockRef err_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "UnwrapErrError");
     LLVMBasicBlockRef end_block;
     bool err_reachable = op2_type->id != TypeTableEntryIdUnreachable;
-    bool have_end_block = err_reachable && (child_type->size_in_bits > 0);
+    bool have_end_block = err_reachable && type_has_bits(child_type);
     if (have_end_block) {
         end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "UnwrapErrEnd");
     }
@@ -1566,7 +1583,7 @@ static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
     }
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
-    if (child_type->size_in_bits == 0) {
+    if (!type_has_bits(child_type)) {
         return nullptr;
     }
     LLVMValueRef child_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 1, "");
@@ -1624,7 +1641,7 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
 
                 add_debug_source_node(g, node);
                 LLVMValueRef err_val;
-                if (child_type->size_in_bits > 0) {
+                if (type_has_bits(child_type)) {
                     LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, value, 0, "");
                     err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
                 } else {
@@ -1639,7 +1656,7 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                 if (return_type->id == TypeTableEntryIdPureError) {
                     gen_return(g, node, err_val);
                 } else if (return_type->id == TypeTableEntryIdErrorUnion) {
-                    if (return_type->data.error.child_type->size_in_bits > 0) {
+                    if (type_has_bits(return_type->data.error.child_type)) {
                         assert(g->cur_ret_ptr);
 
                         add_debug_source_node(g, node);
@@ -1654,7 +1671,7 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                 }
 
                 LLVMPositionBuilderAtEnd(g->builder, continue_block);
-                if (child_type->size_in_bits > 0) {
+                if (type_has_bits(child_type)) {
                     add_debug_source_node(g, node);
                     LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, value, 1, "");
                     if (handle_is_ptr(child_type)) {
@@ -2164,7 +2181,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
         *init_value = gen_expr(g, var_decl->expr);
         *expr_type = get_expr_type(var_decl->expr);
     }
-    if (variable->type->size_in_bits == 0) {
+    if (!type_has_bits(variable->type)) {
         return nullptr;
     }
 
@@ -2225,15 +2242,17 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
             }
         }
         if (!ignore_uninit && g->build_type != CodeGenBuildTypeRelease) {
+            TypeTableEntry *isize = g->builtin_types.entry_isize;
+            uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, variable->type->type_ref);
+            uint64_t align_bytes = get_memcpy_align(g, variable->type);
+
             // memset uninitialized memory to 0xa
             add_debug_source_node(g, source_node);
             LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
             LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
             LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, variable->value_ref, ptr_u8, "");
-            LLVMValueRef byte_count = LLVMConstInt(LLVMIntType(g->pointer_size_bytes * 8),
-                    variable->type->size_in_bits / 8, false);
-            LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(),
-                    variable->type->align_in_bits / 8, false);
+            LLVMValueRef byte_count = LLVMConstInt(isize->type_ref, size_bytes, false);
+            LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(), align_bytes, false);
             LLVMValueRef params[] = {
                 dest_ptr,
                 fill_char,
@@ -2273,7 +2292,7 @@ static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeSymbol);
     VariableTableEntry *variable = node->data.symbol_expr.variable;
     if (variable) {
-        if (variable->type->size_in_bits == 0) {
+        if (!type_has_bits(variable->type)) {
             return nullptr;
         } else if (variable->is_ptr) {
             assert(variable->value_ref);
@@ -2364,7 +2383,7 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
     Expr *expr = get_resolved_expr(node);
     if (expr->const_val.ok) {
-        if (expr->type_entry->size_in_bits == 0) {
+        if (!type_has_bits(expr->type_entry)) {
             return nullptr;
         } else {
             assert(expr->const_llvm_val);
@@ -2600,7 +2619,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdErrorUnion:
             {
                 TypeTableEntry *child_type = type_entry->data.error.child_type;
-                if (child_type->size_in_bits == 0) {
+                if (!type_has_bits(child_type)) {
                     uint64_t value = const_val->data.x_err.err ? const_val->data.x_err.err->value : 0;
                     return LLVMConstInt(g->err_tag_type->type_ref, value, false);
                 } else {
@@ -2683,7 +2702,7 @@ static void do_code_gen(CodeGen *g) {
 
         if (var->type->id == TypeTableEntryIdNumLitFloat ||
             var->type->id == TypeTableEntryIdNumLitInt ||
-            var->type->size_in_bits == 0)
+            !type_has_bits(var->type))
         {
             continue;
         }
@@ -2820,7 +2839,7 @@ static void do_code_gen(CodeGen *g) {
             for (int var_i = 0; var_i < block_context->variable_list.length; var_i += 1) {
                 VariableTableEntry *var = block_context->variable_list.at(var_i);
 
-                if (var->type->size_in_bits == 0) {
+                if (!type_has_bits(var->type)) {
                     continue;
                 }
 
@@ -2839,7 +2858,8 @@ static void do_code_gen(CodeGen *g) {
 
                     add_debug_source_node(g, var->decl_node);
                     var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
-                    LLVMSetAlignment(var->value_ref, var->type->align_in_bits / 8);
+                    uint64_t align_bytes = LLVMABISizeOfType(g->target_data_ref, var->type->type_ref);
+                    LLVMSetAlignment(var->value_ref, align_bytes);
                 }
 
                 var->di_loc_var = LLVMZigCreateLocalVariable(g->dbuilder, tag,
@@ -2953,16 +2973,19 @@ static void define_builtin_types(CodeGen *g) {
         // if this type is anywhere in the AST, we should never hit codegen.
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInvalid);
         buf_init_from_str(&entry->name, "(invalid)");
+        entry->zero_bits = true;
         g->builtin_types.entry_invalid = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumLitFloat);
         buf_init_from_str(&entry->name, "(float literal)");
+        entry->zero_bits = true;
         g->builtin_types.entry_num_lit_float = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumLitInt);
         buf_init_from_str(&entry->name, "(integer literal)");
+        entry->zero_bits = true;
         g->builtin_types.entry_num_lit_int = entry;
     }
     {
@@ -2982,12 +3005,13 @@ static void define_builtin_types(CodeGen *g) {
             buf_resize(&entry->name, 0);
             buf_appendf(&entry->name, "%c%d", u_or_i, size_in_bits);
 
-            entry->size_in_bits = size_in_bits;
-            entry->align_in_bits = size_in_bits;
+            uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
             entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                    entry->size_in_bits, entry->align_in_bits,
+                    debug_size_in_bits, debug_align_in_bits,
                     is_signed ? LLVMZigEncoding_DW_ATE_signed() : LLVMZigEncoding_DW_ATE_unsigned());
             entry->data.integral.is_signed = is_signed;
+            entry->data.integral.bit_count = size_in_bits;
             g->primitive_type_table.put(&entry->name, entry);
 
             get_int_type_ptr(g, is_signed, size_in_bits)[0] = entry;
@@ -3010,13 +3034,14 @@ static void define_builtin_types(CodeGen *g) {
 
         buf_init_from_str(&entry->name, info->name);
 
-        entry->size_in_bits = size_in_bits;
-        entry->align_in_bits = size_in_bits;
-
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
+                debug_size_in_bits,
+                debug_align_in_bits,
                 is_signed ? LLVMZigEncoding_DW_ATE_signed() : LLVMZigEncoding_DW_ATE_unsigned());
         entry->data.integral.is_signed = is_signed;
+        entry->data.integral.bit_count = size_in_bits;
         g->primitive_type_table.put(&entry->name, entry);
 
         get_c_int_type_ptr(g, info->id)[0] = entry;
@@ -3026,10 +3051,11 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBool);
         entry->type_ref = LLVMInt1Type();
         buf_init_from_str(&entry->name, "bool");
-        entry->size_in_bits = 8;
-        entry->align_in_bits = 8;
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
+                debug_size_in_bits,
+                debug_align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_bool = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -3038,12 +3064,14 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMIntType(g->pointer_size_bytes * 8);
         buf_init_from_str(&entry->name, "isize");
-        entry->size_in_bits = g->pointer_size_bytes * 8;
-        entry->align_in_bits = g->pointer_size_bytes * 8;
         entry->data.integral.is_signed = true;
+        entry->data.integral.bit_count = g->pointer_size_bytes * 8;
 
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
+                debug_size_in_bits,
+                debug_align_in_bits,
                 LLVMZigEncoding_DW_ATE_signed());
         g->builtin_types.entry_isize = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -3052,12 +3080,14 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMIntType(g->pointer_size_bytes * 8);
         buf_init_from_str(&entry->name, "usize");
-        entry->size_in_bits = g->pointer_size_bytes * 8;
-        entry->align_in_bits = g->pointer_size_bytes * 8;
         entry->data.integral.is_signed = false;
+        entry->data.integral.bit_count = g->pointer_size_bytes * 8;
 
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
+                debug_size_in_bits,
+                debug_align_in_bits,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_usize = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -3066,10 +3096,13 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
         entry->type_ref = LLVMFloatType();
         buf_init_from_str(&entry->name, "f32");
-        entry->size_in_bits = 32;
-        entry->align_in_bits = 32;
+        entry->data.floating.bit_count = 32;
+
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
+                debug_size_in_bits,
+                debug_align_in_bits,
                 LLVMZigEncoding_DW_ATE_float());
         g->builtin_types.entry_f32 = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -3078,10 +3111,13 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
         entry->type_ref = LLVMDoubleType();
         buf_init_from_str(&entry->name, "f64");
-        entry->size_in_bits = 64;
-        entry->align_in_bits = 64;
+        entry->data.floating.bit_count = 64;
+
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
+                debug_size_in_bits,
+                debug_align_in_bits,
                 LLVMZigEncoding_DW_ATE_float());
         g->builtin_types.entry_f64 = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -3090,10 +3126,13 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
         entry->type_ref = LLVMX86FP80Type();
         buf_init_from_str(&entry->name, "c_long_double");
-        entry->size_in_bits = 128;
-        entry->align_in_bits = 128;
+        entry->data.floating.bit_count = 80;
+
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                80, entry->align_in_bits,
+                debug_size_in_bits,
+                debug_align_in_bits,
                 LLVMZigEncoding_DW_ATE_float());
         g->builtin_types.entry_c_long_double = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -3101,9 +3140,11 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);
         entry->type_ref = LLVMVoidType();
+        entry->zero_bits = true;
         buf_init_from_str(&entry->name, "void");
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                entry->size_in_bits, entry->align_in_bits,
+                0,
+                0,
                 LLVMZigEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_void = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -3111,6 +3152,7 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUnreachable);
         entry->type_ref = LLVMVoidType();
+        entry->zero_bits = true;
         buf_init_from_str(&entry->name, "unreachable");
         entry->di_type = g->builtin_types.entry_void->di_type;
         g->builtin_types.entry_unreachable = entry;
@@ -3119,6 +3161,7 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMetaType);
         buf_init_from_str(&entry->name, "type");
+        entry->zero_bits = true;
         g->builtin_types.entry_type = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
@@ -3212,6 +3255,7 @@ static void define_builtin_fns(CodeGen *g) {
         g->memset_fn_val = builtin_fn->fn_val;
     }
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSizeof, "sizeof", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdAlignof, "alignof", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdMaxValue, "max_value", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdMinValue, "min_value", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdMemberCount, "member_count", 1);

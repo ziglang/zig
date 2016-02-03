@@ -200,27 +200,21 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
         TypeTableEntry *canon_child_type = get_underlying_type(child_type);
         assert(canon_child_type->id != TypeTableEntryIdInvalid);
 
-        bool zero_bits;
-        if (canon_child_type->size_in_bits == 0) {
-            if (canon_child_type->id == TypeTableEntryIdStruct) {
-                zero_bits = canon_child_type->data.structure.complete;
-            } else if (canon_child_type->id == TypeTableEntryIdEnum) {
-                zero_bits = canon_child_type->data.enumeration.complete;
-            } else {
-                zero_bits = true;
-            }
+
+        if (type_is_complete(canon_child_type)) {
+            entry->zero_bits = !type_has_bits(canon_child_type);
         } else {
-            zero_bits = false;
+            entry->zero_bits = false;
         }
 
-        if (!zero_bits) {
+        if (!entry->zero_bits) {
             entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
 
-            entry->size_in_bits = g->pointer_size_bytes * 8;
-            entry->align_in_bits = g->pointer_size_bytes * 8;
+            uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
             assert(child_type->di_type);
             entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type->di_type,
-                    entry->size_in_bits, entry->align_in_bits, buf_ptr(&entry->name));
+                    debug_size_in_bits, debug_align_in_bits, buf_ptr(&entry->name));
         }
 
         entry->data.pointer.child_type = child_type;
@@ -249,8 +243,6 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
             // this is an optimization but also is necessary for calling C
             // functions where all pointers are maybe pointers
             // function types are technically pointers
-            entry->size_in_bits = child_type->size_in_bits;
-            entry->align_in_bits = child_type->align_in_bits;
             entry->type_ref = child_type->type_ref;
             entry->di_type = child_type->di_type;
         } else {
@@ -260,8 +252,6 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
                 LLVMInt1Type(),
             };
             entry->type_ref = LLVMStructType(elem_types, 2, false);
-            entry->size_in_bits = child_type->size_in_bits + 8;
-            entry->align_in_bits = child_type->align_in_bits;
 
 
             LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
@@ -271,18 +261,36 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
                 LLVMZigTag_DW_structure_type(), buf_ptr(&entry->name),
                 compile_unit_scope, di_file, line);
 
+            uint64_t val_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, child_type->type_ref);
+            uint64_t val_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, child_type->type_ref);
+            uint64_t val_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 0);
+
+            TypeTableEntry *bool_type = g->builtin_types.entry_bool;
+            uint64_t maybe_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, bool_type->type_ref);
+            uint64_t maybe_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, bool_type->type_ref);
+            uint64_t maybe_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 1);
+
+            uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
+
             LLVMZigDIType *di_element_types[] = {
                 LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
-                        "val", di_file, line, child_type->size_in_bits, child_type->align_in_bits, 0, 0,
-                        child_type->di_type),
+                        "val", di_file, line,
+                        val_debug_size_in_bits,
+                        val_debug_align_in_bits,
+                        val_offset_in_bits,
+                        0, child_type->di_type),
                 LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
-                        "maybe", di_file, line, 8, 8, child_type->size_in_bits, 0,
-                        child_type->di_type),
+                        "maybe", di_file, line,
+                        maybe_debug_size_in_bits,
+                        maybe_debug_align_in_bits,
+                        maybe_offset_in_bits,
+                        0, child_type->di_type),
             };
             LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
                     compile_unit_scope,
                     buf_ptr(&entry->name),
-                    di_file, line, entry->size_in_bits, entry->align_in_bits, 0,
+                    di_file, line, debug_size_in_bits, debug_align_in_bits, 0,
                     nullptr, di_element_types, 2, 0, nullptr, "");
 
             LLVMZigReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
@@ -309,10 +317,8 @@ static TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
 
         entry->data.error.child_type = child_type;
 
-        if (child_type->size_in_bits == 0) {
+        if (!type_has_bits(child_type)) {
             entry->type_ref = g->err_tag_type->type_ref;
-            entry->size_in_bits = g->err_tag_type->size_in_bits;
-            entry->align_in_bits = g->err_tag_type->align_in_bits;
             entry->di_type = g->err_tag_type->di_type;
 
         } else {
@@ -321,8 +327,6 @@ static TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
                 child_type->type_ref,
             };
             entry->type_ref = LLVMStructType(elem_types, 2, false);
-            entry->size_in_bits = g->err_tag_type->size_in_bits + child_type->size_in_bits;
-            entry->align_in_bits = g->err_tag_type->align_in_bits;
 
             LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
             LLVMZigDIFile *di_file = nullptr;
@@ -331,19 +335,39 @@ static TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
                 LLVMZigTag_DW_structure_type(), buf_ptr(&entry->name),
                 compile_unit_scope, di_file, line);
 
+            uint64_t tag_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, g->err_tag_type->type_ref);
+            uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, g->err_tag_type->type_ref);
+            uint64_t tag_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 0);
+
+            uint64_t value_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, child_type->type_ref);
+            uint64_t value_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, child_type->type_ref);
+            uint64_t value_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 1);
+
+            uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
+
             LLVMZigDIType *di_element_types[] = {
                 LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
-                        "tag", di_file, line, g->err_tag_type->size_in_bits, g->err_tag_type->align_in_bits,
-                        0, 0, child_type->di_type),
+                        "tag", di_file, line,
+                        tag_debug_size_in_bits,
+                        tag_debug_align_in_bits,
+                        tag_offset_in_bits,
+                        0, child_type->di_type),
                 LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
-                        "value", di_file, line, child_type->size_in_bits, child_type->align_in_bits,
-                        g->err_tag_type->size_in_bits, 0, child_type->di_type),
+                        "value", di_file, line,
+                        value_debug_size_in_bits,
+                        value_debug_align_in_bits,
+                        value_offset_in_bits,
+                        0, child_type->di_type),
             };
 
             LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
                     compile_unit_scope,
                     buf_ptr(&entry->name),
-                    di_file, line, entry->size_in_bits, entry->align_in_bits, 0,
+                    di_file, line,
+                    debug_size_in_bits,
+                    debug_align_in_bits,
+                    0,
                     nullptr, di_element_types, 2, 0, nullptr, "");
 
             LLVMZigReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
@@ -363,14 +387,16 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
         entry->type_ref = LLVMArrayType(child_type->type_ref, array_size);
+        entry->zero_bits = (array_size == 0) || child_type->zero_bits;
+
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
 
-        entry->size_in_bits = child_type->size_in_bits * array_size;
-        entry->align_in_bits = child_type->align_in_bits;
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
 
-        entry->di_type = LLVMZigCreateDebugArrayType(g->dbuilder, entry->size_in_bits,
-                entry->align_in_bits, child_type->di_type, array_size);
+        entry->di_type = LLVMZigCreateDebugArrayType(g->dbuilder, debug_size_in_bits,
+                debug_align_in_bits, child_type->di_type, array_size);
         entry->data.array.child_type = child_type;
         entry->data.array.len = array_size;
 
@@ -379,14 +405,12 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
     }
 }
 
-static void unknown_size_array_type_common_init(CodeGen *g, TypeTableEntry *child_type,
+static void slice_type_common_init(CodeGen *g, TypeTableEntry *child_type,
         bool is_const, TypeTableEntry *entry)
 {
     TypeTableEntry *pointer_type = get_pointer_to_type(g, child_type, is_const);
 
     unsigned element_count = 2;
-    entry->size_in_bits = g->pointer_size_bytes * 2 * 8;
-    entry->align_in_bits = g->pointer_size_bytes * 8;
     entry->data.structure.is_packed = false;
     entry->data.structure.is_unknown_size_array = true;
     entry->data.structure.src_field_count = element_count;
@@ -402,20 +426,20 @@ static void unknown_size_array_type_common_init(CodeGen *g, TypeTableEntry *chil
     entry->data.structure.fields[1].gen_index = 1;
 }
 
-static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
+static TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
     assert(child_type->id != TypeTableEntryIdInvalid);
     TypeTableEntry **parent_pointer = &child_type->unknown_size_array_parent[(is_const ? 1 : 0)];
 
     if (*parent_pointer) {
         return *parent_pointer;
     } else if (is_const) {
-        TypeTableEntry *var_peer = get_unknown_size_array_type(g, child_type, false);
+        TypeTableEntry *var_peer = get_slice_type(g, child_type, false);
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "[]const %s", buf_ptr(&child_type->name));
 
-        unknown_size_array_type_common_init(g, child_type, is_const, entry);
+        slice_type_common_init(g, child_type, is_const, entry);
 
         entry->type_ref = var_peer->type_ref;
         entry->di_type = var_peer->di_type;
@@ -439,15 +463,17 @@ static TypeTableEntry *get_unknown_size_array_type(CodeGen *g, TypeTableEntry *c
         };
         LLVMStructSetBody(entry->type_ref, element_types, element_count, false);
 
-        unknown_size_array_type_common_init(g, child_type, is_const, entry);
+        slice_type_common_init(g, child_type, is_const, entry);
 
         LLVMZigDIType *di_element_types[] = {
             pointer_type->di_type,
             g->builtin_types.entry_isize->di_type,
         };
         LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugStructType(g->dbuilder, compile_unit_scope,
-                buf_ptr(&entry->name), g->dummy_di_file, 0, entry->size_in_bits, entry->align_in_bits, 0,
+                buf_ptr(&entry->name), g->dummy_di_file, 0, debug_size_in_bits, debug_align_in_bits, 0,
                 nullptr, di_element_types, element_count, 0, nullptr, "");
 
         entry->data.structure.complete = true;
@@ -463,10 +489,8 @@ TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *
     buf_init_from_str(&entry->name, name);
 
     entry->type_ref = child_type->type_ref;
-    entry->type_ref = child_type->type_ref;
     entry->di_type = child_type->di_type;
-    entry->size_in_bits = child_type->size_in_bits;
-    entry->align_in_bits = child_type->align_in_bits;
+    entry->zero_bits = child_type->zero_bits;
 
     entry->data.type_decl.child_type = child_type;
 
@@ -496,9 +520,6 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
     } else {
         fn_type->data.fn.calling_convention = LLVMFastCallConv;
     }
-
-    fn_type->size_in_bits = g->pointer_size_bytes * 8;
-    fn_type->align_in_bits = g->pointer_size_bytes * 8;
 
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
@@ -542,7 +563,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
         // after the gen_param_index += 1 because 0 is the return type
         param_di_types[gen_param_index] = gen_type->di_type;
         gen_return_type = g->builtin_types.entry_void;
-    } else if (fn_type_id.return_type->size_in_bits == 0) {
+    } else if (!type_has_bits(fn_type_id.return_type)) {
         gen_return_type = g->builtin_types.entry_void;
     } else {
         gen_return_type = fn_type_id.return_type;
@@ -559,7 +580,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
         gen_param_info->gen_index = -1;
 
         assert(type_is_complete(type_entry));
-        if (type_entry->size_in_bits > 0) {
+        if (type_has_bits(type_entry)) {
             TypeTableEntry *gen_type;
             if (handle_is_ptr(type_entry)) {
                 gen_type = get_pointer_to_type(g, type_entry, true);
@@ -897,37 +918,43 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
         AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
         type_enum_field->name = &field_node->data.struct_field.name;
-        type_enum_field->type_entry = analyze_type_expr(g, import, import->block_context,
+        TypeTableEntry *field_type = analyze_type_expr(g, import, import->block_context,
                 field_node->data.struct_field.type);
+        type_enum_field->type_entry = field_type;
         type_enum_field->value = i;
+
 
         di_enumerators[i] = LLVMZigCreateDebugEnumerator(g->dbuilder, buf_ptr(type_enum_field->name), i);
 
-        if (type_enum_field->type_entry->id == TypeTableEntryIdStruct) {
-            resolve_struct_type(g, import, type_enum_field->type_entry);
-        } else if (type_enum_field->type_entry->id == TypeTableEntryIdEnum) {
-            resolve_enum_type(g, import, type_enum_field->type_entry);
-        } else if (type_enum_field->type_entry->id == TypeTableEntryIdInvalid) {
+        if (field_type->id == TypeTableEntryIdStruct) {
+            resolve_struct_type(g, import, field_type);
+        } else if (field_type->id == TypeTableEntryIdEnum) {
+            resolve_enum_type(g, import, field_type);
+        } else if (field_type->id == TypeTableEntryIdInvalid) {
             enum_type->data.enumeration.is_invalid = true;
             continue;
-        } else if (type_enum_field->type_entry->id == TypeTableEntryIdVoid) {
+        } else if (!type_has_bits(field_type)) {
             continue;
         }
+
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, field_type->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_type->type_ref);
 
         union_inner_di_types[gen_field_index] = LLVMZigCreateDebugMemberType(g->dbuilder,
                 LLVMZigTypeToScope(enum_type->di_type), buf_ptr(type_enum_field->name),
                 import->di_file, field_node->line + 1,
-                type_enum_field->type_entry->size_in_bits,
-                type_enum_field->type_entry->align_in_bits,
-                0, 0, type_enum_field->type_entry->di_type);
+                debug_size_in_bits,
+                debug_align_in_bits,
+                0,
+                0, field_type->di_type);
 
-        biggest_align_in_bits = max(biggest_align_in_bits, type_enum_field->type_entry->align_in_bits);
+        biggest_align_in_bits = max(biggest_align_in_bits, debug_align_in_bits);
 
         if (!biggest_union_member ||
-            type_enum_field->type_entry->size_in_bits > biggest_union_member->size_in_bits)
+            debug_size_in_bits > biggest_union_member_size_in_bits)
         {
-            biggest_union_member = type_enum_field->type_entry;
-            biggest_union_member_size_in_bits = biggest_union_member->size_in_bits;
+            biggest_union_member = field_type;
+            biggest_union_member_size_in_bits = debug_size_in_bits;
         }
 
         gen_field_index += 1;
@@ -941,8 +968,6 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
         enum_type->data.enumeration.gen_field_count = gen_field_index;
 
         TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
-        enum_type->align_in_bits = tag_type_entry->size_in_bits;
-        enum_type->size_in_bits = tag_type_entry->size_in_bits + biggest_union_member_size_in_bits;
         enum_type->data.enumeration.tag_type = tag_type_entry;
 
         if (biggest_union_member) {
@@ -958,30 +983,37 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
             LLVMStructSetBody(enum_type->type_ref, root_struct_element_types, 2, false);
 
             // create debug type for tag
+            uint64_t tag_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, tag_type_entry->type_ref);
+            uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(g->dbuilder,
                     LLVMZigTypeToScope(enum_type->di_type), "AnonEnum", import->di_file, decl_node->line + 1,
-                    tag_type_entry->size_in_bits, tag_type_entry->align_in_bits, di_enumerators, field_count,
+                    tag_debug_size_in_bits, tag_debug_align_in_bits, di_enumerators, field_count,
                     tag_type_entry->di_type, "");
 
             // create debug type for union
             LLVMZigDIType *union_di_type = LLVMZigCreateDebugUnionType(g->dbuilder,
                     LLVMZigTypeToScope(enum_type->di_type), "AnonUnion", import->di_file, decl_node->line + 1,
-                    biggest_union_member->size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
+                    biggest_union_member_size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
                     gen_field_index, 0, "");
 
             // create debug types for members of root struct
+            uint64_t tag_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, enum_type->type_ref, 0);
             LLVMZigDIType *tag_member_di_type = LLVMZigCreateDebugMemberType(g->dbuilder,
                     LLVMZigTypeToScope(enum_type->di_type), "tag_field",
                     import->di_file, decl_node->line + 1,
-                    tag_type_entry->size_in_bits,
-                    tag_type_entry->align_in_bits,
-                    0, 0, tag_di_type);
+                    tag_debug_size_in_bits,
+                    tag_debug_align_in_bits,
+                    tag_offset_in_bits,
+                    0, tag_di_type);
+
+            uint64_t union_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, enum_type->type_ref, 1);
             LLVMZigDIType *union_member_di_type = LLVMZigCreateDebugMemberType(g->dbuilder,
                     LLVMZigTypeToScope(enum_type->di_type), "union_field",
                     import->di_file, decl_node->line + 1,
-                    biggest_union_member->size_in_bits,
+                    biggest_union_member_size_in_bits,
                     biggest_align_in_bits,
-                    tag_type_entry->size_in_bits, 0, union_di_type);
+                    union_offset_in_bits,
+                    0, union_di_type);
 
             // create debug type for root struct
             LLVMZigDIType *di_root_members[] = {
@@ -990,11 +1022,15 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
             };
 
 
+            uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, enum_type->type_ref);
+            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, enum_type->type_ref);
             LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
                     LLVMZigFileToScope(import->di_file),
                     buf_ptr(&decl_node->data.struct_decl.name),
-                    import->di_file, decl_node->line + 1, enum_type->size_in_bits, enum_type->align_in_bits, 0,
-                    nullptr, di_root_members, 2, 0, nullptr, "");
+                    import->di_file, decl_node->line + 1,
+                    debug_size_in_bits,
+                    debug_align_in_bits,
+                    0, nullptr, di_root_members, 2, 0, nullptr, "");
 
             LLVMZigReplaceTemporary(g->dbuilder, enum_type->di_type, replacement_di_type);
             enum_type->di_type = replacement_di_type;
@@ -1003,10 +1039,14 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
             enum_type->type_ref = tag_type_entry->type_ref;
 
             // create debug type for tag
+            uint64_t tag_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, tag_type_entry->type_ref);
+            uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(g->dbuilder,
                     LLVMZigFileToScope(import->di_file), buf_ptr(&decl_node->data.struct_decl.name),
                     import->di_file, decl_node->line + 1,
-                    tag_type_entry->size_in_bits, tag_type_entry->align_in_bits, di_enumerators, field_count,
+                    tag_debug_size_in_bits,
+                    tag_debug_align_in_bits,
+                    di_enumerators, field_count,
                     tag_type_entry->di_type, "");
 
             LLVMZigReplaceTemporary(g->dbuilder, enum_type->di_type, tag_di_type);
@@ -1025,6 +1065,7 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     AstNode *decl_node = struct_type->data.structure.decl_node;
 
     if (struct_type->data.structure.embedded_in_current) {
+        struct_type->data.structure.is_invalid = true;
         if (!struct_type->data.structure.reported_infinite_err) {
             struct_type->data.structure.reported_infinite_err = true;
             add_node_error(g, decl_node,
@@ -1049,11 +1090,6 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     // we possibly allocate too much here since gen_field_count can be lower than field_count.
     // the only problem is potential wasted space though.
     LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
-    LLVMZigDIType **di_element_types = allocate<LLVMZigDIType*>(field_count);
-
-    uint64_t total_size_in_bits = 0;
-    uint64_t first_field_align_in_bits = 0;
-    uint64_t offset_in_bits = 0;
 
     // this field should be set to true only during the recursive calls to resolve_struct_type
     struct_type->data.structure.embedded_in_current = true;
@@ -1063,40 +1099,27 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
         AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         type_struct_field->name = &field_node->data.struct_field.name;
-        type_struct_field->type_entry = analyze_type_expr(g, import, import->block_context,
+        TypeTableEntry *field_type = analyze_type_expr(g, import, import->block_context,
                 field_node->data.struct_field.type);
+        type_struct_field->type_entry = field_type;
         type_struct_field->src_index = i;
         type_struct_field->gen_index = -1;
 
-        if (type_struct_field->type_entry->id == TypeTableEntryIdStruct) {
-            resolve_struct_type(g, import, type_struct_field->type_entry);
-        } else if (type_struct_field->type_entry->id == TypeTableEntryIdEnum) {
-            resolve_enum_type(g, import, type_struct_field->type_entry);
-        } else if (type_struct_field->type_entry->id == TypeTableEntryIdInvalid) {
+        if (field_type->id == TypeTableEntryIdStruct) {
+            resolve_struct_type(g, import, field_type);
+        } else if (field_type->id == TypeTableEntryIdEnum) {
+            resolve_enum_type(g, import, field_type);
+        } else if (field_type->id == TypeTableEntryIdInvalid) {
             struct_type->data.structure.is_invalid = true;
             continue;
-        } else if (type_struct_field->type_entry->id == TypeTableEntryIdVoid) {
+        } else if (!type_has_bits(field_type)) {
             continue;
         }
 
         type_struct_field->gen_index = gen_field_index;
 
-        di_element_types[gen_field_index] = LLVMZigCreateDebugMemberType(g->dbuilder,
-                LLVMZigTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
-                import->di_file, field_node->line + 1,
-                type_struct_field->type_entry->size_in_bits,
-                type_struct_field->type_entry->align_in_bits,
-                offset_in_bits, 0, type_struct_field->type_entry->di_type);
-
-        element_types[gen_field_index] = type_struct_field->type_entry->type_ref;
-        assert(di_element_types[gen_field_index]);
+        element_types[gen_field_index] = field_type->type_ref;
         assert(element_types[gen_field_index]);
-
-        total_size_in_bits += type_struct_field->type_entry->size_in_bits;
-        if (first_field_align_in_bits == 0) {
-            first_field_align_in_bits = type_struct_field->type_entry->align_in_bits;
-        }
-        offset_in_bits += type_struct_field->type_entry->size_in_bits;
 
         gen_field_index += 1;
     }
@@ -1105,22 +1128,55 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     struct_type->data.structure.gen_field_count = gen_field_index;
     struct_type->data.structure.complete = true;
 
-    if (!struct_type->data.structure.is_invalid) {
-
-        LLVMStructSetBody(struct_type->type_ref, element_types, gen_field_index, false);
-
-        struct_type->align_in_bits = first_field_align_in_bits;
-        struct_type->size_in_bits = total_size_in_bits;
-
-        LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
-                LLVMZigFileToScope(import->di_file),
-                buf_ptr(&decl_node->data.struct_decl.name),
-                import->di_file, decl_node->line + 1, struct_type->size_in_bits, struct_type->align_in_bits, 0,
-                nullptr, di_element_types, gen_field_index, 0, nullptr, "");
-
-        LLVMZigReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
-        struct_type->di_type = replacement_di_type;
+    if (struct_type->data.structure.is_invalid) {
+        return;
     }
+
+    int gen_field_count = gen_field_index;
+    LLVMStructSetBody(struct_type->type_ref, element_types, gen_field_count, false);
+
+    LLVMZigDIType **di_element_types = allocate<LLVMZigDIType*>(gen_field_count);
+
+    for (int i = 0; i < field_count; i += 1) {
+        AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
+        TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+        gen_field_index = type_struct_field->gen_index;
+        if (gen_field_index == -1) {
+            continue;
+        }
+
+        TypeTableEntry *field_type = type_struct_field->type_entry;
+
+        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, field_type->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_type->type_ref);
+        uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref,
+                gen_field_index);
+        di_element_types[gen_field_index] = LLVMZigCreateDebugMemberType(g->dbuilder,
+                LLVMZigTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
+                import->di_file, field_node->line + 1,
+                debug_size_in_bits,
+                debug_align_in_bits,
+                debug_offset_in_bits,
+                0, field_type->di_type);
+
+        assert(di_element_types[gen_field_index]);
+    }
+
+
+    uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, struct_type->type_ref);
+    uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, struct_type->type_ref);
+    LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
+            LLVMZigFileToScope(import->di_file),
+            buf_ptr(&decl_node->data.struct_decl.name),
+            import->di_file, decl_node->line + 1,
+            debug_size_in_bits,
+            debug_align_in_bits,
+            0, nullptr, di_element_types, gen_field_count, 0, nullptr, "");
+
+    LLVMZigReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
+    struct_type->di_type = replacement_di_type;
+
+    struct_type->zero_bits = (debug_size_in_bits == 0);
 }
 
 static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
@@ -1498,7 +1554,7 @@ static void add_global_const_expr(CodeGen *g, Expr *expr) {
     if (expr->const_val.ok &&
         type_has_codegen_value(expr->type_entry) &&
         !expr->has_global_const &&
-        expr->type_entry->size_in_bits > 0)
+        type_has_bits(expr->type_entry))
     {
         g->global_const_list.append(expr);
         expr->has_global_const = true;
@@ -1517,7 +1573,7 @@ static bool num_lit_fits_in_other_type(CodeGen *g, AstNode *literal_node, TypeTa
     } else if (other_type->id == TypeTableEntryIdInt &&
                const_val->data.x_bignum.kind == BigNumKindInt)
     {
-        if (bignum_fits_in_bits(&const_val->data.x_bignum, other_type->size_in_bits,
+        if (bignum_fits_in_bits(&const_val->data.x_bignum, other_type->data.integral.bit_count,
                     other_type->data.integral.is_signed))
         {
             return true;
@@ -1653,14 +1709,14 @@ static TypeTableEntry *determine_peer_type_compatibility(CodeGen *g, AstNode *pa
                    cur_type->id == TypeTableEntryIdInt &&
                    prev_type->data.integral.is_signed == cur_type->data.integral.is_signed)
         {
-            if (cur_type->size_in_bits > prev_type->size_in_bits) {
+            if (cur_type->data.integral.bit_count > prev_type->data.integral.bit_count) {
                 prev_type = cur_type;
                 prev_node = cur_node;
             }
         } else if (prev_type->id == TypeTableEntryIdFloat &&
                    cur_type->id == TypeTableEntryIdFloat)
         {
-            if (cur_type->size_in_bits > prev_type->size_in_bits) {
+            if (cur_type->data.floating.bit_count > prev_type->data.floating.bit_count) {
                 prev_type = cur_type;
                 prev_node = cur_node;
             }
@@ -1737,7 +1793,7 @@ static bool types_match_with_implicit_cast(CodeGen *g, TypeTableEntry *expected_
     if (expected_type->id == TypeTableEntryIdInt &&
         actual_type->id == TypeTableEntryIdInt &&
         expected_type->data.integral.is_signed == actual_type->data.integral.is_signed &&
-        expected_type->size_in_bits >= actual_type->size_in_bits)
+        expected_type->data.integral.bit_count >= actual_type->data.integral.bit_count)
     {
         return true;
     }
@@ -1745,7 +1801,7 @@ static bool types_match_with_implicit_cast(CodeGen *g, TypeTableEntry *expected_
     // implicit float widening conversion
     if (expected_type->id == TypeTableEntryIdFloat &&
         actual_type->id == TypeTableEntryIdFloat &&
-        expected_type->size_in_bits >= actual_type->size_in_bits)
+        expected_type->data.floating.bit_count >= actual_type->data.floating.bit_count)
     {
         return true;
     }
@@ -2221,15 +2277,15 @@ static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, 
     if (array_type->id == TypeTableEntryIdInvalid) {
         return_type = g->builtin_types.entry_invalid;
     } else if (array_type->id == TypeTableEntryIdArray) {
-        return_type = get_unknown_size_array_type(g, array_type->data.array.child_type,
+        return_type = get_slice_type(g, array_type->data.array.child_type,
                 node->data.slice_expr.is_const);
     } else if (array_type->id == TypeTableEntryIdPointer) {
-        return_type = get_unknown_size_array_type(g, array_type->data.pointer.child_type,
+        return_type = get_slice_type(g, array_type->data.pointer.child_type,
                 node->data.slice_expr.is_const);
     } else if (array_type->id == TypeTableEntryIdStruct &&
                array_type->data.structure.is_unknown_size_array)
     {
-        return_type = get_unknown_size_array_type(g,
+        return_type = get_slice_type(g,
                 array_type->data.structure.fields[0].type_entry->data.pointer.child_type,
                 node->data.slice_expr.is_const);
     } else {
@@ -2666,7 +2722,7 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
         bool are_equal = false;
         if (enum1->tag == enum2->tag) {
             TypeEnumField *enum_field = &op1_type->data.enumeration.fields[enum1->tag];
-            if (enum_field->type_entry->size_in_bits > 0) {
+            if (type_has_bits(enum_field->type_entry)) {
                 zig_panic("TODO const expr analyze enum special value for equality");
             } else {
                 are_equal = true;
@@ -2839,7 +2895,7 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                 AstNode **op1 = node->data.bin_op_expr.op1->parent_field;
                 AstNode **op2 = node->data.bin_op_expr.op2->parent_field;
 
-                TypeTableEntry *str_type = get_unknown_size_array_type(g, g->builtin_types.entry_u8, true);
+                TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
 
                 TypeTableEntry *op1_type = analyze_expression(g, import, context, str_type, *op1);
                 TypeTableEntry *op2_type = analyze_expression(g, import, context, str_type, *op2);
@@ -3162,11 +3218,11 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
             }
         } else {
             return resolve_expr_const_val_as_type(g, node,
-                    get_unknown_size_array_type(g, child_type, node->data.array_type.is_const));
+                    get_slice_type(g, child_type, node->data.array_type.is_const));
         }
     } else {
         return resolve_expr_const_val_as_type(g, node,
-                get_unknown_size_array_type(g, child_type, node->data.array_type.is_const));
+                get_slice_type(g, child_type, node->data.array_type.is_const));
     }
 }
 
@@ -3357,13 +3413,13 @@ static TypeTableEntry *analyze_min_max_value(CodeGen *g, ImportTableEntry *impor
         if (is_max) {
             if (type_entry->data.integral.is_signed) {
                 int64_t val;
-                if (type_entry->size_in_bits == 64) {
+                if (type_entry->data.integral.bit_count == 64) {
                     val = INT64_MAX;
-                } else if (type_entry->size_in_bits == 32) {
+                } else if (type_entry->data.integral.bit_count == 32) {
                     val = INT32_MAX;
-                } else if (type_entry->size_in_bits == 16) {
+                } else if (type_entry->data.integral.bit_count == 16) {
                     val = INT16_MAX;
-                } else if (type_entry->size_in_bits == 8) {
+                } else if (type_entry->data.integral.bit_count == 8) {
                     val = INT8_MAX;
                 } else {
                     zig_unreachable();
@@ -3371,13 +3427,13 @@ static TypeTableEntry *analyze_min_max_value(CodeGen *g, ImportTableEntry *impor
                 bignum_init_signed(&const_val->data.x_bignum, val);
             } else {
                 uint64_t val;
-                if (type_entry->size_in_bits == 64) {
+                if (type_entry->data.integral.bit_count == 64) {
                     val = UINT64_MAX;
-                } else if (type_entry->size_in_bits == 32) {
+                } else if (type_entry->data.integral.bit_count == 32) {
                     val = UINT32_MAX;
-                } else if (type_entry->size_in_bits == 16) {
+                } else if (type_entry->data.integral.bit_count == 16) {
                     val = UINT16_MAX;
-                } else if (type_entry->size_in_bits == 8) {
+                } else if (type_entry->data.integral.bit_count == 8) {
                     val = UINT8_MAX;
                 } else {
                     zig_unreachable();
@@ -3387,13 +3443,13 @@ static TypeTableEntry *analyze_min_max_value(CodeGen *g, ImportTableEntry *impor
         } else {
             if (type_entry->data.integral.is_signed) {
                 int64_t val;
-                if (type_entry->size_in_bits == 64) {
+                if (type_entry->data.integral.bit_count == 64) {
                     val = INT64_MIN;
-                } else if (type_entry->size_in_bits == 32) {
+                } else if (type_entry->data.integral.bit_count == 32) {
                     val = INT32_MIN;
-                } else if (type_entry->size_in_bits == 16) {
+                } else if (type_entry->data.integral.bit_count == 16) {
                     val = INT16_MIN;
-                } else if (type_entry->size_in_bits == 8) {
+                } else if (type_entry->data.integral.bit_count == 8) {
                     val = INT8_MIN;
                 } else {
                     zig_unreachable();
@@ -3657,14 +3713,16 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
 
     // explicit cast from %void to integer type which can fit it
     bool actual_type_is_void_err = actual_type->id == TypeTableEntryIdErrorUnion &&
-        actual_type->data.error.child_type->size_in_bits == 0;
+        !type_has_bits(actual_type->data.error.child_type);
     bool actual_type_is_pure_err = actual_type->id == TypeTableEntryIdPureError;
     if ((actual_type_is_void_err || actual_type_is_pure_err) &&
         wanted_type->id == TypeTableEntryIdInt)
     {
         BigNum bn;
         bignum_init_unsigned(&bn, g->error_value_count);
-        if (bignum_fits_in_bits(&bn, wanted_type->size_in_bits, wanted_type->data.integral.is_signed)) {
+        if (bignum_fits_in_bits(&bn, wanted_type->data.integral.bit_count,
+                    wanted_type->data.integral.is_signed))
+        {
             node->data.fn_call_expr.cast_op = CastOpErrToInt;
             eval_const_expr_implicit_cast(g, node, expr_node);
             return wanted_type;
@@ -3767,13 +3825,13 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                 if (dest_type->id == TypeTableEntryIdPointer &&
                     src_type->id == TypeTableEntryIdPointer)
                 {
-                    uint64_t dest_align_bits = dest_type->data.pointer.child_type->align_in_bits;
-                    uint64_t src_align_bits = src_type->data.pointer.child_type->align_in_bits;
-                    if (dest_align_bits != src_align_bits) {
+                    uint64_t dest_align = get_memcpy_align(g, dest_type->data.pointer.child_type);
+                    uint64_t src_align = get_memcpy_align(g, src_type->data.pointer.child_type);
+                    if (dest_align != src_align) {
                         add_node_error(g, dest_node, buf_sprintf(
                             "misaligned memcpy, '%s' has alignment '%" PRIu64 ", '%s' has alignment %" PRIu64,
-                                    buf_ptr(&dest_type->name), dest_align_bits / 8,
-                                    buf_ptr(&src_type->name), src_align_bits / 8));
+                                    buf_ptr(&dest_type->name), dest_align,
+                                    buf_ptr(&src_type->name), src_align));
                     }
                 }
 
@@ -3808,8 +3866,28 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                             buf_sprintf("no size available for type '%s'", buf_ptr(&type_entry->name)));
                     return g->builtin_types.entry_invalid;
                 } else {
-                    uint64_t size_in_bytes = type_entry->size_in_bits / 8;
+                    uint64_t size_in_bytes;
+                    if (type_has_bits(type_entry)) {
+                        size_in_bytes = LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
+                    } else {
+                        size_in_bytes = 0;
+                    }
                     return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type, size_in_bytes);
+                }
+            }
+        case BuiltinFnIdAlignof:
+            {
+                AstNode *type_node = node->data.fn_call_expr.params.at(0);
+                TypeTableEntry *type_entry = analyze_type_expr(g, import, context, type_node);
+                if (type_entry->id == TypeTableEntryIdInvalid) {
+                    return g->builtin_types.entry_invalid;
+                } else if (type_entry->id == TypeTableEntryIdUnreachable) {
+                    add_node_error(g, first_executing_node(type_node),
+                            buf_sprintf("no align available for type '%s'", buf_ptr(&type_entry->name)));
+                    return g->builtin_types.entry_invalid;
+                } else {
+                    uint64_t align_in_bytes = LLVMABISizeOfType(g->target_data_ref, type_entry->type_ref);
+                    return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type, align_in_bytes);
                 }
             }
         case BuiltinFnIdMaxValue:
@@ -3874,7 +3952,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                 }
 
                 AstNode **str_node = node->data.fn_call_expr.params.at(0)->parent_field;
-                TypeTableEntry *str_type = get_unknown_size_array_type(g, g->builtin_types.entry_u8, true);
+                TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
                 TypeTableEntry *resolved_type = analyze_expression(g, import, context, str_type, *str_node);
 
                 if (resolved_type->id == TypeTableEntryIdInvalid) {
@@ -3911,7 +3989,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             {
                 AstNode **str_node = node->data.fn_call_expr.params.at(0)->parent_field;
 
-                TypeTableEntry *str_type = get_unknown_size_array_type(g, g->builtin_types.entry_u8, true);
+                TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
                 TypeTableEntry *resolved_type = analyze_expression(g, import, context, str_type, *str_node);
 
                 if (resolved_type->id == TypeTableEntryIdInvalid) {
@@ -5317,8 +5395,6 @@ void semantic_analyze(CodeGen *g) {
         g->err_tag_type = get_smallest_unsigned_int_type(g, g->error_value_count);
 
         g->builtin_types.entry_pure_error->type_ref = g->err_tag_type->type_ref;
-        g->builtin_types.entry_pure_error->size_in_bits = g->err_tag_type->size_in_bits;
-        g->builtin_types.entry_pure_error->align_in_bits = g->err_tag_type->align_in_bits;
         g->builtin_types.entry_pure_error->di_type = g->err_tag_type->di_type;
     }
 
@@ -5571,7 +5647,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdStruct:
              return true;
         case TypeTableEntryIdErrorUnion:
-             return type_entry->data.error.child_type->size_in_bits > 0;
+             return type_has_bits(type_entry->data.error.child_type);
         case TypeTableEntryIdEnum:
              return type_entry->data.enumeration.gen_field_count != 0;
         case TypeTableEntryIdMaybe:
@@ -5640,3 +5716,59 @@ bool fn_type_id_eql(FnTypeId a, FnTypeId b) {
     }
     return true;
 }
+
+bool type_has_bits(TypeTableEntry *type_entry) {
+    assert(type_entry);
+    assert(type_entry->id != TypeTableEntryIdInvalid);
+    return !type_entry->zero_bits;
+}
+
+static TypeTableEntry *first_struct_field_type(TypeTableEntry *type_entry) {
+    assert(type_entry->id == TypeTableEntryIdStruct);
+    for (int i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+        TypeStructField *tsf = &type_entry->data.structure.fields[i];
+        if (tsf->gen_index == 0) {
+            return tsf->type_entry;
+        }
+    }
+    zig_unreachable();
+}
+
+static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry) {
+    assert(type_has_bits(type_entry));
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+            zig_unreachable();
+        case TypeTableEntryIdArray:
+            return type_of_first_thing_in_memory(type_entry->data.array.child_type);
+        case TypeTableEntryIdStruct:
+            return type_of_first_thing_in_memory(first_struct_field_type(type_entry));
+        case TypeTableEntryIdMaybe:
+            return type_of_first_thing_in_memory(type_entry->data.maybe.child_type);
+        case TypeTableEntryIdErrorUnion:
+            return type_of_first_thing_in_memory(type_entry->data.error.child_type);
+        case TypeTableEntryIdTypeDecl:
+            return type_of_first_thing_in_memory(type_entry->data.type_decl.canonical_type);
+        case TypeTableEntryIdEnum:
+            return type_entry->data.enumeration.tag_type;
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+            return type_entry;
+    }
+}
+
+uint64_t get_memcpy_align(CodeGen *g, TypeTableEntry *type_entry) {
+    TypeTableEntry *first_type_in_mem = type_of_first_thing_in_memory(type_entry);
+    return LLVMABISizeOfType(g->target_data_ref, first_type_in_mem->type_ref);
+}
+

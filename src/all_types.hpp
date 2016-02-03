@@ -807,6 +807,11 @@ struct TypeTableEntryPointer {
 
 struct TypeTableEntryInt {
     bool is_signed;
+    int bit_count;
+};
+
+struct TypeTableEntryFloat {
+    int bit_count;
 };
 
 struct TypeTableEntryArray {
@@ -910,17 +915,17 @@ enum TypeTableEntryId {
 
 struct TypeTableEntry {
     TypeTableEntryId id;
+    Buf name;
 
     LLVMTypeRef type_ref;
     LLVMZigDIType *di_type;
-    uint64_t size_in_bits;
-    uint64_t align_in_bits;
 
-    Buf name;
+    bool zero_bits;
 
     union {
         TypeTableEntryPointer pointer;
         TypeTableEntryInt integral;
+        TypeTableEntryFloat floating;
         TypeTableEntryArray array;
         TypeTableEntryStruct structure;
         TypeTableEntryMaybe maybe;
@@ -988,6 +993,7 @@ enum BuiltinFnId {
     BuiltinFnIdMemcpy,
     BuiltinFnIdMemset,
     BuiltinFnIdSizeof,
+    BuiltinFnIdAlignof,
     BuiltinFnIdMaxValue,
     BuiltinFnIdMinValue,
     BuiltinFnIdMemberCount,
