@@ -1549,6 +1549,35 @@ pub fn main(args: [][]u8) -> %void {
 }
 
     )SOURCE", "OK\n");
+
+
+    add_simple_case("same named methods in incomplete struct", R"SOURCE(
+import "std.zig";
+
+struct Foo {
+    field1: Bar,
+
+    fn method(a: &Foo) -> bool { true }
+}
+
+struct Bar {
+    field2: i32,
+
+    fn method(b: &Bar) -> bool { true }
+}
+
+pub fn main(args: [][]u8) -> %void {
+    const bar = Bar {.field2 = 13,};
+    const foo = Foo {.field1 = bar,};
+    if (!foo.method()) {
+        %%stdout.printf("BAD\n");
+    }
+    if (!bar.method()) {
+        %%stdout.printf("BAD\n");
+    }
+    %%stdout.printf("OK\n");
+}
+    )SOURCE", "OK\n");
 }
 
 

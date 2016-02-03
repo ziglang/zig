@@ -5062,11 +5062,19 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeFnProto:
             {
                 // if the name is missing, we immediately announce an error
-                Buf *name = &node->data.fn_proto.name;
-                if (buf_len(name) == 0) {
+                Buf *fn_name = &node->data.fn_proto.name;
+                if (buf_len(fn_name) == 0) {
                     node->data.fn_proto.skip = true;
                     add_node_error(g, node, buf_sprintf("missing function name"));
                     break;
+                }
+                Buf *qualified_name;
+                AstNode *struct_node = node->data.fn_proto.struct_node;
+                if (struct_node) {
+                    Buf *struct_name = &struct_node->data.struct_decl.name;
+                    qualified_name = buf_sprintf("%s.%s", buf_ptr(struct_name), buf_ptr(fn_name));
+                } else {
+                    qualified_name = fn_name;
                 }
 
 
@@ -5076,14 +5084,14 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
 
                 collect_expr_decl_deps(g, import, node, decl_node);
 
-                decl_node->name = name;
+                decl_node->name = qualified_name;
                 decl_node->import = import;
                 if (decl_node->deps.size() > 0) {
-                    if (g->unresolved_top_level_decls.maybe_get(name)) {
+                    if (g->unresolved_top_level_decls.maybe_get(qualified_name)) {
                         node->data.fn_proto.skip = true;
-                        add_node_error(g, node, buf_sprintf("redefinition of '%s'", buf_ptr(name)));
+                        add_node_error(g, node, buf_sprintf("redefinition of '%s'", buf_ptr(fn_name)));
                     } else {
-                        g->unresolved_top_level_decls.put(name, node);
+                        g->unresolved_top_level_decls.put(qualified_name, node);
                     }
                 } else {
                     resolve_top_level_decl(g, import, node);
