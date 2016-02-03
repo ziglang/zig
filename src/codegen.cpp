@@ -1353,6 +1353,8 @@ static LLVMValueRef gen_struct_memcpy(CodeGen *g, AstNode *source_node, LLVMValu
     TypeTableEntry *isize = g->builtin_types.entry_isize;
     uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
     uint64_t align_bytes = get_memcpy_align(g, type_entry);
+    assert(size_bytes > 0);
+    assert(align_bytes > 0);
 
     LLVMValueRef params[] = {
         dest_ptr, // dest pointer

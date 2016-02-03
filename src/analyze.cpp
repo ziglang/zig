@@ -4020,6 +4020,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
 
                 if (buf_eql_str(&var_name, "is_big_endian")) {
                     return resolve_expr_const_val_as_bool(g, node, g->is_big_endian);
+                } else if (buf_eql_str(&var_name, "is_release")) {
+                    return resolve_expr_const_val_as_bool(g, node, g->build_type == CodeGenBuildTypeRelease);
                 } else {
                     add_node_error(g, *str_node,
                         buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(&var_name)));
