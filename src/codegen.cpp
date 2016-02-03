@@ -111,16 +111,6 @@ static TypeTableEntry *get_expr_type(AstNode *node) {
     return get_resolved_expr(node)->type_entry;
 }
 
-static TypeTableEntry *fn_proto_type_from_type_node(CodeGen *g, AstNode *type_node) {
-    TypeTableEntry *type_entry = get_type_for_type_node(type_node);
-
-    if (handle_is_ptr(type_entry)) {
-        return get_pointer_to_type(g, type_entry, true);
-    } else {
-        return type_entry;
-    }
-}
-
 enum AddSubMul {
     AddSubMulAdd = 0,
     AddSubMulSub = 1,
@@ -2774,14 +2764,15 @@ static void do_code_gen(CodeGen *g) {
                 continue;
             }
 
-            AstNode *type_node = param_node->data.param_decl.type;
-            TypeTableEntry *param_type = fn_proto_type_from_type_node(g, type_node);
+            TypeTableEntry *param_type = info->type;
             LLVMValueRef argument_val = LLVMGetParam(fn_table_entry->fn_value, gen_index);
             bool param_is_noalias = param_node->data.param_decl.is_noalias;
             if (param_type->id == TypeTableEntryIdPointer && param_is_noalias) {
                 LLVMAddAttribute(argument_val, LLVMNoAliasAttribute);
             }
-            if (param_type->id == TypeTableEntryIdPointer && param_type->data.pointer.is_const) {
+            if ((param_type->id == TypeTableEntryIdPointer && param_type->data.pointer.is_const) ||
+                is_byval)
+            {
                 LLVMAddAttribute(argument_val, LLVMReadOnlyAttribute);
             }
             if (param_type->id == TypeTableEntryIdPointer) {
@@ -2789,7 +2780,8 @@ static void do_code_gen(CodeGen *g) {
                 // non null attribute here
             }
             if (is_byval) {
-                LLVMAddAttribute(argument_val, LLVMByValAttribute);
+                // TODO
+                //LLVMAddAttribute(argument_val, LLVMByValAttribute);
             }
         }
 
@@ -2847,6 +2839,7 @@ static void do_code_gen(CodeGen *g) {
 
                 unsigned tag;
                 unsigned arg_no;
+                TypeTableEntry *gen_type;
                 if (block_context->node->type == NodeTypeFnDef) {
                     tag = LLVMZigTag_DW_arg_variable();
                     arg_no = var->gen_arg_index + 1;
@@ -2854,6 +2847,8 @@ static void do_code_gen(CodeGen *g) {
                     var->is_ptr = false;
                     assert(var->gen_arg_index >= 0);
                     var->value_ref = LLVMGetParam(fn, var->gen_arg_index);
+
+                    gen_type = fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index].type;
                 } else {
                     tag = LLVMZigTag_DW_auto_variable();
                     arg_no = 0;
@@ -2862,12 +2857,14 @@ static void do_code_gen(CodeGen *g) {
                     var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
                     uint64_t align_bytes = LLVMABISizeOfType(g->target_data_ref, var->type->type_ref);
                     LLVMSetAlignment(var->value_ref, align_bytes);
+
+                    gen_type = var->type;
                 }
 
                 var->di_loc_var = LLVMZigCreateLocalVariable(g->dbuilder, tag,
                         block_context->di_scope, buf_ptr(&var->name),
                         import->di_file, var->decl_node->line + 1,
-                        var->type->di_type, !g->strip_debug_symbols, 0, arg_no);
+                        gen_type->di_type, !g->strip_debug_symbols, 0, arg_no);
             }
 
             // allocate structs which are the result of casts

@@ -874,6 +874,7 @@ struct FnGenParamInfo {
     int src_index;
     int gen_index;
     bool is_byval;
+    TypeTableEntry *type;
 };
 
 struct TypeTableEntryFn {

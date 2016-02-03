@@ -590,6 +590,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
             }
             gen_param_types[gen_param_index] = gen_type->type_ref;
             gen_param_info->gen_index = gen_param_index;
+            gen_param_info->type = gen_type;
 
             gen_param_index += 1;
 
