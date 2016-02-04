@@ -2,6 +2,7 @@ export executable "guess_number";
 
 import "std.zig";
 import "rand.zig";
+import "os.zig";
 
 pub fn main(args: [][]u8) -> %void {
     %%stderr.print_str("Welcome to the Guess Number Game in Zig.\n");
