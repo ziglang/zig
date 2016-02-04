@@ -36,11 +36,6 @@ enum OutType {
     OutTypeObj,
 };
 
-enum CodeGenBuildType {
-    CodeGenBuildTypeDebug,
-    CodeGenBuildTypeRelease,
-};
-
 struct ConstEnumValue {
     uint64_t tag;
     ConstExprValue *payload;
@@ -983,6 +978,7 @@ struct FnTableEntry {
     bool is_inline;
     bool internal_linkage;
     bool is_extern;
+    bool is_test;
     uint32_t ref_count; // if this is 0 we don't have to codegen it
 
     // reminder: hash tables must be initialized before use
@@ -1073,7 +1069,8 @@ struct CodeGen {
     bool link_libc;
     Buf *libc_lib_dir;
     Buf *libc_include_dir;
-    CodeGenBuildType build_type;
+    bool is_release_build;
+    bool is_test_build;
     LLVMTargetMachineRef target_machine;
     LLVMZigDIFile *dummy_di_file;
     bool is_native_target;
@@ -1087,10 +1084,11 @@ struct CodeGen {
     // there will not be a corresponding fn_defs entry.
     ZigList<FnTableEntry *> fn_protos;
     ZigList<VariableTableEntry *> global_vars;
-    ZigList<Expr *> global_const_list;
+    ZigList<AstNode *> global_const_list;
 
     OutType out_type;
     FnTableEntry *cur_fn;
+    FnTableEntry *main_fn;
     LLVMValueRef cur_ret_ptr;
     ZigList<LLVMBasicBlockRef> break_block_stack;
     ZigList<LLVMBasicBlockRef> continue_block_stack;
@@ -1103,6 +1101,7 @@ struct CodeGen {
     ErrColor err_color;
     ImportTableEntry *root_import;
     ImportTableEntry *bootstrap_import;
+    ImportTableEntry *test_runner_import;
     LLVMValueRef memcpy_fn_val;
     LLVMValueRef memset_fn_val;
     LLVMValueRef trap_fn_val;
@@ -1116,6 +1115,8 @@ struct CodeGen {
     const char **clang_argv;
     int clang_argv_len;
     ZigList<const char *> lib_dirs;
+
+    uint32_t test_fn_count;
 };
 
 struct VariableTableEntry {

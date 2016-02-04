@@ -122,6 +122,7 @@ set(C_HEADERS
 set(ZIG_STD_SRC
     "${CMAKE_SOURCE_DIR}/std/bootstrap.zig"
     "${CMAKE_SOURCE_DIR}/std/builtin.zig"
+    "${CMAKE_SOURCE_DIR}/std/test_runner.zig"
     "${CMAKE_SOURCE_DIR}/std/std.zig"
     "${CMAKE_SOURCE_DIR}/std/syscall.zig"
     "${CMAKE_SOURCE_DIR}/std/errno.zig"

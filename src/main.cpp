@@ -17,6 +17,7 @@ static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options]\n"
         "Commands:\n"
         "  build                     create executable, object, or library from target\n"
+        "  test                      create and run a test build\n"
         "  version                   print version number and exit\n"
         "  parseh                    convert a c header file to zig extern declarations\n"
         "Options:\n"
@@ -40,6 +41,7 @@ static int usage(const char *arg0) {
 enum Cmd {
     CmdInvalid,
     CmdBuild,
+    CmdTest,
     CmdVersion,
     CmdParseH,
 };
@@ -49,7 +51,7 @@ int main(int argc, char **argv) {
     Cmd cmd = CmdInvalid;
     const char *in_file = nullptr;
     const char *out_file = nullptr;
-    bool release = false;
+    bool is_release_build = false;
     bool strip = false;
     bool is_static = false;
     OutType out_type = OutTypeUnknown;
@@ -67,7 +69,7 @@ int main(int argc, char **argv) {
 
         if (arg[0] == '-') {
             if (strcmp(arg, "--release") == 0) {
-                release = true;
+                is_release_build = true;
             } else if (strcmp(arg, "--strip") == 0) {
                 strip = true;
             } else if (strcmp(arg, "--static") == 0) {
@@ -127,6 +129,8 @@ int main(int argc, char **argv) {
                 cmd = CmdVersion;
             } else if (strcmp(arg, "parseh") == 0) {
                 cmd = CmdParseH;
+            } else if (strcmp(arg, "test") == 0) {
+                cmd = CmdTest;
             } else {
                 fprintf(stderr, "Unrecognized command: %s\n", arg);
                 return usage(arg0);
@@ -135,6 +139,7 @@ int main(int argc, char **argv) {
             switch (cmd) {
                 case CmdBuild:
                 case CmdParseH:
+                case CmdTest:
                     if (!in_file) {
                         in_file = arg;
                     } else {
@@ -152,6 +157,7 @@ int main(int argc, char **argv) {
     switch (cmd) {
     case CmdBuild:
     case CmdParseH:
+    case CmdTest:
         {
             if (!in_file)
                 return usage(arg0);
@@ -178,14 +184,22 @@ int main(int argc, char **argv) {
             }
 
             CodeGen *g = codegen_create(&root_source_dir);
-            codegen_set_build_type(g, release ? CodeGenBuildTypeRelease : CodeGenBuildTypeDebug);
+            codegen_set_is_release(g, is_release_build);
+            codegen_set_is_test(g, cmd == CmdTest);
+
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);
             codegen_set_strip(g, strip);
             codegen_set_is_static(g, is_static);
-            if (out_type != OutTypeUnknown)
+            if (out_type != OutTypeUnknown) {
                 codegen_set_out_type(g, out_type);
-            if (out_name)
+            } else if (cmd == CmdTest) {
+                codegen_set_out_type(g, OutTypeExe);
+            }
+            if (out_name) {
                 codegen_set_out_name(g, buf_create_from_str(out_name));
+            } else if (cmd == CmdTest) {
+                codegen_set_out_name(g, buf_create_from_str("test"));
+            }
             if (libc_lib_dir)
                 codegen_set_libc_lib_dir(g, buf_create_from_str(libc_lib_dir));
             if (libc_include_dir)
@@ -205,6 +219,17 @@ int main(int argc, char **argv) {
                 codegen_parseh(g, &root_source_dir, &root_source_name, &root_source_code);
                 codegen_render_ast(g, stdout, 4);
                 return EXIT_SUCCESS;
+            } else if (cmd == CmdTest) {
+                codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);
+                codegen_link(g, "./test");
+                ZigList<const char *> args = {0};
+                int return_code;
+                os_spawn_process("./test", args, &return_code);
+                if (return_code != 0) {
+                    fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
+                    fprintf(stderr, "./test\n");
+                }
+                return return_code;
             } else {
                 zig_unreachable();
             }

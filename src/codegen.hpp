@@ -16,7 +16,9 @@
 CodeGen *codegen_create(Buf *root_source_dir);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, int len);
-void codegen_set_build_type(CodeGen *codegen, CodeGenBuildType build_type);
+void codegen_set_is_release(CodeGen *codegen, bool is_release);
+void codegen_set_is_test(CodeGen *codegen, bool is_test);
+
 void codegen_set_is_static(CodeGen *codegen, bool is_static);
 void codegen_set_strip(CodeGen *codegen, bool strip);
 void codegen_set_verbose(CodeGen *codegen, bool verbose);

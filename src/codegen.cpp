@@ -28,7 +28,8 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->primitive_type_table.init(32);
     g->unresolved_top_level_decls.init(32);
     g->fn_type_table.init(32);
-    g->build_type = CodeGenBuildTypeDebug;
+    g->is_release_build = false;
+    g->is_test_build = false;
     g->root_source_dir = root_source_dir;
     g->next_error_index = 1;
     g->error_value_count = 1;
@@ -44,8 +45,12 @@ void codegen_set_clang_argv(CodeGen *g, const char **args, int len) {
     g->clang_argv_len = len;
 }
 
-void codegen_set_build_type(CodeGen *g, CodeGenBuildType build_type) {
-    g->build_type = build_type;
+void codegen_set_is_release(CodeGen *g, bool is_release_build) {
+    g->is_release_build = is_release_build;
+}
+
+void codegen_set_is_test(CodeGen *g, bool is_test_build) {
+    g->is_test_build = is_test_build;
 }
 
 void codegen_set_is_static(CodeGen *g, bool is_static) {
@@ -1003,7 +1008,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
                 assert(expr_type->id == TypeTableEntryIdErrorUnion);
                 TypeTableEntry *child_type = expr_type->data.error.child_type;
 
-                if (g->build_type != CodeGenBuildTypeRelease) {
+                if (!g->is_release_build) {
                     LLVMValueRef err_val;
                     if (type_has_bits(child_type)) {
                         add_debug_source_node(g, node);
@@ -1044,7 +1049,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
                 assert(expr_type->id == TypeTableEntryIdMaybe);
                 TypeTableEntry *child_type = expr_type->data.maybe.child_type;
 
-                if (g->build_type != CodeGenBuildTypeRelease) {
+                if (!g->is_release_build) {
                     add_debug_source_node(g, node);
                     LLVMValueRef cond_val;
                     if (child_type->id == TypeTableEntryIdPointer ||
@@ -1977,7 +1982,7 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
     } else if (type_entry->id == TypeTableEntryIdUnreachable) {
         assert(node->data.container_init_expr.entries.length == 0);
         add_debug_source_node(g, node);
-        if (g->build_type != CodeGenBuildTypeRelease) {
+        if (!g->is_release_build) {
             LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
         }
         return LLVMBuildUnreachable(g->builder);
@@ -2233,7 +2238,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
                 }
             }
         }
-        if (!ignore_uninit && g->build_type != CodeGenBuildTypeRelease) {
+        if (!ignore_uninit && !g->is_release_build) {
             TypeTableEntry *isize = g->builtin_types.entry_isize;
             uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, variable->type->type_ref);
             uint64_t align_bytes = get_memcpy_align(g, variable->type);
@@ -2645,7 +2650,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
 
 static void gen_const_globals(CodeGen *g) {
     for (int i = 0; i < g->global_const_list.length; i += 1) {
-        Expr *expr = g->global_const_list.at(i);
+        AstNode *expr_node = g->global_const_list.at(i);
+        Expr *expr = get_resolved_expr(expr_node);
         ConstExprValue *const_val = &expr->const_val;
         assert(const_val->ok);
         TypeTableEntry *type_entry = expr->type_entry;
@@ -2678,6 +2684,24 @@ static void delete_unused_builtin_fns(CodeGen *g) {
             LLVMDeleteFunction(entry->value->fn_val);
         }
     }
+}
+
+static bool skip_fn_codegen(CodeGen *g, FnTableEntry *fn_entry) {
+    if (g->is_test_build) {
+        if (fn_entry->is_test) {
+            return false;
+        }
+        if (fn_entry == g->main_fn) {
+            return true;
+        }
+        return fn_entry->ref_count == 0;
+    }
+
+    if (fn_entry->is_test) {
+        return true;
+    }
+
+    return fn_entry->ref_count == 0;
 }
 
 static void do_code_gen(CodeGen *g) {
@@ -2731,12 +2755,19 @@ static void do_code_gen(CodeGen *g) {
         var->value_ref = global_value;
     }
 
+    LLVMValueRef *test_fn_vals = nullptr;
+    uint32_t next_test_index = 0;
+    if (g->is_test_build) {
+        test_fn_vals = allocate<LLVMValueRef>(g->test_fn_count);
+    }
+
     // Generate function prototypes
     for (int fn_proto_i = 0; fn_proto_i < g->fn_protos.length; fn_proto_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_protos.at(fn_proto_i);
-        if (fn_table_entry->ref_count == 0) {
+        if (skip_fn_codegen(g, fn_table_entry)) {
             // huge time saver
             LLVMDeleteFunction(fn_table_entry->fn_value);
+            fn_table_entry->fn_value = nullptr;
             continue;
         }
 
@@ -2785,12 +2816,44 @@ static void do_code_gen(CodeGen *g) {
             }
         }
 
+        if (fn_table_entry->is_test) {
+            test_fn_vals[next_test_index] = fn_table_entry->fn_value;
+            next_test_index += 1;
+        }
+    }
+
+    // Generate the list of test function pointers.
+    if (g->is_test_build) {
+        assert(g->test_fn_count > 0);
+        assert(next_test_index == g->test_fn_count);
+
+        {
+            LLVMValueRef test_fn_array_val = LLVMConstArray(LLVMTypeOf(test_fn_vals[0]),
+                    test_fn_vals, g->test_fn_count);
+            LLVMValueRef global_value = LLVMAddGlobal(g->module,
+                    LLVMTypeOf(test_fn_array_val), "zig_test_fn_list");
+            LLVMSetInitializer(global_value, test_fn_array_val);
+            LLVMSetLinkage(global_value, LLVMExternalLinkage);
+            LLVMSetGlobalConstant(global_value, true);
+            LLVMSetUnnamedAddr(global_value, true);
+        }
+
+        {
+            LLVMValueRef test_fn_count_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref,
+                    g->test_fn_count, false);
+            LLVMValueRef global_value = LLVMAddGlobal(g->module,
+                    LLVMTypeOf(test_fn_count_val), "zig_test_fn_count");
+            LLVMSetInitializer(global_value, test_fn_count_val);
+            LLVMSetLinkage(global_value, LLVMExternalLinkage);
+            LLVMSetGlobalConstant(global_value, true);
+            LLVMSetUnnamedAddr(global_value, true);
+        }
     }
 
     // Generate function definitions.
     for (int fn_i = 0; fn_i < g->fn_defs.length; fn_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_defs.at(fn_i);
-        if (fn_table_entry->ref_count == 0) {
+        if (skip_fn_codegen(g, fn_table_entry)) {
             // huge time saver
             continue;
         }
@@ -3297,8 +3360,7 @@ static void init(CodeGen *g, Buf *source_path) {
     char *native_cpu = LLVMZigGetHostCPUName();
     char *native_features = LLVMZigGetNativeFeatures();
 
-    LLVMCodeGenOptLevel opt_level = (g->build_type == CodeGenBuildTypeDebug) ?
-        LLVMCodeGenLevelNone : LLVMCodeGenLevelAggressive;
+    LLVMCodeGenOptLevel opt_level = g->is_release_build ? LLVMCodeGenLevelAggressive : LLVMCodeGenLevelNone;
 
     LLVMRelocMode reloc_mode = g->is_static ? LLVMRelocStatic : LLVMRelocPIC;
 
@@ -3321,7 +3383,7 @@ static void init(CodeGen *g, Buf *source_path) {
 
 
     Buf *producer = buf_sprintf("zig %s", ZIG_VERSION_STRING);
-    bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
+    bool is_optimized = g->is_release_build;
     const char *flags = "";
     unsigned runtime_version = 0;
     g->compile_unit = LLVMZigCreateCompileUnit(g->dbuilder, LLVMZigLang_DW_LANG_C99(),
@@ -3611,13 +3673,9 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
                 buf_sprintf("missing export declaration and export type not provided"));
     }
 
-    if (!g->link_libc) {
+    if (!g->link_libc && !g->is_test_build) {
         if (g->have_exported_main && (g->out_type == OutTypeObj || g->out_type == OutTypeExe)) {
             g->bootstrap_import = add_special_code(g, "bootstrap.zig");
-        }
-
-        if (g->out_type == OutTypeExe) {
-            add_special_code(g, "builtin.zig");
         }
     }
 
@@ -3677,6 +3735,8 @@ static void to_c_type(CodeGen *g, AstNode *type_node, Buf *out_buf) {
 }
 
 static void generate_h_file(CodeGen *g) {
+    assert(!g->is_test_build);
+
     Buf *h_file_out_path = buf_sprintf("%s.h", buf_ptr(g->root_out_name));
     FILE *out_h = fopen(buf_ptr(h_file_out_path), "wb");
     if (!out_h)
@@ -3768,8 +3828,38 @@ static const char *get_libc_file(CodeGen *g, const char *file) {
     return buf_ptr(out_buf);
 }
 
+static Buf *build_o(CodeGen *parent_gen, const char *oname) {
+    Buf *source_basename = buf_sprintf("%s.zig", oname);
+    Buf *std_dir_path = buf_create_from_str(ZIG_STD_DIR);
+
+    CodeGen *child_gen = codegen_create(std_dir_path);
+    codegen_set_is_release(child_gen, parent_gen->is_release_build);
+
+    codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
+    codegen_set_is_static(child_gen, parent_gen->is_static);
+
+    codegen_set_out_type(child_gen, OutTypeObj);
+    codegen_set_out_name(child_gen, buf_create_from_str(oname));
+
+    codegen_set_verbose(child_gen, parent_gen->verbose);
+    codegen_set_errmsg_color(child_gen, parent_gen->err_color);
+
+    Buf *full_path = buf_alloc();
+    os_path_join(std_dir_path, source_basename, full_path);
+    Buf source_code = BUF_INIT;
+    if (os_fetch_file_path(full_path, &source_code)) {
+        zig_panic("unable to fetch file: %s\n", buf_ptr(full_path));
+    }
+
+    codegen_add_root_code(child_gen, std_dir_path, source_basename, &source_code);
+    Buf *o_out = buf_sprintf("%s.o", oname);
+    codegen_link(child_gen, buf_ptr(o_out));
+
+    return o_out;
+}
+
 void codegen_link(CodeGen *g, const char *out_file) {
-    bool is_optimized = (g->build_type == CodeGenBuildTypeRelease);
+    bool is_optimized = g->is_release_build;
     if (is_optimized) {
         if (g->verbose) {
             fprintf(stderr, "\nOptimization:\n");
@@ -3788,6 +3878,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
     }
 
     if (!out_file) {
+        assert(g->root_out_name);
         out_file = buf_ptr(g->root_out_name);
     }
 
@@ -3820,6 +3911,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
         zig_panic("TODO invoke ar");
         return;
     }
+
 
     // invoke `ld`
     ZigList<const char *> args = {0};
@@ -3869,6 +3961,16 @@ void codegen_link(CodeGen *g, const char *out_file) {
 
     if (link_in_crt) {
         args.append(get_libc_file(g, "crtn.o"));
+    }
+
+    if (g->is_test_build) {
+        Buf *test_runner_o_path = build_o(g, "test_runner");
+        args.append(buf_ptr(test_runner_o_path));
+    }
+
+    if (!g->link_libc && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
+        Buf *builtin_o_path = build_o(g, "builtin");
+        args.append(buf_ptr(builtin_o_path));
     }
 
     for (int i = 0; i < g->lib_dirs.length; i += 1) {

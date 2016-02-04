@@ -17,25 +17,24 @@
 #include <fcntl.h>
 #include <limits.h>
 
-void os_spawn_process(const char *exe, ZigList<const char *> &args, bool detached) {
+void os_spawn_process(const char *exe, ZigList<const char *> &args, int *return_code) {
     pid_t pid = fork();
     if (pid == -1)
         zig_panic("fork failed");
-    if (pid != 0)
-        return;
-    if (detached) {
-        if (setsid() == -1)
-            zig_panic("process detach failed");
+    if (pid == 0) {
+        // child
+        const char **argv = allocate<const char *>(args.length + 2);
+        argv[0] = exe;
+        argv[args.length + 1] = nullptr;
+        for (int i = 0; i < args.length; i += 1) {
+            argv[i + 1] = args.at(i);
+        }
+        execvp(exe, const_cast<char * const *>(argv));
+        zig_panic("execvp failed: %s", strerror(errno));
+    } else {
+        // parent
+        waitpid(pid, return_code, 0);
     }
-
-    const char **argv = allocate<const char *>(args.length + 2);
-    argv[0] = exe;
-    argv[args.length + 1] = nullptr;
-    for (int i = 0; i < args.length; i += 1) {
-        argv[i + 1] = args.at(i);
-    }
-    execvp(exe, const_cast<char * const *>(argv));
-    zig_panic("execvp failed: %s", strerror(errno));
 }
 
 static int read_all_fd_stream(int fd, Buf *out_buf) {

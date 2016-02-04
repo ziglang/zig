@@ -781,6 +781,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
 
     bool is_cold = false;
     bool is_naked = false;
+    bool is_test = false;
 
     if (fn_proto->directives) {
         for (int i = 0; i < fn_proto->directives->length; i += 1) {
@@ -794,6 +795,9 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
                         is_naked = true;
                     } else if (buf_eql_str(attr_name, "cold")) {
                         is_cold = true;
+                    } else if (buf_eql_str(attr_name, "test")) {
+                        is_test = true;
+                        g->test_fn_count += 1;
                     } else {
                         add_node_error(g, directive_node,
                                 buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
@@ -813,6 +817,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
             is_naked, is_cold);
 
     fn_table_entry->type_entry = fn_type;
+    fn_table_entry->is_test = is_test;
 
     if (fn_type->id == TypeTableEntryIdInvalid) {
         fn_proto->skip = true;
@@ -846,7 +851,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     unsigned scope_line = line_number;
     bool is_definition = fn_table_entry->fn_def_node != nullptr;
     unsigned flags = 0;
-    bool is_optimized = g->build_type == CodeGenBuildTypeRelease;
+    bool is_optimized = g->is_release_build;
     LLVMZigDISubprogram *subprogram = LLVMZigCreateFunction(g->dbuilder,
         import->block_context->di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
         import->di_file, line_number,
@@ -1247,10 +1252,18 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
 
     fn_table->put(proto_name, fn_table_entry);
 
-    if (!struct_type &&
-        g->bootstrap_import &&
-        import == g->root_import && buf_eql_str(proto_name, "main"))
-    {
+    bool is_main_fn = !struct_type && (import == g->root_import) && buf_eql_str(proto_name, "main");
+    if (is_main_fn) {
+        g->main_fn = fn_table_entry;
+
+        if (g->bootstrap_import && !g->is_test_build) {
+            g->bootstrap_import->fn_table.put(proto_name, fn_table_entry);
+        }
+    }
+    bool is_test_main_fn = !struct_type && (import == g->test_runner_import) && buf_eql_str(proto_name, "main");
+    if (is_test_main_fn) {
+        assert(g->bootstrap_import);
+        assert(g->is_test_build);
         g->bootstrap_import->fn_table.put(proto_name, fn_table_entry);
     }
 
@@ -1551,13 +1564,14 @@ static bool type_has_codegen_value(TypeTableEntry *type_entry) {
     }
 }
 
-static void add_global_const_expr(CodeGen *g, Expr *expr) {
+static void add_global_const_expr(CodeGen *g, AstNode *expr_node) {
+    Expr *expr = get_resolved_expr(expr_node);
     if (expr->const_val.ok &&
         type_has_codegen_value(expr->type_entry) &&
         !expr->has_global_const &&
         type_has_bits(expr->type_entry))
     {
-        g->global_const_list.append(expr);
+        g->global_const_list.append(expr_node);
         expr->has_global_const = true;
     }
 }
@@ -1924,7 +1938,7 @@ static TypeTableEntry *resolve_peer_type_compatibility(CodeGen *g, ImportTableEn
                 *child_node, expected_type, child_types[i]);
         Expr *expr = get_resolved_expr(*child_node);
         expr->type_entry = resolved_type;
-        add_global_const_expr(g, expr);
+        add_global_const_expr(g, *child_node);
     }
 
     return expected_type;
@@ -4022,7 +4036,9 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                 if (buf_eql_str(&var_name, "is_big_endian")) {
                     return resolve_expr_const_val_as_bool(g, node, g->is_big_endian);
                 } else if (buf_eql_str(&var_name, "is_release")) {
-                    return resolve_expr_const_val_as_bool(g, node, g->build_type == CodeGenBuildTypeRelease);
+                    return resolve_expr_const_val_as_bool(g, node, g->is_release_build);
+                } else if (buf_eql_str(&var_name, "is_test")) {
+                    return resolve_expr_const_val_as_bool(g, node, g->is_test_build);
                 } else {
                     add_node_error(g, *str_node,
                         buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(&var_name)));
@@ -4752,7 +4768,7 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
     expr->type_entry = return_type;
     node->block_context = context;
 
-    add_global_const_expr(g, expr);
+    add_global_const_expr(g, node);
 
     return resolved_type;
 }

@@ -13,7 +13,7 @@
 
 #include <stdio.h>
 
-void os_spawn_process(const char *exe, ZigList<const char *> &args, bool detached);
+void os_spawn_process(const char *exe, ZigList<const char *> &args, int *return_code);
 void os_exec_process(const char *exe, ZigList<const char *> &args,
         int *return_code, Buf *out_stderr, Buf *out_stdout);
 
