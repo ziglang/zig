@@ -544,41 +544,28 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         return gen_cast_expr(g, node);
     }
 
-    FnTableEntry *fn_table_entry = node->data.fn_call_expr.fn_entry;
     AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
+    if (node->data.fn_call_expr.enum_type) {
+        int param_count = node->data.fn_call_expr.params.length;
+        AstNode *arg1_node;
+        if (param_count == 1) {
+            arg1_node = node->data.fn_call_expr.params.at(0);
+        } else {
+            assert(param_count == 0);
+            arg1_node = nullptr;
+        }
+        return gen_enum_value_expr(g, fn_ref_expr, node->data.fn_call_expr.enum_type, arg1_node);
+    }
+
+    FnTableEntry *fn_table_entry = node->data.fn_call_expr.fn_entry;
     TypeTableEntry *struct_type = nullptr;
     AstNode *first_param_expr = nullptr;
-    if (fn_ref_expr->type == NodeTypeFieldAccessExpr) {
+
+    if (fn_ref_expr->type == NodeTypeFieldAccessExpr &&
+        fn_ref_expr->data.field_access_expr.is_member_fn)
+    {
         first_param_expr = fn_ref_expr->data.field_access_expr.struct_expr;
         struct_type = get_expr_type(first_param_expr);
-        if (struct_type->id == TypeTableEntryIdStruct) {
-            fn_table_entry = node->data.fn_call_expr.fn_entry;
-        } else if (struct_type->id == TypeTableEntryIdPointer) {
-            assert(struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct);
-            fn_table_entry = node->data.fn_call_expr.fn_entry;
-        } else if (struct_type->id == TypeTableEntryIdMetaType) {
-            TypeTableEntry *child_type = get_type_for_type_node(first_param_expr);
-
-            if (child_type->id == TypeTableEntryIdEnum) {
-                int param_count = node->data.fn_call_expr.params.length;
-                AstNode *arg1_node;
-                if (param_count == 1) {
-                    arg1_node = node->data.fn_call_expr.params.at(0);
-                } else {
-                    assert(param_count == 0);
-                    arg1_node = nullptr;
-                }
-                return gen_enum_value_expr(g, fn_ref_expr, child_type, arg1_node);
-            } else if (child_type->id == TypeTableEntryIdStruct) {
-                struct_type = nullptr;
-                first_param_expr = nullptr;
-                fn_table_entry = node->data.fn_call_expr.fn_entry;
-            } else {
-                zig_unreachable();
-            }
-        } else {
-            zig_unreachable();
-        }
     }
 
     TypeTableEntry *fn_type;

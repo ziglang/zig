@@ -25,6 +25,7 @@ struct TestCase {
     ZigList<const char *> compiler_args;
     ZigList<const char *> program_args;
     bool is_parseh;
+    bool is_self_hosted;
 };
 
 static ZigList<TestCase*> test_cases = {0};
@@ -154,21 +155,6 @@ pub fn main(args: [][]u8) -> %void {
 fn this_is_a_function() -> unreachable {
     %%stdout.printf("OK\n");
     exit(0);
-}
-    )SOURCE", "OK\n");
-
-    add_simple_case("comments", R"SOURCE(
-import "std.zig";
-
-/**
-    * multi line doc comment
-    */
-fn another_function() {}
-
-/// this is a documentation comment
-/// doc comment line 2
-pub fn main(args: [][]u8) -> %void {
-    %%stdout.printf(/* mid-line comment /* nested */ */ "OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -2205,6 +2191,30 @@ extern void (*fn_ptr)(void);
 })SOURCE");
 }
 
+static void run_self_hosted_test(void) {
+    Buf zig_stderr = BUF_INIT;
+    Buf zig_stdout = BUF_INIT;
+    int return_code;
+    ZigList<const char *> args = {0};
+    args.append("test");
+    args.append("../test/self_hosted.zig");
+    os_exec_process(zig_exe, args, &return_code, &zig_stderr, &zig_stdout);
+
+    if (return_code) {
+        printf("\nSelf-hosted tests failed:\n");
+        printf("./zig test ../test/self_hosted.zig\n");
+        printf("%s\n", buf_ptr(&zig_stderr));
+        exit(1);
+    }
+}
+
+static void add_self_hosted_tests(void) {
+    TestCase *test_case = allocate<TestCase>(1);
+    test_case->case_name = "self hosted tests";
+    test_case->is_self_hosted = true;
+    test_cases.append(test_case);
+}
+
 static void print_compiler_invocation(TestCase *test_case) {
     printf("%s", zig_exe);
     for (int i = 0; i < test_case->compiler_args.length; i += 1) {
@@ -2214,6 +2224,10 @@ static void print_compiler_invocation(TestCase *test_case) {
 }
 
 static void run_test(TestCase *test_case) {
+    if (test_case->is_self_hosted) {
+        return run_self_hosted_test();
+    }
+
     for (int i = 0; i < test_case->source_files.length; i += 1) {
         TestSourceFile *test_source = &test_case->source_files.at(i);
         os_write_file(
@@ -2359,6 +2373,7 @@ int main(int argc, char **argv) {
     add_compiling_test_cases();
     add_compile_failure_test_cases();
     add_parseh_test_cases();
+    add_self_hosted_tests();
     run_all_tests(reverse);
     cleanup();
 }

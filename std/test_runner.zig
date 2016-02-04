@@ -17,9 +17,7 @@ pub fn main(args: [][]u8) -> %void {
         %%stderr.print_str(test_fn.name);
         %%stderr.print_str("...");
 
-        // TODO support calling function pointers as fields directly
-        const fn_ptr = test_fn.func;
-        fn_ptr();
+        test_fn.func();
 
 
         %%stderr.print_str("OK\n");

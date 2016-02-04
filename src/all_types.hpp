@@ -357,6 +357,7 @@ struct AstNodeFnCallExpr {
     Expr resolved_expr;
     FnTableEntry *fn_entry;
     CastOp cast_op;
+    TypeTableEntry *enum_type;
     // if cast_op is CastOpArrayToString, this will be a pointer to
     // the string struct on the stack
     LLVMValueRef tmp_ptr;
@@ -390,6 +391,9 @@ struct AstNodeFieldAccessExpr {
     TypeEnumField *type_enum_field;
     Expr resolved_expr;
     StructValExprCodeGen resolved_struct_val_expr; // for enum values
+    bool is_fn_call;
+    TypeTableEntry *bare_struct_type;
+    bool is_member_fn;
 };
 
 struct AstNodeDirective {

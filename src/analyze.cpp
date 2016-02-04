@@ -28,6 +28,7 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
         TypeTableEntry *expected_type, AstNode *node);
 static TypeTableEntry *resolve_expr_const_val_as_void(CodeGen *g, AstNode *node);
 static TypeTableEntry *resolve_expr_const_val_as_fn(CodeGen *g, AstNode *node, FnTableEntry *fn);
+static TypeTableEntry *resolve_expr_const_val_as_type(CodeGen *g, AstNode *node, TypeTableEntry *type);
 static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *node);
 static void analyze_top_level_decls_root(CodeGen *g, ImportTableEntry *import, AstNode *node);
 
@@ -2220,15 +2221,28 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
     TypeTableEntry *struct_type = analyze_expression(g, import, context, nullptr, struct_expr_node);
     Buf *field_name = &node->data.field_access_expr.field_name;
 
+    bool wrapped_in_fn_call = node->data.field_access_expr.is_fn_call;
+
     if (struct_type->id == TypeTableEntryIdStruct || (struct_type->id == TypeTableEntryIdPointer &&
          struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct))
     {
         TypeTableEntry *bare_struct_type = (struct_type->id == TypeTableEntryIdStruct) ?
             struct_type : struct_type->data.pointer.child_type;
 
+        node->data.field_access_expr.bare_struct_type = bare_struct_type;
         node->data.field_access_expr.type_struct_field = find_struct_type_field(bare_struct_type, field_name);
         if (node->data.field_access_expr.type_struct_field) {
             return node->data.field_access_expr.type_struct_field->type_entry;
+        } else if (wrapped_in_fn_call) {
+            auto table_entry = bare_struct_type->data.structure.fn_table.maybe_get(field_name);
+            if (table_entry) {
+                node->data.field_access_expr.is_member_fn = true;
+                return resolve_expr_const_val_as_fn(g, node, table_entry->value);
+            } else {
+                add_node_error(g, node, buf_sprintf("no member named '%s' in '%s'",
+                    buf_ptr(field_name), buf_ptr(&bare_struct_type->name)));
+                return g->builtin_types.entry_invalid;
+            }
         } else {
             add_node_error(g, node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name), buf_ptr(&struct_type->name)));
@@ -2251,6 +2265,8 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
 
         if (child_type->id == TypeTableEntryIdInvalid) {
             return g->builtin_types.entry_invalid;
+        } else if (wrapped_in_fn_call) {
+            return resolve_expr_const_val_as_type(g, node, child_type);
         } else if (child_type->id == TypeTableEntryIdEnum) {
             return analyze_enum_value_expr(g, import, context, node, nullptr, child_type, field_name);
         } else if (child_type->id == TypeTableEntryIdStruct) {
@@ -4128,72 +4144,7 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
     }
 
     if (fn_ref_expr->type == NodeTypeFieldAccessExpr) {
-        fn_ref_expr->block_context = context;
-        AstNode *first_param_expr = fn_ref_expr->data.field_access_expr.struct_expr;
-        TypeTableEntry *struct_type = analyze_expression(g, import, context, nullptr, first_param_expr);
-        Buf *name = &fn_ref_expr->data.field_access_expr.field_name;
-        if (struct_type->id == TypeTableEntryIdStruct ||
-            (struct_type->id == TypeTableEntryIdPointer &&
-            struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct))
-        {
-            TypeTableEntry *bare_struct_type = (struct_type->id == TypeTableEntryIdStruct) ?
-                struct_type : struct_type->data.pointer.child_type;
-
-            auto table_entry = bare_struct_type->data.structure.fn_table.maybe_get(name);
-            if (table_entry) {
-                return analyze_fn_call_raw(g, import, context, expected_type, node,
-                        table_entry->value, bare_struct_type);
-            } else {
-                add_node_error(g, fn_ref_expr,
-                        buf_sprintf("no function named '%s' in '%s'",
-                            buf_ptr(name), buf_ptr(&bare_struct_type->name)));
-                return g->builtin_types.entry_invalid;
-            }
-        } else if (struct_type->id == TypeTableEntryIdInvalid) {
-            return struct_type;
-        } else if (struct_type->id == TypeTableEntryIdMetaType) {
-            TypeTableEntry *child_type = resolve_type(g, first_param_expr);
-
-            if (child_type->id == TypeTableEntryIdInvalid) {
-                return g->builtin_types.entry_invalid;
-            } else if (child_type->id == TypeTableEntryIdEnum) {
-                Buf *field_name = &fn_ref_expr->data.field_access_expr.field_name;
-                int param_count = node->data.fn_call_expr.params.length;
-                if (param_count > 1) {
-                    add_node_error(g, first_executing_node(node->data.fn_call_expr.params.at(1)),
-                            buf_sprintf("enum values accept only one parameter"));
-                    return child_type;
-                } else {
-                    AstNode *value_node;
-                    if (param_count == 1) {
-                        value_node = node->data.fn_call_expr.params.at(0);
-                    } else {
-                        value_node = nullptr;
-                    }
-
-                    return analyze_enum_value_expr(g, import, context, fn_ref_expr, value_node,
-                            child_type, field_name);
-                }
-            } else if (child_type->id == TypeTableEntryIdStruct) {
-                Buf *field_name = &fn_ref_expr->data.field_access_expr.field_name;
-                auto entry = child_type->data.structure.fn_table.maybe_get(field_name);
-                if (entry) {
-                    return analyze_fn_call_raw(g, import, context, expected_type, node,
-                            entry->value, nullptr);
-                } else {
-                    add_node_error(g, node,
-                        buf_sprintf("struct '%s' has no function called '%s'",
-                            buf_ptr(&child_type->name), buf_ptr(field_name)));
-                    return g->builtin_types.entry_invalid;
-                }
-            } else {
-                add_node_error(g, first_param_expr, buf_sprintf("member reference base type not struct or enum"));
-                return g->builtin_types.entry_invalid;
-            }
-        } else {
-            add_node_error(g, first_param_expr, buf_sprintf("member reference base type not struct or enum"));
-            return g->builtin_types.entry_invalid;
-        }
+        fn_ref_expr->data.field_access_expr.is_fn_call = true;
     }
 
     TypeTableEntry *invoke_type_entry = analyze_expression(g, import, context, nullptr, fn_ref_expr);
@@ -4207,9 +4158,62 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
 
     if (const_val->ok) {
         if (invoke_type_entry->id == TypeTableEntryIdMetaType) {
-            return analyze_cast_expr(g, import, context, node);
+            if (fn_ref_expr->type == NodeTypeFieldAccessExpr) {
+                TypeTableEntry *child_type = resolve_type(g, fn_ref_expr);
+
+                if (child_type->id == TypeTableEntryIdInvalid) {
+                    return g->builtin_types.entry_invalid;
+                } else if (child_type->id == TypeTableEntryIdEnum) {
+                    Buf *field_name = &fn_ref_expr->data.field_access_expr.field_name;
+                    int param_count = node->data.fn_call_expr.params.length;
+                    if (param_count > 1) {
+                        add_node_error(g, first_executing_node(node->data.fn_call_expr.params.at(1)),
+                                buf_sprintf("enum values accept only one parameter"));
+                        return child_type;
+                    } else {
+                        AstNode *value_node;
+                        if (param_count == 1) {
+                            value_node = node->data.fn_call_expr.params.at(0);
+                        } else {
+                            value_node = nullptr;
+                        }
+
+                        node->data.fn_call_expr.enum_type = child_type;
+
+                        return analyze_enum_value_expr(g, import, context, fn_ref_expr, value_node,
+                                child_type, field_name);
+                    }
+                } else if (child_type->id == TypeTableEntryIdStruct) {
+                    Buf *field_name = &fn_ref_expr->data.field_access_expr.field_name;
+                    auto entry = child_type->data.structure.fn_table.maybe_get(field_name);
+                    if (entry) {
+                        return analyze_fn_call_raw(g, import, context, expected_type, node,
+                                entry->value, nullptr);
+                    } else {
+                        add_node_error(g, node,
+                            buf_sprintf("struct '%s' has no function called '%s'",
+                                buf_ptr(&child_type->name), buf_ptr(field_name)));
+                        return g->builtin_types.entry_invalid;
+                    }
+                } else {
+                    add_node_error(g, fn_ref_expr, buf_sprintf("member reference base type not struct or enum"));
+                    return g->builtin_types.entry_invalid;
+                }
+            } else {
+                return analyze_cast_expr(g, import, context, node);
+            }
         } else if (invoke_type_entry->id == TypeTableEntryIdFn) {
-            return analyze_fn_call_raw(g, import, context, expected_type, node, const_val->data.x_fn, nullptr);
+            TypeTableEntry *bare_struct_type;
+            if (fn_ref_expr->type == NodeTypeFieldAccessExpr &&
+                fn_ref_expr->data.field_access_expr.is_member_fn)
+            {
+                bare_struct_type = fn_ref_expr->data.field_access_expr.bare_struct_type;
+            } else {
+                bare_struct_type = nullptr;
+            }
+
+            return analyze_fn_call_raw(g, import, context, expected_type, node,
+                    const_val->data.x_fn, bare_struct_type);
         } else {
             add_node_error(g, fn_ref_expr,
                 buf_sprintf("type '%s' not a function", buf_ptr(&invoke_type_entry->name)));
