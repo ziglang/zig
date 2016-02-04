@@ -79,7 +79,7 @@ BlockExpression = IfExpression | Block | WhileExpression | ForExpression | Switc
 
 SwitchExpression = "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 
-SwitchProng = (list(SwitchItem, ",") | "else") option(":" "(" "Symbol" ")") "=>" Expression ","
+SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" "Symbol" "|") Expression ","
 
 SwitchItem = Expression | (Expression "..." Expression)
 

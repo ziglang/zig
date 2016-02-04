@@ -1834,7 +1834,7 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, int *token_index, bool mand
 
 /*
 SwitchExpression : "switch" "(" Expression ")" "{" many(SwitchProng) "}"
-SwitchProng : (list(SwitchItem, ",") | "else") option("," "(" "Symbol" ")") "=>" Expression ","
+SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" "Symbol" "|") Expression ","
 SwitchItem : Expression | (Expression "..." Expression)
 */
 static AstNode *ast_parse_switch_expr(ParseContext *pc, int *token_index, bool mandatory) {
@@ -1895,15 +1895,15 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, int *token_index, bool m
             break;
         }
 
-        Token *arrow_or_colon = &pc->tokens->at(*token_index);
-        if (arrow_or_colon->id == TokenIdColon) {
+        ast_eat_token(pc, token_index, TokenIdFatArrow);
+
+        Token *maybe_bar = &pc->tokens->at(*token_index);
+        if (maybe_bar->id == TokenIdBinOr) {
             *token_index += 1;
-            ast_eat_token(pc, token_index, TokenIdLParen);
             prong_node->data.switch_prong.var_symbol = ast_parse_symbol(pc, token_index);
-            ast_eat_token(pc, token_index, TokenIdRParen);
+            ast_eat_token(pc, token_index, TokenIdBinOr);
         }
 
-        ast_eat_token(pc, token_index, TokenIdFatArrow);
         prong_node->data.switch_prong.expr = ast_parse_expression(pc, token_index, true);
         ast_eat_token(pc, token_index, TokenIdComma);
 

@@ -105,3 +105,27 @@ fn non_const_cast_bool_to_int(t: bool, f: bool) {
     if (i32(t) != i32(1)) unreachable{}
     if (i32(f) != i32(0)) unreachable{}
 }
+
+
+#attribute("test")
+fn switch_on_enum() {
+    const fruit = Fruit.Orange;
+    switch (fruit) {
+        Fruit.Apple => unreachable{},
+        Fruit.Orange => {},
+        Fruit.Banana => unreachable{},
+    }
+    non_const_switch_on_enum(fruit);
+}
+enum Fruit {
+    Apple,
+    Orange,
+    Banana,
+}
+fn non_const_switch_on_enum(fruit: Fruit) {
+    switch (fruit) {
+        Fruit.Apple => unreachable{},
+        Fruit.Orange => {},
+        Fruit.Banana => unreachable{},
+    }
+}

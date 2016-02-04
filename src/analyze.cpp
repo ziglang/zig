@@ -4479,9 +4479,9 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
     AstNode *expr_node = node->data.switch_expr.expr;
     TypeTableEntry *expr_type = analyze_expression(g, import, context, nullptr, expr_node);
 
-    if (expected_type == nullptr) {
-        zig_panic("TODO resolve peer compatibility of switch prongs");
-    }
+    int prong_count = node->data.switch_expr.prongs.length;
+    AstNode **peer_nodes = allocate<AstNode*>(prong_count);
+    TypeTableEntry **peer_types = allocate<TypeTableEntry*>(prong_count);
 
     if (expr_type->id == TypeTableEntryIdInvalid) {
         return expr_type;
@@ -4491,7 +4491,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
         return g->builtin_types.entry_invalid;
     } else {
         AstNode *else_prong = nullptr;
-        for (int prong_i = 0; prong_i < node->data.switch_expr.prongs.length; prong_i += 1) {
+        for (int prong_i = 0; prong_i < prong_count; prong_i += 1) {
             AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
 
             TypeTableEntry *var_type;
@@ -4528,11 +4528,12 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                         var_type, true);
             }
 
-            analyze_expression(g, import, child_context, expected_type,
+            peer_types[prong_i] = analyze_expression(g, import, child_context, expected_type,
                     prong_node->data.switch_prong.expr);
+            peer_nodes[prong_i] = prong_node->data.switch_prong.expr;
         }
     }
-    return expected_type;
+    return resolve_peer_type_compatibility(g, import, context, node, peer_nodes, peer_types, prong_count);
 }
 
 static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
