@@ -324,6 +324,18 @@ unsigned LLVMZigEncoding_DW_ATE_float(void) {
     return dwarf::DW_ATE_float;
 }
 
+unsigned LLVMZigEncoding_DW_ATE_boolean(void) {
+    return dwarf::DW_ATE_boolean;
+}
+
+unsigned LLVMZigEncoding_DW_ATE_unsigned_char(void) {
+    return dwarf::DW_ATE_unsigned_char;
+}
+
+unsigned LLVMZigEncoding_DW_ATE_signed_char(void) {
+    return dwarf::DW_ATE_signed_char;
+}
+
 unsigned LLVMZigLang_DW_LANG_C99(void) {
     return dwarf::DW_LANG_C99;
 }

@@ -90,6 +90,9 @@ LLVMZigDIType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
 unsigned LLVMZigEncoding_DW_ATE_unsigned(void);
 unsigned LLVMZigEncoding_DW_ATE_signed(void);
 unsigned LLVMZigEncoding_DW_ATE_float(void);
+unsigned LLVMZigEncoding_DW_ATE_boolean(void);
+unsigned LLVMZigEncoding_DW_ATE_unsigned_char(void);
+unsigned LLVMZigEncoding_DW_ATE_signed_char(void);
 unsigned LLVMZigLang_DW_LANG_C99(void);
 unsigned LLVMZigTag_DW_auto_variable(void);
 unsigned LLVMZigTag_DW_arg_variable(void);

@@ -211,7 +211,7 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
         if (!entry->zero_bits) {
             entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
 
-            uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
             uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
             assert(child_type->di_type);
             entry->di_type = LLVMZigCreateDebugPointerType(g->dbuilder, child_type->di_type,
@@ -262,16 +262,16 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
                 LLVMZigTag_DW_structure_type(), buf_ptr(&entry->name),
                 compile_unit_scope, di_file, line);
 
-            uint64_t val_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, child_type->type_ref);
+            uint64_t val_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, child_type->type_ref);
             uint64_t val_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, child_type->type_ref);
             uint64_t val_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 0);
 
             TypeTableEntry *bool_type = g->builtin_types.entry_bool;
-            uint64_t maybe_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, bool_type->type_ref);
+            uint64_t maybe_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, bool_type->type_ref);
             uint64_t maybe_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, bool_type->type_ref);
             uint64_t maybe_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 1);
 
-            uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
             uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
 
             LLVMZigDIType *di_element_types[] = {
@@ -336,15 +336,15 @@ static TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
                 LLVMZigTag_DW_structure_type(), buf_ptr(&entry->name),
                 compile_unit_scope, di_file, line);
 
-            uint64_t tag_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, g->err_tag_type->type_ref);
+            uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, g->err_tag_type->type_ref);
             uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, g->err_tag_type->type_ref);
             uint64_t tag_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 0);
 
-            uint64_t value_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, child_type->type_ref);
+            uint64_t value_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, child_type->type_ref);
             uint64_t value_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, child_type->type_ref);
             uint64_t value_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 1);
 
-            uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
             uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
 
             LLVMZigDIType *di_element_types[] = {
@@ -393,7 +393,7 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
 
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
 
         entry->di_type = LLVMZigCreateDebugArrayType(g->dbuilder, debug_size_in_bits,
@@ -471,7 +471,7 @@ static TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bo
             g->builtin_types.entry_isize->di_type,
         };
         LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugStructType(g->dbuilder, compile_unit_scope,
                 buf_ptr(&entry->name), g->dummy_di_file, 0, debug_size_in_bits, debug_align_in_bits, 0,
@@ -944,7 +944,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
             continue;
         }
 
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, field_type->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_type->type_ref);
 
         union_inner_di_types[gen_field_index] = LLVMZigCreateDebugMemberType(g->dbuilder,
@@ -991,7 +991,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
             LLVMStructSetBody(enum_type->type_ref, root_struct_element_types, 2, false);
 
             // create debug type for tag
-            uint64_t tag_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, tag_type_entry->type_ref);
+            uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(g->dbuilder,
                     LLVMZigTypeToScope(enum_type->di_type), "AnonEnum", import->di_file, decl_node->line + 1,
@@ -1030,7 +1030,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
             };
 
 
-            uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, enum_type->type_ref);
+            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, enum_type->type_ref);
             uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, enum_type->type_ref);
             LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
                     LLVMZigFileToScope(import->di_file),
@@ -1047,7 +1047,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
             enum_type->type_ref = tag_type_entry->type_ref;
 
             // create debug type for tag
-            uint64_t tag_debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, tag_type_entry->type_ref);
+            uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(g->dbuilder,
                     LLVMZigFileToScope(import->di_file), buf_ptr(&decl_node->data.struct_decl.name),
@@ -1155,7 +1155,7 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
 
         TypeTableEntry *field_type = type_struct_field->type_entry;
 
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, field_type->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_type->type_ref);
         uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref,
                 gen_field_index);
@@ -1171,7 +1171,7 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     }
 
 
-    uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, struct_type->type_ref);
+    uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, struct_type->type_ref);
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, struct_type->type_ref);
     LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
             LLVMZigFileToScope(import->di_file),

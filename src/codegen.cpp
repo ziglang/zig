@@ -3104,7 +3104,22 @@ static void define_builtin_types(CodeGen *g) {
             buf_resize(&entry->name, 0);
             buf_appendf(&entry->name, "%c%d", u_or_i, size_in_bits);
 
-            uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+            unsigned dwarf_tag;
+            if (is_signed) {
+                if (size_in_bits == 8) {
+                    dwarf_tag = LLVMZigEncoding_DW_ATE_signed_char();
+                } else {
+                    dwarf_tag = LLVMZigEncoding_DW_ATE_signed();
+                }
+            } else {
+                if (size_in_bits == 8) {
+                    dwarf_tag = LLVMZigEncoding_DW_ATE_unsigned_char();
+                } else {
+                    dwarf_tag = LLVMZigEncoding_DW_ATE_unsigned();
+                }
+            }
+
+            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
             uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
             entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                     debug_size_in_bits, debug_align_in_bits,
@@ -3133,7 +3148,7 @@ static void define_builtin_types(CodeGen *g) {
 
         buf_init_from_str(&entry->name, info->name);
 
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
@@ -3150,12 +3165,12 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBool);
         entry->type_ref = LLVMInt1Type();
         buf_init_from_str(&entry->name, "bool");
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
                 debug_align_in_bits,
-                LLVMZigEncoding_DW_ATE_unsigned());
+                LLVMZigEncoding_DW_ATE_boolean());
         g->builtin_types.entry_bool = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
@@ -3166,7 +3181,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.integral.is_signed = true;
         entry->data.integral.bit_count = g->pointer_size_bytes * 8;
 
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
@@ -3182,7 +3197,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.integral.is_signed = false;
         entry->data.integral.bit_count = g->pointer_size_bytes * 8;
 
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
@@ -3197,7 +3212,7 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "f32");
         entry->data.floating.bit_count = 32;
 
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
@@ -3212,7 +3227,7 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "f64");
         entry->data.floating.bit_count = 64;
 
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
@@ -3227,7 +3242,7 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "c_long_double");
         entry->data.floating.bit_count = 80;
 
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,

@@ -793,7 +793,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
     // create debug type for tag
     unsigned line = c->source_node ? (c->source_node->line + 1) : 0;
-    uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(c->codegen->target_data_ref, enum_type->type_ref);
+    uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, enum_type->type_ref);
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, enum_type->type_ref);
     LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(c->codegen->dbuilder,
             LLVMZigFileToScope(c->import->di_file), buf_ptr(bare_name),
@@ -914,7 +914,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
             return struct_type;
         }
 
-        uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(c->codegen->target_data_ref, field_type->type_ref);
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, field_type->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, field_type->type_ref);
         uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(c->codegen->target_data_ref, struct_type->type_ref, i);
         di_element_types[i] = LLVMZigCreateDebugMemberType(c->codegen->dbuilder,
@@ -937,7 +937,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
 
     LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
 
-    uint64_t debug_size_in_bits = LLVMSizeOfTypeInBits(c->codegen->target_data_ref, struct_type->type_ref);
+    uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, struct_type->type_ref);
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, struct_type->type_ref);
     LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(c->codegen->dbuilder,
             LLVMZigFileToScope(c->import->di_file),
