@@ -2704,6 +2704,32 @@ static bool skip_fn_codegen(CodeGen *g, FnTableEntry *fn_entry) {
     return fn_entry->ref_count == 0;
 }
 
+static LLVMValueRef gen_test_fn_val(CodeGen *g, FnTableEntry *fn_entry) {
+    // Must match TestFn struct from test_runner.zig
+    Buf *fn_name = &fn_entry->symbol_name;
+    LLVMValueRef str_init = LLVMConstString(buf_ptr(fn_name), buf_len(fn_name), true);
+    LLVMValueRef str_global_val = LLVMAddGlobal(g->module, LLVMTypeOf(str_init), "");
+    LLVMSetInitializer(str_global_val, str_init);
+    LLVMSetLinkage(str_global_val, LLVMPrivateLinkage);
+    LLVMSetGlobalConstant(str_global_val, true);
+    LLVMSetUnnamedAddr(str_global_val, true);
+
+    LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref, buf_len(fn_name), false);
+
+    LLVMTypeRef ptr_type = LLVMPointerType(g->builtin_types.entry_u8->type_ref, 0);
+    LLVMValueRef name_fields[] = {
+        LLVMConstBitCast(str_global_val, ptr_type),
+        len_val,
+    };
+
+    LLVMValueRef name_val = LLVMConstStruct(name_fields, 2, false);
+    LLVMValueRef fields[] = {
+        name_val,
+        fn_entry->fn_value,
+    };
+    return LLVMConstStruct(fields, 2, false);
+}
+
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
@@ -2817,7 +2843,7 @@ static void do_code_gen(CodeGen *g) {
         }
 
         if (fn_table_entry->is_test) {
-            test_fn_vals[next_test_index] = fn_table_entry->fn_value;
+            test_fn_vals[next_test_index] = gen_test_fn_val(g, fn_table_entry);
             next_test_index += 1;
         }
     }
@@ -2827,27 +2853,28 @@ static void do_code_gen(CodeGen *g) {
         assert(g->test_fn_count > 0);
         assert(next_test_index == g->test_fn_count);
 
-        {
-            LLVMValueRef test_fn_array_val = LLVMConstArray(LLVMTypeOf(test_fn_vals[0]),
-                    test_fn_vals, g->test_fn_count);
-            LLVMValueRef global_value = LLVMAddGlobal(g->module,
-                    LLVMTypeOf(test_fn_array_val), "zig_test_fn_list");
-            LLVMSetInitializer(global_value, test_fn_array_val);
-            LLVMSetLinkage(global_value, LLVMExternalLinkage);
-            LLVMSetGlobalConstant(global_value, true);
-            LLVMSetUnnamedAddr(global_value, true);
-        }
+        LLVMValueRef test_fn_array_init = LLVMConstArray(LLVMTypeOf(test_fn_vals[0]),
+                test_fn_vals, g->test_fn_count);
+        LLVMValueRef test_fn_array_val = LLVMAddGlobal(g->module,
+                LLVMTypeOf(test_fn_array_init), "");
+        LLVMSetInitializer(test_fn_array_val, test_fn_array_init);
+        LLVMSetLinkage(test_fn_array_val, LLVMInternalLinkage);
+        LLVMSetGlobalConstant(test_fn_array_val, true);
+        LLVMSetUnnamedAddr(test_fn_array_val, true);
 
-        {
-            LLVMValueRef test_fn_count_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref,
-                    g->test_fn_count, false);
-            LLVMValueRef global_value = LLVMAddGlobal(g->module,
-                    LLVMTypeOf(test_fn_count_val), "zig_test_fn_count");
-            LLVMSetInitializer(global_value, test_fn_count_val);
-            LLVMSetLinkage(global_value, LLVMExternalLinkage);
-            LLVMSetGlobalConstant(global_value, true);
-            LLVMSetUnnamedAddr(global_value, true);
-        }
+        LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref, g->test_fn_count, false);
+        LLVMTypeRef ptr_type = LLVMPointerType(LLVMTypeOf(test_fn_vals[0]), 0);
+        LLVMValueRef fields[] = {
+            LLVMConstBitCast(test_fn_array_val, ptr_type),
+            len_val,
+        };
+        LLVMValueRef test_fn_slice_init = LLVMConstStruct(fields, 2, false);
+        LLVMValueRef test_fn_slice_val = LLVMAddGlobal(g->module,
+                LLVMTypeOf(test_fn_slice_init), "zig_test_fn_list");
+        LLVMSetInitializer(test_fn_slice_val, test_fn_slice_init);
+        LLVMSetLinkage(test_fn_slice_val, LLVMExternalLinkage);
+        LLVMSetGlobalConstant(test_fn_slice_val, true);
+        LLVMSetUnnamedAddr(test_fn_slice_val, true);
     }
 
     // Generate function definitions.
