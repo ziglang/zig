@@ -3847,6 +3847,8 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     Buf *std_dir_path = buf_create_from_str(ZIG_STD_DIR);
 
     CodeGen *child_gen = codegen_create(std_dir_path);
+    child_gen->link_libc = parent_gen->link_libc;
+
     codegen_set_is_release(child_gen, parent_gen->is_release_build);
 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
@@ -3978,7 +3980,8 @@ void codegen_link(CodeGen *g, const char *out_file) {
     }
 
     if (g->is_test_build) {
-        Buf *test_runner_o_path = build_o(g, "test_runner");
+        const char *test_runner_name = g->link_libc ? "test_runner_libc" : "test_runner_nolibc";
+        Buf *test_runner_o_path = build_o(g, test_runner_name);
         args.append(buf_ptr(test_runner_o_path));
     }
 
