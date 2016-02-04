@@ -35,3 +35,14 @@ fn a_func() -> i32 { 13 }
 fn call_struct_field(foo: Foo) -> i32 {
     return foo.ptr();
 }
+
+
+
+error AnError;
+error AnError;
+error SecondError;
+
+#attribute("test")
+fn redefinition_of_error_values_allowed() {
+    if (error.AnError == error.SecondError) unreachable{}
+}

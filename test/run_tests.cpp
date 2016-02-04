@@ -1789,11 +1789,6 @@ enum A {}
 enum A {}
     )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of 'A'");
 
-    add_compile_fail_case("redefinition of error values", R"SOURCE(
-error A;
-error A;
-    )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of error 'A'");
-
     add_compile_fail_case("redefinition of global variables", R"SOURCE(
 var a : i32 = 1;
 var a : i32 = 2;

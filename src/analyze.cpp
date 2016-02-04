@@ -1290,36 +1290,39 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
     }
 }
 
-static void resolve_error_value_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+static void preview_error_value_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeErrorValueDecl);
 
     ErrorTableEntry *err = allocate<ErrorTableEntry>(1);
 
-    err->value = g->next_error_index;
-    g->next_error_index += 1;
-
     err->decl_node = node;
     buf_init_from_buf(&err->name, &node->data.error_value_decl.name);
 
-    auto existing_entry = import->block_context->error_table.maybe_get(&err->name);
+    auto existing_entry = g->error_table.maybe_get(&err->name);
     if (existing_entry) {
-        add_node_error(g, node, buf_sprintf("redefinition of error '%s'", buf_ptr(&err->name)));
+        // duplicate error definitions allowed and they get the same value
+        err->value = existing_entry->value->value;
     } else {
-        import->block_context->error_table.put(&err->name, err);
+        err->value = g->error_value_count;
+        g->error_value_count += 1;
+        g->error_table.put(&err->name, err);
     }
+
+    node->data.error_value_decl.err = err;
+}
+
+static void resolve_error_value_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+    assert(node->type == NodeTypeErrorValueDecl);
+
+    ErrorTableEntry *err = node->data.error_value_decl.err;
+
+    import->block_context->error_table.put(&err->name, err);
 
     bool is_pub = (node->data.error_value_decl.visib_mod != VisibModPrivate);
     if (is_pub) {
         for (int i = 0; i < import->importers.length; i += 1) {
             ImporterInfo importer = import->importers.at(i);
-            auto table_entry = importer.import->block_context->error_table.maybe_get(&err->name);
-            if (table_entry) {
-                add_node_error(g, importer.source_node,
-                    buf_sprintf("import of error '%s' overrides existing definition",
-                        buf_ptr(&err->name)));
-            } else {
-                importer.import->block_context->error_table.put(&err->name, err);
-            }
+            importer.import->block_context->error_table.put(&err->name, err);
         }
     }
 }
@@ -2516,7 +2519,7 @@ static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *
     add_node_error(g, node,
             buf_sprintf("use of undeclared error value '%s'", buf_ptr(err_name)));
 
-    return get_error_type(g, g->builtin_types.entry_void);
+    return g->builtin_types.entry_invalid;
 }
 
 
@@ -2759,6 +2762,16 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
                 are_equal = true;
             }
         }
+        if (bin_op_type == BinOpTypeCmpEq) {
+            answer = are_equal;
+        } else if (bin_op_type == BinOpTypeCmpNotEq) {
+            answer = !are_equal;
+        } else {
+            zig_unreachable();
+        }
+    } else if (resolved_type->id == TypeTableEntryIdPureError) {
+        bool are_equal = op1_val->data.x_err.err == op2_val->data.x_err.err;
+
         if (bin_op_type == BinOpTypeCmpEq) {
             answer = are_equal;
         } else if (bin_op_type == BinOpTypeCmpNotEq) {
@@ -5402,7 +5415,7 @@ void semantic_analyze(CodeGen *g) {
 
                     target_import->importers.append({import, child});
                 } else if (child->type == NodeTypeErrorValueDecl) {
-                    g->error_value_count += 1;
+                    preview_error_value_decl(g, child);
                 }
             }
         }
@@ -5427,8 +5440,6 @@ void semantic_analyze(CodeGen *g) {
             detect_top_level_decl_deps(g, import, import->root);
         }
     }
-
-    assert(g->error_value_count == g->next_error_index);
 
     {
         auto it = g->import_table.entry_iterator();

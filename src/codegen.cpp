@@ -28,10 +28,10 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->primitive_type_table.init(32);
     g->unresolved_top_level_decls.init(32);
     g->fn_type_table.init(32);
+    g->error_table.init(16);
     g->is_release_build = false;
     g->is_test_build = false;
     g->root_source_dir = root_source_dir;
-    g->next_error_index = 1;
     g->error_value_count = 1;
 
     g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);

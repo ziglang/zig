@@ -271,6 +271,7 @@ struct AstNodeErrorValueDecl {
 
     // populated by semantic analyzer
     TopLevelDecl top_level_decl;
+    ErrorTableEntry *err;
 };
 
 enum BinOpType {
@@ -1034,6 +1035,7 @@ struct CodeGen {
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> unresolved_top_level_decls;
     HashMap<FnTypeId, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
+    HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
 
     uint32_t next_unresolved_index;
 
@@ -1111,7 +1113,6 @@ struct CodeGen {
     LLVMValueRef trap_fn_val;
     bool error_during_imports;
     uint32_t next_node_index;
-    uint32_t next_error_index;
     uint32_t error_value_count;
     TypeTableEntry *err_tag_type;
     LLVMValueRef int_overflow_fns[2][3][4]; // [0-signed,1-unsigned][0-add,1-sub,2-mul][0-8,1-16,2-32,3-64]
