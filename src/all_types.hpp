@@ -859,6 +859,7 @@ struct TypeTableEntryEnum {
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid
     TypeTableEntry *tag_type;
+    TypeTableEntry *union_type;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;

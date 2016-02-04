@@ -38,11 +38,31 @@ fn call_struct_field(foo: Foo) -> i32 {
 
 
 
+#attribute("test")
+fn redefinition_of_error_values_allowed() {
+    if (error.AnError == error.SecondError) unreachable{}
+}
 error AnError;
 error AnError;
 error SecondError;
 
+
+
+
 #attribute("test")
-fn redefinition_of_error_values_allowed() {
-    if (error.AnError == error.SecondError) unreachable{}
+fn constant_enum_with_payload() {
+    should_be_empty(AnEnumWithPayload.Empty);
+    should_be_13(AnEnumWithPayload.Full(13));
+}
+
+fn should_be_empty(x: AnEnumWithPayload) {
+    if (x != AnEnumWithPayload.Empty) unreachable{}
+}
+
+fn should_be_13(x: AnEnumWithPayload) {
+}
+
+enum AnEnumWithPayload {
+    Empty,
+    Full: i32,
 }

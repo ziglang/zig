@@ -973,6 +973,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
 
     if (!enum_type->data.enumeration.is_invalid) {
         enum_type->data.enumeration.gen_field_count = gen_field_index;
+        enum_type->data.enumeration.union_type = biggest_union_member;
 
         TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
         enum_type->data.enumeration.tag_type = tag_type_entry;
@@ -2034,6 +2035,9 @@ static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *imp
             codegen->type_entry = enum_type;
             codegen->source_node = field_access_node;
             context->struct_val_expr_alloca_list.append(codegen);
+
+            Expr *expr = get_resolved_expr(field_access_node);
+            expr->const_val.ok = false;
         } else if (type_enum_field->type_entry->id != TypeTableEntryIdVoid) {
             add_node_error(g, field_access_node,
                 buf_sprintf("enum value '%s.%s' requires parameter of type '%s'",

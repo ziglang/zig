@@ -2567,7 +2567,20 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
                 if (type_entry->data.enumeration.gen_field_count == 0) {
                     return tag_value;
                 } else {
-                    zig_panic("TODO");
+                    TypeTableEntry *union_type = type_entry->data.enumeration.union_type;
+                    TypeEnumField *enum_field = &type_entry->data.enumeration.fields[const_val->data.x_enum.tag];
+                    assert(enum_field->value == const_val->data.x_enum.tag);
+                    LLVMValueRef union_value;
+                    if (type_has_bits(enum_field->type_entry)) {
+                        union_value = gen_const_val(g, union_type, const_val->data.x_enum.payload);
+                    } else {
+                        union_value = LLVMGetUndef(union_type->type_ref);
+                    }
+                    LLVMValueRef fields[] = {
+                        tag_value,
+                        union_value,
+                    };
+                    return LLVMConstNamedStruct(type_entry->type_ref, fields, 2);
                 }
             }
         case TypeTableEntryIdFn:
