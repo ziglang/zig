@@ -4147,12 +4147,6 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
                 add_node_error(g, fn_ref_expr,
                         buf_sprintf("no function named '%s' in '%s'",
                             buf_ptr(name), buf_ptr(&bare_struct_type->name)));
-                // still analyze the parameters, even though we don't know what to expect
-                for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
-                    AstNode *child = node->data.fn_call_expr.params.at(i);
-                    analyze_expression(g, import, context, nullptr, child);
-                }
-
                 return g->builtin_types.entry_invalid;
             }
         } else if (struct_type->id == TypeTableEntryIdInvalid) {
