@@ -530,6 +530,11 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
                 return LLVMBuildFPToUI(g->builder, expr_val, wanted_type->type_ref, "");
             }
 
+        case CastOpBoolToInt:
+            assert(wanted_type->id == TypeTableEntryIdInt);
+            assert(actual_type->id == TypeTableEntryIdBool);
+            return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
+
     }
     zig_unreachable();
 }

@@ -346,6 +346,7 @@ enum CastOp {
     CastOpErrToInt,
     CastOpIntToFloat,
     CastOpFloatToInt,
+    CastOpBoolToInt,
 };
 
 struct AstNodeFnCallExpr {

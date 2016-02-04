@@ -82,3 +82,18 @@ fn continue_in_for_loop() {
     }
     if (sum != 6) unreachable{}
 }
+
+
+#attribute("test")
+fn cast_bool_to_int() {
+    const t = true;
+    const f = false;
+    if (i32(t) != i32(1)) unreachable{}
+    if (i32(f) != i32(0)) unreachable{}
+    non_const_cast_bool_to_int(t, f);
+}
+
+fn non_const_cast_bool_to_int(t: bool, f: bool) {
+    if (i32(t) != i32(1)) unreachable{}
+    if (i32(f) != i32(0)) unreachable{}
+}

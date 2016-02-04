@@ -3610,6 +3610,10 @@ static void eval_const_expr_implicit_cast(CodeGen *g, AstNode *node, AstNode *ex
             bignum_cast_to_int(&const_val->data.x_bignum, &other_val->data.x_bignum);
             const_val->ok = true;
             break;
+        case CastOpBoolToInt:
+            bignum_init_unsigned(&const_val->data.x_bignum, other_val->data.x_bool ? 1 : 0);
+            const_val->ok = true;
+            break;
     }
 }
 
@@ -3639,6 +3643,15 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     // explicit match or non-const to const
     if (types_match_const_cast_only(wanted_type, actual_type)) {
         node->data.fn_call_expr.cast_op = CastOpNoop;
+        eval_const_expr_implicit_cast(g, node, expr_node);
+        return wanted_type;
+    }
+
+    // explicit cast from bool to int
+    if (wanted_type->id == TypeTableEntryIdInt &&
+        actual_type->id == TypeTableEntryIdBool)
+    {
+        node->data.fn_call_expr.cast_op = CastOpBoolToInt;
         eval_const_expr_implicit_cast(g, node, expr_node);
         return wanted_type;
     }
