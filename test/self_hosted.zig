@@ -51,16 +51,24 @@ error SecondError;
 
 #attribute("test")
 fn constant_enum_with_payload() {
-    should_be_empty(AnEnumWithPayload.Empty);
-    should_be_not_empty(AnEnumWithPayload.Full(13));
+    var empty = AnEnumWithPayload.Empty;
+    var full = AnEnumWithPayload.Full(13);
+    should_be_empty(empty);
+    should_be_not_empty(full);
 }
 
 fn should_be_empty(x: AnEnumWithPayload) {
-    if (x != AnEnumWithPayload.Empty) unreachable{}
+    switch (x) {
+        AnEnumWithPayload.Empty => {},
+        else => unreachable{},
+    }
 }
 
 fn should_be_not_empty(x: AnEnumWithPayload) {
-    if (x == AnEnumWithPayload.Empty) unreachable{}
+    switch (x) {
+        AnEnumWithPayload.Empty => unreachable{},
+        else => {},
+    }
 }
 
 enum AnEnumWithPayload {
