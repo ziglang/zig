@@ -1157,32 +1157,6 @@ fn fn3() -> u32 {7}
 fn fn4() -> u32 {8}
     )SOURCE", "5\n6\n7\n8\n");
 
-    add_simple_case("switch statement", R"SOURCE(
-import "std.zig";
-
-enum Foo {
-    A,
-    B,
-    C,
-    D,
-}
-
-pub fn main(args: [][]u8) -> %void {
-    const foo = Foo.C;
-    const val: i32 = switch (foo) {
-        Foo.A => 1,
-        Foo.B => 2,
-        Foo.C => 3,
-        Foo.D => 4,
-    };
-    if (val != 3) {
-        %%stdout.printf("BAD\n");
-    }
-
-    %%stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
     add_simple_case("const number literal", R"SOURCE(
 import "std.zig";
 

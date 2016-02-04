@@ -673,6 +673,7 @@ struct AstNodeSymbolExpr {
     FnTableEntry *fn_entry;
     // set this to instead of analyzing the node, pretend it's a type entry and it's this one.
     TypeTableEntry *override_type_entry;
+    TypeEnumField *enum_field;
 };
 
 struct AstNodeBoolLiteral {

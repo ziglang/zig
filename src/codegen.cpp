@@ -2357,21 +2357,16 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
             for (int item_i = 0; item_i < prong_node->data.switch_prong.items.length; item_i += 1) {
                 AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
                 assert(item_node->type != NodeTypeSwitchRange);
-                assert(get_resolved_expr(item_node)->const_val.ok);
-                LLVMValueRef val_handle = gen_expr(g, item_node);
                 LLVMValueRef val;
-                if (handle_is_ptr(target_type)) {
-                    if (target_type->id == TypeTableEntryIdEnum) {
-                        ConstExprValue *item_const_val = &get_resolved_expr(item_node)->const_val;
-                        assert(item_const_val->ok);
-                        assert(get_expr_type(item_node)->id == TypeTableEntryIdEnum);
-                        val = LLVMConstInt(target_type->data.enumeration.tag_type->type_ref,
-                                item_const_val->data.x_enum.tag, false);
-                    } else {
-                        zig_unreachable();
-                    }
+                if (target_type->id == TypeTableEntryIdEnum) {
+                    assert(item_node->type == NodeTypeSymbol);
+                    TypeEnumField *enum_field = item_node->data.symbol_expr.enum_field;
+                    assert(enum_field);
+                    val = LLVMConstInt(target_type->data.enumeration.tag_type->type_ref,
+                            enum_field->value, false);
                 } else {
-                    val = val_handle;
+                    assert(get_resolved_expr(item_node)->const_val.ok);
+                    val = gen_expr(g, item_node);
                 }
                 LLVMAddCase(switch_instr, val, prong_block);
             }

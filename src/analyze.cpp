@@ -4508,10 +4508,30 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                     if (item_node->type == NodeTypeSwitchRange) {
                         zig_panic("TODO range in switch statement");
                     }
-                    analyze_expression(g, import, context, expr_type, item_node);
-                    ConstExprValue *const_val = &get_resolved_expr(item_node)->const_val;
-                    if (!const_val->ok) {
-                        add_node_error(g, item_node, buf_sprintf("unable to resolve constant expression"));
+
+                    if (expr_type->id == TypeTableEntryIdEnum) {
+                        if (item_node->type == NodeTypeSymbol) {
+                            Buf *field_name = &item_node->data.symbol_expr.symbol;
+                            TypeEnumField *type_enum_field = get_enum_field(expr_type, field_name);
+                            if (type_enum_field) {
+                                item_node->data.symbol_expr.enum_field = type_enum_field;
+                            } else {
+                                add_node_error(g, item_node,
+                                        buf_sprintf("enum '%s' has no field '%s'",
+                                            buf_ptr(&expr_type->name), buf_ptr(field_name)));
+                            }
+                        } else {
+                            add_node_error(g, item_node, buf_sprintf("expected enum tag name"));
+                        }
+                    } else {
+                        TypeTableEntry *item_type = analyze_expression(g, import, context, expr_type, item_node);
+                        if (item_type->id != TypeTableEntryIdInvalid) {
+                            ConstExprValue *const_val = &get_resolved_expr(item_node)->const_val;
+                            if (!const_val->ok) {
+                                add_node_error(g, item_node,
+                                    buf_sprintf("unable to resolve constant expression"));
+                            }
+                        }
                     }
                 }
                 var_type = expr_type;

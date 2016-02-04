@@ -59,14 +59,14 @@ fn constant_enum_with_payload() {
 
 fn should_be_empty(x: AnEnumWithPayload) {
     switch (x) {
-        AnEnumWithPayload.Empty => {},
+        Empty => {},
         else => unreachable{},
     }
 }
 
 fn should_be_not_empty(x: AnEnumWithPayload) {
     switch (x) {
-        AnEnumWithPayload.Empty => unreachable{},
+        Empty => unreachable{},
         else => {},
     }
 }
@@ -111,9 +111,9 @@ fn non_const_cast_bool_to_int(t: bool, f: bool) {
 fn switch_on_enum() {
     const fruit = Fruit.Orange;
     switch (fruit) {
-        Fruit.Apple => unreachable{},
-        Fruit.Orange => {},
-        Fruit.Banana => unreachable{},
+        Apple => unreachable{},
+        Orange => {},
+        Banana => unreachable{},
     }
     non_const_switch_on_enum(fruit);
 }
@@ -124,8 +124,26 @@ enum Fruit {
 }
 fn non_const_switch_on_enum(fruit: Fruit) {
     switch (fruit) {
-        Fruit.Apple => unreachable{},
-        Fruit.Orange => {},
-        Fruit.Banana => unreachable{},
+        Apple => unreachable{},
+        Orange => {},
+        Banana => unreachable{},
     }
+}
+
+#attribute("test")
+fn switch_statement() {
+    const foo = SwitchStatmentFoo.C;
+    const val: i32 = switch (foo) {
+        A => 1,
+        B => 2,
+        C => 3,
+        D => 4,
+    };
+    if (val != 3) unreachable{};
+}
+enum SwitchStatmentFoo {
+    A,
+    B,
+    C,
+    D,
 }
