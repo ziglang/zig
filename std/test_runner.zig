@@ -10,8 +10,7 @@ extern var zig_test_fn_list: []TestFn;
 pub fn main(args: [][]u8) -> %void {
     for (test_fn, zig_test_fn_list, i) {
         %%stderr.print_str("Test ");
-        // TODO get rid of the isize
-        %%stderr.print_i64(i + isize(1));
+        %%stderr.print_i64(i + 1);
         %%stderr.print_str("/");
         %%stderr.print_i64(zig_test_fn_list.len);
         %%stderr.print_str(" ");

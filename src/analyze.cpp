@@ -2841,12 +2841,12 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
         case BinOpTypeDiv:
         case BinOpTypeMod:
             {
-                AstNode *op1 = node->data.bin_op_expr.op1;
-                AstNode *op2 = node->data.bin_op_expr.op2;
-                TypeTableEntry *lhs_type = analyze_expression(g, import, context, expected_type, op1);
-                TypeTableEntry *rhs_type = analyze_expression(g, import, context, expected_type, op2);
+                AstNode **op1 = node->data.bin_op_expr.op1->parent_field;
+                AstNode **op2 = node->data.bin_op_expr.op2->parent_field;
+                TypeTableEntry *lhs_type = analyze_expression(g, import, context, expected_type, *op1);
+                TypeTableEntry *rhs_type = analyze_expression(g, import, context, expected_type, *op2);
 
-                AstNode *op_nodes[] = {op1, op2};
+                AstNode *op_nodes[] = {*op1, *op2};
                 TypeTableEntry *op_types[] = {lhs_type, rhs_type};
 
                 TypeTableEntry *resolved_type = resolve_peer_type_compatibility(g, import, context, node,
@@ -2856,32 +2856,32 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                     return resolved_type;
                 }
 
-                ConstExprValue *op1_val = &get_resolved_expr(op1)->const_val;
-                ConstExprValue *op2_val = &get_resolved_expr(op2)->const_val;
+                ConstExprValue *op1_val = &get_resolved_expr(*op1)->const_val;
+                ConstExprValue *op2_val = &get_resolved_expr(*op2)->const_val;
                 if (!op1_val->ok || !op2_val->ok) {
                     return resolved_type;
                 }
 
                 if (bin_op_type == BinOpTypeAdd) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_add, op1, op2, resolved_type);
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_add, *op1, *op2, resolved_type);
                 } else if (bin_op_type == BinOpTypeSub) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_sub, op1, op2, resolved_type);
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_sub, *op1, *op2, resolved_type);
                 } else if (bin_op_type == BinOpTypeMult) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_mul, op1, op2, resolved_type);
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_mul, *op1, *op2, resolved_type);
                 } else if (bin_op_type == BinOpTypeDiv) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_div, op1, op2, resolved_type);
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_div, *op1, *op2, resolved_type);
                 } else if (bin_op_type == BinOpTypeMod) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_mod, op1, op2, resolved_type);
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_mod, *op1, *op2, resolved_type);
                 } else if (bin_op_type == BinOpTypeBinOr) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_or, op1, op2, resolved_type);
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_or, *op1, *op2, resolved_type);
                 } else if (bin_op_type == BinOpTypeBinAnd) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_and, op1, op2, resolved_type);
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_and, *op1, *op2, resolved_type);
                 } else if (bin_op_type == BinOpTypeBinXor) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_xor, op1, op2, resolved_type);
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_xor, *op1, *op2, resolved_type);
                 } else if (bin_op_type == BinOpTypeBitShiftLeft) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_shl, op1, op2, resolved_type);
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_shl, *op1, *op2, resolved_type);
                 } else if (bin_op_type == BinOpTypeBitShiftRight) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_shr, op1, op2, resolved_type);
+                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_shr, *op1, *op2, resolved_type);
                 } else {
                     zig_unreachable();
                 }
