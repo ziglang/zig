@@ -3354,6 +3354,7 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
     }
 
     BlockContext *child_context = new_block_context(node, context);
+    child_context->parent_loop_node = node;
 
     AstNode *elem_var_node = node->data.for_expr.elem_node;
     elem_var_node->block_context = child_context;
@@ -3385,8 +3386,13 @@ static TypeTableEntry *analyze_break_expr(CodeGen *g, ImportTableEntry *import, 
 
     AstNode *loop_node = context->parent_loop_node;
     if (loop_node) {
-        assert(loop_node->type == NodeTypeWhileExpr);
-        loop_node->data.while_expr.contains_break = true;
+        if (loop_node->type == NodeTypeWhileExpr) {
+            loop_node->data.while_expr.contains_break = true;
+        } else if (loop_node->type == NodeTypeForExpr) {
+            loop_node->data.for_expr.contains_break = true;
+        } else {
+            zig_unreachable();
+        }
     } else {
         add_node_error(g, node, buf_sprintf("'break' expression outside loop"));
     }
@@ -3396,7 +3402,16 @@ static TypeTableEntry *analyze_break_expr(CodeGen *g, ImportTableEntry *import, 
 static TypeTableEntry *analyze_continue_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    if (!context->parent_loop_node) {
+    AstNode *loop_node = context->parent_loop_node;
+    if (loop_node) {
+        if (loop_node->type == NodeTypeWhileExpr) {
+            loop_node->data.while_expr.contains_continue = true;
+        } else if (loop_node->type == NodeTypeForExpr) {
+            loop_node->data.for_expr.contains_continue = true;
+        } else {
+            zig_unreachable();
+        }
+    } else {
         add_node_error(g, node, buf_sprintf("'continue' expression outside loop"));
     }
     return g->builtin_types.entry_unreachable;

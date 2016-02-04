@@ -2089,6 +2089,7 @@ static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
     LLVMBasicBlockRef cond_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForCond");
     LLVMBasicBlockRef body_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForBody");
     LLVMBasicBlockRef end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForEnd");
+    LLVMBasicBlockRef continue_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForContinue");
 
     LLVMValueRef array_val = gen_array_base_ptr(g, node->data.for_expr.array_expr);
     add_debug_source_node(g, node);
@@ -2122,16 +2123,20 @@ static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
     gen_assign_raw(g, node, BinOpTypeAssign, elem_var->value_ref, elem_val,
             elem_var->type, child_type);
     g->break_block_stack.append(end_block);
-    g->continue_block_stack.append(cond_block);
+    g->continue_block_stack.append(continue_block);
     gen_expr(g, node->data.for_expr.body);
     g->break_block_stack.pop();
     g->continue_block_stack.pop();
     if (get_expr_type(node->data.for_expr.body)->id != TypeTableEntryIdUnreachable) {
         add_debug_source_node(g, node);
-        LLVMValueRef new_index_val = LLVMBuildAdd(g->builder, index_val, one_const, "");
-        LLVMBuildStore(g->builder, new_index_val, index_ptr);
-        LLVMBuildBr(g->builder, cond_block);
+        LLVMBuildBr(g->builder, continue_block);
     }
+
+    LLVMPositionBuilderAtEnd(g->builder, continue_block);
+    add_debug_source_node(g, node);
+    LLVMValueRef new_index_val = LLVMBuildAdd(g->builder, index_val, one_const, "");
+    LLVMBuildStore(g->builder, new_index_val, index_ptr);
+    LLVMBuildBr(g->builder, cond_block);
 
     LLVMPositionBuilderAtEnd(g->builder, end_block);
     return nullptr;

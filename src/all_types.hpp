@@ -474,6 +474,7 @@ struct AstNodeWhileExpr {
     // populated by semantic analyzer
     bool condition_always_true;
     bool contains_break;
+    bool contains_continue;
     Expr resolved_expr;
     BlockContext *block_context;
 };
@@ -486,6 +487,7 @@ struct AstNodeForExpr {
 
     // populated by semantic analyzer
     bool contains_break;
+    bool contains_continue;
     Expr resolved_expr;
     VariableTableEntry *elem_var;
     VariableTableEntry *index_var;

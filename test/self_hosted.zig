@@ -52,17 +52,33 @@ error SecondError;
 #attribute("test")
 fn constant_enum_with_payload() {
     should_be_empty(AnEnumWithPayload.Empty);
-    should_be_13(AnEnumWithPayload.Full(13));
+    should_be_not_empty(AnEnumWithPayload.Full(13));
 }
 
 fn should_be_empty(x: AnEnumWithPayload) {
     if (x != AnEnumWithPayload.Empty) unreachable{}
 }
 
-fn should_be_13(x: AnEnumWithPayload) {
+fn should_be_not_empty(x: AnEnumWithPayload) {
+    if (x == AnEnumWithPayload.Empty) unreachable{}
 }
 
 enum AnEnumWithPayload {
     Empty,
     Full: i32,
+}
+
+
+#attribute("test")
+fn continue_in_for_loop() {
+    const array = []i32 {1, 2, 3, 4, 5};
+    var sum : i32 = 0;
+    for (x, array) {
+        sum += x;
+        if (x < 3) {
+            continue;
+        }
+        break;
+    }
+    if (sum != 6) unreachable{}
 }
