@@ -2121,6 +2121,10 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
                 continue;
             }
 
+            if (type_field->type_entry->id == TypeTableEntryIdInvalid) {
+                return g->builtin_types.entry_invalid;
+            }
+
             int field_index = type_field->src_index;
             field_use_counts[field_index] += 1;
             if (field_use_counts[field_index] > 1) {
