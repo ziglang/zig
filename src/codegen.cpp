@@ -2412,6 +2412,9 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
     if (!else_prong) {
         LLVMPositionBuilderAtEnd(g->builder, else_block);
         add_debug_source_node(g, node);
+        if (!g->is_release_build) {
+            LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
+        }
         LLVMBuildUnreachable(g->builder);
     }
 
