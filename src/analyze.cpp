@@ -3783,7 +3783,19 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         actual_type->id == TypeTableEntryIdNumLitInt)
     {
         if (num_lit_fits_in_other_type(g, expr_node, wanted_type)) {
-            node->data.fn_call_expr.cast_op = CastOpNoop;
+            if ((actual_type->id == TypeTableEntryIdNumLitFloat &&
+                 wanted_type->id == TypeTableEntryIdFloat) ||
+                (actual_type->id == TypeTableEntryIdNumLitInt &&
+                 wanted_type->id == TypeTableEntryIdInt))
+            {
+                node->data.fn_call_expr.cast_op = CastOpNoop;
+            } else if (wanted_type->id == TypeTableEntryIdInt) {
+                node->data.fn_call_expr.cast_op = CastOpFloatToInt;
+            } else if (wanted_type->id == TypeTableEntryIdFloat) {
+                node->data.fn_call_expr.cast_op = CastOpIntToFloat;
+            } else {
+                zig_unreachable();
+            }
             eval_const_expr_implicit_cast(g, node, expr_node);
             return wanted_type;
         } else {
