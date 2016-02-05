@@ -2873,7 +2873,11 @@ static void do_code_gen(CodeGen *g) {
 
         TypeTableEntry *fn_type = fn_table_entry->type_entry;
 
-        if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type)) {
+        if (!type_has_bits(fn_type->data.fn.fn_type_id.return_type)) {
+            // nothing to do
+        } else if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdPointer) {
+            LLVMZigAddNonNullAttr(fn_table_entry->fn_value, 0);
+        } else if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type)) {
             LLVMValueRef first_arg = LLVMGetParam(fn_table_entry->fn_value, 0);
             LLVMAddAttribute(first_arg, LLVMStructRetAttribute);
             LLVMZigAddNonNullAttr(fn_table_entry->fn_value, 1);
