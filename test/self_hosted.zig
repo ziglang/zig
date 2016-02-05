@@ -147,3 +147,29 @@ enum SwitchStatmentFoo {
     C,
     D,
 }
+
+
+#attribute("test")
+fn switch_prong_with_var() {
+    switch_prong_with_var_fn(SwitchProngWithVarEnum.One(13));
+    switch_prong_with_var_fn(SwitchProngWithVarEnum.Two(13.0));
+    switch_prong_with_var_fn(SwitchProngWithVarEnum.Meh);
+}
+enum SwitchProngWithVarEnum {
+    One: i32,
+    Two: f32,
+    Meh,
+}
+fn switch_prong_with_var_fn(a: SwitchProngWithVarEnum) {
+    switch(a) {
+        One => |x| {
+            if (x != 13) unreachable{};
+        },
+        Two => |x| {
+            if (x != 13.0) unreachable{};
+        },
+        Meh => |x| {
+            const v: void = x;
+        },
+    }
+}

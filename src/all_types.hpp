@@ -510,6 +510,7 @@ struct AstNodeSwitchProng {
     // populated by semantic analyzer
     BlockContext *block_context;
     VariableTableEntry *var;
+    bool var_is_target_expr;
 };
 
 struct AstNodeSwitchRange {

@@ -4495,6 +4495,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
             AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
 
             TypeTableEntry *var_type;
+            bool var_is_target_expr;
             if (prong_node->data.switch_prong.items.length == 0) {
                 if (else_prong) {
                     add_node_error(g, prong_node, buf_sprintf("multiple else prongs in switch expression"));
@@ -4502,7 +4503,11 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                     else_prong = prong_node;
                 }
                 var_type = expr_type;
+                var_is_target_expr = true;
             } else {
+                bool all_agree_on_var_type = true;
+                var_type = nullptr;
+
                 for (int item_i = 0; item_i < prong_node->data.switch_prong.items.length; item_i += 1) {
                     AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
                     if (item_node->type == NodeTypeSwitchRange) {
@@ -4515,6 +4520,12 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                             TypeEnumField *type_enum_field = get_enum_field(expr_type, field_name);
                             if (type_enum_field) {
                                 item_node->data.symbol_expr.enum_field = type_enum_field;
+                                if (!var_type) {
+                                    var_type = type_enum_field->type_entry;
+                                }
+                                if (type_enum_field->type_entry != var_type) {
+                                    all_agree_on_var_type = false;
+                                }
                             } else {
                                 add_node_error(g, item_node,
                                         buf_sprintf("enum '%s' has no field '%s'",
@@ -4534,7 +4545,12 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                         }
                     }
                 }
-                var_type = expr_type;
+                if (!var_type || !all_agree_on_var_type) {
+                    var_type = expr_type;
+                    var_is_target_expr = true;
+                } else {
+                    var_is_target_expr = false;
+                }
             }
 
             BlockContext *child_context = new_block_context(node, context);
@@ -4546,6 +4562,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                 var_node->block_context = child_context;
                 prong_node->data.switch_prong.var = add_local_var(g, var_node, child_context, var_name,
                         var_type, true);
+                prong_node->data.switch_prong.var_is_target_expr = var_is_target_expr;
             }
 
             peer_types[prong_i] = analyze_expression(g, import, child_context, expected_type,
