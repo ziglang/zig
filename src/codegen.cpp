@@ -2876,6 +2876,7 @@ static void do_code_gen(CodeGen *g) {
         if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type)) {
             LLVMValueRef first_arg = LLVMGetParam(fn_table_entry->fn_value, 0);
             LLVMAddAttribute(first_arg, LLVMStructRetAttribute);
+            LLVMZigAddNonNullAttr(fn_table_entry->fn_value, 1);
         }
 
         // set parameter attributes
@@ -2903,12 +2904,7 @@ static void do_code_gen(CodeGen *g) {
                 LLVMAddAttribute(argument_val, LLVMReadOnlyAttribute);
             }
             if (param_type->id == TypeTableEntryIdPointer) {
-                // when https://github.com/andrewrk/zig/issues/82 is fixed, add
-                // non null attribute here
-
-                ///`i` is arg index + 1
-                ///I think that 0 is the return index, but it has a named LLVM constant variable
-                LLVMZigAddNonNullAttr(fn_table_entry->fn_value, param_decl_i + 1);
+                LLVMZigAddNonNullAttr(fn_table_entry->fn_value, gen_index + 1);
             }
             if (is_byval) {
                 // TODO
