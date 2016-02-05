@@ -36,6 +36,7 @@ compromises backward compatibility.
    for example, use GDB to debug your software.
  * Release mode produces heavily optimized code. What other projects call
    "Link Time Optimization" Zig does automatically.
+ * Mark functions as tests and automatically run them with `zig test`.
  * Supported architectures: `x86_64`
  * Supported operating systems: Linux
 
@@ -48,8 +49,7 @@ compromises backward compatibility.
  * Eliminate the need for configure, make, cmake, etc.
  * Eliminate the preprocessor, but (most) everything you can accomplish with
    the preprocessor, you can accomplish directly in the language.
- * Ability to mark functions as test and automatically run them in test mode.
-   Automatically provide test coverage.
+ * Automatically provide test coverage.
  * Friendly toward package maintainers.
  * Ability to declare dependencies as Git URLS with commit locking (can
    provide a tag or sha1).
