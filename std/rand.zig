@@ -53,6 +53,11 @@ pub struct Rand {
         }
     }
 
+    pub fn float32(r: &Rand) -> f32 {
+        const precision = 16777216;
+        return f32(r.range_u64(0, precision)) / precision;
+    }
+
     fn generate_numbers(r: &Rand) {
         for (item, r.array, i) {
             const y : u32 = (item & 0x80000000) + (r.array[(i + 1) % ARRAY_SIZE] & 0x7fffffff);
@@ -90,4 +95,18 @@ pub fn rand_new(seed: u32) -> Rand {
         i += 1;
     }
     return r;
+}
+
+#attribute("test")
+fn test_float32() {
+    var r = rand_new(42);
+
+    // TODO for loop with range
+    var i: i32 = 0;
+    while (i < 1000) {
+        const val = r.float32();
+        if (!(val >= 0.0)) unreachable{};
+        if (!(val < 1.0)) unreachable{};
+        i += 1;
+    }
 }
