@@ -140,6 +140,16 @@ LLVMValueRef LLVMZigBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *A
     return wrap(unwrap(B)->Insert(call_inst));
 }
 
+void LLVMZigAddNonNullAttr(LLVMValueRef fn, unsigned i)
+{
+    assert( isa<Function>(unwrap(fn)) );
+
+    Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(fn));
+
+    unwrapped_function->addAttribute(i, Attribute::NonNull);
+}
+
+
 LLVMZigDIType *LLVMZigCreateDebugPointerType(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *pointee_type,
         uint64_t size_in_bits, uint64_t align_in_bits, const char *name)
 {

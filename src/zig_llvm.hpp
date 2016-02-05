@@ -39,6 +39,7 @@ void LLVMZigOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef 
 LLVMValueRef LLVMZigBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, unsigned CC, const char *Name);
 
+void LLVMZigAddNonNullAttr(LLVMValueRef fn, unsigned i);
 
 LLVMZigDIType *LLVMZigCreateDebugPointerType(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *pointee_type,
         uint64_t size_in_bits, uint64_t align_in_bits, const char *name);
