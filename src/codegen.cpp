@@ -1593,7 +1593,19 @@ static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
     return phi;
 }
 
+static void gen_defers_for_block(CodeGen *g, BlockContext *inner_block, BlockContext *outer_block) {
+    while (inner_block != outer_block) {
+        if (inner_block->node->type == NodeTypeDefer) {
+            gen_expr(g, inner_block->node->data.defer.expr);
+        }
+        inner_block = inner_block->parent;
+    }
+}
+
 static LLVMValueRef gen_return(CodeGen *g, AstNode *source_node, LLVMValueRef value) {
+    gen_defers_for_block(g, source_node->block_context,
+            source_node->block_context->fn_entry->fn_def_node->block_context);
+
     TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
     if (handle_is_ptr(return_type)) {
         assert(g->cur_ret_ptr);
@@ -1615,7 +1627,9 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
 
     switch (node->data.return_expr.kind) {
         case ReturnKindUnconditional:
-            return gen_return(g, node, value);
+            {
+                return gen_return(g, node, value);
+            }
         case ReturnKindError:
             {
                 assert(value_type->id == TypeTableEntryIdErrorUnion);
@@ -1820,13 +1834,7 @@ static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *i
         return nullptr;
     }
 
-    BlockContext *block_context = block_node->data.block.nested_block;
-    while (block_context != block_node->data.block.child_block) {
-        if (block_context->node->type == NodeTypeDefer) {
-            gen_expr(g, block_context->node->data.defer.expr);
-        }
-        block_context = block_context->parent;
-    }
+    gen_defers_for_block(g, block_node->data.block.nested_block, block_node->data.block.child_block);
 
     if (implicit_return_type) {
         return gen_return(g, block_node, return_value);

@@ -1159,14 +1159,6 @@ struct ErrorTableEntry {
     AstNode *decl_node;
 };
 
-enum BlockExitPath {
-    BlockExitPathFallthrough,
-    BlockExitPathReturn,
-    BlockExitPathGoto,
-
-    BlockExitPathCount,
-};
-
 struct BlockContext {
     // One of: NodeTypeFnDef, NodeTypeBlock, NodeTypeRoot, NodeTypeDefer, NodeTypeVariableDeclaration
     AstNode *node;
@@ -1186,7 +1178,6 @@ struct BlockContext {
 
     LLVMZigDIScope *di_scope;
     Buf *c_import_buf;
-    bool block_exit_paths[BlockExitPathCount];
 };
 
 enum CIntType {

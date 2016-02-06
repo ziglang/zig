@@ -4545,9 +4545,6 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
         normalize_parent_ptrs(node);
     }
 
-    // TODO follow the blocks to their parents, loop over all of them, set them all to true
-    context->block_exit_paths[BlockExitPathReturn] = true;
-
     TypeTableEntry *expected_return_type = get_return_type(context);
 
     switch (node->data.return_expr.kind) {

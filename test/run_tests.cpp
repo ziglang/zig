@@ -1532,6 +1532,19 @@ pub fn main(args: [][]u8) -> %void {
 }
     )SOURCE", "before\nafter\ndefer3\ndefer2\ndefer1\n");
 
+
+    add_simple_case("defer with return", R"SOURCE(
+import "std.zig";
+pub fn main(args: [][]u8) -> %void {
+    %%stdout.printf("before\n");
+    defer %%stdout.printf("defer1\n");
+    defer %%stdout.printf("defer2\n");
+    if (args.len == 1) return;
+    defer %%stdout.printf("defer3\n");
+    %%stdout.printf("after\n");
+}
+    )SOURCE", "before\ndefer2\ndefer1\n");
+
 }
 
 
