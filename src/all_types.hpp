@@ -78,8 +78,18 @@ struct ConstExprValue {
     } data;
 };
 
+enum ReturnKnowledge {
+    ReturnKnowledgeUnknown,
+    ReturnKnowledgeKnownError,
+    ReturnKnowledgeKnownNonError,
+    ReturnKnowledgeKnownNull,
+    ReturnKnowledgeKnownNonNull,
+    ReturnKnowledgeSkipDefers,
+};
+
 struct Expr {
     TypeTableEntry *type_entry;
+    ReturnKnowledge return_knowledge;
 
     LLVMValueRef const_llvm_val;
     ConstExprValue const_val;

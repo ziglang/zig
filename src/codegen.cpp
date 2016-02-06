@@ -483,6 +483,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
             }
         case CastOpPureErrorWrap:
             assert(wanted_type->id == TypeTableEntryIdErrorUnion);
+
             if (!type_has_bits(wanted_type->data.error.child_type)) {
                 return expr_val;
             } else {
@@ -1593,18 +1594,48 @@ static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
     return phi;
 }
 
-static void gen_defers_for_block(CodeGen *g, BlockContext *inner_block, BlockContext *outer_block) {
+static void gen_defers_for_block(CodeGen *g, BlockContext *inner_block, BlockContext *outer_block,
+        bool gen_error_defers, bool gen_maybe_defers)
+{
     while (inner_block != outer_block) {
-        if (inner_block->node->type == NodeTypeDefer) {
+        if (inner_block->node->type == NodeTypeDefer &&
+           ((inner_block->node->data.defer.kind == ReturnKindUnconditional) ||
+            (gen_error_defers && inner_block->node->data.defer.kind == ReturnKindError) ||
+            (gen_maybe_defers && inner_block->node->data.defer.kind == ReturnKindMaybe)))
+        {
             gen_expr(g, inner_block->node->data.defer.expr);
         }
         inner_block = inner_block->parent;
     }
 }
 
-static LLVMValueRef gen_return(CodeGen *g, AstNode *source_node, LLVMValueRef value) {
-    gen_defers_for_block(g, source_node->block_context,
-            source_node->block_context->fn_entry->fn_def_node->block_context);
+static int get_conditional_defer_count(BlockContext *inner_block, BlockContext *outer_block) {
+    int result = 0;
+    while (inner_block != outer_block) {
+        if (inner_block->node->type == NodeTypeDefer &&
+           (inner_block->node->data.defer.kind == ReturnKindError ||
+            inner_block->node->data.defer.kind == ReturnKindMaybe))
+        {
+            result += 1;
+        }
+        inner_block = inner_block->parent;
+    }
+    return result;
+}
+
+static LLVMValueRef gen_return(CodeGen *g, AstNode *source_node, LLVMValueRef value, ReturnKnowledge rk) {
+    BlockContext *defer_inner_block = source_node->block_context;
+    BlockContext *defer_outer_block = source_node->block_context->fn_entry->fn_def_node->block_context;
+    if (rk == ReturnKnowledgeUnknown) {
+        if (get_conditional_defer_count(defer_inner_block, defer_outer_block) > 0) {
+            // generate branching code that checks the return value and generates defers
+            // if the return value is error
+            zig_panic("TODO");
+        }
+    } else if (rk != ReturnKnowledgeSkipDefers) {
+        gen_defers_for_block(g, defer_inner_block, defer_outer_block,
+                rk == ReturnKnowledgeKnownError, rk == ReturnKnowledgeKnownNull);
+    }
 
     TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
     if (handle_is_ptr(return_type)) {
@@ -1628,7 +1659,23 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
     switch (node->data.return_expr.kind) {
         case ReturnKindUnconditional:
             {
-                return gen_return(g, node, value);
+                Expr *expr = get_resolved_expr(param_node);
+                if (expr->const_val.ok) {
+                    if (value_type->id == TypeTableEntryIdErrorUnion) {
+                        if (expr->const_val.data.x_err.err) {
+                            expr->return_knowledge = ReturnKnowledgeKnownError;
+                        } else {
+                            expr->return_knowledge = ReturnKnowledgeKnownNonError;
+                        }
+                    } else if (value_type->id == TypeTableEntryIdMaybe) {
+                        if (expr->const_val.data.x_maybe) {
+                            expr->return_knowledge = ReturnKnowledgeKnownNonNull;
+                        } else {
+                            expr->return_knowledge = ReturnKnowledgeKnownNull;
+                        }
+                    }
+                }
+                return gen_return(g, node, value, expr->return_knowledge);
             }
         case ReturnKindError:
             {
@@ -1653,7 +1700,7 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                 LLVMPositionBuilderAtEnd(g->builder, return_block);
                 TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
                 if (return_type->id == TypeTableEntryIdPureError) {
-                    gen_return(g, node, err_val);
+                    gen_return(g, node, err_val, ReturnKnowledgeKnownError);
                 } else if (return_type->id == TypeTableEntryIdErrorUnion) {
                     if (type_has_bits(return_type->data.error.child_type)) {
                         assert(g->cur_ret_ptr);
@@ -1663,7 +1710,7 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                         LLVMBuildStore(g->builder, err_val, tag_ptr);
                         LLVMBuildRetVoid(g->builder);
                     } else {
-                        gen_return(g, node, err_val);
+                        gen_return(g, node, err_val, ReturnKnowledgeKnownError);
                     }
                 } else {
                     zig_unreachable();
@@ -1834,10 +1881,11 @@ static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *i
         return nullptr;
     }
 
-    gen_defers_for_block(g, block_node->data.block.nested_block, block_node->data.block.child_block);
+    gen_defers_for_block(g, block_node->data.block.nested_block, block_node->data.block.child_block,
+            false, false);
 
     if (implicit_return_type) {
-        return gen_return(g, block_node, return_value);
+        return gen_return(g, block_node, return_value, ReturnKnowledgeSkipDefers);
     } else {
         return return_value;
     }

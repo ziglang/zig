@@ -1545,6 +1545,42 @@ pub fn main(args: [][]u8) -> %void {
 }
     )SOURCE", "before\ndefer2\ndefer1\n");
 
+
+    add_simple_case("%defer and it fails", R"SOURCE(
+import "std.zig";
+pub fn main(args: [][]u8) -> %void {
+    do_test() %% return;
+}
+fn do_test() -> %void {
+    %%stdout.printf("before\n");
+    defer %%stdout.printf("defer1\n");
+    %defer %%stdout.printf("deferErr\n");
+    %return its_gonna_fail();
+    defer %%stdout.printf("defer3\n");
+    %%stdout.printf("after\n");
+}
+error IToldYouItWouldFail;
+fn its_gonna_fail() -> %void {
+    return error.IToldYouItWouldFail;
+}
+    )SOURCE", "before\ndeferErr\ndefer1\n");
+
+
+    add_simple_case("%defer and it passes", R"SOURCE(
+import "std.zig";
+pub fn main(args: [][]u8) -> %void {
+    do_test() %% return;
+}
+fn do_test() -> %void {
+    %%stdout.printf("before\n");
+    defer %%stdout.printf("defer1\n");
+    %defer %%stdout.printf("deferErr\n");
+    %return its_gonna_pass();
+    defer %%stdout.printf("defer3\n");
+    %%stdout.printf("after\n");
+}
+fn its_gonna_pass() -> %void { }
+    )SOURCE", "before\nafter\ndefer3\ndefer1\n");
 }
 
 

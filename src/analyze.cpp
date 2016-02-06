@@ -3693,11 +3693,13 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     // explicit cast from child type of maybe type to maybe type
     if (wanted_type->id == TypeTableEntryIdMaybe) {
         if (types_match_const_cast_only(wanted_type->data.maybe.child_type, actual_type)) {
+            get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownNonNull;
             return resolve_cast(g, context, node, expr_node, wanted_type, CastOpMaybeWrap, true);
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
                    actual_type->id == TypeTableEntryIdNumLitFloat)
         {
             if (num_lit_fits_in_other_type(g, expr_node, wanted_type->data.maybe.child_type)) {
+                get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownNonNull;
                 return resolve_cast(g, context, node, expr_node, wanted_type, CastOpMaybeWrap, true);
             } else {
                 return g->builtin_types.entry_invalid;
@@ -3708,11 +3710,13 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     // explicit cast from child type of error type to error type
     if (wanted_type->id == TypeTableEntryIdErrorUnion) {
         if (types_match_const_cast_only(wanted_type->data.error.child_type, actual_type)) {
+            get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownNonError;
             return resolve_cast(g, context, node, expr_node, wanted_type, CastOpErrorWrap, true);
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
                    actual_type->id == TypeTableEntryIdNumLitFloat)
         {
             if (num_lit_fits_in_other_type(g, expr_node, wanted_type->data.error.child_type)) {
+                get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownNonError;
                 return resolve_cast(g, context, node, expr_node, wanted_type, CastOpErrorWrap, true);
             } else {
                 return g->builtin_types.entry_invalid;
@@ -3724,6 +3728,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     if (wanted_type->id == TypeTableEntryIdErrorUnion &&
         actual_type->id == TypeTableEntryIdPureError)
     {
+        get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownError;
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPureErrorWrap, false);
     }
 
@@ -4602,44 +4607,11 @@ static TypeTableEntry *analyze_defer(CodeGen *g, ImportTableEntry *import, Block
 
     node->data.defer.child_block = new_block_context(node, parent_context);
 
-    switch (node->data.defer.kind) {
-        case ReturnKindUnconditional:
-            {
-                TypeTableEntry *resolved_type = analyze_expression(g, import, parent_context, nullptr,
-                        node->data.defer.expr);
-                validate_voided_expr(g, node->data.defer.expr, resolved_type);
+    TypeTableEntry *resolved_type = analyze_expression(g, import, parent_context, nullptr,
+            node->data.defer.expr);
+    validate_voided_expr(g, node->data.defer.expr, resolved_type);
 
-                return g->builtin_types.entry_void;
-            }
-        case ReturnKindError:
-            {
-                TypeTableEntry *resolved_type = analyze_expression(g, import, parent_context, nullptr,
-                        node->data.defer.expr);
-                if (resolved_type->id == TypeTableEntryIdInvalid) {
-                    // OK
-                } else if (resolved_type->id == TypeTableEntryIdErrorUnion) {
-                    // OK
-                } else {
-                    add_node_error(g, node->data.defer.expr,
-                            buf_sprintf("expected error type, got '%s'", buf_ptr(&resolved_type->name)));
-                }
-                return g->builtin_types.entry_void;
-            }
-        case ReturnKindMaybe:
-            {
-                TypeTableEntry *resolved_type = analyze_expression(g, import, parent_context, nullptr,
-                        node->data.defer.expr);
-                if (resolved_type->id == TypeTableEntryIdInvalid) {
-                    // OK
-                } else if (resolved_type->id == TypeTableEntryIdMaybe) {
-                    // OK
-                } else {
-                    add_node_error(g, node->data.defer.expr,
-                            buf_sprintf("expected maybe type, got '%s'", buf_ptr(&resolved_type->name)));
-                }
-                return g->builtin_types.entry_void;
-            }
-    }
+    return g->builtin_types.entry_void;
 }
 
 static TypeTableEntry *analyze_string_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
