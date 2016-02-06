@@ -259,25 +259,6 @@ pub fn main(args: [][]u8) -> %void {
 }
     )SOURCE", "pass\n");
 
-    add_simple_case("goto", R"SOURCE(
-import "std.zig";
-
-fn loop(a : i32) {
-    if (a == 0) {
-        goto done;
-    }
-    %%stdout.printf("loop\n");
-    loop(a - 1);
-
-done:
-    return;
-}
-
-pub fn main(args: [][]u8) -> %void {
-    loop(3);
-}
-    )SOURCE", "loop\nloop\nloop\n");
-
     add_simple_case("local variables", R"SOURCE(
 import "std.zig";
 
@@ -1613,16 +1594,6 @@ fn a() {
             ".tmp_source.zig:3:5: error: use of undeclared identifier 'b'",
             ".tmp_source.zig:4:5: error: use of undeclared identifier 'c'");
 
-    add_compile_fail_case("goto cause unreachable code", R"SOURCE(
-fn a() {
-    goto done;
-    b();
-done:
-    return;
-}
-fn b() {}
-    )SOURCE", 1, ".tmp_source.zig:4:5: error: unreachable code");
-
     add_compile_fail_case("parameter redeclaration", R"SOURCE(
 fn f(a : i32, a : i32) {
 }
@@ -1669,12 +1640,6 @@ fn f() {
     add_compile_fail_case("unreachable parameter", R"SOURCE(
 fn f(a : unreachable) {}
     )SOURCE", 1, ".tmp_source.zig:2:10: error: parameter of type 'unreachable' not allowed");
-
-    add_compile_fail_case("unused label", R"SOURCE(
-fn f() {
-a_label:
-}
-    )SOURCE", 1, ".tmp_source.zig:3:1: error: label 'a_label' defined but not used");
 
     add_compile_fail_case("bad assignment target", R"SOURCE(
 fn f() {

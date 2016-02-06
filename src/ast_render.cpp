@@ -122,6 +122,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Directive";
         case NodeTypeReturnExpr:
             return "ReturnExpr";
+        case NodeTypeDeferExpr:
+            return "DeferExpr";
         case NodeTypeVariableDeclaration:
             return "VariableDeclaration";
         case NodeTypeTypeDecl:
@@ -257,6 +259,14 @@ void ast_print(FILE *f, AstNode *node, int indent) {
                 fprintf(f, "%s%s\n", prefix_str, node_type_str(node->type));
                 if (node->data.return_expr.expr)
                     ast_print(f, node->data.return_expr.expr, indent + 2);
+                break;
+            }
+        case NodeTypeDeferExpr:
+            {
+                const char *prefix_str = return_prefix_str(node->data.defer_expr.kind);
+                fprintf(f, "%s%s\n", prefix_str, node_type_str(node->type));
+                if (node->data.defer_expr.expr)
+                    ast_print(f, node->data.defer_expr.expr, indent + 2);
                 break;
             }
         case NodeTypeVariableDeclaration:
@@ -619,6 +629,8 @@ static void render_node(AstRender *ar, AstNode *node) {
                     buf_ptr(&node->data.directive.param));
             break;
         case NodeTypeReturnExpr:
+            zig_panic("TODO");
+        case NodeTypeDeferExpr:
             zig_panic("TODO");
         case NodeTypeVariableDeclaration:
             {

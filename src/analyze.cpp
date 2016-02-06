@@ -57,6 +57,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeBlock:
         case NodeTypeDirective:
         case NodeTypeReturnExpr:
+        case NodeTypeDeferExpr:
         case NodeTypeVariableDeclaration:
         case NodeTypeTypeDecl:
         case NodeTypeErrorValueDecl:
@@ -865,23 +866,6 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     }
 }
 
-static void preview_function_labels(CodeGen *g, AstNode *node, FnTableEntry *fn_table_entry) {
-    assert(node->type == NodeTypeBlock);
-
-    for (int i = 0; i < node->data.block.statements.length; i += 1) {
-        AstNode *label_node = node->data.block.statements.at(i);
-        if (label_node->type != NodeTypeLabel)
-            continue;
-
-        LabelTableEntry *label_entry = allocate<LabelTableEntry>(1);
-        label_entry->label_node = label_node;
-        Buf *name = &label_node->data.label.name;
-        fn_table_entry->label_table.put(name, label_entry);
-
-        label_node->data.label.label_entry = label_entry;
-    }
-}
-
 static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *enum_type) {
     // if you change this logic you likely must also change similar logic in parseh.cpp
     assert(enum_type->id == TypeTableEntryIdEnum);
@@ -1233,7 +1217,6 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
     fn_table_entry->fn_def_node = fn_def_node;
     fn_table_entry->internal_linkage = !is_c_compat;
     fn_table_entry->is_extern = is_extern;
-    fn_table_entry->label_table.init(8);
     fn_table_entry->member_of_struct = struct_type;
     fn_table_entry->ref_count = (proto_node->data.fn_proto.visib_mod == VisibModExport) ? 1 : 0;
 
@@ -1271,10 +1254,6 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
 
     proto_node->data.fn_proto.fn_table_entry = fn_table_entry;
     resolve_function_proto(g, proto_node, fn_table_entry, import);
-
-    if (fn_def_node) {
-        preview_function_labels(g, fn_def_node->data.fn_def.body, fn_table_entry);
-    }
 
     if (is_pub && !struct_type) {
         for (int i = 0; i < import->importers.length; i += 1) {
@@ -1317,13 +1296,13 @@ static void resolve_error_value_decl(CodeGen *g, ImportTableEntry *import, AstNo
 
     ErrorTableEntry *err = node->data.error_value_decl.err;
 
-    import->block_context->error_table.put(&err->name, err);
+    import->error_table.put(&err->name, err);
 
     bool is_pub = (node->data.error_value_decl.visib_mod != VisibModPrivate);
     if (is_pub) {
         for (int i = 0; i < import->importers.length; i += 1) {
             ImporterInfo importer = import->importers.at(i);
-            importer.import->block_context->error_table.put(&err->name, err);
+            importer.import->error_table.put(&err->name, err);
         }
     }
 }
@@ -1347,6 +1326,8 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *parent_import, A
 
     ImportTableEntry *child_import = allocate<ImportTableEntry>(1);
     child_import->fn_table.init(32);
+    child_import->type_table.init(8);
+    child_import->error_table.init(8);
     child_import->c_import_node = node;
 
     ZigList<ErrorMsg *> errors = {0};
@@ -1442,19 +1423,19 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
                     }
                 }
 
-                import->block_context->type_table.put(decl_name, entry);
+                import->type_table.put(decl_name, entry);
 
                 bool is_pub = (node->data.type_decl.visib_mod != VisibModPrivate);
                 if (is_pub) {
                     for (int i = 0; i < import->importers.length; i += 1) {
                         ImporterInfo importer = import->importers.at(i);
-                        auto table_entry = importer.import->block_context->type_table.maybe_get(&entry->name);
+                        auto table_entry = importer.import->type_table.maybe_get(&entry->name);
                         if (table_entry) {
                             add_node_error(g, importer.source_node,
                                 buf_sprintf("import of type '%s' overrides existing definition",
                                     buf_ptr(&entry->name)));
                         } else {
-                            importer.import->block_context->type_table.put(&entry->name, entry);
+                            importer.import->type_table.put(&entry->name, entry);
                         }
                     }
                 }
@@ -1475,6 +1456,7 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
+        case NodeTypeDeferExpr:
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
@@ -1953,9 +1935,7 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     BlockContext *context = allocate<BlockContext>(1);
     context->node = node;
     context->parent = parent;
-    context->variable_table.init(8);
-    context->type_table.init(8);
-    context->error_table.init(8);
+    context->variable_table.init(4);
 
     if (parent) {
         context->parent_loop_node = parent->parent_loop_node;
@@ -1976,10 +1956,10 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     return context;
 }
 
-static VariableTableEntry *find_local_variable(BlockContext *context, Buf *name) {
-    while (context && context->fn_entry) {
+static VariableTableEntry *find_variable(BlockContext *context, Buf *name, bool local_only) {
+    while (context && (!local_only || context->fn_entry)) {
         auto entry = context->variable_table.maybe_get(name);
-        if (entry != nullptr)
+        if (entry)
             return entry->value;
 
         context = context->parent;
@@ -1987,26 +1967,12 @@ static VariableTableEntry *find_local_variable(BlockContext *context, Buf *name)
     return nullptr;
 }
 
-VariableTableEntry *find_variable(BlockContext *context, Buf *name) {
-    while (context) {
-        auto entry = context->variable_table.maybe_get(name);
-        if (entry != nullptr)
-            return entry->value;
-
-        context = context->parent;
-    }
-    return nullptr;
-}
-
-TypeTableEntry *find_container(BlockContext *context, Buf *name) {
-    while (context) {
-        auto entry = context->type_table.maybe_get(name);
-        if (entry != nullptr)
-            return entry->value;
-
-        context = context->parent;
-    }
-    return nullptr;
+static TypeTableEntry *find_container(ImportTableEntry *import, Buf *name) {
+    auto entry = import->type_table.maybe_get(name);
+    if (entry)
+        return entry->value;
+    else
+        return nullptr;
 }
 
 static TypeEnumField *get_enum_field(TypeTableEntry *enum_type, Buf *name) {
@@ -2034,7 +2000,7 @@ static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *imp
             StructValExprCodeGen *codegen = &field_access_node->data.field_access_expr.resolved_struct_val_expr;
             codegen->type_entry = enum_type;
             codegen->source_node = field_access_node;
-            context->struct_val_expr_alloca_list.append(codegen);
+            context->fn_entry->struct_val_expr_alloca_list.append(codegen);
 
             Expr *expr = get_resolved_expr(field_access_node);
             expr->const_val.ok = false;
@@ -2099,7 +2065,6 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
         StructValExprCodeGen *codegen = &container_init_expr->resolved_struct_val_expr;
         codegen->type_entry = container_type;
         codegen->source_node = node;
-        context->struct_val_expr_alloca_list.append(codegen);
 
 
         int expr_field_count = container_init_expr->entries.length;
@@ -2150,6 +2115,9 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
                     const_val->ok = false;
                 }
             }
+            if (!const_val->ok) {
+                context->fn_entry->struct_val_expr_alloca_list.append(codegen);
+            }
         }
 
         for (int i = 0; i < actual_field_count; i += 1) {
@@ -2192,7 +2160,9 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
         StructValExprCodeGen *codegen = &container_init_expr->resolved_struct_val_expr;
         codegen->type_entry = fixed_size_array_type;
         codegen->source_node = node;
-        context->struct_val_expr_alloca_list.append(codegen);
+        if (!const_val->ok) {
+            context->fn_entry->struct_val_expr_alloca_list.append(codegen);
+        }
 
         return fixed_size_array_type;
     } else if (container_type->id == TypeTableEntryIdArray) {
@@ -2339,7 +2309,7 @@ static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, 
     if (return_type->id != TypeTableEntryIdInvalid) {
         node->data.slice_expr.resolved_struct_val_expr.type_entry = return_type;
         node->data.slice_expr.resolved_struct_val_expr.source_node = node;
-        context->struct_val_expr_alloca_list.append(&node->data.slice_expr.resolved_struct_val_expr);
+        context->fn_entry->struct_val_expr_alloca_list.append(&node->data.slice_expr.resolved_struct_val_expr);
     }
 
     analyze_expression(g, import, context, g->builtin_types.entry_isize, node->data.slice_expr.start);
@@ -2518,7 +2488,7 @@ static TypeTableEntry *resolve_expr_const_val_as_bignum_op(CodeGen *g, AstNode *
 static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, AstNode *node, Buf *err_name)
 {
-    auto err_table_entry = import->block_context->error_table.maybe_get(err_name);
+    auto err_table_entry = import->error_table.maybe_get(err_name);
 
     if (err_table_entry) {
         return resolve_expr_const_val_as_err(g, node, err_table_entry->value);
@@ -2545,7 +2515,7 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
         return resolve_expr_const_val_as_type(g, node, primitive_table_entry->value);
     }
 
-    VariableTableEntry *var = find_variable(context, variable_name);
+    VariableTableEntry *var = find_variable(context, variable_name, false);
     if (var) {
         node->data.symbol_expr.variable = var;
         if (var->is_const) {
@@ -2561,7 +2531,7 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
         return var->type;
     }
 
-    TypeTableEntry *container_type = find_container(context, variable_name);
+    TypeTableEntry *container_type = find_container(import, variable_name);
     if (container_type) {
         return resolve_expr_const_val_as_type(g, node, container_type);
     }
@@ -2641,7 +2611,7 @@ static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, Bloc
         if (purpose == LValPurposeAddressOf) {
             expected_rhs_type = analyze_symbol_expr(g, import, block_context, nullptr, lhs_node);
         } else {
-            VariableTableEntry *var = find_variable(block_context, name);
+            VariableTableEntry *var = find_variable(block_context, name, false);
             if (var) {
                 if (var->is_const) {
                     add_node_error(g, lhs_node, buf_sprintf("cannot assign to constant"));
@@ -3011,21 +2981,18 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
 }
 
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
-static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, BlockContext *context,
-        Buf *name, TypeTableEntry *type_entry, bool is_const)
+static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, ImportTableEntry *import,
+        BlockContext *context, Buf *name, TypeTableEntry *type_entry, bool is_const)
 {
     VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
     variable_entry->type = type_entry;
+    variable_entry->block_context = context;
 
     if (name) {
         buf_init_from_buf(&variable_entry->name, name);
         VariableTableEntry *existing_var;
 
-        if (context->fn_entry) {
-            existing_var = find_local_variable(context, name);
-        } else {
-            existing_var = find_variable(context, name);
-        }
+        existing_var = find_variable(context, name, context->fn_entry != nullptr);
 
         if (existing_var) {
             add_node_error(g, source_node, buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
@@ -3036,7 +3003,7 @@ static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, Block
             if (primitive_table_entry) {
                 type = primitive_table_entry->value;
             } else {
-                type = find_container(context, name);
+                type = find_container(import, name);
             }
             if (type) {
                 add_node_error(g, source_node, buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
@@ -3045,10 +3012,11 @@ static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, Block
         }
 
         context->variable_table.put(&variable_entry->name, variable_entry);
-        context->variable_list.append(variable_entry);
     } else {
         buf_init_from_str(&variable_entry->name, "_anon");
-        context->variable_list.append(variable_entry);
+    }
+    if (context->fn_entry) {
+        context->fn_entry->variable_list.append(variable_entry);
     }
 
     variable_entry->is_const = is_const;
@@ -3075,7 +3043,7 @@ static TypeTableEntry *analyze_unwrap_error_expr(CodeGen *g, ImportTableEntry *i
             child_context = new_block_context(node, parent_context);
             var_node->block_context = child_context;
             Buf *var_name = &var_node->data.symbol_expr.symbol;
-            node->data.unwrap_err_expr.var = add_local_var(g, var_node, child_context, var_name,
+            node->data.unwrap_err_expr.var = add_local_var(g, var_node, import, child_context, var_name,
                     g->builtin_types.entry_pure_error, true);
         } else {
             child_context = parent_context;
@@ -3153,7 +3121,7 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
     TypeTableEntry *type = explicit_type != nullptr ? explicit_type : implicit_type;
     assert(type != nullptr); // should have been caught by the parser
 
-    VariableTableEntry *var = add_local_var(g, source_node, context,
+    VariableTableEntry *var = add_local_var(g, source_node, import, context,
             &variable_declaration->symbol, type, is_const);
 
     variable_declaration->variable = var;
@@ -3199,7 +3167,7 @@ static TypeTableEntry *analyze_null_literal_expr(CodeGen *g, ImportTableEntry *i
 
     node->data.null_literal.resolved_struct_val_expr.type_entry = expected_type;
     node->data.null_literal.resolved_struct_val_expr.source_node = node;
-    block_context->struct_val_expr_alloca_list.append(&node->data.null_literal.resolved_struct_val_expr);
+    block_context->fn_entry->struct_val_expr_alloca_list.append(&node->data.null_literal.resolved_struct_val_expr);
 
     return resolve_expr_const_val_as_null(g, node, expected_type);
 }
@@ -3303,7 +3271,6 @@ static TypeTableEntry *analyze_while_expr(CodeGen *g, ImportTableEntry *import, 
 
     BlockContext *child_context = new_block_context(node, context);
     child_context->parent_loop_node = node;
-    node->data.while_expr.block_context = child_context;
 
     analyze_expression(g, import, child_context, g->builtin_types.entry_void, while_body_node);
 
@@ -3359,16 +3326,16 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
     AstNode *elem_var_node = node->data.for_expr.elem_node;
     elem_var_node->block_context = child_context;
     Buf *elem_var_name = &elem_var_node->data.symbol_expr.symbol;
-    node->data.for_expr.elem_var = add_local_var(g, elem_var_node, child_context, elem_var_name, child_type, true);
+    node->data.for_expr.elem_var = add_local_var(g, elem_var_node, import, child_context, elem_var_name, child_type, true);
 
     AstNode *index_var_node = node->data.for_expr.index_node;
     if (index_var_node) {
         Buf *index_var_name = &index_var_node->data.symbol_expr.symbol;
         index_var_node->block_context = child_context;
-        node->data.for_expr.index_var = add_local_var(g, index_var_node, child_context, index_var_name,
+        node->data.for_expr.index_var = add_local_var(g, index_var_node, import, child_context, index_var_name,
                 g->builtin_types.entry_isize, true);
     } else {
-        node->data.for_expr.index_var = add_local_var(g, node, child_context, nullptr,
+        node->data.for_expr.index_var = add_local_var(g, node, import, child_context, nullptr,
                 g->builtin_types.entry_isize, true);
     }
 
@@ -3617,6 +3584,21 @@ static void eval_const_expr_implicit_cast(CodeGen *g, AstNode *node, AstNode *ex
     }
 }
 
+static TypeTableEntry *resolve_cast(CodeGen *g, BlockContext *context, AstNode *node,
+        AstNode *expr_node, TypeTableEntry *wanted_type, CastOp op, bool need_alloca)
+{
+    node->data.fn_call_expr.cast_op = op;
+    eval_const_expr_implicit_cast(g, node, expr_node);
+    if (need_alloca) {
+        if (context->fn_entry) {
+            context->fn_entry->cast_alloca_list.append(node);
+        } else {
+            assert(get_resolved_expr(node)->const_val.ok);
+        }
+    }
+    return wanted_type;
+}
+
 static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         AstNode *node)
 {
@@ -3642,27 +3624,21 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
 
     // explicit match or non-const to const
     if (types_match_const_cast_only(wanted_type, actual_type)) {
-        node->data.fn_call_expr.cast_op = CastOpNoop;
-        eval_const_expr_implicit_cast(g, node, expr_node);
-        return wanted_type;
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpNoop, false);
     }
 
     // explicit cast from bool to int
     if (wanted_type->id == TypeTableEntryIdInt &&
         actual_type->id == TypeTableEntryIdBool)
     {
-        node->data.fn_call_expr.cast_op = CastOpBoolToInt;
-        eval_const_expr_implicit_cast(g, node, expr_node);
-        return wanted_type;
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpBoolToInt, false);
     }
 
     // explicit cast from pointer to isize or usize
     if ((wanted_type == g->builtin_types.entry_isize || wanted_type == g->builtin_types.entry_usize) &&
         actual_type->id == TypeTableEntryIdPointer)
     {
-        node->data.fn_call_expr.cast_op = CastOpPtrToInt;
-        eval_const_expr_implicit_cast(g, node, expr_node);
-        return wanted_type;
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPtrToInt, false);
     }
 
 
@@ -3670,9 +3646,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     if (wanted_type->id == TypeTableEntryIdPointer &&
         (actual_type == g->builtin_types.entry_isize || actual_type == g->builtin_types.entry_usize))
     {
-        node->data.fn_call_expr.cast_op = CastOpIntToPtr;
-        eval_const_expr_implicit_cast(g, node, expr_node);
-        return wanted_type;
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpIntToPtr, false);
     }
 
     // explicit widening or shortening cast
@@ -3681,27 +3655,21 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         (wanted_type->id == TypeTableEntryIdFloat &&
         actual_type->id == TypeTableEntryIdFloat))
     {
-        node->data.fn_call_expr.cast_op = CastOpWidenOrShorten;
-        eval_const_expr_implicit_cast(g, node, expr_node);
-        return wanted_type;
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpWidenOrShorten, false);
     }
 
     // explicit cast from int to float
     if (wanted_type->id == TypeTableEntryIdFloat &&
         actual_type->id == TypeTableEntryIdInt)
     {
-        node->data.fn_call_expr.cast_op = CastOpIntToFloat;
-        eval_const_expr_implicit_cast(g, node, expr_node);
-        return wanted_type;
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpIntToFloat, false);
     }
 
     // explicit cast from float to int
     if (wanted_type->id == TypeTableEntryIdInt &&
         actual_type->id == TypeTableEntryIdFloat)
     {
-        node->data.fn_call_expr.cast_op = CastOpFloatToInt;
-        eval_const_expr_implicit_cast(g, node, expr_node);
-        return wanted_type;
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpFloatToInt, false);
     }
 
     // explicit cast from fixed size array to unknown size array
@@ -3712,36 +3680,25 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
             wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type,
             actual_type->data.array.child_type))
     {
-        node->data.fn_call_expr.cast_op = CastOpToUnknownSizeArray;
-        context->cast_alloca_list.append(node);
-        eval_const_expr_implicit_cast(g, node, expr_node);
-        return wanted_type;
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpToUnknownSizeArray, true);
     }
 
     // explicit cast from pointer to another pointer
     if (actual_type->id == TypeTableEntryIdPointer &&
         wanted_type->id == TypeTableEntryIdPointer)
     {
-        node->data.fn_call_expr.cast_op = CastOpPointerReinterpret;
-        eval_const_expr_implicit_cast(g, node, expr_node);
-        return wanted_type;
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPointerReinterpret, false);
     }
 
     // explicit cast from child type of maybe type to maybe type
     if (wanted_type->id == TypeTableEntryIdMaybe) {
         if (types_match_const_cast_only(wanted_type->data.maybe.child_type, actual_type)) {
-            node->data.fn_call_expr.cast_op = CastOpMaybeWrap;
-            context->cast_alloca_list.append(node);
-            eval_const_expr_implicit_cast(g, node, expr_node);
-            return wanted_type;
+            return resolve_cast(g, context, node, expr_node, wanted_type, CastOpMaybeWrap, true);
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
                    actual_type->id == TypeTableEntryIdNumLitFloat)
         {
             if (num_lit_fits_in_other_type(g, expr_node, wanted_type->data.maybe.child_type)) {
-                node->data.fn_call_expr.cast_op = CastOpMaybeWrap;
-                context->cast_alloca_list.append(node);
-                eval_const_expr_implicit_cast(g, node, expr_node);
-                return wanted_type;
+                return resolve_cast(g, context, node, expr_node, wanted_type, CastOpMaybeWrap, true);
             } else {
                 return g->builtin_types.entry_invalid;
             }
@@ -3751,18 +3708,12 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     // explicit cast from child type of error type to error type
     if (wanted_type->id == TypeTableEntryIdErrorUnion) {
         if (types_match_const_cast_only(wanted_type->data.error.child_type, actual_type)) {
-            node->data.fn_call_expr.cast_op = CastOpErrorWrap;
-            context->cast_alloca_list.append(node);
-            eval_const_expr_implicit_cast(g, node, expr_node);
-            return wanted_type;
+            return resolve_cast(g, context, node, expr_node, wanted_type, CastOpErrorWrap, true);
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
                    actual_type->id == TypeTableEntryIdNumLitFloat)
         {
             if (num_lit_fits_in_other_type(g, expr_node, wanted_type->data.error.child_type)) {
-                node->data.fn_call_expr.cast_op = CastOpErrorWrap;
-                context->cast_alloca_list.append(node);
-                eval_const_expr_implicit_cast(g, node, expr_node);
-                return wanted_type;
+                return resolve_cast(g, context, node, expr_node, wanted_type, CastOpErrorWrap, true);
             } else {
                 return g->builtin_types.entry_invalid;
             }
@@ -3773,9 +3724,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     if (wanted_type->id == TypeTableEntryIdErrorUnion &&
         actual_type->id == TypeTableEntryIdPureError)
     {
-        node->data.fn_call_expr.cast_op = CastOpPureErrorWrap;
-        eval_const_expr_implicit_cast(g, node, expr_node);
-        return wanted_type;
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPureErrorWrap, false);
     }
 
     // explicit cast from number literal to another type
@@ -3783,21 +3732,21 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         actual_type->id == TypeTableEntryIdNumLitInt)
     {
         if (num_lit_fits_in_other_type(g, expr_node, wanted_type)) {
+            CastOp op;
             if ((actual_type->id == TypeTableEntryIdNumLitFloat &&
                  wanted_type->id == TypeTableEntryIdFloat) ||
                 (actual_type->id == TypeTableEntryIdNumLitInt &&
                  wanted_type->id == TypeTableEntryIdInt))
             {
-                node->data.fn_call_expr.cast_op = CastOpNoop;
+                op = CastOpNoop;
             } else if (wanted_type->id == TypeTableEntryIdInt) {
-                node->data.fn_call_expr.cast_op = CastOpFloatToInt;
+                op = CastOpFloatToInt;
             } else if (wanted_type->id == TypeTableEntryIdFloat) {
-                node->data.fn_call_expr.cast_op = CastOpIntToFloat;
+                op = CastOpIntToFloat;
             } else {
                 zig_unreachable();
             }
-            eval_const_expr_implicit_cast(g, node, expr_node);
-            return wanted_type;
+            return resolve_cast(g, context, node, expr_node, wanted_type, op, false);
         } else {
             return g->builtin_types.entry_invalid;
         }
@@ -3815,9 +3764,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         if (bignum_fits_in_bits(&bn, wanted_type->data.integral.bit_count,
                     wanted_type->data.integral.is_signed))
         {
-            node->data.fn_call_expr.cast_op = CastOpErrToInt;
-            eval_const_expr_implicit_cast(g, node, expr_node);
-            return wanted_type;
+            return resolve_cast(g, context, node, expr_node, wanted_type, CastOpErrToInt, false);
         } else {
             add_node_error(g, node,
                     buf_sprintf("too many error values to fit in '%s'", buf_ptr(&wanted_type->name)));
@@ -4176,7 +4123,7 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
     }
 
     if (handle_is_ptr(return_type)) {
-        context->cast_alloca_list.append(node);
+        context->fn_entry->cast_alloca_list.append(node);
     }
 
     return return_type;
@@ -4572,8 +4519,8 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                 assert(var_node->type == NodeTypeSymbol);
                 Buf *var_name = &var_node->data.symbol_expr.symbol;
                 var_node->block_context = child_context;
-                prong_node->data.switch_prong.var = add_local_var(g, var_node, child_context, var_name,
-                        var_type, true);
+                prong_node->data.switch_prong.var = add_local_var(g, var_node, import,
+                        child_context, var_name, var_type, true);
                 prong_node->data.switch_prong.var_is_target_expr = var_is_target_expr;
             }
 
@@ -4597,6 +4544,9 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
         node->data.return_expr.expr = create_ast_void_node(g, import, node);
         normalize_parent_ptrs(node);
     }
+
+    // TODO follow the blocks to their parents, loop over all of them, set them all to true
+    context->block_exit_paths[BlockExitPathReturn] = true;
 
     TypeTableEntry *expected_return_type = get_return_type(context);
 
@@ -4632,6 +4582,71 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
     }
 }
 
+static void validate_voided_expr(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry) {
+    if (type_entry->id == TypeTableEntryIdMetaType) {
+        add_node_error(g, first_executing_node(source_node), buf_sprintf("expected expression, found type"));
+    } else if (type_entry->id == TypeTableEntryIdErrorUnion) {
+        add_node_error(g, first_executing_node(source_node), buf_sprintf("statement ignores error value"));
+    }
+}
+
+static TypeTableEntry *analyze_defer_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    if (!context->fn_entry) {
+        add_node_error(g, node, buf_sprintf("defer expression outside function definition"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (!node->data.defer_expr.expr) {
+        add_node_error(g, node, buf_sprintf("defer expects an expression"));
+        return g->builtin_types.entry_void;
+    }
+
+
+    switch (node->data.defer_expr.kind) {
+        case ReturnKindUnconditional:
+            {
+                TypeTableEntry *resolved_type = analyze_expression(g, import, context, nullptr,
+                        node->data.defer_expr.expr);
+                validate_voided_expr(g, node->data.defer_expr.expr, resolved_type);
+                zig_panic("TODO");
+
+                //node->data.defer_expr.index_in_block = context->defer_list.length;
+                //context->defer_list.append(node);
+                return g->builtin_types.entry_void;
+            }
+        case ReturnKindError:
+            {
+                TypeTableEntry *resolved_type = analyze_expression(g, import, context, nullptr,
+                        node->data.defer_expr.expr);
+                if (resolved_type->id == TypeTableEntryIdInvalid) {
+                    // OK
+                } else if (resolved_type->id == TypeTableEntryIdErrorUnion) {
+                    // OK
+                } else {
+                    add_node_error(g, node->data.defer_expr.expr,
+                            buf_sprintf("expected error type, got '%s'", buf_ptr(&resolved_type->name)));
+                }
+                return g->builtin_types.entry_void;
+            }
+        case ReturnKindMaybe:
+            {
+                TypeTableEntry *resolved_type = analyze_expression(g, import, context, nullptr,
+                        node->data.defer_expr.expr);
+                if (resolved_type->id == TypeTableEntryIdInvalid) {
+                    // OK
+                } else if (resolved_type->id == TypeTableEntryIdMaybe) {
+                    // OK
+                } else {
+                    add_node_error(g, node->data.defer_expr.expr,
+                            buf_sprintf("expected maybe type, got '%s'", buf_ptr(&resolved_type->name)));
+                }
+                return g->builtin_types.entry_void;
+            }
+    }
+}
+
 static TypeTableEntry *analyze_string_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -4652,10 +4667,8 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
     for (int i = 0; i < node->data.block.statements.length; i += 1) {
         AstNode *child = node->data.block.statements.at(i);
         if (child->type == NodeTypeLabel) {
-            child->block_context = child_context;
-            LabelTableEntry *label_entry = child->data.label.label_entry;
-            assert(label_entry);
-            label_entry->entered_from_fallthrough = (return_type->id != TypeTableEntryIdUnreachable);
+            add_node_error(g, child,
+                buf_sprintf("label and goto not supported yet, see https://github.com/andrewrk/zig/issues/44"));
             return_type = g->builtin_types.entry_void;
             continue;
         }
@@ -4673,11 +4686,7 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
         TypeTableEntry *passed_expected_type = is_last ? expected_type : nullptr;
         return_type = analyze_expression(g, import, child_context, passed_expected_type, child);
         if (!is_last) {
-            if (return_type->id == TypeTableEntryIdMetaType) {
-                add_node_error(g, child, buf_sprintf("expected expression, found type"));
-            } else if (return_type->id == TypeTableEntryIdErrorUnion) {
-                add_node_error(g, child, buf_sprintf("statement ignores error value"));
-            }
+            validate_voided_expr(g, child, return_type);
         }
     }
     return return_type;
@@ -4700,7 +4709,7 @@ static TypeTableEntry *analyze_asm_expr(CodeGen *g, ImportTableEntry *import, Bl
             }
         } else {
             Buf *variable_name = &asm_output->variable_name;
-            VariableTableEntry *var = find_variable(context, variable_name);
+            VariableTableEntry *var = find_variable(context, variable_name, false);
             if (var) {
                 asm_output->variable = var;
                 return var->type;
@@ -4719,6 +4728,13 @@ static TypeTableEntry *analyze_asm_expr(CodeGen *g, ImportTableEntry *import, Bl
     return return_type;
 }
 
+static TypeTableEntry *analyze_goto(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    add_node_error(g, node, buf_sprintf("goto is broken, see https://github.com/andrewrk/zig/issues/44"));
+    return g->builtin_types.entry_unreachable;
+}
+
 // When you call analyze_expression, the node you pass might no longer be the child node
 // you thought it was due to implicit casting rewriting the AST.
 static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -4734,24 +4750,16 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeReturnExpr:
             return_type = analyze_return_expr(g, import, context, expected_type, node);
             break;
+        case NodeTypeDeferExpr:
+            return_type = analyze_defer_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeVariableDeclaration:
             analyze_variable_declaration(g, import, context, expected_type, node);
             return_type = g->builtin_types.entry_void;
             break;
         case NodeTypeGoto:
-            {
-                FnTableEntry *fn_table_entry = get_context_fn_entry(context);
-                auto table_entry = fn_table_entry->label_table.maybe_get(&node->data.goto_expr.name);
-                if (table_entry) {
-                    node->data.goto_expr.label_entry = table_entry->value;
-                    table_entry->value->used = true;
-                } else {
-                    add_node_error(g, node,
-                            buf_sprintf("use of undeclared label '%s'", buf_ptr(&node->data.goto_expr.name)));
-                }
-                return_type = g->builtin_types.entry_unreachable;
-                break;
-            }
+            analyze_goto(g, import, context, expected_type, node);
+            break;
         case NodeTypeBreak:
             return_type = analyze_break_expr(g, import, context, expected_type, node);
             break;
@@ -4909,7 +4917,7 @@ static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNo
             add_node_error(g, param_decl_node, buf_sprintf("missing parameter name"));
         }
 
-        VariableTableEntry *var = add_local_var(g, param_decl_node, context, &param_decl->name, type, true);
+        VariableTableEntry *var = add_local_var(g, param_decl_node, import, context, &param_decl->name, type, true);
         var->src_arg_index = i;
         param_decl_node->data.param_decl.variable = var;
 
@@ -4920,22 +4928,6 @@ static void analyze_top_level_fn_def(CodeGen *g, ImportTableEntry *import, AstNo
     TypeTableEntry *block_return_type = analyze_expression(g, import, context, expected_type, node->data.fn_def.body);
 
     node->data.fn_def.implicit_return_type = block_return_type;
-
-    {
-        auto it = fn_table_entry->label_table.entry_iterator();
-        for (;;) {
-            auto *entry = it.next();
-            if (!entry)
-                break;
-
-            LabelTableEntry *label_entry = entry->value;
-            if (!label_entry->used) {
-                add_node_error(g, label_entry->label_node,
-                    buf_sprintf("label '%s' defined but not used",
-                        buf_ptr(&label_entry->label_node->data.label.name)));
-            }
-        }
-    }
 }
 
 static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
@@ -4964,6 +4956,7 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
+        case NodeTypeDeferExpr:
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
@@ -5028,7 +5021,7 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
                 Buf *name = &node->data.symbol_expr.symbol;
                 auto table_entry = g->primitive_type_table.maybe_get(name);
                 if (!table_entry) {
-                    table_entry = import->block_context->type_table.maybe_get(name);
+                    table_entry = import->type_table.maybe_get(name);
                 }
                 if (!table_entry || !type_is_complete(table_entry->value)) {
                     decl_node->deps.put(name, node);
@@ -5045,6 +5038,9 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
             break;
         case NodeTypeReturnExpr:
             collect_expr_decl_deps(g, import, node->data.return_expr.expr, decl_node);
+            break;
+        case NodeTypeDeferExpr:
+            collect_expr_decl_deps(g, import, node->data.defer_expr.expr, decl_node);
             break;
         case NodeTypePrefixOpExpr:
             collect_expr_decl_deps(g, import, node->data.prefix_op_expr.primary_expr, decl_node);
@@ -5196,7 +5192,7 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
                 Buf *name = &node->data.struct_decl.name;
                 auto table_entry = g->primitive_type_table.maybe_get(name);
                 if (!table_entry) {
-                    table_entry = import->block_context->type_table.maybe_get(name);
+                    table_entry = import->type_table.maybe_get(name);
                 }
                 if (table_entry) {
                     node->data.struct_decl.type_entry = table_entry->value;
@@ -5210,20 +5206,20 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
                                 node->data.struct_decl.kind, node, buf_ptr(name));
                     }
 
-                    import->block_context->type_table.put(&entry->name, entry);
+                    import->type_table.put(&entry->name, entry);
                     node->data.struct_decl.type_entry = entry;
 
                     bool is_pub = (node->data.struct_decl.visib_mod != VisibModPrivate);
                     if (is_pub) {
                         for (int i = 0; i < import->importers.length; i += 1) {
                             ImporterInfo importer = import->importers.at(i);
-                            auto table_entry = importer.import->block_context->type_table.maybe_get(&entry->name);
+                            auto table_entry = importer.import->type_table.maybe_get(&entry->name);
                             if (table_entry) {
                                 add_node_error(g, importer.source_node,
                                     buf_sprintf("import of type '%s' overrides existing definition",
                                         buf_ptr(&entry->name)));
                             } else {
-                                importer.import->block_context->type_table.put(&entry->name, entry);
+                                importer.import->type_table.put(&entry->name, entry);
                             }
                         }
                     }
@@ -5365,6 +5361,7 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
+        case NodeTypeDeferExpr:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
         case NodeTypeUnwrapErrorExpr:
@@ -5555,6 +5552,8 @@ Expr *get_resolved_expr(AstNode *node) {
     switch (node->type) {
         case NodeTypeReturnExpr:
             return &node->data.return_expr.resolved_expr;
+        case NodeTypeDeferExpr:
+            return &node->data.defer_expr.resolved_expr;
         case NodeTypeBinOpExpr:
             return &node->data.bin_op_expr.resolved_expr;
         case NodeTypeUnwrapErrorExpr:
@@ -5653,6 +5652,7 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
             return &node->data.type_decl.top_level_decl;
         case NodeTypeNumberLiteral:
         case NodeTypeReturnExpr:
+        case NodeTypeDeferExpr:
         case NodeTypeBinOpExpr:
         case NodeTypeUnwrapErrorExpr:
         case NodeTypePrefixOpExpr:

@@ -1669,6 +1669,15 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
     }
 }
 
+static LLVMValueRef gen_defer_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeDeferExpr);
+
+    zig_panic("TODO");
+    //node->block_context->cur_defer_index = node->data.defer_expr.index_in_block;
+
+    return nullptr;
+}
+
 static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMValueRef cond_value,
         AstNode *then_node, AstNode *else_node)
 {
@@ -1793,6 +1802,21 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
 
 static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *implicit_return_type) {
     assert(block_node->type == NodeTypeBlock);
+
+    /* TODO
+    BlockContext *block_context = block_node->data.block.block_context;
+    if (block_context->defer_list.length > 0) {
+        LLVMBasicBlockRef exit_scope_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DeferExitScope");
+
+        for (int i = 0; i < block_context->defer_list.length; i += 1) {
+            AstNode *defer_node = block_context->defer_list.at(i);
+            defer_node->data.defer_expr.basic_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DeferExpr");
+            LLVMPositionBuilderAtEnd(g->builder, body_block);
+        }
+
+        LLVMPositionBuilderAtEnd(g->builder, ?);
+    }
+    */
 
     LLVMValueRef return_value;
     for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
@@ -2451,6 +2475,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_unwrap_err_expr(g, node);
         case NodeTypeReturnExpr:
             return gen_return_expr(g, node);
+        case NodeTypeDeferExpr:
+            return gen_defer_expr(g, node);
         case NodeTypeVariableDeclaration:
             return gen_var_decl_expr(g, node);
         case NodeTypePrefixOpExpr:
@@ -2478,24 +2504,13 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeBlock:
             return gen_block(g, node, nullptr);
         case NodeTypeGoto:
-            add_debug_source_node(g, node);
-            return LLVMBuildBr(g->builder, node->data.goto_expr.label_entry->basic_block);
+            zig_unreachable();
         case NodeTypeBreak:
             return gen_break(g, node);
         case NodeTypeContinue:
             return gen_continue(g, node);
         case NodeTypeLabel:
-            {
-                LabelTableEntry *label_entry = node->data.label.label_entry;
-                assert(label_entry);
-                LLVMBasicBlockRef basic_block = label_entry->basic_block;
-                if (label_entry->entered_from_fallthrough) {
-                    add_debug_source_node(g, node);
-                    LLVMBuildBr(g->builder, basic_block);
-                }
-                LLVMPositionBuilderAtEnd(g->builder, basic_block);
-                return nullptr;
-            }
+            zig_unreachable();
         case NodeTypeContainerInitExpr:
             return gen_container_init_expr(g, node);
         case NodeTypeSwitchExpr:
@@ -2530,19 +2545,6 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             zig_unreachable();
     }
     zig_unreachable();
-}
-
-static void build_label_blocks(CodeGen *g, AstNode *block_node) {
-    assert(block_node->type == NodeTypeBlock);
-    for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
-        AstNode *label_node = block_node->data.block.statements.at(i);
-        if (label_node->type != NodeTypeLabel)
-            continue;
-
-        Buf *name = &label_node->data.label.name;
-        label_node->data.label.label_entry->basic_block = LLVMAppendBasicBlock(
-                g->cur_fn->fn_value, buf_ptr(name));
-    }
 }
 
 static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val) {
@@ -2977,11 +2979,7 @@ static void do_code_gen(CodeGen *g) {
         LLVMPositionBuilderAtEnd(g->builder, entry_block);
 
 
-        AstNode *body_node = fn_def_node->data.fn_def.body;
-        build_label_blocks(g, body_node);
-
-        // Set up debug info for blocks and variables and
-        // allocate all local variables
+        // Set up debug info for blocks
         for (int bc_i = 0; bc_i < fn_table_entry->all_block_contexts.length; bc_i += 1) {
             BlockContext *block_context = fn_table_entry->all_block_contexts.at(bc_i);
 
@@ -2994,59 +2992,45 @@ static void do_code_gen(CodeGen *g) {
                 block_context->di_scope = LLVMZigLexicalBlockToScope(di_block);
             }
 
-            for (int var_i = 0; var_i < block_context->variable_list.length; var_i += 1) {
-                VariableTableEntry *var = block_context->variable_list.at(var_i);
 
-                if (!type_has_bits(var->type)) {
-                    continue;
-                }
+        }
 
-                unsigned tag;
-                unsigned arg_no;
-                TypeTableEntry *gen_type;
-                if (block_context->node->type == NodeTypeFnDef) {
-                    tag = LLVMZigTag_DW_arg_variable();
-                    arg_no = var->gen_arg_index + 1;
+        // create debug variable declarations for variables and allocate all local variables
+        for (int var_i = 0; var_i < fn_table_entry->variable_list.length; var_i += 1) {
+            VariableTableEntry *var = fn_table_entry->variable_list.at(var_i);
 
-                    var->is_ptr = false;
-                    assert(var->gen_arg_index >= 0);
-                    var->value_ref = LLVMGetParam(fn, var->gen_arg_index);
-
-                    gen_type = fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index].type;
-                } else {
-                    tag = LLVMZigTag_DW_auto_variable();
-                    arg_no = 0;
-
-                    add_debug_source_node(g, var->decl_node);
-                    var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
-                    uint64_t align_bytes = LLVMABISizeOfType(g->target_data_ref, var->type->type_ref);
-                    LLVMSetAlignment(var->value_ref, align_bytes);
-
-                    gen_type = var->type;
-                }
-
-                var->di_loc_var = LLVMZigCreateLocalVariable(g->dbuilder, tag,
-                        block_context->di_scope, buf_ptr(&var->name),
-                        import->di_file, var->decl_node->line + 1,
-                        gen_type->di_type, !g->strip_debug_symbols, 0, arg_no);
+            if (!type_has_bits(var->type)) {
+                continue;
             }
 
-            // allocate structs which are the result of casts
-            for (int cea_i = 0; cea_i < block_context->cast_alloca_list.length; cea_i += 1) {
-                AstNode *fn_call_node = block_context->cast_alloca_list.at(cea_i);
-                add_debug_source_node(g, fn_call_node);
-                Expr *expr = &fn_call_node->data.fn_call_expr.resolved_expr;
-                fn_call_node->data.fn_call_expr.tmp_ptr = LLVMBuildAlloca(g->builder,
-                        expr->type_entry->type_ref, "");
+            unsigned tag;
+            unsigned arg_no;
+            TypeTableEntry *gen_type;
+            if (var->block_context->node->type == NodeTypeFnDef) {
+                tag = LLVMZigTag_DW_arg_variable();
+                arg_no = var->gen_arg_index + 1;
+
+                var->is_ptr = false;
+                assert(var->gen_arg_index >= 0);
+                var->value_ref = LLVMGetParam(fn, var->gen_arg_index);
+
+                gen_type = fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index].type;
+            } else {
+                tag = LLVMZigTag_DW_auto_variable();
+                arg_no = 0;
+
+                add_debug_source_node(g, var->decl_node);
+                var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
+                uint64_t align_bytes = LLVMABISizeOfType(g->target_data_ref, var->type->type_ref);
+                LLVMSetAlignment(var->value_ref, align_bytes);
+
+                gen_type = var->type;
             }
 
-            // allocate structs which are struct value expressions
-            for (int alloca_i = 0; alloca_i < block_context->struct_val_expr_alloca_list.length; alloca_i += 1) {
-                StructValExprCodeGen *struct_val_expr_node = block_context->struct_val_expr_alloca_list.at(alloca_i);
-                add_debug_source_node(g, struct_val_expr_node->source_node);
-                struct_val_expr_node->ptr = LLVMBuildAlloca(g->builder,
-                        struct_val_expr_node->type_entry->type_ref, "");
-            }
+            var->di_loc_var = LLVMZigCreateLocalVariable(g->dbuilder, tag,
+                    var->block_context->di_scope, buf_ptr(&var->name),
+                    import->di_file, var->decl_node->line + 1,
+                    gen_type->di_type, !g->strip_debug_symbols, 0, arg_no);
         }
 
         // create debug variable declarations for parameters
@@ -3067,6 +3051,23 @@ static void do_code_gen(CodeGen *g) {
                     fn_def_node->data.fn_def.block_context->di_scope);
             LLVMZigInsertDeclareAtEnd(g->dbuilder, variable->value_ref, variable->di_loc_var, debug_loc,
                     entry_block);
+        }
+
+        // allocate structs which are the result of casts
+        for (int cea_i = 0; cea_i < fn_table_entry->cast_alloca_list.length; cea_i += 1) {
+            AstNode *fn_call_node = fn_table_entry->cast_alloca_list.at(cea_i);
+            add_debug_source_node(g, fn_call_node);
+            Expr *expr = &fn_call_node->data.fn_call_expr.resolved_expr;
+            fn_call_node->data.fn_call_expr.tmp_ptr = LLVMBuildAlloca(g->builder,
+                    expr->type_entry->type_ref, "");
+        }
+
+        // allocate structs which are struct value expressions
+        for (int alloca_i = 0; alloca_i < fn_table_entry->struct_val_expr_alloca_list.length; alloca_i += 1) {
+            StructValExprCodeGen *struct_val_expr_node = fn_table_entry->struct_val_expr_alloca_list.at(alloca_i);
+            add_debug_source_node(g, struct_val_expr_node->source_node);
+            struct_val_expr_node->ptr = LLVMBuildAlloca(g->builder,
+                    struct_val_expr_node->type_entry->type_ref, "");
         }
 
         TypeTableEntry *implicit_return_type = fn_def_node->data.fn_def.implicit_return_type;
@@ -3524,6 +3525,8 @@ void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source
     import->source_code = source_code;
     import->path = full_path;
     import->fn_table.init(32);
+    import->type_table.init(8);
+    import->error_table.init(8);
     g->root_import = import;
 
     init(g, full_path);
@@ -3614,6 +3617,8 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
     import_entry->line_offsets = tokenization.line_offsets;
     import_entry->path = full_path;
     import_entry->fn_table.init(32);
+    import_entry->type_table.init(8);
+    import_entry->error_table.init(8);
 
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color,
             &g->next_node_index);

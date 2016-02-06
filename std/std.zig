@@ -50,6 +50,8 @@ pub struct OutStream {
     fd: isize,
     buffer: [buffer_size]u8,
     index: isize,
+    // TODO remove this. let the user flush at will.
+    // for stderr the user can use printf
     buffered: bool,
 
     pub fn print_str(os: &OutStream, str: []const u8) -> %isize {

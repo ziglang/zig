@@ -51,7 +51,7 @@ Expression = BlockExpression | NonBlockExpression
 
 TypeExpr = PrefixOpExpression
 
-NonBlockExpression = ReturnExpression | AssignmentExpression
+NonBlockExpression = ReturnExpression | AssignmentExpression | DeferExpression
 
 AsmExpression = "asm" option("volatile") "(" "String" option(AsmOutput) ")"
 
@@ -90,6 +90,8 @@ ForExpression = "for" "(" Expression ")" option("|" "Symbol" option("," "Symbol"
 BoolOrExpression = BoolAndExpression "||" BoolOrExpression | BoolAndExpression
 
 ReturnExpression = option("%" | "?") "return" option(Expression)
+
+DeferExpression = option("%" | "?") "defer" option(Expression)
 
 IfExpression = IfVarExpression | IfBoolExpression
 

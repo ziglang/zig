@@ -24,7 +24,6 @@ struct TypeTableEntry;
 struct VariableTableEntry;
 struct ErrorTableEntry;
 struct BuiltinFnEntry;
-struct LabelTableEntry;
 struct TypeStructField;
 struct CodeGen;
 struct ConstExprValue;
@@ -118,6 +117,7 @@ enum NodeType {
     NodeTypeBlock,
     NodeTypeDirective,
     NodeTypeReturnExpr,
+    NodeTypeDeferExpr,
     NodeTypeVariableDeclaration,
     NodeTypeTypeDecl,
     NodeTypeErrorValueDecl,
@@ -233,6 +233,16 @@ struct AstNodeReturnExpr {
 
     // populated by semantic analyzer:
     Expr resolved_expr;
+};
+
+struct AstNodeDeferExpr {
+    ReturnKind kind;
+    AstNode *expr;
+
+    // populated by semantic analyzer:
+    Expr resolved_expr;
+    int index_in_block;
+    LLVMBasicBlockRef basic_block;
 };
 
 struct AstNodeVariableDeclaration {
@@ -477,7 +487,6 @@ struct AstNodeWhileExpr {
     bool contains_break;
     bool contains_continue;
     Expr resolved_expr;
-    BlockContext *block_context;
 };
 
 struct AstNodeForExpr {
@@ -522,7 +531,6 @@ struct AstNodeLabel {
     Buf name;
 
     // populated by semantic analyzer
-    LabelTableEntry *label_entry;
     Expr resolved_expr;
 };
 
@@ -530,7 +538,6 @@ struct AstNodeGoto {
     Buf name;
 
     // populated by semantic analyzer
-    LabelTableEntry *label_entry;
     Expr resolved_expr;
 };
 
@@ -732,6 +739,7 @@ struct AstNode {
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
         AstNodeReturnExpr return_expr;
+        AstNodeDeferExpr defer_expr;
         AstNodeVariableDeclaration variable_declaration;
         AstNodeTypeDecl type_decl;
         AstNodeErrorValueDecl error_value_decl;
@@ -967,13 +975,8 @@ struct ImportTableEntry {
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
-};
-
-struct LabelTableEntry {
-    AstNode *label_node;
-    LLVMBasicBlockRef basic_block;
-    bool used;
-    bool entered_from_fallthrough;
+    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
+    HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
 };
 
 struct FnTableEntry {
@@ -992,8 +995,9 @@ struct FnTableEntry {
     bool is_test;
     uint32_t ref_count; // if this is 0 we don't have to codegen it
 
-    // reminder: hash tables must be initialized before use
-    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
+    ZigList<AstNode *> cast_alloca_list;
+    ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
+    ZigList<VariableTableEntry *> variable_list;
 };
 
 enum BuiltinFnId {
@@ -1140,6 +1144,7 @@ struct VariableTableEntry {
     LLVMZigDILocalVariable *di_loc_var;
     int src_arg_index;
     int gen_arg_index;
+    BlockContext *block_context;
 };
 
 struct ErrorTableEntry {
@@ -1148,19 +1153,32 @@ struct ErrorTableEntry {
     AstNode *decl_node;
 };
 
+enum BlockExitPath {
+    BlockExitPathFallthrough,
+    BlockExitPathReturn,
+    BlockExitPathGoto,
+};
+
 struct BlockContext {
-    AstNode *node; // either NodeTypeFnDef or NodeTypeBlock or NodeTypeRoot
-    FnTableEntry *fn_entry; // null at the module scope
-    BlockContext *parent; // null when this is the root
+    // One of: NodeTypeFnDef, NodeTypeBlock, NodeTypeRoot, NodeTypeDeferExpr, NodeTypeVariableDeclaration
+    AstNode *node;
+
+    // any variables that are introduced by this scope
     HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
-    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
-    HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
-    ZigList<AstNode *> cast_alloca_list;
-    ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
-    ZigList<VariableTableEntry *> variable_list;
+
+    // if the block is inside a function, this is the function it is in:
+    FnTableEntry *fn_entry;
+
+    // if the block has a parent, this is it
+    BlockContext *parent;
+
+    // if break or continue is valid in this context, this is the loop node that
+    // it would pertain to
     AstNode *parent_loop_node;
+
     LLVMZigDIScope *di_scope;
     Buf *c_import_buf;
+    bool block_exit_paths[3]; // one for each BlockExitPath
 };
 
 enum CIntType {

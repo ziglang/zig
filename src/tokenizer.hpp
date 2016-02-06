@@ -42,6 +42,7 @@ enum TokenId {
     TokenIdKeywordError,
     TokenIdKeywordType,
     TokenIdKeywordInline,
+    TokenIdKeywordDefer,
     TokenIdLParen,
     TokenIdRParen,
     TokenIdComma,
