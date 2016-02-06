@@ -59,7 +59,7 @@ pub struct Rand {
     }
 
     fn generate_numbers(r: &Rand) {
-        for (item, r.array, i) {
+        for (r.array) |item, i| {
             const y : u32 = (item & 0x80000000) + (r.array[(i + 1) % ARRAY_SIZE] & 0x7fffffff);
             const untempered : u32 = r.array[(i + 397) % ARRAY_SIZE] ^ (y >> 1);
             r.array[i] = if ((y % 2) == 0) {

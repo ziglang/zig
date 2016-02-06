@@ -85,7 +85,7 @@ SwitchItem = Expression | (Expression "..." Expression)
 
 WhileExpression = "while" "(" Expression ")" Expression
 
-ForExpression = "for" "(" "Symbol" "," Expression option("," "Symbol") ")" Expression
+ForExpression = "for" "(" Expression ")" option("|" "Symbol" option("," "Symbol") "|") Expression
 
 BoolOrExpression = BoolAndExpression "||" BoolOrExpression | BoolAndExpression
 

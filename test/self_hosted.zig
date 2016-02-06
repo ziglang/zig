@@ -81,7 +81,7 @@ enum AnEnumWithPayload {
 fn continue_in_for_loop() {
     const array = []i32 {1, 2, 3, 4, 5};
     var sum : i32 = 0;
-    for (x, array) {
+    for (array) |x| {
         sum += x;
         if (x < 3) {
             continue;

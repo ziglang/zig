@@ -173,7 +173,7 @@ pub error Overflow;
 pub fn parse_u64(buf: []u8, radix: u8) -> %u64 {
     var x : u64 = 0;
 
-    for (c, buf) {
+    for (buf) |c| {
         const digit = char_to_digit(c);
 
         if (digit > radix) {

@@ -1797,7 +1797,7 @@ static AstNode *ast_parse_symbol(ParseContext *pc, int *token_index) {
 }
 
 /*
-ForExpression : token(For) token(LParen) Symbol token(Comma) Expression option(token(Comma) token(Symbol)) token(RParen) Expression
+ForExpression = "for" "(" Expression ")" option("|" "Symbol" option("," "Symbol") "|") Expression
 */
 static AstNode *ast_parse_for_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1814,17 +1814,23 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, int *token_index, bool mand
     AstNode *node = ast_create_node(pc, NodeTypeForExpr, token);
 
     ast_eat_token(pc, token_index, TokenIdLParen);
-    node->data.for_expr.elem_node = ast_parse_symbol(pc, token_index);
-    ast_eat_token(pc, token_index, TokenIdComma);
     node->data.for_expr.array_expr = ast_parse_expression(pc, token_index, true);
-
-    Token *comma = &pc->tokens->at(*token_index);
-    if (comma->id == TokenIdComma) {
-        *token_index += 1;
-        node->data.for_expr.index_node = ast_parse_symbol(pc, token_index);
-    }
-
     ast_eat_token(pc, token_index, TokenIdRParen);
+
+    Token *maybe_bar = &pc->tokens->at(*token_index);
+    if (maybe_bar->id == TokenIdBinOr) {
+        *token_index += 1;
+        node->data.for_expr.elem_node = ast_parse_symbol(pc, token_index);
+
+        Token *maybe_comma = &pc->tokens->at(*token_index);
+        if (maybe_comma->id == TokenIdComma) {
+            *token_index += 1;
+
+            node->data.for_expr.index_node = ast_parse_symbol(pc, token_index);
+        }
+
+        ast_eat_token(pc, token_index, TokenIdBinOr);
+    }
 
     node->data.for_expr.body = ast_parse_expression(pc, token_index, true);
 

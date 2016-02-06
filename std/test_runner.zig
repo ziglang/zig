@@ -8,7 +8,7 @@ struct TestFn {
 extern var zig_test_fn_list: []TestFn;
 
 pub fn run_tests() -> %void {
-    for (test_fn, zig_test_fn_list, i) {
+    for (zig_test_fn_list) |test_fn, i| {
         %%stderr.print_str("Test ");
         %%stderr.print_i64(i + 1);
         %%stderr.print_str("/");

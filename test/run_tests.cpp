@@ -1120,20 +1120,20 @@ import "std.zig";
 
 pub fn main(args: [][]u8) -> %void {
     const array = []u8 {9, 8, 7, 6};
-    for (item, array) {
+    for (array) |item| {
         %%stdout.print_u64(item);
         %%stdout.printf("\n");
     }
-    for (item, array, index) {
+    for (array) |item, index| {
         %%stdout.print_i64(index);
         %%stdout.printf("\n");
     }
     const unknown_size: []u8 = array;
-    for (item, unknown_size) {
+    for (unknown_size) |item| {
         %%stdout.print_u64(item);
         %%stdout.printf("\n");
     }
-    for (item, unknown_size, index) {
+    for (unknown_size) |item, index| {
         %%stdout.print_i64(index);
         %%stdout.printf("\n");
     }
@@ -1145,7 +1145,7 @@ import "std.zig";
 
 pub fn main(args: [][]u8) -> %void {
     const fns = []@typeof(fn1) { fn1, fn2, fn3, fn4, };
-    for (f, fns) {
+    for (fns) |f| {
         %%stdout.print_u64(f());
         %%stdout.printf("\n");
     }
@@ -1434,7 +1434,7 @@ export fn main(args: c_int, argv: &&u8) -> c_int {
 
     qsort((&c_void)(array.ptr), c_ulong(array.len), @sizeof(i32), compare_fn);
 
-    for (item, array, i) {
+    for (array) |item, i| {
         if (item != i) {
             abort();
         }
