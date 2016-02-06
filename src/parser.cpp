@@ -1651,7 +1651,7 @@ static AstNode *ast_parse_return_or_defer_expr(ParseContext *pc, int *token_inde
             *token_index += 2;
         } else if (next_token->id == TokenIdKeywordDefer) {
             kind = ReturnKindError;
-            node_type = NodeTypeDeferExpr;
+            node_type = NodeTypeDefer;
             *token_index += 2;
         } else {
             return nullptr;
@@ -1664,7 +1664,7 @@ static AstNode *ast_parse_return_or_defer_expr(ParseContext *pc, int *token_inde
             *token_index += 2;
         } else if (next_token->id == TokenIdKeywordDefer) {
             kind = ReturnKindMaybe;
-            node_type = NodeTypeDeferExpr;
+            node_type = NodeTypeDefer;
             *token_index += 2;
         } else {
             return nullptr;
@@ -1675,7 +1675,7 @@ static AstNode *ast_parse_return_or_defer_expr(ParseContext *pc, int *token_inde
         *token_index += 1;
     } else if (token->id == TokenIdKeywordDefer) {
         kind = ReturnKindUnconditional;
-        node_type = NodeTypeDeferExpr;
+        node_type = NodeTypeDefer;
         *token_index += 1;
     } else {
         return nullptr;
@@ -2703,8 +2703,8 @@ void normalize_parent_ptrs(AstNode *node) {
         case NodeTypeReturnExpr:
             set_field(&node->data.return_expr.expr);
             break;
-        case NodeTypeDeferExpr:
-            set_field(&node->data.defer_expr.expr);
+        case NodeTypeDefer:
+            set_field(&node->data.defer.expr);
             break;
         case NodeTypeVariableDeclaration:
             set_list_fields(node->data.variable_declaration.directives);

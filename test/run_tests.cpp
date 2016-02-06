@@ -1519,6 +1519,19 @@ pub fn main(args: [][]u8) -> %void {
     %%stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
+
+
+    add_simple_case("defer with only fallthrough", R"SOURCE(
+import "std.zig";
+pub fn main(args: [][]u8) -> %void {
+    %%stdout.printf("before\n");
+    defer %%stdout.printf("defer1\n");
+    defer %%stdout.printf("defer2\n");
+    defer %%stdout.printf("defer3\n");
+    %%stdout.printf("after\n");
+}
+    )SOURCE", "before\nafter\ndefer3\ndefer2\ndefer1\n");
+
 }
 
 

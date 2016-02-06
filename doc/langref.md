@@ -43,7 +43,7 @@ ParamDecl = option("noalias") option("Symbol" ":") TypeExpr | "..."
 
 Block = "{" list(option(Statement), ";") "}"
 
-Statement = Label | VariableDeclaration ";" | NonBlockExpression ";" | BlockExpression
+Statement = Label | VariableDeclaration ";" | Defer ";" | NonBlockExpression ";" | BlockExpression
 
 Label = "Symbol" ":"
 
@@ -51,7 +51,7 @@ Expression = BlockExpression | NonBlockExpression
 
 TypeExpr = PrefixOpExpression
 
-NonBlockExpression = ReturnExpression | AssignmentExpression | DeferExpression
+NonBlockExpression = ReturnExpression | AssignmentExpression
 
 AsmExpression = "asm" option("volatile") "(" "String" option(AsmOutput) ")"
 
@@ -91,7 +91,7 @@ BoolOrExpression = BoolAndExpression "||" BoolOrExpression | BoolAndExpression
 
 ReturnExpression = option("%" | "?") "return" option(Expression)
 
-DeferExpression = option("%" | "?") "defer" option(Expression)
+Defer = option("%" | "?") "defer" option(Expression)
 
 IfExpression = IfVarExpression | IfBoolExpression
 

@@ -4,7 +4,6 @@ import "std.zig";
 
 // Things to do to make this work:
 // * var args printing
-// * defer
 // * cast err type to string
 // * string equality
 

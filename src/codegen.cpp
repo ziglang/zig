@@ -1669,11 +1669,9 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
     }
 }
 
-static LLVMValueRef gen_defer_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeDeferExpr);
+static LLVMValueRef gen_defer(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeDefer);
 
-    zig_panic("TODO");
-    //node->block_context->cur_defer_index = node->data.defer_expr.index_in_block;
 
     return nullptr;
 }
@@ -1800,23 +1798,16 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
     return return_value;
 }
 
+//static int block_exit_path_count(BlockContext *block_context) {
+//    int sum = 0;
+//    for (int i = 0; i < BlockExitPathCount; i += 1) {
+//        sum += block_context->block_exit_paths[i] ? 1 : 0;
+//    }
+//    return sum;
+//}
+
 static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *implicit_return_type) {
     assert(block_node->type == NodeTypeBlock);
-
-    /* TODO
-    BlockContext *block_context = block_node->data.block.block_context;
-    if (block_context->defer_list.length > 0) {
-        LLVMBasicBlockRef exit_scope_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DeferExitScope");
-
-        for (int i = 0; i < block_context->defer_list.length; i += 1) {
-            AstNode *defer_node = block_context->defer_list.at(i);
-            defer_node->data.defer_expr.basic_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DeferExpr");
-            LLVMPositionBuilderAtEnd(g->builder, body_block);
-        }
-
-        LLVMPositionBuilderAtEnd(g->builder, ?);
-    }
-    */
 
     LLVMValueRef return_value;
     for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
@@ -1824,7 +1815,20 @@ static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *i
         return_value = gen_expr(g, statement_node);
     }
 
-    if (implicit_return_type && implicit_return_type->id != TypeTableEntryIdUnreachable) {
+    bool end_unreachable = implicit_return_type && implicit_return_type->id == TypeTableEntryIdUnreachable;
+    if (end_unreachable) {
+        return nullptr;
+    }
+
+    BlockContext *block_context = block_node->data.block.nested_block;
+    while (block_context != block_node->data.block.child_block) {
+        if (block_context->node->type == NodeTypeDefer) {
+            gen_expr(g, block_context->node->data.defer.expr);
+        }
+        block_context = block_context->parent;
+    }
+
+    if (implicit_return_type) {
         return gen_return(g, block_node, return_value);
     } else {
         return return_value;
@@ -2475,8 +2479,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
             return gen_unwrap_err_expr(g, node);
         case NodeTypeReturnExpr:
             return gen_return_expr(g, node);
-        case NodeTypeDeferExpr:
-            return gen_defer_expr(g, node);
+        case NodeTypeDefer:
+            return gen_defer(g, node);
         case NodeTypeVariableDeclaration:
             return gen_var_decl_expr(g, node);
         case NodeTypePrefixOpExpr:

@@ -117,7 +117,7 @@ enum NodeType {
     NodeTypeBlock,
     NodeTypeDirective,
     NodeTypeReturnExpr,
-    NodeTypeDeferExpr,
+    NodeTypeDefer,
     NodeTypeVariableDeclaration,
     NodeTypeTypeDecl,
     NodeTypeErrorValueDecl,
@@ -216,7 +216,12 @@ struct AstNodeBlock {
     ZigList<AstNode *> statements;
 
     // populated by semantic analyzer
-    BlockContext *block_context;
+    // this one is the scope that the block itself introduces
+    BlockContext *child_block;
+    // this is the innermost scope created by defers and var decls.
+    // you can follow its parents up to child_block. it will equal
+    // child_block if there are no defers or var decls in the block.
+    BlockContext *nested_block;
     Expr resolved_expr;
 };
 
@@ -235,7 +240,7 @@ struct AstNodeReturnExpr {
     Expr resolved_expr;
 };
 
-struct AstNodeDeferExpr {
+struct AstNodeDefer {
     ReturnKind kind;
     AstNode *expr;
 
@@ -243,6 +248,7 @@ struct AstNodeDeferExpr {
     Expr resolved_expr;
     int index_in_block;
     LLVMBasicBlockRef basic_block;
+    BlockContext *child_block;
 };
 
 struct AstNodeVariableDeclaration {
@@ -739,7 +745,7 @@ struct AstNode {
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
         AstNodeReturnExpr return_expr;
-        AstNodeDeferExpr defer_expr;
+        AstNodeDefer defer;
         AstNodeVariableDeclaration variable_declaration;
         AstNodeTypeDecl type_decl;
         AstNodeErrorValueDecl error_value_decl;
@@ -1157,10 +1163,12 @@ enum BlockExitPath {
     BlockExitPathFallthrough,
     BlockExitPathReturn,
     BlockExitPathGoto,
+
+    BlockExitPathCount,
 };
 
 struct BlockContext {
-    // One of: NodeTypeFnDef, NodeTypeBlock, NodeTypeRoot, NodeTypeDeferExpr, NodeTypeVariableDeclaration
+    // One of: NodeTypeFnDef, NodeTypeBlock, NodeTypeRoot, NodeTypeDefer, NodeTypeVariableDeclaration
     AstNode *node;
 
     // any variables that are introduced by this scope
@@ -1178,7 +1186,7 @@ struct BlockContext {
 
     LLVMZigDIScope *di_scope;
     Buf *c_import_buf;
-    bool block_exit_paths[3]; // one for each BlockExitPath
+    bool block_exit_paths[BlockExitPathCount];
 };
 
 enum CIntType {

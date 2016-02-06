@@ -57,7 +57,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeBlock:
         case NodeTypeDirective:
         case NodeTypeReturnExpr:
-        case NodeTypeDeferExpr:
+        case NodeTypeDefer:
         case NodeTypeVariableDeclaration:
         case NodeTypeTypeDecl:
         case NodeTypeErrorValueDecl:
@@ -1456,7 +1456,7 @@ static void resolve_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
-        case NodeTypeDeferExpr:
+        case NodeTypeDefer:
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
@@ -4590,56 +4590,54 @@ static void validate_voided_expr(CodeGen *g, AstNode *source_node, TypeTableEntr
     }
 }
 
-static TypeTableEntry *analyze_defer_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+static TypeTableEntry *analyze_defer(CodeGen *g, ImportTableEntry *import, BlockContext *parent_context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    if (!context->fn_entry) {
+    if (!parent_context->fn_entry) {
         add_node_error(g, node, buf_sprintf("defer expression outside function definition"));
         return g->builtin_types.entry_invalid;
     }
 
-    if (!node->data.defer_expr.expr) {
+    if (!node->data.defer.expr) {
         add_node_error(g, node, buf_sprintf("defer expects an expression"));
         return g->builtin_types.entry_void;
     }
 
+    node->data.defer.child_block = new_block_context(node, parent_context);
 
-    switch (node->data.defer_expr.kind) {
+    switch (node->data.defer.kind) {
         case ReturnKindUnconditional:
             {
-                TypeTableEntry *resolved_type = analyze_expression(g, import, context, nullptr,
-                        node->data.defer_expr.expr);
-                validate_voided_expr(g, node->data.defer_expr.expr, resolved_type);
-                zig_panic("TODO");
+                TypeTableEntry *resolved_type = analyze_expression(g, import, parent_context, nullptr,
+                        node->data.defer.expr);
+                validate_voided_expr(g, node->data.defer.expr, resolved_type);
 
-                //node->data.defer_expr.index_in_block = context->defer_list.length;
-                //context->defer_list.append(node);
                 return g->builtin_types.entry_void;
             }
         case ReturnKindError:
             {
-                TypeTableEntry *resolved_type = analyze_expression(g, import, context, nullptr,
-                        node->data.defer_expr.expr);
+                TypeTableEntry *resolved_type = analyze_expression(g, import, parent_context, nullptr,
+                        node->data.defer.expr);
                 if (resolved_type->id == TypeTableEntryIdInvalid) {
                     // OK
                 } else if (resolved_type->id == TypeTableEntryIdErrorUnion) {
                     // OK
                 } else {
-                    add_node_error(g, node->data.defer_expr.expr,
+                    add_node_error(g, node->data.defer.expr,
                             buf_sprintf("expected error type, got '%s'", buf_ptr(&resolved_type->name)));
                 }
                 return g->builtin_types.entry_void;
             }
         case ReturnKindMaybe:
             {
-                TypeTableEntry *resolved_type = analyze_expression(g, import, context, nullptr,
-                        node->data.defer_expr.expr);
+                TypeTableEntry *resolved_type = analyze_expression(g, import, parent_context, nullptr,
+                        node->data.defer.expr);
                 if (resolved_type->id == TypeTableEntryIdInvalid) {
                     // OK
                 } else if (resolved_type->id == TypeTableEntryIdMaybe) {
                     // OK
                 } else {
-                    add_node_error(g, node->data.defer_expr.expr,
+                    add_node_error(g, node->data.defer.expr,
                             buf_sprintf("expected maybe type, got '%s'", buf_ptr(&resolved_type->name)));
                 }
                 return g->builtin_types.entry_void;
@@ -4657,11 +4655,11 @@ static TypeTableEntry *analyze_string_literal_expr(CodeGen *g, ImportTableEntry 
     }
 }
 
-static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, BlockContext *parent_context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    BlockContext *child_context = new_block_context(node, context);
-    node->data.block.block_context = child_context;
+    BlockContext *child_context = new_block_context(node, parent_context);
+    node->data.block.child_block = child_context;
     TypeTableEntry *return_type = g->builtin_types.entry_void;
 
     for (int i = 0; i < node->data.block.statements.length; i += 1) {
@@ -4676,7 +4674,7 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
             if (is_node_void_expr(child)) {
                 // {unreachable;void;void} is allowed.
                 // ignore void statements once we enter unreachable land.
-                analyze_expression(g, import, context, g->builtin_types.entry_void, child);
+                analyze_expression(g, import, child_context, g->builtin_types.entry_void, child);
                 continue;
             }
             add_node_error(g, first_executing_node(child), buf_sprintf("unreachable code"));
@@ -4685,10 +4683,16 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
         bool is_last = (i == node->data.block.statements.length - 1);
         TypeTableEntry *passed_expected_type = is_last ? expected_type : nullptr;
         return_type = analyze_expression(g, import, child_context, passed_expected_type, child);
+        if (child->type == NodeTypeDefer && return_type->id != TypeTableEntryIdInvalid) {
+            // defer starts a new block context
+            child_context = child->data.defer.child_block;
+            assert(child_context);
+        }
         if (!is_last) {
             validate_voided_expr(g, child, return_type);
         }
     }
+    node->data.block.nested_block = child_context;
     return return_type;
 }
 
@@ -4750,8 +4754,8 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
         case NodeTypeReturnExpr:
             return_type = analyze_return_expr(g, import, context, expected_type, node);
             break;
-        case NodeTypeDeferExpr:
-            return_type = analyze_defer_expr(g, import, context, expected_type, node);
+        case NodeTypeDefer:
+            return_type = analyze_defer(g, import, context, expected_type, node);
             break;
         case NodeTypeVariableDeclaration:
             analyze_variable_declaration(g, import, context, expected_type, node);
@@ -4956,7 +4960,7 @@ static void analyze_top_level_decl(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
-        case NodeTypeDeferExpr:
+        case NodeTypeDefer:
         case NodeTypeRoot:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
@@ -5039,8 +5043,8 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeReturnExpr:
             collect_expr_decl_deps(g, import, node->data.return_expr.expr, decl_node);
             break;
-        case NodeTypeDeferExpr:
-            collect_expr_decl_deps(g, import, node->data.defer_expr.expr, decl_node);
+        case NodeTypeDefer:
+            collect_expr_decl_deps(g, import, node->data.defer.expr, decl_node);
             break;
         case NodeTypePrefixOpExpr:
             collect_expr_decl_deps(g, import, node->data.prefix_op_expr.primary_expr, decl_node);
@@ -5361,7 +5365,7 @@ static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, Ast
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
-        case NodeTypeDeferExpr:
+        case NodeTypeDefer:
         case NodeTypeBlock:
         case NodeTypeBinOpExpr:
         case NodeTypeUnwrapErrorExpr:
@@ -5552,8 +5556,8 @@ Expr *get_resolved_expr(AstNode *node) {
     switch (node->type) {
         case NodeTypeReturnExpr:
             return &node->data.return_expr.resolved_expr;
-        case NodeTypeDeferExpr:
-            return &node->data.defer_expr.resolved_expr;
+        case NodeTypeDefer:
+            return &node->data.defer.resolved_expr;
         case NodeTypeBinOpExpr:
             return &node->data.bin_op_expr.resolved_expr;
         case NodeTypeUnwrapErrorExpr:
@@ -5652,7 +5656,7 @@ TopLevelDecl *get_resolved_top_level_decl(AstNode *node) {
             return &node->data.type_decl.top_level_decl;
         case NodeTypeNumberLiteral:
         case NodeTypeReturnExpr:
-        case NodeTypeDeferExpr:
+        case NodeTypeDefer:
         case NodeTypeBinOpExpr:
         case NodeTypeUnwrapErrorExpr:
         case NodeTypePrefixOpExpr:
