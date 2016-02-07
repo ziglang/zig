@@ -170,6 +170,13 @@ static AstNode *create_char_lit_node(Context *c, uint8_t value) {
     return node;
 }
 
+static AstNode *create_str_lit_node(Context *c, Buf *buf) {
+    AstNode *node = create_node(c, NodeTypeStringLiteral);
+    buf_init_from_buf(&node->data.string_literal.buf, buf);
+    node->data.string_literal.c = true;
+    return node;
+}
+
 static AstNode *create_num_lit_unsigned(Context *c, uint64_t x) {
     AstNode *node = create_node(c, NodeTypeNumberLiteral);
     node->data.number_literal.kind = NumLitUInt;
@@ -1255,6 +1262,97 @@ static bool is_simple_symbol(Buf *buf) {
     return true;
 }
 
+enum ParseCStrState {
+    ParseCStrStateExpectQuot,
+    ParseCStrStateNormal,
+    ParseCStrStateEscape,
+};
+
+static int parse_c_str_lit(Buf *buf, Buf *out_str) {
+    ParseCStrState state = ParseCStrStateExpectQuot;
+    buf_resize(out_str, 0);
+
+    for (int i = 0; i < buf_len(buf); i += 1) {
+        uint8_t c = buf_ptr(buf)[i];
+        switch (state) {
+            case ParseCStrStateExpectQuot:
+                if (c == '"') {
+                    state = ParseCStrStateNormal;
+                } else {
+                    return -1;
+                }
+                break;
+            case ParseCStrStateNormal:
+                switch (c) {
+                    case '\\':
+                        state = ParseCStrStateEscape;
+                        break;
+                    case '\n':
+                        return -1;
+                    case '"':
+                        return 0;
+                    default:
+                        buf_append_char(out_str, c);
+                }
+                break;
+            case ParseCStrStateEscape:
+                switch (c) {
+                    case '\'':
+                        buf_append_char(out_str, '\'');
+                        state = ParseCStrStateNormal;
+                        break;
+                    case '"':
+                        buf_append_char(out_str, '"');
+                        state = ParseCStrStateNormal;
+                        break;
+                    case '?':
+                        buf_append_char(out_str, '\?');
+                        state = ParseCStrStateNormal;
+                        break;
+                    case '\\':
+                        buf_append_char(out_str, '\\');
+                        state = ParseCStrStateNormal;
+                        break;
+                    case 'a':
+                        buf_append_char(out_str, '\a');
+                        state = ParseCStrStateNormal;
+                        break;
+                    case 'b':
+                        buf_append_char(out_str, '\b');
+                        state = ParseCStrStateNormal;
+                        break;
+                    case 'f':
+                        buf_append_char(out_str, '\f');
+                        state = ParseCStrStateNormal;
+                        break;
+                    case 'n':
+                        buf_append_char(out_str, '\n');
+                        state = ParseCStrStateNormal;
+                        break;
+                    case 'r':
+                        buf_append_char(out_str, '\r');
+                        state = ParseCStrStateNormal;
+                        break;
+                    case 't':
+                        buf_append_char(out_str, '\t');
+                        state = ParseCStrStateNormal;
+                        break;
+                    case 'v':
+                        buf_append_char(out_str, '\v');
+                        state = ParseCStrStateNormal;
+                        break;
+                    default:
+                        // TODO octal escape sequence, hexadecimal escape sequence, and
+                        // universal character name
+                        return -1;
+                }
+                break;
+        }
+    }
+
+    return -1;
+}
+
 static void process_macro(Context *c, Buf *name, Buf *value) {
     //fprintf(stderr, "macro '%s' = '%s'\n", buf_ptr(name), buf_ptr(value));
     if (is_zig_keyword(name)) {
@@ -1269,7 +1367,12 @@ static void process_macro(Context *c, Buf *name, Buf *value) {
         return;
     }
     // maybe it's a string literal
-    // TODO
+    Buf str_lit = BUF_INIT;
+    if (!parse_c_str_lit(value, &str_lit)) {
+        AstNode *var_node = create_var_decl_node(c, buf_ptr(name), create_str_lit_node(c, &str_lit));
+        c->macro_table.put(name, var_node);
+        return;
+    }
 
     // maybe it's an unsigned integer
     uint64_t uint;

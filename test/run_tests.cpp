@@ -2185,6 +2185,11 @@ extern void (*fn_ptr)(void);
             R"SOURCE(pub inline fn foo() {
     (??fn_ptr)()
 })SOURCE");
+
+
+    add_parseh_case("#define string", R"SOURCE(
+#define  foo  "a string"
+    )SOURCE", 1, "pub const foo = c\"a string\";");
 }
 
 static void run_self_hosted_test(void) {
