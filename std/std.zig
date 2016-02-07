@@ -14,14 +14,12 @@ pub var stdout = OutStream {
     .fd = stdout_fileno,
     .buffer = undefined,
     .index = 0,
-    .buffered = true,
 };
 
 pub var stderr = OutStream {
     .fd = stderr_fileno,
     .buffer = undefined,
     .index = 0,
-    .buffered = false,
 };
 
 /// The function received invalid input at runtime. An Invalid error means a
@@ -50,9 +48,6 @@ pub struct OutStream {
     fd: isize,
     buffer: [buffer_size]u8,
     index: isize,
-    // TODO remove this. let the user flush at will.
-    // for stderr the user can use printf
-    buffered: bool,
 
     pub fn print_str(os: &OutStream, str: []const u8) -> %isize {
         var src_bytes_left = str.len;
@@ -67,9 +62,6 @@ pub struct OutStream {
                 %return os.flush();
             }
             src_bytes_left -= copy_amt;
-        }
-        if (!os.buffered) {
-            %return os.flush();
         }
         return str.len;
     }
@@ -89,10 +81,6 @@ pub struct OutStream {
         const amt_printed = buf_print_u64(os.buffer[os.index...], x);
         os.index += amt_printed;
 
-        if (!os.buffered) {
-            %return os.flush();
-        }
-
         return amt_printed;
     }
 
@@ -103,10 +91,6 @@ pub struct OutStream {
         const amt_printed = buf_print_i64(os.buffer[os.index...], x);
         os.index += amt_printed;
 
-        if (!os.buffered) {
-            %return os.flush();
-        }
-
         return amt_printed;
     }
 
@@ -116,10 +100,6 @@ pub struct OutStream {
         }
         const amt_printed = buf_print_f64(os.buffer[os.index...], x, 4);
         os.index += amt_printed;
-
-        if (!os.buffered) {
-            %return os.flush();
-        }
 
         return amt_printed;
     }

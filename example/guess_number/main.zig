@@ -5,7 +5,7 @@ import "rand.zig";
 import "os.zig";
 
 pub fn main(args: [][]u8) -> %void {
-    %%stderr.print_str("Welcome to the Guess Number Game in Zig.\n");
+    %%stdout.printf("Welcome to the Guess Number Game in Zig.\n");
 
     var seed : u32 = undefined;
     const seed_bytes = (&u8)(&seed)[0...4];
@@ -16,24 +16,24 @@ pub fn main(args: [][]u8) -> %void {
     const answer = rand.range_u64(0, 100) + 1;
 
     while (true) {
-        %%stderr.print_str("\nGuess a number between 1 and 100: ");
+        %%stdout.printf("\nGuess a number between 1 and 100: ");
         var line_buf : [20]u8 = undefined;
 
         const line_len = stdin.read(line_buf) %% |err| {
-            %%stderr.print_str("Unable to read from stdin.\n");
+            %%stdout.printf("Unable to read from stdin.\n");
             return err;
         };
 
         const guess = parse_u64(line_buf[0...line_len - 1], 10) %% {
-            %%stderr.print_str("Invalid number.\n");
+            %%stdout.printf("Invalid number.\n");
             continue;
         };
         if (guess > answer) {
-            %%stderr.print_str("Guess lower.\n");
+            %%stdout.printf("Guess lower.\n");
         } else if (guess < answer) {
-            %%stderr.print_str("Guess higher.\n");
+            %%stdout.printf("Guess higher.\n");
         } else {
-            %%stderr.print_str("You win!\n");
+            %%stdout.printf("You win!\n");
             return;
         }
     }
