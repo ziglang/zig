@@ -4720,6 +4720,18 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
         }
     }
     node->data.block.nested_block = child_context;
+
+    ConstExprValue *const_val = &node->data.block.resolved_expr.const_val;
+    if (node->data.block.statements.length == 0) {
+        const_val->ok = true;
+    } else if (node->data.block.statements.length == 1) {
+        AstNode *only_node = node->data.block.statements.at(0);
+        ConstExprValue *other_const_val = &get_resolved_expr(only_node)->const_val;
+        if (other_const_val->ok) {
+            *const_val = *other_const_val;
+        }
+    }
+
     return return_type;
 }
 

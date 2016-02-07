@@ -215,3 +215,21 @@ fn explicit_cast_maybe_pointers() {
     const a: ?&i32 = undefined;
     const b: ?&f32 = (?&f32)(a);
 }
+
+
+#attribute("test")
+fn const_expr_eval_on_single_expr_blocks() {
+    if (const_expr_eval_on_single_expr_blocks_fn(1, true) != 3) unreachable{}
+}
+
+fn const_expr_eval_on_single_expr_blocks_fn(x: i32, b: bool) -> i32 {
+    const literal = 3;
+
+    const result = if (b) {
+        literal
+    } else {
+        x
+    };
+
+    return result;
+}

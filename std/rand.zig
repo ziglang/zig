@@ -58,6 +58,10 @@ pub struct Rand {
         return f32(r.range_u64(0, precision)) / precision;
     }
 
+    pub fn boolean(r: &Rand) -> bool {
+        return (r.get_u32() & 0x1) == 1;
+    }
+
     fn generate_numbers(r: &Rand) {
         for (r.array) |item, i| {
             const y : u32 = (item & 0x80000000) + (r.array[(i + 1) % ARRAY_SIZE] & 0x7fffffff);
