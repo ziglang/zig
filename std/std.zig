@@ -105,7 +105,7 @@ pub struct OutStream {
     }
 
     pub fn flush(os: &OutStream) -> %void {
-        const amt_written = write(os.fd, os.buffer.ptr, os.index);
+        const amt_written = write(os.fd, &os.buffer[0], os.index);
         os.index = 0;
         if (amt_written < 0) {
             return switch (-amt_written) {
@@ -127,7 +127,7 @@ pub struct InStream {
     fd: isize,
 
     pub fn read(is: &InStream, buf: []u8) -> %isize {
-        const amt_read = read(is.fd, buf.ptr, buf.len);
+        const amt_read = read(is.fd, &buf[0], buf.len);
         if (amt_read < 0) {
             return switch (-amt_read) {
                 EINVAL => unreachable{},

@@ -866,14 +866,6 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
         if (buf_eql_str(name, "len")) {
             return LLVMConstInt(g->builtin_types.entry_isize->type_ref,
                     struct_type->data.array.len, false);
-        } else if (buf_eql_str(name, "ptr")) {
-            LLVMValueRef array_val = gen_expr(g, node->data.field_access_expr.struct_expr);
-            LLVMValueRef indices[] = {
-                LLVMConstNull(g->builtin_types.entry_isize->type_ref),
-                LLVMConstNull(g->builtin_types.entry_isize->type_ref),
-            };
-            add_debug_source_node(g, node);
-            return LLVMBuildInBoundsGEP(g->builder, array_val, indices, 2, "");
         } else {
             zig_panic("gen_field_access_expr bad array field");
         }

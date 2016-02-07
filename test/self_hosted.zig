@@ -240,3 +240,32 @@ fn builtin_const_eval() {
     const x : i32 = @const_eval(1 + 2 + 3);
     if (x != @const_eval(6)) unreachable{};
 }
+
+#attribute("test")
+fn slicing() {
+    var array : [20]i32 = undefined;
+
+    array[5] = 1234;
+
+    var slice = array[5...10];
+
+    if (slice.len != 5) unreachable{};
+
+    const ptr = &slice[0];
+    if (ptr[0] != 1234) unreachable{};
+
+    var slice_rest = array[10...];
+    if (slice_rest.len != 10) unreachable{};
+}
+
+
+#attribute("test")
+fn memcpy_and_memset_intrinsics() {
+    var foo : [20]u8 = undefined;
+    var bar : [20]u8 = undefined;
+
+    @memset(&foo[0], 'A', foo.len);
+    @memcpy(&bar[0], &foo[0], bar.len);
+
+    if (bar[11] != 'A') unreachable{};
+}

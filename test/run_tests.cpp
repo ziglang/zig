@@ -921,33 +921,6 @@ pub fn main(args: [][]u8) -> %void {
         "min i64: -9223372036854775808\n");
 
 
-    add_simple_case("slicing", R"SOURCE(
-import "std.zig";
-pub fn main(args: [][]u8) -> %void {
-    var array : [20]i32 = undefined;
-
-    array[5] = 1234;
-
-    var slice = array[5...10];
-
-    if (slice.len != 5) {
-        %%stdout.printf("BAD\n");
-    }
-
-    if (slice.ptr[0] != 1234) {
-        %%stdout.printf("BAD\n");
-    }
-
-    var slice_rest = array[10...];
-    if (slice_rest.len != 10) {
-        %%stdout.printf("BAD\n");
-    }
-
-    %%stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
-
     add_simple_case("else if expression", R"SOURCE(
 import "std.zig";
 pub fn main(args: [][]u8) -> %void {
@@ -979,23 +952,6 @@ pub fn main(args: [][]u8) -> %void {
     if (result != 250) {
         %%stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
-    add_simple_case("memcpy and memset intrinsics", R"SOURCE(
-import "std.zig";
-pub fn main(args: [][]u8) -> %void {
-    var foo : [20]u8 = undefined;
-    var bar : [20]u8 = undefined;
-
-    @memset(foo.ptr, 'A', foo.len);
-    @memcpy(bar.ptr, foo.ptr, bar.len);
-
-    if (bar[11] != 'A') {
-        %%stdout.printf("BAD\n");
-    }
-
     %%stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
@@ -1413,7 +1369,7 @@ export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
 export fn main(args: c_int, argv: &&u8) -> c_int {
     var array = []i32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
 
-    qsort((&c_void)(array.ptr), c_ulong(array.len), @sizeof(i32), compare_fn);
+    qsort((&c_void)(&array[0]), c_ulong(array.len), @sizeof(i32), compare_fn);
 
     for (array) |item, i| {
         if (item != i) {

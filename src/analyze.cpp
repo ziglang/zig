@@ -2267,9 +2267,6 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
     } else if (struct_type->id == TypeTableEntryIdArray) {
         if (buf_eql_str(field_name, "len")) {
             return g->builtin_types.entry_isize;
-        } else if (buf_eql_str(field_name, "ptr")) {
-            // TODO determine whether the pointer should be const
-            return get_pointer_to_type(g, struct_type->data.array.child_type, false);
         } else {
             add_node_error(g, node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),

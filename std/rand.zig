@@ -28,7 +28,7 @@ pub struct Rand {
         var bytes_left = r.get_bytes_aligned(buf);
         if (bytes_left > 0) {
             var rand_val_array : [@sizeof(u32)]u8 = undefined;
-            *((&u32)(rand_val_array.ptr)) = r.get_u32();
+            *((&u32)(&rand_val_array[0])) = r.get_u32();
             while (bytes_left > 0) {
                 buf[buf.len - bytes_left] = rand_val_array[@sizeof(u32) - bytes_left];
                 bytes_left -= 1;
@@ -46,7 +46,7 @@ pub struct Rand {
 
         while (true) {
             r.get_bytes_aligned(rand_val_array);
-            const rand_val = *(&u64)(rand_val_array.ptr);
+            const rand_val = *(&u64)(&rand_val_array[0]);
             if (rand_val < upper_bound) {
                 return start + (rand_val % range);
             }
