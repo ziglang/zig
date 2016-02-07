@@ -208,3 +208,10 @@ fn wants_fn_with_void(f: fn()) { }
 fn fn_with_unreachable() -> unreachable {
     unreachable {}
 }
+
+
+#attribute("test")
+fn explicit_cast_maybe_pointers() {
+    const a: ?&i32 = undefined;
+    const b: ?&f32 = (?&f32)(a);
+}

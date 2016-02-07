@@ -3702,6 +3702,15 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPointerReinterpret, false);
     }
 
+    // explicit cast from maybe pointer to another maybe pointer
+    if (actual_type->id == TypeTableEntryIdMaybe &&
+        actual_type->data.maybe.child_type->id == TypeTableEntryIdPointer &&
+        wanted_type->id == TypeTableEntryIdMaybe &&
+        wanted_type->data.maybe.child_type->id == TypeTableEntryIdPointer)
+    {
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPointerReinterpret, false);
+    }
+
     // explicit cast from child type of maybe type to maybe type
     if (wanted_type->id == TypeTableEntryIdMaybe) {
         if (types_match_const_cast_only(wanted_type->data.maybe.child_type, actual_type)) {
