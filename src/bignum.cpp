@@ -156,7 +156,6 @@ bool bignum_mul(BigNum *dest, BigNum *op1, BigNum *op2) {
 
     if (dest->kind == BigNumKindFloat) {
         dest->data.x_float = op1->data.x_float * op2->data.x_float;
-        bignum_normalize(dest);
         return false;
     }
 
