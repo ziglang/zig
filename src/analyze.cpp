@@ -1655,8 +1655,10 @@ static bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTable
         if (expected_type->data.fn.fn_type_id.is_cold != actual_type->data.fn.fn_type_id.is_cold) {
             return false;
         }
-        if (!types_match_const_cast_only(expected_type->data.fn.fn_type_id.return_type,
-            actual_type->data.fn.fn_type_id.return_type))
+        if (actual_type->data.fn.fn_type_id.return_type->id != TypeTableEntryIdUnreachable &&
+            !types_match_const_cast_only(
+                expected_type->data.fn.fn_type_id.return_type,
+                actual_type->data.fn.fn_type_id.return_type))
         {
             return false;
         }

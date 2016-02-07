@@ -196,3 +196,15 @@ fn rhs_maybe_unwrap_return() {
     const x = ?true;
     const y = x ?? return;
 }
+
+
+#attribute("test")
+fn implicit_cast_fn_unreachable_return() {
+    wants_fn_with_void(fn_with_unreachable);
+}
+
+fn wants_fn_with_void(f: fn()) { }
+
+fn fn_with_unreachable() -> unreachable {
+    unreachable {}
+}
