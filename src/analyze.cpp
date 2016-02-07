@@ -467,16 +467,49 @@ static TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bo
 
         slice_type_common_init(g, child_type, is_const, entry);
 
-        LLVMZigDIType *di_element_types[] = {
-            pointer_type->di_type,
-            g->builtin_types.entry_isize->di_type,
-        };
+
         LLVMZigDIScope *compile_unit_scope = LLVMZigCompileUnitToScope(g->compile_unit);
+        LLVMZigDIFile *di_file = nullptr;
+        unsigned line = 0;
+        entry->di_type = LLVMZigCreateReplaceableCompositeType(g->dbuilder,
+            LLVMZigTag_DW_structure_type(), buf_ptr(&entry->name),
+            compile_unit_scope, di_file, line);
+
+        uint64_t ptr_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, pointer_type->type_ref);
+        uint64_t ptr_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, pointer_type->type_ref);
+        uint64_t ptr_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 0);
+
+        TypeTableEntry *isize_type = g->builtin_types.entry_isize;
+        uint64_t len_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, isize_type->type_ref);
+        uint64_t len_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, isize_type->type_ref);
+        uint64_t len_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 1);
+
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
-        entry->di_type = LLVMZigCreateDebugStructType(g->dbuilder, compile_unit_scope,
-                buf_ptr(&entry->name), g->dummy_di_file, 0, debug_size_in_bits, debug_align_in_bits, 0,
-                nullptr, di_element_types, element_count, 0, nullptr, "");
+
+        LLVMZigDIType *di_element_types[] = {
+            LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
+                    "ptr", di_file, line,
+                    ptr_debug_size_in_bits,
+                    ptr_debug_align_in_bits,
+                    ptr_offset_in_bits,
+                    0, child_type->di_type),
+            LLVMZigCreateDebugMemberType(g->dbuilder, LLVMZigTypeToScope(entry->di_type),
+                    "len", di_file, line,
+                    len_debug_size_in_bits,
+                    len_debug_align_in_bits,
+                    len_offset_in_bits,
+                    0, child_type->di_type),
+        };
+        LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
+                compile_unit_scope,
+                buf_ptr(&entry->name),
+                di_file, line, debug_size_in_bits, debug_align_in_bits, 0,
+                nullptr, di_element_types, 2, 0, nullptr, "");
+
+        LLVMZigReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
+        entry->di_type = replacement_di_type;
+
 
         entry->data.structure.complete = true;
 
