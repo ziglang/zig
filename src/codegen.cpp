@@ -2152,6 +2152,15 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
     return nullptr;
 }
 
+static void gen_var_debug_decl(CodeGen *g, VariableTableEntry *var) {
+    BlockContext *block_context = var->block_context;
+    AstNode *source_node = block_context->node;
+    LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(source_node->line + 1, source_node->column + 1,
+            block_context->di_scope);
+    LLVMZigInsertDeclareAtEnd(g->dbuilder, var->value_ref, var->di_loc_var, debug_loc,
+            LLVMGetInsertBlock(g->builder));
+}
+
 static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeForExpr);
     assert(node->data.for_expr.array_expr);
@@ -2175,6 +2184,9 @@ static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef array_val = gen_array_base_ptr(g, node->data.for_expr.array_expr);
     add_debug_source_node(g, node);
     LLVMBuildStore(g->builder, LLVMConstNull(index_var->type->type_ref), index_ptr);
+
+    gen_var_debug_decl(g, index_var);
+
     LLVMValueRef len_val;
     TypeTableEntry *child_type;
     if (array_type->id == TypeTableEntryIdArray) {
@@ -2203,6 +2215,7 @@ static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef elem_val = handle_is_ptr(child_type) ? elem_ptr : LLVMBuildLoad(g->builder, elem_ptr, "");
     gen_assign_raw(g, node, BinOpTypeAssign, elem_var->value_ref, elem_val,
             elem_var->type, child_type);
+    gen_var_debug_decl(g, elem_var);
     g->break_block_stack.append(end_block);
     g->continue_block_stack.append(continue_block);
     gen_expr(g, node->data.for_expr.body);
@@ -2335,10 +2348,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
         }
     }
 
-    LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(source_node->line + 1, source_node->column + 1,
-            source_node->block_context->di_scope);
-    LLVMZigInsertDeclareAtEnd(g->dbuilder, variable->value_ref, variable->di_loc_var, debug_loc,
-            LLVMGetInsertBlock(g->builder));
+    gen_var_debug_decl(g, variable);
     return nullptr;
 }
 
@@ -3107,10 +3117,7 @@ static void do_code_gen(CodeGen *g) {
             VariableTableEntry *variable = param_decl->data.param_decl.variable;
             assert(variable);
 
-            LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(param_decl->line + 1, param_decl->column + 1,
-                    fn_def_node->data.fn_def.block_context->di_scope);
-            LLVMZigInsertDeclareAtEnd(g->dbuilder, variable->value_ref, variable->di_loc_var, debug_loc,
-                    entry_block);
+            gen_var_debug_decl(g, variable);
         }
 
         // allocate structs which are the result of casts
