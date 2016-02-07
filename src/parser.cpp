@@ -2048,7 +2048,7 @@ static AstNode *ast_parse_unwrap_expr(ParseContext *pc, int *token_index, bool m
     if (token->id == TokenIdDoubleQuestion) {
         *token_index += 1;
 
-        AstNode *rhs = ast_parse_bool_or_expr(pc, token_index, true);
+        AstNode *rhs = ast_parse_expression(pc, token_index, true);
 
         AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
         node->data.bin_op_expr.op1 = lhs;

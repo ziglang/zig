@@ -67,9 +67,9 @@ AsmClobbers= ":" list("String", ",")
 
 UnwrapExpression = BoolOrExpression (UnwrapMaybe | UnwrapError) | BoolOrExpression
 
-UnwrapMaybe = "??" BoolOrExpression
+UnwrapMaybe = "??" Expression
 
-UnwrapError = "%%" option("|" "Symbol" "|") BoolOrExpression
+UnwrapError = "%%" option("|" "Symbol" "|") Expression
 
 AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | UnwrapExpression
 
