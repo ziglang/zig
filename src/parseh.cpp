@@ -838,6 +838,16 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
 }
 
+static void replace_with_fwd_decl(Context *c, TypeTableEntry *struct_type, Buf *full_type_name) {
+    unsigned line = c->source_node ? c->source_node->line : 0;
+    LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugForwardDeclType(c->codegen->dbuilder,
+        LLVMZigTag_DW_structure_type(), buf_ptr(full_type_name), 
+        LLVMZigFileToScope(c->import->di_file), c->import->di_file, line);
+
+    LLVMZigReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);
+    struct_type->di_type = replacement_di_type;
+}
+
 static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
     const char *raw_name = decl_name(record_decl);
 
@@ -869,13 +879,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
     RecordDecl *record_def = record_decl->getDefinition();
     unsigned line = c->source_node ? c->source_node->line : 0;
     if (!record_def) {
-        LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugForwardDeclType(c->codegen->dbuilder,
-            LLVMZigTag_DW_structure_type(), buf_ptr(full_type_name), 
-            LLVMZigFileToScope(c->import->di_file), c->import->di_file, line);
-
-        LLVMZigReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);
-        struct_type->di_type = replacement_di_type;
-
+        replace_with_fwd_decl(c, struct_type, full_type_name);
         return struct_type;
     }
 
@@ -890,6 +894,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
 
         if (field_decl->isBitField()) {
             emit_warning(c, field_decl, "struct %s demoted to typedef - has bitfield\n", buf_ptr(bare_name));
+            replace_with_fwd_decl(c, struct_type, full_type_name);
             return struct_type;
         }
     }
@@ -918,6 +923,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
 
         if (field_type->id == TypeTableEntryIdInvalid) {
             emit_warning(c, field_decl, "struct %s demoted to typedef - unresolved type\n", buf_ptr(bare_name));
+            replace_with_fwd_decl(c, struct_type, full_type_name);
             return struct_type;
         }
 
