@@ -188,3 +188,11 @@ fn do_err_return_in_assignment() -> %void {
 fn make_a_non_err() -> %i32 {
     return 1;
 }
+
+
+
+#attribute("test")
+fn rhs_maybe_unwrap_return() {
+    const x = ?true;
+    const y = x ?? return;
+}

@@ -2399,6 +2399,16 @@ static TypeTableEntry *resolve_expr_const_val_as_null(CodeGen *g, AstNode *node,
     return type;
 }
 
+static TypeTableEntry *resolve_expr_const_val_as_non_null(CodeGen *g, AstNode *node,
+        TypeTableEntry *type, ConstExprValue *other_val)
+{
+    assert(other_val->ok);
+    Expr *expr = get_resolved_expr(node);
+    expr->const_val.ok = true;
+    expr->const_val.data.x_maybe = other_val;
+    return type;
+}
+
 static TypeTableEntry *resolve_expr_const_val_as_c_string_lit(CodeGen *g, AstNode *node, Buf *str) {
     Expr *expr = get_resolved_expr(node);
     expr->const_val.ok = true;
@@ -4376,8 +4386,12 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                     add_node_error(g, expr_node, buf_sprintf("unable to wrap unreachable in maybe type"));
                     return g->builtin_types.entry_invalid;
                 } else {
-                    // TODO eval const expr
-                    return get_maybe_type(g, type_entry);
+                    ConstExprValue *target_const_val = &get_resolved_expr(expr_node)->const_val;
+                    TypeTableEntry *maybe_type = get_maybe_type(g, type_entry);
+                    if (!target_const_val->ok) {
+                        return maybe_type;
+                    }
+                    return resolve_expr_const_val_as_non_null(g, node, maybe_type, target_const_val);
                 }
             }
         case PrefixOpError:
