@@ -1033,6 +1033,7 @@ enum BuiltinFnId {
     BuiltinFnIdCDefine,
     BuiltinFnIdCUndef,
     BuiltinFnIdCompileVar,
+    BuiltinFnIdConstEval,
 };
 
 struct BuiltinFnEntry {

@@ -233,3 +233,10 @@ fn const_expr_eval_on_single_expr_blocks_fn(x: i32, b: bool) -> i32 {
 
     return result;
 }
+
+
+#attribute("test")
+fn builtin_const_eval() {
+    const x : i32 = @const_eval(1 + 2 + 3);
+    if (x != @const_eval(6)) unreachable{};
+}

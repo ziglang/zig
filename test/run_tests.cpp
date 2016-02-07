@@ -2020,6 +2020,13 @@ fn func() -> bogus {}
     add_compile_fail_case("bogus compile var", R"SOURCE(
 const x = @compile_var("bogus");
     )SOURCE", 1, ".tmp_source.zig:2:24: error: unrecognized compile variable: 'bogus'");
+
+
+    add_compile_fail_case("@const_eval", R"SOURCE(
+fn a(x: i32) {
+    const y = @const_eval(x);
+}
+    )SOURCE", 1, ".tmp_source.zig:3:27: error: unable to evaluate constant expression");
 }
 
 //////////////////////////////////////////////////////////////////////////////

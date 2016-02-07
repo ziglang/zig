@@ -4127,8 +4127,26 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                         buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(&var_name)));
                     return g->builtin_types.entry_invalid;
                 }
+            }
+        case BuiltinFnIdConstEval:
+            {
+                AstNode **expr_node = node->data.fn_call_expr.params.at(0)->parent_field;
+                TypeTableEntry *resolved_type = analyze_expression(g, import, context, expected_type, *expr_node);
+                if (resolved_type->id == TypeTableEntryIdInvalid) {
+                    return resolved_type;
+                }
 
-                break;
+                ConstExprValue *const_expr_val = &get_resolved_expr(*expr_node)->const_val;
+
+                if (!const_expr_val->ok) {
+                    add_node_error(g, *expr_node, buf_sprintf("unable to evaluate constant expression"));
+                    return resolved_type;
+                }
+
+                ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+                *const_val = *const_expr_val;
+
+                return resolved_type;
             }
 
     }
