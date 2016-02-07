@@ -2027,6 +2027,13 @@ fn a(x: i32) {
     const y = @const_eval(x);
 }
     )SOURCE", 1, ".tmp_source.zig:3:27: error: unable to evaluate constant expression");
+
+    add_compile_fail_case("non constant expression in array size outside function", R"SOURCE(
+struct Foo {
+    y: [get()]u8,
+}
+fn get() -> isize { 1 }
+    )SOURCE", 1, ".tmp_source.zig:3:9: error: unable to evaluate constant expression");
 }
 
 //////////////////////////////////////////////////////////////////////////////

@@ -3281,9 +3281,13 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
                 return resolve_expr_const_val_as_type(g, node,
                         get_array_type(g, child_type, const_val->data.x_bignum.data.x_uint));
             }
-        } else {
+        } else if (context->fn_entry) {
             return resolve_expr_const_val_as_type(g, node,
                     get_slice_type(g, child_type, node->data.array_type.is_const));
+        } else {
+            add_node_error(g, first_executing_node(size_node),
+                    buf_sprintf("unable to evaluate constant expression"));
+            return g->builtin_types.entry_invalid;
         }
     } else {
         return resolve_expr_const_val_as_type(g, node,
