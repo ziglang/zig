@@ -173,3 +173,18 @@ fn switch_prong_with_var_fn(a: SwitchProngWithVarEnum) {
         },
     }
 }
+
+
+#attribute("test")
+fn err_return_in_assignment() {
+    %%do_err_return_in_assignment();
+}
+
+fn do_err_return_in_assignment() -> %void {
+    var x : i32 = undefined;
+    x = %return make_a_non_err();
+}
+
+fn make_a_non_err() -> %i32 {
+    return 1;
+}

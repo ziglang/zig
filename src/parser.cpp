@@ -498,6 +498,7 @@ static AstNode *ast_parse_unwrap_expr(ParseContext *pc, int *token_index, bool m
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, bool mandatory);
 static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory,
         ZigList<AstNode*> *directives, VisibMod visib_mod);
+static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index);
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
     if (token->id == token_id) {
@@ -1215,7 +1216,16 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, boo
     if (prefix_op == PrefixOpInvalid) {
         return ast_parse_suffix_op_expr(pc, token_index, mandatory);
     }
+
+    if (prefix_op == PrefixOpError || prefix_op == PrefixOpMaybe) {
+        Token *maybe_return = &pc->tokens->at(*token_index + 1);
+        if (maybe_return->id == TokenIdKeywordReturn) {
+            return ast_parse_return_expr(pc, token_index);
+        }
+    }
+
     *token_index += 1;
+
 
     AstNode *node = ast_create_node(pc, NodeTypePrefixOpExpr, token);
     AstNode *parent_node = node;
@@ -1635,9 +1645,8 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool manda
 
 /*
 ReturnExpression : option("%" | "?") "return" option(Expression)
-DeferExpression = option("%" | "?") "defer" option(Expression)
 */
-static AstNode *ast_parse_return_or_defer_expr(ParseContext *pc, int *token_index) {
+static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index) {
     Token *token = &pc->tokens->at(*token_index);
 
     NodeType node_type;
@@ -1649,10 +1658,6 @@ static AstNode *ast_parse_return_or_defer_expr(ParseContext *pc, int *token_inde
             kind = ReturnKindError;
             node_type = NodeTypeReturnExpr;
             *token_index += 2;
-        } else if (next_token->id == TokenIdKeywordDefer) {
-            kind = ReturnKindError;
-            node_type = NodeTypeDefer;
-            *token_index += 2;
         } else {
             return nullptr;
         }
@@ -1662,10 +1667,6 @@ static AstNode *ast_parse_return_or_defer_expr(ParseContext *pc, int *token_inde
             kind = ReturnKindMaybe;
             node_type = NodeTypeReturnExpr;
             *token_index += 2;
-        } else if (next_token->id == TokenIdKeywordDefer) {
-            kind = ReturnKindMaybe;
-            node_type = NodeTypeDefer;
-            *token_index += 2;
         } else {
             return nullptr;
         }
@@ -1673,6 +1674,45 @@ static AstNode *ast_parse_return_or_defer_expr(ParseContext *pc, int *token_inde
         kind = ReturnKindUnconditional;
         node_type = NodeTypeReturnExpr;
         *token_index += 1;
+    } else {
+        return nullptr;
+    }
+
+    AstNode *node = ast_create_node(pc, node_type, token);
+    node->data.return_expr.kind = kind;
+    node->data.return_expr.expr = ast_parse_expression(pc, token_index, false);
+
+    normalize_parent_ptrs(node);
+    return node;
+}
+
+/*
+Defer = option("%" | "?") "defer" option(Expression)
+*/
+static AstNode *ast_parse_defer_expr(ParseContext *pc, int *token_index) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    NodeType node_type;
+    ReturnKind kind;
+
+    if (token->id == TokenIdPercent) {
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdKeywordDefer) {
+            kind = ReturnKindError;
+            node_type = NodeTypeDefer;
+            *token_index += 2;
+        } else {
+            return nullptr;
+        }
+    } else if (token->id == TokenIdMaybe) {
+        Token *next_token = &pc->tokens->at(*token_index + 1);
+        if (next_token->id == TokenIdKeywordDefer) {
+            kind = ReturnKindMaybe;
+            node_type = NodeTypeDefer;
+            *token_index += 2;
+        } else {
+            return nullptr;
+        }
     } else if (token->id == TokenIdKeywordDefer) {
         kind = ReturnKindUnconditional;
         node_type = NodeTypeDefer;
@@ -1682,8 +1722,8 @@ static AstNode *ast_parse_return_or_defer_expr(ParseContext *pc, int *token_inde
     }
 
     AstNode *node = ast_create_node(pc, node_type, token);
-    node->data.return_expr.kind = kind;
-    node->data.return_expr.expr = ast_parse_expression(pc, token_index, false);
+    node->data.defer.kind = kind;
+    node->data.defer.expr = ast_parse_expression(pc, token_index, false);
 
     normalize_parent_ptrs(node);
     return node;
@@ -2068,7 +2108,7 @@ NonBlockExpression : ReturnExpression | AssignmentExpression
 static AstNode *ast_parse_non_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
-    AstNode *return_expr = ast_parse_return_or_defer_expr(pc, token_index);
+    AstNode *return_expr = ast_parse_return_expr(pc, token_index);
     if (return_expr)
         return return_expr;
 
@@ -2142,7 +2182,7 @@ static AstNode *ast_create_void_expr(ParseContext *pc, Token *token) {
 
 /*
 Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
-Statement : Label | VariableDeclaration token(Semicolon) | NonBlockExpression token(Semicolon) | BlockExpression
+Statement = Label | VariableDeclaration ";" | Defer ";" | NonBlockExpression ";" | BlockExpression
 */
 static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandatory) {
     Token *last_token = &pc->tokens->at(*token_index);
@@ -2171,6 +2211,9 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
         } else {
             statement_node = ast_parse_variable_declaration_expr(pc, token_index, false,
                     nullptr, VisibModPrivate);
+            if (!statement_node) {
+                statement_node = ast_parse_defer_expr(pc, token_index);
+            }
             if (statement_node) {
                 semicolon_expected = true;
             } else {
