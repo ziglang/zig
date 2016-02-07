@@ -1043,11 +1043,9 @@ import "std.zig";
 
 pub fn main(args: [][]u8) -> %void {
     const array_of_strings = [][]u8 {"hello", "this", "is", "my", "thing"};
-    var i: @typeof(array_of_strings.len) = 0;
-    while (i < array_of_strings.len) {
-        %%stdout.printf(array_of_strings[i]);
+    for (array_of_strings) |str| {
+        %%stdout.printf(str);
         %%stdout.printf("\n");
-        i += 1;
     }
 }
     )SOURCE", "hello\nthis\nis\nmy\nthing\n");

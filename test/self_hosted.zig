@@ -269,3 +269,11 @@ fn memcpy_and_memset_intrinsics() {
 
     if (bar[11] != 'A') unreachable{};
 }
+
+
+#attribute("test")
+fn array_dot_len_const_expr() { }
+struct ArrayDotLenConstExpr {
+    y: [@const_eval(some_array.len)]u8,
+}
+const some_array = []u8 {0, 1, 2, 3};

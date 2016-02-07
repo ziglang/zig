@@ -29,6 +29,8 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
 static TypeTableEntry *resolve_expr_const_val_as_void(CodeGen *g, AstNode *node);
 static TypeTableEntry *resolve_expr_const_val_as_fn(CodeGen *g, AstNode *node, FnTableEntry *fn);
 static TypeTableEntry *resolve_expr_const_val_as_type(CodeGen *g, AstNode *node, TypeTableEntry *type);
+static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, AstNode *node,
+        TypeTableEntry *expected_type, uint64_t x);
 static void detect_top_level_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode *node);
 static void analyze_top_level_decls_root(CodeGen *g, ImportTableEntry *import, AstNode *node);
 
@@ -2229,7 +2231,7 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
 }
 
 static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        AstNode *node)
+        TypeTableEntry *expected_type, AstNode *node)
 {
     assert(node->type == NodeTypeFieldAccessExpr);
 
@@ -2266,7 +2268,8 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
         }
     } else if (struct_type->id == TypeTableEntryIdArray) {
         if (buf_eql_str(field_name, "len")) {
-            return g->builtin_types.entry_isize;
+            return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
+                    struct_type->data.array.len);
         } else {
             add_node_error(g, node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
@@ -2671,7 +2674,7 @@ static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, Bloc
     } else if (lhs_node->type == NodeTypeArrayAccessExpr) {
         expected_rhs_type = analyze_array_access_expr(g, import, block_context, lhs_node);
     } else if (lhs_node->type == NodeTypeFieldAccessExpr) {
-        expected_rhs_type = analyze_field_access_expr(g, import, block_context, lhs_node);
+        expected_rhs_type = analyze_field_access_expr(g, import, block_context, nullptr, lhs_node);
     } else if (lhs_node->type == NodeTypePrefixOpExpr &&
             lhs_node->data.prefix_op_expr.prefix_op == PrefixOpDereference)
     {
@@ -4849,7 +4852,7 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
             return_type = analyze_slice_expr(g, import, context, node);
             break;
         case NodeTypeFieldAccessExpr:
-            return_type = analyze_field_access_expr(g, import, context, node);
+            return_type = analyze_field_access_expr(g, import, context, expected_type, node);
             break;
         case NodeTypeContainerInitExpr:
             return_type = analyze_container_init_expr(g, import, context, node);
