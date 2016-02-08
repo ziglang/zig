@@ -541,18 +541,21 @@ TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *
 }
 
 // accepts ownership of fn_type_id memory
-TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
+TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     auto table_entry = g->fn_type_table.maybe_get(fn_type_id);
     if (table_entry) {
         return table_entry->value;
     }
 
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
-    fn_type->data.fn.fn_type_id = fn_type_id;
+    fn_type->data.fn.fn_type_id = *fn_type_id;
+    if (fn_type_id->param_info == &fn_type_id->prealloc_param_info[0]) {
+        fn_type->data.fn.fn_type_id.param_info = &fn_type->data.fn.fn_type_id.prealloc_param_info[0];
+    }
 
-    if (fn_type_id.is_cold) {
+    if (fn_type_id->is_cold) {
         fn_type->data.fn.calling_convention = LLVMColdCallConv;
-    } else if (fn_type_id.is_extern) {
+    } else if (fn_type_id->is_extern) {
         fn_type->data.fn.calling_convention = LLVMCCallConv;
     } else {
         fn_type->data.fn.calling_convention = LLVMFastCallConv;
@@ -560,12 +563,12 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
 
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
-    const char *extern_str = fn_type_id.is_extern ? "extern " : "";
-    const char *naked_str = fn_type_id.is_naked ? "naked " : "";
-    const char *cold_str = fn_type_id.is_cold ? "cold " : "";
+    const char *extern_str = fn_type_id->is_extern ? "extern " : "";
+    const char *naked_str = fn_type_id->is_naked ? "naked " : "";
+    const char *cold_str = fn_type_id->is_cold ? "cold " : "";
     buf_appendf(&fn_type->name, "%s%s%sfn(", extern_str, naked_str, cold_str);
-    for (int i = 0; i < fn_type_id.param_count; i += 1) {
-        FnTypeParamInfo *param_info = &fn_type_id.param_info[i];
+    for (int i = 0; i < fn_type_id->param_count; i += 1) {
+        FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
 
         TypeTableEntry *param_type = param_info->type;
         const char *comma = (i == 0) ? "" : ", ";
@@ -573,42 +576,42 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
         buf_appendf(&fn_type->name, "%s%s%s", comma, noalias_str, buf_ptr(&param_type->name));
     }
 
-    if (fn_type_id.is_var_args) {
-        const char *comma = (fn_type_id.param_count == 0) ? "" : ", ";
+    if (fn_type_id->is_var_args) {
+        const char *comma = (fn_type_id->param_count == 0) ? "" : ", ";
         buf_appendf(&fn_type->name, "%s...", comma);
     }
     buf_appendf(&fn_type->name, ")");
-    if (fn_type_id.return_type->id != TypeTableEntryIdVoid) {
-        buf_appendf(&fn_type->name, " -> %s", buf_ptr(&fn_type_id.return_type->name));
+    if (fn_type_id->return_type->id != TypeTableEntryIdVoid) {
+        buf_appendf(&fn_type->name, " -> %s", buf_ptr(&fn_type_id->return_type->name));
     }
 
 
     // next, loop over the parameters again and compute debug information
     // and codegen information
-    bool first_arg_return = handle_is_ptr(fn_type_id.return_type);
+    bool first_arg_return = handle_is_ptr(fn_type_id->return_type);
     // +1 for maybe making the first argument the return value
-    LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id.param_count);
+    LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
     // +1 because 0 is the return type and +1 for maybe making first arg ret val
-    LLVMZigDIType **param_di_types = allocate<LLVMZigDIType*>(2 + fn_type_id.param_count);
-    param_di_types[0] = fn_type_id.return_type->di_type;
+    LLVMZigDIType **param_di_types = allocate<LLVMZigDIType*>(2 + fn_type_id->param_count);
+    param_di_types[0] = fn_type_id->return_type->di_type;
     int gen_param_index = 0;
     TypeTableEntry *gen_return_type;
     if (first_arg_return) {
-        TypeTableEntry *gen_type = get_pointer_to_type(g, fn_type_id.return_type, false);
+        TypeTableEntry *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
         gen_param_types[gen_param_index] = gen_type->type_ref;
         gen_param_index += 1;
         // after the gen_param_index += 1 because 0 is the return type
         param_di_types[gen_param_index] = gen_type->di_type;
         gen_return_type = g->builtin_types.entry_void;
-    } else if (!type_has_bits(fn_type_id.return_type)) {
+    } else if (!type_has_bits(fn_type_id->return_type)) {
         gen_return_type = g->builtin_types.entry_void;
     } else {
-        gen_return_type = fn_type_id.return_type;
+        gen_return_type = fn_type_id->return_type;
     }
     fn_type->data.fn.gen_return_type = gen_return_type;
 
-    fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id.param_count);
-    for (int i = 0; i < fn_type_id.param_count; i += 1) {
+    fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
+    for (int i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *src_param_info = &fn_type->data.fn.fn_type_id.param_info[i];
         TypeTableEntry *type_entry = src_param_info->type;
         FnGenParamInfo *gen_param_info = &fn_type->data.fn.gen_param_info[i];
@@ -639,13 +642,13 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id) {
     fn_type->data.fn.gen_param_count = gen_param_index;
 
     fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
-            gen_param_types, gen_param_index, fn_type_id.is_var_args);
+            gen_param_types, gen_param_index, fn_type_id->is_var_args);
     fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
     LLVMZigDIFile *di_file = nullptr;
     fn_type->di_type = LLVMZigCreateSubroutineType(g->dbuilder, di_file,
             param_di_types, gen_param_index + 1, 0);
 
-    g->fn_type_table.put(fn_type_id, fn_type);
+    g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);
 
     return fn_type;
 }
@@ -747,7 +750,13 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
     fn_type_id.is_naked = is_naked;
     fn_type_id.is_cold = is_cold;
     fn_type_id.param_count = node->data.fn_proto.params.length;
-    fn_type_id.param_info = allocate<FnTypeParamInfo>(fn_type_id.param_count);
+
+    if (fn_type_id.param_count > fn_type_id_prealloc_param_info_count) {
+        fn_type_id.param_info = allocate_nonzero<FnTypeParamInfo>(fn_type_id.param_count);
+    } else {
+        fn_type_id.param_info = &fn_type_id.prealloc_param_info[0];
+    }
+
     fn_type_id.is_var_args = fn_proto->is_var_args;
     fn_type_id.return_type = analyze_type_expr(g, import, import->block_context, node->data.fn_proto.return_type);
 
@@ -800,7 +809,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
         return g->builtin_types.entry_invalid;
     }
 
-    return get_fn_type(g, fn_type_id);
+    return get_fn_type(g, &fn_type_id);
 }
 
 
@@ -5855,35 +5864,35 @@ static uint32_t hash_ptr(void *ptr) {
     return a ^ b;
 }
 
-uint32_t fn_type_id_hash(FnTypeId id) {
+uint32_t fn_type_id_hash(FnTypeId *id) {
     uint32_t result = 0;
-    result += id.is_extern ? 3349388391 : 0;
-    result += id.is_naked ? 608688877 : 0;
-    result += id.is_cold ? 3605523458 : 0;
-    result += id.is_var_args ? 1931444534 : 0;
-    result += hash_ptr(id.return_type);
-    result += id.param_count;
-    for (int i = 0; i < id.param_count; i += 1) {
-        FnTypeParamInfo *info = &id.param_info[i];
+    result += id->is_extern ? 3349388391 : 0;
+    result += id->is_naked ? 608688877 : 0;
+    result += id->is_cold ? 3605523458 : 0;
+    result += id->is_var_args ? 1931444534 : 0;
+    result += hash_ptr(id->return_type);
+    result += id->param_count;
+    for (int i = 0; i < id->param_count; i += 1) {
+        FnTypeParamInfo *info = &id->param_info[i];
         result += info->is_noalias ? 892356923 : 0;
         result += hash_ptr(info->type);
     }
     return result;
 }
 
-bool fn_type_id_eql(FnTypeId a, FnTypeId b) {
-    if (a.is_extern != b.is_extern ||
-        a.is_naked != b.is_naked ||
-        a.is_cold != b.is_cold ||
-        a.return_type != b.return_type ||
-        a.is_var_args != b.is_var_args ||
-        a.param_count != b.param_count)
+bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
+    if (a->is_extern != b->is_extern ||
+        a->is_naked != b->is_naked ||
+        a->is_cold != b->is_cold ||
+        a->return_type != b->return_type ||
+        a->is_var_args != b->is_var_args ||
+        a->param_count != b->param_count)
     {
         return false;
     }
-    for (int i = 0; i < a.param_count; i += 1) {
-        FnTypeParamInfo *a_param_info = &a.param_info[i];
-        FnTypeParamInfo *b_param_info = &b.param_info[i];
+    for (int i = 0; i < a->param_count; i += 1) {
+        FnTypeParamInfo *a_param_info = &a->param_info[i];
+        FnTypeParamInfo *b_param_info = &b->param_info[i];
 
         if (a_param_info->type != b_param_info->type) {
             return false;

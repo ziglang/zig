@@ -506,7 +506,12 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     }
                 }
 
-                fn_type_id.param_info = allocate<FnTypeParamInfo>(fn_type_id.param_count);
+                if (fn_type_id.param_count > fn_type_id_prealloc_param_info_count) {
+                    fn_type_id.param_info = allocate_nonzero<FnTypeParamInfo>(fn_type_id.param_count);
+                } else {
+                    fn_type_id.param_info = &fn_type_id.prealloc_param_info[0];
+                }
+
                 for (int i = 0; i < fn_type_id.param_count; i += 1) {
                     QualType qt = fn_proto_ty->getParamType(i);
                     TypeTableEntry *param_type = resolve_qual_type(c, qt, decl);
@@ -521,7 +526,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     param_info->is_noalias = qt.isRestrictQualified();
                 }
 
-                return get_fn_type(c->codegen, fn_type_id);
+                return get_fn_type(c->codegen, &fn_type_id);
             }
         case Type::Record:
             {

@@ -23,7 +23,7 @@ TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, int size_in_bits);
 TypeTableEntry **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_c_int_type(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *child_type);
-TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId fn_type_id);
+TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type);
 TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size);
 TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import,

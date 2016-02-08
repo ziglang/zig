@@ -810,11 +810,13 @@ struct AsmToken {
     int end;
 };
 
+// this struct is allocated with allocate_nonzero
 struct FnTypeParamInfo {
     bool is_noalias;
     TypeTableEntry *type;
 };
 
+static const int fn_type_id_prealloc_param_info_count = 4;
 struct FnTypeId {
     TypeTableEntry *return_type;
     FnTypeParamInfo *param_info;
@@ -823,10 +825,11 @@ struct FnTypeId {
     bool is_naked;
     bool is_cold;
     bool is_extern;
+    FnTypeParamInfo prealloc_param_info[fn_type_id_prealloc_param_info_count];
 };
 
-uint32_t fn_type_id_hash(FnTypeId);
-bool fn_type_id_eql(FnTypeId a, FnTypeId b);
+uint32_t fn_type_id_hash(FnTypeId*);
+bool fn_type_id_eql(FnTypeId *a, FnTypeId *b);
 
 
 struct TypeTableEntryPointer {
@@ -1061,7 +1064,7 @@ struct CodeGen {
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> unresolved_top_level_decls;
-    HashMap<FnTypeId, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
+    HashMap<FnTypeId *, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
 
     uint32_t next_unresolved_index;
