@@ -5852,6 +5852,9 @@ void find_libc_path(CodeGen *g) {
     if (!g->libc_lib_dir || buf_len(g->libc_lib_dir) == 0) {
         zig_panic("Unable to determine libc lib path. probably need to reconfigure");
     }
+    if (!g->libc_static_lib_dir || buf_len(g->libc_static_lib_dir) == 0) {
+        zig_panic("Unable to determine libc static lib path. probably need to reconfigure");
+    }
     if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
         zig_panic("Unable to determine libc include path. probably need to reconfigure");
     }

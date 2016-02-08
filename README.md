@@ -70,13 +70,14 @@ compromises backward compatibility.
 
 ### Debug / Development Build
 
-If you have gcc or clang installed, you can find out what `ZIG_LIBC_LIB_DIR` should
-be set to (example below). `ZIG_LIBC_INCLUDE_DIR` likely can be set to `/usr/include`.
+If you have gcc or clang installed, you can find out what `ZIG_LIBC_LIB_DIR`
+and `ZIG_LIBC_STATIC_LIB_DIR` should be set to (example below).
+`ZIG_LIBC_INCLUDE_DIR` likely can be set to `/usr/include`.
 
 ```
 mkdir build
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $(cc -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=/usr/include
+cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $(cc -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=/usr/include -DZIG_LIBC_STATIC_LIB_DIR=$(dirname $(cc -print-file-name=crtbeginT.o))
 make
 make install
 ./run_tests
@@ -90,7 +91,7 @@ by the `--libc-lib-dir` and `--libc-include-dir` parameters to the zig binary.
 ```
 mkdir build
 cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DZIG_LIBC_LIB_DIR=/some/path -DZIG_LIBC_INCLUDE_DIR=/some/path
+cmake .. -DCMAKE_BUILD_TYPE=Release -DZIG_LIBC_LIB_DIR=/some/path -DZIG_LIBC_INCLUDE_DIR=/some/path -DZIG_LIBC_STATIC_INCLUDE_DIR=/some/path
 make
 sudo make install
 ```

@@ -1104,6 +1104,7 @@ struct CodeGen {
     bool have_exported_main;
     bool link_libc;
     Buf *libc_lib_dir;
+    Buf *libc_static_lib_dir;
     Buf *libc_include_dir;
     bool is_release_build;
     bool is_test_build;

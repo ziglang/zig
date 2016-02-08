@@ -35,6 +35,7 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->error_value_count = 1;
 
     g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
+    g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
     g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
 
     return g;
@@ -79,6 +80,10 @@ void codegen_set_out_name(CodeGen *g, Buf *out_name) {
 
 void codegen_set_libc_lib_dir(CodeGen *g, Buf *libc_lib_dir) {
     g->libc_lib_dir = libc_lib_dir;
+}
+
+void codegen_set_libc_static_lib_dir(CodeGen *g, Buf *libc_static_lib_dir) {
+    g->libc_static_lib_dir = libc_static_lib_dir;
 }
 
 void codegen_set_libc_include_dir(CodeGen *g, Buf *libc_include_dir) {
@@ -4010,6 +4015,12 @@ static const char *get_libc_file(CodeGen *g, const char *file) {
     return buf_ptr(out_buf);
 }
 
+static const char *get_libc_static_file(CodeGen *g, const char *file) {
+    Buf *out_buf = buf_alloc();
+    os_path_join(g->libc_static_lib_dir, buf_create_from_str(file), out_buf);
+    return buf_ptr(out_buf);
+}
+
 static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     Buf *source_basename = buf_sprintf("%s.zig", oname);
     Buf *std_dir_path = buf_create_from_str(ZIG_STD_DIR);
@@ -4096,27 +4107,63 @@ void codegen_link(CodeGen *g, const char *out_file) {
         return;
     }
 
+    bool link_in_crt = (g->link_libc && g->out_type == OutTypeExe);
+    if (link_in_crt) {
+        find_libc_path(g);
+    }
+
+
 
     // invoke `ld`
     ZigList<const char *> args = {0};
-    const char *crt1o;
+
+    // TODO make this target dependent
+    args.append("-m");
+    args.append("elf_x86_64");
+
     if (g->is_static) {
         args.append("-static");
-        crt1o = "crt1.o";
-    } else {
-        crt1o = "Scrt1.o";
+    }
+
+    args.append("-o");
+    args.append(out_file);
+
+    if (link_in_crt) {
+        const char *crt1o;
+        const char *crtbegino;
+        if (g->is_static) {
+            crt1o = "crt1.o";
+            crtbegino = "crtbeginT.o";
+        } else {
+            crt1o = "Scrt1.o";
+            crtbegino = "crtbegin.o";
+        }
+        args.append(get_libc_file(g, crt1o));
+        args.append(get_libc_file(g, "crti.o"));
+        args.append(get_libc_static_file(g, crtbegino));
+    }
+
+    for (int i = 0; i < g->lib_dirs.length; i += 1) {
+        const char *lib_dir = g->lib_dirs.at(i);
+        args.append("-L");
+        args.append(lib_dir);
+    }
+
+    if (g->link_libc) {
+        args.append("-L");
+        args.append(buf_ptr(g->libc_lib_dir));
+
+        args.append("-L");
+        args.append(buf_ptr(g->libc_static_lib_dir));
     }
 
     // TODO don't pass this parameter unless linking with libc
-    char *ZIG_NATIVE_DYNAMIC_LINKER = getenv("ZIG_NATIVE_DYNAMIC_LINKER");
-    if (g->is_native_target && ZIG_NATIVE_DYNAMIC_LINKER) {
-        if (ZIG_NATIVE_DYNAMIC_LINKER[0] != 0) {
-            args.append("-dynamic-linker");
-            args.append(ZIG_NATIVE_DYNAMIC_LINKER);
-        }
-    } else {
+    if (ZIG_DYNAMIC_LINKER[0] == 0) {
         args.append("-dynamic-linker");
         args.append(buf_ptr(get_dynamic_linker(g->target_machine)));
+    } else {
+        args.append("-dynamic-linker");
+        args.append(ZIG_DYNAMIC_LINKER);
     }
 
     if (g->out_type == OutTypeLib) {
@@ -4129,23 +4176,8 @@ void codegen_link(CodeGen *g, const char *out_file) {
         out_file = buf_ptr(out_lib_so);
     }
 
-    args.append("-o");
-    args.append(out_file);
-
-    bool link_in_crt = (g->link_libc && g->out_type == OutTypeExe);
-
-    if (link_in_crt) {
-        find_libc_path(g);
-
-        args.append(get_libc_file(g, crt1o));
-        args.append(get_libc_file(g, "crti.o"));
-    }
-
+    // .o files
     args.append((const char *)buf_ptr(&out_file_o));
-
-    if (link_in_crt) {
-        args.append(get_libc_file(g, "crtn.o"));
-    }
 
     if (g->is_test_build) {
         const char *test_runner_name = g->link_libc ? "test_runner_libc" : "test_runner_nolibc";
@@ -4158,20 +4190,45 @@ void codegen_link(CodeGen *g, const char *out_file) {
         args.append(buf_ptr(builtin_o_path));
     }
 
-    for (int i = 0; i < g->lib_dirs.length; i += 1) {
-        const char *lib_dir = g->lib_dirs.at(i);
-        args.append("-L");
-        args.append(lib_dir);
-    }
-
     auto it = g->link_table.entry_iterator();
     for (;;) {
         auto *entry = it.next();
         if (!entry)
             break;
 
-        Buf *arg = buf_sprintf("-l%s", buf_ptr(entry->key));
-        args.append(buf_ptr(arg));
+        // we handle libc explicitly, don't do it here
+        if (!buf_eql_str(entry->key, "c")) {
+            Buf *arg = buf_sprintf("-l%s", buf_ptr(entry->key));
+            args.append(buf_ptr(arg));
+        }
+    }
+
+
+    // libc dep
+    if (g->link_libc) {
+        if (g->is_static) {
+            args.append("--start-group");
+            args.append("-lgcc");
+            args.append("-lgcc_eh");
+            args.append("-lc");
+            args.append("--end-group");
+        } else {
+            args.append("-lgcc");
+            args.append("--as-needed");
+            args.append("-lgcc_s");
+            args.append("--no-as-needed");
+            args.append("-lc");
+            args.append("-lgcc");
+            args.append("--as-needed");
+            args.append("-lgcc_s");
+            args.append("--no-as-needed");
+        }
+    }
+
+    // crt end
+    if (link_in_crt) {
+        args.append(get_libc_static_file(g, "crtend.o"));
+        args.append(get_libc_file(g, "crtn.o"));
     }
 
     if (g->verbose) {

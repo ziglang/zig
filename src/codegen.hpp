@@ -26,6 +26,7 @@ void codegen_set_errmsg_color(CodeGen *codegen, ErrColor err_color);
 void codegen_set_out_type(CodeGen *codegen, OutType out_type);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
 void codegen_set_libc_lib_dir(CodeGen *codegen, Buf *libc_lib_dir);
+void codegen_set_libc_static_lib_dir(CodeGen *g, Buf *libc_static_lib_dir);
 void codegen_set_libc_include_dir(CodeGen *codegen, Buf *libc_include_dir);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
 

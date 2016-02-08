@@ -16,24 +16,25 @@
 static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options]\n"
         "Commands:\n"
-        "  build                     create executable, object, or library from target\n"
-        "  test                      create and run a test build\n"
-        "  version                   print version number and exit\n"
-        "  parseh                    convert a c header file to zig extern declarations\n"
+        "  build                        create executable, object, or library from target\n"
+        "  test                         create and run a test build\n"
+        "  version                      print version number and exit\n"
+        "  parseh                       convert a c header file to zig extern declarations\n"
         "Options:\n"
-        "  --release                 build with optimizations on and debug protection off\n"
-        "  --static                  output will be statically linked\n"
-        "  --strip                   exclude debug symbols\n"
-        "  --export [exe|lib|obj]    override output type\n"
-        "  --name [name]             override output name\n"
-        "  --output [file]           override destination path\n"
-        "  --verbose                 turn on compiler debug output\n"
-        "  --color [auto|off|on]     enable or disable colored error messages\n"
-        "  --libc-lib-dir [path]     set the C compiler data path\n"
-        "  --libc-include-dir [path] set the C compiler data path\n"
-        "  -isystem [dir]            add additional search path for other .h files\n"
-        "  -dirafter [dir]           same as -isystem but do it last\n"
-        "  --library-path [dir]      add a directory to the library search path\n"
+        "  --release                    build with optimizations on and debug protection off\n"
+        "  --static                     output will be statically linked\n"
+        "  --strip                      exclude debug symbols\n"
+        "  --export [exe|lib|obj]       override output type\n"
+        "  --name [name]                override output name\n"
+        "  --output [file]              override destination path\n"
+        "  --verbose                    turn on compiler debug output\n"
+        "  --color [auto|off|on]        enable or disable colored error messages\n"
+        "  --libc-lib-dir [path]        set the C compiler data path\n"
+        "  --libc-static-lib-dir [path] set the C compiler data path\n"
+        "  --libc-include-dir [path]    set the C compiler data path\n"
+        "  -isystem [dir]               add additional search path for other .h files\n"
+        "  -dirafter [dir]              same as -isystem but do it last\n"
+        "  --library-path [dir]         add a directory to the library search path\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -59,6 +60,7 @@ int main(int argc, char **argv) {
     bool verbose = false;
     ErrColor color = ErrColorAuto;
     const char *libc_lib_dir = nullptr;
+    const char *libc_static_lib_dir = nullptr;
     const char *libc_include_dir = nullptr;
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> lib_dirs = {0};
@@ -108,6 +110,8 @@ int main(int argc, char **argv) {
                     out_name = argv[i];
                 } else if (strcmp(arg, "--libc-lib-dir") == 0) {
                     libc_lib_dir = argv[i];
+                } else if (strcmp(arg, "--libc-static-lib-dir") == 0) {
+                    libc_static_lib_dir = argv[i];
                 } else if (strcmp(arg, "--libc-include-dir") == 0) {
                     libc_include_dir = argv[i];
                 } else if (strcmp(arg, "-isystem") == 0) {
@@ -202,6 +206,8 @@ int main(int argc, char **argv) {
             }
             if (libc_lib_dir)
                 codegen_set_libc_lib_dir(g, buf_create_from_str(libc_lib_dir));
+            if (libc_static_lib_dir)
+                codegen_set_libc_static_lib_dir(g, buf_create_from_str(libc_static_lib_dir));
             if (libc_include_dir)
                 codegen_set_libc_include_dir(g, buf_create_from_str(libc_include_dir));
             codegen_set_verbose(g, verbose);
