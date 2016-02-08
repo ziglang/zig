@@ -225,8 +225,9 @@ static AstNode *create_fn_proto_node(Context *c, Buf *name, TypeTableEntry *fn_t
 
     for (int i = 0; i < fn_type->data.fn.fn_type_id.param_count; i += 1) {
         FnTypeParamInfo *info = &fn_type->data.fn.fn_type_id.param_info[i];
-        Buf *name = buf_sprintf("arg_%d", i);
-        node->data.fn_proto.params.append(create_param_decl_node(c, buf_ptr(name),
+        char arg_name[20];
+        sprintf(arg_name, "arg_%d", i);
+        node->data.fn_proto.params.append(create_param_decl_node(c, arg_name,
                     make_type_node(c, info->type), info->is_noalias));
     }
 
