@@ -158,7 +158,7 @@ pub fn parse_u64(buf: []u8, radix: u8) -> %u64 {
     for (buf) |c| {
         const digit = char_to_digit(c);
 
-        if (digit > radix) {
+        if (digit >= radix) {
             return error.InvalidChar;
         }
 
@@ -341,4 +341,13 @@ pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
     @memcpy(&out_buf[0], &buf[0], len);
 
     len
+}
+
+#attribute("test")
+fn parse_u64_digit_too_big() {
+    parse_u64("123a", 10) %% |err| {
+        if (err == error.InvalidChar) return;
+        unreachable{};
+    };
+    unreachable{};
 }

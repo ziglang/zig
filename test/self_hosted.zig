@@ -1,3 +1,5 @@
+import "test_std.zig";
+
 #attribute("test")
 fn empty_function() {}
 
