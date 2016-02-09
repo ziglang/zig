@@ -606,6 +606,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
             emit_warning(c, decl, "missed a '%s' type", ty->getTypeClassName());
             return c->codegen->builtin_types.entry_invalid;
     }
+    zig_unreachable();
 }
 
 static TypeTableEntry *resolve_qual_type_with_table(Context *c, QualType qt, const Decl *decl,

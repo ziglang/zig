@@ -39,6 +39,7 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeUnwrapMaybe:         return "??";
         case BinOpTypeStrCat:              return "++";
     }
+    zig_unreachable();
 }
 
 static const char *prefix_op_str(PrefixOp prefix_op) {
@@ -55,6 +56,7 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpUnwrapError: return "%%";
         case PrefixOpUnwrapMaybe: return "??";
     }
+    zig_unreachable();
 }
 
 static const char *return_prefix_str(ReturnKind kind) {
@@ -63,6 +65,7 @@ static const char *return_prefix_str(ReturnKind kind) {
         case ReturnKindMaybe: return "?";
         case ReturnKindUnconditional: return "";
     }
+    zig_unreachable();
 }
 
 static const char *visib_mod_string(VisibMod mod) {
@@ -71,6 +74,7 @@ static const char *visib_mod_string(VisibMod mod) {
         case VisibModPrivate: return "";
         case VisibModExport: return "export ";
     }
+    zig_unreachable();
 }
 
 static const char *extern_string(bool is_extern) {
@@ -90,6 +94,7 @@ static const char *container_string(ContainerKind kind) {
         case ContainerKindEnum: return "enum";
         case ContainerKindStruct: return "struct";
     }
+    zig_unreachable();
 }
 
 static const char *node_type_str(NodeType node_type) {
@@ -191,6 +196,7 @@ static const char *node_type_str(NodeType node_type) {
         case NodeTypeTypeLiteral:
             return "TypeLiteral";
     }
+    zig_unreachable();
 }
 
 

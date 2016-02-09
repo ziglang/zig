@@ -183,6 +183,7 @@ static bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdTypeDecl:
             return true;
     }
+    zig_unreachable();
 }
 
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
@@ -1593,6 +1594,7 @@ static bool type_has_codegen_value(TypeTableEntry *type_entry) {
         case TypeTableEntryIdTypeDecl:
             return type_has_codegen_value(type_entry->data.type_decl.canonical_type);
     }
+    zig_unreachable();
 }
 
 static void add_global_const_expr(CodeGen *g, AstNode *expr_node) {
@@ -4671,6 +4673,7 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
         case ReturnKindMaybe:
             zig_panic("TODO");
     }
+    zig_unreachable();
 }
 
 static void validate_voided_expr(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry) {
@@ -5916,7 +5919,7 @@ bool type_has_bits(TypeTableEntry *type_entry) {
 
 static TypeTableEntry *first_struct_field_type(TypeTableEntry *type_entry) {
     assert(type_entry->id == TypeTableEntryIdStruct);
-    for (int i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+    for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
         TypeStructField *tsf = &type_entry->data.structure.fields[i];
         if (tsf->gen_index == 0) {
             return tsf->type_entry;
@@ -5956,6 +5959,7 @@ static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry)
         case TypeTableEntryIdPointer:
             return type_entry;
     }
+    zig_unreachable();
 }
 
 uint64_t get_memcpy_align(CodeGen *g, TypeTableEntry *type_entry) {

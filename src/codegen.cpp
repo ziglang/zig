@@ -1733,6 +1733,7 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
         case ReturnKindMaybe:
             zig_panic("TODO");
     }
+    zig_unreachable();
 }
 
 static LLVMValueRef gen_defer(CodeGen *g, AstNode *node) {
@@ -2685,7 +2686,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdStruct:
             {
                 LLVMValueRef *fields = allocate<LLVMValueRef>(type_entry->data.structure.gen_field_count);
-                for (int i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+                for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
                     TypeStructField *type_struct_field = &type_entry->data.structure.fields[i];
                     if (type_struct_field->gen_index == -1) {
                         continue;
@@ -2701,7 +2702,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
                 TypeTableEntry *child_type = type_entry->data.array.child_type;
                 uint64_t len = type_entry->data.array.len;
                 LLVMValueRef *values = allocate<LLVMValueRef>(len);
-                for (int i = 0; i < len; i += 1) {
+                for (uint64_t i = 0; i < len; i += 1) {
                     ConstExprValue *field_value = const_val->data.x_array.fields[i];
                     values[i] = gen_const_val(g, child_type, field_value);
                 }
@@ -2793,6 +2794,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
             zig_unreachable();
 
     }
+    zig_unreachable();
 }
 
 static void gen_const_globals(CodeGen *g) {
@@ -3259,8 +3261,7 @@ static void define_builtin_types(CodeGen *g) {
             uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
             uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
             entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                    debug_size_in_bits, debug_align_in_bits,
-                    is_signed ? LLVMZigEncoding_DW_ATE_signed() : LLVMZigEncoding_DW_ATE_unsigned());
+                    debug_size_in_bits, debug_align_in_bits, dwarf_tag);
             entry->data.integral.is_signed = is_signed;
             entry->data.integral.bit_count = size_in_bits;
             g->primitive_type_table.put(&entry->name, entry);
