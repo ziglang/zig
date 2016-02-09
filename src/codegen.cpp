@@ -3252,8 +3252,7 @@ static void define_builtin_types(CodeGen *g) {
             uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
             uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
             entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                    debug_size_in_bits, debug_align_in_bits,
-                    is_signed ? LLVMZigEncoding_DW_ATE_signed() : LLVMZigEncoding_DW_ATE_unsigned());
+                    debug_size_in_bits, debug_align_in_bits, dwarf_tag);
             entry->data.integral.is_signed = is_signed;
             entry->data.integral.bit_count = size_in_bits;
             g->primitive_type_table.put(&entry->name, entry);
@@ -4119,7 +4118,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
 
     // TODO make this target dependent
     args.append("-m");
-    args.append("elf_x86_64");
+    args.append("elf_i386");
 
     if (g->is_static) {
         args.append("-static");

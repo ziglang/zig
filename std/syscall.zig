@@ -1,17 +1,17 @@
 // this file is specific to x86_64
 
-const SYS_read           = 0;
-const SYS_write          = 1;
-const SYS_mmap           = 9;
-const SYS_munmap         = 11;
-const SYS_rt_sigprocmask = 14;
-const SYS_exit           = 60;
-const SYS_kill           = 62;
-const SYS_getgid         = 104;
-const SYS_gettid         = 186;
-const SYS_tkill          = 200;
-const SYS_tgkill         = 234;
-const SYS_getrandom      = 318;
+const SYS_read           = 3;
+const SYS_write          = 4;
+const SYS_mmap           = 90;
+const SYS_munmap         = 91;
+const SYS_rt_sigprocmask = 175;
+const SYS_exit           = 1;
+const SYS_kill           = 37;
+const SYS_getgid         = 47;
+const SYS_gettid         = 224;
+const SYS_tkill          = 238;
+const SYS_tgkill         = 270;
+const SYS_getrandom      = 355;
 
 pub const MMAP_PROT_NONE =  0;
 pub const MMAP_PROT_READ =  1;
@@ -64,61 +64,55 @@ const SIG_UNBLOCK = 1;
 const SIG_SETMASK = 2;
 
 fn syscall0(number: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number)
-        : "rcx", "r11")
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number))
 }
 
 fn syscall1(number: isize, arg1: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1)
-        : "rcx", "r11")
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number),
+            [arg1] "{ebx}" (arg1))
 }
 
 fn syscall2(number: isize, arg1: isize, arg2: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1),
-            [arg2] "{rsi}" (arg2)
-        : "rcx", "r11")
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number),
+            [arg1] "{ebx}" (arg1),
+            [arg2] "{ecx}" (arg2))
 }
 
 fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1),
-            [arg2] "{rsi}" (arg2),
-            [arg3] "{rdx}" (arg3)
-        : "rcx", "r11")
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number),
+            [arg1] "{ebx}" (arg1),
+            [arg2] "{ecx}" (arg2),
+            [arg3] "{edx}" (arg3))
 }
 
 fn syscall4(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1),
-            [arg2] "{rsi}" (arg2),
-            [arg3] "{rdx}" (arg3),
-            [arg4] "{r10}" (arg4)
-        : "rcx", "r11")
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number),
+            [arg1] "{ebx}" (arg1),
+            [arg2] "{ecx}" (arg2),
+            [arg3] "{edx}" (arg3),
+            [arg4] "{esi}" (arg4))
 }
 
 fn syscall6(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize, arg5: isize, arg6: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1),
-            [arg2] "{rsi}" (arg2),
-            [arg3] "{rdx}" (arg3),
-            [arg4] "{r10}" (arg4),
-            [arg5] "{r8}" (arg5),
-            [arg6] "{r9}" (arg6)
-        : "rcx", "r11")
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number),
+            [arg1] "{ebx}" (arg1),
+            [arg2] "{ecx}" (arg2),
+            [arg3] "{edx}" (arg3),
+            [arg4] "{esi}" (arg4),
+            [arg5] "{edi}" (arg5),
+            [arg6] "{ebp}" (arg6))
 }
 
 pub fn mmap(address: isize, length: isize, prot: isize, flags: isize, fd: isize, offset: isize) -> isize {
