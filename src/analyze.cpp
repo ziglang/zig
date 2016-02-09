@@ -4155,7 +4155,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
 
                 if (!const_expr_val->ok) {
                     add_node_error(g, *expr_node, buf_sprintf("unable to evaluate constant expression"));
-                    return resolved_type;
+                    return g->builtin_types.entry_invalid;
                 }
 
                 ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
