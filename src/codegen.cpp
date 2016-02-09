@@ -33,9 +33,7 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->is_test_build = false;
     g->root_source_dir = root_source_dir;
     g->error_value_count = 1;
-    if (ZIG_DYNAMIC_LINKER) {
-        g->dynamic_linker = buf_create_from_str(ZIG_DYNAMIC_LINKER);
-    }
+    g->dynamic_linker = buf_create_from_str(ZIG_DYNAMIC_LINKER);
 
     g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
     g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
@@ -4168,7 +4166,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
         args.append(buf_ptr(g->libc_static_lib_dir));
     }
 
-    if (g->dynamic_linker) {
+    if (g->dynamic_linker && buf_len(g->dynamic_linker) > 0) {
         args.append("-dynamic-linker");
         args.append(buf_ptr(g->dynamic_linker));
     } else {
