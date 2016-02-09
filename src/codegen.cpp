@@ -33,6 +33,9 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->is_test_build = false;
     g->root_source_dir = root_source_dir;
     g->error_value_count = 1;
+    if (ZIG_DYNAMIC_LINKER) {
+        g->dynamic_linker = buf_create_from_str(ZIG_DYNAMIC_LINKER);
+    }
 
     g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
     g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
@@ -88,6 +91,10 @@ void codegen_set_libc_static_lib_dir(CodeGen *g, Buf *libc_static_lib_dir) {
 
 void codegen_set_libc_include_dir(CodeGen *g, Buf *libc_include_dir) {
     g->libc_include_dir = libc_include_dir;
+}
+
+void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker) {
+    g->dynamic_linker = dynamic_linker;
 }
 
 void codegen_add_lib_dir(CodeGen *g, const char *dir) {
@@ -4157,13 +4164,12 @@ void codegen_link(CodeGen *g, const char *out_file) {
         args.append(buf_ptr(g->libc_static_lib_dir));
     }
 
-    // TODO don't pass this parameter unless linking with libc
-    if (ZIG_DYNAMIC_LINKER[0] == 0) {
+    if (g->dynamic_linker) {
         args.append("-dynamic-linker");
-        args.append(buf_ptr(get_dynamic_linker(g->target_machine)));
+        args.append(buf_ptr(g->dynamic_linker));
     } else {
         args.append("-dynamic-linker");
-        args.append(ZIG_DYNAMIC_LINKER);
+        args.append(buf_ptr(get_dynamic_linker(g->target_machine)));
     }
 
     if (g->out_type == OutTypeLib) {

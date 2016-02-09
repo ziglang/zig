@@ -1106,6 +1106,7 @@ struct CodeGen {
     Buf *libc_lib_dir;
     Buf *libc_static_lib_dir;
     Buf *libc_include_dir;
+    Buf *dynamic_linker;
     bool is_release_build;
     bool is_test_build;
     LLVMTargetMachineRef target_machine;

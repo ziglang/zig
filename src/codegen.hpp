@@ -28,6 +28,7 @@ void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
 void codegen_set_libc_lib_dir(CodeGen *codegen, Buf *libc_lib_dir);
 void codegen_set_libc_static_lib_dir(CodeGen *g, Buf *libc_static_lib_dir);
 void codegen_set_libc_include_dir(CodeGen *codegen, Buf *libc_include_dir);
+void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
 
 void codegen_add_root_code(CodeGen *g, Buf *source_dir, Buf *source_basename, Buf *source_code);
