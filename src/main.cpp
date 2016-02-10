@@ -10,6 +10,7 @@
 #include "codegen.hpp"
 #include "os.hpp"
 #include "error.hpp"
+#include "target.hpp"
 
 #include <stdio.h>
 
@@ -20,6 +21,7 @@ static int usage(const char *arg0) {
         "  test                         create and run a test build\n"
         "  version                      print version number and exit\n"
         "  parseh                       convert a c header file to zig extern declarations\n"
+        "  targets                      list available compilation targets\n"
         "Options:\n"
         "  --release                    build with optimizations on and debug protection off\n"
         "  --static                     output will be statically linked\n"
@@ -40,12 +42,45 @@ static int usage(const char *arg0) {
     return EXIT_FAILURE;
 }
 
+static int print_target_list(FILE *f) {
+    fprintf(f, "Architectures:\n");
+    int arch_count = target_arch_count();
+    int sub_arch_count = target_sub_arch_count();
+    for (int arch_i = 0; arch_i < arch_count; arch_i += 1) {
+        const ArchType *arch = get_target_arch(arch_i);
+        fprintf(f, "  %s\n", ZigLLVMGetArchTypeName(arch->llvm_arch));
+        for (int sub_arch_i = 0; sub_arch_i  < sub_arch_count; sub_arch_i += 1) {
+            const SubArchType *sub_arch = get_target_sub_arch(sub_arch_i);
+            if (sub_arch->arch == arch->llvm_arch) {
+                fprintf(f, "    %s\n", sub_arch->name);
+            }
+        }
+    }
+
+    fprintf(f, "\nOperating Systems:\n");
+    int os_count = target_os_count();
+    for (int i = 0; i < os_count; i += 1) {
+        const OsType *os_type = get_target_os(i);
+        fprintf(f, "  %s\n", get_target_os_name(os_type));
+    }
+
+    fprintf(f, "\nABIs:\n");
+    int environ_count = target_environ_count();
+    for (int i = 0; i < environ_count; i += 1) {
+        const EnvironmentType *environ_type = get_target_environ(i);
+        fprintf(f, "  %s\n", ZigLLVMGetEnvironmentTypeName(environ_type->llvm_environment));
+    }
+
+    return EXIT_SUCCESS;
+}
+
 enum Cmd {
     CmdInvalid,
     CmdBuild,
     CmdTest,
     CmdVersion,
     CmdParseH,
+    CmdTargets,
 };
 
 int main(int argc, char **argv) {
@@ -139,6 +174,8 @@ int main(int argc, char **argv) {
                 cmd = CmdParseH;
             } else if (strcmp(arg, "test") == 0) {
                 cmd = CmdTest;
+            } else if (strcmp(arg, "targets") == 0) {
+                cmd = CmdTargets;
             } else {
                 fprintf(stderr, "Unrecognized command: %s\n", arg);
                 return usage(arg0);
@@ -155,6 +192,7 @@ int main(int argc, char **argv) {
                     }
                     break;
                 case CmdVersion:
+                case CmdTargets:
                     return usage(arg0);
                 case CmdInvalid:
                     zig_unreachable();
@@ -249,6 +287,8 @@ int main(int argc, char **argv) {
     case CmdVersion:
         printf("%s\n", ZIG_VERSION_STRING);
         return EXIT_SUCCESS;
+    case CmdTargets:
+        return print_target_list(stdout);
     case CmdInvalid:
         return usage(arg0);
     }

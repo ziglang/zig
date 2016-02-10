@@ -514,7 +514,31 @@ void LLVMZigSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
     }
 }
 
+
+static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, "");
+static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorType, "");
+static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
+
+const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch) {
+    return Triple::getArchTypeName((Triple::ArchType)arch);
+}
+
+const char *ZigLLVMGetVendorTypeName(ZigLLVM_VendorType vendor) {
+    return Triple::getVendorTypeName((Triple::VendorType)vendor);
+}
+
+const char *ZigLLVMGetOSTypeName(ZigLLVM_OSType os) {
+    return Triple::getOSTypeName((Triple::OSType)os);
+}
+
+const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType environ) {
+    return Triple::getEnvironmentTypeName((Triple::EnvironmentType)environ);
+}
+
 //------------------------------------
+
+#include "buffer.hpp"
 
 enum FloatAbi {
     FloatAbiHard,

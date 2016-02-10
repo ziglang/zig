@@ -1124,7 +1124,6 @@ struct CodeGen {
     bool is_test_build;
     LLVMTargetMachineRef target_machine;
     LLVMZigDIFile *dummy_di_file;
-    bool is_native_target;
     Buf *root_source_dir;
     Buf *root_out_name;
 

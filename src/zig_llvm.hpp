@@ -143,11 +143,156 @@ LLVMZigDILocation *LLVMZigGetDebugLoc(unsigned line, unsigned col, LLVMZigDIScop
 void LLVMZigSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
 
 
+// copied from include/llvm/ADT/Triple.h
+
+enum ZigLLVM_ArchType {
+  ZigLLVM_UnknownArch,
+
+  ZigLLVM_arm,        // ARM (little endian): arm, armv.*, xscale
+  ZigLLVM_armeb,      // ARM (big endian): armeb
+  ZigLLVM_aarch64,    // AArch64 (little endian): aarch64
+  ZigLLVM_aarch64_be, // AArch64 (big endian): aarch64_be
+  ZigLLVM_bpfel,      // eBPF or extended BPF or 64-bit BPF (little endian)
+  ZigLLVM_bpfeb,      // eBPF or extended BPF or 64-bit BPF (big endian)
+  ZigLLVM_hexagon,    // Hexagon: hexagon
+  ZigLLVM_mips,       // MIPS: mips, mipsallegrex
+  ZigLLVM_mipsel,     // MIPSEL: mipsel, mipsallegrexel
+  ZigLLVM_mips64,     // MIPS64: mips64
+  ZigLLVM_mips64el,   // MIPS64EL: mips64el
+  ZigLLVM_msp430,     // MSP430: msp430
+  ZigLLVM_ppc,        // PPC: powerpc
+  ZigLLVM_ppc64,      // PPC64: powerpc64, ppu
+  ZigLLVM_ppc64le,    // PPC64LE: powerpc64le
+  ZigLLVM_r600,       // R600: AMD GPUs HD2XXX - HD6XXX
+  ZigLLVM_amdgcn,     // AMDGCN: AMD GCN GPUs
+  ZigLLVM_sparc,      // Sparc: sparc
+  ZigLLVM_sparcv9,    // Sparcv9: Sparcv9
+  ZigLLVM_sparcel,    // Sparc: (endianness = little). NB: 'Sparcle' is a CPU variant
+  ZigLLVM_systemz,    // SystemZ: s390x
+  ZigLLVM_tce,        // TCE (http://tce.cs.tut.fi/): tce
+  ZigLLVM_thumb,      // Thumb (little endian): thumb, thumbv.*
+  ZigLLVM_thumbeb,    // Thumb (big endian): thumbeb
+  ZigLLVM_x86,        // X86: i[3-9]86
+  ZigLLVM_x86_64,     // X86-64: amd64, x86_64
+  ZigLLVM_xcore,      // XCore: xcore
+  ZigLLVM_nvptx,      // NVPTX: 32-bit
+  ZigLLVM_nvptx64,    // NVPTX: 64-bit
+  ZigLLVM_le32,       // le32: generic little-endian 32-bit CPU (PNaCl / Emscripten)
+  ZigLLVM_le64,       // le64: generic little-endian 64-bit CPU (PNaCl / Emscripten)
+  ZigLLVM_amdil,      // AMDIL
+  ZigLLVM_amdil64,    // AMDIL with 64-bit pointers
+  ZigLLVM_hsail,      // AMD HSAIL
+  ZigLLVM_hsail64,    // AMD HSAIL with 64-bit pointers
+  ZigLLVM_spir,       // SPIR: standard portable IR for OpenCL 32-bit version
+  ZigLLVM_spir64,     // SPIR: standard portable IR for OpenCL 64-bit version
+  ZigLLVM_kalimba,    // Kalimba: generic kalimba
+  ZigLLVM_shave,      // SHAVE: Movidius vector VLIW processors
+  ZigLLVM_wasm32,     // WebAssembly with 32-bit pointers
+  ZigLLVM_wasm64,     // WebAssembly with 64-bit pointers
+  ZigLLVM_LastArchType = ZigLLVM_wasm64
+};
+
+enum ZigLLVM_SubArchType {
+  ZigLLVM_NoSubArch,
+
+  ZigLLVM_ARMSubArch_v8_1a,
+  ZigLLVM_ARMSubArch_v8,
+  ZigLLVM_ARMSubArch_v7,
+  ZigLLVM_ARMSubArch_v7em,
+  ZigLLVM_ARMSubArch_v7m,
+  ZigLLVM_ARMSubArch_v7s,
+  ZigLLVM_ARMSubArch_v6,
+  ZigLLVM_ARMSubArch_v6m,
+  ZigLLVM_ARMSubArch_v6k,
+  ZigLLVM_ARMSubArch_v6t2,
+  ZigLLVM_ARMSubArch_v5,
+  ZigLLVM_ARMSubArch_v5te,
+  ZigLLVM_ARMSubArch_v4t,
+
+  ZigLLVM_KalimbaSubArch_v3,
+  ZigLLVM_KalimbaSubArch_v4,
+  ZigLLVM_KalimbaSubArch_v5
+};
+enum ZigLLVM_VendorType {
+  ZigLLVM_UnknownVendor,
+
+  ZigLLVM_Apple,
+  ZigLLVM_PC,
+  ZigLLVM_SCEI,
+  ZigLLVM_BGP,
+  ZigLLVM_BGQ,
+  ZigLLVM_Freescale,
+  ZigLLVM_IBM,
+  ZigLLVM_ImaginationTechnologies,
+  ZigLLVM_MipsTechnologies,
+  ZigLLVM_NVIDIA,
+  ZigLLVM_CSR,
+  ZigLLVM_LastVendorType = ZigLLVM_CSR
+};
+enum ZigLLVM_OSType {
+  ZigLLVM_UnknownOS,
+
+  ZigLLVM_CloudABI,
+  ZigLLVM_Darwin,
+  ZigLLVM_DragonFly,
+  ZigLLVM_FreeBSD,
+  ZigLLVM_IOS,
+  ZigLLVM_KFreeBSD,
+  ZigLLVM_Linux,
+  ZigLLVM_Lv2,        // PS3
+  ZigLLVM_MacOSX,
+  ZigLLVM_NetBSD,
+  ZigLLVM_OpenBSD,
+  ZigLLVM_Solaris,
+  ZigLLVM_Win32,
+  ZigLLVM_Haiku,
+  ZigLLVM_Minix,
+  ZigLLVM_RTEMS,
+  ZigLLVM_NaCl,       // Native Client
+  ZigLLVM_CNK,        // BG/P Compute-Node Kernel
+  ZigLLVM_Bitrig,
+  ZigLLVM_AIX,
+  ZigLLVM_CUDA,       // NVIDIA CUDA
+  ZigLLVM_NVCL,       // NVIDIA OpenCL
+  ZigLLVM_AMDHSA,     // AMD HSA Runtime
+  ZigLLVM_PS4,
+  ZigLLVM_LastOSType = ZigLLVM_PS4
+};
+enum ZigLLVM_EnvironmentType {
+  ZigLLVM_UnknownEnvironment,
+
+  ZigLLVM_GNU,
+  ZigLLVM_GNUEABI,
+  ZigLLVM_GNUEABIHF,
+  ZigLLVM_GNUX32,
+  ZigLLVM_CODE16,
+  ZigLLVM_EABI,
+  ZigLLVM_EABIHF,
+  ZigLLVM_Android,
+
+  ZigLLVM_MSVC,
+  ZigLLVM_Itanium,
+  ZigLLVM_Cygnus,
+  ZigLLVM_LastEnvironmentType = ZigLLVM_Cygnus
+};
+enum ZigLLVM_ObjectFormatType {
+  ZigLLVM_UnknownObjectFormat,
+
+  ZigLLVM_COFF,
+  ZigLLVM_ELF,
+  ZigLLVM_MachO,
+};
+
+const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch);
+const char *ZigLLVMGetVendorTypeName(ZigLLVM_VendorType vendor);
+const char *ZigLLVMGetOSTypeName(ZigLLVM_OSType os);
+const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType environ);
+
+
 /*
  * This stuff is not LLVM API but it depends on the LLVM C++ API so we put it here.
  */
-#include "buffer.hpp"
-
+struct Buf;
 Buf *get_dynamic_linker(LLVMTargetMachineRef target_machine);
 
 #endif

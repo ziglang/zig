@@ -3498,8 +3498,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdConstEval, "const_eval", 1);
 }
 
-
-
 static void init(CodeGen *g, Buf *source_path) {
     g->lib_search_paths.append(g->root_source_dir);
     g->lib_search_paths.append(buf_create_from_str(ZIG_STD_DIR));
@@ -3510,7 +3508,6 @@ static void init(CodeGen *g, Buf *source_path) {
     LLVMInitializeAllAsmParsers();
     LLVMInitializeNativeTarget();
 
-    g->is_native_target = true;
     char *native_triple = LLVMGetDefaultTargetTriple();
 
     g->module = LLVMModuleCreateWithName(buf_ptr(source_path));

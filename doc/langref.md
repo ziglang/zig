@@ -350,9 +350,9 @@ The functions take an integer (TODO float?) type, two variables of the specified
 
 ```
 Function                                                  Operation
-bool add_with_overflow(type, a: type, b: type, x: &type)  *x = a + b
-bool sub_with_overflow(type, a: type, b: type, x: &type)  *x = a - b
-bool mul_with_overflow(type, a: type, b: type, x: &type)  *x = a * b
+bool add_with_overflow(T: type, a: T, b: T, x: &T)        *x = a + b
+bool sub_with_overflow(T: type, a: T, b: T, x: &T)        *x = a - b
+bool mul_with_overflow(T: type, a: T, b: T, x: &T)        *x = a * b
 ```
 
 ### Memory Operations

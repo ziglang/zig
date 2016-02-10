@@ -27,6 +27,7 @@ include_directories(
 )
 
 set(ZIG_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/target.cpp"
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
     "${CMAKE_SOURCE_DIR}/src/bignum.cpp"
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
