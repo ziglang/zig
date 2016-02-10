@@ -397,11 +397,13 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
 
-        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
+        if (!entry->zero_bits) {
+            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
+            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
 
-        entry->di_type = LLVMZigCreateDebugArrayType(g->dbuilder, debug_size_in_bits,
-                debug_align_in_bits, child_type->di_type, array_size);
+            entry->di_type = LLVMZigCreateDebugArrayType(g->dbuilder, debug_size_in_bits,
+                    debug_align_in_bits, child_type->di_type, array_size);
+        }
         entry->data.array.child_type = child_type;
         entry->data.array.len = array_size;
 
