@@ -536,6 +536,21 @@ const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType environ) {
     return Triple::getEnvironmentTypeName((Triple::EnvironmentType)environ);
 }
 
+void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *sub_arch_type,
+        ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type)
+{
+    char *native_triple = LLVMGetDefaultTargetTriple();
+    Triple triple(native_triple);
+
+    *arch_type = (ZigLLVM_ArchType)triple.getArch();
+    *sub_arch_type = (ZigLLVM_SubArchType)triple.getSubArch();
+    *vendor_type = (ZigLLVM_VendorType)triple.getVendor();
+    *os_type = (ZigLLVM_OSType)triple.getOS();
+    *environ_type = (ZigLLVM_EnvironmentType)triple.getEnvironment();
+
+    free(native_triple);
+}
+
 //------------------------------------
 
 #include "buffer.hpp"

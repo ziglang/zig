@@ -43,16 +43,27 @@ static int usage(const char *arg0) {
 }
 
 static int print_target_list(FILE *f) {
+    ZigLLVM_ArchType native_arch_type;
+    ZigLLVM_SubArchType native_sub_arch_type;
+    ZigLLVM_VendorType native_vendor_type;
+    ZigLLVM_OSType native_os_type;
+    ZigLLVM_EnvironmentType native_environ_type;
+
+    ZigLLVMGetNativeTarget(&native_arch_type, &native_sub_arch_type, &native_vendor_type,
+            &native_os_type, &native_environ_type);
+
     fprintf(f, "Architectures:\n");
     int arch_count = target_arch_count();
     int sub_arch_count = target_sub_arch_count();
     for (int arch_i = 0; arch_i < arch_count; arch_i += 1) {
         const ArchType *arch = get_target_arch(arch_i);
-        fprintf(f, "  %s\n", ZigLLVMGetArchTypeName(arch->llvm_arch));
+        const char *native_str = (native_arch_type == arch->llvm_arch) ? " (native)" : "";
+        fprintf(f, "  %s%s\n", ZigLLVMGetArchTypeName(arch->llvm_arch), native_str);
         for (int sub_arch_i = 0; sub_arch_i  < sub_arch_count; sub_arch_i += 1) {
             const SubArchType *sub_arch = get_target_sub_arch(sub_arch_i);
             if (sub_arch->arch == arch->llvm_arch) {
-                fprintf(f, "    %s\n", sub_arch->name);
+                const char *native_str = (native_sub_arch_type == sub_arch->sub_arch) ? " (native)" : "";
+                fprintf(f, "    %s%s\n", sub_arch->name, native_str);
             }
         }
     }
@@ -61,14 +72,16 @@ static int print_target_list(FILE *f) {
     int os_count = target_os_count();
     for (int i = 0; i < os_count; i += 1) {
         const OsType *os_type = get_target_os(i);
-        fprintf(f, "  %s\n", get_target_os_name(os_type));
+        const char *native_str = (native_os_type == os_type->llvm_os) ? " (native)" : "";
+        fprintf(f, "  %s%s\n", get_target_os_name(os_type), native_str);
     }
 
     fprintf(f, "\nABIs:\n");
     int environ_count = target_environ_count();
     for (int i = 0; i < environ_count; i += 1) {
         const EnvironmentType *environ_type = get_target_environ(i);
-        fprintf(f, "  %s\n", ZigLLVMGetEnvironmentTypeName(environ_type->llvm_environment));
+        const char *native_str = (native_environ_type == environ_type->llvm_environment) ? " (native)" : "";
+        fprintf(f, "  %s%s\n", ZigLLVMGetEnvironmentTypeName(environ_type->llvm_environment), native_str);
     }
 
     return EXIT_SUCCESS;

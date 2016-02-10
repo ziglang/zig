@@ -288,6 +288,9 @@ const char *ZigLLVMGetVendorTypeName(ZigLLVM_VendorType vendor);
 const char *ZigLLVMGetOSTypeName(ZigLLVM_OSType os);
 const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType environ);
 
+void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *sub_arch_type,
+        ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type);
+
 
 /*
  * This stuff is not LLVM API but it depends on the LLVM C++ API so we put it here.

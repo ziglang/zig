@@ -242,7 +242,11 @@ TODO
 
 TODO
 
-### Error Type
+### Pure Error Type
+
+TODO
+
+### Error Union Type
 
 TODO
 
@@ -334,35 +338,43 @@ TODO
 
 Built-in functions are prefixed with `@`.
 
-### Typeof
+### @typeof
 
-TODO
+`@typeof(expression)`
 
-### Sizeof
+### @sizeof
 
-TODO
+`@sizeof(type)`
 
 ### Overflow Arithmetic
 
-Overflow arithmetic functions have defined behavior on overflow or underflow. TODO what is that behaviour?
+Overflow arithmetic functions have defined behavior on overflow or underflow.
 
-The functions take an integer (TODO float?) type, two variables of the specified type, and a pointer to a variable of the specified type where the result is stored. The functions return a boolean value: true of overflow/underflow occurred, false otherwise.
+The functions take an integer type, two variables of the specified type, and a
+pointer to a variable of the specified type where the result is stored. The
+functions return a boolean value: true of overflow/underflow occurred, false
+otherwise.
 
 ```
 Function                                                  Operation
-bool add_with_overflow(T: type, a: T, b: T, x: &T)        *x = a + b
-bool sub_with_overflow(T: type, a: T, b: T, x: &T)        *x = a - b
-bool mul_with_overflow(T: type, a: T, b: T, x: &T)        *x = a * b
+@add_with_overflow(T: type, a: T, b: T, x: &T) -> bool    *x = a + b
+@sub_with_overflow(T: type, a: T, b: T, x: &T) -> bool    *x = a - b
+@mul_with_overflow(T: type, a: T, b: T, x: &T) -> bool    *x = a * b
 ```
 
-### Memory Operations
+### @memset
 
-TODO memset and memcpy
+`@memset(dest, char, len)`
 
-### Value Count
+### @memcpy
 
-TODO
+`@memcpy(dest, source, len)`
+
+### @member_count
+
+`@member_count(enum_type)`
 
 ### Max and Min Value
 
-TODO
+`@max_value(type)`
+`@min_value(type)`
