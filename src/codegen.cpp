@@ -4128,7 +4128,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
 
     // TODO make this target dependent
     args.append("-m");
-    args.append("elf_x86_64");
+    args.append("elf_i386");
 
     if (g->is_static) {
         args.append("-static");
