@@ -13,6 +13,8 @@ Zig is not afraid to roll the major version number of the language if it
 improves simplicity, fixes poor design decisions, or adds a new feature which
 compromises backward compatibility.
 
+[Introduction to the Zig Programming Language](http://andrewkelley.me/post/intro-to-zig.html)
+
 ## Existing Features
 
  * Compatible with C libraries with no wrapper necessary. Directly include
