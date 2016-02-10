@@ -1,7 +1,8 @@
 # zig lang
 
-An experiment in writing a low-level programming language with the intent to
-replace C. Zig intends to be a small language, yet powerful enough to write
+A system programming language intended to replace C.
+
+Zig intends to remain a small language, yet powerful enough to write
 optimal, readable, safe, and concise code to solve any computing problem.
 
 Porting a C project to Zig should be a pleasant experience - every C feature
