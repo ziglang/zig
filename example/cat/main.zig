@@ -13,7 +13,7 @@ pub fn main(args: [][]u8) -> %void {
     for (arg, args[1...]) {
         if (arg == "-") {
             catted_anything = true;
-            %return cat_stream(stdin);
+            cat_stream(stdin) %% |err| return err;
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
@@ -24,11 +24,11 @@ pub fn main(args: [][]u8) -> %void {
             defer is.close();
 
             catted_anything = true;
-            %return cat_stream(is);
+            cat_stream(is) %% |err| return err;
         }
     }
     if (!catted_anything) {
-        %return cat_stream(stdin)
+        cat_stream(stdin) %% |err| return err;
     }
 }
 

@@ -225,26 +225,6 @@ pub fn foo_function() -> bool {
         )SOURCE");
     }
 
-    add_simple_case("if statements", R"SOURCE(
-import "std.zig";
-
-pub fn main(args: [][]u8) -> %void {
-    if (1 != 0) {
-        %%stdout.printf("1 is true\n");
-    } else {
-        %%stdout.printf("1 is false\n");
-    }
-    if (0 != 0) {
-        %%stdout.printf("0 is true\n");
-    } else if (1 - 1 != 0) {
-        %%stdout.printf("1 - 1 is true\n");
-    }
-    if (!(0 != 0)) {
-        %%stdout.printf("!0 is true\n");
-    }
-}
-    )SOURCE", "1 is true\n!0 is true\n");
-
     add_simple_case("params", R"SOURCE(
 import "std.zig";
 
@@ -258,46 +238,6 @@ pub fn main(args: [][]u8) -> %void {
     }
 }
     )SOURCE", "pass\n");
-
-    add_simple_case("local variables", R"SOURCE(
-import "std.zig";
-
-pub fn main(args: [][]u8) -> %void {
-    const a : i32 = 1;
-    const b = i32(2);
-    if (a + b == 3) {
-        %%stdout.printf("OK\n");
-    }
-}
-    )SOURCE", "OK\n");
-
-    add_simple_case("bool literals", R"SOURCE(
-import "std.zig";
-
-pub fn main(args: [][]u8) -> %void {
-    if (true)   { %%stdout.printf("OK 1\n"); }
-    if (false)  { %%stdout.printf("BAD 1\n"); }
-    if (!true)  { %%stdout.printf("BAD 2\n"); }
-    if (!false) { %%stdout.printf("OK 2\n"); }
-}
-    )SOURCE", "OK 1\nOK 2\n");
-
-    add_simple_case("separate block scopes", R"SOURCE(
-import "std.zig";
-
-pub fn main(args: [][]u8) -> %void {
-    if (true) {
-        const no_conflict : i32 = 5;
-        if (no_conflict == 5) { %%stdout.printf("OK 1\n"); }
-    }
-
-    const c = {
-        const no_conflict = i32(10);
-        no_conflict
-    };
-    if (c == 10) { %%stdout.printf("OK 2\n"); }
-}
-    )SOURCE", "OK 1\nOK 2\n");
 
     add_simple_case("void parameters", R"SOURCE(
 import "std.zig";
@@ -313,48 +253,6 @@ fn void_fun(a : i32, b : void, c : i32) {
     return vv;
 }
     )SOURCE", "OK\n");
-
-    add_simple_case("void struct fields", R"SOURCE(
-import "std.zig";
-struct Foo {
-    a : void,
-    b : i32,
-    c : void,
-}
-pub fn main(args: [][]u8) -> %void {
-    const foo = Foo {
-        .a = void{},
-        .b = 1,
-        .c = void{},
-    };
-    if (foo.b != 1) {
-        %%stdout.printf("BAD\n");
-    }
-    if (@sizeof(Foo) != 4) {
-        %%stdout.printf("BAD\n");
-    }
-    %%stdout.printf("OK\n");
-}
-
-    )SOURCE", "OK\n");
-
-    add_simple_case("void arrays", R"SOURCE(
-import "std.zig";
-
-pub fn main(args: [][]u8) -> %void {
-    var array: [4]void = undefined;
-    array[0] = void{};
-    array[1] = array[2];
-    if (@sizeof(@typeof(array)) != 0) {
-        %%stdout.printf("BAD sizeof\n");
-    }
-    if (array.len != 4) {
-        %%stdout.printf("BAD len\n");
-    }
-    %%stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
 
     add_simple_case("mutable local variables", R"SOURCE(
 import "std.zig";
@@ -413,27 +311,6 @@ pub fn main(args: [][]u8) -> %void {
 }
     )SOURCE", "Hello, world!\n");
 
-
-    add_simple_case("a + b + c", R"SOURCE(
-import "std.zig";
-
-pub fn main(args: [][]u8) -> %void {
-    if (false || false || false) { %%stdout.printf("BAD 1\n"); }
-    if (true && true && false)   { %%stdout.printf("BAD 2\n"); }
-    if (1 | 2 | 4 != 7)          { %%stdout.printf("BAD 3\n"); }
-    if (3 ^ 6 ^ 8 != 13)         { %%stdout.printf("BAD 4\n"); }
-    if (7 & 14 & 28 != 4)        { %%stdout.printf("BAD 5\n"); }
-    if (9  << 1 << 2 != 9  << 3) { %%stdout.printf("BAD 6\n"); }
-    if (90 >> 1 >> 2 != 90 >> 3) { %%stdout.printf("BAD 7\n"); }
-    if (100 - 1 + 1000 != 1099)  { %%stdout.printf("BAD 8\n"); }
-    if (5 * 4 / 2 % 3 != 1)      { %%stdout.printf("BAD 9\n"); }
-    if (i32(i32(5)) != 5)        { %%stdout.printf("BAD 10\n"); }
-    if (!!false)                 { %%stdout.printf("BAD 11\n"); }
-    if (i32(7) != --(i32(7)))    { %%stdout.printf("BAD 12\n"); }
-
-    %%stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
 
     add_simple_case("short circuit", R"SOURCE(
 import "std.zig";
@@ -729,39 +606,6 @@ pub fn main(args: [][]u8) -> %void {
 }
     )SOURCE", "loop\nloop\nloop\nloop\n");
 
-    add_simple_case("maybe type", R"SOURCE(
-import "std.zig";
-pub fn main(args: [][]u8) -> %void {
-    const x : ?bool = true;
-
-    if (const y ?= x) {
-        if (y) {
-            %%stdout.printf("x is true\n");
-        } else {
-            %%stdout.printf("x is false\n");
-        }
-    } else {
-        %%stdout.printf("x is none\n");
-    }
-
-    const next_x : ?i32 = null;
-
-    const z = next_x ?? 1234;
-
-    if (z != 1234) {
-        %%stdout.printf("BAD\n");
-    }
-
-    const final_x : ?i32 = 13;
-
-    const num = final_x ?? unreachable{};
-
-    if (num != 13) {
-        %%stdout.printf("BAD\n");
-    }
-}
-    )SOURCE", "x is true\n");
-
     add_simple_case("implicit cast after unreachable", R"SOURCE(
 import "std.zig";
 pub fn main(args: [][]u8) -> %void {
@@ -971,73 +815,6 @@ fn print_ok(val: @typeof(x)) -> @typeof(foo) {
 const foo : i32 = 0;
     )SOURCE", "OK\n");
 
-    add_simple_case("enum type", R"SOURCE(
-import "std.zig";
-
-struct Point {
-    x: u64,
-    y: u64,
-}
-
-enum Foo {
-    One: i32,
-    Two: Point,
-    Three: void,
-}
-
-enum Bar {
-    A,
-    B,
-    C,
-    D,
-}
-
-pub fn main(args: [][]u8) -> %void {
-    const foo1 = Foo.One(13);
-    const foo2 = Foo.Two(Point { .x = 1234, .y = 5678, });
-    const bar = Bar.B;
-
-    if (bar != Bar.B) {
-        %%stdout.printf("BAD 1\n");
-    }
-
-    if (@member_count(Foo) != 3) {
-        %%stdout.printf("BAD 2\n");
-    }
-
-    if (@member_count(Bar) != 4) {
-        %%stdout.printf("BAD 3\n");
-    }
-
-    if (@sizeof(Foo) != 24) {
-        %%stdout.printf("BAD 4\n");
-    }
-    if (@sizeof(Bar) != 1) {
-        %%stdout.printf("BAD 5\n");
-    }
-
-    %%stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
-    add_simple_case("array literal", R"SOURCE(
-import "std.zig";
-
-pub fn main(args: [][]u8) -> %void {
-    const HEX_MULT = []u16{4096, 256, 16, 1};
-
-    if (HEX_MULT.len != 4) {
-        %%stdout.printf("BAD\n");
-    }
-
-    if (HEX_MULT[1] != 256) {
-        %%stdout.printf("BAD\n");
-    }
-
-    %%stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
     add_simple_case("nested arrays", R"SOURCE(
 import "std.zig";
 
@@ -1092,23 +869,6 @@ fn fn3() -> u32 {7}
 fn fn4() -> u32 {8}
     )SOURCE", "5\n6\n7\n8\n");
 
-    add_simple_case("const number literal", R"SOURCE(
-import "std.zig";
-
-const ten = 10;
-
-pub fn main(args: [][]u8) -> %void {
-    const one = 1;
-    const eleven = ten + one;
-
-    if (eleven != 11) {
-        %%stdout.printf("BAD\n");
-    }
-
-    %%stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
     add_simple_case("statically initialized struct", R"SOURCE(
 import "std.zig";
 struct Foo {
@@ -1132,21 +892,6 @@ const x = []u8{1,2,3,4};
 pub fn main(args: [][]u8) -> %void {
     const y : [4]u8 = x;
     if (y[3] != 4) {
-        %%stdout.printf("BAD\n");
-    }
-
-    %%stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
-    add_simple_case("error values", R"SOURCE(
-import "std.zig";
-error err1;
-error err2;
-pub fn main(args: [][]u8) -> %void {
-    const a = i32(error.err1);
-    const b = i32(error.err2);
-    if (a == b) {
         %%stdout.printf("BAD\n");
     }
 
@@ -1988,6 +1733,13 @@ struct Foo {
 }
 fn get() -> isize { 1 }
     )SOURCE", 1, ".tmp_source.zig:3:9: error: unable to evaluate constant expression");
+
+
+    add_compile_fail_case("unnecessary if statement", R"SOURCE(
+fn f() {
+    if (true) { }
+}
+    )SOURCE", 1, ".tmp_source.zig:3:9: error: condition is always true; unnecessary if statement");
 }
 
 //////////////////////////////////////////////////////////////////////////////

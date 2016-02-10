@@ -2159,6 +2159,7 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
                     &get_resolved_expr(val_field_node->data.struct_val_field.expr)->const_val;
                 if (field_val->ok) {
                     const_val->data.x_struct.fields[field_index] = field_val;
+                    const_val->depends_on_compile_var = const_val->depends_on_compile_var || field_val->depends_on_compile_var;
                 } else {
                     const_val->ok = false;
                 }
@@ -2197,6 +2198,8 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
                 ConstExprValue *elem_const_val = &get_resolved_expr(*elem_node)->const_val;
                 if (elem_const_val->ok) {
                     const_val->data.x_array.fields[i] = elem_const_val;
+                    const_val->depends_on_compile_var = const_val->depends_on_compile_var ||
+                        elem_const_val->depends_on_compile_var;
                 } else {
                     const_val->ok = false;
                 }
@@ -2431,9 +2434,12 @@ static TypeTableEntry *resolve_expr_const_val_as_err(CodeGen *g, AstNode *node, 
     return g->builtin_types.entry_pure_error;
 }
 
-static TypeTableEntry *resolve_expr_const_val_as_bool(CodeGen *g, AstNode *node, bool value) {
+static TypeTableEntry *resolve_expr_const_val_as_bool(CodeGen *g, AstNode *node, bool value,
+        bool depends_on_compile_var)
+{
     Expr *expr = get_resolved_expr(node);
     expr->const_val.ok = true;
+    expr->const_val.depends_on_compile_var = depends_on_compile_var;
     expr->const_val.data.x_bool = value;
     return g->builtin_types.entry_bool;
 }
@@ -2817,7 +2823,8 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
         zig_unreachable();
     }
 
-    return resolve_expr_const_val_as_bool(g, node, answer);
+    bool depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
+    return resolve_expr_const_val_as_bool(g, node, answer, depends_on_compile_var);
 }
 
 static TypeTableEntry *analyze_logic_bin_op_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -2844,7 +2851,8 @@ static TypeTableEntry *analyze_logic_bin_op_expr(CodeGen *g, ImportTableEntry *i
     }
 
     bool answer = eval_bool_bin_op_bool(op1_val->data.x_bool, bin_op_type, op2_val->data.x_bool);
-    return resolve_expr_const_val_as_bool(g, node, answer);
+    bool depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
+    return resolve_expr_const_val_as_bool(g, node, answer, depends_on_compile_var);
 }
 
 static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -3001,6 +3009,8 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                 }
                 ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
                 const_val->ok = true;
+                const_val->depends_on_compile_var = op1_val->depends_on_compile_var ||
+                    op2_val->depends_on_compile_var;
 
                 ConstExprValue *all_fields = allocate<ConstExprValue>(2);
                 ConstExprValue *ptr_field = &all_fields[0];
@@ -3444,51 +3454,111 @@ static TypeTableEntry *analyze_continue_expr(CodeGen *g, ImportTableEntry *impor
     return g->builtin_types.entry_unreachable;
 }
 
-static TypeTableEntry *analyze_if_then_else(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        TypeTableEntry *expected_type, AstNode *then_block, AstNode *else_node, AstNode *parent_node)
+static TypeTableEntry *analyze_if(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node,
+        AstNode **then_node, AstNode **else_node, bool cond_is_const, bool cond_bool_val)
 {
-    TypeTableEntry *then_type = analyze_expression(g, import, context, expected_type, then_block);
-
-    TypeTableEntry *else_type;
-    if (else_node) {
-        else_type = analyze_expression(g, import, context, expected_type, else_node);
-    } else {
-        else_type = resolve_type_compatibility(g, import, context, parent_node, expected_type,
-                g->builtin_types.entry_void);
+    if (!*else_node) {
+        *else_node = create_ast_void_node(g, import, node);
+        normalize_parent_ptrs(node);
     }
 
+    TypeTableEntry *then_type = analyze_expression(g, import, context, expected_type, *then_node);
+    TypeTableEntry *else_type = analyze_expression(g, import, context, expected_type, *else_node);
 
+    if (then_type->id == TypeTableEntryIdInvalid || else_type->id == TypeTableEntryIdInvalid) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    TypeTableEntry *result_type;
     if (expected_type) {
-        return (then_type->id == TypeTableEntryIdUnreachable) ? else_type : then_type;
+        result_type = (then_type->id == TypeTableEntryIdUnreachable) ? else_type : then_type;
     } else {
-        AstNode *op_nodes[] = {then_block, else_node};
+        AstNode *op_nodes[] = {*then_node, *else_node};
         TypeTableEntry *op_types[] = {then_type, else_type};
-        return resolve_peer_type_compatibility(g, import, context, parent_node, op_nodes, op_types, 2);
+        result_type = resolve_peer_type_compatibility(g, import, context, node, op_nodes, op_types, 2);
     }
+
+    if (!cond_is_const) {
+        return result_type;
+    }
+
+    ConstExprValue *other_const_val;
+    if (cond_bool_val) {
+        other_const_val = &get_resolved_expr(*then_node)->const_val;
+    } else {
+        other_const_val = &get_resolved_expr(*else_node)->const_val;
+    }
+    if (!other_const_val->ok) {
+        return result_type;
+    }
+
+    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+    *const_val = *other_const_val;
+    return result_type;
 }
 
 static TypeTableEntry *analyze_if_bool_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    analyze_expression(g, import, context, g->builtin_types.entry_bool, node->data.if_bool_expr.condition);
+    AstNode **cond = &node->data.if_bool_expr.condition;
+    TypeTableEntry *cond_type = analyze_expression(g, import, context, g->builtin_types.entry_bool, *cond);
 
-    return analyze_if_then_else(g, import, context, expected_type,
-            node->data.if_bool_expr.then_block,
-            node->data.if_bool_expr.else_node,
-            node);
+    if (cond_type->id == TypeTableEntryIdInvalid) {
+        return cond_type;
+    }
+
+    ConstExprValue *cond_val = &get_resolved_expr(*cond)->const_val;
+    if (cond_val->ok && !cond_val->depends_on_compile_var) {
+        const char *str_val = cond_val->data.x_bool ? "true" : "false";
+        add_node_error(g, first_executing_node(*cond),
+                buf_sprintf("condition is always %s; unnecessary if statement", str_val));
+    }
+
+    bool cond_is_const = cond_val->ok;
+    bool cond_bool_val = cond_val->data.x_bool;
+
+    AstNode **then_node = &node->data.if_bool_expr.then_block;
+    AstNode **else_node = &node->data.if_bool_expr.else_node;
+
+    return analyze_if(g, import, context, expected_type, node,
+            then_node, else_node, cond_is_const, cond_bool_val);
 }
 
-static TypeTableEntry *analyze_if_var_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+static TypeTableEntry *analyze_if_var_expr(CodeGen *g, ImportTableEntry *import, BlockContext *parent_context,
         TypeTableEntry *expected_type, AstNode *node)
 {
     assert(node->type == NodeTypeIfVarExpr);
 
-    BlockContext *child_context = new_block_context(node, context);
+    BlockContext *child_context = new_block_context(node, parent_context);
 
     analyze_variable_declaration_raw(g, import, child_context, node, &node->data.if_var_expr.var_decl, true);
+    VariableTableEntry *var = node->data.if_var_expr.var_decl.variable;
+    if (var->type->id == TypeTableEntryIdInvalid) {
+        return g->builtin_types.entry_invalid;
+    }
+    AstNode *var_expr_node = node->data.if_var_expr.var_decl.expr;
+    ConstExprValue *var_const_val = &get_resolved_expr(var_expr_node)->const_val;
+    bool cond_is_const = var_const_val->ok;
+    bool cond_bool_val = cond_is_const ? (var_const_val->data.x_maybe != nullptr) : false;
 
-    return analyze_if_then_else(g, import, child_context, expected_type,
-            node->data.if_var_expr.then_block, node->data.if_var_expr.else_node, node);
+
+    AstNode **then_node = &node->data.if_var_expr.then_block;
+    AstNode **else_node = &node->data.if_var_expr.else_node;
+
+    return analyze_if(g, import, child_context, expected_type,
+            node, then_node, else_node, cond_is_const, cond_bool_val);
+}
+
+static bool int_type_depends_on_compile_var(CodeGen *g, TypeTableEntry *int_type) {
+    assert(int_type->id == TypeTableEntryIdInt);
+
+    for (int i = 0; i < CIntTypeCount; i += 1) {
+        if (int_type == g->builtin_types.entry_c_int[i]) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static TypeTableEntry *analyze_min_max_value(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -3504,6 +3574,7 @@ static TypeTableEntry *analyze_min_max_value(CodeGen *g, ImportTableEntry *impor
     } else if (type_entry->id == TypeTableEntryIdInt) {
         ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
         const_val->ok = true;
+        const_val->depends_on_compile_var = int_type_depends_on_compile_var(g, type_entry);
         if (is_max) {
             if (type_entry->data.integral.is_signed) {
                 int64_t val;
@@ -3558,7 +3629,7 @@ static TypeTableEntry *analyze_min_max_value(CodeGen *g, ImportTableEntry *impor
         zig_panic("TODO analyze_min_max_value float");
         return type_entry;
     } else if (type_entry->id == TypeTableEntryIdBool) {
-        return resolve_expr_const_val_as_bool(g, node, is_max);
+        return resolve_expr_const_val_as_bool(g, node, is_max, false);
     } else {
         add_node_error(g, node,
                 buf_sprintf(err_format, buf_ptr(&type_entry->name)));
@@ -3573,6 +3644,8 @@ static void eval_const_expr_implicit_cast(CodeGen *g, AstNode *node, AstNode *ex
     if (!other_val->ok) {
         return;
     }
+    const_val->depends_on_compile_var = other_val->depends_on_compile_var;
+
     assert(other_val != const_val);
     switch (node->data.fn_call_expr.cast_op) {
         case CastOpNoCast:
@@ -4132,11 +4205,11 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                 const_val->depends_on_compile_var = true;
 
                 if (buf_eql_str(&var_name, "is_big_endian")) {
-                    return resolve_expr_const_val_as_bool(g, node, g->is_big_endian);
+                    return resolve_expr_const_val_as_bool(g, node, g->is_big_endian, true);
                 } else if (buf_eql_str(&var_name, "is_release")) {
-                    return resolve_expr_const_val_as_bool(g, node, g->is_release_build);
+                    return resolve_expr_const_val_as_bool(g, node, g->is_release_build, true);
                 } else if (buf_eql_str(&var_name, "is_test")) {
-                    return resolve_expr_const_val_as_bool(g, node, g->is_test_build);
+                    return resolve_expr_const_val_as_bool(g, node, g->is_test_build, true);
                 } else {
                     add_node_error(g, *str_node,
                         buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(&var_name)));
@@ -4353,7 +4426,7 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                 }
 
                 bool answer = !target_const_val->data.x_bool;
-                return resolve_expr_const_val_as_bool(g, node, answer);
+                return resolve_expr_const_val_as_bool(g, node, answer, target_const_val->depends_on_compile_var);
             }
         case PrefixOpBinNot:
             {
@@ -4390,6 +4463,7 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                     }
                     ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
                     const_val->ok = true;
+                    const_val->depends_on_compile_var = target_const_val->depends_on_compile_var;
                     bignum_negate(&const_val->data.x_bignum, &target_const_val->data.x_bignum);
                     return expr_type;
                 } else {
@@ -4880,7 +4954,7 @@ static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, 
                     node->data.char_literal.value);
             break;
         case NodeTypeBoolLiteral:
-            return_type = resolve_expr_const_val_as_bool(g, node, node->data.bool_literal.value);
+            return_type = resolve_expr_const_val_as_bool(g, node, node->data.bool_literal.value, false);
             break;
         case NodeTypeNullLiteral:
             return_type = analyze_null_literal_expr(g, import, context, expected_type, node);

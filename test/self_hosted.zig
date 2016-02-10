@@ -5,7 +5,6 @@ fn empty_function() {}
 
 
 
-
 /**
     * multi line doc comment
     */
@@ -18,6 +17,200 @@ fn comments() {
 
 fn comments_f1(s: []u8) {}
 
+
+#attribute("test")
+fn if_statements() {
+    should_be_equal(1, 1);
+    first_eql_third(2, 1, 2);
+}
+fn should_be_equal(a: i32, b: i32) {
+    if (a != b) {
+        unreachable{};
+    } else {
+        return;
+    }
+}
+fn first_eql_third(a: i32, b: i32, c: i32) {
+    if (a == b) {
+        unreachable{};
+    } else if (b == c) {
+        unreachable{};
+    } else if (a == c) {
+        return;
+    } else {
+        unreachable{};
+    }
+}
+
+
+#attribute("test")
+fn local_variables() {
+    test_loc_vars(2);
+}
+fn test_loc_vars(b: i32) {
+    const a: i32 = 1;
+    if (a + b != 3) unreachable{};
+}
+
+#attribute("test")
+fn bool_literals() {
+    should_be_true(true);
+    should_be_false(false);
+}
+fn should_be_true(b: bool) {
+    if (!b) unreachable{};
+}
+fn should_be_false(b: bool) {
+    if (b) unreachable{};
+}
+
+
+#attribute("test")
+fn separate_block_scopes() {
+    {
+        const no_conflict : i32 = 5;
+        assert(no_conflict == 5);
+    }
+
+    const c = {
+        const no_conflict = i32(10);
+        no_conflict
+    };
+    assert(c == 10);
+}
+
+
+#attribute("test")
+fn void_struct_fields() {
+    const foo = VoidStructFieldsFoo {
+        .a = void{},
+        .b = 1,
+        .c = void{},
+    };
+    assert(foo.b == 1);
+    assert(@sizeof(VoidStructFieldsFoo) == 4);
+}
+struct VoidStructFieldsFoo {
+    a : void,
+    b : i32,
+    c : void,
+}
+
+
+#attribute("test")
+fn void_arrays() {
+    var array: [4]void = undefined;
+    array[0] = void{};
+    array[1] = array[2];
+    assert(@sizeof(@typeof(array)) == 0);
+    assert(array.len == 4);
+}
+
+
+#attribute("test")
+fn three_expr_in_a_row() {
+    assert_false(false || false || false);
+    assert_false(true && true && false);
+    assert_false(1 | 2 | 4 != 7);
+    assert_false(3 ^ 6 ^ 8 != 13);
+    assert_false(7 & 14 & 28 != 4);
+    assert_false(9  << 1 << 2 != 9  << 3);
+    assert_false(90 >> 1 >> 2 != 90 >> 3);
+    assert_false(100 - 1 + 1000 != 1099);
+    assert_false(5 * 4 / 2 % 3 != 1);
+    assert_false(i32(i32(5)) != 5);
+    assert_false(!!false);
+    assert_false(i32(7) != --(i32(7)));
+}
+fn assert_false(b: bool) {
+    assert(!b);
+}
+
+
+#attribute("test")
+fn maybe_type() {
+    const x : ?bool = true;
+
+    if (const y ?= x) {
+        if (y) {
+            // OK
+        } else {
+            unreachable{};
+        }
+    } else {
+        unreachable{};
+    }
+
+    const next_x : ?i32 = null;
+
+    const z = next_x ?? 1234;
+
+    assert(z == 1234);
+
+    const final_x : ?i32 = 13;
+
+    const num = final_x ?? unreachable{};
+
+    assert(num == 13);
+}
+
+
+#attribute("test")
+fn enum_type() {
+    const foo1 = EnumTypeFoo.One(13);
+    const foo2 = EnumTypeFoo.Two(EnumType { .x = 1234, .y = 5678, });
+    const bar = EnumTypeBar.B;
+
+    assert(bar == EnumTypeBar.B);
+    assert(@member_count(EnumTypeFoo) == 3);
+    assert(@member_count(EnumTypeBar) == 4);
+    assert(@sizeof(EnumTypeFoo) == 24);
+    assert(@sizeof(EnumTypeBar) == 1);
+}
+struct EnumType {
+    x: u64,
+    y: u64,
+}
+enum EnumTypeFoo {
+    One: i32,
+    Two: EnumType,
+    Three: void,
+}
+enum EnumTypeBar {
+    A,
+    B,
+    C,
+    D,
+}
+
+
+#attribute("test")
+fn array_literal() {
+    const HEX_MULT = []u16{4096, 256, 16, 1};
+
+    assert(HEX_MULT.len == 4);
+    assert(HEX_MULT[1] == 256);
+}
+
+
+#attribute("test")
+fn const_number_literal() {
+    const one = 1;
+    const eleven = ten + one;
+
+    assert(eleven == 11);
+}
+const ten = 10;
+
+
+#attribute("test")
+fn error_values() {
+    const a = i32(error.err1);
+    const b = i32(error.err2);
+    assert(a != b);
+}
+error err1;
+error err2;
 
 
 
@@ -42,11 +235,14 @@ fn call_struct_field(foo: Foo) -> i32 {
 
 #attribute("test")
 fn redefinition_of_error_values_allowed() {
-    if (error.AnError == error.SecondError) unreachable{}
+    should_be_not_equal(error.AnError, error.SecondError);
 }
 error AnError;
 error AnError;
 error SecondError;
+fn should_be_not_equal(a: error, b: error) {
+    if (a == b) unreachable{}
+}
 
 
 
@@ -98,14 +294,14 @@ fn continue_in_for_loop() {
 fn cast_bool_to_int() {
     const t = true;
     const f = false;
-    if (i32(t) != i32(1)) unreachable{}
-    if (i32(f) != i32(0)) unreachable{}
+    assert(i32(t) == i32(1));
+    assert(i32(f) == i32(0));
     non_const_cast_bool_to_int(t, f);
 }
 
 fn non_const_cast_bool_to_int(t: bool, f: bool) {
-    if (i32(t) != i32(1)) unreachable{}
-    if (i32(f) != i32(0)) unreachable{}
+    assert(i32(t) == i32(1));
+    assert(i32(f) == i32(0));
 }
 
 
@@ -240,7 +436,7 @@ fn const_expr_eval_on_single_expr_blocks_fn(x: i32, b: bool) -> i32 {
 #attribute("test")
 fn builtin_const_eval() {
     const x : i32 = @const_eval(1 + 2 + 3);
-    if (x != @const_eval(6)) unreachable{};
+    assert(x == @const_eval(6));
 }
 
 #attribute("test")
@@ -279,3 +475,10 @@ struct ArrayDotLenConstExpr {
     y: [@const_eval(some_array.len)]u8,
 }
 const some_array = []u8 {0, 1, 2, 3};
+
+
+
+
+fn assert(b: bool) {
+    if (!b) unreachable{}
+}

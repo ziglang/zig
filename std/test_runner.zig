@@ -16,6 +16,7 @@ pub fn run_tests() -> %void {
         %%stderr.print_str(" ");
         %%stderr.print_str(test_fn.name);
         %%stderr.print_str("...");
+        %%stderr.flush();
 
         test_fn.func();
 

@@ -1737,81 +1737,60 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
     zig_unreachable();
 }
 
-static LLVMValueRef gen_defer(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeDefer);
-
-
-    return nullptr;
-}
-
 static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMValueRef cond_value,
         AstNode *then_node, AstNode *else_node)
 {
+    assert(then_node);
+    assert(else_node);
+
     TypeTableEntry *then_type = get_expr_type(then_node);
-    bool use_expr_value = (then_type->id != TypeTableEntryIdUnreachable &&
-                           then_type->id != TypeTableEntryIdVoid);
+    TypeTableEntry *else_type = get_expr_type(else_node);
 
-    if (else_node) {
-        LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Then");
-        LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Else");
-
-        LLVMBasicBlockRef endif_block;
-        bool then_endif_reachable = get_expr_type(then_node)->id != TypeTableEntryIdUnreachable;
-        bool else_endif_reachable = get_expr_type(else_node)->id != TypeTableEntryIdUnreachable;
-        if (then_endif_reachable || else_endif_reachable) {
-            endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
-        }
-
-        LLVMBuildCondBr(g->builder, cond_value, then_block, else_block);
-
-        LLVMPositionBuilderAtEnd(g->builder, then_block);
-        LLVMValueRef then_expr_result = gen_expr(g, then_node);
-        if (then_endif_reachable) {
-            LLVMBuildBr(g->builder, endif_block);
-        }
-        LLVMBasicBlockRef after_then_block = LLVMGetInsertBlock(g->builder);
-
-        LLVMPositionBuilderAtEnd(g->builder, else_block);
-        LLVMValueRef else_expr_result = gen_expr(g, else_node);
-        if (else_endif_reachable) {
-            LLVMBuildBr(g->builder, endif_block);
-        }
-        LLVMBasicBlockRef after_else_block = LLVMGetInsertBlock(g->builder);
-
-        if (then_endif_reachable || else_endif_reachable) {
-            LLVMPositionBuilderAtEnd(g->builder, endif_block);
-            if (use_expr_value) {
-                LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(then_expr_result), "");
-                LLVMValueRef incoming_values[2] = {then_expr_result, else_expr_result};
-                LLVMBasicBlockRef incoming_blocks[2] = {after_then_block, after_else_block};
-                LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
-
-                return phi;
-            }
-        }
-
-        return nullptr;
-    }
-
-    assert(!use_expr_value || then_type->id == TypeTableEntryIdErrorUnion);
+    bool use_then_value = type_has_bits(then_type);
+    bool use_else_value = type_has_bits(else_type);
 
     LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Then");
-    LLVMBasicBlockRef endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
+    LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Else");
 
-    LLVMBuildCondBr(g->builder, cond_value, then_block, endif_block);
+    LLVMBasicBlockRef endif_block;
+    bool then_endif_reachable = then_type->id != TypeTableEntryIdUnreachable;
+    bool else_endif_reachable = else_type->id != TypeTableEntryIdUnreachable;
+    if (then_endif_reachable || else_endif_reachable) {
+        endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
+    }
+
+    LLVMBuildCondBr(g->builder, cond_value, then_block, else_block);
 
     LLVMPositionBuilderAtEnd(g->builder, then_block);
-    gen_expr(g, then_node);
-    if (get_expr_type(then_node)->id != TypeTableEntryIdUnreachable)
+    LLVMValueRef then_expr_result = gen_expr(g, then_node);
+    if (then_endif_reachable) {
         LLVMBuildBr(g->builder, endif_block);
-
-    LLVMPositionBuilderAtEnd(g->builder, endif_block);
-
-    if (use_expr_value) {
-        return LLVMConstNull(g->err_tag_type->type_ref);
-    } else {
-        return nullptr;
     }
+    LLVMBasicBlockRef after_then_block = LLVMGetInsertBlock(g->builder);
+
+    LLVMPositionBuilderAtEnd(g->builder, else_block);
+    LLVMValueRef else_expr_result = gen_expr(g, else_node);
+    if (else_endif_reachable) {
+        LLVMBuildBr(g->builder, endif_block);
+    }
+    LLVMBasicBlockRef after_else_block = LLVMGetInsertBlock(g->builder);
+
+    if (then_endif_reachable || else_endif_reachable) {
+        LLVMPositionBuilderAtEnd(g->builder, endif_block);
+        if (use_then_value && use_else_value) {
+            LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(then_expr_result), "");
+            LLVMValueRef incoming_values[2] = {then_expr_result, else_expr_result};
+            LLVMBasicBlockRef incoming_blocks[2] = {after_then_block, after_else_block};
+            LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
+            return phi;
+        } else if (use_then_value) {
+            return then_expr_result;
+        } else if (use_else_value) {
+            return else_expr_result;
+        }
+    }
+
+    return nullptr;
 }
 
 static LLVMValueRef gen_if_bool_expr(CodeGen *g, AstNode *node) {
@@ -1865,14 +1844,6 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
 
     return return_value;
 }
-
-//static int block_exit_path_count(BlockContext *block_context) {
-//    int sum = 0;
-//    for (int i = 0; i < BlockExitPathCount; i += 1) {
-//        sum += block_context->block_exit_paths[i] ? 1 : 0;
-//    }
-//    return sum;
-//}
 
 static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *implicit_return_type) {
     assert(block_node->type == NodeTypeBlock);
@@ -2553,7 +2524,8 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeReturnExpr:
             return gen_return_expr(g, node);
         case NodeTypeDefer:
-            return gen_defer(g, node);
+            // nothing to do
+            return nullptr;
         case NodeTypeVariableDeclaration:
             return gen_var_decl_expr(g, node);
         case NodeTypePrefixOpExpr:
@@ -3191,6 +3163,7 @@ static const CIntTypeInfo c_int_type_infos[] = {
 
 static int get_c_type_size_in_bits(CodeGen *g, CIntType id) {
     // TODO other architectures besides x86_64
+    // other operating systems besides linux
     switch (id) {
         case CIntTypeShort:
         case CIntTypeUShort:
@@ -3203,6 +3176,8 @@ static int get_c_type_size_in_bits(CodeGen *g, CIntType id) {
         case CIntTypeLongLong:
         case CIntTypeULongLong:
             return 64;
+        case CIntTypeCount:
+            zig_unreachable();
     }
     zig_unreachable();
 }
