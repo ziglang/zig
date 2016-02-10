@@ -284,6 +284,7 @@ enum ZigLLVM_ObjectFormatType {
 };
 
 const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch);
+const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch);
 const char *ZigLLVMGetVendorTypeName(ZigLLVM_VendorType vendor);
 const char *ZigLLVMGetOSTypeName(ZigLLVM_OSType os);
 const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType environ);
