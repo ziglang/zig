@@ -1540,6 +1540,11 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     clang_argv.append("-Xclang");
     clang_argv.append("-detailed-preprocessing-record");
 
+    if (!c->codegen->is_native_target) {
+        clang_argv.append("-target");
+        clang_argv.append(buf_ptr(&c->codegen->triple_str));
+    }
+
     clang_argv.append(target_file);
 
     // to make the [start...end] argument work

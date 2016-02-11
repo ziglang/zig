@@ -14,6 +14,7 @@
 
 #include "zig_llvm.hpp"
 
+
 /*
  * The point of this file is to contain all the LLVM C++ API interaction so that:
  * 1. The compile time of other files is kept under control.
@@ -520,6 +521,11 @@ static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorTy
 static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
 
+static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_COFF == Triple::COFF, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_ELF == Triple::ELF, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_MachO == Triple::MachO, "");
+
 const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch) {
     return Triple::getArchTypeName((Triple::ArchType)arch);
 }
@@ -537,7 +543,8 @@ const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType environ) {
 }
 
 void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *sub_arch_type,
-        ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type)
+        ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type,
+        ZigLLVM_ObjectFormatType *oformat)
 {
     char *native_triple = LLVMGetDefaultTargetTriple();
     Triple triple(native_triple);
@@ -547,6 +554,7 @@ void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *su
     *vendor_type = (ZigLLVM_VendorType)triple.getVendor();
     *os_type = (ZigLLVM_OSType)triple.getOS();
     *environ_type = (ZigLLVM_EnvironmentType)triple.getEnvironment();
+    *oformat = (ZigLLVM_ObjectFormatType)triple.getObjectFormat();
 
     free(native_triple);
 }
@@ -593,6 +601,23 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
 //------------------------------------
 
 #include "buffer.hpp"
+
+void ZigLLVMGetTargetTriple(Buf *out_buf, ZigLLVM_ArchType arch_type, ZigLLVM_SubArchType sub_arch_type,
+        ZigLLVM_VendorType vendor_type, ZigLLVM_OSType os_type, ZigLLVM_EnvironmentType environ_type,
+        ZigLLVM_ObjectFormatType oformat)
+{
+    Triple triple;
+
+    triple.setArch((Triple::ArchType)arch_type);
+    // TODO how to set the sub arch?
+    triple.setVendor((Triple::VendorType)vendor_type);
+    triple.setOS((Triple::OSType)os_type);
+    triple.setEnvironment((Triple::EnvironmentType)environ_type);
+    triple.setObjectFormat((Triple::ObjectFormatType)oformat);
+
+    const std::string &str = triple.str();
+    buf_init_from_mem(out_buf, str.c_str(), str.size());
+}
 
 enum FloatAbi {
     FloatAbiHard,

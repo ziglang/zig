@@ -189,6 +189,7 @@ enum ZigLLVM_ArchType {
   ZigLLVM_shave,      // SHAVE: Movidius vector VLIW processors
   ZigLLVM_wasm32,     // WebAssembly with 32-bit pointers
   ZigLLVM_wasm64,     // WebAssembly with 64-bit pointers
+
   ZigLLVM_LastArchType = ZigLLVM_wasm64
 };
 
@@ -227,6 +228,7 @@ enum ZigLLVM_VendorType {
   ZigLLVM_MipsTechnologies,
   ZigLLVM_NVIDIA,
   ZigLLVM_CSR,
+
   ZigLLVM_LastVendorType = ZigLLVM_CSR
 };
 enum ZigLLVM_OSType {
@@ -256,6 +258,7 @@ enum ZigLLVM_OSType {
   ZigLLVM_NVCL,       // NVIDIA OpenCL
   ZigLLVM_AMDHSA,     // AMD HSA Runtime
   ZigLLVM_PS4,
+
   ZigLLVM_LastOSType = ZigLLVM_PS4
 };
 enum ZigLLVM_EnvironmentType {
@@ -273,14 +276,15 @@ enum ZigLLVM_EnvironmentType {
   ZigLLVM_MSVC,
   ZigLLVM_Itanium,
   ZigLLVM_Cygnus,
-  ZigLLVM_LastEnvironmentType = ZigLLVM_Cygnus
+
+  ZigLLVM_LastEnvironmentType = ZigLLVM_Cygnus,
 };
 enum ZigLLVM_ObjectFormatType {
-  ZigLLVM_UnknownObjectFormat,
+    ZigLLVM_UnknownObjectFormat,
 
-  ZigLLVM_COFF,
-  ZigLLVM_ELF,
-  ZigLLVM_MachO,
+    ZigLLVM_COFF,
+    ZigLLVM_ELF,
+    ZigLLVM_MachO,
 };
 
 const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch);
@@ -289,14 +293,18 @@ const char *ZigLLVMGetVendorTypeName(ZigLLVM_VendorType vendor);
 const char *ZigLLVMGetOSTypeName(ZigLLVM_OSType os);
 const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType environ);
 
-void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *sub_arch_type,
-        ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type);
-
-
 /*
  * This stuff is not LLVM API but it depends on the LLVM C++ API so we put it here.
  */
 struct Buf;
+void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *sub_arch_type,
+        ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type,
+        ZigLLVM_ObjectFormatType *oformat);
+void ZigLLVMGetTargetTriple(Buf *out_buf, ZigLLVM_ArchType arch_type, ZigLLVM_SubArchType sub_arch_type,
+        ZigLLVM_VendorType vendor_type, ZigLLVM_OSType os_type, ZigLLVM_EnvironmentType environ_type,
+        ZigLLVM_ObjectFormatType oformat);
+
+
 Buf *get_dynamic_linker(LLVMTargetMachineRef target_machine);
 
 #endif

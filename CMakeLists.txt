@@ -14,6 +14,14 @@ set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "${ZIG_VERSION_MAJOR}.${ZIG_VERSION_MINOR}.${ZIG_VERSION_PATCH}")
 message("Configuring zig version ${ZIG_VERSION}")
 
+set(ZIG_LIBC_LIB_DIR "" CACHE STRING "Default native target libc directory where crt1.o can be found")
+set(ZIG_LIBC_STATIC_LIB_DIR "" CACHE STRING "Default native target libc directory where crtbeginT.o can be found")
+set(ZIG_LIBC_INCLUDE_DIR "/usr/include" CACHE STRING "Default native target libc include directory")
+set(ZIG_LD_PATH "ld" CACHE STRING "Path to ld for the native target")
+set(ZIG_DYNAMIC_LINKER "" CACHE STRING "Override dynamic linker for native target")
+
+
+
 find_package(llvm)
 include_directories(${LLVM_INCLUDE_DIRS})
 link_directories(${LLVM_LIBDIRS})
@@ -27,6 +35,7 @@ include_directories(
 )
 
 set(ZIG_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/link.cpp"
     "${CMAKE_SOURCE_DIR}/src/target.cpp"
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
     "${CMAKE_SOURCE_DIR}/src/bignum.cpp"

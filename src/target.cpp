@@ -7,6 +7,9 @@
 
 #include "target.hpp"
 #include "util.hpp"
+#include "error.hpp"
+
+#include <stdio.h>
 
 static const ArchType arch_list[] = {
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_1a},
@@ -157,4 +160,128 @@ int target_environ_count(void) {
 }
 ZigLLVM_EnvironmentType get_target_environ(int index) {
     return environ_list[index];
+}
+
+void get_native_target(ZigTarget *target) {
+    ZigLLVMGetNativeTarget(
+            &target->arch.arch,
+            &target->arch.sub_arch,
+            &target->vendor,
+            &target->os,
+            &target->environ,
+            &target->oformat);
+}
+
+void get_unknown_target(ZigTarget *target) {
+    target->arch.arch = ZigLLVM_UnknownArch;
+    target->arch.sub_arch = ZigLLVM_NoSubArch;
+    target->vendor = ZigLLVM_UnknownVendor;
+    target->os = ZigLLVM_UnknownOS;
+    target->environ = ZigLLVM_UnknownEnvironment;
+    target->oformat = ZigLLVM_UnknownObjectFormat;
+}
+
+int parse_target_arch(const char *str, ArchType *out_arch) {
+    for (int i = 0; i < array_length(arch_list); i += 1) {
+        const ArchType *arch = &arch_list[i];
+        char arch_name[50];
+        const char *sub_str = (arch->sub_arch == ZigLLVM_NoSubArch) ?
+            "" : ZigLLVMGetSubArchTypeName(arch->sub_arch);
+        sprintf(arch_name, "%s%s", ZigLLVMGetArchTypeName(arch->arch), sub_str);
+        if (strcmp(arch_name, str) == 0) {
+            *out_arch = *arch;
+            return 0;
+        }
+    }
+    return ErrorFileNotFound;
+}
+
+int parse_target_os(const char *str, ZigLLVM_OSType *out_os) {
+    for (int i = 0; i < array_length(os_list); i += 1) {
+        ZigLLVM_OSType os = os_list[i];
+        const char *os_name = get_target_os_name(os);
+        if (strcmp(os_name, str) == 0) {
+            *out_os = os;
+            return 0;
+        }
+    }
+    return ErrorFileNotFound;
+}
+
+int parse_target_environ(const char *str, ZigLLVM_EnvironmentType *out_environ) {
+    for (int i = 0; i < array_length(environ_list); i += 1) {
+        ZigLLVM_EnvironmentType environ = environ_list[i];
+        const char *environ_name = ZigLLVMGetEnvironmentTypeName(environ);
+        if (strcmp(environ_name, str) == 0) {
+            *out_environ = environ;
+            return 0;
+        }
+    }
+    return ErrorFileNotFound;
+}
+
+void init_all_targets(void) {
+    LLVMInitializeAllTargets();
+    LLVMInitializeAllTargetInfos();
+    LLVMInitializeAllTargetMCs();
+    LLVMInitializeAllAsmPrinters();
+    LLVMInitializeAllAsmParsers();
+}
+
+void get_target_triple(Buf *triple, const ZigTarget *target) {
+    ZigLLVMGetTargetTriple(triple, target->arch.arch, target->arch.sub_arch,
+            target->vendor, target->os, target->environ, target->oformat);
+}
+
+static bool is_os_darwin(ZigTarget *target) {
+    switch (target->os) {
+        case ZigLLVM_Darwin:
+        case ZigLLVM_IOS:
+        case ZigLLVM_MacOSX:
+            return true;
+        default:
+            return false;
+    }
+}
+
+void resolve_target_object_format(ZigTarget *target) {
+    if (target->oformat != ZigLLVM_UnknownObjectFormat) {
+        return;
+    }
+    switch (target->arch.arch) {
+    default:
+        break;
+    case ZigLLVM_hexagon:
+    case ZigLLVM_mips:
+    case ZigLLVM_mipsel:
+    case ZigLLVM_mips64:
+    case ZigLLVM_mips64el:
+    case ZigLLVM_r600:
+    case ZigLLVM_amdgcn:
+    case ZigLLVM_sparc:
+    case ZigLLVM_sparcv9:
+    case ZigLLVM_systemz:
+    case ZigLLVM_xcore:
+    case ZigLLVM_ppc64le:
+        target->oformat = ZigLLVM_ELF;
+        return;
+
+    case ZigLLVM_ppc:
+    case ZigLLVM_ppc64:
+        if (is_os_darwin(target)) {
+            target->oformat = ZigLLVM_MachO;
+            return;
+        }
+        target->oformat = ZigLLVM_ELF;
+        return;
+    }
+
+    if (is_os_darwin(target)) {
+        target->oformat = ZigLLVM_MachO;
+        return;
+    } else if (target->os == ZigLLVM_Win32) {
+        target->oformat = ZigLLVM_COFF;
+        return;
+    }
+    target->oformat = ZigLLVM_ELF;
 }

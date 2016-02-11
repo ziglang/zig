@@ -11,6 +11,7 @@
 #include "os.hpp"
 #include "error.hpp"
 #include "target.hpp"
+#include "link.hpp"
 
 #include <stdio.h>
 
@@ -31,26 +32,27 @@ static int usage(const char *arg0) {
         "  --output [file]              override destination path\n"
         "  --verbose                    turn on compiler debug output\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
-        "  --libc-lib-dir [path]        set the C compiler data path\n"
-        "  --libc-static-lib-dir [path] set the C compiler data path\n"
-        "  --libc-include-dir [path]    set the C compiler data path\n"
+        "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
+        "  --libc-static-lib-dir [path] directory where libc crtbeginT.o resides\n"
+        "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
+        "  --ld-path [path]             set the path to the linker\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  --library-path [dir]         add a directory to the library search path\n"
+        "  --target-arch [name]         specify target architecture\n"
+        "  --target-os [name]           specify target operating system\n"
+        "  --target-environ [name]      specify target environment\n"
+        "  -mwindows                    (windows only) --subsystem windows to the linker\n"
+        "  -mconsole                    (windows only) --subsystem console to the linker\n"
+        "  -municode                    (windows only) link with unicode\n"
     , arg0);
     return EXIT_FAILURE;
 }
 
 static int print_target_list(FILE *f) {
-    ZigLLVM_ArchType native_arch_type;
-    ZigLLVM_SubArchType native_sub_arch_type;
-    ZigLLVM_VendorType native_vendor_type;
-    ZigLLVM_OSType native_os_type;
-    ZigLLVM_EnvironmentType native_environ_type;
-
-    ZigLLVMGetNativeTarget(&native_arch_type, &native_sub_arch_type, &native_vendor_type,
-            &native_os_type, &native_environ_type);
+    ZigTarget native;
+    get_native_target(&native);
 
     fprintf(f, "Architectures:\n");
     int arch_count = target_arch_count();
@@ -58,7 +60,7 @@ static int print_target_list(FILE *f) {
         const ArchType *arch = get_target_arch(arch_i);
         const char *sub_arch_str = (arch->sub_arch == ZigLLVM_NoSubArch) ?
             "" : ZigLLVMGetSubArchTypeName(arch->sub_arch);
-        const char *native_str = (native_arch_type == arch->arch && native_sub_arch_type == arch->sub_arch) ?
+        const char *native_str = (native.arch.arch == arch->arch && native.arch.sub_arch == arch->sub_arch) ?
             " (native)" : "";
         fprintf(f, "  %s%s%s\n", ZigLLVMGetArchTypeName(arch->arch), sub_arch_str, native_str);
     }
@@ -67,15 +69,15 @@ static int print_target_list(FILE *f) {
     int os_count = target_os_count();
     for (int i = 0; i < os_count; i += 1) {
         ZigLLVM_OSType os_type = get_target_os(i);
-        const char *native_str = (native_os_type == os_type) ? " (native)" : "";
+        const char *native_str = (native.os == os_type) ? " (native)" : "";
         fprintf(f, "  %s%s\n", get_target_os_name(os_type), native_str);
     }
 
-    fprintf(f, "\nABIs:\n");
+    fprintf(f, "\nEnvironments:\n");
     int environ_count = target_environ_count();
     for (int i = 0; i < environ_count; i += 1) {
         ZigLLVM_EnvironmentType environ_type = get_target_environ(i);
-        const char *native_str = (native_environ_type == environ_type) ? " (native)" : "";
+        const char *native_str = (native.environ == environ_type) ? " (native)" : "";
         fprintf(f, "  %s%s\n", ZigLLVMGetEnvironmentTypeName(environ_type), native_str);
     }
 
@@ -107,9 +109,16 @@ int main(int argc, char **argv) {
     const char *libc_static_lib_dir = nullptr;
     const char *libc_include_dir = nullptr;
     const char *dynamic_linker = nullptr;
+    const char *linker_path = nullptr;
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> lib_dirs = {0};
     int err;
+    const char *target_arch = nullptr;
+    const char *target_os = nullptr;
+    const char *target_environ = nullptr;
+    bool mwindows = false;
+    bool mconsole = false;
+    bool municode = false;
 
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
@@ -123,6 +132,12 @@ int main(int argc, char **argv) {
                 is_static = true;
             } else if (strcmp(arg, "--verbose") == 0) {
                 verbose = true;
+            } else if (strcmp(arg, "-mwindows") == 0) {
+                mwindows = true;
+            } else if (strcmp(arg, "-mconsole") == 0) {
+                mconsole = true;
+            } else if (strcmp(arg, "-municode") == 0) {
+                municode = true;
             } else if (i + 1 >= argc) {
                 return usage(arg0);
             } else {
@@ -161,6 +176,8 @@ int main(int argc, char **argv) {
                     libc_include_dir = argv[i];
                 } else if (strcmp(arg, "--dynamic-linker") == 0) {
                     dynamic_linker = argv[i];
+                } else if (strcmp(arg, "--ld-path") == 0) {
+                    linker_path = argv[i];
                 } else if (strcmp(arg, "-isystem") == 0) {
                     clang_argv.append("-isystem");
                     clang_argv.append(argv[i]);
@@ -169,7 +186,14 @@ int main(int argc, char **argv) {
                     clang_argv.append(argv[i]);
                 } else if (strcmp(arg, "--library-path") == 0) {
                     lib_dirs.append(argv[i]);
+                } else if (strcmp(arg, "--target-arch") == 0) {
+                    target_arch = argv[i];
+                } else if (strcmp(arg, "--target-os") == 0) {
+                    target_os = argv[i];
+                } else if (strcmp(arg, "--target-environ") == 0) {
+                    target_environ = argv[i];
                 } else {
+                    fprintf(stderr, "Invalid argument: %s\n", arg);
                     return usage(arg0);
                 }
             }
@@ -216,6 +240,36 @@ int main(int argc, char **argv) {
             if (!in_file)
                 return usage(arg0);
 
+            init_all_targets();
+
+            ZigTarget alloc_target;
+            ZigTarget *target;
+            if (!target_arch && !target_os && !target_environ) {
+                target = nullptr;
+            } else {
+                target = &alloc_target;
+                get_unknown_target(target);
+                if (target_arch) {
+                    if (parse_target_arch(target_arch, &target->arch)) {
+                        fprintf(stderr, "invalid --target-arch argument\n");
+                        return usage(arg0);
+                    }
+                }
+                if (target_os) {
+                    if (parse_target_os(target_os, &target->os)) {
+                        fprintf(stderr, "invalid --target-os argument\n");
+                        return usage(arg0);
+                    }
+                }
+                if (target_environ) {
+                    if (parse_target_environ(target_environ, &target->environ)) {
+                        fprintf(stderr, "invalid --target-environ argument\n");
+                        return usage(arg0);
+                    }
+                }
+            }
+
+
             Buf in_file_buf = BUF_INIT;
             buf_init_from_str(&in_file_buf, in_file);
 
@@ -237,7 +291,7 @@ int main(int argc, char **argv) {
                 }
             }
 
-            CodeGen *g = codegen_create(&root_source_dir);
+            CodeGen *g = codegen_create(&root_source_dir, target);
             codegen_set_is_release(g, is_release_build);
             codegen_set_is_test(g, cmd == CmdTest);
 
@@ -262,12 +316,17 @@ int main(int argc, char **argv) {
                 codegen_set_libc_include_dir(g, buf_create_from_str(libc_include_dir));
             if (dynamic_linker)
                 codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
+            if (linker_path)
+                codegen_set_linker_path(g, buf_create_from_str(linker_path));
             codegen_set_verbose(g, verbose);
             codegen_set_errmsg_color(g, color);
 
             for (int i = 0; i < lib_dirs.length; i += 1) {
                 codegen_add_lib_dir(g, lib_dirs.at(i));
             }
+
+            codegen_set_windows_subsystem(g, mwindows, mconsole);
+            codegen_set_windows_unicode(g, municode);
 
             if (cmd == CmdBuild) {
                 codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);

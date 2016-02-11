@@ -15,12 +15,14 @@
 #include "errmsg.hpp"
 #include "parseh.hpp"
 #include "ast_render.hpp"
+#include "target.hpp"
+#include "link.hpp"
 
 #include <stdio.h>
 #include <errno.h>
 
 
-CodeGen *codegen_create(Buf *root_source_dir) {
+CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     CodeGen *g = allocate<CodeGen>(1);
     g->link_table.init(32);
     g->import_table.init(32);
@@ -33,11 +35,29 @@ CodeGen *codegen_create(Buf *root_source_dir) {
     g->is_test_build = false;
     g->root_source_dir = root_source_dir;
     g->error_value_count = 1;
-    g->dynamic_linker = buf_create_from_str(ZIG_DYNAMIC_LINKER);
 
-    g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
-    g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
-    g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
+    if (target) {
+        // cross compiling, so we can't rely on all the configured stuff since
+        // that's for native compilation
+        g->zig_target = *target;
+        resolve_target_object_format(&g->zig_target);
+
+        g->dynamic_linker = buf_create_from_str("");
+        g->libc_lib_dir = buf_create_from_str("");
+        g->libc_static_lib_dir = buf_create_from_str("");
+        g->libc_include_dir = buf_create_from_str("");
+        g->linker_path = buf_create_from_str("");
+    } else {
+        // native compilation, we can rely on the configuration stuff
+        g->is_native_target = true;
+        get_native_target(&g->zig_target);
+
+        g->dynamic_linker = buf_create_from_str(ZIG_DYNAMIC_LINKER);
+        g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
+        g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
+        g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
+        g->linker_path = buf_create_from_str(ZIG_LD_PATH);
+    }
 
     return g;
 }
@@ -95,8 +115,21 @@ void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker) {
     g->dynamic_linker = dynamic_linker;
 }
 
+void codegen_set_linker_path(CodeGen *g, Buf *linker_path) {
+    g->linker_path = linker_path;
+}
+
 void codegen_add_lib_dir(CodeGen *g, const char *dir) {
     g->lib_dirs.append(dir);
+}
+
+void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole) {
+    g->windows_subsystem_windows = mwindows;
+    g->windows_subsystem_console = mconsole;
+}
+
+void codegen_set_windows_unicode(CodeGen *g, bool municode) {
+    g->windows_linker_unicode = municode;
 }
 
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node);
@@ -3502,34 +3535,35 @@ static void init(CodeGen *g, Buf *source_path) {
     g->lib_search_paths.append(g->root_source_dir);
     g->lib_search_paths.append(buf_create_from_str(ZIG_STD_DIR));
 
-    LLVMInitializeAllTargets();
-    LLVMInitializeAllTargetMCs();
-    LLVMInitializeAllAsmPrinters();
-    LLVMInitializeAllAsmParsers();
-    LLVMInitializeNativeTarget();
-
-    char *native_triple = LLVMGetDefaultTargetTriple();
-
     g->module = LLVMModuleCreateWithName(buf_ptr(source_path));
 
-    LLVMSetTarget(g->module, native_triple);
+    get_target_triple(&g->triple_str, &g->zig_target);
+
+    LLVMSetTarget(g->module, buf_ptr(&g->triple_str));
 
     LLVMTargetRef target_ref;
     char *err_msg = nullptr;
-    if (LLVMGetTargetFromTriple(native_triple, &target_ref, &err_msg)) {
-        zig_panic("unable to get target from triple: %s", err_msg);
+    if (LLVMGetTargetFromTriple(buf_ptr(&g->triple_str), &target_ref, &err_msg)) {
+        zig_panic("unable to create target based on: %s", buf_ptr(&g->triple_str));
     }
 
-
-    char *native_cpu = LLVMZigGetHostCPUName();
-    char *native_features = LLVMZigGetNativeFeatures();
 
     LLVMCodeGenOptLevel opt_level = g->is_release_build ? LLVMCodeGenLevelAggressive : LLVMCodeGenLevelNone;
 
     LLVMRelocMode reloc_mode = g->is_static ? LLVMRelocStatic : LLVMRelocPIC;
 
-    g->target_machine = LLVMCreateTargetMachine(target_ref, native_triple,
-            native_cpu, native_features, opt_level, reloc_mode, LLVMCodeModelDefault);
+    const char *target_specific_cpu_args;
+    const char *target_specific_features;
+    if (g->is_native_target) {
+        target_specific_cpu_args = LLVMZigGetHostCPUName();
+        target_specific_features = LLVMZigGetNativeFeatures();
+    } else {
+        target_specific_cpu_args = "";
+        target_specific_features = "";
+    }
+
+    g->target_machine = LLVMCreateTargetMachine(target_ref, buf_ptr(&g->triple_str),
+            target_specific_cpu_args, target_specific_features, opt_level, reloc_mode, LLVMCodeModelDefault);
 
     g->target_data_ref = LLVMGetTargetMachineData(g->target_machine);
 
@@ -3902,7 +3936,7 @@ static void to_c_type(CodeGen *g, AstNode *type_node, Buf *out_buf) {
     }
 }
 
-static void generate_h_file(CodeGen *g) {
+void codegen_generate_h_file(CodeGen *g) {
     assert(!g->is_test_build);
 
     Buf *h_file_out_path = buf_sprintf("%s.h", buf_ptr(g->root_out_name));
@@ -3988,259 +4022,4 @@ static void generate_h_file(CodeGen *g) {
 
     if (fclose(out_h))
         zig_panic("unable to close h file: %s", strerror(errno));
-}
-
-static const char *get_libc_file(CodeGen *g, const char *file) {
-    Buf *out_buf = buf_alloc();
-    os_path_join(g->libc_lib_dir, buf_create_from_str(file), out_buf);
-    return buf_ptr(out_buf);
-}
-
-static const char *get_libc_static_file(CodeGen *g, const char *file) {
-    Buf *out_buf = buf_alloc();
-    os_path_join(g->libc_static_lib_dir, buf_create_from_str(file), out_buf);
-    return buf_ptr(out_buf);
-}
-
-static Buf *build_o(CodeGen *parent_gen, const char *oname) {
-    Buf *source_basename = buf_sprintf("%s.zig", oname);
-    Buf *std_dir_path = buf_create_from_str(ZIG_STD_DIR);
-
-    CodeGen *child_gen = codegen_create(std_dir_path);
-    child_gen->link_libc = parent_gen->link_libc;
-
-    codegen_set_is_release(child_gen, parent_gen->is_release_build);
-
-    codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
-    codegen_set_is_static(child_gen, parent_gen->is_static);
-
-    codegen_set_out_type(child_gen, OutTypeObj);
-    codegen_set_out_name(child_gen, buf_create_from_str(oname));
-
-    codegen_set_verbose(child_gen, parent_gen->verbose);
-    codegen_set_errmsg_color(child_gen, parent_gen->err_color);
-
-    Buf *full_path = buf_alloc();
-    os_path_join(std_dir_path, source_basename, full_path);
-    Buf source_code = BUF_INIT;
-    if (os_fetch_file_path(full_path, &source_code)) {
-        zig_panic("unable to fetch file: %s\n", buf_ptr(full_path));
-    }
-
-    codegen_add_root_code(child_gen, std_dir_path, source_basename, &source_code);
-    Buf *o_out = buf_sprintf("%s.o", oname);
-    codegen_link(child_gen, buf_ptr(o_out));
-
-    return o_out;
-}
-
-void codegen_link(CodeGen *g, const char *out_file) {
-    bool is_optimized = g->is_release_build;
-    if (is_optimized) {
-        if (g->verbose) {
-            fprintf(stderr, "\nOptimization:\n");
-            fprintf(stderr, "---------------\n");
-        }
-
-        LLVMZigOptimizeModule(g->target_machine, g->module);
-
-        if (g->verbose) {
-            LLVMDumpModule(g->module);
-        }
-    }
-    if (g->verbose) {
-        fprintf(stderr, "\nLink:\n");
-        fprintf(stderr, "-------\n");
-    }
-
-    if (!out_file) {
-        assert(g->root_out_name);
-        out_file = buf_ptr(g->root_out_name);
-    }
-
-    Buf out_file_o = BUF_INIT;
-    buf_init_from_str(&out_file_o, out_file);
-
-    if (g->out_type != OutTypeObj) {
-        buf_append_str(&out_file_o, ".o");
-    }
-
-    char *err_msg = nullptr;
-    if (LLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(&out_file_o),
-                LLVMObjectFile, &err_msg))
-    {
-        zig_panic("unable to write object file: %s", err_msg);
-    }
-
-    if (g->out_type == OutTypeObj) {
-        if (g->verbose) {
-            fprintf(stderr, "OK\n");
-        }
-        return;
-    }
-
-    if (g->out_type == OutTypeLib && g->is_static) {
-        // invoke `ar`
-        // example:
-        // # static link into libfoo.a
-        // ar rcs libfoo.a foo1.o foo2.o
-        zig_panic("TODO invoke ar");
-        return;
-    }
-
-    bool link_in_crt = (g->link_libc && g->out_type == OutTypeExe);
-    if (link_in_crt) {
-        find_libc_path(g);
-    }
-
-
-
-    // invoke `ld`
-    ZigList<const char *> args = {0};
-
-    // TODO make this target dependent
-    args.append("-m");
-    args.append("elf_x86_64");
-
-    if (g->is_static) {
-        args.append("-static");
-    }
-
-    args.append("-o");
-    args.append(out_file);
-
-    if (link_in_crt) {
-        const char *crt1o;
-        const char *crtbegino;
-        if (g->is_static) {
-            crt1o = "crt1.o";
-            crtbegino = "crtbeginT.o";
-        } else {
-            crt1o = "Scrt1.o";
-            crtbegino = "crtbegin.o";
-        }
-        args.append(get_libc_file(g, crt1o));
-        args.append(get_libc_file(g, "crti.o"));
-        args.append(get_libc_static_file(g, crtbegino));
-    }
-
-    for (int i = 0; i < g->lib_dirs.length; i += 1) {
-        const char *lib_dir = g->lib_dirs.at(i);
-        args.append("-L");
-        args.append(lib_dir);
-    }
-
-    if (g->link_libc) {
-        args.append("-L");
-        args.append(buf_ptr(g->libc_lib_dir));
-
-        args.append("-L");
-        args.append(buf_ptr(g->libc_static_lib_dir));
-    }
-
-    if (g->dynamic_linker && buf_len(g->dynamic_linker) > 0) {
-        args.append("-dynamic-linker");
-        args.append(buf_ptr(g->dynamic_linker));
-    } else {
-        args.append("-dynamic-linker");
-        args.append(buf_ptr(get_dynamic_linker(g->target_machine)));
-    }
-
-    if (g->out_type == OutTypeLib) {
-        Buf *out_lib_so = buf_sprintf("lib%s.so.%d.%d.%d",
-                buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
-        Buf *soname = buf_sprintf("lib%s.so.%d", buf_ptr(g->root_out_name), g->version_major);
-        args.append("-shared");
-        args.append("-soname");
-        args.append(buf_ptr(soname));
-        out_file = buf_ptr(out_lib_so);
-    }
-
-    // .o files
-    args.append((const char *)buf_ptr(&out_file_o));
-
-    if (g->is_test_build) {
-        const char *test_runner_name = g->link_libc ? "test_runner_libc" : "test_runner_nolibc";
-        Buf *test_runner_o_path = build_o(g, test_runner_name);
-        args.append(buf_ptr(test_runner_o_path));
-    }
-
-    if (!g->link_libc && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
-        Buf *builtin_o_path = build_o(g, "builtin");
-        args.append(buf_ptr(builtin_o_path));
-    }
-
-    auto it = g->link_table.entry_iterator();
-    for (;;) {
-        auto *entry = it.next();
-        if (!entry)
-            break;
-
-        // we handle libc explicitly, don't do it here
-        if (!buf_eql_str(entry->key, "c")) {
-            Buf *arg = buf_sprintf("-l%s", buf_ptr(entry->key));
-            args.append(buf_ptr(arg));
-        }
-    }
-
-
-    // libc dep
-    if (g->link_libc) {
-        if (g->is_static) {
-            args.append("--start-group");
-            args.append("-lgcc");
-            args.append("-lgcc_eh");
-            args.append("-lc");
-            args.append("--end-group");
-        } else {
-            args.append("-lgcc");
-            args.append("--as-needed");
-            args.append("-lgcc_s");
-            args.append("--no-as-needed");
-            args.append("-lc");
-            args.append("-lgcc");
-            args.append("--as-needed");
-            args.append("-lgcc_s");
-            args.append("--no-as-needed");
-        }
-    }
-
-    // crt end
-    if (link_in_crt) {
-        args.append(get_libc_static_file(g, "crtend.o"));
-        args.append(get_libc_file(g, "crtn.o"));
-    }
-
-    if (g->verbose) {
-        fprintf(stderr, "ld");
-        for (int i = 0; i < args.length; i += 1) {
-            fprintf(stderr, " %s", args.at(i));
-        }
-        fprintf(stderr, "\n");
-    }
-
-    int return_code;
-    Buf ld_stderr = BUF_INIT;
-    Buf ld_stdout = BUF_INIT;
-    os_exec_process("ld", args, &return_code, &ld_stderr, &ld_stdout);
-
-    if (return_code != 0) {
-        fprintf(stderr, "ld failed with return code %d\n", return_code);
-        fprintf(stderr, "ld ");
-        for (int i = 0; i < args.length; i += 1) {
-            fprintf(stderr, "%s ", args.at(i));
-        }
-        fprintf(stderr, "\n%s\n", buf_ptr(&ld_stderr));
-        exit(1);
-    } else if (buf_len(&ld_stderr)) {
-        fprintf(stderr, "%s\n", buf_ptr(&ld_stderr));
-    }
-
-    if (g->out_type == OutTypeLib) {
-        generate_h_file(g);
-    }
-
-    if (g->verbose) {
-        fprintf(stderr, "OK\n");
-    }
 }

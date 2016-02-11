@@ -14,6 +14,7 @@
 #include "hash_map.hpp"
 #include "errmsg.hpp"
 #include "bignum.hpp"
+#include "target.hpp"
 
 struct AstNode;
 struct ImportTableEntry;
@@ -1109,6 +1110,7 @@ struct CodeGen {
         TypeTableEntry *entry_pure_error;
     } builtin_types;
 
+    ZigTarget zig_target;
     LLVMTargetDataRef target_data_ref;
     unsigned pointer_size_bytes;
     bool is_big_endian;
@@ -1120,12 +1122,18 @@ struct CodeGen {
     Buf *libc_static_lib_dir;
     Buf *libc_include_dir;
     Buf *dynamic_linker;
+    Buf *linker_path;
+    Buf triple_str;
     bool is_release_build;
     bool is_test_build;
     LLVMTargetMachineRef target_machine;
     LLVMZigDIFile *dummy_di_file;
+    bool is_native_target;
     Buf *root_source_dir;
     Buf *root_out_name;
+    bool windows_subsystem_windows;
+    bool windows_subsystem_console;
+    bool windows_linker_unicode;
 
     // The function definitions this module includes. There must be a corresponding
     // fn_protos entry.
