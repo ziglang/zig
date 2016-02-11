@@ -2539,7 +2539,11 @@ static TypeTableEntry *resolve_expr_const_val_as_bignum_op(CodeGen *g, AstNode *
 
     const_val->ok = true;
 
-    if (bignum_fn(&const_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum)) {
+    if ((op2_val->data.x_bignum.kind == BigNumKindFloat && op2_val->data.x_bignum.data.x_float == 0.0f) ||
+        (op2_val->data.x_bignum.data.x_uint == 0)) {
+        add_node_error(g, node,
+            buf_sprintf("cannot divide by 0 constant"));
+    } else if (bignum_fn(&const_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum)) {
         add_node_error(g, node,
             buf_sprintf("value cannot be represented in any integer type"));
     } else {
