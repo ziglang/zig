@@ -4241,6 +4241,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     return resolve_expr_const_val_as_bool(g, node, g->is_release_build, true);
                 } else if (buf_eql_str(&var_name, "is_test")) {
                     return resolve_expr_const_val_as_bool(g, node, g->is_test_build, true);
+                } else if (buf_eql_str(&var_name, "os")) {
+                    zig_panic("TODO");
                 } else {
                     add_node_error(g, *str_node,
                         buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(&var_name)));
@@ -4650,6 +4652,11 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                 buf_sprintf("switch on unreachable expression not allowed"));
         return g->builtin_types.entry_invalid;
     } else {
+        int *field_use_counts = nullptr;
+        if (expr_type->id == TypeTableEntryIdEnum) {
+            field_use_counts = allocate<int>(expr_type->data.enumeration.field_count);
+        }
+
         AstNode *else_prong = nullptr;
         for (int prong_i = 0; prong_i < prong_count; prong_i += 1) {
             AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
@@ -4685,6 +4692,14 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                                 }
                                 if (type_enum_field->type_entry != var_type) {
                                     all_agree_on_var_type = false;
+                                }
+                                uint32_t field_index = type_enum_field->value;
+                                assert(field_use_counts);
+                                field_use_counts[field_index] += 1;
+                                if (field_use_counts[field_index] > 1) {
+                                    add_node_error(g, item_node,
+                                        buf_sprintf("duplicate switch value: '%s'",
+                                            buf_ptr(type_enum_field->name)));
                                 }
                             } else {
                                 add_node_error(g, item_node,
@@ -4728,6 +4743,16 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
             peer_types[prong_i] = analyze_expression(g, import, child_context, expected_type,
                     prong_node->data.switch_prong.expr);
             peer_nodes[prong_i] = prong_node->data.switch_prong.expr;
+        }
+
+        if (expr_type->id == TypeTableEntryIdEnum && !else_prong) {
+            for (uint32_t i = 0; i < expr_type->data.enumeration.field_count; i += 1) {
+                if (field_use_counts[i] == 0) {
+                    add_node_error(g, node,
+                        buf_sprintf("enumeration value '%s' not handled in switch",
+                            buf_ptr(expr_type->data.enumeration.fields[i].name)));
+                }
+            }
         }
     }
     return resolve_peer_type_compatibility(g, import, context, node, peer_nodes, peer_types, prong_count);

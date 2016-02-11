@@ -1760,6 +1760,23 @@ const float_x = f32(1.0) / f32(0.0);
             ".tmp_source.zig:3:25: error: division by zero is undefined",
             ".tmp_source.zig:4:22: error: division by zero is undefined",
             ".tmp_source.zig:5:26: error: division by zero is undefined");
+
+
+    add_compile_fail_case("missing switch prong", R"SOURCE(
+enum Number {
+    One,
+    Two,
+    Three,
+    Four,
+}
+fn f(n: Number) -> i32 {
+    switch (n) {
+        One => 1,
+        Two => 2,
+        Three => 3,
+    }
+}
+    )SOURCE", 1, ".tmp_source.zig:9:5: error: enumeration value 'Four' not handled in switch");
 }
 
 //////////////////////////////////////////////////////////////////////////////
