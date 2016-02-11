@@ -2929,6 +2929,27 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                     return resolved_type;
                 }
 
+                bool is_int = false;
+                bool is_float = false;
+                if (resolved_type->id == TypeTableEntryIdInt ||
+                    resolved_type->id == TypeTableEntryIdNumLitInt)
+                {
+                    is_int = true;
+                } else if ((resolved_type->id == TypeTableEntryIdFloat ||
+                           resolved_type->id == TypeTableEntryIdNumLitFloat) &&
+                    (bin_op_type == BinOpTypeAdd ||
+                     bin_op_type == BinOpTypeSub ||
+                     bin_op_type == BinOpTypeMult ||
+                     bin_op_type == BinOpTypeDiv ||
+                     bin_op_type == BinOpTypeMod))
+                {
+                    is_float = true;
+                } else {
+                    add_node_error(g, node, buf_sprintf("invalid operands to binary expression: '%s' and '%s'",
+                            buf_ptr(&lhs_type->name), buf_ptr(&rhs_type->name)));
+                    return g->builtin_types.entry_invalid;
+                }
+
                 ConstExprValue *op1_val = &get_resolved_expr(*op1)->const_val;
                 ConstExprValue *op2_val = &get_resolved_expr(*op2)->const_val;
                 if (!op1_val->ok || !op2_val->ok) {
@@ -2942,7 +2963,15 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                 } else if (bin_op_type == BinOpTypeMult) {
                     return resolve_expr_const_val_as_bignum_op(g, node, bignum_mul, *op1, *op2, resolved_type);
                 } else if (bin_op_type == BinOpTypeDiv) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_div, *op1, *op2, resolved_type);
+                    ConstExprValue *op2_val = &get_resolved_expr(*op2)->const_val;
+                    if ((is_int && op2_val->data.x_bignum.data.x_uint == 0) ||
+                        (is_float && op2_val->data.x_bignum.data.x_float == 0.0))
+                    {
+                        add_node_error(g, node, buf_sprintf("division by zero is undefined"));
+                        return g->builtin_types.entry_invalid;
+                    } else {
+                        return resolve_expr_const_val_as_bignum_op(g, node, bignum_div, *op1, *op2, resolved_type);
+                    }
                 } else if (bin_op_type == BinOpTypeMod) {
                     return resolve_expr_const_val_as_bignum_op(g, node, bignum_mod, *op1, *op2, resolved_type);
                 } else if (bin_op_type == BinOpTypeBinOr) {

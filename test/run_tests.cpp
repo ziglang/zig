@@ -1740,6 +1740,26 @@ fn f() {
     if (true) { }
 }
     )SOURCE", 1, ".tmp_source.zig:3:9: error: condition is always true; unnecessary if statement");
+
+
+    add_compile_fail_case("addition with non numbers", R"SOURCE(
+struct Foo {
+    field: i32,
+}
+const x = Foo {.field = 1} + Foo {.field = 2};
+    )SOURCE", 1, ".tmp_source.zig:5:28: error: invalid operands to binary expression: 'Foo' and 'Foo'");
+
+
+    add_compile_fail_case("division by zero", R"SOURCE(
+const lit_int_x = 1 / 0;
+const lit_float_x = 1.0 / 0.0;
+const int_x = i32(1) / i32(0);
+const float_x = f32(1.0) / f32(0.0);
+    )SOURCE", 4,
+            ".tmp_source.zig:2:21: error: division by zero is undefined",
+            ".tmp_source.zig:3:25: error: division by zero is undefined",
+            ".tmp_source.zig:4:22: error: division by zero is undefined",
+            ".tmp_source.zig:5:26: error: division by zero is undefined");
 }
 
 //////////////////////////////////////////////////////////////////////////////
