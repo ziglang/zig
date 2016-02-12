@@ -352,10 +352,11 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdMinValue:
         case BuiltinFnIdMaxValue:
         case BuiltinFnIdMemberCount:
-        case BuiltinFnIdCompileVar:
         case BuiltinFnIdConstEval:
             // caught by constant expression eval codegen
             zig_unreachable();
+        case BuiltinFnIdCompileVar:
+            return nullptr;
     }
     zig_unreachable();
 }
@@ -3443,6 +3444,62 @@ static void define_builtin_types(CodeGen *g) {
     g->builtin_types.entry_i16 = get_int_type(g, true, 16);
     g->builtin_types.entry_i32 = get_int_type(g, true, 32);
     g->builtin_types.entry_i64 = get_int_type(g, true, 64);
+
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
+        entry->zero_bits = true; // only allowed at compile time
+        buf_init_from_str(&entry->name, "@OS");
+        uint32_t field_count = target_os_count();
+        entry->data.enumeration.field_count = field_count;
+        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+        for (uint32_t i = 0; i < field_count; i += 1) {
+            TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
+            ZigLLVM_OSType os_type = get_target_os(i);
+            type_enum_field->name = buf_create_from_str(get_target_os_name(os_type));
+            type_enum_field->value = i;
+
+            if (os_type == g->zig_target.os) {
+                g->target_os_index = i;
+            }
+        }
+        entry->data.enumeration.complete = true;
+
+        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
+        entry->data.enumeration.tag_type = tag_type_entry;
+
+        g->builtin_types.entry_os_enum = entry;
+    }
+
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
+        entry->zero_bits = true; // only allowed at compile time
+        buf_init_from_str(&entry->name, "@Arch");
+        uint32_t field_count = target_arch_count();
+        entry->data.enumeration.field_count = field_count;
+        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+        for (uint32_t i = 0; i < field_count; i += 1) {
+            TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
+            const ArchType *arch_type = get_target_arch(i);
+            type_enum_field->name = buf_alloc();
+            buf_resize(type_enum_field->name, 50);
+            get_arch_name(buf_ptr(type_enum_field->name), arch_type);
+            buf_resize(type_enum_field->name, strlen(buf_ptr(type_enum_field->name)));
+
+            type_enum_field->value = i;
+
+            if (arch_type->arch == g->zig_target.arch.arch &&
+                arch_type->sub_arch == g->zig_target.arch.sub_arch)
+            {
+                g->target_arch_index = i;
+            }
+        }
+        entry->data.enumeration.complete = true;
+
+        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
+        entry->data.enumeration.tag_type = tag_type_entry;
+
+        g->builtin_types.entry_arch_enum = entry;
+    }
 }
 
 

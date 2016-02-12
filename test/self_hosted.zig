@@ -308,11 +308,6 @@ fn non_const_cast_bool_to_int(t: bool, f: bool) {
 #attribute("test")
 fn switch_on_enum() {
     const fruit = Fruit.Orange;
-    switch (fruit) {
-        Apple => unreachable{},
-        Orange => {},
-        Banana => unreachable{},
-    }
     non_const_switch_on_enum(fruit);
 }
 enum Fruit {
@@ -330,7 +325,9 @@ fn non_const_switch_on_enum(fruit: Fruit) {
 
 #attribute("test")
 fn switch_statement() {
-    const foo = SwitchStatmentFoo.C;
+    non_const_switch(SwitchStatmentFoo.C);
+}
+fn non_const_switch(foo: SwitchStatmentFoo) {
     const val: i32 = switch (foo) {
         A => 1,
         B => 2,

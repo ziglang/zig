@@ -27,6 +27,7 @@ struct ZigTarget {
 
 int target_arch_count(void);
 const ArchType *get_target_arch(int index);
+void get_arch_name(char *out_str, const ArchType *arch);
 
 int target_vendor_count(void);
 ZigLLVM_VendorType get_target_vendor(int index);

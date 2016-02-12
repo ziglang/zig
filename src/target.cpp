@@ -181,13 +181,20 @@ void get_unknown_target(ZigTarget *target) {
     target->oformat = ZigLLVM_UnknownObjectFormat;
 }
 
+static void get_arch_name_raw(char *out_str, ZigLLVM_ArchType arch, ZigLLVM_SubArchType sub_arch) {
+    const char *sub_str = (sub_arch == ZigLLVM_NoSubArch) ? "" : ZigLLVMGetSubArchTypeName(sub_arch);
+    sprintf(out_str, "%s%s", ZigLLVMGetArchTypeName(arch), sub_str);
+}
+
+void get_arch_name(char *out_str, const ArchType *arch) {
+    return get_arch_name_raw(out_str, arch->arch, arch->sub_arch);
+}
+
 int parse_target_arch(const char *str, ArchType *out_arch) {
     for (int i = 0; i < array_length(arch_list); i += 1) {
         const ArchType *arch = &arch_list[i];
         char arch_name[50];
-        const char *sub_str = (arch->sub_arch == ZigLLVM_NoSubArch) ?
-            "" : ZigLLVMGetSubArchTypeName(arch->sub_arch);
-        sprintf(arch_name, "%s%s", ZigLLVMGetArchTypeName(arch->arch), sub_str);
+        get_arch_name_raw(arch_name, arch->arch, arch->sub_arch);
         if (strcmp(arch_name, str) == 0) {
             *out_arch = *arch;
             return 0;

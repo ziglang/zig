@@ -58,11 +58,11 @@ static int print_target_list(FILE *f) {
     int arch_count = target_arch_count();
     for (int arch_i = 0; arch_i < arch_count; arch_i += 1) {
         const ArchType *arch = get_target_arch(arch_i);
-        const char *sub_arch_str = (arch->sub_arch == ZigLLVM_NoSubArch) ?
-            "" : ZigLLVMGetSubArchTypeName(arch->sub_arch);
+        char arch_name[50];
+        get_arch_name(arch_name, arch);
         const char *native_str = (native.arch.arch == arch->arch && native.arch.sub_arch == arch->sub_arch) ?
             " (native)" : "";
-        fprintf(f, "  %s%s%s\n", ZigLLVMGetArchTypeName(arch->arch), sub_arch_str, native_str);
+        fprintf(f, "  %s%s\n", arch_name, native_str);
     }
 
     fprintf(f, "\nOperating Systems:\n");

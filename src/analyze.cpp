@@ -3526,6 +3526,8 @@ static TypeTableEntry *analyze_if(CodeGen *g, ImportTableEntry *import, BlockCon
 
     ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
     *const_val = *other_const_val;
+    // the condition depends on a compile var, so the entire if statement does too
+    const_val->depends_on_compile_var = true;
     return result_type;
 }
 
@@ -4233,6 +4235,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                 }
 
                 ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+                const_val->ok = true;
                 const_val->depends_on_compile_var = true;
 
                 if (buf_eql_str(&var_name, "is_big_endian")) {
@@ -4242,7 +4245,11 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                 } else if (buf_eql_str(&var_name, "is_test")) {
                     return resolve_expr_const_val_as_bool(g, node, g->is_test_build, true);
                 } else if (buf_eql_str(&var_name, "os")) {
-                    zig_panic("TODO");
+                    const_val->data.x_enum.tag = g->target_os_index;
+                    return g->builtin_types.entry_os_enum;
+                } else if (buf_eql_str(&var_name, "arch")) {
+                    const_val->data.x_enum.tag = g->target_arch_index;
+                    return g->builtin_types.entry_arch_enum;
                 } else {
                     add_node_error(g, *str_node,
                         buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(&var_name)));
@@ -4638,17 +4645,18 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
 static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    AstNode *expr_node = node->data.switch_expr.expr;
-    TypeTableEntry *expr_type = analyze_expression(g, import, context, nullptr, expr_node);
+    AstNode **expr_node = &node->data.switch_expr.expr;
+    TypeTableEntry *expr_type = analyze_expression(g, import, context, nullptr, *expr_node);
 
     int prong_count = node->data.switch_expr.prongs.length;
     AstNode **peer_nodes = allocate<AstNode*>(prong_count);
     TypeTableEntry **peer_types = allocate<TypeTableEntry*>(prong_count);
 
+    bool any_errors = false;
     if (expr_type->id == TypeTableEntryIdInvalid) {
         return expr_type;
     } else if (expr_type->id == TypeTableEntryIdUnreachable) {
-        add_node_error(g, first_executing_node(expr_node),
+        add_node_error(g, first_executing_node(*expr_node),
                 buf_sprintf("switch on unreachable expression not allowed"));
         return g->builtin_types.entry_invalid;
     } else {
@@ -4666,6 +4674,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
             if (prong_node->data.switch_prong.items.length == 0) {
                 if (else_prong) {
                     add_node_error(g, prong_node, buf_sprintf("multiple else prongs in switch expression"));
+                    any_errors = true;
                 } else {
                     else_prong = prong_node;
                 }
@@ -4700,14 +4709,17 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                                     add_node_error(g, item_node,
                                         buf_sprintf("duplicate switch value: '%s'",
                                             buf_ptr(type_enum_field->name)));
+                                    any_errors = true;
                                 }
                             } else {
                                 add_node_error(g, item_node,
                                         buf_sprintf("enum '%s' has no field '%s'",
                                             buf_ptr(&expr_type->name), buf_ptr(field_name)));
+                                any_errors = true;
                             }
                         } else {
                             add_node_error(g, item_node, buf_sprintf("expected enum tag name"));
+                            any_errors = true;
                         }
                     } else {
                         TypeTableEntry *item_type = analyze_expression(g, import, context, expr_type, item_node);
@@ -4716,6 +4728,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                             if (!const_val->ok) {
                                 add_node_error(g, item_node,
                                     buf_sprintf("unable to resolve constant expression"));
+                                any_errors = true;
                             }
                         }
                     }
@@ -4751,11 +4764,64 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                     add_node_error(g, node,
                         buf_sprintf("enumeration value '%s' not handled in switch",
                             buf_ptr(expr_type->data.enumeration.fields[i].name)));
+                    any_errors = true;
                 }
             }
         }
     }
-    return resolve_peer_type_compatibility(g, import, context, node, peer_nodes, peer_types, prong_count);
+
+    if (any_errors) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (prong_count == 0) {
+        add_node_error(g, node, buf_sprintf("switch statement has no prongs"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    TypeTableEntry *resolved_type = resolve_peer_type_compatibility(g, import, context, node,
+            peer_nodes, peer_types, prong_count);
+
+    if (resolved_type->id == TypeTableEntryIdInvalid) {
+        return resolved_type;
+    }
+
+    ConstExprValue *expr_val = &get_resolved_expr(*expr_node)->const_val;
+    if (!expr_val->ok) {
+        return resolved_type;
+    }
+
+    if (expr_val->ok && !expr_val->depends_on_compile_var) {
+        add_node_error(g, first_executing_node(*expr_node),
+                buf_sprintf("value is constant; unnecessary switch statement"));
+    }
+
+    if (!expr_val->ok) {
+        return resolved_type;
+    }
+
+    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+
+    for (int prong_i = 0; prong_i < prong_count; prong_i += 1) {
+        AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
+        for (int item_i = 0; item_i < prong_node->data.switch_prong.items.length; item_i += 1) {
+            AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
+            if (expr_type->id == TypeTableEntryIdEnum) {
+                TypeEnumField *type_enum_field = item_node->data.symbol_expr.enum_field;
+                if (expr_val->data.x_enum.tag == type_enum_field->value) {
+                    *const_val = get_resolved_expr(peer_nodes[prong_i])->const_val;
+                    const_val->ok = true;
+                    // the target expr depends on a compile var, so the entire if statement does too
+                    const_val->depends_on_compile_var = true;
+                    return resolved_type;
+                }
+            } else {
+                zig_panic("TODO determine if const exprs are equal");
+            }
+        }
+    }
+
+    zig_unreachable();
 }
 
 static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
