@@ -3491,7 +3491,7 @@ static TypeTableEntry *analyze_continue_expr(CodeGen *g, ImportTableEntry *impor
     return g->builtin_types.entry_unreachable;
 }
 
-static TypeTableEntry *analyze_if(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+static TypeTableEntry *analyze_if(CodeGen *g, ImportTableEntry *import, BlockContext *parent_context,
         TypeTableEntry *expected_type, AstNode *node,
         AstNode **then_node, AstNode **else_node, bool cond_is_const, bool cond_bool_val)
 {
@@ -3500,8 +3500,27 @@ static TypeTableEntry *analyze_if(CodeGen *g, ImportTableEntry *import, BlockCon
         normalize_parent_ptrs(node);
     }
 
-    TypeTableEntry *then_type = analyze_expression(g, import, context, expected_type, *then_node);
-    TypeTableEntry *else_type = analyze_expression(g, import, context, expected_type, *else_node);
+    BlockContext *then_context;
+    BlockContext *else_context;
+    if (cond_is_const) {
+        if (cond_bool_val) {
+            then_context = parent_context;
+            else_context = new_block_context(node, parent_context);
+
+            else_context->codegen_excluded = true;
+        } else {
+            then_context = new_block_context(node, parent_context);
+            else_context = parent_context;
+
+            then_context->codegen_excluded = true;
+        }
+    } else {
+        then_context = parent_context;
+        else_context = parent_context;
+    }
+
+    TypeTableEntry *then_type = analyze_expression(g, import, then_context, expected_type, *then_node);
+    TypeTableEntry *else_type = analyze_expression(g, import, else_context, expected_type, *else_node);
 
     if (then_type->id == TypeTableEntryIdInvalid || else_type->id == TypeTableEntryIdInvalid) {
         return g->builtin_types.entry_invalid;
@@ -3513,7 +3532,7 @@ static TypeTableEntry *analyze_if(CodeGen *g, ImportTableEntry *import, BlockCon
     } else {
         AstNode *op_nodes[] = {*then_node, *else_node};
         TypeTableEntry *op_types[] = {then_type, else_type};
-        result_type = resolve_peer_type_compatibility(g, import, context, node, op_nodes, op_types, 2);
+        result_type = resolve_peer_type_compatibility(g, import, parent_context, node, op_nodes, op_types, 2);
     }
 
     if (!cond_is_const) {
