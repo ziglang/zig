@@ -3500,6 +3500,31 @@ static void define_builtin_types(CodeGen *g) {
 
         g->builtin_types.entry_arch_enum = entry;
     }
+
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
+        entry->zero_bits = true; // only allowed at compile time
+        buf_init_from_str(&entry->name, "@Environ");
+        uint32_t field_count = target_environ_count();
+        entry->data.enumeration.field_count = field_count;
+        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+        for (uint32_t i = 0; i < field_count; i += 1) {
+            TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
+            ZigLLVM_EnvironmentType environ_type = get_target_environ(i);
+            type_enum_field->name = buf_create_from_str(ZigLLVMGetEnvironmentTypeName(environ_type));
+            type_enum_field->value = i;
+
+            if (environ_type == g->zig_target.environ) {
+                g->target_environ_index = i;
+            }
+        }
+        entry->data.enumeration.complete = true;
+
+        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
+        entry->data.enumeration.tag_type = tag_type_entry;
+
+        g->builtin_types.entry_environ_enum = entry;
+    }
 }
 
 

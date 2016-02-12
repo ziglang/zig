@@ -1110,6 +1110,7 @@ struct CodeGen {
         TypeTableEntry *entry_pure_error;
         TypeTableEntry *entry_os_enum;
         TypeTableEntry *entry_arch_enum;
+        TypeTableEntry *entry_environ_enum;
     } builtin_types;
 
     ZigTarget zig_target;
@@ -1130,6 +1131,7 @@ struct CodeGen {
     bool is_test_build;
     uint32_t target_os_index;
     uint32_t target_arch_index;
+    uint32_t target_environ_index;
     LLVMTargetMachineRef target_machine;
     LLVMZigDIFile *dummy_di_file;
     bool is_native_target;
