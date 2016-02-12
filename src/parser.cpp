@@ -438,7 +438,7 @@ static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLi
             unsigned long long specified_exponent = parse_int_digits(pc, exponent_start, exponent_end,
                 10, -1, &num_lit->overflow);
             // TODO: this check is a little silly
-            if (specified_exponent >= LONG_LONG_MAX) {
+            if (specified_exponent >= LLONG_MAX) {
                 num_lit->overflow = true;
                 return;
             }
