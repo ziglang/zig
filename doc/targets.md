@@ -12,10 +12,4 @@ Write the target-specific code in std.zig.
 
 Update the C integer types to be the correct size for the target.
 
-Add the conditional compilation code for the page size global. It is hardcoded
-for each target.
-
-Make sure that parseh sends the correct command line parameters to libclang for
-the given target.
-
 Make sure that `c_long_double` codegens the correct floating point value.

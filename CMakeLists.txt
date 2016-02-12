@@ -140,7 +140,6 @@ set(ZIG_STD_SRC
     "${CMAKE_SOURCE_DIR}/std/syscall.zig"
     "${CMAKE_SOURCE_DIR}/std/errno.zig"
     "${CMAKE_SOURCE_DIR}/std/rand.zig"
-    "${CMAKE_SOURCE_DIR}/std/mem.zig"
     "${CMAKE_SOURCE_DIR}/std/math.zig"
 )
 

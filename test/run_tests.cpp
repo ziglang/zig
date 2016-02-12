@@ -1023,25 +1023,6 @@ pub fn main(args: [][]u8) -> %void {
 }
     )SOURCE", "OK\n");
 
-    add_simple_case("malloc and free", R"SOURCE(
-import "mem.zig";
-import "std.zig";
-
-pub fn main(args: [][]u8) -> %void {
-    var ptr = malloc(1) ?? unreachable{};
-
-    *ptr = 6;
-
-    if (*ptr != 6) {
-        %%stdout.printf("BAD\n");
-    }
-
-    free(ptr);
-
-    %%stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
     add_simple_case("store member function in variable", R"SOURCE(
 import "std.zig";
 struct Foo {

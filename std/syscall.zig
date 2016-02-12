@@ -250,12 +250,14 @@ fn i386_syscall6(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isi
             [arg6] "{ebp}" (arg6))
 }
 
-pub fn mmap(address: isize, length: isize, prot: isize, flags: isize, fd: isize, offset: isize) -> isize {
-    syscall6(SYS_mmap, address, length, prot, flags, fd, offset)
+pub fn mmap(address: ?&u8, length: isize, prot: isize, flags: isize, fd: isize, offset: isize) -> isize {
+    // TODO ability to cast maybe pointer to isize
+    const addr = if (const unwrapped ?= address) isize(unwrapped) else 0;
+    syscall6(SYS_mmap, addr, length, prot, flags, fd, offset)
 }
 
-pub fn munmap(address: isize, length: isize) -> isize {
-    syscall2(SYS_munmap, address, length)
+pub fn munmap(address: &u8, length: isize) -> isize {
+    syscall2(SYS_munmap, isize(address), length)
 }
 
 pub fn read(fd: isize, buf: &u8, count: isize) -> isize {
