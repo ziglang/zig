@@ -1050,19 +1050,6 @@ struct BuiltinFnEntry {
     LLVMValueRef fn_val;
 };
 
-enum CIntType {
-    CIntTypeShort,
-    CIntTypeUShort,
-    CIntTypeInt,
-    CIntTypeUInt,
-    CIntTypeLong,
-    CIntTypeULong,
-    CIntTypeLongLong,
-    CIntTypeULongLong,
-
-    CIntTypeCount,
-};
-
 struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;

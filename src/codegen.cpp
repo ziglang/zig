@@ -3195,27 +3195,6 @@ static const CIntTypeInfo c_int_type_infos[] = {
     {CIntTypeULongLong, "c_ulonglong", false},
 };
 
-static int get_c_type_size_in_bits(CodeGen *g, CIntType id) {
-    // TODO other architectures besides x86_64
-    // other operating systems besides linux
-    switch (id) {
-        case CIntTypeShort:
-        case CIntTypeUShort:
-            return 16;
-        case CIntTypeInt:
-        case CIntTypeUInt:
-            return 32;
-        case CIntTypeLong:
-        case CIntTypeULong:
-        case CIntTypeLongLong:
-        case CIntTypeULongLong:
-            return 64;
-        case CIntTypeCount:
-            zig_unreachable();
-    }
-    zig_unreachable();
-}
-
 static void define_builtin_types(CodeGen *g) {
     {
         // if this type is anywhere in the AST, we should never hit codegen.
@@ -3288,7 +3267,7 @@ static void define_builtin_types(CodeGen *g) {
 
     for (int i = 0; i < array_length(c_int_type_infos); i += 1) {
         const CIntTypeInfo *info = &c_int_type_infos[i];
-        uint64_t size_in_bits = get_c_type_size_in_bits(g, info->id);
+        uint64_t size_in_bits = get_c_type_size_in_bits(&g->zig_target, info->id);
         bool is_signed = info->is_signed;
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);

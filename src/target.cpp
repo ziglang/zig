@@ -292,3 +292,108 @@ void resolve_target_object_format(ZigTarget *target) {
     }
     target->oformat = ZigLLVM_ELF;
 }
+
+
+static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
+    switch (arch) {
+        case ZigLLVM_UnknownArch:
+            return 0;
+
+        case ZigLLVM_msp430:
+            return 16;
+
+        case ZigLLVM_arm:
+        case ZigLLVM_armeb:
+        case ZigLLVM_hexagon:
+        case ZigLLVM_le32:
+        case ZigLLVM_mips:
+        case ZigLLVM_mipsel:
+        case ZigLLVM_nvptx:
+        case ZigLLVM_ppc:
+        case ZigLLVM_r600:
+        case ZigLLVM_sparc:
+        case ZigLLVM_sparcel:
+        case ZigLLVM_tce:
+        case ZigLLVM_thumb:
+        case ZigLLVM_thumbeb:
+        case ZigLLVM_x86:
+        case ZigLLVM_xcore:
+        case ZigLLVM_amdil:
+        case ZigLLVM_hsail:
+        case ZigLLVM_spir:
+        case ZigLLVM_kalimba:
+        case ZigLLVM_shave:
+        case ZigLLVM_wasm32:
+            return 32;
+
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+        case ZigLLVM_amdgcn:
+        case ZigLLVM_bpfel:
+        case ZigLLVM_bpfeb:
+        case ZigLLVM_le64:
+        case ZigLLVM_mips64:
+        case ZigLLVM_mips64el:
+        case ZigLLVM_nvptx64:
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
+        case ZigLLVM_sparcv9:
+        case ZigLLVM_systemz:
+        case ZigLLVM_x86_64:
+        case ZigLLVM_amdil64:
+        case ZigLLVM_hsail64:
+        case ZigLLVM_spir64:
+        case ZigLLVM_wasm64:
+            return 64;
+    }
+    zig_unreachable();
+}
+
+int get_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
+    switch (target->os) {
+        case ZigLLVM_UnknownOS:
+            zig_unreachable();
+        case ZigLLVM_Linux:
+            switch (id) {
+                case CIntTypeShort:
+                case CIntTypeUShort:
+                    return 16;
+                case CIntTypeInt:
+                case CIntTypeUInt:
+                    return 32;
+                case CIntTypeLong:
+                case CIntTypeULong:
+                    return get_arch_pointer_bit_width(target->arch.arch);
+                case CIntTypeLongLong:
+                case CIntTypeULongLong:
+                    return 64;
+                case CIntTypeCount:
+                    zig_unreachable();
+            }
+        case ZigLLVM_CloudABI:
+        case ZigLLVM_Darwin:
+        case ZigLLVM_DragonFly:
+        case ZigLLVM_FreeBSD:
+        case ZigLLVM_IOS:
+        case ZigLLVM_KFreeBSD:
+        case ZigLLVM_Lv2:
+        case ZigLLVM_MacOSX:
+        case ZigLLVM_NetBSD:
+        case ZigLLVM_OpenBSD:
+        case ZigLLVM_Solaris:
+        case ZigLLVM_Win32:
+        case ZigLLVM_Haiku:
+        case ZigLLVM_Minix:
+        case ZigLLVM_RTEMS:
+        case ZigLLVM_NaCl:
+        case ZigLLVM_CNK:
+        case ZigLLVM_Bitrig:
+        case ZigLLVM_AIX:
+        case ZigLLVM_CUDA:
+        case ZigLLVM_NVCL:
+        case ZigLLVM_AMDHSA:
+        case ZigLLVM_PS4:
+            zig_panic("TODO c type size in bits for this target");
+    }
+    zig_unreachable();
+}

@@ -25,6 +25,19 @@ struct ZigTarget {
     ZigLLVM_ObjectFormatType oformat;
 };
 
+enum CIntType {
+    CIntTypeShort,
+    CIntTypeUShort,
+    CIntTypeInt,
+    CIntTypeUInt,
+    CIntTypeLong,
+    CIntTypeULong,
+    CIntTypeLongLong,
+    CIntTypeULongLong,
+
+    CIntTypeCount,
+};
+
 int target_arch_count(void);
 const ArchType *get_target_arch(int index);
 void get_arch_name(char *out_str, const ArchType *arch);
@@ -52,5 +65,6 @@ void get_target_triple(Buf *triple, const ZigTarget *target);
 
 void resolve_target_object_format(ZigTarget *target);
 
+int get_c_type_size_in_bits(const ZigTarget *target, CIntType id);
 
 #endif
