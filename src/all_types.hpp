@@ -1207,6 +1207,9 @@ struct BlockContext {
 
     LLVMZigDIScope *di_scope;
     Buf *c_import_buf;
+
+    // if this is true, then this code will not be generated
+    bool codegen_excluded;
 };
 
 

@@ -1584,8 +1584,8 @@ fn f(Foo: i32) {
                  ".tmp_source.zig:6:5: error: variable shadows type 'Bar'");
 
     add_compile_fail_case("multiple else prongs in a switch", R"SOURCE(
-fn f() {
-    const value: bool = switch (u32(111)) {
+fn f(x: u32) {
+    const value: bool = switch (x) {
         1234 => false,
         else => true,
         else => true,
