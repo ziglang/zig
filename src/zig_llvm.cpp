@@ -596,6 +596,7 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
         case ZigLLVM_KalimbaSubArch_v5:
             return "v5";
     }
+    abort();
 }
 
 //------------------------------------
