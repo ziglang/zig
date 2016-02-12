@@ -1,17 +1,63 @@
-// this file is specific to x86_64
-
-const SYS_read           = 0;
-const SYS_write          = 1;
-const SYS_mmap           = 9;
-const SYS_munmap         = 11;
-const SYS_rt_sigprocmask = 14;
-const SYS_exit           = 60;
-const SYS_kill           = 62;
-const SYS_getgid         = 104;
-const SYS_gettid         = 186;
-const SYS_tkill          = 200;
-const SYS_tgkill         = 234;
-const SYS_getrandom      = 318;
+const SYS_read = switch (@compile_var("arch")) {
+    x86_64 => 0,
+    i386 => 3,
+    else => unreachable{},
+};
+const SYS_write = switch (@compile_var("arch")) {
+    x86_64 => 1,
+    i386 => 4,
+    else => unreachable{},
+};
+const SYS_mmap = switch (@compile_var("arch")) {
+    x86_64 => 9,
+    i386 => 90,
+    else => unreachable{},
+};
+const SYS_munmap = switch (@compile_var("arch")) {
+    x86_64 => 11,
+    i386 => 91,
+    else => unreachable{},
+};
+const SYS_rt_sigprocmask = switch (@compile_var("arch")) {
+    x86_64 => 14,
+    i386 => 175,
+    else => unreachable{},
+};
+const SYS_exit = switch (@compile_var("arch")) {
+    x86_64 => 60,
+    i386 => 1,
+    else => unreachable{},
+};
+const SYS_kill = switch (@compile_var("arch")) {
+    x86_64 => 62,
+    i386 => 37,
+    else => unreachable{},
+};
+const SYS_getgid = switch (@compile_var("arch")) {
+    x86_64 => 104,
+    i386 => 47,
+    else => unreachable{},
+};
+const SYS_gettid = switch (@compile_var("arch")) {
+    x86_64 => 186,
+    i386 => 224,
+    else => unreachable{},
+};
+const SYS_tkill = switch (@compile_var("arch")) {
+    x86_64 => 200,
+    i386 => 238,
+    else => unreachable{},
+};
+const SYS_tgkill = switch (@compile_var("arch")) {
+    x86_64 => 234,
+    i386 => 270,
+    else => unreachable{},
+};
+const SYS_getrandom = switch (@compile_var("arch")) {
+    x86_64 => 318,
+    i386 => 355,
+    else => unreachable{},
+};
 
 pub const MMAP_PROT_NONE =  0;
 pub const MMAP_PROT_READ =  1;
@@ -63,14 +109,45 @@ const SIG_BLOCK   = 0;
 const SIG_UNBLOCK = 1;
 const SIG_SETMASK = 2;
 
-fn syscall0(number: isize) -> isize {
+const syscall0 = switch (@compile_var("arch")) {
+    x86_64 => x86_64_syscall0,
+    i386 => i386_syscall0,
+    else => unreachable{},
+};
+const syscall1 = switch (@compile_var("arch")) {
+    x86_64 => x86_64_syscall1,
+    i386 => i386_syscall1,
+    else => unreachable{},
+};
+const syscall2 = switch (@compile_var("arch")) {
+    x86_64 => x86_64_syscall2,
+    i386 => i386_syscall2,
+    else => unreachable{},
+};
+const syscall3 = switch (@compile_var("arch")) {
+    x86_64 => x86_64_syscall3,
+    i386 => i386_syscall3,
+    else => unreachable{},
+};
+const syscall4 = switch (@compile_var("arch")) {
+    x86_64 => x86_64_syscall4,
+    i386 => i386_syscall4,
+    else => unreachable{},
+};
+const syscall6 = switch (@compile_var("arch")) {
+    x86_64 => x86_64_syscall6,
+    i386 => i386_syscall6,
+    else => unreachable{},
+};
+
+fn x86_64_syscall0(number: isize) -> isize {
     asm volatile ("syscall"
         : [ret] "={rax}" (-> isize)
         : [number] "{rax}" (number)
         : "rcx", "r11")
 }
 
-fn syscall1(number: isize, arg1: isize) -> isize {
+fn x86_64_syscall1(number: isize, arg1: isize) -> isize {
     asm volatile ("syscall"
         : [ret] "={rax}" (-> isize)
         : [number] "{rax}" (number),
@@ -78,7 +155,7 @@ fn syscall1(number: isize, arg1: isize) -> isize {
         : "rcx", "r11")
 }
 
-fn syscall2(number: isize, arg1: isize, arg2: isize) -> isize {
+fn x86_64_syscall2(number: isize, arg1: isize, arg2: isize) -> isize {
     asm volatile ("syscall"
         : [ret] "={rax}" (-> isize)
         : [number] "{rax}" (number),
@@ -87,7 +164,7 @@ fn syscall2(number: isize, arg1: isize, arg2: isize) -> isize {
         : "rcx", "r11")
 }
 
-fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
+fn x86_64_syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
     asm volatile ("syscall"
         : [ret] "={rax}" (-> isize)
         : [number] "{rax}" (number),
@@ -97,7 +174,7 @@ fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
         : "rcx", "r11")
 }
 
-fn syscall4(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize) -> isize {
+fn x86_64_syscall4(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize) -> isize {
     asm volatile ("syscall"
         : [ret] "={rax}" (-> isize)
         : [number] "{rax}" (number),
@@ -108,7 +185,7 @@ fn syscall4(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize) -
         : "rcx", "r11")
 }
 
-fn syscall6(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize, arg5: isize, arg6: isize) -> isize {
+fn x86_64_syscall6(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize, arg5: isize, arg6: isize) -> isize {
     asm volatile ("syscall"
         : [ret] "={rax}" (-> isize)
         : [number] "{rax}" (number),
@@ -119,6 +196,58 @@ fn syscall6(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize, a
             [arg5] "{r8}" (arg5),
             [arg6] "{r9}" (arg6)
         : "rcx", "r11")
+}
+
+fn i386_syscall0(number: isize) -> isize {
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number))
+}
+
+fn i386_syscall1(number: isize, arg1: isize) -> isize {
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number),
+            [arg1] "{ebx}" (arg1))
+}
+
+fn i386_syscall2(number: isize, arg1: isize, arg2: isize) -> isize {
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number),
+            [arg1] "{ebx}" (arg1),
+            [arg2] "{ecx}" (arg2))
+}
+
+fn i386_syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number),
+            [arg1] "{ebx}" (arg1),
+            [arg2] "{ecx}" (arg2),
+            [arg3] "{edx}" (arg3))
+}
+
+fn i386_syscall4(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize) -> isize {
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number),
+            [arg1] "{ebx}" (arg1),
+            [arg2] "{ecx}" (arg2),
+            [arg3] "{edx}" (arg3),
+            [arg4] "{esi}" (arg4))
+}
+
+fn i386_syscall6(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize, arg5: isize, arg6: isize) -> isize {
+    asm volatile ("int $0x80"
+        : [ret] "={eax}" (-> isize)
+        : [number] "{eax}" (number),
+            [arg1] "{ebx}" (arg1),
+            [arg2] "{ecx}" (arg2),
+            [arg3] "{edx}" (arg3),
+            [arg4] "{esi}" (arg4),
+            [arg5] "{edi}" (arg5),
+            [arg6] "{ebp}" (arg6))
 }
 
 pub fn mmap(address: isize, length: isize, prot: isize, flags: isize, fd: isize, offset: isize) -> isize {

@@ -9,9 +9,19 @@ var env: &&u8 = undefined;
 
 #attribute("naked")
 export fn _start() -> unreachable {
-    argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> isize));
-    argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));
-    env = asm("lea 0x10(%%rsp,%%rdi,8), %[env]": [env] "=r" (-> &&u8));
+    switch (@compile_var("arch")) {
+        x86_64 => {
+            argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> isize));
+            argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));
+            env = asm("lea 0x10(%%rsp,[argc],8), %[env]": [env] "=r" (-> &&u8): [argc] "r" (argc));
+        },
+        i386 => {
+            argc = asm("mov (%%esp), %[argc]": [argc] "=r" (-> isize));
+            argv = asm("lea 0x4(%%esp), %[argv]": [argv] "=r" (-> &&u8));
+            env = asm("lea 0x8(%%esp,%[argc],4), %[env]": [env] "=r" (-> &&u8): [argc] "r" (argc));
+        },
+        else => unreachable{},
+    }
     call_main()
 }
 

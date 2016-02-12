@@ -80,14 +80,68 @@ static const char *get_exe_file_extension(CodeGen *g) {
     }
 }
 
+static const char *getLDMOption(const ZigTarget *t) {
+    switch (t->arch.arch) {
+        case ZigLLVM_x86:
+            return "elf_i386";
+        case ZigLLVM_aarch64:
+            return "aarch64linux";
+        case ZigLLVM_aarch64_be:
+            return "aarch64_be_linux";
+        case ZigLLVM_arm:
+        case ZigLLVM_thumb:
+            return "armelf_linux_eabi";
+        case ZigLLVM_armeb:
+        case ZigLLVM_thumbeb:
+            return "armebelf_linux_eabi";
+        case ZigLLVM_ppc:
+            return "elf32ppclinux";
+        case ZigLLVM_ppc64:
+            return "elf64ppc";
+        case ZigLLVM_ppc64le:
+            return "elf64lppc";
+        case ZigLLVM_sparc:
+        case ZigLLVM_sparcel:
+            return "elf32_sparc";
+        case ZigLLVM_sparcv9:
+            return "elf64_sparc";
+        case ZigLLVM_mips:
+            return "elf32btsmip";
+        case ZigLLVM_mipsel:
+            return "elf32ltsmip";
+            return "elf64btsmip";
+        case ZigLLVM_mips64el:
+            return "elf64ltsmip";
+        case ZigLLVM_systemz:
+            return "elf64_s390";
+        case ZigLLVM_x86_64:
+            if (t->environ == ZigLLVM_GNUX32) {
+                return "elf32_x86_64";
+            }
+            return "elf_x86_64";
+        default:
+            zig_unreachable();
+    }
+}
+
 static void construct_linker_job_linux(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
     lj->args.append("-m");
-    lj->args.append("elf_x86_64");
+    lj->args.append(getLDMOption(&g->zig_target));
 
+    bool is_lib = g->out_type == OutTypeLib;
+    bool shared = !g->is_static && is_lib;
     if (g->is_static) {
-        lj->args.append("-static");
+        if (g->zig_target.arch.arch == ZigLLVM_arm || g->zig_target.arch.arch == ZigLLVM_armeb ||
+            g->zig_target.arch.arch == ZigLLVM_thumb || g->zig_target.arch.arch == ZigLLVM_thumbeb)
+        {
+            lj->args.append("-Bstatic");
+        } else {
+            lj->args.append("-static");
+        }
+    } else if (shared) {
+        lj->args.append("-shared");
     }
 
     lj->args.append("-o");
@@ -135,7 +189,6 @@ static void construct_linker_job_linux(LinkJob *lj) {
         buf_appendf(&lj->out_file, "lib%s.so.%d.%d.%d",
                 buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
         Buf *soname = buf_sprintf("lib%s.so.%d", buf_ptr(g->root_out_name), g->version_major);
-        lj->args.append("-shared");
         lj->args.append("-soname");
         lj->args.append(buf_ptr(soname));
     }
