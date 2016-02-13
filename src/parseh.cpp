@@ -486,7 +486,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                         return c->codegen->builtin_types.entry_invalid;
                 }
 
-                FnTypeId fn_type_id;
+                FnTypeId fn_type_id = {0};
                 fn_type_id.is_naked = false;
                 fn_type_id.is_extern = true;
                 fn_type_id.is_var_args = fn_proto_ty->isVariadic();
@@ -908,12 +908,10 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
 
     struct_type->data.structure.src_field_count = field_count;
     struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
-
-    // we possibly allocate too much here since gen_field_count can be lower than field_count.
-    // the only problem is potential wasted space though.
     LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
     LLVMZigDIType **di_element_types = allocate<LLVMZigDIType*>(field_count);
 
+    // next, populate element_types as its needed for LLVMStructSetBody which is needed for LLVMOffsetOfElement
     uint32_t i = 0;
     for (auto it = record_def->field_begin(),
               it_end = record_def->field_end();
@@ -934,6 +932,21 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
             return struct_type;
         }
 
+        element_types[i] = field_type->type_ref;
+        assert(element_types[i]);
+    }
+
+    LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
+
+    // finally populate debug info
+    i = 0;
+    for (auto it = record_def->field_begin(),
+              it_end = record_def->field_end();
+              it != it_end; ++it, i += 1)
+    {
+        TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+        TypeTableEntry *field_type = type_struct_field->type_entry;
+
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, field_type->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, field_type->type_ref);
         uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(c->codegen->target_data_ref, struct_type->type_ref, i);
@@ -945,17 +958,13 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
                 debug_offset_in_bits,
                 0, field_type->di_type);
 
-        element_types[i] = field_type->type_ref;
         assert(di_element_types[i]);
-        assert(element_types[i]);
 
     }
     struct_type->data.structure.embedded_in_current = false;
 
     struct_type->data.structure.gen_field_count = field_count;
     struct_type->data.structure.complete = true;
-
-    LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
 
     uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, struct_type->type_ref);
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, struct_type->type_ref);

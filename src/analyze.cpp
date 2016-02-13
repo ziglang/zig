@@ -749,7 +749,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
         return g->builtin_types.entry_invalid;
     }
 
-    FnTypeId fn_type_id;
+    FnTypeId fn_type_id = {0};
     fn_type_id.is_extern = fn_proto->is_extern || (fn_proto->visib_mod == VisibModExport);
     fn_type_id.is_naked = is_naked;
     fn_type_id.is_cold = is_cold;
