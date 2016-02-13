@@ -2922,8 +2922,8 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
             {
                 AstNode **op1 = node->data.bin_op_expr.op1->parent_field;
                 AstNode **op2 = node->data.bin_op_expr.op2->parent_field;
-                TypeTableEntry *lhs_type = analyze_expression(g, import, context, expected_type, *op1);
-                TypeTableEntry *rhs_type = analyze_expression(g, import, context, expected_type, *op2);
+                TypeTableEntry *lhs_type = analyze_expression(g, import, context, nullptr, *op1);
+                TypeTableEntry *rhs_type = analyze_expression(g, import, context, nullptr, *op2);
 
                 AstNode *op_nodes[] = {*op1, *op2};
                 TypeTableEntry *op_types[] = {lhs_type, rhs_type};
