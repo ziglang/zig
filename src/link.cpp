@@ -205,6 +205,9 @@ static void construct_linker_job_linux(LinkJob *lj) {
     if (!g->link_libc && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
         Buf *builtin_o_path = build_o(g, "builtin");
         lj->args.append(buf_ptr(builtin_o_path));
+
+        Buf *compiler_rt_o_path = build_o(g, "compiler_rt");
+        lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
     auto it = g->link_table.entry_iterator();

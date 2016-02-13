@@ -1038,6 +1038,8 @@ enum BuiltinFnId {
     BuiltinFnIdCUndef,
     BuiltinFnIdCompileVar,
     BuiltinFnIdConstEval,
+    BuiltinFnIdCtz,
+    BuiltinFnIdClz,
 };
 
 struct BuiltinFnEntry {
@@ -1161,6 +1163,7 @@ struct CodeGen {
     uint32_t error_value_count;
     TypeTableEntry *err_tag_type;
     LLVMValueRef int_overflow_fns[2][3][4]; // [0-signed,1-unsigned][0-add,1-sub,2-mul][0-8,1-16,2-32,3-64]
+    LLVMValueRef int_builtin_fns[2][4]; // [0-ctz,1-clz][0-8,1-16,2-32,3-64]
 
     const char **clang_argv;
     int clang_argv_len;

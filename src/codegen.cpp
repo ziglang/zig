@@ -227,6 +227,24 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, 
     return *fn;
 }
 
+static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, BuiltinFnId fn_id) {
+    // [0-ctz,1-clz][0-8,1-16,2-32,3-64]
+    int index0 = (fn_id == BuiltinFnIdCtz) ? 0 : 1;
+    int index1 = bits_index(int_type->data.integral.bit_count);
+    LLVMValueRef *fn = &g->int_builtin_fns[index0][index1];
+    if (!*fn) {
+        const char *fn_name = (fn_id == BuiltinFnIdCtz) ? "cttz" : "ctlz";
+        Buf *llvm_name = buf_sprintf("llvm.%s.i%d", fn_name, int_type->data.integral.bit_count);
+        LLVMTypeRef param_types[] = {
+            int_type->type_ref,
+            LLVMInt1Type(),
+        };
+        LLVMTypeRef fn_type = LLVMFunctionType(int_type->type_ref, param_types, 2, false);
+        *fn = LLVMAddFunction(g->module, buf_ptr(llvm_name), fn_type);
+    }
+    return *fn;
+}
+
 static LLVMValueRef get_handle_value(CodeGen *g, AstNode *source_node, LLVMValueRef ptr, TypeTableEntry *type) {
     if (handle_is_ptr(type)) {
         return ptr;
@@ -249,6 +267,22 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdCDefine:
         case BuiltinFnIdCUndef:
             zig_unreachable();
+        case BuiltinFnIdCtz:
+        case BuiltinFnIdClz:
+            {
+                int fn_call_param_count = node->data.fn_call_expr.params.length;
+                assert(fn_call_param_count == 2);
+                TypeTableEntry *int_type = get_type_for_type_node(node->data.fn_call_expr.params.at(0));
+                assert(int_type->id == TypeTableEntryIdInt);
+                LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, builtin_fn->id);
+                LLVMValueRef operand = gen_expr(g, node->data.fn_call_expr.params.at(1));
+                LLVMValueRef params[] {
+                    operand,
+                    LLVMConstNull(LLVMInt1Type()),
+                };
+                add_debug_source_node(g, node);
+                return LLVMBuildCall(g->builder, fn_val, params, 2, "");
+            }
         case BuiltinFnIdAddWithOverflow:
         case BuiltinFnIdSubWithOverflow:
         case BuiltinFnIdMulWithOverflow:
@@ -1025,11 +1059,12 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
         case PrefixOpDereference:
             {
                 LLVMValueRef expr = gen_expr(g, expr_node);
+                assert(expr_type->id == TypeTableEntryIdPointer);
                 if (!type_has_bits(expr_type)) {
                     return nullptr;
                 } else {
-                    add_debug_source_node(g, node);
-                    return LLVMBuildLoad(g->builder, expr, "");
+                    TypeTableEntry *child_type = expr_type->data.pointer.child_type;
+                    return get_handle_value(g, node, expr, child_type);
                 }
             }
         case PrefixOpMaybe:
@@ -3590,6 +3625,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCUndef, "c_undef", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileVar, "compile_var", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdConstEval, "const_eval", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCtz, "ctz", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdClz, "clz", 2);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

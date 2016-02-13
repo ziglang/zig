@@ -4304,6 +4304,29 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
 
                 return resolved_type;
             }
+        case BuiltinFnIdCtz:
+        case BuiltinFnIdClz:
+            {
+                AstNode *type_node = node->data.fn_call_expr.params.at(0);
+                TypeTableEntry *int_type = analyze_type_expr(g, import, context, type_node);
+                if (int_type->id == TypeTableEntryIdInvalid) {
+                    return int_type;
+                } else if (int_type->id == TypeTableEntryIdInt) {
+                    AstNode **expr_node = node->data.fn_call_expr.params.at(1)->parent_field;
+                    TypeTableEntry *resolved_type = analyze_expression(g, import, context, int_type, *expr_node);
+                    if (resolved_type->id == TypeTableEntryIdInvalid) {
+                        return resolved_type;
+                    }
+
+                    // TODO const expr eval
+
+                    return resolved_type;
+                } else {
+                    add_node_error(g, type_node,
+                        buf_sprintf("expected integer type, got '%s'", buf_ptr(&int_type->name)));
+                    return g->builtin_types.entry_invalid;
+                }
+            }
 
     }
     zig_unreachable();

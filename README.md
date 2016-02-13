@@ -81,7 +81,7 @@ and `ZIG_LIBC_STATIC_LIB_DIR` should be set to (example below).
 ```
 mkdir build
 cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $(cc -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=/usr/include -DZIG_LIBC_STATIC_LIB_DIR=$(dirname $(cc -print-file-name=crtbeginT.o))
+cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $(cc -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=/usr/include -DZIG_LIBC_STATIC_LIB_DIR=$(dirname $(cc -print-file-name=crtbegin.o))
 make
 make install
 ./run_tests

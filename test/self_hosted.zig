@@ -479,6 +479,20 @@ struct ArrayDotLenConstExpr {
 const some_array = []u8 {0, 1, 2, 3};
 
 
+#attribute("test")
+fn count_leading_zeroes() {
+    assert(@clz(u8, 0b00001010) == 4);
+    assert(@clz(u8, 0b10001010) == 0);
+    assert(@clz(u8, 0b00000000) == 8);
+}
+
+#attribute("test")
+fn count_trailing_zeroes() {
+    assert(@ctz(u8, 0b10100000) == 5);
+    assert(@ctz(u8, 0b10001010) == 1);
+    assert(@ctz(u8, 0b00000000) == 8);
+}
+
 
 
 fn assert(b: bool) {
