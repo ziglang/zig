@@ -370,6 +370,22 @@ int get_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
+        case ZigLLVM_Win32:
+            switch (id) {
+                case CIntTypeShort:
+                case CIntTypeUShort:
+                    return 16;
+                case CIntTypeInt:
+                case CIntTypeUInt:
+                case CIntTypeLong:
+                case CIntTypeULong:
+                    return 32;
+                case CIntTypeLongLong:
+                case CIntTypeULongLong:
+                    return 64;
+                case CIntTypeCount:
+                    zig_unreachable();
+            }
         case ZigLLVM_CloudABI:
         case ZigLLVM_Darwin:
         case ZigLLVM_DragonFly:
@@ -381,7 +397,6 @@ int get_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case ZigLLVM_NetBSD:
         case ZigLLVM_OpenBSD:
         case ZigLLVM_Solaris:
-        case ZigLLVM_Win32:
         case ZigLLVM_Haiku:
         case ZigLLVM_Minix:
         case ZigLLVM_RTEMS:
