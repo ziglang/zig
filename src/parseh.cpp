@@ -314,6 +314,19 @@ static bool is_c_void_type(Context *c, TypeTableEntry *type_entry) {
     return false;
 }
 
+static bool qual_type_child_is_fn_proto(const QualType &qt) {
+    if (qt.getTypePtr()->getTypeClass() == Type::Paren) {
+        const ParenType *paren_type = static_cast<const ParenType *>(qt.getTypePtr());
+        if (paren_type->getInnerType()->getTypeClass() == Type::FunctionProto) {
+            return true;
+        }
+    } else if (qt.getTypePtr()->getTypeClass() == Type::Attributed) {
+        const AttributedType *attr_type = static_cast<const AttributedType *>(qt.getTypePtr());
+        return qual_type_child_is_fn_proto(attr_type->getEquivalentType());
+    }
+    return false;
+}
+
 static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const Decl *decl,
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> *type_table)
 {
@@ -395,11 +408,8 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     return c->codegen->builtin_types.entry_invalid;
                 }
 
-                if (child_qt.getTypePtr()->getTypeClass() == Type::Paren) {
-                    const ParenType *paren_type = static_cast<const ParenType *>(child_qt.getTypePtr());
-                    if (paren_type->getInnerType()->getTypeClass() == Type::FunctionProto) {
-                        return get_maybe_type(c->codegen, child_type);
-                    }
+                if (qual_type_child_is_fn_proto(child_qt)) {
+                    return get_maybe_type(c->codegen, child_type);
                 }
                 bool is_const = child_qt.isConstQualified();
 
@@ -1639,7 +1649,12 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
             unsigned offset = fsl.getManager().getFileOffset(fsl);
             const char *source = (const char *)fsl.getManager().getBufferData(file_id).bytes_begin();
             Buf *msg = buf_create_from_str((const char *)msg_str_ref.bytes_begin());
-            Buf *path = buf_create_from_str((const char *)filename.bytes_begin());
+            Buf *path;
+            if (filename.empty()) {
+                path = buf_alloc();
+            } else {
+                path = buf_create_from_mem((const char *)filename.bytes_begin(), filename.size());
+            }
 
             ErrorMsg *err_msg = err_msg_create_with_offset(path, line, column, offset, source, msg);
 

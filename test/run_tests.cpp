@@ -1928,6 +1928,10 @@ extern void (*fn_ptr)(void);
     add_parseh_case("#define string", R"SOURCE(
 #define  foo  "a string"
     )SOURCE", 1, "pub const foo = c\"a string\";");
+
+    add_parseh_case("__cdecl doesn't mess up function pointers", R"SOURCE(
+void foo(void (__cdecl *fn_ptr)(void));
+    )SOURCE", 1, "pub extern fn foo(fn_ptr: ?extern fn());");
 }
 
 static void run_self_hosted_test(void) {

@@ -3886,17 +3886,19 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     }
 
     // explicit cast from pointer to another pointer
-    if (actual_type->id == TypeTableEntryIdPointer &&
-        wanted_type->id == TypeTableEntryIdPointer)
+    if ((actual_type->id == TypeTableEntryIdPointer || actual_type->id == TypeTableEntryIdFn) &&
+        (wanted_type->id == TypeTableEntryIdPointer || wanted_type->id == TypeTableEntryIdFn))
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPointerReinterpret, false);
     }
 
     // explicit cast from maybe pointer to another maybe pointer
     if (actual_type->id == TypeTableEntryIdMaybe &&
-        actual_type->data.maybe.child_type->id == TypeTableEntryIdPointer &&
+        (actual_type->data.maybe.child_type->id == TypeTableEntryIdPointer ||
+            actual_type->data.maybe.child_type->id == TypeTableEntryIdFn) &&
         wanted_type->id == TypeTableEntryIdMaybe &&
-        wanted_type->data.maybe.child_type->id == TypeTableEntryIdPointer)
+        (wanted_type->data.maybe.child_type->id == TypeTableEntryIdPointer ||
+            wanted_type->data.maybe.child_type->id == TypeTableEntryIdFn))
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPointerReinterpret, false);
     }
