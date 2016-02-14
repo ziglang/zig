@@ -471,18 +471,40 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     case CC_C:           // __attribute__((cdecl))
                         break;
                     case CC_X86StdCall:  // __attribute__((stdcall))
+                        emit_warning(c, decl, "function type has x86 stdcall calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_X86FastCall: // __attribute__((fastcall))
+                        emit_warning(c, decl, "function type has x86 fastcall calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_X86ThisCall: // __attribute__((thiscall))
+                        emit_warning(c, decl, "function type has x86 thiscall calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_X86VectorCall: // __attribute__((vectorcall))
+                        emit_warning(c, decl, "function type has x86 vectorcall calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_X86Pascal:   // __attribute__((pascal))
+                        emit_warning(c, decl, "function type has x86 pascal calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_X86_64Win64: // __attribute__((ms_abi))
+                        emit_warning(c, decl, "function type has x86 64win64 calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_X86_64SysV:  // __attribute__((sysv_abi))
+                        emit_warning(c, decl, "function type has x86 64sysv calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_AAPCS:       // __attribute__((pcs("aapcs")))
+                        emit_warning(c, decl, "function type has aapcs calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_AAPCS_VFP:   // __attribute__((pcs("aapcs-vfp")))
+                        emit_warning(c, decl, "function type has aapcs-vfp calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_IntelOclBicc: // __attribute__((intel_ocl_bicc))
+                        emit_warning(c, decl, "function type has intel_ocl_bicc calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_SpirFunction: // default for OpenCL functions on SPIR target
+                        emit_warning(c, decl, "function type has SPIR function calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_SpirKernel:    // inferred for OpenCL kernels on SPIR target
-                        emit_warning(c, decl, "function type has non C calling convention");
+                        emit_warning(c, decl, "function type has SPIR kernel calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                 }
 
