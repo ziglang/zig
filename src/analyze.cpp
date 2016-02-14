@@ -1378,6 +1378,15 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *parent_import, A
     child_import->error_table.init(8);
     child_import->c_import_node = node;
 
+    child_import->importers.append({parent_import, node});
+
+    if (node->data.c_import.visib_mod != VisibModPrivate) {
+        for (int i = 0; i < parent_import->importers.length; i += 1) {
+            ImporterInfo importer = parent_import->importers.at(i);
+            child_import->importers.append(importer);
+        }
+    }
+
     ZigList<ErrorMsg *> errors = {0};
 
     int err;
@@ -1391,6 +1400,10 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *parent_import, A
             ErrorMsg *err_msg = errors.at(i);
             err_msg_add_note(parent_err_msg, err_msg);
         }
+
+        for (int i = 0; i < child_import->importers.length; i += 1) {
+            child_import->importers.at(i).import->any_imports_failed = true;
+        }
         return;
     }
 
@@ -1402,14 +1415,6 @@ static void resolve_c_import_decl(CodeGen *g, ImportTableEntry *parent_import, A
 
     child_import->di_file = parent_import->di_file;
     child_import->block_context = new_block_context(child_import->root, nullptr);
-    child_import->importers.append({parent_import, node});
-
-    if (node->data.c_import.visib_mod != VisibModPrivate) {
-        for (int i = 0; i < parent_import->importers.length; i += 1) {
-            ImporterInfo importer = parent_import->importers.at(i);
-            child_import->importers.append(importer);
-        }
-    }
 
     detect_top_level_decl_deps(g, child_import, child_import->root);
     analyze_top_level_decls_root(g, child_import, child_import->root);
@@ -2611,6 +2616,12 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
         assert(fn_table_entry->value->type_entry);
         node->data.symbol_expr.fn_entry = fn_table_entry->value;
         return resolve_expr_const_val_as_fn(g, node, context, fn_table_entry->value);
+    }
+
+    if (import->any_imports_failed) {
+        // skip the error message since we had a failing import in this file
+        // if an import breaks we don't need 9999 undeclared identifier errors
+        return g->builtin_types.entry_invalid;
     }
 
     add_node_error(g, node, buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));

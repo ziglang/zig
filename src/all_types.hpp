@@ -992,6 +992,7 @@ struct ImportTableEntry {
     BlockContext *block_context;
     ZigList<ImporterInfo> importers;
     AstNode *c_import_node;
+    bool any_imports_failed;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
