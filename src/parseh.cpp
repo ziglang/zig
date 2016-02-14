@@ -593,6 +593,11 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                 const DecayedType *decayed_ty = static_cast<const DecayedType *>(ty);
                 return resolve_qual_type(c, decayed_ty->getDecayedType(), decl);
             }
+        case Type::Attributed:
+            {
+                const AttributedType *attributed_ty = static_cast<const AttributedType *>(ty);
+                return resolve_qual_type(c, attributed_ty->getEquivalentType(), decl);
+            }
         case Type::BlockPointer:
         case Type::LValueReference:
         case Type::RValueReference:
@@ -610,7 +615,6 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
         case Type::TypeOf:
         case Type::Decltype:
         case Type::UnaryTransform:
-        case Type::Attributed:
         case Type::TemplateTypeParm:
         case Type::SubstTemplateTypeParm:
         case Type::SubstTemplateTypeParmPack:
