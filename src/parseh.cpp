@@ -1540,21 +1540,23 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     clang_argv.append("-x");
     clang_argv.append("c");
 
-    char *ZIG_PARSEH_CFLAGS = getenv("ZIG_PARSEH_CFLAGS");
-    if (ZIG_PARSEH_CFLAGS) {
-        Buf tmp_buf = BUF_INIT;
-        char *start = ZIG_PARSEH_CFLAGS;
-        char *space = strstr(start, " ");
-        while (space) {
-            if (space - start > 0) {
-                buf_init_from_mem(&tmp_buf, start, space - start);
-                clang_argv.append(buf_ptr(buf_create_from_buf(&tmp_buf)));
+    if (c->codegen->is_native_target) {
+        char *ZIG_PARSEH_CFLAGS = getenv("ZIG_NATIVE_PARSEH_CFLAGS");
+        if (ZIG_PARSEH_CFLAGS) {
+            Buf tmp_buf = BUF_INIT;
+            char *start = ZIG_PARSEH_CFLAGS;
+            char *space = strstr(start, " ");
+            while (space) {
+                if (space - start > 0) {
+                    buf_init_from_mem(&tmp_buf, start, space - start);
+                    clang_argv.append(buf_ptr(buf_create_from_buf(&tmp_buf)));
+                }
+                start = space + 1;
+                space = strstr(start, " ");
             }
-            start = space + 1;
-            space = strstr(start, " ");
+            buf_init_from_str(&tmp_buf, start);
+            clang_argv.append(buf_ptr(buf_create_from_buf(&tmp_buf)));
         }
-        buf_init_from_str(&tmp_buf, start);
-        clang_argv.append(buf_ptr(buf_create_from_buf(&tmp_buf)));
     }
 
     clang_argv.append("-isystem");
