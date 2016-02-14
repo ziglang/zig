@@ -210,17 +210,10 @@ static void construct_linker_job_linux(LinkJob *lj) {
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
-    auto it = g->link_table.entry_iterator();
-    for (;;) {
-        auto *entry = it.next();
-        if (!entry)
-            break;
-
-        // we handle libc explicitly, don't do it here
-        if (!buf_eql_str(entry->key, "c")) {
-            Buf *arg = buf_sprintf("-l%s", buf_ptr(entry->key));
-            lj->args.append(buf_ptr(arg));
-        }
+    for (int i = 0; i < g->link_libs.length; i += 1) {
+        Buf *link_lib = g->link_libs.at(i);
+        Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
+        lj->args.append(buf_ptr(arg));
     }
 
 
@@ -332,6 +325,12 @@ static void construct_linker_job_mingw(LinkJob *lj) {
     }
 
     lj->args.append((const char *)buf_ptr(&lj->out_file_o));
+
+    for (int i = 0; i < g->link_libs.length; i += 1) {
+        Buf *link_lib = g->link_libs.at(i);
+        Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
+        lj->args.append(buf_ptr(arg));
+    }
 
     if (g->link_libc) {
         if (g->is_static) {

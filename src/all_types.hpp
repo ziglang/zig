@@ -1061,9 +1061,9 @@ struct CodeGen {
     LLVMZigDICompileUnit *compile_unit;
 
     ZigList<Buf *> lib_search_paths;
+    ZigList<Buf *> link_libs;
 
     // reminder: hash tables must be initialized before use
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> link_table;
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;

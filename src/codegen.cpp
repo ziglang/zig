@@ -24,7 +24,6 @@
 
 CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     CodeGen *g = allocate<CodeGen>(1);
-    g->link_table.init(32);
     g->import_table.init(32);
     g->builtin_fn_table.init(32);
     g->primitive_type_table.init(32);
@@ -3831,9 +3830,10 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
                         if (buf_eql_str(name, "version")) {
                             set_root_export_version(g, param, directive_node);
                         } else if (buf_eql_str(name, "link")) {
-                            g->link_table.put(param, true);
                             if (buf_eql_str(param, "c")) {
                                 g->link_libc = true;
+                            } else {
+                                g->link_libs.append(param);
                             }
                         } else {
                             add_node_error(g, directive_node,
