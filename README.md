@@ -40,8 +40,12 @@ compromises backward compatibility.
  * Release mode produces heavily optimized code. What other projects call
    "Link Time Optimization" Zig does automatically.
  * Mark functions as tests and automatically run them with `zig test`.
- * Supported architectures: `x86_64`
- * Supported operating systems: Linux
+ * Supported architectures: `x86_64`, `i386`
+ * Supported operating systems: linux
+ * Friendly toward package maintainers. Reproducible build, bootstrapping
+   process carefully documented. Issues filed by package maintainers are
+   considered especially important.
+ * Easy cross-compiling.
 
 ## Planned Features
 
@@ -53,7 +57,6 @@ compromises backward compatibility.
  * Eliminate the preprocessor, but (most) everything you can accomplish with
    the preprocessor, you can accomplish directly in the language.
  * Automatically provide test coverage.
- * Friendly toward package maintainers.
  * Ability to declare dependencies as Git URLS with commit locking (can
    provide a tag or sha1).
  * Include documentation generator.
@@ -62,7 +65,6 @@ compromises backward compatibility.
    behavior *would* happen.
  * Compiler exposes itself as a library.
  * Support for all popular architectures and operating systems.
- * Easy cross-compiling.
 
 ## Building
 
