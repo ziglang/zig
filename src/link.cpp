@@ -127,6 +127,11 @@ static const char *getLDMOption(const ZigTarget *t) {
 static void construct_linker_job_linux(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
+    if (lj->link_in_crt) {
+        find_libc_lib_path(g);
+    }
+
+
     lj->args.append("-m");
     lj->args.append(getLDMOption(&g->zig_target));
 
@@ -252,6 +257,10 @@ static bool is_target_cyg_mingw(const ZigTarget *target) {
 
 static void construct_linker_job_mingw(LinkJob *lj) {
     CodeGen *g = lj->codegen;
+
+    if (lj->link_in_crt) {
+        find_libc_lib_path(g);
+    }
 
     if (g->zig_target.arch.arch == ZigLLVM_x86) {
         lj->args.append("-m");
@@ -526,12 +535,6 @@ void codegen_link(CodeGen *g, const char *out_file) {
     }
 
     lj.link_in_crt = (g->link_libc && g->out_type == OutTypeExe);
-    if (lj.link_in_crt) {
-        find_libc_path(g);
-    }
-
-
-
     // invoke `ld`
     ensure_we_have_linker_path(g);
 

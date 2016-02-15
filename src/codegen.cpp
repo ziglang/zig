@@ -3695,7 +3695,7 @@ static void init(CodeGen *g, Buf *source_path) {
 }
 
 void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code) {
-    find_libc_path(g);
+    find_libc_include_path(g);
     Buf *full_path = buf_alloc();
     os_path_join(src_dirname, src_basename, full_path);
 

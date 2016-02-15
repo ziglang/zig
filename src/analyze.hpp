@@ -30,7 +30,8 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import,
         ContainerKind kind, AstNode *decl_node, const char *name);
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
 bool handle_is_ptr(TypeTableEntry *type_entry);
-void find_libc_path(CodeGen *g);
+void find_libc_include_path(CodeGen *g);
+void find_libc_lib_path(CodeGen *g);
 
 TypeTableEntry *get_underlying_type(TypeTableEntry *type_entry);
 bool type_has_bits(TypeTableEntry *type_entry);
