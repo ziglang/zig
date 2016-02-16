@@ -580,35 +580,33 @@ static void construct_linker_job_darwin(LinkJob *lj) {
     lj->args.append("-o");
     lj->args.append(buf_ptr(&lj->out_file));
 
-    if (lj->link_in_crt) {
-        if (shared) {
-            zig_panic("TODO");
-        } else if (g->is_static) {
-            lj->args.append("-lcrt0.o");
-        } else {
-            switch (platform.kind) {
-                case MacOS:
-                    if (darwin_version_lt(&platform, 10, 5)) {
-                        lj->args.append("-lcrt1.o");
-                    } else if (darwin_version_lt(&platform, 10, 6)) {
-                        lj->args.append("-lcrt1.10.5.o");
-                    } else if (darwin_version_lt(&platform, 10, 8)) {
-                        lj->args.append("-lcrt1.10.6.o");
-                    }
-                    break;
-                case IPhoneOS:
-                    if (g->zig_target.arch.arch == ZigLLVM_aarch64) {
-                        // iOS does not need any crt1 files for arm64
-                    } else if (darwin_version_lt(&platform, 3, 1)) {
-                        lj->args.append("-lcrt1.o");
-                    } else if (darwin_version_lt(&platform, 6, 0)) {
-                        lj->args.append("-lcrt1.3.1.o");
-                    }
-                    break;
-                case IPhoneOSSimulator:
-                    // no crt1.o needed
-                    break;
-            }
+    if (shared) {
+        zig_panic("TODO");
+    } else if (g->is_static) {
+        lj->args.append("-lcrt0.o");
+    } else {
+        switch (platform.kind) {
+            case MacOS:
+                if (darwin_version_lt(&platform, 10, 5)) {
+                    lj->args.append("-lcrt1.o");
+                } else if (darwin_version_lt(&platform, 10, 6)) {
+                    lj->args.append("-lcrt1.10.5.o");
+                } else if (darwin_version_lt(&platform, 10, 8)) {
+                    lj->args.append("-lcrt1.10.6.o");
+                }
+                break;
+            case IPhoneOS:
+                if (g->zig_target.arch.arch == ZigLLVM_aarch64) {
+                    // iOS does not need any crt1 files for arm64
+                } else if (darwin_version_lt(&platform, 3, 1)) {
+                    lj->args.append("-lcrt1.o");
+                } else if (darwin_version_lt(&platform, 6, 0)) {
+                    lj->args.append("-lcrt1.3.1.o");
+                }
+                break;
+            case IPhoneOSSimulator:
+                // no crt1.o needed
+                break;
         }
     }
 
@@ -620,29 +618,26 @@ static void construct_linker_job_darwin(LinkJob *lj) {
 
     lj->args.append((const char *)buf_ptr(&lj->out_file_o));
 
-    if (!g->link_libc && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
-        Buf *builtin_o_path = build_o(g, "builtin");
-        lj->args.append(buf_ptr(builtin_o_path));
-    }
-
     for (int i = 0; i < g->link_libs.length; i += 1) {
         Buf *link_lib = g->link_libs.at(i);
         Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
         lj->args.append(buf_ptr(arg));
     }
 
-    if (g->link_libc) {
-        lj->args.append("-lSystem");
+    // on Darwin, libSystem has libc in it, but also you have to use it
+    // to make syscalls because the syscall numbers are not documented
+    // and change between versions.
+    // so we always link against libSystem
+    lj->args.append("-lSystem");
 
-        if (platform.kind == MacOS) {
-            if (darwin_version_lt(&platform, 10, 5)) {
-                lj->args.append("-lgcc_s.10.4");
-            } else if (darwin_version_lt(&platform, 10, 6)) {
-                lj->args.append("-lgcc_s.10.5");
-            }
-        } else {
-            zig_panic("TODO");
+    if (platform.kind == MacOS) {
+        if (darwin_version_lt(&platform, 10, 5)) {
+            lj->args.append("-lgcc_s.10.4");
+        } else if (darwin_version_lt(&platform, 10, 6)) {
+            lj->args.append("-lgcc_s.10.5");
         }
+    } else {
+        zig_panic("TODO");
     }
 
 }

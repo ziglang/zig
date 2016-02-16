@@ -816,6 +816,53 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
     return get_fn_type(g, &fn_type_id);
 }
 
+static Buf *resolve_const_expr_str(CodeGen *g, ImportTableEntry *import, BlockContext *context, AstNode **node) {
+    TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
+    TypeTableEntry *resolved_type = analyze_expression(g, import, context, str_type, *node);
+
+    if (resolved_type->id == TypeTableEntryIdInvalid) {
+        return nullptr;
+    }
+
+    ConstExprValue *const_str_val = &get_resolved_expr(*node)->const_val;
+
+    if (!const_str_val->ok) {
+        add_node_error(g, *node, buf_sprintf("unable to resolve constant expression"));
+        return nullptr;
+    }
+
+    ConstExprValue *ptr_field = const_str_val->data.x_struct.fields[0];
+    uint64_t len = ptr_field->data.x_ptr.len;
+    Buf *result = buf_alloc();
+    for (uint64_t i = 0; i < len; i += 1) {
+        ConstExprValue *char_val = ptr_field->data.x_ptr.ptr[i];
+        uint64_t big_c = char_val->data.x_bignum.data.x_uint;
+        assert(big_c <= UINT8_MAX);
+        uint8_t c = big_c;
+        buf_append_char(result, c);
+    }
+    return result;
+}
+
+static bool resolve_const_expr_bool(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        AstNode **node, bool *value)
+{
+    TypeTableEntry *resolved_type = analyze_expression(g, import, context, g->builtin_types.entry_bool, *node);
+
+    if (resolved_type->id == TypeTableEntryIdInvalid) {
+        return false;
+    }
+
+    ConstExprValue *const_bool_val = &get_resolved_expr(*node)->const_val;
+
+    if (!const_bool_val->ok) {
+        add_node_error(g, *node, buf_sprintf("unable to resolve constant expression"));
+        return false;
+    }
+
+    *value = const_bool_val->data.x_bool;
+    return true;
+}
 
 static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_table_entry,
         ImportTableEntry *import)
@@ -839,22 +886,37 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
             Buf *name = &directive_node->data.directive.name;
 
             if (buf_eql_str(name, "attribute")) {
-                Buf *attr_name = &directive_node->data.directive.param;
                 if (fn_table_entry->fn_def_node) {
-                    if (buf_eql_str(attr_name, "naked")) {
-                        is_naked = true;
-                    } else if (buf_eql_str(attr_name, "cold")) {
-                        is_cold = true;
-                    } else if (buf_eql_str(attr_name, "test")) {
-                        is_test = true;
-                        g->test_fn_count += 1;
-                    } else {
-                        add_node_error(g, directive_node,
-                                buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
+                    Buf *attr_name = resolve_const_expr_str(g, import, import->block_context,
+                            &directive_node->data.directive.expr);
+                    if (attr_name) {
+                        if (buf_eql_str(attr_name, "naked")) {
+                            is_naked = true;
+                        } else if (buf_eql_str(attr_name, "cold")) {
+                            is_cold = true;
+                        } else if (buf_eql_str(attr_name, "test")) {
+                            is_test = true;
+                            g->test_fn_count += 1;
+                        } else {
+                            add_node_error(g, directive_node,
+                                    buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
+                        }
                     }
                 } else {
                     add_node_error(g, directive_node,
                             buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
+                }
+            } else if (buf_eql_str(name, "condition")) {
+                if (fn_proto->visib_mod == VisibModExport) {
+                    bool include;
+                    bool ok = resolve_const_expr_bool(g, import, import->block_context,
+                            &directive_node->data.directive.expr, &include);
+                    if (ok && !include) {
+                        fn_proto->visib_mod = VisibModPub;
+                    }
+                } else {
+                    add_node_error(g, directive_node,
+                        buf_sprintf("#condition valid only on exported symbols"));
                 }
             } else {
                 add_node_error(g, directive_node,
@@ -862,6 +924,15 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
             }
         }
     }
+
+    bool is_internal = (fn_proto->visib_mod != VisibModExport);
+    bool is_c_compat = !is_internal || fn_proto->is_extern;
+    fn_table_entry->internal_linkage = !is_c_compat;
+    if (!is_internal) {
+        fn_table_entry->ref_count += 1;
+    }
+
+
 
     TypeTableEntry *fn_type = analyze_fn_proto_type(g, import, import->block_context, nullptr, node,
             is_naked, is_cold);
@@ -1242,8 +1313,6 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
 
     auto entry = fn_table->maybe_get(proto_name);
     bool skip = false;
-    bool is_internal = (proto_node->data.fn_proto.visib_mod != VisibModExport);
-    bool is_c_compat = !is_internal || is_extern;
     bool is_pub = (proto_node->data.fn_proto.visib_mod != VisibModPrivate);
     if (entry) {
         add_node_error(g, proto_node,
@@ -1263,10 +1332,8 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
     fn_table_entry->import_entry = import;
     fn_table_entry->proto_node = proto_node;
     fn_table_entry->fn_def_node = fn_def_node;
-    fn_table_entry->internal_linkage = !is_c_compat;
     fn_table_entry->is_extern = is_extern;
     fn_table_entry->member_of_struct = struct_type;
-    fn_table_entry->ref_count = (proto_node->data.fn_proto.visib_mod == VisibModExport) ? 1 : 0;
 
     if (struct_type) {
         buf_resize(&fn_table_entry->symbol_name, 0);
@@ -1290,7 +1357,7 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import,
         g->main_fn = fn_table_entry;
 
         if (g->bootstrap_import && !g->is_test_build) {
-            g->bootstrap_import->fn_table.put(proto_name, fn_table_entry);
+            g->bootstrap_import->fn_table.put(buf_create_from_str("zig_user_main"), fn_table_entry);
         }
     }
     bool is_test_main_fn = !struct_type && (import == g->test_runner_import) && buf_eql_str(proto_name, "main");
@@ -4246,54 +4313,33 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             {
                 AstNode **str_node = node->data.fn_call_expr.params.at(0)->parent_field;
 
-                TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
-                TypeTableEntry *resolved_type = analyze_expression(g, import, context, str_type, *str_node);
-
-                if (resolved_type->id == TypeTableEntryIdInvalid) {
-                    return resolved_type;
-                }
-
-                ConstExprValue *const_str_val = &get_resolved_expr(*str_node)->const_val;
-
-                if (!const_str_val->ok) {
-                    add_node_error(g, *str_node, buf_sprintf("@compile_var requires constant expression"));
-                    return g->builtin_types.entry_void;
-                }
-
-                ConstExprValue *ptr_field = const_str_val->data.x_struct.fields[0];
-                uint64_t len = ptr_field->data.x_ptr.len;
-                Buf var_name = BUF_INIT;
-                buf_resize(&var_name, 0);
-                for (uint64_t i = 0; i < len; i += 1) {
-                    ConstExprValue *char_val = ptr_field->data.x_ptr.ptr[i];
-                    uint64_t big_c = char_val->data.x_bignum.data.x_uint;
-                    assert(big_c <= UINT8_MAX);
-                    uint8_t c = big_c;
-                    buf_append_char(&var_name, c);
+                Buf *var_name = resolve_const_expr_str(g, import, context, str_node);
+                if (!var_name) {
+                    return g->builtin_types.entry_invalid;
                 }
 
                 ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
                 const_val->ok = true;
                 const_val->depends_on_compile_var = true;
 
-                if (buf_eql_str(&var_name, "is_big_endian")) {
+                if (buf_eql_str(var_name, "is_big_endian")) {
                     return resolve_expr_const_val_as_bool(g, node, g->is_big_endian, true);
-                } else if (buf_eql_str(&var_name, "is_release")) {
+                } else if (buf_eql_str(var_name, "is_release")) {
                     return resolve_expr_const_val_as_bool(g, node, g->is_release_build, true);
-                } else if (buf_eql_str(&var_name, "is_test")) {
+                } else if (buf_eql_str(var_name, "is_test")) {
                     return resolve_expr_const_val_as_bool(g, node, g->is_test_build, true);
-                } else if (buf_eql_str(&var_name, "os")) {
+                } else if (buf_eql_str(var_name, "os")) {
                     const_val->data.x_enum.tag = g->target_os_index;
                     return g->builtin_types.entry_os_enum;
-                } else if (buf_eql_str(&var_name, "arch")) {
+                } else if (buf_eql_str(var_name, "arch")) {
                     const_val->data.x_enum.tag = g->target_arch_index;
                     return g->builtin_types.entry_arch_enum;
-                } else if (buf_eql_str(&var_name, "environ")) {
+                } else if (buf_eql_str(var_name, "environ")) {
                     const_val->data.x_enum.tag = g->target_environ_index;
                     return g->builtin_types.entry_environ_enum;
                 } else {
                     add_node_error(g, *str_node,
-                        buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(&var_name)));
+                        buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(var_name)));
                     return g->builtin_types.entry_invalid;
                 }
             }
@@ -4740,7 +4786,8 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
         field_use_counts = allocate<int>(expr_type->data.enumeration.field_count);
     }
 
-    int const_chosen_prong_index = -1;
+    int *const_chosen_prong_index = &node->data.switch_expr.const_chosen_prong_index;
+    *const_chosen_prong_index = -1;
     AstNode *else_prong = nullptr;
     for (int prong_i = 0; prong_i < prong_count; prong_i += 1) {
         AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
@@ -4756,8 +4803,8 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
             }
             var_type = expr_type;
             var_is_target_expr = true;
-            if (const_chosen_prong_index == -1) {
-                const_chosen_prong_index = prong_i;
+            if (*const_chosen_prong_index == -1 && expr_val->ok) {
+                *const_chosen_prong_index = prong_i;
             }
         } else {
             bool all_agree_on_var_type = true;
@@ -4792,7 +4839,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                             }
                             if (!any_errors && expr_val->ok) {
                                 if (expr_val->data.x_enum.tag == type_enum_field->value) {
-                                    const_chosen_prong_index = prong_i;
+                                    *const_chosen_prong_index = prong_i;
                                 }
                             }
                         } else {
@@ -4844,7 +4891,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
     for (int prong_i = 0; prong_i < prong_count; prong_i += 1) {
         AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
         BlockContext *child_context = prong_node->data.switch_prong.block_context;
-        child_context->codegen_excluded = expr_val->ok && (const_chosen_prong_index != prong_i);
+        child_context->codegen_excluded = expr_val->ok && (*const_chosen_prong_index != prong_i);
 
         peer_types[prong_i] = analyze_expression(g, import, child_context, expected_type,
                 prong_node->data.switch_prong.expr);
@@ -4872,10 +4919,9 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
     }
 
     if (expr_val->ok) {
-        assert(const_chosen_prong_index != -1);
+        assert(*const_chosen_prong_index != -1);
 
-        *const_val = get_resolved_expr(peer_nodes[const_chosen_prong_index])->const_val;
-        const_val->ok = true;
+        *const_val = get_resolved_expr(peer_nodes[*const_chosen_prong_index])->const_val;
         // the target expr depends on a compile var,
         // so the entire if statement does too
         const_val->depends_on_compile_var = true;
@@ -5490,6 +5536,12 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
                 AstNode *param = node->data.fn_proto.params.at(i);
                 collect_expr_decl_deps(g, import, param, decl_node);
             }
+            if (node->data.fn_proto.directives) {
+                for (int i = 0; i < node->data.fn_proto.directives->length; i += 1) {
+                    AstNode *directive = node->data.fn_proto.directives->at(i);
+                    collect_expr_decl_deps(g, import, directive, decl_node);
+                }
+            }
             collect_expr_decl_deps(g, import, node->data.fn_proto.return_type, decl_node);
             break;
         case NodeTypeParamDecl:
@@ -5498,12 +5550,14 @@ static void collect_expr_decl_deps(CodeGen *g, ImportTableEntry *import, AstNode
         case NodeTypeTypeDecl:
             collect_expr_decl_deps(g, import, node->data.type_decl.child_type, decl_node);
             break;
+        case NodeTypeDirective:
+            collect_expr_decl_deps(g, import, node->data.directive.expr, decl_node);
+            break;
         case NodeTypeVariableDeclaration:
         case NodeTypeRootExportDecl:
         case NodeTypeFnDef:
         case NodeTypeRoot:
         case NodeTypeFnDecl:
-        case NodeTypeDirective:
         case NodeTypeImport:
         case NodeTypeCImport:
         case NodeTypeLabel:

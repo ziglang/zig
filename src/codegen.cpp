@@ -2150,7 +2150,8 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
         if (!g->is_release_build) {
             LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
         }
-        return LLVMBuildUnreachable(g->builder);
+        LLVMBuildUnreachable(g->builder);
+        return nullptr;
     } else if (type_entry->id == TypeTableEntryIdVoid) {
         assert(node->data.container_init_expr.entries.length == 0);
         return nullptr;
@@ -2486,6 +2487,13 @@ static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
 
 static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeSwitchExpr);
+
+    if (node->data.switch_expr.const_chosen_prong_index >= 0) {
+        AstNode *prong_node = node->data.switch_expr.prongs.at(node->data.switch_expr.const_chosen_prong_index);
+        assert(prong_node->type == NodeTypeSwitchProng);
+        AstNode *prong_expr = prong_node->data.switch_prong.expr;
+        return gen_expr(g, prong_expr);
+    }
 
     TypeTableEntry *target_type = get_expr_type(node->data.switch_expr.expr);
     LLVMValueRef target_value_handle = gen_expr(g, node->data.switch_expr.expr);
@@ -3877,18 +3885,23 @@ static ImportTableEntry *codegen_add_code(CodeGen *g, Buf *abs_full_path,
                     for (int i = 0; i < directives->length; i += 1) {
                         AstNode *directive_node = directives->at(i);
                         Buf *name = &directive_node->data.directive.name;
-                        Buf *param = &directive_node->data.directive.param;
-                        if (buf_eql_str(name, "version")) {
-                            set_root_export_version(g, param, directive_node);
-                        } else if (buf_eql_str(name, "link")) {
-                            if (buf_eql_str(param, "c")) {
-                                g->link_libc = true;
+                        AstNode *param_node = directive_node->data.directive.expr;
+                        assert(param_node->type == NodeTypeStringLiteral);
+                        Buf *param = &param_node->data.string_literal.buf;
+
+                        if (param) {
+                            if (buf_eql_str(name, "version")) {
+                                set_root_export_version(g, param, directive_node);
+                            } else if (buf_eql_str(name, "link")) {
+                                if (buf_eql_str(param, "c")) {
+                                    g->link_libc = true;
+                                } else {
+                                    g->link_libs.append(param);
+                                }
                             } else {
-                                g->link_libs.append(param);
+                                add_node_error(g, directive_node,
+                                        buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
                             }
-                        } else {
-                            add_node_error(g, directive_node,
-                                    buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
                         }
                     }
                 }

@@ -339,6 +339,7 @@ void ast_print(FILE *f, AstNode *node, int indent) {
             break;
         case NodeTypeDirective:
             fprintf(f, "%s\n", node_type_str(node->type));
+            ast_print(f, node->data.directive.expr, indent + 2);
             break;
         case NodeTypePrefixOpExpr:
             fprintf(f, "%s %s\n", node_type_str(node->type),
@@ -631,8 +632,9 @@ static void render_node(AstRender *ar, AstNode *node) {
             fprintf(ar->f, "}");
             break;
         case NodeTypeDirective:
-            fprintf(ar->f, "#%s(\"%s\")\n", buf_ptr(&node->data.directive.name),
-                    buf_ptr(&node->data.directive.param));
+            fprintf(ar->f, "#%s(",  buf_ptr(&node->data.directive.name));
+            render_node(ar, node->data.directive.expr);
+            fprintf(ar->f, ")\n");
             break;
         case NodeTypeReturnExpr:
             zig_panic("TODO");

@@ -427,7 +427,7 @@ struct AstNodeFieldAccessExpr {
 
 struct AstNodeDirective {
     Buf name;
-    Buf param;
+    AstNode *expr;
 };
 
 struct AstNodeRootExportDecl {
@@ -526,6 +526,7 @@ struct AstNodeSwitchExpr {
 
     // populated by semantic analyzer
     Expr resolved_expr;
+    int const_chosen_prong_index;
 };
 
 struct AstNodeSwitchProng {

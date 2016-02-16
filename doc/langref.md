@@ -31,7 +31,7 @@ ExternDecl = "extern" (FnProto | VariableDeclaration) ";"
 
 FnProto = "fn" option("Symbol") ParamDeclList option("->" TypeExpr)
 
-Directive = "#" "Symbol" "(" "String" ")"
+Directive = "#" "Symbol" "(" Expression ")"
 
 VisibleMod = "pub" | "export"
 

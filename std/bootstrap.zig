@@ -1,24 +1,28 @@
 import "syscall.zig";
 
 // The compiler treats this file special by implicitly importing the function `main`
-// from the root source file.
+// from the root source file as the symbol `zig_user_main`.
+
+const want_start_symbol = switch(@compile_var("os")) {
+    linux => true,
+    else => false,
+};
+const want_main_symbol = !want_start_symbol;
 
 var argc: isize = undefined;
 var argv: &&u8 = undefined;
-var env: &&u8 = undefined;
 
 #attribute("naked")
+#condition(want_start_symbol)
 export fn _start() -> unreachable {
     switch (@compile_var("arch")) {
         x86_64 => {
             argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> isize));
             argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));
-            env = asm("lea 0x10(%%rsp,[argc],8), %[env]": [env] "=r" (-> &&u8): [argc] "r" (argc));
         },
         i386 => {
             argc = asm("mov (%%esp), %[argc]": [argc] "=r" (-> isize));
             argv = asm("lea 0x4(%%esp), %[argv]": [argv] "=r" (-> &&u8));
-            env = asm("lea 0x8(%%esp,%[argc],4), %[env]": [env] "=r" (-> &&u8): [argc] "r" (argc));
         },
         else => unreachable{},
     }
@@ -39,6 +43,17 @@ fn call_main() -> unreachable {
         const ptr = argv[i];
         args[i] = ptr[0...strlen(ptr)];
     }
-    main(args) %% exit(1);
+    zig_user_main(args) %% exit(1);
     exit(0);
+}
+
+#condition(want_main_symbol)
+export fn main(argc: i32, argv: &&u8) -> i32 {
+    var args: [argc][]u8 = undefined;
+    for (args) |arg, i| {
+        const ptr = argv[i];
+        args[i] = ptr[0...strlen(ptr)];
+    }
+    zig_user_main(args) %% return 1;
+    return 0;
 }

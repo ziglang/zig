@@ -499,6 +499,7 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, boo
 static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory,
         ZigList<AstNode*> *directives, VisibMod visib_mod);
 static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index);
+static AstNode *ast_parse_grouped_expr(ParseContext *pc, int *token_index, bool mandatory);
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
     if (token->id == token_id) {
@@ -517,33 +518,19 @@ static Token *ast_eat_token(ParseContext *pc, int *token_index, TokenId token_id
     return token;
 }
 
-
+/*
+Directive = "#" "Symbol" "(" Expression ")"
+*/
 static AstNode *ast_parse_directive(ParseContext *pc, int *token_index) {
-    Token *number_sign = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, number_sign, TokenIdNumberSign);
+    Token *number_sign = ast_eat_token(pc, token_index, TokenIdNumberSign);
 
     AstNode *node = ast_create_node(pc, NodeTypeDirective, number_sign);
 
-    Token *name_symbol = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, name_symbol, TokenIdSymbol);
+    Token *name_symbol = ast_eat_token(pc, token_index, TokenIdSymbol);
 
     ast_buf_from_token(pc, name_symbol, &node->data.directive.name);
 
-    Token *l_paren = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, l_paren, TokenIdLParen);
-
-    Token *param_str = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, param_str, TokenIdStringLiteral);
-
-    parse_string_literal(pc, param_str, &node->data.directive.param, nullptr, nullptr);
-
-    Token *r_paren = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, r_paren, TokenIdRParen);
+    node->data.directive.expr = ast_parse_grouped_expr(pc, token_index, true);
 
     normalize_parent_ptrs(node);
     return node;
@@ -2741,7 +2728,7 @@ void normalize_parent_ptrs(AstNode *node) {
             set_list_fields(&node->data.block.statements);
             break;
         case NodeTypeDirective:
-            // none
+            set_field(&node->data.directive.expr);
             break;
         case NodeTypeReturnExpr:
             set_field(&node->data.return_expr.expr);
