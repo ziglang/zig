@@ -605,6 +605,20 @@ static void construct_linker_job_darwin(LinkJob *lj) {
         lj->args.append(buf_ptr(arg));
     }
 
+    if (g->link_libc) {
+        lj->args.append("-lSystem");
+
+        if (platform.kind == MacOS) {
+            if (darwin_version_lt(&platform, 10, 5)) {
+                lj->args.append("-lgcc_s.10.4");
+            } else if (darwin_version_lt(&platform, 10, 6)) {
+                lj->args.append("-lgcc_s.10.5");
+            }
+        } else {
+            zig_panic("TODO");
+        }
+    }
+
 }
 
 static void construct_linker_job(LinkJob *lj) {
