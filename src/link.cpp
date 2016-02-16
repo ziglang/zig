@@ -83,6 +83,24 @@ static const char *get_exe_file_extension(CodeGen *g) {
     }
 }
 
+static const char *get_darwin_arch_string(const ZigTarget *t) {
+    switch (t->arch.arch) {
+        case ZigLLVM_aarch64:
+            return "arm64";
+        case ZigLLVM_thumb:
+        case ZigLLVM_arm:
+            return "arm";
+        case ZigLLVM_ppc:
+            return "ppc";
+        case ZigLLVM_ppc64:
+            return "ppc64";
+        case ZigLLVM_ppc64le:
+            return "ppc64le";
+        default:
+            return ZigLLVMGetArchTypeName(t->arch.arch);
+    }
+}
+
 static const char *getLDMOption(const ZigTarget *t) {
     switch (t->arch.arch) {
         case ZigLLVM_x86:
@@ -532,6 +550,9 @@ static void construct_linker_job_darwin(LinkJob *lj) {
         zig_panic("TODO linker args on darwin for making a library");
     }
 
+    lj->args.append("-arch");
+    lj->args.append(get_darwin_arch_string(&g->zig_target));
+
     DarwinPlatform platform;
     get_darwin_platform(lj, &platform);
     switch (platform.kind) {
@@ -598,6 +619,11 @@ static void construct_linker_job_darwin(LinkJob *lj) {
     }
 
     lj->args.append((const char *)buf_ptr(&lj->out_file_o));
+
+    if (!g->link_libc && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
+        Buf *builtin_o_path = build_o(g, "builtin");
+        lj->args.append(buf_ptr(builtin_o_path));
+    }
 
     for (int i = 0; i < g->link_libs.length; i += 1) {
         Buf *link_lib = g->link_libs.at(i);
