@@ -18,10 +18,10 @@
 static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options]\n"
         "Commands:\n"
-        "  build                        create executable, object, or library from target\n"
-        "  test                         create and run a test build\n"
+        "  build [source]               create executable, object, or library from source\n"
+        "  test [source]                create and run a test build\n"
+        "  parseh [source]              convert a c header file to zig extern declarations\n"
         "  version                      print version number and exit\n"
-        "  parseh                       convert a c header file to zig extern declarations\n"
         "  targets                      list available compilation targets\n"
         "Options:\n"
         "  --release                    build with optimizations on and debug protection off\n"
@@ -33,7 +33,7 @@ static int usage(const char *arg0) {
         "  --verbose                    turn on compiler debug output\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
         "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
-        "  --libc-static-lib-dir [path] directory where libc crtbeginT.o resides\n"
+        "  --libc-static-lib-dir [path] directory where libc crtbegin.o resides\n"
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
         "  --ld-path [path]             set the path to the linker\n"
@@ -46,6 +46,10 @@ static int usage(const char *arg0) {
         "  -mwindows                    (windows only) --subsystem windows to the linker\n"
         "  -mconsole                    (windows only) --subsystem console to the linker\n"
         "  -municode                    (windows only) link with unicode\n"
+        "  -mlinker-version [ver]       (darwin only) override linker version\n"
+        "  -rdynamic                    add all symbols to the dynamic symbol table\n"
+        "  -mmacosx-version-min [ver]   (darwin only) set Mac OS X deployment target\n"
+        "  -mios-version-min [ver]      (darwin only) set iOS deployment target\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -119,6 +123,10 @@ int main(int argc, char **argv) {
     bool mwindows = false;
     bool mconsole = false;
     bool municode = false;
+    const char *mlinker_version = nullptr;
+    bool rdynamic = false;
+    const char *mmacosx_version_min = nullptr;
+    const char *mios_version_min = nullptr;
 
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
@@ -138,6 +146,8 @@ int main(int argc, char **argv) {
                 mconsole = true;
             } else if (strcmp(arg, "-municode") == 0) {
                 municode = true;
+            } else if (strcmp(arg, "-rdynamic") == 0) {
+                rdynamic = true;
             } else if (i + 1 >= argc) {
                 return usage(arg0);
             } else {
@@ -192,6 +202,12 @@ int main(int argc, char **argv) {
                     target_os = argv[i];
                 } else if (strcmp(arg, "--target-environ") == 0) {
                     target_environ = argv[i];
+                } else if (strcmp(arg, "-mlinker-version") == 0) {
+                    mlinker_version = argv[i];
+                } else if (strcmp(arg, "-mmacosx-version-min") == 0) {
+                    mmacosx_version_min = argv[i];
+                } else if (strcmp(arg, "-mios-version-min") == 0) {
+                    mios_version_min = argv[i];
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return usage(arg0);
@@ -327,6 +343,20 @@ int main(int argc, char **argv) {
 
             codegen_set_windows_subsystem(g, mwindows, mconsole);
             codegen_set_windows_unicode(g, municode);
+            codegen_set_rdynamic(g, rdynamic);
+            if (mlinker_version) {
+                codegen_set_mlinker_version(g, buf_create_from_str(mlinker_version));
+            }
+            if (mmacosx_version_min && mios_version_min) {
+                fprintf(stderr, "-mmacosx-version-min and -mios-version-min options not allowed together\n");
+                return EXIT_FAILURE;
+            }
+            if (mmacosx_version_min) {
+                codegen_set_mmacosx_version_min(g, buf_create_from_str(mmacosx_version_min));
+            }
+            if (mios_version_min) {
+                codegen_set_mios_version_min(g, buf_create_from_str(mios_version_min));
+            }
 
             if (cmd == CmdBuild) {
                 codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);

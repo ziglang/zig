@@ -1130,6 +1130,10 @@ struct CodeGen {
     bool windows_subsystem_windows;
     bool windows_subsystem_console;
     bool windows_linker_unicode;
+    Buf *darwin_linker_version;
+    Buf *mmacosx_version_min;
+    Buf *mios_version_min;
+    bool linker_rdynamic;
 
     // The function definitions this module includes. There must be a corresponding
     // fn_protos entry.

@@ -34,6 +34,10 @@ void codegen_set_linker_path(CodeGen *g, Buf *linker_path);
 void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole);
 void codegen_set_windows_unicode(CodeGen *g, bool municode);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
+void codegen_set_mlinker_version(CodeGen *g, Buf *darwin_linker_version);
+void codegen_set_rdynamic(CodeGen *g, bool rdynamic);
+void codegen_set_mmacosx_version_min(CodeGen *g, Buf *mmacosx_version_min);
+void codegen_set_mios_version_min(CodeGen *g, Buf *mios_version_min);
 
 void codegen_add_root_code(CodeGen *g, Buf *source_dir, Buf *source_basename, Buf *source_code);
 

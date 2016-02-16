@@ -22,6 +22,31 @@
 #include <errno.h>
 
 
+static void init_darwin_native(CodeGen *g) {
+    char *osx_target = getenv("MACOSX_DEPLOYMENT_TARGET");
+    char *ios_target = getenv("IPHONEOS_DEPLOYMENT_TARGET");
+
+    // Allow conflicts among OSX and iOS, but choose the default platform.
+    if (osx_target && ios_target) {
+        if (g->zig_target.arch.arch == ZigLLVM_arm ||
+            g->zig_target.arch.arch == ZigLLVM_aarch64 ||
+            g->zig_target.arch.arch == ZigLLVM_thumb)
+        {
+            osx_target = nullptr;
+        } else {
+            ios_target = nullptr;
+        }
+    }
+
+    if (osx_target) {
+        g->mmacosx_version_min = buf_create_from_str(osx_target);
+    } else if (ios_target) {
+        g->mios_version_min = buf_create_from_str(ios_target);
+    } else {
+        zig_panic("unable to determine -mmacosx-version-min or -mios-version-min");
+    }
+}
+
 CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     CodeGen *g = allocate<CodeGen>(1);
     g->import_table.init(32);
@@ -46,6 +71,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
         g->libc_static_lib_dir = buf_create_from_str("");
         g->libc_include_dir = buf_create_from_str("");
         g->linker_path = buf_create_from_str("");
+        g->darwin_linker_version = buf_create_from_str("");
     } else {
         // native compilation, we can rely on the configuration stuff
         g->is_native_target = true;
@@ -56,6 +82,15 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
         g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
         g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
         g->linker_path = buf_create_from_str(ZIG_LD_PATH);
+        g->darwin_linker_version = buf_create_from_str(ZIG_HOST_LINK_VERSION);
+
+        if (g->zig_target.os == ZigLLVM_Darwin ||
+            g->zig_target.os == ZigLLVM_MacOSX ||
+            g->zig_target.os == ZigLLVM_IOS)
+        {
+            init_darwin_native(g);
+        }
+
     }
 
     return g;
@@ -129,6 +164,22 @@ void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole) {
 
 void codegen_set_windows_unicode(CodeGen *g, bool municode) {
     g->windows_linker_unicode = municode;
+}
+
+void codegen_set_mlinker_version(CodeGen *g, Buf *darwin_linker_version) {
+    g->darwin_linker_version = darwin_linker_version;
+}
+
+void codegen_set_mmacosx_version_min(CodeGen *g, Buf *mmacosx_version_min) {
+    g->mmacosx_version_min = mmacosx_version_min;
+}
+
+void codegen_set_mios_version_min(CodeGen *g, Buf *mios_version_min) {
+    g->mios_version_min = mios_version_min;
+}
+
+void codegen_set_rdynamic(CodeGen *g, bool rdynamic) {
+    g->linker_rdynamic = rdynamic;
 }
 
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node);
