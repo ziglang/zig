@@ -945,9 +945,14 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         return;
     }
 
-
-    fn_table_entry->fn_value = LLVMAddFunction(g->module, buf_ptr(&fn_table_entry->symbol_name),
-            fn_type->data.fn.raw_type_ref);
+    Buf *symbol_name;
+    if (is_c_compat) {
+        symbol_name = &fn_table_entry->symbol_name;
+    } else {
+        symbol_name = buf_sprintf("_%s", buf_ptr(&fn_table_entry->symbol_name));
+    }
+    fn_table_entry->fn_value = LLVMAddFunction(g->module, buf_ptr(symbol_name),
+        fn_type->data.fn.raw_type_ref);
 
     if (fn_table_entry->is_inline) {
         LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMAlwaysInlineAttribute);
