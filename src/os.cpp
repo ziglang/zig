@@ -34,7 +34,6 @@
 #define ZIG_OS_POSIX
 
 #include <unistd.h>
-#include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -43,7 +42,11 @@
 
 #endif
 
+#include <stdlib.h>
+#include <errno.h>
 
+
+#if defined(ZIG_OS_POSIX)
 static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args, int *return_code) {
     pid_t pid = fork();
     if (pid == -1)
@@ -63,6 +66,7 @@ static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args,
         waitpid(pid, return_code, 0);
     }
 }
+#endif
 
 #if defined(ZIG_OS_WINDOWS)
 static void os_spawn_process_windows(const char *exe, ZigList<const char *> &args, int *return_code) {
@@ -106,6 +110,9 @@ void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
 }
 
 int os_path_real(Buf *rel_path, Buf *out_abs_path) {
+#if defined(ZIG_OS_WINDOWS)
+    zig_panic("TODO os_path_real for windows");
+#elif defined(ZIG_OS_POSIX)
     buf_resize(out_abs_path, PATH_MAX + 1);
     char *result = realpath(buf_ptr(rel_path), buf_ptr(out_abs_path));
     if (!result) {
@@ -122,6 +129,9 @@ int os_path_real(Buf *rel_path, Buf *out_abs_path) {
     }
     buf_resize(out_abs_path, strlen(buf_ptr(out_abs_path)));
     return ErrorNone;
+#else
+#error "missing os_path_real implementation"
+#endif
 }
 
 int os_fetch_file(FILE *f, Buf *out_buf) {
@@ -199,6 +209,14 @@ static void os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 }
 #endif
 
+#if defined(ZIG_OS_WINDOWS)
+static void os_exec_process_windows(const char *exe, ZigList<const char *> &args,
+        int *return_code, Buf *out_stderr, Buf *out_stdout)
+{
+    zig_panic("TODO implement os_exec_process_windows");
+}
+#endif
+
 void os_exec_process(const char *exe, ZigList<const char *> &args,
         int *return_code, Buf *out_stderr, Buf *out_stdout)
 {
@@ -217,7 +235,7 @@ void os_write_file(Buf *full_path, Buf *contents) {
         zig_panic("open failed");
     }
     size_t amt_written = fwrite(buf_ptr(contents), 1, buf_len(contents), f);
-    if (amt_written != buf_len(contents))
+    if (amt_written != (size_t)buf_len(contents))
         zig_panic("write failed: %s", strerror(errno));
     if (fclose(f))
         zig_panic("close failed");
@@ -276,7 +294,8 @@ bool os_stderr_tty(void) {
 #endif
 }
 
-int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
+#if defined(ZIG_OS_POSIX)
+static int os_buf_to_tmp_file_posix(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
     buf_resize(out_tmp_path, 0);
     buf_appendf(out_tmp_path, "/tmp/XXXXXX%s", buf_ptr(suffix));
 
@@ -297,6 +316,23 @@ int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
         zig_panic("close failed");
 
     return 0;
+}
+#endif
+
+#if defined(ZIG_OS_WINDOWS)
+static int os_buf_to_tmp_file_windows(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
+    zig_panic("TODO implement os_buf_to_tmp_file_windows");
+}
+#endif
+
+int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
+#if defined(ZIG_OS_WINDOWS)
+    return os_buf_to_tmp_file_windows(contents, suffix, out_tmp_path);
+#elif defined(ZIG_OS_POSIX)
+    return os_buf_to_tmp_file_posix(contents, suffix, out_tmp_path);
+#else
+#error "missing os_buf_to_tmp_file implementation"
+#endif
 }
 
 int os_delete_file(Buf *path) {
