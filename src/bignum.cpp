@@ -9,6 +9,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <inttypes.h>
 
 static void bignum_normalize(BigNum *bn) {
     assert(bn->kind == BigNumKindInt);
@@ -264,7 +265,8 @@ Buf *bignum_to_buf(BigNum *bn) {
         return buf_sprintf("%f", bn->data.x_float);
     } else {
         const char *neg = bn->is_negative ? "-" : "";
-        return buf_sprintf("%s%llu", neg, bn->data.x_uint);
+        uintmax_t value = bn->data.x_uint;
+        return buf_sprintf("%s%" PRIuMAX, neg, value);
     }
 }
 
