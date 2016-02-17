@@ -9,6 +9,30 @@
 #include "util.hpp"
 #include "error.hpp"
 
+#if defined(_WIN32)
+#define ZIG_OS_WINDOWS
+
+#if !defined(NOMINMAX)
+#define NOMINMAX
+#endif
+
+#if !defined(VC_EXTRALEAN)
+#define VC_EXTRALEAN
+#endif
+
+#if !defined(WIN32_LEAN_AND_MEAN)
+#define WIN32_LEAN_AND_MEAN
+#endif
+
+#if !defined(UNICODE)
+#define UNICODE
+#endif
+
+#include <windows.h>
+#include <io.h>
+#else
+#define ZIG_OS_POSIX
+
 #include <unistd.h>
 #include <errno.h>
 #include <sys/types.h>
@@ -17,7 +41,10 @@
 #include <fcntl.h>
 #include <limits.h>
 
-void os_spawn_process(const char *exe, ZigList<const char *> &args, int *return_code) {
+#endif
+
+
+static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args, int *return_code) {
     pid_t pid = fork();
     if (pid == -1)
         zig_panic("fork failed");
@@ -37,24 +64,20 @@ void os_spawn_process(const char *exe, ZigList<const char *> &args, int *return_
     }
 }
 
-static int read_all_fd_stream(int fd, Buf *out_buf) {
-    static const ssize_t buf_size = 0x2000;
-    buf_resize(out_buf, buf_size);
-    ssize_t actual_buf_len = 0;
-    for (;;) {
-        ssize_t amt_read = read(fd, buf_ptr(out_buf) + actual_buf_len, buf_size);
-        if (amt_read < 0) {
-            return ErrorFileSystem;
-        }
-        actual_buf_len += amt_read;
-        if (amt_read == 0) {
-            buf_resize(out_buf, actual_buf_len);
-            return 0;
-        }
+#if defined(ZIG_OS_WINDOWS)
+static void os_spawn_process_windows(const char *exe, ZigList<const char *> &args, int *return_code) {
+    zig_panic("TODO os_spawn_process_windows");
+}
+#endif
 
-        buf_resize(out_buf, actual_buf_len + buf_size);
-    }
-    zig_unreachable();
+void os_spawn_process(const char *exe, ZigList<const char *> &args, int *return_code) {
+#if defined(ZIG_OS_WINDOWS)
+    os_spawn_process_windows(exe, args, return_code);
+#elif defined(ZIG_OS_POSIX)
+    os_spawn_process_posix(exe, args, return_code);
+#else
+#error "missing os_spawn_process implementation"
+#endif
 }
 
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
@@ -101,7 +124,30 @@ int os_path_real(Buf *rel_path, Buf *out_abs_path) {
     return ErrorNone;
 }
 
-void os_exec_process(const char *exe, ZigList<const char *> &args,
+int os_fetch_file(FILE *f, Buf *out_buf) {
+    static const ssize_t buf_size = 0x2000;
+    buf_resize(out_buf, buf_size);
+    ssize_t actual_buf_len = 0;
+    for (;;) {
+        size_t amt_read = fread(buf_ptr(out_buf) + actual_buf_len, 1, buf_size, f);
+        actual_buf_len += amt_read;
+        if (amt_read != buf_size) {
+            if (feof(f)) {
+                buf_resize(out_buf, actual_buf_len);
+                return 0;
+            } else {
+                return ErrorFileSystem;
+            }
+        }
+
+        buf_resize(out_buf, actual_buf_len + buf_size);
+    }
+    zig_unreachable();
+}
+
+
+#if defined(ZIG_OS_POSIX)
+static void os_exec_process_posix(const char *exe, ZigList<const char *> &args,
         int *return_code, Buf *out_stderr, Buf *out_stdout)
 {
     int stdin_pipe[2];
@@ -146,25 +192,35 @@ void os_exec_process(const char *exe, ZigList<const char *> &args,
 
         waitpid(pid, return_code, 0);
 
-        read_all_fd_stream(stdout_pipe[0], out_stdout);
-        read_all_fd_stream(stderr_pipe[0], out_stderr);
+        os_fetch_file(fdopen(stdout_pipe[0], "rb"), out_stdout);
+        os_fetch_file(fdopen(stderr_pipe[0], "rb"), out_stderr);
 
     }
 }
+#endif
 
-void os_write_file(Buf *full_path, Buf *contents) {
-    int fd;
-    if ((fd = open(buf_ptr(full_path), O_CREAT|O_CLOEXEC|O_WRONLY|O_TRUNC, S_IRWXU)) == -1)
-        zig_panic("open failed");
-    ssize_t amt_written = write(fd, buf_ptr(contents), buf_len(contents));
-    if (amt_written != buf_len(contents))
-        zig_panic("write failed: %s", strerror(errno));
-    if (close(fd) == -1)
-        zig_panic("close failed");
+void os_exec_process(const char *exe, ZigList<const char *> &args,
+        int *return_code, Buf *out_stderr, Buf *out_stdout)
+{
+#if defined(ZIG_OS_WINDOWS)
+    return os_exec_process_windows(exe, args, return_code, out_stderr, out_stdout);
+#elif defined(ZIG_OS_POSIX)
+    return os_exec_process_posix(exe, args, return_code, out_stderr, out_stdout);
+#else
+#error "missing os_exec_process implementation"
+#endif
 }
 
-int os_fetch_file(FILE *f, Buf *out_contents) {
-    return read_all_fd_stream(fileno(f), out_contents);
+void os_write_file(Buf *full_path, Buf *contents) {
+    FILE *f = fopen(buf_ptr(full_path), "wb");
+    if (!f) {
+        zig_panic("open failed");
+    }
+    size_t amt_written = fwrite(buf_ptr(contents), 1, buf_len(contents), f);
+    if (amt_written != buf_len(contents))
+        zig_panic("write failed: %s", strerror(errno));
+    if (fclose(f))
+        zig_panic("close failed");
 }
 
 int os_fetch_file_path(Buf *full_path, Buf *out_contents) {
@@ -192,6 +248,9 @@ int os_fetch_file_path(Buf *full_path, Buf *out_contents) {
 }
 
 int os_get_cwd(Buf *out_cwd) {
+#if defined(ZIG_OS_WINDOWS)
+    zig_panic("TODO os_get_cwd for windows");
+#elif defined(ZIG_OS_POSIX)
     int err = ERANGE;
     buf_resize(out_cwd, 512);
     while (err == ERANGE) {
@@ -202,10 +261,19 @@ int os_get_cwd(Buf *out_cwd) {
         zig_panic("unable to get cwd: %s", strerror(err));
 
     return 0;
+#else
+#error "missing os_get_cwd implementation"
+#endif
 }
 
 bool os_stderr_tty(void) {
-    return isatty(STDERR_FILENO);
+#if defined(ZIG_OS_WINDOWS)
+    return _isatty(STDERR_FILENO) != 0;
+#elif defined(ZIG_OS_POSIX)
+    return isatty(STDERR_FILENO) != 0;
+#else
+#error "missing os_stderr_tty implementation"
+#endif
 }
 
 int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
@@ -217,10 +285,15 @@ int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path) {
         return ErrorFileSystem;
     }
 
-    ssize_t amt_written = write(fd, buf_ptr(contents), buf_len(contents));
+    FILE *f = fdopen(fd, "wb");
+    if (!f) {
+        zig_panic("fdopen failed");
+    }
+
+    size_t amt_written = fwrite(buf_ptr(contents), 1, buf_len(contents), f);
     if (amt_written != buf_len(contents))
         zig_panic("write failed: %s", strerror(errno));
-    if (close(fd) == -1)
+    if (fclose(f))
         zig_panic("close failed");
 
     return 0;
