@@ -351,7 +351,7 @@ void ast_print(FILE *f, AstNode *node, int indent) {
                 NumLit kind = node->data.number_literal.kind;
                 const char *name = node_type_str(node->type);
                 if (kind == NumLitUInt) {
-                    fprintf(f, "%s uint %" PRIuMAX "\n", name, (uintmax_t)node->data.number_literal.data.x_uint);
+                    fprintf(f, "%s uint %" PRIu64 "\n", name, node->data.number_literal.data.x_uint);
                 } else {
                     fprintf(f, "%s float %f\n", name, node->data.number_literal.data.x_float);
                 }
@@ -679,7 +679,7 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeNumberLiteral:
             switch (node->data.number_literal.kind) {
                 case NumLitUInt:
-                    fprintf(ar->f, "%" PRIuMAX, (uintmax_t)node->data.number_literal.data.x_uint);
+                    fprintf(ar->f, "%" PRIu64, node->data.number_literal.data.x_uint);
                     break;
                 case NumLitFloat:
                     fprintf(ar->f, "%f", node->data.number_literal.data.x_float);

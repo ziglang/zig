@@ -265,8 +265,7 @@ Buf *bignum_to_buf(BigNum *bn) {
         return buf_sprintf("%f", bn->data.x_float);
     } else {
         const char *neg = bn->is_negative ? "-" : "";
-        uintmax_t value = bn->data.x_uint;
-        return buf_sprintf("%s%" PRIuMAX, neg, value);
+        return buf_sprintf("%s%llu", neg, bn->data.x_uint);
     }
 }
 

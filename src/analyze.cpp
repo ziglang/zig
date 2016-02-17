@@ -396,7 +396,7 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
         entry->zero_bits = (array_size == 0) || child_type->zero_bits;
 
         buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "[%" PRIuMAX "]%s", (uintmax_t)array_size, buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
 
         if (!entry->zero_bits) {
             uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
@@ -4158,9 +4158,9 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     uint64_t src_align = get_memcpy_align(g, src_type->data.pointer.child_type);
                     if (dest_align != src_align) {
                         add_node_error(g, dest_node, buf_sprintf(
-                            "misaligned memcpy, '%s' has alignment '%" PRIuMAX ", '%s' has alignment %" PRIuMAX,
-                                    buf_ptr(&dest_type->name), (uintmax_t)dest_align,
-                                    buf_ptr(&src_type->name), (uintmax_t)src_align));
+                            "misaligned memcpy, '%s' has alignment '%" PRIu64 ", '%s' has alignment %" PRIu64,
+                                    buf_ptr(&dest_type->name), dest_align,
+                                    buf_ptr(&src_type->name), src_align));
                     }
                 }
 
