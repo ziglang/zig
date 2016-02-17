@@ -168,7 +168,7 @@ void get_native_target(ZigTarget *target) {
             &target->arch.sub_arch,
             &target->vendor,
             &target->os,
-            &target->environ,
+            &target->env_type,
             &target->oformat);
 }
 
@@ -177,7 +177,7 @@ void get_unknown_target(ZigTarget *target) {
     target->arch.sub_arch = ZigLLVM_NoSubArch;
     target->vendor = ZigLLVM_UnknownVendor;
     target->os = ZigLLVM_UnknownOS;
-    target->environ = ZigLLVM_UnknownEnvironment;
+    target->env_type = ZigLLVM_UnknownEnvironment;
     target->oformat = ZigLLVM_UnknownObjectFormat;
 }
 
@@ -217,10 +217,10 @@ int parse_target_os(const char *str, ZigLLVM_OSType *out_os) {
 
 int parse_target_environ(const char *str, ZigLLVM_EnvironmentType *out_environ) {
     for (int i = 0; i < array_length(environ_list); i += 1) {
-        ZigLLVM_EnvironmentType environ = environ_list[i];
-        const char *environ_name = ZigLLVMGetEnvironmentTypeName(environ);
+        ZigLLVM_EnvironmentType env_type = environ_list[i];
+        const char *environ_name = ZigLLVMGetEnvironmentTypeName(env_type);
         if (strcmp(environ_name, str) == 0) {
-            *out_environ = environ;
+            *out_environ = env_type;
             return 0;
         }
     }
@@ -237,7 +237,7 @@ void init_all_targets(void) {
 
 void get_target_triple(Buf *triple, const ZigTarget *target) {
     ZigLLVMGetTargetTriple(triple, target->arch.arch, target->arch.sub_arch,
-            target->vendor, target->os, target->environ, target->oformat);
+            target->vendor, target->os, target->env_type, target->oformat);
 }
 
 static bool is_os_darwin(ZigTarget *target) {

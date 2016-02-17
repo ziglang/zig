@@ -538,8 +538,8 @@ const char *ZigLLVMGetOSTypeName(ZigLLVM_OSType os) {
     return Triple::getOSTypeName((Triple::OSType)os);
 }
 
-const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType environ) {
-    return Triple::getEnvironmentTypeName((Triple::EnvironmentType)environ);
+const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType env_type) {
+    return Triple::getEnvironmentTypeName((Triple::EnvironmentType)env_type);
 }
 
 void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *sub_arch_type,

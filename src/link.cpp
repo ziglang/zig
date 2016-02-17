@@ -68,7 +68,7 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
 }
 
 static const char *get_o_file_extension(CodeGen *g) {
-    if (g->zig_target.environ == ZigLLVM_MSVC) {
+    if (g->zig_target.env_type == ZigLLVM_MSVC) {
         return ".obj";
     } else {
         return ".o";
@@ -136,7 +136,7 @@ static const char *getLDMOption(const ZigTarget *t) {
         case ZigLLVM_systemz:
             return "elf64_s390";
         case ZigLLVM_x86_64:
-            if (t->environ == ZigLLVM_GNUX32) {
+            if (t->env_type == ZigLLVM_GNUX32) {
                 return "elf32_x86_64";
             }
             return "elf_x86_64";
@@ -272,8 +272,8 @@ static void construct_linker_job_linux(LinkJob *lj) {
 }
 
 static bool is_target_cyg_mingw(const ZigTarget *target) {
-    return (target->os == ZigLLVM_Win32 && target->environ == ZigLLVM_Cygnus) ||
-        (target->os == ZigLLVM_Win32 && target->environ == ZigLLVM_GNU);
+    return (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_Cygnus) ||
+        (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_GNU);
 }
 
 static void construct_linker_job_mingw(LinkJob *lj) {
@@ -370,7 +370,7 @@ static void construct_linker_job_mingw(LinkJob *lj) {
         lj->args.append("-lmingw32");
 
         lj->args.append("-lgcc");
-        bool is_android = (g->zig_target.environ == ZigLLVM_Android);
+        bool is_android = (g->zig_target.env_type == ZigLLVM_Android);
         bool is_cyg_ming = is_target_cyg_mingw(&g->zig_target);
         if (!g->is_static && !is_android) {
             if (!is_cyg_ming) {
@@ -675,7 +675,7 @@ static void construct_linker_job(LinkJob *lj) {
         case ZigLLVM_Solaris:
             zig_panic("TODO construct Solaris linker job");
         case ZigLLVM_Win32:
-            switch (lj->codegen->zig_target.environ) {
+            switch (lj->codegen->zig_target.env_type) {
                 default:
                     if (lj->codegen->zig_target.oformat == ZigLLVM_ELF) {
                         zig_panic("TODO construct Generic_ELF linker job");

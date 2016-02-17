@@ -3586,7 +3586,7 @@ static void define_builtin_types(CodeGen *g) {
             type_enum_field->name = buf_create_from_str(ZigLLVMGetEnvironmentTypeName(environ_type));
             type_enum_field->value = i;
 
-            if (environ_type == g->zig_target.environ) {
+            if (environ_type == g->zig_target.env_type) {
                 g->target_environ_index = i;
             }
         }

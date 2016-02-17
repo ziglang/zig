@@ -291,7 +291,7 @@ const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch);
 const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch);
 const char *ZigLLVMGetVendorTypeName(ZigLLVM_VendorType vendor);
 const char *ZigLLVMGetOSTypeName(ZigLLVM_OSType os);
-const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType environ);
+const char *ZigLLVMGetEnvironmentTypeName(ZigLLVM_EnvironmentType env_type);
 
 /*
  * This stuff is not LLVM API but it depends on the LLVM C++ API so we put it here.

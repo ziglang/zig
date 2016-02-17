@@ -21,7 +21,7 @@ struct ZigTarget {
     ArchType arch;
     ZigLLVM_VendorType vendor;
     ZigLLVM_OSType os;
-    ZigLLVM_EnvironmentType environ;
+    ZigLLVM_EnvironmentType env_type;
     ZigLLVM_ObjectFormatType oformat;
 };
 
@@ -57,7 +57,7 @@ void get_unknown_target(ZigTarget *target);
 
 int parse_target_arch(const char *str, ArchType *arch);
 int parse_target_os(const char *str, ZigLLVM_OSType *os);
-int parse_target_environ(const char *str, ZigLLVM_EnvironmentType *environ);
+int parse_target_environ(const char *str, ZigLLVM_EnvironmentType *env_type);
 
 void init_all_targets(void);
 

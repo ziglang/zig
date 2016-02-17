@@ -81,7 +81,7 @@ static int print_target_list(FILE *f) {
     int environ_count = target_environ_count();
     for (int i = 0; i < environ_count; i += 1) {
         ZigLLVM_EnvironmentType environ_type = get_target_environ(i);
-        const char *native_str = (native.environ == environ_type) ? " (native)" : "";
+        const char *native_str = (native.env_type == environ_type) ? " (native)" : "";
         fprintf(f, "  %s%s\n", ZigLLVMGetEnvironmentTypeName(environ_type), native_str);
     }
 
@@ -278,7 +278,7 @@ int main(int argc, char **argv) {
                     }
                 }
                 if (target_environ) {
-                    if (parse_target_environ(target_environ, &target->environ)) {
+                    if (parse_target_environ(target_environ, &target->env_type)) {
                         fprintf(stderr, "invalid --target-environ argument\n");
                         return usage(arg0);
                     }
