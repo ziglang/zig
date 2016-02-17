@@ -98,6 +98,8 @@ enum Cmd {
 };
 
 int main(int argc, char **argv) {
+    os_init();
+
     char *arg0 = argv[0];
     Cmd cmd = CmdInvalid;
     const char *in_file = nullptr;

@@ -13,8 +13,9 @@
 
 #include <stdio.h>
 
+void os_init(void);
 void os_spawn_process(const char *exe, ZigList<const char *> &args, int *return_code);
-void os_exec_process(const char *exe, ZigList<const char *> &args,
+int os_exec_process(const char *exe, ZigList<const char *> &args,
         int *return_code, Buf *out_stderr, Buf *out_stdout);
 
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename);

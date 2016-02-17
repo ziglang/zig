@@ -802,7 +802,11 @@ void codegen_link(CodeGen *g, const char *out_file) {
     int return_code;
     Buf ld_stderr = BUF_INIT;
     Buf ld_stdout = BUF_INIT;
-    os_exec_process(buf_ptr(g->linker_path), lj.args, &return_code, &ld_stderr, &ld_stdout);
+    int err = os_exec_process(buf_ptr(g->linker_path), lj.args, &return_code, &ld_stderr, &ld_stdout);
+    if (err) {
+        fprintf(stderr, "linker not found: '%s'\n", buf_ptr(g->linker_path));
+        exit(1);
+    }
 
     if (return_code != 0) {
         fprintf(stderr, "linker failed with return code %d\n", return_code);
