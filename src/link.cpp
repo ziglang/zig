@@ -356,6 +356,21 @@ static void construct_linker_job_mingw(LinkJob *lj) {
 
     lj->args.append((const char *)buf_ptr(&lj->out_file_o));
 
+    if (g->is_test_build) {
+        const char *test_runner_name = g->link_libc ? "test_runner_libc" : "test_runner_nolibc";
+        Buf *test_runner_o_path = build_o(g, test_runner_name);
+        lj->args.append(buf_ptr(test_runner_o_path));
+    }
+
+    if (!g->link_libc && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
+        Buf *builtin_o_path = build_o(g, "builtin");
+        lj->args.append(buf_ptr(builtin_o_path));
+
+        Buf *compiler_rt_o_path = build_o(g, "compiler_rt");
+        lj->args.append(buf_ptr(compiler_rt_o_path));
+    }
+
+
     for (int i = 0; i < g->link_libs.length; i += 1) {
         Buf *link_lib = g->link_libs.at(i);
         Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
