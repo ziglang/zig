@@ -8,6 +8,7 @@
 #include "list.hpp"
 #include "buffer.hpp"
 #include "os.hpp"
+#include "error.hpp"
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -31,8 +32,16 @@ struct TestCase {
 static ZigList<TestCase*> test_cases = {0};
 static const char *tmp_source_path = ".tmp_source.zig";
 static const char *tmp_h_path = ".tmp_header.h";
+
+#if defined(_WIN32)
+static const char *tmp_exe_path = "./.tmp_exe.exe";
+static const char *zig_exe = "./zig.exe";
+#define NL "\r\n"
+#else
 static const char *tmp_exe_path = "./.tmp_exe";
 static const char *zig_exe = "./zig";
+#define NL "\n"
+#endif
 
 static void add_source_file(TestCase *test_case, const char *path, const char *source) {
     test_case->source_files.add_one();
@@ -137,7 +146,7 @@ export fn main(argc: c_int, argv: &&u8) -> c_int {
     puts(c"Hello, world!");
     return 0;
 }
-    )SOURCE", "Hello, world!\n");
+    )SOURCE", "Hello, world!" NL);
 
     add_simple_case("function call", R"SOURCE(
 import "std.zig";
@@ -1981,7 +1990,10 @@ static void run_test(TestCase *test_case) {
     Buf zig_stderr = BUF_INIT;
     Buf zig_stdout = BUF_INIT;
     int return_code;
-    os_exec_process(zig_exe, test_case->compiler_args, &return_code, &zig_stderr, &zig_stdout);
+    int err;
+    if ((err = os_exec_process(zig_exe, test_case->compiler_args, &return_code, &zig_stderr, &zig_stdout))) {
+        fprintf(stderr, "Unable to exec %s: %s\n", zig_exe, err_str(err));
+    }
 
     if (!test_case->is_parseh && test_case->compile_errors.length) {
         if (return_code) {
