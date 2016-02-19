@@ -473,7 +473,7 @@ static int os_buf_to_tmp_file_posix(Buf *contents, Buf *suffix, Buf *out_tmp_pat
     }
 
     size_t amt_written = fwrite(buf_ptr(contents), 1, buf_len(contents), f);
-    if (amt_written != buf_len(contents))
+    if (amt_written != (size_t)buf_len(contents))
         zig_panic("write failed: %s", strerror(errno));
     if (fclose(f))
         zig_panic("close failed");
