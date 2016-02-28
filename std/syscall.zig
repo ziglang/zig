@@ -8,6 +8,26 @@ const SYS_write = switch (@compile_var("arch")) {
     i386 => 4,
     else => unreachable{},
 };
+const SYS_open = switch (@compile_var("arch")) {
+    x86_64 => 2,
+    i386 => 5,
+    else => unreachable{},
+};
+const SYS_close = switch (@compile_var("arch")) {
+    x86_64 => 3,
+    i386 => 6,
+    else => unreachable{},
+};
+const SYS_creat = switch (@compile_var("arch")) {
+    x86_64 => 85,
+    i386 => 8,
+    else => unreachable{},
+};
+const SYS_lseek = switch (@compile_var("arch")) {
+    x86_64 => 8,
+    i386 => 19,
+    else => unreachable{},
+};
 const SYS_mmap = switch (@compile_var("arch")) {
     x86_64 => 9,
     i386 => 90,
@@ -53,6 +73,11 @@ const SYS_tgkill = switch (@compile_var("arch")) {
     i386 => 270,
     else => unreachable{},
 };
+const SYS_openat = switch (@compile_var("arch")) {
+    x86_64 => 257,
+    i386 => 295,
+    else => unreachable{},
+};
 const SYS_getrandom = switch (@compile_var("arch")) {
     x86_64 => 318,
     i386 => 355,
@@ -69,6 +94,15 @@ pub const MMAP_MAP_SHARED =  1;
 pub const MMAP_MAP_PRIVATE = 2;
 pub const MMAP_MAP_FIXED =   16;
 pub const MMAP_MAP_ANON =    32;
+
+pub const O_RDONLY  = 0x0;
+pub const O_WRONLY  = 0x1;
+pub const O_RDWR    = 0x2;
+pub const O_CREAT   = 0x40;
+pub const O_EXCL    = 0x80;
+pub const O_TRUNC   = 0x200;
+pub const O_APPEND  = 0x400;
+pub const O_SYNC    = 0x101000;
 
 pub const SIGHUP    = 1;
 pub const SIGINT    = 2;
@@ -266,6 +300,35 @@ pub fn read(fd: isize, buf: &u8, count: isize) -> isize {
 
 pub fn write(fd: isize, buf: &const u8, count: isize) -> isize {
     syscall3(SYS_write, isize(fd), isize(buf), count)
+}
+
+pub fn open(path: []u8, flags: isize, perm: isize) -> isize {
+    var buf: [path.len + 1]u8 = undefined;
+    @memcpy(&buf[0], &path[0], path.len);
+    buf[path.len] = 0;
+    syscall3(SYS_open, isize(&buf[0]), flags, perm)
+}
+
+pub fn create(path: []u8, perm: isize) -> isize {
+    var buf: [path.len + 1]u8 = undefined;
+    @memcpy(&buf[0], &path[0], path.len);
+    buf[path.len] = 0;
+    syscall2(SYS_creat, isize(&buf[0]), perm)
+}
+
+pub fn openat(dirfd: isize, path: []u8, flags: isize, mode: isize) -> isize {
+    var buf: [path.len + 1]u8 = undefined;
+    @memcpy(&buf[0], &path[0], path.len);
+    buf[path.len] = 0;
+    syscall4(SYS_openat, dirfd, isize(&buf[0]), flags, mode)
+}
+
+pub fn close(fd: isize) -> isize {
+    syscall1(SYS_close, fd)
+}
+
+pub fn lseek(fd: isize, offset: isize, ref_pos: isize) -> isize {
+    syscall3(SYS_lseek, fd, offset, ref_pos)
 }
 
 pub fn exit(status: i32) -> unreachable {

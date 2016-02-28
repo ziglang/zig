@@ -121,6 +121,18 @@ pub struct OutStream {
             }
         }
     }
+
+    pub fn close(os: &OutStream) -> %void {
+        const closed = close(os.fd);
+        if (closed < 0) {
+            return switch (-closed) {
+                EIO => error.Io,
+                EBADF => error.BadFd,
+                EINTR => error.SigInterrupt,
+                else => error.Unexpected,
+            }
+        }
+    }
 }
 
 pub struct InStream {
@@ -139,6 +151,18 @@ pub struct InStream {
             }
         }
         return amt_read;
+    }
+
+    pub fn close(is: &InStream) -> %void {
+        const closed = close(is.fd);
+        if (closed < 0) {
+            return switch (-closed) {
+                EIO => error.Io,
+                EBADF => error.BadFd,
+                EINTR => error.SigInterrupt,
+                else => error.Unexpected,
+            }
+        }
     }
 }
 
