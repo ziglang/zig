@@ -5,9 +5,7 @@
 ```
 Root = many(TopLevelDecl) "EOF"
 
-TopLevelDecl = many(Directive) option(VisibleMod) (FnDef | ExternDecl | RootExportDecl | Import | ContainerDecl | GlobalVarDecl | ErrorValueDecl | CImportDecl | TypeDecl)
-
-CImportDecl = "c_import" Block
+TopLevelDecl = many(Directive) option(VisibleMod) (FnDef | ExternDecl | ContainerDecl | GlobalVarDecl | ErrorValueDecl | TypeDecl | UseDecl)
 
 TypeDecl = "type" "Symbol" "=" TypeExpr ";"
 
@@ -23,9 +21,7 @@ StructMember = many(Directive) option(VisibleMod) (StructField | FnDef)
 
 StructField = "Symbol" option(":" Expression) ",")
 
-Import = "import" "String" ";"
-
-RootExportDecl = "export" "Symbol" "String" ";"
+UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" (FnProto | VariableDeclaration) ";"
 

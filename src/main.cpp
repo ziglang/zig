@@ -18,8 +18,8 @@
 static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options]\n"
         "Commands:\n"
-        "  build [source]               create executable, object, or library from source\n"
-        "  test [source]                create and run a test build\n"
+        "  build [sources]              create executable, object, or library from source\n"
+        "  test [sources]               create and run a test build\n"
         "  parseh [source]              convert a c header file to zig extern declarations\n"
         "  version                      print version number and exit\n"
         "  targets                      list available compilation targets\n"
@@ -40,6 +40,7 @@ static int usage(const char *arg0) {
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  --library-path [dir]         add a directory to the library search path\n"
+        "  --library [lib]              link against lib\n"
         "  --target-arch [name]         specify target architecture\n"
         "  --target-os [name]           specify target operating system\n"
         "  --target-environ [name]      specify target environment\n"
@@ -50,6 +51,7 @@ static int usage(const char *arg0) {
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -mmacosx-version-min [ver]   (darwin only) set Mac OS X deployment target\n"
         "  -mios-version-min [ver]      (darwin only) set iOS deployment target\n"
+        "  --check-unused               perform semantic analysis on unused declarations\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -118,6 +120,7 @@ int main(int argc, char **argv) {
     const char *linker_path = nullptr;
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> lib_dirs = {0};
+    ZigList<const char *> link_libs = {0};
     int err;
     const char *target_arch = nullptr;
     const char *target_os = nullptr;
@@ -129,6 +132,7 @@ int main(int argc, char **argv) {
     bool rdynamic = false;
     const char *mmacosx_version_min = nullptr;
     const char *mios_version_min = nullptr;
+    bool check_unused = false;
 
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
@@ -150,6 +154,8 @@ int main(int argc, char **argv) {
                 municode = true;
             } else if (strcmp(arg, "-rdynamic") == 0) {
                 rdynamic = true;
+            } else if (strcmp(arg, "--check-unused") == 0) {
+                check_unused = true;
             } else if (i + 1 >= argc) {
                 return usage(arg0);
             } else {
@@ -198,6 +204,8 @@ int main(int argc, char **argv) {
                     clang_argv.append(argv[i]);
                 } else if (strcmp(arg, "--library-path") == 0) {
                     lib_dirs.append(argv[i]);
+                } else if (strcmp(arg, "--library") == 0) {
+                    link_libs.append(argv[i]);
                 } else if (strcmp(arg, "--target-arch") == 0) {
                     target_arch = argv[i];
                 } else if (strcmp(arg, "--target-os") == 0) {
@@ -258,6 +266,16 @@ int main(int argc, char **argv) {
             if (!in_file)
                 return usage(arg0);
 
+            if (cmd == CmdBuild && !out_name) {
+                fprintf(stderr, "--name [name] not provided\n\n");
+                return usage(arg0);
+            }
+
+            if (cmd == CmdBuild && out_type == OutTypeUnknown) {
+                fprintf(stderr, "--export [exe|lib|obj] not provided\n\n");
+                return usage(arg0);
+            }
+
             init_all_targets();
 
             ZigTarget alloc_target;
@@ -313,6 +331,8 @@ int main(int argc, char **argv) {
             codegen_set_is_release(g, is_release_build);
             codegen_set_is_test(g, cmd == CmdTest);
 
+            codegen_set_check_unused(g, check_unused);
+
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);
             codegen_set_strip(g, strip);
             codegen_set_is_static(g, is_static);
@@ -341,6 +361,9 @@ int main(int argc, char **argv) {
 
             for (int i = 0; i < lib_dirs.length; i += 1) {
                 codegen_add_lib_dir(g, lib_dirs.at(i));
+            }
+            for (int i = 0; i < link_libs.length; i += 1) {
+                codegen_add_link_lib(g, link_libs.at(i));
             }
 
             codegen_set_windows_subsystem(g, mwindows, mconsole);

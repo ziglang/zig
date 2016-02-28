@@ -20,7 +20,6 @@ struct ParseContext {
     ZigList<Token> *tokens;
     ImportTableEntry *owner;
     ErrColor err_color;
-    bool parsed_root_export;
     uint32_t *next_node_index;
 };
 
@@ -1741,8 +1740,8 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token
     AstNode *node = ast_create_node(pc, NodeTypeVariableDeclaration, first_token);
 
     node->data.variable_declaration.is_const = is_const;
-    node->data.variable_declaration.visib_mod = visib_mod;
-    node->data.variable_declaration.directives = directives;
+    node->data.variable_declaration.top_level_decl.visib_mod = visib_mod;
+    node->data.variable_declaration.top_level_decl.directives = directives;
 
     Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
     ast_buf_from_token(pc, name_token, &node->data.variable_declaration.symbol);
@@ -2251,8 +2250,8 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
     *token_index += 1;
 
     AstNode *node = ast_create_node(pc, NodeTypeFnProto, first_token);
-    node->data.fn_proto.visib_mod = visib_mod;
-    node->data.fn_proto.directives = directives;
+    node->data.fn_proto.top_level_decl.visib_mod = visib_mod;
+    node->data.fn_proto.top_level_decl.directives = directives;
 
     Token *fn_name = &pc->tokens->at(*token_index);
     if (fn_name->id == TokenIdSymbol) {
@@ -2345,75 +2344,22 @@ static AstNode *ast_parse_extern_decl(ParseContext *pc, int *token_index, bool m
 }
 
 /*
-RootExportDecl : "export" "Symbol" "String" ";"
+UseDecl = "use" Expression ";"
 */
-static AstNode *ast_parse_root_export_decl(ParseContext *pc, int *token_index,
-        ZigList<AstNode*> *directives)
-{
-    Token *export_type = &pc->tokens->at(*token_index);
-    if (export_type->id != TokenIdSymbol)
-        return nullptr;
-
-    *token_index += 1;
-
-    AstNode *node = ast_create_node(pc, NodeTypeRootExportDecl, export_type);
-    node->data.root_export_decl.directives = directives;
-
-    ast_buf_from_token(pc, export_type, &node->data.root_export_decl.type);
-
-    Token *export_name = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, export_name, TokenIdStringLiteral);
-
-    parse_string_literal(pc, export_name, &node->data.root_export_decl.name, nullptr, nullptr);
-
-    Token *semicolon = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, semicolon, TokenIdSemicolon);
-
-    normalize_parent_ptrs(node);
-    return node;
-}
-
-/*
-Import : "import" "String" ";"
-*/
-static AstNode *ast_parse_import(ParseContext *pc, int *token_index,
+static AstNode *ast_parse_use(ParseContext *pc, int *token_index,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
 {
-    Token *import_kw = &pc->tokens->at(*token_index);
-    if (import_kw->id != TokenIdKeywordImport)
+    Token *use_kw = &pc->tokens->at(*token_index);
+    if (use_kw->id != TokenIdKeywordUse)
         return nullptr;
     *token_index += 1;
 
-    Token *import_name = ast_eat_token(pc, token_index, TokenIdStringLiteral);
+    AstNode *node = ast_create_node(pc, NodeTypeUse, use_kw);
+    node->data.use.top_level_decl.visib_mod = visib_mod;
+    node->data.use.top_level_decl.directives = directives;
+    node->data.use.expr = ast_parse_expression(pc, token_index, true);
 
     ast_eat_token(pc, token_index, TokenIdSemicolon);
-
-    AstNode *node = ast_create_node(pc, NodeTypeImport, import_kw);
-    node->data.import.visib_mod = visib_mod;
-    node->data.import.directives = directives;
-
-    parse_string_literal(pc, import_name, &node->data.import.path, nullptr, nullptr);
-    normalize_parent_ptrs(node);
-    return node;
-}
-
-/*
-CImportDecl : "c_import" Block
-*/
-static AstNode *ast_parse_c_import(ParseContext *pc, int *token_index,
-        ZigList<AstNode*> *directives, VisibMod visib_mod)
-{
-    Token *c_import_kw = &pc->tokens->at(*token_index);
-    if (c_import_kw->id != TokenIdKeywordCImport)
-        return nullptr;
-    *token_index += 1;
-
-    AstNode *node = ast_create_node(pc, NodeTypeCImport, c_import_kw);
-    node->data.c_import.visib_mod = visib_mod;
-    node->data.c_import.directives = directives;
-    node->data.c_import.block = ast_parse_block(pc, token_index, true);
 
     normalize_parent_ptrs(node);
     return node;
@@ -2445,8 +2391,8 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index,
     AstNode *node = ast_create_node(pc, NodeTypeStructDecl, first_token);
     node->data.struct_decl.kind = kind;
     ast_buf_from_token(pc, struct_name, &node->data.struct_decl.name);
-    node->data.struct_decl.visib_mod = visib_mod;
-    node->data.struct_decl.directives = directives;
+    node->data.struct_decl.top_level_decl.visib_mod = visib_mod;
+    node->data.struct_decl.top_level_decl.directives = directives;
 
     ast_eat_token(pc, token_index, TokenIdLBrace);
 
@@ -2486,8 +2432,8 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index,
             AstNode *field_node = ast_create_node(pc, NodeTypeStructField, token);
             *token_index += 1;
 
-            field_node->data.struct_field.visib_mod = visib_mod;
-            field_node->data.struct_field.directives = directive_list;
+            field_node->data.struct_field.top_level_decl.visib_mod = visib_mod;
+            field_node->data.struct_field.top_level_decl.directives = directive_list;
 
             ast_buf_from_token(pc, token, &field_node->data.struct_field.name);
 
@@ -2529,8 +2475,8 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index,
     ast_eat_token(pc, token_index, TokenIdSemicolon);
 
     AstNode *node = ast_create_node(pc, NodeTypeErrorValueDecl, first_token);
-    node->data.error_value_decl.visib_mod = visib_mod;
-    node->data.error_value_decl.directives = directives;
+    node->data.error_value_decl.top_level_decl.visib_mod = visib_mod;
+    node->data.error_value_decl.top_level_decl.directives = directives;
     ast_buf_from_token(pc, name_tok, &node->data.error_value_decl.name);
 
     normalize_parent_ptrs(node);
@@ -2559,15 +2505,15 @@ static AstNode *ast_parse_type_decl(ParseContext *pc, int *token_index,
 
     ast_eat_token(pc, token_index, TokenIdSemicolon);
 
-    node->data.type_decl.visib_mod = visib_mod;
-    node->data.type_decl.directives = directives;
+    node->data.type_decl.top_level_decl.visib_mod = visib_mod;
+    node->data.type_decl.top_level_decl.directives = directives;
 
     normalize_parent_ptrs(node);
     return node;
 }
 
 /*
-TopLevelDecl = many(Directive) option(VisibleMod) (FnDef | ExternDecl | RootExportDecl | Import | ContainerDecl | GlobalVarDecl | ErrorValueDecl | CImportDecl | TypeDecl)
+TopLevelDecl = many(Directive) option(VisibleMod) (FnDef | ExternDecl | Import | ContainerDecl | GlobalVarDecl | ErrorValueDecl | CImportDecl | TypeDecl)
 */
 static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigList<AstNode *> *top_level_decls) {
     for (;;) {
@@ -2587,17 +2533,6 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
             visib_mod = VisibModPrivate;
         }
 
-        bool try_to_parse_root_export = (visib_mod == VisibModExport && !pc->parsed_root_export);
-        pc->parsed_root_export = true;
-
-        if (try_to_parse_root_export) {
-            AstNode *root_export_decl_node = ast_parse_root_export_decl(pc, token_index, directives);
-            if (root_export_decl_node) {
-                top_level_decls->append(root_export_decl_node);
-                continue;
-            }
-        }
-
         AstNode *fn_def_node = ast_parse_fn_def(pc, token_index, false, directives, visib_mod);
         if (fn_def_node) {
             top_level_decls->append(fn_def_node);
@@ -2610,15 +2545,9 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
             continue;
         }
 
-        AstNode *import_node = ast_parse_import(pc, token_index, directives, visib_mod);
-        if (import_node) {
-            top_level_decls->append(import_node);
-            continue;
-        }
-
-        AstNode *c_import_node = ast_parse_c_import(pc, token_index, directives, visib_mod);
-        if (c_import_node) {
-            top_level_decls->append(c_import_node);
+        AstNode *use_node = ast_parse_use(pc, token_index, directives, visib_mod);
+        if (use_node) {
+            top_level_decls->append(use_node);
             continue;
         }
 
@@ -2706,12 +2635,9 @@ void normalize_parent_ptrs(AstNode *node) {
         case NodeTypeRoot:
             set_list_fields(&node->data.root.top_level_decls);
             break;
-        case NodeTypeRootExportDecl:
-            set_list_fields(node->data.root_export_decl.directives);
-            break;
         case NodeTypeFnProto:
             set_field(&node->data.fn_proto.return_type);
-            set_list_fields(node->data.fn_proto.directives);
+            set_list_fields(node->data.fn_proto.top_level_decl.directives);
             set_list_fields(&node->data.fn_proto.params);
             break;
         case NodeTypeFnDef:
@@ -2737,12 +2663,12 @@ void normalize_parent_ptrs(AstNode *node) {
             set_field(&node->data.defer.expr);
             break;
         case NodeTypeVariableDeclaration:
-            set_list_fields(node->data.variable_declaration.directives);
+            set_list_fields(node->data.variable_declaration.top_level_decl.directives);
             set_field(&node->data.variable_declaration.type);
             set_field(&node->data.variable_declaration.expr);
             break;
         case NodeTypeTypeDecl:
-            set_list_fields(node->data.type_decl.directives);
+            set_list_fields(node->data.type_decl.top_level_decl.directives);
             set_field(&node->data.type_decl.child_type);
             break;
         case NodeTypeErrorValueDecl:
@@ -2788,12 +2714,9 @@ void normalize_parent_ptrs(AstNode *node) {
         case NodeTypeFieldAccessExpr:
             set_field(&node->data.field_access_expr.struct_expr);
             break;
-        case NodeTypeImport:
-            set_list_fields(node->data.import.directives);
-            break;
-        case NodeTypeCImport:
-            set_list_fields(node->data.c_import.directives);
-            set_field(&node->data.c_import.block);
+        case NodeTypeUse:
+            set_field(&node->data.use.expr);
+            set_list_fields(node->data.use.top_level_decl.directives);
             break;
         case NodeTypeBoolLiteral:
             // none
@@ -2863,11 +2786,11 @@ void normalize_parent_ptrs(AstNode *node) {
         case NodeTypeStructDecl:
             set_list_fields(&node->data.struct_decl.fields);
             set_list_fields(&node->data.struct_decl.fns);
-            set_list_fields(node->data.struct_decl.directives);
+            set_list_fields(node->data.struct_decl.top_level_decl.directives);
             break;
         case NodeTypeStructField:
             set_field(&node->data.struct_field.type);
-            set_list_fields(node->data.struct_field.directives);
+            set_list_fields(node->data.struct_field.top_level_decl.directives);
             break;
         case NodeTypeContainerInitExpr:
             set_field(&node->data.container_init_expr.type);

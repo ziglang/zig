@@ -101,8 +101,6 @@ static const char *node_type_str(NodeType node_type) {
     switch (node_type) {
         case NodeTypeRoot:
             return "Root";
-        case NodeTypeRootExportDecl:
-            return "RootExportDecl";
         case NodeTypeFnDef:
             return "FnDef";
         case NodeTypeFnDecl:
@@ -145,10 +143,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Symbol";
         case NodeTypePrefixOpExpr:
             return "PrefixOpExpr";
-        case NodeTypeImport:
-            return "Import";
-        case NodeTypeCImport:
-            return "CImport";
+        case NodeTypeUse:
+            return "Use";
         case NodeTypeBoolLiteral:
             return "BoolLiteral";
         case NodeTypeNullLiteral:
@@ -213,11 +209,6 @@ void ast_print(FILE *f, AstNode *node, int indent) {
                 AstNode *child = node->data.root.top_level_decls.at(i);
                 ast_print(f, child, indent + 2);
             }
-            break;
-        case NodeTypeRootExportDecl:
-            fprintf(f, "%s %s '%s'\n", node_type_str(node->type),
-                    buf_ptr(&node->data.root_export_decl.type),
-                    buf_ptr(&node->data.root_export_decl.name));
             break;
         case NodeTypeFnDef:
             {
@@ -372,12 +363,9 @@ void ast_print(FILE *f, AstNode *node, int indent) {
         case NodeTypeSymbol:
             fprintf(f, "Symbol %s\n", buf_ptr(&node->data.symbol_expr.symbol));
             break;
-        case NodeTypeImport:
-            fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.import.path));
-            break;
-        case NodeTypeCImport:
+        case NodeTypeUse:
             fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.c_import.block, indent + 2);
+            ast_print(f, node->data.use.expr, indent + 2);
             break;
         case NodeTypeBoolLiteral:
             fprintf(f, "%s '%s'\n", node_type_str(node->type),
@@ -556,7 +544,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                 print_indent(ar);
                 render_node(ar, child);
 
-                if (child->type == NodeTypeImport ||
+                if (child->type == NodeTypeUse ||
                     child->type == NodeTypeVariableDeclaration ||
                     child->type == NodeTypeTypeDecl ||
                     child->type == NodeTypeErrorValueDecl ||
@@ -567,12 +555,10 @@ static void render_node(AstRender *ar, AstNode *node) {
                 fprintf(ar->f, "\n");
             }
             break;
-        case NodeTypeRootExportDecl:
-            zig_panic("TODO");
         case NodeTypeFnProto:
             {
                 const char *fn_name = buf_ptr(&node->data.fn_proto.name);
-                const char *pub_str = visib_mod_string(node->data.fn_proto.visib_mod);
+                const char *pub_str = visib_mod_string(node->data.fn_proto.top_level_decl.visib_mod);
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
                 const char *inline_str = inline_string(node->data.fn_proto.is_inline);
                 fprintf(ar->f, "%s%s%sfn %s(", pub_str, inline_str, extern_str, fn_name);
@@ -605,15 +591,19 @@ static void render_node(AstRender *ar, AstNode *node) {
                 break;
             }
         case NodeTypeFnDef:
-            if (node->data.fn_def.fn_proto->data.fn_proto.directives) {
-                for (int i = 0; i < node->data.fn_def.fn_proto->data.fn_proto.directives->length; i += 1) {
-                    render_node(ar, node->data.fn_def.fn_proto->data.fn_proto.directives->at(i));
+            {
+                ZigList<AstNode *> *directives =
+                    node->data.fn_def.fn_proto->data.fn_proto.top_level_decl.directives;
+                if (directives) {
+                    for (int i = 0; i < directives->length; i += 1) {
+                        render_node(ar, directives->at(i));
+                    }
                 }
+                render_node(ar, node->data.fn_def.fn_proto);
+                fprintf(ar->f, " ");
+                render_node(ar, node->data.fn_def.body);
+                break;
             }
-            render_node(ar, node->data.fn_def.fn_proto);
-            fprintf(ar->f, " ");
-            render_node(ar, node->data.fn_def.body);
-            break;
         case NodeTypeFnDecl:
             zig_panic("TODO");
         case NodeTypeParamDecl:
@@ -642,7 +632,7 @@ static void render_node(AstRender *ar, AstNode *node) {
             zig_panic("TODO");
         case NodeTypeVariableDeclaration:
             {
-                const char *pub_str = visib_mod_string(node->data.variable_declaration.visib_mod);
+                const char *pub_str = visib_mod_string(node->data.variable_declaration.top_level_decl.visib_mod);
                 const char *extern_str = extern_string(node->data.variable_declaration.is_extern);
                 const char *var_name = buf_ptr(&node->data.variable_declaration.symbol);
                 const char *const_or_var = const_or_var_string(node->data.variable_declaration.is_const);
@@ -659,7 +649,7 @@ static void render_node(AstRender *ar, AstNode *node) {
             }
         case NodeTypeTypeDecl:
             {
-                const char *pub_str = visib_mod_string(node->data.type_decl.visib_mod);
+                const char *pub_str = visib_mod_string(node->data.type_decl.top_level_decl.visib_mod);
                 const char *var_name = buf_ptr(&node->data.type_decl.symbol);
                 fprintf(ar->f, "%stype %s = ", pub_str, var_name);
                 render_node(ar, node->data.type_decl.child_type);
@@ -748,9 +738,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                 fprintf(ar->f, ".%s", buf_ptr(rhs));
                 break;
             }
-        case NodeTypeImport:
-            zig_panic("TODO");
-        case NodeTypeCImport:
+        case NodeTypeUse:
             zig_panic("TODO");
         case NodeTypeBoolLiteral:
             zig_panic("TODO");
@@ -785,7 +773,7 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeStructDecl:
             {
                 const char *struct_name = buf_ptr(&node->data.struct_decl.name);
-                const char *pub_str = visib_mod_string(node->data.struct_decl.visib_mod);
+                const char *pub_str = visib_mod_string(node->data.struct_decl.top_level_decl.visib_mod);
                 const char *container_str = container_string(node->data.struct_decl.kind);
                 fprintf(ar->f, "%s%s %s {\n", pub_str, container_str, struct_name);
                 ar->indent += ar->indent_size;

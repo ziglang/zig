@@ -1,4 +1,5 @@
-import "test_std.zig";
+// test std library
+const std = @import("std");
 
 #attribute("test")
 fn empty_function() {}

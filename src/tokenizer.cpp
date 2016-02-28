@@ -99,7 +99,7 @@
 
 const char * zig_keywords[] = {
     "true", "false", "null", "fn", "return", "var", "const", "extern",
-    "pub", "export", "import", "c_import", "if", "else", "goto", "asm",
+    "pub", "export", "use", "if", "else", "goto", "asm",
     "volatile", "struct", "enum", "while", "for", "continue", "break",
     "null", "noalias", "switch", "undefined", "error", "type", "inline",
     "defer",
@@ -232,10 +232,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordPub;
     } else if (mem_eql_str(token_mem, token_len, "export")) {
         t->cur_tok->id = TokenIdKeywordExport;
-    } else if (mem_eql_str(token_mem, token_len, "c_import")) {
-        t->cur_tok->id = TokenIdKeywordCImport;
-    } else if (mem_eql_str(token_mem, token_len, "import")) {
-        t->cur_tok->id = TokenIdKeywordImport;
+    } else if (mem_eql_str(token_mem, token_len, "use")) {
+        t->cur_tok->id = TokenIdKeywordUse;
     } else if (mem_eql_str(token_mem, token_len, "true")) {
         t->cur_tok->id = TokenIdKeywordTrue;
     } else if (mem_eql_str(token_mem, token_len, "false")) {
@@ -1071,8 +1069,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordExtern: return "extern";
         case TokenIdKeywordPub: return "pub";
         case TokenIdKeywordExport: return "export";
-        case TokenIdKeywordImport: return "import";
-        case TokenIdKeywordCImport: return "c_import";
+        case TokenIdKeywordUse: return "use";
         case TokenIdKeywordTrue: return "true";
         case TokenIdKeywordFalse: return "false";
         case TokenIdKeywordIf: return "if";

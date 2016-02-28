@@ -1,19 +1,19 @@
-import "syscall.zig";
-import "errno.zig";
+const syscall = @import("syscall.zig");
+const errno = @import("errno.zig");
 
 pub error SigInterrupt;
 pub error Unexpected;
 
-pub fn os_get_random_bytes(buf: []u8) -> %void {
+pub fn get_random_bytes(buf: []u8) -> %void {
     switch (@compile_var("os")) {
         linux => {
-            const amt_got = getrandom(buf.ptr, buf.len, 0);
+            const amt_got = syscall.getrandom(buf.ptr, buf.len, 0);
             if (amt_got < 0) {
                 return switch (-amt_got) {
-                    EINVAL => unreachable{},
-                    EFAULT => unreachable{},
-                    EINTR  => error.SigInterrupt,
-                    else   => error.Unexpected,
+                    errno.EINVAL => unreachable{},
+                    errno.EFAULT => unreachable{},
+                    errno.EINTR  => error.SigInterrupt,
+                    else         => error.Unexpected,
                 }
             }
         },

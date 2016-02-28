@@ -70,10 +70,18 @@ static TestCase *add_simple_case(const char *case_name, const char *source, cons
     test_case->compiler_args.append("--strip");
     test_case->compiler_args.append("--color");
     test_case->compiler_args.append("on");
+    test_case->compiler_args.append("--check-unused");
 
     test_cases.append(test_case);
 
     return test_case;
+}
+
+static TestCase *add_simple_case_libc(const char *case_name, const char *source, const char *output) {
+    TestCase *tc = add_simple_case(case_name, source, output);
+    tc->compiler_args.append("--library");
+    tc->compiler_args.append("c");
+    return tc;
 }
 
 static TestCase *add_compile_fail_case(const char *case_name, const char *source, int count, ...) {
@@ -93,11 +101,19 @@ static TestCase *add_compile_fail_case(const char *case_name, const char *source
 
     test_case->compiler_args.append("build");
     test_case->compiler_args.append(tmp_source_path);
+
+    test_case->compiler_args.append("--name");
+    test_case->compiler_args.append("test");
+
+    test_case->compiler_args.append("--export");
+    test_case->compiler_args.append("obj");
+
     test_case->compiler_args.append("--output");
     test_case->compiler_args.append(tmp_exe_path);
+
     test_case->compiler_args.append("--release");
     test_case->compiler_args.append("--strip");
-    //test_case->compiler_args.append("--verbose");
+    test_case->compiler_args.append("--check-unused");
 
     test_cases.append(test_case);
 
@@ -134,43 +150,18 @@ static TestCase *add_parseh_case(const char *case_name, const char *source, int 
 }
 
 static void add_compiling_test_cases(void) {
-    add_simple_case("hello world with libc", R"SOURCE(
-#link("c")
-export executable "test";
-
-c_import {
-    @c_include("stdio.h");
-}
-
+    add_simple_case_libc("hello world with libc", R"SOURCE(
+const c = @c_import(@c_include("stdio.h"));
 export fn main(argc: c_int, argv: &&u8) -> c_int {
-    puts(c"Hello, world!");
+    c.puts(c"Hello, world!");
     return 0;
 }
     )SOURCE", "Hello, world!" NL);
 
-    add_simple_case("function call", R"SOURCE(
-import "std.zig";
-import "syscall.zig";
-
-fn empty_function_1() {}
-fn empty_function_2() { return; }
-
-pub fn main(args: [][]u8) -> %void {
-    empty_function_1();
-    empty_function_2();
-    this_is_a_function();
-}
-
-fn this_is_a_function() -> unreachable {
-    %%stdout.printf("OK\n");
-    exit(0);
-}
-    )SOURCE", "OK\n");
-
     {
         TestCase *tc = add_simple_case("multiple files with private function", R"SOURCE(
-import "std.zig";
-import "foo.zig";
+use @import("std").io;
+use @import("foo.zig");
 
 pub fn main(args: [][]u8) -> %void {
     private_function();
@@ -183,7 +174,7 @@ fn private_function() {
         )SOURCE", "OK 1\nOK 2\n");
 
         add_source_file(tc, "foo.zig", R"SOURCE(
-import "std.zig";
+use @import("std").io;
 
 // purposefully conflicting function with main.zig
 // but it's private so it should be OK
@@ -199,8 +190,8 @@ pub fn print_text() {
 
     {
         TestCase *tc = add_simple_case("import segregation", R"SOURCE(
-import "foo.zig";
-import "bar.zig";
+use @import("foo.zig");
+use @import("bar.zig");
 
 pub fn main(args: [][]u8) -> %void {
     foo_function();
@@ -209,15 +200,15 @@ pub fn main(args: [][]u8) -> %void {
         )SOURCE", "OK\nOK\n");
 
         add_source_file(tc, "foo.zig", R"SOURCE(
-import "std.zig";
+use @import("std").io;
 pub fn foo_function() {
     %%stdout.printf("OK\n");
 }
         )SOURCE");
 
         add_source_file(tc, "bar.zig", R"SOURCE(
-import "other.zig";
-import "std.zig";
+use @import("other.zig");
+use @import("std").io;
 
 pub fn bar_function() {
     if (foo_function()) {
@@ -234,8 +225,35 @@ pub fn foo_function() -> bool {
         )SOURCE");
     }
 
+    {
+        TestCase *tc = add_simple_case("two files use import each other", R"SOURCE(
+use @import("a.zig");
+
+pub fn main(args: [][]u8) -> %void {
+    ok();
+}
+        )SOURCE", "OK\n");
+
+        add_source_file(tc, "a.zig", R"SOURCE(
+use @import("b.zig");
+const io = @import("std").io;
+
+pub const a_text = "OK\n";
+
+pub fn ok() {
+    %%io.stdout.printf(b_text);
+}
+        )SOURCE");
+
+        add_source_file(tc, "b.zig", R"SOURCE(
+use @import("a.zig");
+
+pub const b_text = a_text;
+        )SOURCE");
+    }
+
     add_simple_case("params", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 fn add(a: i32, b: i32) -> i32 {
     a + b
@@ -243,13 +261,13 @@ fn add(a: i32, b: i32) -> i32 {
 
 pub fn main(args: [][]u8) -> %void {
     if (add(22, 11) == 33) {
-        %%stdout.printf("pass\n");
+        %%io.stdout.printf("pass\n");
     }
 }
     )SOURCE", "pass\n");
 
     add_simple_case("void parameters", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
     void_fun(1, void{}, 2);
@@ -258,28 +276,28 @@ pub fn main(args: [][]u8) -> %void {
 fn void_fun(a : i32, b : void, c : i32) {
     const v = b;
     const vv : void = if (a == 1) {v} else {};
-    if (a + c == 3) { %%stdout.printf("OK\n"); }
+    if (a + c == 3) { %%io.stdout.printf("OK\n"); }
     return vv;
 }
     )SOURCE", "OK\n");
 
     add_simple_case("mutable local variables", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
     var zero : i32 = 0;
-    if (zero == 0) { %%stdout.printf("zero\n"); }
+    if (zero == 0) { %%io.stdout.printf("zero\n"); }
 
     var i = i32(0);
     while (i != 3) {
-        %%stdout.printf("loop\n");
+        %%io.stdout.printf("loop\n");
         i += 1;
     }
 }
     )SOURCE", "zero\nloop\nloop\nloop\n");
 
     add_simple_case("arrays", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
     var array : [5]i32 = undefined;
@@ -299,11 +317,11 @@ pub fn main(args: [][]u8) -> %void {
     }
 
     if (accumulator == 15) {
-        %%stdout.printf("OK\n");
+        %%io.stdout.printf("OK\n");
     }
 
     if (get_array_len(array) != 5) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
 }
 fn get_array_len(a: []i32) -> isize {
@@ -313,144 +331,139 @@ fn get_array_len(a: []i32) -> isize {
 
 
     add_simple_case("hello world without libc", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
-    %%stdout.printf("Hello, world!\n");
+    %%io.stdout.printf("Hello, world!\n");
 }
     )SOURCE", "Hello, world!\n");
 
 
     add_simple_case("short circuit", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
-    if (true || { %%stdout.printf("BAD 1\n"); false }) {
-      %%stdout.printf("OK 1\n");
+    if (true || { %%io.stdout.printf("BAD 1\n"); false }) {
+      %%io.stdout.printf("OK 1\n");
     }
-    if (false || { %%stdout.printf("OK 2\n"); false }) {
-      %%stdout.printf("BAD 2\n");
+    if (false || { %%io.stdout.printf("OK 2\n"); false }) {
+      %%io.stdout.printf("BAD 2\n");
     }
 
-    if (true && { %%stdout.printf("OK 3\n"); false }) {
-      %%stdout.printf("BAD 3\n");
+    if (true && { %%io.stdout.printf("OK 3\n"); false }) {
+      %%io.stdout.printf("BAD 3\n");
     }
-    if (false && { %%stdout.printf("BAD 4\n"); false }) {
+    if (false && { %%io.stdout.printf("BAD 4\n"); false }) {
     } else {
-      %%stdout.printf("OK 4\n");
+      %%io.stdout.printf("OK 4\n");
     }
 }
     )SOURCE", "OK 1\nOK 2\nOK 3\nOK 4\n");
 
     add_simple_case("modify operators", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
     var i : i32 = 0;
-    i += 5;  if (i != 5)  { %%stdout.printf("BAD +=\n"); }
-    i -= 2;  if (i != 3)  { %%stdout.printf("BAD -=\n"); }
-    i *= 20; if (i != 60) { %%stdout.printf("BAD *=\n"); }
-    i /= 3;  if (i != 20) { %%stdout.printf("BAD /=\n"); }
-    i %= 11; if (i != 9)  { %%stdout.printf("BAD %=\n"); }
-    i <<= 1; if (i != 18) { %%stdout.printf("BAD <<=\n"); }
-    i >>= 2; if (i != 4)  { %%stdout.printf("BAD >>=\n"); }
+    i += 5;  if (i != 5)  { %%io.stdout.printf("BAD +=\n"); }
+    i -= 2;  if (i != 3)  { %%io.stdout.printf("BAD -=\n"); }
+    i *= 20; if (i != 60) { %%io.stdout.printf("BAD *=\n"); }
+    i /= 3;  if (i != 20) { %%io.stdout.printf("BAD /=\n"); }
+    i %= 11; if (i != 9)  { %%io.stdout.printf("BAD %=\n"); }
+    i <<= 1; if (i != 18) { %%io.stdout.printf("BAD <<=\n"); }
+    i >>= 2; if (i != 4)  { %%io.stdout.printf("BAD >>=\n"); }
     i = 6;
-    i &= 5;  if (i != 4)  { %%stdout.printf("BAD &=\n"); }
-    i ^= 6;  if (i != 2)  { %%stdout.printf("BAD ^=\n"); }
+    i &= 5;  if (i != 4)  { %%io.stdout.printf("BAD &=\n"); }
+    i ^= 6;  if (i != 2)  { %%io.stdout.printf("BAD ^=\n"); }
     i = 6;
-    i |= 3;  if (i != 7)  { %%stdout.printf("BAD |=\n"); }
+    i |= 3;  if (i != 7)  { %%io.stdout.printf("BAD |=\n"); }
 
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
-    add_simple_case("number literals", R"SOURCE(
-#link("c")
-export executable "test";
-
-c_import {
-    @c_include("stdio.h");
-}
+    add_simple_case_libc("number literals", R"SOURCE(
+const c = @c_import(@c_include("stdio.h"));
 
 export fn main(argc: c_int, argv: &&u8) -> c_int {
-    printf(c"\n");
+    c.printf(c"\n");
 
-    printf(c"0: %llu\n",
+    c.printf(c"0: %llu\n",
              u64(0));
-    printf(c"320402575052271: %llu\n",
+    c.printf(c"320402575052271: %llu\n",
          u64(320402575052271));
-    printf(c"0x01236789abcdef: %llu\n",
+    c.printf(c"0x01236789abcdef: %llu\n",
          u64(0x01236789abcdef));
-    printf(c"0xffffffffffffffff: %llu\n",
+    c.printf(c"0xffffffffffffffff: %llu\n",
          u64(0xffffffffffffffff));
-    printf(c"0x000000ffffffffffffffff: %llu\n",
+    c.printf(c"0x000000ffffffffffffffff: %llu\n",
          u64(0x000000ffffffffffffffff));
-    printf(c"0o1777777777777777777777: %llu\n",
+    c.printf(c"0o1777777777777777777777: %llu\n",
          u64(0o1777777777777777777777));
-    printf(c"0o0000001777777777777777777777: %llu\n",
+    c.printf(c"0o0000001777777777777777777777: %llu\n",
          u64(0o0000001777777777777777777777));
-    printf(c"0b1111111111111111111111111111111111111111111111111111111111111111: %llu\n",
+    c.printf(c"0b1111111111111111111111111111111111111111111111111111111111111111: %llu\n",
          u64(0b1111111111111111111111111111111111111111111111111111111111111111));
-    printf(c"0b0000001111111111111111111111111111111111111111111111111111111111111111: %llu\n",
+    c.printf(c"0b0000001111111111111111111111111111111111111111111111111111111111111111: %llu\n",
          u64(0b0000001111111111111111111111111111111111111111111111111111111111111111));
 
-    printf(c"\n");
+    c.printf(c"\n");
 
-    printf(c"0.0: %a\n",
+    c.printf(c"0.0: %a\n",
          f64(0.0));
-    printf(c"0e0: %a\n",
+    c.printf(c"0e0: %a\n",
          f64(0e0));
-    printf(c"0.0e0: %a\n",
+    c.printf(c"0.0e0: %a\n",
          f64(0.0e0));
-    printf(c"000000000000000000000000000000000000000000000000000000000.0e0: %a\n",
+    c.printf(c"000000000000000000000000000000000000000000000000000000000.0e0: %a\n",
          f64(000000000000000000000000000000000000000000000000000000000.0e0));
-    printf(c"0.000000000000000000000000000000000000000000000000000000000e0: %a\n",
+    c.printf(c"0.000000000000000000000000000000000000000000000000000000000e0: %a\n",
          f64(0.000000000000000000000000000000000000000000000000000000000e0));
-    printf(c"0.0e000000000000000000000000000000000000000000000000000000000: %a\n",
+    c.printf(c"0.0e000000000000000000000000000000000000000000000000000000000: %a\n",
          f64(0.0e000000000000000000000000000000000000000000000000000000000));
-    printf(c"1.0: %a\n",
+    c.printf(c"1.0: %a\n",
          f64(1.0));
-    printf(c"10.0: %a\n",
+    c.printf(c"10.0: %a\n",
          f64(10.0));
-    printf(c"10.5: %a\n",
+    c.printf(c"10.5: %a\n",
          f64(10.5));
-    printf(c"10.5e5: %a\n",
+    c.printf(c"10.5e5: %a\n",
          f64(10.5e5));
-    printf(c"10.5e+5: %a\n",
+    c.printf(c"10.5e+5: %a\n",
          f64(10.5e+5));
-    printf(c"50.0e-2: %a\n",
+    c.printf(c"50.0e-2: %a\n",
          f64(50.0e-2));
-    printf(c"50e-2: %a\n",
+    c.printf(c"50e-2: %a\n",
          f64(50e-2));
 
-    printf(c"\n");
+    c.printf(c"\n");
 
-    printf(c"0x1.0: %a\n",
+    c.printf(c"0x1.0: %a\n",
          f64(0x1.0));
-    printf(c"0x10.0: %a\n",
+    c.printf(c"0x10.0: %a\n",
          f64(0x10.0));
-    printf(c"0x100.0: %a\n",
+    c.printf(c"0x100.0: %a\n",
          f64(0x100.0));
-    printf(c"0x103.0: %a\n",
+    c.printf(c"0x103.0: %a\n",
          f64(0x103.0));
-    printf(c"0x103.7: %a\n",
+    c.printf(c"0x103.7: %a\n",
          f64(0x103.7));
-    printf(c"0x103.70: %a\n",
+    c.printf(c"0x103.70: %a\n",
          f64(0x103.70));
-    printf(c"0x103.70p4: %a\n",
+    c.printf(c"0x103.70p4: %a\n",
          f64(0x103.70p4));
-    printf(c"0x103.70p5: %a\n",
+    c.printf(c"0x103.70p5: %a\n",
          f64(0x103.70p5));
-    printf(c"0x103.70p+5: %a\n",
+    c.printf(c"0x103.70p+5: %a\n",
          f64(0x103.70p+5));
-    printf(c"0x103.70p-5: %a\n",
+    c.printf(c"0x103.70p-5: %a\n",
          f64(0x103.70p-5));
 
-    printf(c"\n");
+    c.printf(c"\n");
 
-    printf(c"0b10100.00010e0: %a\n",
+    c.printf(c"0b10100.00010e0: %a\n",
          f64(0b10100.00010e0));
-    printf(c"0o10700.00010e0: %a\n",
+    c.printf(c"0o10700.00010e0: %a\n",
          f64(0o10700.00010e0));
 
     return 0;
@@ -496,7 +509,7 @@ export fn main(argc: c_int, argv: &&u8) -> c_int {
 )OUTPUT");
 
     add_simple_case("structs", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
     var foo : Foo = undefined;
@@ -506,12 +519,12 @@ pub fn main(args: [][]u8) -> %void {
     test_foo(foo);
     test_mutation(&foo);
     if (foo.c != 100) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
     test_point_to_self();
     test_byval_assign();
     test_initializer();
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
 struct Foo {
     a : i32,
@@ -520,7 +533,7 @@ struct Foo {
 }
 fn test_foo(foo : Foo) {
     if (!foo.b) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
 }
 fn test_mutation(foo : &Foo) {
@@ -545,7 +558,7 @@ fn test_point_to_self() {
     root.next = &node;
 
     if (node.next.next.next.val.x != 1) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
 }
 fn test_byval_assign() {
@@ -554,38 +567,38 @@ fn test_byval_assign() {
 
     foo1.a = 1234;
 
-    if (foo2.a != 0) { %%stdout.printf("BAD\n"); }
+    if (foo2.a != 0) { %%io.stdout.printf("BAD\n"); }
 
     foo2 = foo1;
 
-    if (foo2.a != 1234) { %%stdout.printf("BAD - byval assignment failed\n"); }
+    if (foo2.a != 1234) { %%io.stdout.printf("BAD - byval assignment failed\n"); }
 }
 fn test_initializer() {
     const val = Val { .x = 42 };
-    if (val.x != 42) { %%stdout.printf("BAD\n"); }
+    if (val.x != 42) { %%io.stdout.printf("BAD\n"); }
 }
     )SOURCE", "OK\n");
 
     add_simple_case("global variables", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 const g1 : i32 = 1233 + 1;
 var g2 : i32 = 0;
 
 pub fn main(args: [][]u8) -> %void {
-    if (g2 != 0) { %%stdout.printf("BAD\n"); }
+    if (g2 != 0) { %%io.stdout.printf("BAD\n"); }
     g2 = g1;
-    if (g2 != 1234) { %%stdout.printf("BAD\n"); }
-    %%stdout.printf("OK\n");
+    if (g2 != 1234) { %%io.stdout.printf("BAD\n"); }
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("while loop", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     var i : i32 = 0;
     while (i < 4) {
-        %%stdout.printf("loop\n");
+        %%io.stdout.printf("loop\n");
         i += 1;
     }
     g();
@@ -601,11 +614,11 @@ fn f() -> i32 {
     )SOURCE", "loop\nloop\nloop\nloop\n");
 
     add_simple_case("continue and break", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     var i : i32 = 0;
     while (true) {
-        %%stdout.printf("loop\n");
+        %%io.stdout.printf("loop\n");
         i += 1;
         if (i < 4) {
             continue;
@@ -616,11 +629,11 @@ pub fn main(args: [][]u8) -> %void {
     )SOURCE", "loop\nloop\nloop\nloop\n");
 
     add_simple_case("implicit cast after unreachable", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     const x = outer();
     if (x == 1234) {
-        %%stdout.printf("OK\n");
+        %%io.stdout.printf("OK\n");
     }
 }
 fn inner() -> i32 { 1234 }
@@ -630,18 +643,18 @@ fn outer() -> isize {
     )SOURCE", "OK\n");
 
     add_simple_case("@sizeof() and @typeof()", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 const x: u16 = 13;
 const z: @typeof(x) = 19;
 pub fn main(args: [][]u8) -> %void {
     const y: @typeof(x) = 120;
-    %%stdout.print_u64(@sizeof(@typeof(y)));
-    %%stdout.printf("\n");
+    %%io.stdout.print_u64(@sizeof(@typeof(y)));
+    %%io.stdout.printf("\n");
 }
     )SOURCE", "2\n");
 
     add_simple_case("member functions", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 struct Rand {
     seed: u32,
     pub fn get_seed(r: Rand) -> u32 {
@@ -651,14 +664,14 @@ struct Rand {
 pub fn main(args: [][]u8) -> %void {
     const r = Rand {.seed = 1234};
     if (r.get_seed() != 1234) {
-        %%stdout.printf("BAD seed\n");
+        %%io.stdout.printf("BAD seed\n");
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("pointer dereferencing", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
     var x = i32(3);
@@ -667,93 +680,93 @@ pub fn main(args: [][]u8) -> %void {
     *y += 1;
 
     if (x != 4) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
     if (*y != 4) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("constant expressions", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 const ARRAY_SIZE : i8 = 20;
 
 pub fn main(args: [][]u8) -> %void {
     var array : [ARRAY_SIZE]u8 = undefined;
-    %%stdout.print_u64(@sizeof(@typeof(array)));
-    %%stdout.printf("\n");
+    %%io.stdout.print_u64(@sizeof(@typeof(array)));
+    %%io.stdout.printf("\n");
 }
     )SOURCE", "20\n");
 
     add_simple_case("@min_value() and @max_value()", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
-    %%stdout.printf("max u8: ");
-    %%stdout.print_u64(@max_value(u8));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("max u8: ");
+    %%io.stdout.print_u64(@max_value(u8));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("max u16: ");
-    %%stdout.print_u64(@max_value(u16));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("max u16: ");
+    %%io.stdout.print_u64(@max_value(u16));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("max u32: ");
-    %%stdout.print_u64(@max_value(u32));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("max u32: ");
+    %%io.stdout.print_u64(@max_value(u32));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("max u64: ");
-    %%stdout.print_u64(@max_value(u64));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("max u64: ");
+    %%io.stdout.print_u64(@max_value(u64));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("max i8: ");
-    %%stdout.print_i64(@max_value(i8));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("max i8: ");
+    %%io.stdout.print_i64(@max_value(i8));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("max i16: ");
-    %%stdout.print_i64(@max_value(i16));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("max i16: ");
+    %%io.stdout.print_i64(@max_value(i16));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("max i32: ");
-    %%stdout.print_i64(@max_value(i32));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("max i32: ");
+    %%io.stdout.print_i64(@max_value(i32));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("max i64: ");
-    %%stdout.print_i64(@max_value(i64));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("max i64: ");
+    %%io.stdout.print_i64(@max_value(i64));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("min u8: ");
-    %%stdout.print_u64(@min_value(u8));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("min u8: ");
+    %%io.stdout.print_u64(@min_value(u8));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("min u16: ");
-    %%stdout.print_u64(@min_value(u16));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("min u16: ");
+    %%io.stdout.print_u64(@min_value(u16));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("min u32: ");
-    %%stdout.print_u64(@min_value(u32));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("min u32: ");
+    %%io.stdout.print_u64(@min_value(u32));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("min u64: ");
-    %%stdout.print_u64(@min_value(u64));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("min u64: ");
+    %%io.stdout.print_u64(@min_value(u64));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("min i8: ");
-    %%stdout.print_i64(@min_value(i8));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("min i8: ");
+    %%io.stdout.print_i64(@min_value(i8));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("min i16: ");
-    %%stdout.print_i64(@min_value(i16));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("min i16: ");
+    %%io.stdout.print_i64(@min_value(i16));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("min i32: ");
-    %%stdout.print_i64(@min_value(i32));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("min i32: ");
+    %%io.stdout.print_i64(@min_value(i32));
+    %%io.stdout.printf("\n");
 
-    %%stdout.printf("min i64: ");
-    %%stdout.print_i64(@min_value(i64));
-    %%stdout.printf("\n");
+    %%io.stdout.printf("min i64: ");
+    %%io.stdout.print_i64(@min_value(i64));
+    %%io.stdout.printf("\n");
 }
     )SOURCE",
         "max u8: 255\n"
@@ -775,10 +788,10 @@ pub fn main(args: [][]u8) -> %void {
 
 
     add_simple_case("else if expression", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     if (f(1) == 1) {
-        %%stdout.printf("OK\n");
+        %%io.stdout.printf("OK\n");
     }
 }
 fn f(c: u8) -> u8 {
@@ -793,82 +806,82 @@ fn f(c: u8) -> u8 {
     )SOURCE", "OK\n");
 
     add_simple_case("overflow intrinsics", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     var result: u8 = undefined;
     if (!@add_with_overflow(u8, 250, 100, &result)) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
     if (@add_with_overflow(u8, 100, 150, &result)) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
     if (result != 250) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("order-independent declarations", R"SOURCE(
-import "std.zig";
-const z = stdin_fileno;
+const io = @import("std").io;
+const z = io.stdin_fileno;
 const x : @typeof(y) = 1234;
 const y : u16 = 5678;
 pub fn main(args: [][]u8) -> %void {
-    var x : i32 = print_ok(x);
+    var x_local : i32 = print_ok(x);
 }
 fn print_ok(val: @typeof(x)) -> @typeof(foo) {
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
     return 0;
 }
 const foo : i32 = 0;
     )SOURCE", "OK\n");
 
     add_simple_case("nested arrays", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
     const array_of_strings = [][]u8 {"hello", "this", "is", "my", "thing"};
     for (array_of_strings) |str| {
-        %%stdout.printf(str);
-        %%stdout.printf("\n");
+        %%io.stdout.printf(str);
+        %%io.stdout.printf("\n");
     }
 }
     )SOURCE", "hello\nthis\nis\nmy\nthing\n");
 
     add_simple_case("for loops", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
     const array = []u8 {9, 8, 7, 6};
     for (array) |item| {
-        %%stdout.print_u64(item);
-        %%stdout.printf("\n");
+        %%io.stdout.print_u64(item);
+        %%io.stdout.printf("\n");
     }
     for (array) |item, index| {
-        %%stdout.print_i64(index);
-        %%stdout.printf("\n");
+        %%io.stdout.print_i64(index);
+        %%io.stdout.printf("\n");
     }
     const unknown_size: []u8 = array;
     for (unknown_size) |item| {
-        %%stdout.print_u64(item);
-        %%stdout.printf("\n");
+        %%io.stdout.print_u64(item);
+        %%io.stdout.printf("\n");
     }
     for (unknown_size) |item, index| {
-        %%stdout.print_i64(index);
-        %%stdout.printf("\n");
+        %%io.stdout.print_i64(index);
+        %%io.stdout.printf("\n");
     }
 }
     )SOURCE", "9\n8\n7\n6\n0\n1\n2\n3\n9\n8\n7\n6\n0\n1\n2\n3\n");
 
     add_simple_case("function pointers", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
     const fns = []@typeof(fn1) { fn1, fn2, fn3, fn4, };
     for (fns) |f| {
-        %%stdout.print_u64(f());
-        %%stdout.printf("\n");
+        %%io.stdout.print_u64(f());
+        %%io.stdout.printf("\n");
     }
 }
 
@@ -879,7 +892,7 @@ fn fn4() -> u32 {8}
     )SOURCE", "5\n6\n7\n8\n");
 
     add_simple_case("statically initialized struct", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 struct Foo {
     x: i32,
     y: bool,
@@ -888,38 +901,38 @@ var foo = Foo { .x = 13, .y = true, };
 pub fn main(args: [][]u8) -> %void {
     foo.x += 1;
     if (foo.x != 14) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
 
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("statically initialized array literal", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 const x = []u8{1,2,3,4};
 pub fn main(args: [][]u8) -> %void {
     const y : [4]u8 = x;
     if (y[3] != 4) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
 
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("return with implicit cast from while loop", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     while (true) {
-        %%stdout.printf("OK\n");
+        %%io.stdout.printf("OK\n");
         return;
     }
 }
     )SOURCE", "OK\n");
 
     add_simple_case("return struct byval from function", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 struct Foo {
     x: i32,
     y: i32,
@@ -933,14 +946,14 @@ fn make_foo(x: i32, y: i32) -> Foo {
 pub fn main(args: [][]u8) -> %void {
     const foo = make_foo(1234, 5678);
     if (foo.y != 5678) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("%% binary operator", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 error ItBroke;
 fn g(x: bool) -> %isize {
     if (x) {
@@ -953,24 +966,24 @@ pub fn main(args: [][]u8) -> %void {
     const a = g(true) %% 3;
     const b = g(false) %% 3;
     if (a != 3) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
     if (b != 10) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("string concatenation", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
-    %%stdout.printf("OK" ++ " IT " ++ "WORKED\n");
+    %%io.stdout.printf("OK" ++ " IT " ++ "WORKED\n");
 }
     )SOURCE", "OK IT WORKED\n");
 
     add_simple_case("constant struct with negation", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 struct Vertex {
     x: f32,
     y: f32,
@@ -985,30 +998,30 @@ const vertices = []Vertex {
 };
 pub fn main(args: [][]u8) -> %void {
     if (vertices[0].x != -0.6) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("int to ptr cast", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     const x = isize(13);
     const y = (&u8)(x);
     const z = usize(y);
     if (z != 13) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("pointer to void return type", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 const x = void{};
 fn f() -> &void {
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
     return &x;
 }
 pub fn main(args: [][]u8) -> %void {
@@ -1018,7 +1031,7 @@ pub fn main(args: [][]u8) -> %void {
     )SOURCE", "OK\n");
 
     add_simple_case("unwrap simple value from error", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 fn do() -> %isize {
     13
 }
@@ -1026,14 +1039,14 @@ fn do() -> %isize {
 pub fn main(args: [][]u8) -> %void {
     const i = %%do();
     if (i != 13) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("store member function in variable", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 struct Foo {
     x: i32,
     fn member(foo: Foo) -> i32 { foo.x }
@@ -1043,14 +1056,14 @@ pub fn main(args: [][]u8) -> %void {
     const member_fn = Foo.member;
     const result = member_fn(instance);
     if (result != 1234) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("call member function directly", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 struct Foo {
     x: i32,
     fn member(foo: Foo) -> i32 { foo.x }
@@ -1059,18 +1072,18 @@ pub fn main(args: [][]u8) -> %void {
     const instance = Foo { .x = 1234, };
     const result = Foo.member(instance);
     if (result != 1234) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
     add_simple_case("call result of if else expression", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 fn a() -> []u8 { "a\n" }
 fn b() -> []u8 { "b\n" }
 fn f(x: bool) {
-    %%stdout.printf((if (x) a else b)());
+    %%io.stdout.printf((if (x) a else b)());
 }
 pub fn main(args: [][]u8) -> %void {
     f(true);
@@ -1079,15 +1092,10 @@ pub fn main(args: [][]u8) -> %void {
     )SOURCE", "a\nb\n");
 
 
-    add_simple_case("expose function pointer to C land", R"SOURCE(
-#link("c")
-export executable "test";
+    add_simple_case_libc("expose function pointer to C land", R"SOURCE(
+const c = @c_import(@c_include("stdlib.h"));
 
-c_import {
-    @c_include("stdlib.h");
-}
-
-export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
+export fn compare_fn(a: ?&const c.c_void, b: ?&const c.c_void) -> c_int {
     const a_int = (&i32)(a ?? unreachable{});
     const b_int = (&i32)(b ?? unreachable{});
     if (*a_int < *b_int) {
@@ -1102,11 +1110,11 @@ export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
 export fn main(args: c_int, argv: &&u8) -> c_int {
     var array = []i32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
 
-    qsort((&c_void)(&array[0]), c_ulong(array.len), @sizeof(i32), compare_fn);
+    c.qsort((&c.c_void)(&array[0]), c_ulong(array.len), @sizeof(i32), compare_fn);
 
     for (array) |item, i| {
         if (item != i) {
-            abort();
+            c.abort();
         }
     }
 
@@ -1116,37 +1124,33 @@ export fn main(args: c_int, argv: &&u8) -> c_int {
 
 
 
-    add_simple_case("casting between float and integer types", R"SOURCE(
-#link("c")
-export executable "test";
-c_import {
-    @c_include("stdio.h");
-}
+    add_simple_case_libc("casting between float and integer types", R"SOURCE(
+const c = @c_import(@c_include("stdio.h"));
 export fn main(argc: c_int, argv: &&u8) -> c_int {
     const small: f32 = 3.25;
     const x: f64 = small;
     const y = i32(x);
     const z = f64(y);
-    printf(c"%.2f\n%d\n%.2f\n%.2f\n", x, y, z, f64(-0.4));
+    c.printf(c"%.2f\n%d\n%.2f\n%.2f\n", x, y, z, f64(-0.4));
     return 0;
 }
     )SOURCE", "3.25\n3\n3.00\n-0.40\n");
 
 
     add_simple_case("const expression eval handling of variables", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     var x = true;
     while (x) {
         x = false;
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
 
     add_simple_case("incomplete struct parameter top level decl", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 struct A {
     b: B,
 }
@@ -1159,7 +1163,7 @@ struct C {
     x: i32,
 
     fn d(c: C) {
-        %%stdout.printf("OK\n");
+        %%io.stdout.printf("OK\n");
     }
 }
 
@@ -1182,7 +1186,7 @@ pub fn main(args: [][]u8) -> %void {
 
 
     add_simple_case("same named methods in incomplete struct", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 
 struct Foo {
     field1: Bar,
@@ -1200,53 +1204,53 @@ pub fn main(args: [][]u8) -> %void {
     const bar = Bar {.field2 = 13,};
     const foo = Foo {.field1 = bar,};
     if (!foo.method()) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
     if (!bar.method()) {
-        %%stdout.printf("BAD\n");
+        %%io.stdout.printf("BAD\n");
     }
-    %%stdout.printf("OK\n");
+    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
 
     add_simple_case("defer with only fallthrough", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
-    %%stdout.printf("before\n");
-    defer %%stdout.printf("defer1\n");
-    defer %%stdout.printf("defer2\n");
-    defer %%stdout.printf("defer3\n");
-    %%stdout.printf("after\n");
+    %%io.stdout.printf("before\n");
+    defer %%io.stdout.printf("defer1\n");
+    defer %%io.stdout.printf("defer2\n");
+    defer %%io.stdout.printf("defer3\n");
+    %%io.stdout.printf("after\n");
 }
     )SOURCE", "before\nafter\ndefer3\ndefer2\ndefer1\n");
 
 
     add_simple_case("defer with return", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
-    %%stdout.printf("before\n");
-    defer %%stdout.printf("defer1\n");
-    defer %%stdout.printf("defer2\n");
+    %%io.stdout.printf("before\n");
+    defer %%io.stdout.printf("defer1\n");
+    defer %%io.stdout.printf("defer2\n");
     if (args.len == 1) return;
-    defer %%stdout.printf("defer3\n");
-    %%stdout.printf("after\n");
+    defer %%io.stdout.printf("defer3\n");
+    %%io.stdout.printf("after\n");
 }
     )SOURCE", "before\ndefer2\ndefer1\n");
 
 
     add_simple_case("%defer and it fails", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     do_test() %% return;
 }
 fn do_test() -> %void {
-    %%stdout.printf("before\n");
-    defer %%stdout.printf("defer1\n");
-    %defer %%stdout.printf("deferErr\n");
+    %%io.stdout.printf("before\n");
+    defer %%io.stdout.printf("defer1\n");
+    %defer %%io.stdout.printf("deferErr\n");
     %return its_gonna_fail();
-    defer %%stdout.printf("defer3\n");
-    %%stdout.printf("after\n");
+    defer %%io.stdout.printf("defer3\n");
+    %%io.stdout.printf("after\n");
 }
 error IToldYouItWouldFail;
 fn its_gonna_fail() -> %void {
@@ -1256,17 +1260,17 @@ fn its_gonna_fail() -> %void {
 
 
     add_simple_case("%defer and it passes", R"SOURCE(
-import "std.zig";
+const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     do_test() %% return;
 }
 fn do_test() -> %void {
-    %%stdout.printf("before\n");
-    defer %%stdout.printf("defer1\n");
-    %defer %%stdout.printf("deferErr\n");
+    %%io.stdout.printf("before\n");
+    defer %%io.stdout.printf("defer1\n");
+    %defer %%io.stdout.printf("deferErr\n");
     %return its_gonna_pass();
-    defer %%stdout.printf("defer3\n");
-    %%stdout.printf("after\n");
+    defer %%io.stdout.printf("defer3\n");
+    %%io.stdout.printf("after\n");
 }
 fn its_gonna_pass() -> %void { }
     )SOURCE", "before\nafter\ndefer3\ndefer1\n");
@@ -1327,14 +1331,9 @@ fn a() {
 fn b() {}
     )SOURCE", 1, ".tmp_source.zig:4:5: error: unreachable code");
 
-    add_compile_fail_case("bad version string", R"SOURCE(
-#version("aoeu")
-export executable "test";
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: invalid version string");
-
     add_compile_fail_case("bad import", R"SOURCE(
-import "bogus-does-not-exist.zig";
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: unable to find 'bogus-does-not-exist.zig'");
+const bogus = @import("bogus-does-not-exist.zig");
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: unable to find 'bogus-does-not-exist.zig'");
 
     add_compile_fail_case("undeclared identifier", R"SOURCE(
 fn a() {
@@ -1450,13 +1449,13 @@ fn f() {
 
     add_compile_fail_case("direct struct loop", R"SOURCE(
 struct A { a : A, }
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: struct has infinite size");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: 'A' depends on itself");
 
     add_compile_fail_case("indirect struct loop", R"SOURCE(
 struct A { b : B, }
 struct B { c : C, }
 struct C { a : A, }
-    )SOURCE", 1, ".tmp_source.zig:4:1: error: struct has infinite size");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: 'A' depends on itself");
 
     add_compile_fail_case("invalid struct field", R"SOURCE(
 struct A { x : i32, }
@@ -1568,7 +1567,7 @@ fn f() -> @bogus(foo) {
     add_compile_fail_case("top level decl dependency loop", R"SOURCE(
 const a : @typeof(b) = 0;
 const b : @typeof(a) = 0;
-    )SOURCE", 1, ".tmp_source.zig:3:19: error: use of undeclared identifier 'a'");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: 'a' depends on itself");
 
     add_compile_fail_case("noalias on non pointer param", R"SOURCE(
 fn f(noalias x: i32) {}
@@ -1589,8 +1588,11 @@ struct Bar {}
 fn f(Foo: i32) {
     var Bar : i32 = undefined;
 }
-    )SOURCE", 2, ".tmp_source.zig:5:6: error: variable shadows type 'Foo'",
-                 ".tmp_source.zig:6:5: error: variable shadows type 'Bar'");
+    )SOURCE", 4,
+            ".tmp_source.zig:5:6: error: redefinition of 'Foo'",
+            ".tmp_source.zig:2:1: note: previous definition is here",
+            ".tmp_source.zig:6:5: error: redefinition of 'Bar'",
+            ".tmp_source.zig:3:1: note: previous definition is here");
 
     add_compile_fail_case("multiple else prongs in a switch", R"SOURCE(
 fn f(x: u32) {
@@ -1614,14 +1616,9 @@ fn f(s: []u8) -> []u8 {
     )SOURCE", 1, ".tmp_source.zig:3:5: error: string concatenation requires constant expression");
 
     add_compile_fail_case("c_import with bogus include", R"SOURCE(
-c_import {
-    @c_include("bogus.h");
-}
-    )SOURCE", 2, ".tmp_source.zig:2:1: error: C import failed",
-                 ".h:1:10: error: 'bogus.h' file not found");
-
-    add_compile_fail_case("empty file", "",
-            1, ".tmp_source.zig:1:1: error: missing export declaration and output name not provided");
+const c = @c_import(@c_include("bogus.h"));
+    )SOURCE", 2, ".tmp_source.zig:2:11: error: C import failed",
+                 ".h:1:10: note: 'bogus.h' file not found");
 
     add_compile_fail_case("address of number literal", R"SOURCE(
 const x = 3;

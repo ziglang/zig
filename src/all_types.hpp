@@ -76,6 +76,7 @@ struct ConstExprValue {
         ConstStructValue x_struct;
         ConstArrayValue x_array;
         ConstPtrValue x_ptr;
+        ImportTableEntry *x_import;
     } data;
 };
 
@@ -91,6 +92,7 @@ enum ReturnKnowledge {
 struct Expr {
     TypeTableEntry *type_entry;
     ReturnKnowledge return_knowledge;
+    VariableTableEntry *variable;
 
     LLVMValueRef const_llvm_val;
     ConstExprValue const_val;
@@ -103,13 +105,30 @@ struct StructValExprCodeGen {
     AstNode *source_node;
 };
 
+enum VisibMod {
+    VisibModPrivate,
+    VisibModPub,
+    VisibModExport,
+};
+
+enum TldResolution {
+    TldResolutionUnresolved,
+    TldResolutionInvalid,
+    TldResolutionOk,
+};
+
 struct TopLevelDecl {
-    // reminder: hash tables must be initialized before use
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> deps;
+    // populated by parser
     Buf *name;
+    ZigList<AstNode *> *directives;
+    VisibMod visib_mod;
+
+    // populated by semantic analyzer
     ImportTableEntry *import;
     // set this flag temporarily to detect infinite loops
-    bool in_current_deps;
+    bool dep_loop_flag;
+    TldResolution resolution;
+    AstNode *parent_decl;
 };
 
 struct TypeEnumField {
@@ -120,7 +139,6 @@ struct TypeEnumField {
 
 enum NodeType {
     NodeTypeRoot,
-    NodeTypeRootExportDecl,
     NodeTypeFnProto,
     NodeTypeFnDef,
     NodeTypeFnDecl,
@@ -143,8 +161,7 @@ enum NodeType {
     NodeTypeArrayAccessExpr,
     NodeTypeSliceExpr,
     NodeTypeFieldAccessExpr,
-    NodeTypeImport,
-    NodeTypeCImport,
+    NodeTypeUse,
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
     NodeTypeUndefinedLiteral,
@@ -173,15 +190,8 @@ struct AstNodeRoot {
     ZigList<AstNode *> top_level_decls;
 };
 
-enum VisibMod {
-    VisibModPrivate,
-    VisibModPub,
-    VisibModExport,
-};
-
 struct AstNodeFnProto {
-    ZigList<AstNode *> *directives; // can be null if no directives
-    VisibMod visib_mod;
+    TopLevelDecl top_level_decl;
     Buf name;
     ZigList<AstNode *> params;
     AstNode *return_type;
@@ -191,13 +201,10 @@ struct AstNodeFnProto {
 
     // populated by semantic analyzer:
 
-    // the struct decl node this fn proto is inside. can be null.
-    AstNode *struct_node;
     // the function definition this fn proto is inside. can be null.
     AstNode *fn_def_node;
     FnTableEntry *fn_table_entry;
     bool skip;
-    TopLevelDecl top_level_decl;
     Expr resolved_expr;
 };
 
@@ -263,41 +270,36 @@ struct AstNodeDefer {
 };
 
 struct AstNodeVariableDeclaration {
+    TopLevelDecl top_level_decl;
     Buf symbol;
     bool is_const;
     bool is_extern;
-    VisibMod visib_mod;
     // one or both of type and expr will be non null
     AstNode *type;
     AstNode *expr;
-    ZigList<AstNode *> *directives;
 
     // populated by semantic analyzer
-    TopLevelDecl top_level_decl;
     Expr resolved_expr;
     VariableTableEntry *variable;
 };
 
 struct AstNodeTypeDecl {
-    VisibMod visib_mod;
-    ZigList<AstNode *> *directives;
+    TopLevelDecl top_level_decl;
     Buf symbol;
     AstNode *child_type;
 
     // populated by semantic analyzer
-    TopLevelDecl top_level_decl;
     // if this is set, don't process the node; we've already done so
     // and here is the type (with id TypeTableEntryIdTypeDecl)
     TypeTableEntry *override_type;
+    TypeTableEntry *child_type_entry;
 };
 
 struct AstNodeErrorValueDecl {
+    TopLevelDecl top_level_decl;
     Buf name;
-    VisibMod visib_mod;
-    ZigList<AstNode *> *directives;
 
     // populated by semantic analyzer
-    TopLevelDecl top_level_decl;
     ErrorTableEntry *err;
 };
 
@@ -430,12 +432,6 @@ struct AstNodeDirective {
     AstNode *expr;
 };
 
-struct AstNodeRootExportDecl {
-    Buf type;
-    Buf name;
-    ZigList<AstNode *> *directives;
-};
-
 enum PrefixOp {
     PrefixOpInvalid,
     PrefixOpBoolNot,
@@ -458,19 +454,8 @@ struct AstNodePrefixOpExpr {
     Expr resolved_expr;
 };
 
-struct AstNodeImport {
-    Buf path;
-    ZigList<AstNode *> *directives;
-    VisibMod visib_mod;
-
-    // populated by semantic analyzer
-    ImportTableEntry *import;
-};
-
-struct AstNodeCImport {
-    ZigList<AstNode *> *directives;
-    VisibMod visib_mod;
-    AstNode *block;
+struct AstNodeUse {
+    AstNode *expr;
 
     // populated by semantic analyzer
     TopLevelDecl top_level_decl;
@@ -600,23 +585,21 @@ enum ContainerKind {
 };
 
 struct AstNodeStructDecl {
+    TopLevelDecl top_level_decl;
     Buf name;
     ContainerKind kind;
     ZigList<AstNode *> fields;
     ZigList<AstNode *> fns;
-    ZigList<AstNode *> *directives;
-    VisibMod visib_mod;
 
     // populated by semantic analyzer
+    BlockContext *block_context;
     TypeTableEntry *type_entry;
-    TopLevelDecl top_level_decl;
 };
 
 struct AstNodeStructField {
+    TopLevelDecl top_level_decl;
     Buf name;
     AstNode *type;
-    ZigList<AstNode *> *directives;
-    VisibMod visib_mod;
 };
 
 struct AstNodeStringLiteral {
@@ -695,8 +678,6 @@ struct AstNodeSymbolExpr {
 
     // populated by semantic analyzer
     Expr resolved_expr;
-    VariableTableEntry *variable;
-    FnTableEntry *fn_entry;
     // set this to instead of analyzing the node, pretend it's a type entry and it's this one.
     TypeTableEntry *override_type_entry;
     TypeEnumField *enum_field;
@@ -750,7 +731,6 @@ struct AstNode {
     BlockContext *block_context;
     union {
         AstNodeRoot root;
-        AstNodeRootExportDecl root_export_decl;
         AstNodeFnDef fn_def;
         AstNodeFnDecl fn_decl;
         AstNodeFnProto fn_proto;
@@ -768,8 +748,7 @@ struct AstNode {
         AstNodeFnCallExpr fn_call_expr;
         AstNodeArrayAccessExpr array_access_expr;
         AstNodeSliceExpr slice_expr;
-        AstNodeImport import;
-        AstNodeCImport c_import;
+        AstNodeUse use;
         AstNodeIfBoolExpr if_bool_expr;
         AstNodeIfVarExpr if_var_expr;
         AstNodeWhileExpr while_expr;
@@ -868,8 +847,7 @@ struct TypeTableEntryStruct {
     uint64_t size_bytes;
     bool is_invalid; // true if any fields are invalid
     bool is_unknown_size_array;
-    // reminder: hash tables must be initialized before use
-    HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
+    BlockContext *block_context;
 
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;
@@ -895,8 +873,7 @@ struct TypeTableEntryEnum {
     TypeTableEntry *tag_type;
     TypeTableEntry *union_type;
 
-    // reminder: hash tables must be initialized before use
-    HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
+    BlockContext *block_context;
 
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;
@@ -947,6 +924,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdEnum,
     TypeTableEntryIdFn,
     TypeTableEntryIdTypeDecl,
+    TypeTableEntryIdNamespace,
 };
 
 struct TypeTableEntry {
@@ -979,26 +957,26 @@ struct TypeTableEntry {
     TypeTableEntry *error_parent;
 };
 
-struct ImporterInfo {
-    ImportTableEntry *import;
-    AstNode *source_node;
+struct PackageTableEntry {
+    Buf root_src_dir;
+    Buf root_src_path; // relative to root_src_dir
+
+    // reminder: hash tables must be initialized before use
+    HashMap<Buf *, PackageTableEntry *, buf_hash, buf_eql_buf> package_table;
 };
 
 struct ImportTableEntry {
     AstNode *root;
-    Buf *path; // relative to root_source_dir
+    Buf *path; // relative to root_package->root_src_dir
+    PackageTableEntry *package;
     LLVMZigDIFile *di_file;
     Buf *source_code;
     ZigList<int> *line_offsets;
     BlockContext *block_context;
-    ZigList<ImporterInfo> importers;
     AstNode *c_import_node;
     bool any_imports_failed;
 
-    // reminder: hash tables must be initialized before use
-    HashMap<Buf *, FnTableEntry *, buf_hash, buf_eql_buf> fn_table;
-    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> type_table;
-    HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
+    ZigList<AstNode *> use_decls;
 };
 
 struct FnTableEntry {
@@ -1008,14 +986,12 @@ struct FnTableEntry {
     ImportTableEntry *import_entry;
     // Required to be a pre-order traversal of the AST. (parents must come before children)
     ZigList<BlockContext *> all_block_contexts;
-    TypeTableEntry *member_of_struct;
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
     bool is_inline;
     bool internal_linkage;
     bool is_extern;
     bool is_test;
-    uint32_t ref_count; // if this is 0 we don't have to codegen it
 
     ZigList<AstNode *> cast_alloca_list;
     ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
@@ -1042,6 +1018,8 @@ enum BuiltinFnId {
     BuiltinFnIdConstEval,
     BuiltinFnIdCtz,
     BuiltinFnIdClz,
+    BuiltinFnIdImport,
+    BuiltinFnIdCImport,
 };
 
 struct BuiltinFnEntry {
@@ -1061,16 +1039,21 @@ struct CodeGen {
     LLVMZigDIBuilder *dbuilder;
     LLVMZigDICompileUnit *compile_unit;
 
-    ZigList<Buf *> lib_search_paths;
-    ZigList<Buf *> link_libs;
+    ZigList<Buf *> link_libs; // non-libc link libs
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> unresolved_top_level_decls;
     HashMap<FnTypeId *, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
+
+    ZigList<ImportTableEntry *> import_queue;
+    int import_queue_index;
+    ZigList<AstNode *> export_queue;
+    int export_queue_index;
+    ZigList<AstNode *> use_queue;
+    int use_queue_index;
 
     uint32_t next_unresolved_index;
 
@@ -1095,6 +1078,7 @@ struct CodeGen {
         TypeTableEntry *entry_unreachable;
         TypeTableEntry *entry_type;
         TypeTableEntry *entry_invalid;
+        TypeTableEntry *entry_namespace;
         TypeTableEntry *entry_num_lit_int;
         TypeTableEntry *entry_num_lit_float;
         TypeTableEntry *entry_undef;
@@ -1126,7 +1110,8 @@ struct CodeGen {
     LLVMTargetMachineRef target_machine;
     LLVMZigDIFile *dummy_di_file;
     bool is_native_target;
-    Buf *root_source_dir;
+    PackageTableEntry *root_package;
+    PackageTableEntry *std_package;
     Buf *root_out_name;
     bool windows_subsystem_windows;
     bool windows_subsystem_console;
@@ -1176,6 +1161,8 @@ struct CodeGen {
     ZigList<const char *> lib_dirs;
 
     uint32_t test_fn_count;
+
+    bool check_unused;
 };
 
 struct VariableTableEntry {
@@ -1202,7 +1189,8 @@ struct BlockContext {
     AstNode *node;
 
     // any variables that are introduced by this scope
-    HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> variable_table;
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> decl_table;
+    HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> var_table;
 
     // if the block is inside a function, this is the function it is in:
     FnTableEntry *fn_entry;

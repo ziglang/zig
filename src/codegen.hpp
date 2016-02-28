@@ -19,6 +19,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target);
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, int len);
 void codegen_set_is_release(CodeGen *codegen, bool is_release);
 void codegen_set_is_test(CodeGen *codegen, bool is_test);
+void codegen_set_check_unused(CodeGen *codegen, bool check_unused);
 
 void codegen_set_is_static(CodeGen *codegen, bool is_static);
 void codegen_set_strip(CodeGen *codegen, bool strip);
@@ -34,6 +35,7 @@ void codegen_set_linker_path(CodeGen *g, Buf *linker_path);
 void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole);
 void codegen_set_windows_unicode(CodeGen *g, bool municode);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
+void codegen_add_link_lib(CodeGen *codegen, const char *lib);
 void codegen_set_mlinker_version(CodeGen *g, Buf *darwin_linker_version);
 void codegen_set_rdynamic(CodeGen *g, bool rdynamic);
 void codegen_set_mmacosx_version_min(CodeGen *g, Buf *mmacosx_version_min);

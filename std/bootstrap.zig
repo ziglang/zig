@@ -1,7 +1,7 @@
-import "syscall.zig";
+// This file is in a package which has the root source file exposed as "@root".
 
-// The compiler treats this file special by implicitly importing the function `main`
-// from the root source file as the symbol `zig_user_main`.
+const root = @import("@root");
+const syscall = @import("syscall.zig");
 
 const want_start_symbol = switch(@compile_var("os")) {
     linux => true,
@@ -26,7 +26,7 @@ export fn _start() -> unreachable {
         },
         else => unreachable{},
     }
-    call_main()
+    call_main_and_exit()
 }
 
 fn strlen(ptr: &const u8) -> isize {
@@ -37,23 +37,24 @@ fn strlen(ptr: &const u8) -> isize {
     return count;
 }
 
-fn call_main() -> unreachable {
+fn call_main() -> %void {
     var args: [argc][]u8 = undefined;
     for (args) |arg, i| {
         const ptr = argv[i];
         args[i] = ptr[0...strlen(ptr)];
     }
-    zig_user_main(args) %% exit(1);
-    exit(0);
+    return root.main(args);
+}
+
+fn call_main_and_exit() -> unreachable {
+    call_main() %% syscall.exit(1);
+    syscall.exit(0);
 }
 
 #condition(want_main_symbol)
-export fn main(argc: i32, argv: &&u8) -> i32 {
-    var args: [argc][]u8 = undefined;
-    for (args) |arg, i| {
-        const ptr = argv[i];
-        args[i] = ptr[0...strlen(ptr)];
-    }
-    zig_user_main(args) %% return 1;
+export fn main(c_argc: i32, c_argv: &&u8) -> i32 {
+    argc = c_argc;
+    argv = c_argv;
+    call_main() %% return 1;
     return 0;
 }

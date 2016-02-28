@@ -84,26 +84,26 @@ pub struct Rand {
         }
         return bytes_left;
     }
-}
 
-/// Initialize random state with the given seed.
-pub fn rand_new(seed: u32) -> Rand {
-    var r: Rand = undefined;
-    r.index = 0;
-    r.array[0] = seed;
-    var i : isize = 1;
-    var prev_value: u64 = seed;
-    while (i < ARRAY_SIZE) {
-        r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + u32(i));
-        prev_value = r.array[i];
-        i += 1;
+    /// Initialize random state with the given seed.
+    pub fn init(seed: u32) -> Rand {
+        var r: Rand = undefined;
+        r.index = 0;
+        r.array[0] = seed;
+        var i : isize = 1;
+        var prev_value: u64 = seed;
+        while (i < ARRAY_SIZE) {
+            r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + u32(i));
+            prev_value = r.array[i];
+            i += 1;
+        }
+        return r;
     }
-    return r;
 }
 
 #attribute("test")
 fn test_float32() {
-    var r = rand_new(42);
+    var r = Rand.init(42);
 
     // TODO for loop with range
     var i: i32 = 0;

@@ -137,12 +137,13 @@ set(ZIG_STD_SRC
     "${CMAKE_SOURCE_DIR}/std/test_runner.zig"
     "${CMAKE_SOURCE_DIR}/std/test_runner_libc.zig"
     "${CMAKE_SOURCE_DIR}/std/test_runner_nolibc.zig"
-    "${CMAKE_SOURCE_DIR}/std/std.zig"
+    "${CMAKE_SOURCE_DIR}/std/io.zig"
     "${CMAKE_SOURCE_DIR}/std/os.zig"
     "${CMAKE_SOURCE_DIR}/std/syscall.zig"
     "${CMAKE_SOURCE_DIR}/std/errno.zig"
     "${CMAKE_SOURCE_DIR}/std/rand.zig"
     "${CMAKE_SOURCE_DIR}/std/math.zig"
+    "${CMAKE_SOURCE_DIR}/std/index.zig"
 )
 
 

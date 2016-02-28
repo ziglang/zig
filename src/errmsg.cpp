@@ -4,34 +4,55 @@
 #include <stdio.h>
 
 #define RED "\x1b[31;1m"
-#define WHITE "\x1b[37;1m"
 #define GREEN "\x1b[32;1m"
+#define CYAN "\x1b[36;1m"
+#define WHITE "\x1b[37;1m"
 #define RESET "\x1b[0m"
 
-void print_err_msg(ErrorMsg *err, ErrColor color) {
+enum ErrType {
+    ErrTypeError,
+    ErrTypeNote,
+};
+
+static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) {
+    const char *path = buf_ptr(err->path);
+    int line = err->line_start + 1;
+    int col = err->column_start + 1;
+    const char *text = buf_ptr(err->msg);
+
+
     if (color == ErrColorOn || (color == ErrColorAuto && os_stderr_tty())) {
-        fprintf(stderr, WHITE "%s:%d:%d: " RED "error:" WHITE " %s" RESET "\n",
-                buf_ptr(err->path),
-                err->line_start + 1, err->column_start + 1,
-                buf_ptr(err->msg));
+        if (err_type == ErrTypeError) {
+            fprintf(stderr, WHITE "%s:%d:%d: " RED "error:" WHITE " %s" RESET "\n", path, line, col, text);
+        } else if (err_type == ErrTypeNote) {
+            fprintf(stderr, WHITE "%s:%d:%d: " CYAN "note:" WHITE " %s" RESET "\n", path, line, col, text);
+        } else {
+            zig_unreachable();
+        }
 
         fprintf(stderr, "%s\n", buf_ptr(&err->line_buf));
         for (int i = 0; i < err->column_start; i += 1) {
             fprintf(stderr, " ");
         }
         fprintf(stderr, GREEN "^" RESET "\n");
-
     } else {
-        fprintf(stderr, "%s:%d:%d: error: %s\n",
-                buf_ptr(err->path),
-                err->line_start + 1, err->column_start + 1,
-                buf_ptr(err->msg));
+        if (err_type == ErrTypeError) {
+            fprintf(stderr, "%s:%d:%d: error: %s\n", path, line, col, text);
+        } else if (err_type == ErrTypeNote) {
+            fprintf(stderr, " %s:%d:%d: note: %s\n", path, line, col, text);
+        } else {
+            zig_unreachable();
+        }
     }
 
     for (int i = 0; i < err->notes.length; i += 1) {
         ErrorMsg *note = err->notes.at(i);
-        print_err_msg(note, color);
+        print_err_msg_type(note, color, ErrTypeNote);
     }
+}
+
+void print_err_msg(ErrorMsg *err, ErrColor color) {
+    print_err_msg_type(err, color, ErrTypeError);
 }
 
 void err_msg_add_note(ErrorMsg *parent, ErrorMsg *note) {
