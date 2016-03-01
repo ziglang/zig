@@ -1095,7 +1095,7 @@ pub fn main(args: [][]u8) -> %void {
     add_simple_case_libc("expose function pointer to C land", R"SOURCE(
 const c = @c_import(@c_include("stdlib.h"));
 
-export fn compare_fn(a: ?&const c.c_void, b: ?&const c.c_void) -> c_int {
+export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
     const a_int = (&i32)(a ?? unreachable{});
     const b_int = (&i32)(b ?? unreachable{});
     if (*a_int < *b_int) {
@@ -1110,7 +1110,7 @@ export fn compare_fn(a: ?&const c.c_void, b: ?&const c.c_void) -> c_int {
 export fn main(args: c_int, argv: &&u8) -> c_int {
     var array = []i32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
 
-    c.qsort((&c.c_void)(&array[0]), c_ulong(array.len), @sizeof(i32), compare_fn);
+    c.qsort((&c_void)(&array[0]), c_ulong(array.len), @sizeof(i32), compare_fn);
 
     for (array) |item, i| {
         if (item != i) {
@@ -1802,8 +1802,7 @@ pub const Foo1 = enum_Foo._1;)OUTPUT",
 
     add_parseh_case("restrict -> noalias", R"SOURCE(
 void foo(void *restrict bar, void *restrict);
-    )SOURCE", 1, R"OUTPUT(pub type c_void = u8;
-pub extern fn foo(noalias bar: ?&c_void, noalias arg1: ?&c_void);)OUTPUT");
+    )SOURCE", 1, R"OUTPUT(pub extern fn foo(noalias bar: ?&c_void, noalias arg1: ?&c_void);)OUTPUT");
 
     add_parseh_case("simple struct", R"SOURCE(
 struct Foo {
@@ -1916,8 +1915,7 @@ struct Bar {
     add_parseh_case("typedef void", R"SOURCE(
 typedef void Foo;
 Foo fun(Foo *a);
-    )SOURCE", 3,
-            "pub type c_void = u8;",
+    )SOURCE", 2,
             "pub const Foo = c_void;",
             "pub extern fn fun(a: ?&c_void);");
 

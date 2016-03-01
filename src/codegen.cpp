@@ -3552,6 +3552,11 @@ static void define_builtin_types(CodeGen *g) {
     g->builtin_types.entry_i64 = get_int_type(g, true, 64);
 
     {
+        g->builtin_types.entry_c_void = get_typedecl_type(g, "c_void", g->builtin_types.entry_u8);
+        g->primitive_type_table.put(&g->builtin_types.entry_c_void->name, g->builtin_types.entry_c_void);
+    }
+
+    {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPureError);
         buf_init_from_str(&entry->name, "error");
 

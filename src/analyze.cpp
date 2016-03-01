@@ -2320,9 +2320,9 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
             bool pointer_only = false;
             return analyze_decl_ref(g, node, decl_node, pointer_only);
         } else {
+            const char *import_name = namespace_import->path ? buf_ptr(namespace_import->path) : "(C import)";
             add_node_error(g, node,
-                buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
-                    buf_ptr(namespace_import->path)));
+                buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name), import_name));
             return g->builtin_types.entry_invalid;
         }
     } else {

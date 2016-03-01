@@ -36,7 +36,6 @@ struct Context {
     ZigList<ErrorMsg *> *errors;
     bool warnings_on;
     VisibMod visib_mod;
-    TypeTableEntry *c_void_type;
     AstNode *root;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> global_type_table;
     HashMap<Buf *, GlobalValue, buf_hash, buf_eql_buf> global_value_table;
@@ -292,21 +291,9 @@ static AstNode *add_const_var_node(Context *c, Buf *name, TypeTableEntry *type_e
     return node;
 }
 
-static TypeTableEntry *get_c_void_type(Context *c) {
-    if (!c->c_void_type) {
-        c->c_void_type = get_typedecl_type(c->codegen, "c_void", c->codegen->builtin_types.entry_u8);
-        add_typedef_node(c, c->c_void_type);
-    }
-
-    return c->c_void_type;
-}
-
 static bool is_c_void_type(Context *c, TypeTableEntry *type_entry) {
-    if (!c->c_void_type) {
-        return false;
-    }
     while (type_entry->id == TypeTableEntryIdTypeDecl) {
-        if (type_entry == c->c_void_type) {
+        if (type_entry == c->codegen->builtin_types.entry_c_void) {
             return true;
         }
         type_entry = type_entry->data.type_decl.child_type;
@@ -336,7 +323,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                 const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
                 switch (builtin_ty->getKind()) {
                     case BuiltinType::Void:
-                        return get_c_void_type(c);
+                        return c->codegen->builtin_types.entry_c_void;
                     case BuiltinType::Bool:
                         return c->codegen->builtin_types.entry_bool;
                     case BuiltinType::Char_U:

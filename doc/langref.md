@@ -204,6 +204,7 @@ c_ulong         unsigned long       for ABI compatibility with C
 c_longlong      long long           for ABI compatibility with C
 c_ulonglong     unsigned long long  for ABI compatibility with C
 c_long_double   long double         for ABI compatibility with C
+c_void          void                for ABI compatibility with C
 ```
 
 ### Boolean Type
