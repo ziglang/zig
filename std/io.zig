@@ -1,4 +1,4 @@
-const syscall = @import("syscall.zig");
+const linux = @import("linux.zig");
 const errno = @import("errno.zig");
 const math = @import("math.zig");
 
@@ -105,7 +105,7 @@ pub struct OutStream {
     }
 
     pub fn flush(os: &OutStream) -> %void {
-        const amt_written = syscall.write(os.fd, &os.buffer[0], os.index);
+        const amt_written = linux.write(os.fd, &os.buffer[0], os.index);
         os.index = 0;
         if (amt_written < 0) {
             return switch (-amt_written) {
@@ -123,12 +123,12 @@ pub struct OutStream {
     }
 
     pub fn close(os: &OutStream) -> %void {
-        const closed = close(os.fd);
+        const closed = linux.close(os.fd);
         if (closed < 0) {
             return switch (-closed) {
-                EIO => error.Io,
-                EBADF => error.BadFd,
-                EINTR => error.SigInterrupt,
+                errno.EIO => error.Io,
+                errno.EBADF => error.BadFd,
+                errno.EINTR => error.SigInterrupt,
                 else => error.Unexpected,
             }
         }
@@ -139,7 +139,7 @@ pub struct InStream {
     fd: isize,
 
     pub fn read(is: &InStream, buf: []u8) -> %isize {
-        const amt_read = syscall.read(is.fd, &buf[0], buf.len);
+        const amt_read = linux.read(is.fd, &buf[0], buf.len);
         if (amt_read < 0) {
             return switch (-amt_read) {
                 errno.EINVAL => unreachable{},
@@ -154,12 +154,12 @@ pub struct InStream {
     }
 
     pub fn close(is: &InStream) -> %void {
-        const closed = close(is.fd);
+        const closed = linux.close(is.fd);
         if (closed < 0) {
             return switch (-closed) {
-                EIO => error.Io,
-                EBADF => error.BadFd,
-                EINTR => error.SigInterrupt,
+                errno.EIO => error.Io,
+                errno.EBADF => error.BadFd,
+                errno.EINTR => error.SigInterrupt,
                 else => error.Unexpected,
             }
         }
@@ -168,8 +168,8 @@ pub struct InStream {
 
 #attribute("cold")
 pub fn abort() -> unreachable {
-    syscall.raise(syscall.SIGABRT);
-    syscall.raise(syscall.SIGKILL);
+    linux.raise(linux.SIGABRT);
+    linux.raise(linux.SIGKILL);
     while (true) {}
 }
 

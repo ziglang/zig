@@ -1,7 +1,7 @@
 // This file is in a package which has the root source file exposed as "@root".
 
 const root = @import("@root");
-const syscall = @import("syscall.zig");
+const linux = @import("linux.zig");
 
 const want_start_symbol = switch(@compile_var("os")) {
     linux => true,
@@ -47,8 +47,8 @@ fn call_main() -> %void {
 }
 
 fn call_main_and_exit() -> unreachable {
-    call_main() %% syscall.exit(1);
-    syscall.exit(0);
+    call_main() %% linux.exit(1);
+    linux.exit(0);
 }
 
 #condition(want_main_symbol)
