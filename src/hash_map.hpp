@@ -46,8 +46,8 @@ public:
         _modification_count += 1;
         internal_put(key, value);
 
-        // if we get too full (80%), double the capacity
-        if (_size * 5 >= _capacity * 4) {
+        // if we get too full (60%), double the capacity
+        if (_size * 5 >= _capacity * 3) {
             Entry *old_entries = _entries;
             int old_capacity = _capacity;
             init_capacity(_capacity * 2);
