@@ -1376,7 +1376,7 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
         // duplicate error definitions allowed and they get the same value
         err->value = existing_entry->value->value;
     } else {
-        assert(g->error_value_count < (1 << g->err_tag_type->data.integral.bit_count));
+        assert(g->error_value_count < (((uint32_t)1) << (uint32_t)g->err_tag_type->data.integral.bit_count));
         err->value = g->error_value_count;
         g->error_value_count += 1;
         g->error_table.put(&err->name, err);
