@@ -4021,8 +4021,8 @@ static TypeTableEntry *analyze_import(CodeGen *g, ImportTableEntry *import, Bloc
 {
     assert(node->type == NodeTypeFnCallExpr);
 
-    if (context != import->block_context) {
-        add_node_error(g, node, buf_sprintf("@import valid only at top level scope"));
+    if (context->fn_entry) {
+        add_node_error(g, node, buf_sprintf("@import invalid inside function bodies"));
         return g->builtin_types.entry_invalid;
     }
 
@@ -4096,8 +4096,8 @@ static TypeTableEntry *analyze_c_import(CodeGen *g, ImportTableEntry *parent_imp
 {
     assert(node->type == NodeTypeFnCallExpr);
 
-    if (parent_context != parent_import->block_context) {
-        add_node_error(g, node, buf_sprintf("@c_import valid only at top level scope"));
+    if (parent_context->fn_entry) {
+        add_node_error(g, node, buf_sprintf("@c_import invalid inside function bodies"));
         return g->builtin_types.entry_invalid;
     }
 

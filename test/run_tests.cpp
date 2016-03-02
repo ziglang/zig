@@ -1764,6 +1764,12 @@ fn f(n: Number) -> i32 {
     }
 }
     )SOURCE", 1, ".tmp_source.zig:9:5: error: enumeration value 'Four' not handled in switch");
+
+    add_compile_fail_case("import inside function body", R"SOURCE(
+fn f() {
+    const std = @import("std");
+}
+    )SOURCE", 1, ".tmp_source.zig:3:17: error: @import invalid inside function bodies");
 }
 
 //////////////////////////////////////////////////////////////////////////////
