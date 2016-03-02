@@ -130,22 +130,6 @@ set(C_HEADERS
     "${CMAKE_SOURCE_DIR}/c_headers/xtestintrin.h"
 )
 
-set(ZIG_STD_SRC
-    "${CMAKE_SOURCE_DIR}/std/bootstrap.zig"
-    "${CMAKE_SOURCE_DIR}/std/builtin.zig"
-    "${CMAKE_SOURCE_DIR}/std/compiler_rt.zig"
-    "${CMAKE_SOURCE_DIR}/std/test_runner.zig"
-    "${CMAKE_SOURCE_DIR}/std/test_runner_libc.zig"
-    "${CMAKE_SOURCE_DIR}/std/test_runner_nolibc.zig"
-    "${CMAKE_SOURCE_DIR}/std/io.zig"
-    "${CMAKE_SOURCE_DIR}/std/os.zig"
-    "${CMAKE_SOURCE_DIR}/std/linux.zig"
-    "${CMAKE_SOURCE_DIR}/std/errno.zig"
-    "${CMAKE_SOURCE_DIR}/std/rand.zig"
-    "${CMAKE_SOURCE_DIR}/std/math.zig"
-    "${CMAKE_SOURCE_DIR}/std/index.zig"
-)
-
 
 set(ZIG_HOST_LINK_VERSION)
 if (APPLE)
@@ -200,7 +184,20 @@ target_link_libraries(zig LINK_PUBLIC
 install(TARGETS zig DESTINATION bin)
 
 install(FILES ${C_HEADERS} DESTINATION ${C_HEADERS_DEST})
-install(FILES ${ZIG_STD_SRC} DESTINATION ${ZIG_STD_DEST})
+
+install(FILES "${CMAKE_SOURCE_DIR}/std/bootstrap.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/builtin.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/compiler_rt.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/test_runner.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/test_runner_libc.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/test_runner_nolibc.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/io.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/os.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/linux.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/errno.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/rand.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/math.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/index.zig" DESTINATION "${ZIG_STD_DEST}")
 
 add_executable(run_tests ${TEST_SOURCES})
 target_link_libraries(run_tests)
