@@ -87,7 +87,7 @@ void LLVMZigReplaceDebugArrays(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
         LLVMZigDIType **types_array, int types_array_len);
 
 LLVMZigDIType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
-        LLVMZigDIFile *file, LLVMZigDIType **types_array, int types_array_len, unsigned flags);
+        LLVMZigDIType **types_array, int types_array_len, unsigned flags);
 
 unsigned LLVMZigEncoding_DW_ATE_unsigned(void);
 unsigned LLVMZigEncoding_DW_ATE_signed(void);
@@ -96,8 +96,7 @@ unsigned LLVMZigEncoding_DW_ATE_boolean(void);
 unsigned LLVMZigEncoding_DW_ATE_unsigned_char(void);
 unsigned LLVMZigEncoding_DW_ATE_signed_char(void);
 unsigned LLVMZigLang_DW_LANG_C99(void);
-unsigned LLVMZigTag_DW_auto_variable(void);
-unsigned LLVMZigTag_DW_arg_variable(void);
+unsigned LLVMZigTag_DW_variable(void);
 unsigned LLVMZigTag_DW_structure_type(void);
 
 LLVMZigDIBuilder *LLVMZigCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
@@ -110,7 +109,11 @@ LLVMZigDIScope *LLVMZigFileToScope(LLVMZigDIFile *difile);
 LLVMZigDIScope *LLVMZigSubprogramToScope(LLVMZigDISubprogram *subprogram);
 LLVMZigDIScope *LLVMZigTypeToScope(LLVMZigDIType *type);
 
-LLVMZigDILocalVariable *LLVMZigCreateLocalVariable(LLVMZigDIBuilder *dbuilder, unsigned tag,
+LLVMZigDILocalVariable *LLVMZigCreateAutoVariable(LLVMZigDIBuilder *dbuilder,
+        LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
+        LLVMZigDIType *type, bool always_preserve, unsigned flags);
+
+LLVMZigDILocalVariable *LLVMZigCreateParameterVariable(LLVMZigDIBuilder *dbuilder,
         LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
         LLVMZigDIType *type, bool always_preserve, unsigned flags, unsigned arg_no);
 
@@ -127,7 +130,7 @@ LLVMZigDIFile *LLVMZigCreateFile(LLVMZigDIBuilder *dibuilder, const char *filena
 LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
         const char *name, const char *linkage_name, LLVMZigDIFile *file, unsigned lineno,
         LLVMZigDIType *fn_di_type, bool is_local_to_unit, bool is_definition, unsigned scope_line,
-        unsigned flags, bool is_optimized, LLVMValueRef function);
+        unsigned flags, bool is_optimized, LLVMZigDISubprogram *decl_subprogram);
 
 void LLVMZigDIBuilderFinalize(LLVMZigDIBuilder *dibuilder);
 
@@ -152,6 +155,7 @@ enum ZigLLVM_ArchType {
   ZigLLVM_armeb,      // ARM (big endian): armeb
   ZigLLVM_aarch64,    // AArch64 (little endian): aarch64
   ZigLLVM_aarch64_be, // AArch64 (big endian): aarch64_be
+  ZigLLVM_avr,        // AVR: Atmel AVR microcontroller
   ZigLLVM_bpfel,      // eBPF or extended BPF or 64-bit BPF (little endian)
   ZigLLVM_bpfeb,      // eBPF or extended BPF or 64-bit BPF (big endian)
   ZigLLVM_hexagon,    // Hexagon: hexagon
@@ -177,8 +181,8 @@ enum ZigLLVM_ArchType {
   ZigLLVM_xcore,      // XCore: xcore
   ZigLLVM_nvptx,      // NVPTX: 32-bit
   ZigLLVM_nvptx64,    // NVPTX: 64-bit
-  ZigLLVM_le32,       // le32: generic little-endian 32-bit CPU (PNaCl / Emscripten)
-  ZigLLVM_le64,       // le64: generic little-endian 64-bit CPU (PNaCl / Emscripten)
+  ZigLLVM_le32,       // le32: generic little-endian 32-bit CPU (PNaCl)
+  ZigLLVM_le64,       // le64: generic little-endian 64-bit CPU (PNaCl)
   ZigLLVM_amdil,      // AMDIL
   ZigLLVM_amdil64,    // AMDIL with 64-bit pointers
   ZigLLVM_hsail,      // AMD HSAIL
@@ -196,12 +200,14 @@ enum ZigLLVM_ArchType {
 enum ZigLLVM_SubArchType {
   ZigLLVM_NoSubArch,
 
+  ZigLLVM_ARMSubArch_v8_2a,
   ZigLLVM_ARMSubArch_v8_1a,
   ZigLLVM_ARMSubArch_v8,
   ZigLLVM_ARMSubArch_v7,
   ZigLLVM_ARMSubArch_v7em,
   ZigLLVM_ARMSubArch_v7m,
   ZigLLVM_ARMSubArch_v7s,
+  ZigLLVM_ARMSubArch_v7k,
   ZigLLVM_ARMSubArch_v6,
   ZigLLVM_ARMSubArch_v6m,
   ZigLLVM_ARMSubArch_v6k,
@@ -228,8 +234,9 @@ enum ZigLLVM_VendorType {
   ZigLLVM_MipsTechnologies,
   ZigLLVM_NVIDIA,
   ZigLLVM_CSR,
+  ZigLLVM_Myriad,
 
-  ZigLLVM_LastVendorType = ZigLLVM_CSR
+  ZigLLVM_LastVendorType = ZigLLVM_Myriad
 };
 enum ZigLLVM_OSType {
   ZigLLVM_UnknownOS,
@@ -258,8 +265,11 @@ enum ZigLLVM_OSType {
   ZigLLVM_NVCL,       // NVIDIA OpenCL
   ZigLLVM_AMDHSA,     // AMD HSA Runtime
   ZigLLVM_PS4,
+  ZigLLVM_ELFIAMCU,
+  ZigLLVM_TvOS,       // Apple tvOS
+  ZigLLVM_WatchOS,    // Apple watchOS
 
-  ZigLLVM_LastOSType = ZigLLVM_PS4
+  ZigLLVM_LastOSType = ZigLLVM_WatchOS
 };
 enum ZigLLVM_EnvironmentType {
   ZigLLVM_UnknownEnvironment,
@@ -276,8 +286,9 @@ enum ZigLLVM_EnvironmentType {
   ZigLLVM_MSVC,
   ZigLLVM_Itanium,
   ZigLLVM_Cygnus,
-
-  ZigLLVM_LastEnvironmentType = ZigLLVM_Cygnus,
+  ZigLLVM_AMDOpenCL,
+  ZigLLVM_CoreCLR,
+  ZigLLVM_LastEnvironmentType = ZigLLVM_CoreCLR
 };
 enum ZigLLVM_ObjectFormatType {
     ZigLLVM_UnknownObjectFormat,

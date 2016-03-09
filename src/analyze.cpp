@@ -658,9 +658,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
             gen_param_types, gen_param_index, fn_type_id->is_var_args);
     fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
-    LLVMZigDIFile *di_file = nullptr;
-    fn_type->di_type = LLVMZigCreateSubroutineType(g->dbuilder, di_file,
-            param_di_types, gen_param_index + 1, 0);
+    fn_type->di_type = LLVMZigCreateSubroutineType(g->dbuilder, param_di_types, gen_param_index + 1, 0);
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);
 
@@ -997,7 +995,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
             import->block_context->di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
             import->di_file, line_number,
             fn_type->di_type, fn_table_entry->internal_linkage,
-            is_definition, scope_line, flags, is_optimized, fn_table_entry->fn_value);
+            is_definition, scope_line, flags, is_optimized, nullptr);
 
         BlockContext *context = new_block_context(fn_table_entry->fn_def_node, import->block_context);
         fn_table_entry->fn_def_node->data.fn_def.block_context = context;

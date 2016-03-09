@@ -370,6 +370,17 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     case BuiltinType::OCLImage1dBuffer:
                     case BuiltinType::OCLImage2d:
                     case BuiltinType::OCLImage2dArray:
+                    case BuiltinType::OCLImage2dArrayDepth:
+                    case BuiltinType::OCLImage2dDepth:
+                    case BuiltinType::OCLImage2dMSAA:
+                    case BuiltinType::OCLImage2dArrayMSAA:
+                    case BuiltinType::OCLImage2dMSAADepth:
+                    case BuiltinType::OCLImage2dArrayMSAADepth:
+                    case BuiltinType::OCLClkEvent:
+                    case BuiltinType::OCLQueue:
+                    case BuiltinType::OCLNDRange:
+                    case BuiltinType::OCLReserveID:
+                    case BuiltinType::OMPArraySection:
                     case BuiltinType::OCLImage3d:
                     case BuiltinType::OCLSampler:
                     case BuiltinType::OCLEvent:
@@ -626,6 +637,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
         case Type::Complex:
         case Type::ObjCObjectPointer:
         case Type::Atomic:
+        case Type::Pipe:
             emit_warning(c, decl, "missed a '%s' type", ty->getTypeClassName());
             return c->codegen->builtin_types.entry_invalid;
     }
@@ -1598,9 +1610,9 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     std::unique_ptr<ASTUnit> ast_unit(ASTUnit::LoadFromCommandLine(
             &clang_argv.at(0), &clang_argv.last(),
             pch_container_ops, diags, resources_path,
-            only_local_decls, capture_diagnostics, None, true, false, TU_Complete,
+            only_local_decls, capture_diagnostics, None, true, 0, TU_Complete,
             false, false, allow_pch_with_compiler_errors, skip_function_bodies,
-            user_files_are_volatile, false, &err_unit));
+            user_files_are_volatile, false, None, &err_unit));
 
 
     // Early failures in LoadFromCommandLine may return with ErrUnit unset.

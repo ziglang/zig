@@ -3216,21 +3216,18 @@ static void do_code_gen(CodeGen *g) {
                 continue;
             }
 
-            unsigned tag;
-            unsigned arg_no;
             TypeTableEntry *gen_type;
             if (var->block_context->node->type == NodeTypeFnDef) {
-                tag = LLVMZigTag_DW_arg_variable();
-                arg_no = var->gen_arg_index + 1;
-
                 var->is_ptr = false;
                 assert(var->gen_arg_index >= 0);
                 var->value_ref = LLVMGetParam(fn, var->gen_arg_index);
 
                 gen_type = fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index].type;
+
+                var->di_loc_var = LLVMZigCreateParameterVariable(g->dbuilder, var->block_context->di_scope,
+                        buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
+                        gen_type->di_type, !g->strip_debug_symbols, 0, var->gen_arg_index + 1);
             } else {
-                tag = LLVMZigTag_DW_auto_variable();
-                arg_no = 0;
 
                 add_debug_source_node(g, var->decl_node);
                 var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
@@ -3238,12 +3235,11 @@ static void do_code_gen(CodeGen *g) {
                 LLVMSetAlignment(var->value_ref, align_bytes);
 
                 gen_type = var->type;
-            }
 
-            var->di_loc_var = LLVMZigCreateLocalVariable(g->dbuilder, tag,
-                    var->block_context->di_scope, buf_ptr(&var->name),
-                    import->di_file, var->decl_node->line + 1,
-                    gen_type->di_type, !g->strip_debug_symbols, 0, arg_no);
+                var->di_loc_var = LLVMZigCreateAutoVariable(g->dbuilder, var->block_context->di_scope,
+                        buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
+                        gen_type->di_type, !g->strip_debug_symbols, 0);
+            }
         }
 
         // create debug variable declarations for parameters

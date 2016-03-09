@@ -12,12 +12,14 @@
 #include <stdio.h>
 
 static const ArchType arch_list[] = {
+    {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_2a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_1a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v7},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v7em},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v7m},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v7s},
+    {ZigLLVM_arm, ZigLLVM_ARMSubArch_v7k},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v6},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v6m},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v6k},
@@ -29,6 +31,7 @@ static const ArchType arch_list[] = {
     {ZigLLVM_armeb, ZigLLVM_NoSubArch},
     {ZigLLVM_aarch64, ZigLLVM_NoSubArch},
     {ZigLLVM_aarch64_be, ZigLLVM_NoSubArch},
+    {ZigLLVM_avr, ZigLLVM_NoSubArch},
     {ZigLLVM_bpfel, ZigLLVM_NoSubArch},
     {ZigLLVM_bpfeb, ZigLLVM_NoSubArch},
     {ZigLLVM_hexagon, ZigLLVM_NoSubArch},
@@ -84,6 +87,7 @@ static const ZigLLVM_VendorType vendor_list[] = {
     ZigLLVM_MipsTechnologies,
     ZigLLVM_NVIDIA,
     ZigLLVM_CSR,
+    ZigLLVM_Myriad,
 };
 
 static const ZigLLVM_OSType os_list[] = {
@@ -112,6 +116,9 @@ static const ZigLLVM_OSType os_list[] = {
     ZigLLVM_NVCL,
     ZigLLVM_AMDHSA,
     ZigLLVM_PS4,
+    ZigLLVM_ELFIAMCU,
+    ZigLLVM_TvOS,
+    ZigLLVM_WatchOS,
 };
 
 static const ZigLLVM_EnvironmentType environ_list[] = {
@@ -126,6 +133,8 @@ static const ZigLLVM_EnvironmentType environ_list[] = {
     ZigLLVM_MSVC,
     ZigLLVM_Itanium,
     ZigLLVM_Cygnus,
+    ZigLLVM_AMDOpenCL,
+    ZigLLVM_CoreCLR,
 };
 
 int target_arch_count(void) {
@@ -293,12 +302,13 @@ void resolve_target_object_format(ZigTarget *target) {
     target->oformat = ZigLLVM_ELF;
 }
 
-
+// See lib/Support/Triple.cpp in LLVM for the source of this data.
 static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
     switch (arch) {
         case ZigLLVM_UnknownArch:
             return 0;
 
+        case ZigLLVM_avr:
         case ZigLLVM_msp430:
             return 16;
 
@@ -408,6 +418,9 @@ int get_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case ZigLLVM_NVCL:
         case ZigLLVM_AMDHSA:
         case ZigLLVM_PS4:
+        case ZigLLVM_ELFIAMCU:
+        case ZigLLVM_TvOS:
+        case ZigLLVM_WatchOS:
             zig_panic("TODO c type size in bits for this target");
     }
     zig_unreachable();

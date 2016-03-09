@@ -307,7 +307,7 @@ void LLVMZigReplaceDebugArrays(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
 }
 
 LLVMZigDIType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
-        LLVMZigDIFile *file, LLVMZigDIType **types_array, int types_array_len, unsigned flags)
+        LLVMZigDIType **types_array, int types_array_len, unsigned flags)
 {
     SmallVector<Metadata *, 8> types;
     for (int i = 0; i < types_array_len; i += 1) {
@@ -316,7 +316,6 @@ LLVMZigDIType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
     }
     DIBuilder *dibuilder = reinterpret_cast<DIBuilder*>(dibuilder_wrapped);
     DISubroutineType *subroutine_type = dibuilder->createSubroutineType(
-            reinterpret_cast<DIFile*>(file),
             dibuilder->getOrCreateTypeArray(types),
             flags);
     DIType *ditype = subroutine_type;
@@ -351,12 +350,8 @@ unsigned LLVMZigLang_DW_LANG_C99(void) {
     return dwarf::DW_LANG_C99;
 }
 
-unsigned LLVMZigTag_DW_auto_variable(void) {
-    return dwarf::DW_TAG_auto_variable;
-}
-
-unsigned LLVMZigTag_DW_arg_variable(void) {
-    return dwarf::DW_TAG_arg_variable;
+unsigned LLVMZigTag_DW_variable(void) {
+    return dwarf::DW_TAG_variable;
 }
 
 unsigned LLVMZigTag_DW_structure_type(void) {
@@ -385,21 +380,34 @@ LLVMZigDILexicalBlock *LLVMZigCreateLexicalBlock(LLVMZigDIBuilder *dbuilder, LLV
     return reinterpret_cast<LLVMZigDILexicalBlock*>(result);
 }
 
-
-LLVMZigDILocalVariable *LLVMZigCreateLocalVariable(LLVMZigDIBuilder *dbuilder, unsigned tag,
+LLVMZigDILocalVariable *LLVMZigCreateAutoVariable(LLVMZigDIBuilder *dbuilder,
         LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
-        LLVMZigDIType *type, bool always_preserve, unsigned flags, unsigned arg_no)
+        LLVMZigDIType *type, bool always_preserve, unsigned flags)
 {
-    DILocalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createLocalVariable(
-            tag,
+    DILocalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createAutoVariable(
             reinterpret_cast<DIScope*>(scope),
             name,
             reinterpret_cast<DIFile*>(file),
             line_no,
             reinterpret_cast<DIType*>(type),
             always_preserve,
-            flags,
-            arg_no);
+            flags);
+    return reinterpret_cast<LLVMZigDILocalVariable*>(result);
+}
+
+LLVMZigDILocalVariable *LLVMZigCreateParameterVariable(LLVMZigDIBuilder *dbuilder,
+        LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
+        LLVMZigDIType *type, bool always_preserve, unsigned flags, unsigned arg_no)
+{
+    DILocalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createParameterVariable(
+            reinterpret_cast<DIScope*>(scope),
+            name,
+            arg_no,
+            reinterpret_cast<DIFile*>(file),
+            line_no,
+            reinterpret_cast<DIType*>(type),
+            always_preserve,
+            flags);
     return reinterpret_cast<LLVMZigDILocalVariable*>(result);
 }
 
@@ -447,9 +455,8 @@ LLVMZigDIFile *LLVMZigCreateFile(LLVMZigDIBuilder *dibuilder, const char *filena
 LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
         const char *name, const char *linkage_name, LLVMZigDIFile *file, unsigned lineno,
         LLVMZigDIType *fn_di_type, bool is_local_to_unit, bool is_definition, unsigned scope_line,
-        unsigned flags, bool is_optimized, LLVMValueRef function)
+        unsigned flags, bool is_optimized, LLVMZigDISubprogram *decl_subprogram)
 {
-    Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(function));
     DISubroutineType *di_sub_type = static_cast<DISubroutineType*>(reinterpret_cast<DIType*>(fn_di_type));
     DISubprogram *result = reinterpret_cast<DIBuilder*>(dibuilder)->createFunction(
             reinterpret_cast<DIScope*>(scope),
@@ -457,7 +464,9 @@ LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigD
             reinterpret_cast<DIFile*>(file),
             lineno,
             di_sub_type,
-            is_local_to_unit, is_definition, scope_line, flags, is_optimized, unwrapped_function);
+            is_local_to_unit, is_definition, scope_line, flags, is_optimized,
+            nullptr,
+            reinterpret_cast<DISubprogram *>(decl_subprogram));
     return reinterpret_cast<LLVMZigDISubprogram*>(result);
 }
 
@@ -509,7 +518,7 @@ void LLVMZigSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
     if (on_state) {
         FastMathFlags fmf;
         fmf.setUnsafeAlgebra();
-        unwrap(builder_wrapped)->SetFastMathFlags(fmf);
+        unwrap(builder_wrapped)->setFastMathFlags(fmf);
     } else {
         unwrap(builder_wrapped)->clearFastMathFlags();
     }
@@ -563,6 +572,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
     switch (sub_arch) {
         case ZigLLVM_NoSubArch:
             return "(none)";
+        case ZigLLVM_ARMSubArch_v8_2a:
+            return "v8_2a";
         case ZigLLVM_ARMSubArch_v8_1a:
             return "v8_1a";
         case ZigLLVM_ARMSubArch_v8:
@@ -575,6 +586,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
             return "v7m";
         case ZigLLVM_ARMSubArch_v7s:
             return "v7s";
+        case ZigLLVM_ARMSubArch_v7k:
+            return "v7k";
         case ZigLLVM_ARMSubArch_v6:
             return "v6";
         case ZigLLVM_ARMSubArch_v6m:
@@ -626,51 +639,8 @@ enum FloatAbi {
     FloatAbiSoftFp,
 };
 
-static int get_arm_sub_arch_version(const Triple &triple) {
-    return ARMTargetParser::parseArchVersion(triple.getArchName());
-}
-
 static FloatAbi get_float_abi(const Triple &triple) {
-    switch (triple.getOS()) {
-        case Triple::Darwin:
-        case Triple::MacOSX:
-        case Triple::IOS:
-            if (get_arm_sub_arch_version(triple) == 6 ||
-                get_arm_sub_arch_version(triple) == 7)
-            {
-                return FloatAbiSoftFp;
-            } else {
-                return FloatAbiSoft;
-            }
-        case Triple::Win32:
-            return FloatAbiHard;
-        case Triple::FreeBSD:
-            switch (triple.getEnvironment()) {
-                case Triple::GNUEABIHF:
-                    return FloatAbiHard;
-                default:
-                    return FloatAbiSoft;
-            }
-        default:
-            switch (triple.getEnvironment()) {
-                case Triple::GNUEABIHF:
-                    return FloatAbiHard;
-                case Triple::GNUEABI:
-                    return FloatAbiSoftFp;
-                case Triple::EABIHF:
-                    return FloatAbiHard;
-                case Triple::EABI:
-                    return FloatAbiSoftFp;
-                case Triple::Android:
-                    if (get_arm_sub_arch_version(triple) == 7) {
-                        return FloatAbiSoftFp;
-                    } else {
-                        return FloatAbiSoft;
-                    }
-                default:
-                    return FloatAbiSoft;
-            }
-    }
+    zig_panic("TODO implement get_float_abi for ARM");
 }
 
 Buf *get_dynamic_linker(LLVMTargetMachineRef target_machine_ref) {
