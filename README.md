@@ -71,8 +71,8 @@ compromises backward compatibility.
 ### Dependencies
 
  * cmake >= 2.8.5
- * LLVM == 3.7.1
- * libclang == 3.7.1
+ * LLVM == 3.8.0
+ * libclang == 3.8.0
 
 ### Debug / Development Build
 
