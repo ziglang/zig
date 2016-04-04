@@ -495,7 +495,31 @@ fn count_trailing_zeroes() {
 }
 
 
+#attribute("test")
+fn multiline_string() {
+    const s1 = r"AOEU(
+one
+two)
+three)AOEU";
+    const s2 = "\none\ntwo)\nthree";
+    const s3 = r"(
+one
+two)
+three)";
+    assert(str_eql(s1, s2));
+    assert(str_eql(s3, s2));
+}
+
+
 
 fn assert(b: bool) {
     if (!b) unreachable{}
+}
+
+fn str_eql(s1: []u8, s2: []u8) -> bool {
+    if (s1.len != s2.len) return false;
+    for (s1) |c, i| {
+        if (s2[i] != c) return false;
+    }
+    return true;
 }

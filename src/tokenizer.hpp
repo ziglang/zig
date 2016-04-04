@@ -112,6 +112,10 @@ struct Token {
     int radix; // if != 10, then skip the first 2 characters
     int decimal_point_pos; // either exponent_marker_pos or the position of the '.'
     int exponent_marker_pos; // either end_pos or the position of the 'e'/'p'
+
+    // for id == TokenIdStringLiteral
+    int raw_string_start;
+    int raw_string_end;
 };
 
 struct Tokenization {

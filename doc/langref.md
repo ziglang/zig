@@ -267,12 +267,21 @@ from codegen.
 
 #### Character and String Literals
 ```
-Literal         Example   Characters   Escapes         Null Term  Type
+Literal            Example       Characters   Escapes         Null Term  Type
 
-Byte            'H'       All ASCII    Byte            No         u8
-UTF-8 Bytes     "hello"   All Unicode  Byte & Unicode  No         [5]u8
-UTF-8 C string  c"hello"  All Unicode  Byte & Unicode  Yes        &const u8
+Byte               'H'           All ASCII    Byte            No         u8
+UTF-8 Bytes        "hello"       All Unicode  Byte & Unicode  No         [5]u8
+UTF-8 C string     c"hello"      All Unicode  Byte & Unicode  Yes        &const u8
+UTF-8 Raw String   r"A(hello)A"  All Unicode  None            No         [5]u8
+UTF-8 Raw C String rc"A(hello)A" All Unicode  None            Yes        &const u8
 ```
+
+##### Raw Strings
+
+Raw string literals have no escapes and can span across multiple lines. To
+start a raw string, use 'r"' or 'rc"' followed by unique bytes followed by '('.
+To end a raw string, use ')' followed by the same unique bytes, followed by '"'.
+
 
 ```
 Escape  Name

@@ -30,7 +30,7 @@
          '0': \
     case DIGIT_NON_ZERO
 
-#define ALPHA_EXCEPT_C \
+#define ALPHA_EXCEPT_CR \
          'a': \
     case 'b': \
   /*case 'c':*/ \
@@ -48,7 +48,7 @@
     case 'o': \
     case 'p': \
     case 'q': \
-    case 'r': \
+  /*case 'r':*/ \
     case 's': \
     case 't': \
     case 'u': \
@@ -85,11 +85,17 @@
     case 'Z'
 
 #define ALPHA \
-    ALPHA_EXCEPT_C: \
-    case 'c'
+    ALPHA_EXCEPT_CR: \
+    case 'c': \
+    case 'r'
 
 #define SYMBOL_CHAR \
-    ALPHA: \
+    SYMBOL_CHAR_EXCEPT_C: \
+    case 'c'
+
+#define SYMBOL_CHAR_EXCEPT_C \
+    ALPHA_EXCEPT_CR: \
+    case 'r': \
     case DIGIT: \
     case '_'
 
@@ -118,12 +124,17 @@ enum TokenizeState {
     TokenizeStateStart,
     TokenizeStateSymbol,
     TokenizeStateSymbolFirst,
+    TokenizeStateSymbolFirstRaw,
+    TokenizeStateFirstR,
     TokenizeStateZero, // "0", which might lead to "0x"
     TokenizeStateNumber, // "123", "0x123"
     TokenizeStateFloatFraction, // "123.456", "0x123.456"
     TokenizeStateFloatExponentUnsigned, // "123.456e", "123e", "0x123p"
     TokenizeStateFloatExponentNumber, // "123.456e-", "123.456e5", "123.456e5e-5"
     TokenizeStateString,
+    TokenizeStateRawString,
+    TokenizeStateRawStringContents,
+    TokenizeStateRawStringMaybeEnd,
     TokenizeStateCharLiteral,
     TokenizeStateSawStar,
     TokenizeStateSawSlash,
@@ -162,6 +173,9 @@ struct Tokenize {
     Token *cur_tok;
     int multi_line_comment_count;
     Tokenization *out;
+    int raw_string_id_start;
+    int raw_string_id_end;
+    int raw_string_id_cmp_pos;
 };
 
 __attribute__ ((format (printf, 2, 3)))
@@ -193,6 +207,8 @@ static void begin_token(Tokenize *t, TokenId id) {
     token->radix = 0;
     token->decimal_point_pos = 0;
     token->exponent_marker_pos = 0;
+    token->raw_string_start = 0;
+    token->raw_string_end = 0;
     t->cur_tok = token;
 }
 
@@ -324,7 +340,11 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateSymbolFirst;
                         begin_token(&t, TokenIdSymbol);
                         break;
-                    case ALPHA_EXCEPT_C:
+                    case 'r':
+                        t.state = TokenizeStateFirstR;
+                        begin_token(&t, TokenIdSymbol);
+                        break;
+                    case ALPHA_EXCEPT_CR:
                     case '_':
                         t.state = TokenizeStateSymbol;
                         begin_token(&t, TokenIdSymbol);
@@ -821,6 +841,43 @@ void tokenize(Buf *buf, Tokenization *out) {
                         continue;
                 }
                 break;
+            case TokenizeStateSymbolFirstRaw:
+                switch (c) {
+                    case '"':
+                        t.cur_tok->id = TokenIdStringLiteral;
+                        t.state = TokenizeStateRawString;
+                        t.raw_string_id_start = t.pos + 1;
+                        break;
+                    case SYMBOL_CHAR:
+                        t.state = TokenizeStateSymbol;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateFirstR:
+                switch (c) {
+                    case '"':
+                        t.cur_tok->id = TokenIdStringLiteral;
+                        t.state = TokenizeStateRawString;
+                        t.raw_string_id_start = t.pos + 1;
+                        break;
+                    case 'c':
+                        t.state = TokenizeStateSymbolFirstRaw;
+                        break;
+                    case SYMBOL_CHAR_EXCEPT_C:
+                        t.state = TokenizeStateSymbol;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
             case TokenizeStateSymbol:
                 switch (c) {
                     case SYMBOL_CHAR:
@@ -838,8 +895,42 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
+                    case '\n':
+                        tokenize_error(&t, "use raw string for multiline string literal");
+                        break;
                     default:
                         break;
+                }
+                break;
+            case TokenizeStateRawString:
+                if (c == '(') {
+                    t.raw_string_id_end = t.pos;
+                    t.cur_tok->raw_string_start = t.pos + 1;
+                    t.state = TokenizeStateRawStringContents;
+                }
+                break;
+            case TokenizeStateRawStringContents:
+                if (c == ')') {
+                    t.state = TokenizeStateRawStringMaybeEnd;
+                    t.raw_string_id_cmp_pos = t.raw_string_id_start;
+                    t.cur_tok->raw_string_end = t.pos;
+                }
+                break;
+            case TokenizeStateRawStringMaybeEnd:
+                if (t.raw_string_id_cmp_pos >= t.raw_string_id_end &&
+                    c == '"')
+                {
+                    end_token(&t);
+                    t.state = TokenizeStateStart;
+                } else if (c != buf_ptr(t.buf)[t.raw_string_id_cmp_pos]) {
+                    if (c == ')') {
+                        t.raw_string_id_cmp_pos = t.raw_string_id_start;
+                        t.cur_tok->raw_string_end = t.pos;
+                    } else {
+                        t.state = TokenizeStateRawStringContents;
+                    }
+                } else {
+                    t.raw_string_id_cmp_pos += 1;
                 }
                 break;
             case TokenizeStateCharLiteral:
@@ -1002,11 +1093,18 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateString:
             tokenize_error(&t, "unterminated string");
             break;
+        case TokenizeStateRawString:
+        case TokenizeStateRawStringContents:
+        case TokenizeStateRawStringMaybeEnd:
+            tokenize_error(&t, "unterminated raw string");
+            break;
         case TokenizeStateCharLiteral:
             tokenize_error(&t, "unterminated character literal");
             break;
         case TokenizeStateSymbol:
         case TokenizeStateSymbolFirst:
+        case TokenizeStateSymbolFirstRaw:
+        case TokenizeStateFirstR:
         case TokenizeStateZero:
         case TokenizeStateNumber:
         case TokenizeStateFloatFraction:

@@ -1770,6 +1770,12 @@ fn f() {
     const std = @import("std");
 }
     )SOURCE", 1, ".tmp_source.zig:3:17: error: @import invalid inside function bodies");
+
+
+    add_compile_fail_case("normal string with newline", R"SOURCE(
+const foo = "a
+b";
+    )SOURCE", 1, ".tmp_source.zig:2:13: error: use raw string for multiline string literal");
 }
 
 //////////////////////////////////////////////////////////////////////////////
