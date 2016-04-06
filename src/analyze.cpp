@@ -4675,13 +4675,15 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
 
     // make a type from the generic parameters supplied
     assert(decl_node->type == NodeTypeFnProto);
-    AstNode *impl_decl_node = ast_clone_subtree(decl_node);
+    AstNode *impl_fn_def_node = ast_clone_subtree(decl_node->data.fn_proto.fn_def_node);
+    AstNode *impl_decl_node = impl_fn_def_node->data.fn_def.fn_proto;
+    impl_decl_node->data.fn_proto.fn_def_node = impl_fn_def_node;
 
-    preview_fn_proto_instance(g, import, decl_node, child_context);
+    preview_fn_proto_instance(g, import, impl_decl_node, child_context);
 
     g->generic_table.put(generic_fn_type_id, impl_decl_node);
 
-    FnTableEntry *fn_table_entry = decl_node->data.fn_proto.fn_table_entry;
+    FnTableEntry *fn_table_entry = impl_decl_node->data.fn_proto.fn_table_entry;
     return resolve_expr_const_val_as_fn(g, node, fn_table_entry);
 }
 
