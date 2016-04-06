@@ -522,6 +522,15 @@ fn max(T: type)(a: T, b: T) -> T {
 }
 
 
+#attribute("test")
+fn constant_equal_function_pointers() {
+    const alias = empty_fn;
+    assert(@const_eval(empty_fn == alias));
+}
+
+fn empty_fn() {}
+
+
 fn assert(b: bool) {
     if (!b) unreachable{}
 }

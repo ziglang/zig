@@ -2909,6 +2909,16 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
         } else {
             zig_unreachable();
         }
+    } else if (resolved_type->id == TypeTableEntryIdFn) {
+        bool are_equal = (op1_val->data.x_fn == op2_val->data.x_fn);
+
+        if (bin_op_type == BinOpTypeCmpEq) {
+            answer = are_equal;
+        } else if (bin_op_type == BinOpTypeCmpNotEq) {
+            answer = !are_equal;
+        } else {
+            zig_unreachable();
+        }
     } else {
         zig_unreachable();
     }
