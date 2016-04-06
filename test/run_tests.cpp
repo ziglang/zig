@@ -1776,6 +1776,11 @@ fn f() {
 const foo = "a
 b";
     )SOURCE", 1, ".tmp_source.zig:2:13: error: use raw string for multiline string literal");
+
+    add_compile_fail_case("invalid comparison for function pointers", R"SOURCE(
+fn foo() {}
+const invalid = foo > foo;
+    )SOURCE", 1, ".tmp_source.zig:3:21: error: operator not allowed for type 'fn()'");
 }
 
 //////////////////////////////////////////////////////////////////////////////

@@ -2845,7 +2845,19 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
     TypeTableEntry *resolved_type = resolve_peer_type_compatibility(g, import, context, node,
             op_nodes, op_types, 2);
 
+    bool type_can_gt_lt_cmp = (resolved_type->id == TypeTableEntryIdNumLitFloat ||
+            resolved_type->id == TypeTableEntryIdNumLitInt ||
+            resolved_type->id == TypeTableEntryIdFloat ||
+            resolved_type->id == TypeTableEntryIdInt);
+
     if (resolved_type->id == TypeTableEntryIdInvalid) {
+        return g->builtin_types.entry_invalid;
+    } else if (bin_op_type != BinOpTypeCmpEq &&
+               bin_op_type != BinOpTypeCmpNotEq &&
+               !type_can_gt_lt_cmp)
+    {
+        add_node_error(g, node,
+            buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
         return g->builtin_types.entry_invalid;
     }
 
@@ -2856,11 +2868,7 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
     }
 
     bool answer;
-    if (resolved_type->id == TypeTableEntryIdNumLitFloat ||
-        resolved_type->id == TypeTableEntryIdNumLitInt ||
-        resolved_type->id == TypeTableEntryIdFloat ||
-        resolved_type->id == TypeTableEntryIdInt)
-    {
+    if (type_can_gt_lt_cmp) {
         bool (*bignum_cmp)(BigNum *, BigNum *);
         if (bin_op_type == BinOpTypeCmpEq) {
             bignum_cmp = bignum_cmp_eq;
