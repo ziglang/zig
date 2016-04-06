@@ -62,6 +62,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->primitive_type_table.init(32);
     g->fn_type_table.init(32);
     g->error_table.init(16);
+    g->generic_table.init(16);
     g->is_release_build = false;
     g->is_test_build = false;
     g->error_value_count = 1;
@@ -2927,6 +2928,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdGenericFn:
             zig_unreachable();
 
     }

@@ -2243,7 +2243,7 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
 }
 
 /*
-FnProto : "fn" option("Symbol") ParamDeclList option("->" PrefixOpExpression)
+FnProto = "fn" option("Symbol") option(ParamDeclList) ParamDeclList option("->" TypeExpr)
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
@@ -2272,6 +2272,17 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
     }
 
     ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
+
+    Token *maybe_lparen = &pc->tokens->at(*token_index);
+    if (maybe_lparen->id == TokenIdLParen) {
+        for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
+            node->data.fn_proto.generic_params.append(node->data.fn_proto.params.at(i));
+        }
+        node->data.fn_proto.generic_params_is_var_args = node->data.fn_proto.is_var_args;
+
+        node->data.fn_proto.params.resize(0);
+        ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
+    }
 
     Token *next_token = &pc->tokens->at(*token_index);
     if (next_token->id == TokenIdArrow) {
@@ -2626,72 +2637,73 @@ AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
     return pc.root;
 }
 
-static void set_field(AstNode **field) {
-    if (*field) {
-        (*field)->parent_field = field;
+static void visit_field(AstNode **node, void (*visit)(AstNode **, void *context), void *context) {
+    if (*node) {
+        visit(node, context);
     }
 }
 
-static void set_list_fields(ZigList<AstNode*> *list) {
+static void visit_node_list(ZigList<AstNode *> *list, void (*visit)(AstNode **, void *context), void *context) {
     if (list) {
         for (int i = 0; i < list->length; i += 1) {
-            set_field(&list->at(i));
+            visit(&list->at(i), context);
         }
     }
 }
 
-void normalize_parent_ptrs(AstNode *node) {
+void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *context), void *context) {
     switch (node->type) {
         case NodeTypeRoot:
-            set_list_fields(&node->data.root.top_level_decls);
+            visit_node_list(&node->data.root.top_level_decls, visit, context);
             break;
         case NodeTypeFnProto:
-            set_field(&node->data.fn_proto.return_type);
-            set_list_fields(node->data.fn_proto.top_level_decl.directives);
-            set_list_fields(&node->data.fn_proto.params);
+            visit_field(&node->data.fn_proto.return_type, visit, context);
+            visit_node_list(node->data.fn_proto.top_level_decl.directives, visit, context);
+            visit_node_list(&node->data.fn_proto.generic_params, visit, context);
+            visit_node_list(&node->data.fn_proto.params, visit, context);
             break;
         case NodeTypeFnDef:
-            set_field(&node->data.fn_def.fn_proto);
-            set_field(&node->data.fn_def.body);
+            visit_field(&node->data.fn_def.fn_proto, visit, context);
+            visit_field(&node->data.fn_def.body, visit, context);
             break;
         case NodeTypeFnDecl:
-            set_field(&node->data.fn_decl.fn_proto);
+            visit_field(&node->data.fn_decl.fn_proto, visit, context);
             break;
         case NodeTypeParamDecl:
-            set_field(&node->data.param_decl.type);
+            visit_field(&node->data.param_decl.type, visit, context);
             break;
         case NodeTypeBlock:
-            set_list_fields(&node->data.block.statements);
+            visit_node_list(&node->data.block.statements, visit, context);
             break;
         case NodeTypeDirective:
-            set_field(&node->data.directive.expr);
+            visit_field(&node->data.directive.expr, visit, context);
             break;
         case NodeTypeReturnExpr:
-            set_field(&node->data.return_expr.expr);
+            visit_field(&node->data.return_expr.expr, visit, context);
             break;
         case NodeTypeDefer:
-            set_field(&node->data.defer.expr);
+            visit_field(&node->data.defer.expr, visit, context);
             break;
         case NodeTypeVariableDeclaration:
-            set_list_fields(node->data.variable_declaration.top_level_decl.directives);
-            set_field(&node->data.variable_declaration.type);
-            set_field(&node->data.variable_declaration.expr);
+            visit_node_list(node->data.variable_declaration.top_level_decl.directives, visit, context);
+            visit_field(&node->data.variable_declaration.type, visit, context);
+            visit_field(&node->data.variable_declaration.expr, visit, context);
             break;
         case NodeTypeTypeDecl:
-            set_list_fields(node->data.type_decl.top_level_decl.directives);
-            set_field(&node->data.type_decl.child_type);
+            visit_node_list(node->data.type_decl.top_level_decl.directives, visit, context);
+            visit_field(&node->data.type_decl.child_type, visit, context);
             break;
         case NodeTypeErrorValueDecl:
             // none
             break;
         case NodeTypeBinOpExpr:
-            set_field(&node->data.bin_op_expr.op1);
-            set_field(&node->data.bin_op_expr.op2);
+            visit_field(&node->data.bin_op_expr.op1, visit, context);
+            visit_field(&node->data.bin_op_expr.op2, visit, context);
             break;
         case NodeTypeUnwrapErrorExpr:
-            set_field(&node->data.unwrap_err_expr.op1);
-            set_field(&node->data.unwrap_err_expr.symbol);
-            set_field(&node->data.unwrap_err_expr.op2);
+            visit_field(&node->data.unwrap_err_expr.op1, visit, context);
+            visit_field(&node->data.unwrap_err_expr.symbol, visit, context);
+            visit_field(&node->data.unwrap_err_expr.op2, visit, context);
             break;
         case NodeTypeNumberLiteral:
             // none
@@ -2706,27 +2718,27 @@ void normalize_parent_ptrs(AstNode *node) {
             // none
             break;
         case NodeTypePrefixOpExpr:
-            set_field(&node->data.prefix_op_expr.primary_expr);
+            visit_field(&node->data.prefix_op_expr.primary_expr, visit, context);
             break;
         case NodeTypeFnCallExpr:
-            set_field(&node->data.fn_call_expr.fn_ref_expr);
-            set_list_fields(&node->data.fn_call_expr.params);
+            visit_field(&node->data.fn_call_expr.fn_ref_expr, visit, context);
+            visit_node_list(&node->data.fn_call_expr.params, visit, context);
             break;
         case NodeTypeArrayAccessExpr:
-            set_field(&node->data.array_access_expr.array_ref_expr);
-            set_field(&node->data.array_access_expr.subscript);
+            visit_field(&node->data.array_access_expr.array_ref_expr, visit, context);
+            visit_field(&node->data.array_access_expr.subscript, visit, context);
             break;
         case NodeTypeSliceExpr:
-            set_field(&node->data.slice_expr.array_ref_expr);
-            set_field(&node->data.slice_expr.start);
-            set_field(&node->data.slice_expr.end);
+            visit_field(&node->data.slice_expr.array_ref_expr, visit, context);
+            visit_field(&node->data.slice_expr.start, visit, context);
+            visit_field(&node->data.slice_expr.end, visit, context);
             break;
         case NodeTypeFieldAccessExpr:
-            set_field(&node->data.field_access_expr.struct_expr);
+            visit_field(&node->data.field_access_expr.struct_expr, visit, context);
             break;
         case NodeTypeUse:
-            set_field(&node->data.use.expr);
-            set_list_fields(node->data.use.top_level_decl.directives);
+            visit_field(&node->data.use.expr, visit, context);
+            visit_node_list(node->data.use.top_level_decl.directives, visit, context);
             break;
         case NodeTypeBoolLiteral:
             // none
@@ -2738,38 +2750,38 @@ void normalize_parent_ptrs(AstNode *node) {
             // none
             break;
         case NodeTypeIfBoolExpr:
-            set_field(&node->data.if_bool_expr.condition);
-            set_field(&node->data.if_bool_expr.then_block);
-            set_field(&node->data.if_bool_expr.else_node);
+            visit_field(&node->data.if_bool_expr.condition, visit, context);
+            visit_field(&node->data.if_bool_expr.then_block, visit, context);
+            visit_field(&node->data.if_bool_expr.else_node, visit, context);
             break;
         case NodeTypeIfVarExpr:
-            set_field(&node->data.if_var_expr.var_decl.type);
-            set_field(&node->data.if_var_expr.var_decl.expr);
-            set_field(&node->data.if_var_expr.then_block);
-            set_field(&node->data.if_var_expr.else_node);
+            visit_field(&node->data.if_var_expr.var_decl.type, visit, context);
+            visit_field(&node->data.if_var_expr.var_decl.expr, visit, context);
+            visit_field(&node->data.if_var_expr.then_block, visit, context);
+            visit_field(&node->data.if_var_expr.else_node, visit, context);
             break;
         case NodeTypeWhileExpr:
-            set_field(&node->data.while_expr.condition);
-            set_field(&node->data.while_expr.body);
+            visit_field(&node->data.while_expr.condition, visit, context);
+            visit_field(&node->data.while_expr.body, visit, context);
             break;
         case NodeTypeForExpr:
-            set_field(&node->data.for_expr.elem_node);
-            set_field(&node->data.for_expr.array_expr);
-            set_field(&node->data.for_expr.index_node);
-            set_field(&node->data.for_expr.body);
+            visit_field(&node->data.for_expr.elem_node, visit, context);
+            visit_field(&node->data.for_expr.array_expr, visit, context);
+            visit_field(&node->data.for_expr.index_node, visit, context);
+            visit_field(&node->data.for_expr.body, visit, context);
             break;
         case NodeTypeSwitchExpr:
-            set_field(&node->data.switch_expr.expr);
-            set_list_fields(&node->data.switch_expr.prongs);
+            visit_field(&node->data.switch_expr.expr, visit, context);
+            visit_node_list(&node->data.switch_expr.prongs, visit, context);
             break;
         case NodeTypeSwitchProng:
-            set_list_fields(&node->data.switch_prong.items);
-            set_field(&node->data.switch_prong.var_symbol);
-            set_field(&node->data.switch_prong.expr);
+            visit_node_list(&node->data.switch_prong.items, visit, context);
+            visit_field(&node->data.switch_prong.var_symbol, visit, context);
+            visit_field(&node->data.switch_prong.expr, visit, context);
             break;
         case NodeTypeSwitchRange:
-            set_field(&node->data.switch_range.start);
-            set_field(&node->data.switch_range.end);
+            visit_field(&node->data.switch_range.start, visit, context);
+            visit_field(&node->data.switch_range.end, visit, context);
             break;
         case NodeTypeLabel:
             // none
@@ -2786,32 +2798,32 @@ void normalize_parent_ptrs(AstNode *node) {
         case NodeTypeAsmExpr:
             for (int i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
                 AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
-                set_field(&asm_input->expr);
+                visit_field(&asm_input->expr, visit, context);
             }
             for (int i = 0; i < node->data.asm_expr.output_list.length; i += 1) {
                 AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
-                set_field(&asm_output->return_type);
+                visit_field(&asm_output->return_type, visit, context);
             }
             break;
         case NodeTypeStructDecl:
-            set_list_fields(&node->data.struct_decl.fields);
-            set_list_fields(&node->data.struct_decl.fns);
-            set_list_fields(node->data.struct_decl.top_level_decl.directives);
+            visit_node_list(&node->data.struct_decl.fields, visit, context);
+            visit_node_list(&node->data.struct_decl.fns, visit, context);
+            visit_node_list(node->data.struct_decl.top_level_decl.directives, visit, context);
             break;
         case NodeTypeStructField:
-            set_field(&node->data.struct_field.type);
-            set_list_fields(node->data.struct_field.top_level_decl.directives);
+            visit_field(&node->data.struct_field.type, visit, context);
+            visit_node_list(node->data.struct_field.top_level_decl.directives, visit, context);
             break;
         case NodeTypeContainerInitExpr:
-            set_field(&node->data.container_init_expr.type);
-            set_list_fields(&node->data.container_init_expr.entries);
+            visit_field(&node->data.container_init_expr.type, visit, context);
+            visit_node_list(&node->data.container_init_expr.entries, visit, context);
             break;
         case NodeTypeStructValueField:
-            set_field(&node->data.struct_val_field.expr);
+            visit_field(&node->data.struct_val_field.expr, visit, context);
             break;
         case NodeTypeArrayType:
-            set_field(&node->data.array_type.size);
-            set_field(&node->data.array_type.child_type);
+            visit_field(&node->data.array_type.size, visit, context);
+            visit_field(&node->data.array_type.child_type, visit, context);
             break;
         case NodeTypeErrorType:
             // none
@@ -2820,4 +2832,30 @@ void normalize_parent_ptrs(AstNode *node) {
             // none
             break;
     }
+}
+
+static void normalize_parent_ptrs_visit(AstNode **node, void *context) {
+    (*node)->parent_field = node;
+}
+
+void normalize_parent_ptrs(AstNode *node) {
+    ast_visit_node_children(node, normalize_parent_ptrs_visit, nullptr);
+}
+
+static AstNode *clone_node(AstNode *old_node) {
+    AstNode *new_node = allocate_nonzero<AstNode>(1);
+    memcpy(new_node, old_node, sizeof(AstNode));
+    return new_node;
+}
+
+static void ast_clone_subtree_visit(AstNode **node, void *context) {
+    *node = clone_node(*node);
+    (*node)->parent_field = node;
+    ast_visit_node_children(*node, ast_clone_subtree_visit, nullptr);
+}
+
+AstNode *ast_clone_subtree(AstNode *old_node) {
+    AstNode *new_node = clone_node(old_node);
+    ast_visit_node_children(new_node, ast_clone_subtree_visit, nullptr);
+    return new_node;
 }

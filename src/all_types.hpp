@@ -193,8 +193,10 @@ struct AstNodeRoot {
 struct AstNodeFnProto {
     TopLevelDecl top_level_decl;
     Buf name;
+    ZigList<AstNode *> generic_params;
     ZigList<AstNode *> params;
     AstNode *return_type;
+    bool generic_params_is_var_args;
     bool is_var_args;
     bool is_extern;
     bool is_inline;
@@ -206,6 +208,7 @@ struct AstNodeFnProto {
     FnTableEntry *fn_table_entry;
     bool skip;
     Expr resolved_expr;
+    TypeTableEntry *generic_fn_type;
 };
 
 struct AstNodeFnDef {
@@ -797,6 +800,21 @@ struct FnTypeParamInfo {
     TypeTableEntry *type;
 };
 
+struct GenericParamValue {
+    TypeTableEntry *type;
+    AstNode *node;
+};
+
+struct GenericFnTypeId {
+    AstNode *decl_node; // the generic fn or container decl node
+    GenericParamValue *generic_params;
+    int generic_param_count;
+};
+
+uint32_t generic_fn_type_id_hash(GenericFnTypeId *id);
+bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b);
+
+
 static const int fn_type_id_prealloc_param_info_count = 4;
 struct FnTypeId {
     TypeTableEntry *return_type;
@@ -811,7 +829,6 @@ struct FnTypeId {
 
 uint32_t fn_type_id_hash(FnTypeId*);
 bool fn_type_id_eql(FnTypeId *a, FnTypeId *b);
-
 
 struct TypeTableEntryPointer {
     TypeTableEntry *child_type;
@@ -899,6 +916,10 @@ struct TypeTableEntryFn {
     LLVMCallConv calling_convention;
 };
 
+struct TypeTableEntryGenericFn {
+    AstNode *decl_node;
+};
+
 struct TypeTableEntryTypeDecl {
     TypeTableEntry *child_type;
     TypeTableEntry *canonical_type;
@@ -925,6 +946,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdFn,
     TypeTableEntryIdTypeDecl,
     TypeTableEntryIdNamespace,
+    TypeTableEntryIdGenericFn,
 };
 
 struct TypeTableEntry {
@@ -947,6 +969,7 @@ struct TypeTableEntry {
         TypeTableEntryEnum enumeration;
         TypeTableEntryFn fn;
         TypeTableEntryTypeDecl type_decl;
+        TypeTableEntryGenericFn generic_fn;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
@@ -992,6 +1015,7 @@ struct FnTableEntry {
     bool internal_linkage;
     bool is_extern;
     bool is_test;
+    BlockContext *parent_block_context;
 
     ZigList<AstNode *> cast_alloca_list;
     ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
@@ -1047,6 +1071,7 @@ struct CodeGen {
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
     HashMap<FnTypeId *, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
+    HashMap<GenericFnTypeId *, AstNode *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
 
     ZigList<ImportTableEntry *> import_queue;
     int import_queue_index;
@@ -1172,7 +1197,10 @@ struct VariableTableEntry {
     LLVMValueRef value_ref;
     bool is_const;
     bool is_ptr; // if true, value_ref is a pointer
+    // which node is the declaration of the variable
     AstNode *decl_node;
+    // which node contains the ConstExprValue for this variable's value
+    AstNode *val_node;
     LLVMZigDILocalVariable *di_loc_var;
     int src_arg_index;
     int gen_arg_index;

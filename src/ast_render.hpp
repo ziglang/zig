@@ -9,6 +9,7 @@
 #define ZIG_AST_RENDER_HPP
 
 #include "all_types.hpp"
+#include "parser.hpp"
 
 #include <stdio.h>
 

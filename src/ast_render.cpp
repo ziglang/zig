@@ -59,15 +59,6 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
     zig_unreachable();
 }
 
-static const char *return_prefix_str(ReturnKind kind) {
-    switch (kind) {
-        case ReturnKindError: return "%";
-        case ReturnKindMaybe: return "?";
-        case ReturnKindUnconditional: return "";
-    }
-    zig_unreachable();
-}
-
 static const char *visib_mod_string(VisibMod mod) {
     switch (mod) {
         case VisibModPub: return "pub ";
@@ -195,315 +186,35 @@ static const char *node_type_str(NodeType node_type) {
     zig_unreachable();
 }
 
+struct AstPrint {
+    int indent;
+    FILE *f;
+};
+
+static void ast_print_visit(AstNode **node_ptr, void *context) {
+    AstNode *node = *node_ptr;
+    AstPrint *ap = (AstPrint *)context;
+
+    for (int i = 0; i < ap->indent; i += 1) {
+        fprintf(ap->f, " ");
+    }
+
+    fprintf(ap->f, "%s\n", node_type_str(node->type));
+
+    AstPrint new_ap;
+    new_ap.indent = ap->indent + 2;
+    new_ap.f = ap->f;
+
+    ast_visit_node_children(node, ast_print_visit, &new_ap);
+}
 
 void ast_print(FILE *f, AstNode *node, int indent) {
-    for (int i = 0; i < indent; i += 1) {
-        fprintf(f, " ");
-    }
-    assert(node->type == NodeTypeRoot || *node->parent_field == node);
-
-    switch (node->type) {
-        case NodeTypeRoot:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
-                AstNode *child = node->data.root.top_level_decls.at(i);
-                ast_print(f, child, indent + 2);
-            }
-            break;
-        case NodeTypeFnDef:
-            {
-                fprintf(f, "%s\n", node_type_str(node->type));
-                AstNode *child = node->data.fn_def.fn_proto;
-                ast_print(f, child, indent + 2);
-                ast_print(f, node->data.fn_def.body, indent + 2);
-                break;
-            }
-        case NodeTypeFnProto:
-            {
-                Buf *name_buf = &node->data.fn_proto.name;
-                fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
-
-                for (int i = 0; i < node->data.fn_proto.params.length; i += 1) {
-                    AstNode *child = node->data.fn_proto.params.at(i);
-                    ast_print(f, child, indent + 2);
-                }
-
-                ast_print(f, node->data.fn_proto.return_type, indent + 2);
-
-                break;
-            }
-        case NodeTypeBlock:
-            {
-                fprintf(f, "%s\n", node_type_str(node->type));
-                for (int i = 0; i < node->data.block.statements.length; i += 1) {
-                    AstNode *child = node->data.block.statements.at(i);
-                    ast_print(f, child, indent + 2);
-                }
-                break;
-            }
-        case NodeTypeParamDecl:
-            {
-                Buf *name_buf = &node->data.param_decl.name;
-                fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
-
-                ast_print(f, node->data.param_decl.type, indent + 2);
-
-                break;
-            }
-        case NodeTypeReturnExpr:
-            {
-                const char *prefix_str = return_prefix_str(node->data.return_expr.kind);
-                fprintf(f, "%s%s\n", prefix_str, node_type_str(node->type));
-                if (node->data.return_expr.expr)
-                    ast_print(f, node->data.return_expr.expr, indent + 2);
-                break;
-            }
-        case NodeTypeDefer:
-            {
-                const char *prefix_str = return_prefix_str(node->data.defer.kind);
-                fprintf(f, "%s%s\n", prefix_str, node_type_str(node->type));
-                if (node->data.defer.expr)
-                    ast_print(f, node->data.defer.expr, indent + 2);
-                break;
-            }
-        case NodeTypeVariableDeclaration:
-            {
-                Buf *name_buf = &node->data.variable_declaration.symbol;
-                fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
-                if (node->data.variable_declaration.type)
-                    ast_print(f, node->data.variable_declaration.type, indent + 2);
-                if (node->data.variable_declaration.expr)
-                    ast_print(f, node->data.variable_declaration.expr, indent + 2);
-                break;
-            }
-        case NodeTypeTypeDecl:
-            {
-                Buf *name_buf = &node->data.type_decl.symbol;
-                fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
-                ast_print(f, node->data.type_decl.child_type, indent + 2);
-                break;
-            }
-        case NodeTypeErrorValueDecl:
-            {
-                Buf *name_buf = &node->data.error_value_decl.name;
-                fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
-                break;
-            }
-        case NodeTypeFnDecl:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.fn_decl.fn_proto, indent + 2);
-            break;
-        case NodeTypeBinOpExpr:
-            fprintf(f, "%s %s\n", node_type_str(node->type),
-                    bin_op_str(node->data.bin_op_expr.bin_op));
-            ast_print(f, node->data.bin_op_expr.op1, indent + 2);
-            ast_print(f, node->data.bin_op_expr.op2, indent + 2);
-            break;
-        case NodeTypeUnwrapErrorExpr:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.unwrap_err_expr.op1, indent + 2);
-            if (node->data.unwrap_err_expr.symbol) {
-                ast_print(f, node->data.unwrap_err_expr.symbol, indent + 2);
-            }
-            ast_print(f, node->data.unwrap_err_expr.op2, indent + 2);
-            break;
-        case NodeTypeFnCallExpr:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.fn_call_expr.fn_ref_expr, indent + 2);
-            for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
-                AstNode *child = node->data.fn_call_expr.params.at(i);
-                ast_print(f, child, indent + 2);
-            }
-            break;
-        case NodeTypeArrayAccessExpr:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.array_access_expr.array_ref_expr, indent + 2);
-            ast_print(f, node->data.array_access_expr.subscript, indent + 2);
-            break;
-        case NodeTypeSliceExpr:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.slice_expr.array_ref_expr, indent + 2);
-            ast_print(f, node->data.slice_expr.start, indent + 2);
-            if (node->data.slice_expr.end) {
-                ast_print(f, node->data.slice_expr.end, indent + 2);
-            }
-            break;
-        case NodeTypeDirective:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.directive.expr, indent + 2);
-            break;
-        case NodeTypePrefixOpExpr:
-            fprintf(f, "%s %s\n", node_type_str(node->type),
-                    prefix_op_str(node->data.prefix_op_expr.prefix_op));
-            ast_print(f, node->data.prefix_op_expr.primary_expr, indent + 2);
-            break;
-        case NodeTypeNumberLiteral:
-            {
-                NumLit kind = node->data.number_literal.kind;
-                const char *name = node_type_str(node->type);
-                if (kind == NumLitUInt) {
-                    fprintf(f, "%s uint %" PRIu64 "\n", name, node->data.number_literal.data.x_uint);
-                } else {
-                    fprintf(f, "%s float %f\n", name, node->data.number_literal.data.x_float);
-                }
-                break;
-            }
-        case NodeTypeStringLiteral:
-            {
-                const char *c = node->data.string_literal.c ? "c" : "";
-                fprintf(f, "StringLiteral %s'%s'\n", c,
-                        buf_ptr(&node->data.string_literal.buf));
-                break;
-            }
-        case NodeTypeCharLiteral:
-            {
-                fprintf(f, "%s '%c'\n", node_type_str(node->type), node->data.char_literal.value);
-                break;
-            }
-        case NodeTypeSymbol:
-            fprintf(f, "Symbol %s\n", buf_ptr(&node->data.symbol_expr.symbol));
-            break;
-        case NodeTypeUse:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.use.expr, indent + 2);
-            break;
-        case NodeTypeBoolLiteral:
-            fprintf(f, "%s '%s'\n", node_type_str(node->type),
-                    node->data.bool_literal.value ? "true" : "false");
-            break;
-        case NodeTypeNullLiteral:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            break;
-        case NodeTypeIfBoolExpr:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            if (node->data.if_bool_expr.condition)
-                ast_print(f, node->data.if_bool_expr.condition, indent + 2);
-            ast_print(f, node->data.if_bool_expr.then_block, indent + 2);
-            if (node->data.if_bool_expr.else_node)
-                ast_print(f, node->data.if_bool_expr.else_node, indent + 2);
-            break;
-        case NodeTypeIfVarExpr:
-            {
-                Buf *name_buf = &node->data.if_var_expr.var_decl.symbol;
-                fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(name_buf));
-                if (node->data.if_var_expr.var_decl.type)
-                    ast_print(f, node->data.if_var_expr.var_decl.type, indent + 2);
-                if (node->data.if_var_expr.var_decl.expr)
-                    ast_print(f, node->data.if_var_expr.var_decl.expr, indent + 2);
-                ast_print(f, node->data.if_var_expr.then_block, indent + 2);
-                if (node->data.if_var_expr.else_node)
-                    ast_print(f, node->data.if_var_expr.else_node, indent + 2);
-                break;
-            }
-        case NodeTypeWhileExpr:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.while_expr.condition, indent + 2);
-            ast_print(f, node->data.while_expr.body, indent + 2);
-            break;
-        case NodeTypeForExpr:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.for_expr.elem_node, indent + 2);
-            ast_print(f, node->data.for_expr.array_expr, indent + 2);
-            if (node->data.for_expr.index_node) {
-                ast_print(f, node->data.for_expr.index_node, indent + 2);
-            }
-            ast_print(f, node->data.for_expr.body, indent + 2);
-            break;
-        case NodeTypeSwitchExpr:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.switch_expr.expr, indent + 2);
-            for (int i = 0; i < node->data.switch_expr.prongs.length; i += 1) {
-                AstNode *child_node = node->data.switch_expr.prongs.at(i);
-                ast_print(f, child_node, indent + 2);
-            }
-            break;
-        case NodeTypeSwitchProng:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            for (int i = 0; i < node->data.switch_prong.items.length; i += 1) {
-                AstNode *child_node = node->data.switch_prong.items.at(i);
-                ast_print(f, child_node, indent + 2);
-            }
-            if (node->data.switch_prong.var_symbol) {
-                ast_print(f, node->data.switch_prong.var_symbol, indent + 2);
-            }
-            ast_print(f, node->data.switch_prong.expr, indent + 2);
-            break;
-        case NodeTypeSwitchRange:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.switch_range.start, indent + 2);
-            ast_print(f, node->data.switch_range.end, indent + 2);
-            break;
-        case NodeTypeLabel:
-            fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.label.name));
-            break;
-        case NodeTypeGoto:
-            fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.goto_expr.name));
-            break;
-        case NodeTypeBreak:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            break;
-        case NodeTypeContinue:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            break;
-        case NodeTypeUndefinedLiteral:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            break;
-        case NodeTypeAsmExpr:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            break;
-        case NodeTypeFieldAccessExpr:
-            fprintf(f, "%s '%s'\n", node_type_str(node->type),
-                    buf_ptr(&node->data.field_access_expr.field_name));
-            ast_print(f, node->data.field_access_expr.struct_expr, indent + 2);
-            break;
-        case NodeTypeStructDecl:
-            fprintf(f, "%s '%s'\n",
-                    node_type_str(node->type), buf_ptr(&node->data.struct_decl.name));
-            for (int i = 0; i < node->data.struct_decl.fields.length; i += 1) {
-                AstNode *child = node->data.struct_decl.fields.at(i);
-                ast_print(f, child, indent + 2);
-            }
-            for (int i = 0; i < node->data.struct_decl.fns.length; i += 1) {
-                AstNode *child = node->data.struct_decl.fns.at(i);
-                ast_print(f, child, indent + 2);
-            }
-            break;
-        case NodeTypeStructField:
-            fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.struct_field.name));
-            if (node->data.struct_field.type) {
-                ast_print(f, node->data.struct_field.type, indent + 2);
-            }
-            break;
-        case NodeTypeStructValueField:
-            fprintf(f, "%s '%s'\n", node_type_str(node->type), buf_ptr(&node->data.struct_val_field.name));
-            ast_print(f, node->data.struct_val_field.expr, indent + 2);
-            break;
-        case NodeTypeContainerInitExpr:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            ast_print(f, node->data.container_init_expr.type, indent + 2);
-            for (int i = 0; i < node->data.container_init_expr.entries.length; i += 1) {
-                AstNode *child = node->data.container_init_expr.entries.at(i);
-                ast_print(f, child, indent + 2);
-            }
-            break;
-        case NodeTypeArrayType:
-            {
-                const char *const_str = node->data.array_type.is_const ? "const" : "var";
-                fprintf(f, "%s %s\n", node_type_str(node->type), const_str);
-                if (node->data.array_type.size) {
-                    ast_print(f, node->data.array_type.size, indent + 2);
-                }
-                ast_print(f, node->data.array_type.child_type, indent + 2);
-                break;
-            }
-        case NodeTypeErrorType:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            break;
-        case NodeTypeTypeLiteral:
-            fprintf(f, "%s\n", node_type_str(node->type));
-            break;
-    }
+    AstPrint ap;
+    ap.indent = indent;
+    ap.f = f;
+    ast_visit_node_children(node, ast_print_visit, &ap);
 }
+
 
 struct AstRender {
     int indent;

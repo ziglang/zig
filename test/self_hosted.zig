@@ -512,6 +512,16 @@ three)";
 
 
 
+#attribute("test")
+fn simple_generic_fn() {
+    assert(max(i32)(3, -1) == 3);
+}
+
+fn max(T: type)(a: T, b: T) -> T {
+    return if (a > b) a else b;
+}
+
+
 fn assert(b: bool) {
     if (!b) unreachable{}
 }
