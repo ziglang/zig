@@ -974,7 +974,6 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     } else {
         symbol_name = buf_sprintf("_%s", buf_ptr(&fn_table_entry->symbol_name));
     }
-    // TODO mangle the name if it's a generic instance
 
     fn_table_entry->fn_value = LLVMAddFunction(g->module, buf_ptr(symbol_name),
         fn_type->data.fn.raw_type_ref);
@@ -2828,6 +2827,60 @@ static bool eval_bool_bin_op_bool(bool a, BinOpType bin_op, bool b) {
     }
 }
 
+static bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdEnum:
+            {
+                ConstEnumValue *enum1 = &a->data.x_enum;
+                ConstEnumValue *enum2 = &b->data.x_enum;
+                if (enum1->tag == enum2->tag) {
+                    TypeEnumField *enum_field = &type_entry->data.enumeration.fields[enum1->tag];
+                    if (type_has_bits(enum_field->type_entry)) {
+                        zig_panic("TODO const expr analyze enum special value for equality");
+                    } else {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        case TypeTableEntryIdMetaType:
+            return a->data.x_type == b->data.x_type;
+        case TypeTableEntryIdVoid:
+            return true;
+        case TypeTableEntryIdPureError:
+            return a->data.x_err.err == b->data.x_err.err;
+        case TypeTableEntryIdFn:
+            return a->data.x_fn == b->data.x_fn;
+        case TypeTableEntryIdBool:
+            return a->data.x_bool == b->data.x_bool;
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+            return bignum_cmp_eq(&a->data.x_bignum, &b->data.x_bignum);
+        case TypeTableEntryIdPointer:
+            zig_panic("TODO");
+        case TypeTableEntryIdArray:
+            zig_panic("TODO");
+        case TypeTableEntryIdStruct:
+            zig_panic("TODO");
+        case TypeTableEntryIdUndefLit:
+            zig_panic("TODO");
+        case TypeTableEntryIdMaybe:
+            zig_panic("TODO");
+        case TypeTableEntryIdErrorUnion:
+            zig_panic("TODO");
+        case TypeTableEntryIdTypeDecl:
+            zig_panic("TODO");
+        case TypeTableEntryIdNamespace:
+            zig_panic("TODO");
+        case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdUnreachable:
+            zig_unreachable();
+    }
+}
+
 static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         AstNode *node)
 {
@@ -2887,48 +2940,15 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
         }
 
         answer = bignum_cmp(&op1_val->data.x_bignum, &op2_val->data.x_bignum);
-
-    } else if (resolved_type->id == TypeTableEntryIdEnum) {
-        ConstEnumValue *enum1 = &op1_val->data.x_enum;
-        ConstEnumValue *enum2 = &op2_val->data.x_enum;
-        bool are_equal = false;
-        if (enum1->tag == enum2->tag) {
-            TypeEnumField *enum_field = &op1_type->data.enumeration.fields[enum1->tag];
-            if (type_has_bits(enum_field->type_entry)) {
-                zig_panic("TODO const expr analyze enum special value for equality");
-            } else {
-                are_equal = true;
-            }
-        }
-        if (bin_op_type == BinOpTypeCmpEq) {
-            answer = are_equal;
-        } else if (bin_op_type == BinOpTypeCmpNotEq) {
-            answer = !are_equal;
-        } else {
-            zig_unreachable();
-        }
-    } else if (resolved_type->id == TypeTableEntryIdPureError) {
-        bool are_equal = op1_val->data.x_err.err == op2_val->data.x_err.err;
-
-        if (bin_op_type == BinOpTypeCmpEq) {
-            answer = are_equal;
-        } else if (bin_op_type == BinOpTypeCmpNotEq) {
-            answer = !are_equal;
-        } else {
-            zig_unreachable();
-        }
-    } else if (resolved_type->id == TypeTableEntryIdFn) {
-        bool are_equal = (op1_val->data.x_fn == op2_val->data.x_fn);
-
-        if (bin_op_type == BinOpTypeCmpEq) {
-            answer = are_equal;
-        } else if (bin_op_type == BinOpTypeCmpNotEq) {
-            answer = !are_equal;
-        } else {
-            zig_unreachable();
-        }
     } else {
-        zig_unreachable();
+        bool are_equal = const_values_equal(op1_val, op2_val, resolved_type);
+        if (bin_op_type == BinOpTypeCmpEq) {
+            answer = are_equal;
+        } else if (bin_op_type == BinOpTypeCmpNotEq) {
+            answer = !are_equal;
+        } else {
+            zig_unreachable();
+        }
     }
 
     bool depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
@@ -4682,7 +4702,6 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
         generic_param_value->node = *param_node;
     }
 
-
     auto entry = g->generic_table.maybe_get(generic_fn_type_id);
     if (entry) {
         AstNode *impl_decl_node = entry->value;
@@ -4693,9 +4712,10 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
 
     // make a type from the generic parameters supplied
     assert(decl_node->type == NodeTypeFnProto);
-    AstNode *impl_fn_def_node = ast_clone_subtree(decl_node->data.fn_proto.fn_def_node);
+    AstNode *impl_fn_def_node = ast_clone_subtree(decl_node->data.fn_proto.fn_def_node, &g->next_node_index);
     AstNode *impl_decl_node = impl_fn_def_node->data.fn_def.fn_proto;
-    impl_decl_node->data.fn_proto.fn_def_node = impl_fn_def_node;
+
+
 
     preview_fn_proto_instance(g, import, impl_decl_node, child_context);
 
@@ -6233,7 +6253,20 @@ uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {
 }
 
 bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
-    // TODO
+    if (a->decl_node != b->decl_node) return false;
+    assert(a->generic_param_count == b->generic_param_count);
+    for (int i = 0; i < a->generic_param_count; i += 1) {
+        GenericParamValue *a_val = &a->generic_params[i];
+        GenericParamValue *b_val = &b->generic_params[i];
+        assert(a_val->type == b_val->type);
+        ConstExprValue *a_const_val = &get_resolved_expr(a_val->node)->const_val;
+        ConstExprValue *b_const_val = &get_resolved_expr(b_val->node)->const_val;
+        assert(a_const_val->ok);
+        assert(b_const_val->ok);
+        if (!const_values_equal(a_const_val, b_const_val, a_val->type)) {
+            return false;
+        }
+    }
     return true;
 }
 

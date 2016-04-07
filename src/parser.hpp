@@ -24,7 +24,7 @@ void ast_print(AstNode *node, int indent);
 
 void normalize_parent_ptrs(AstNode *node);
 
-AstNode *ast_clone_subtree(AstNode *node);
+AstNode *ast_clone_subtree(AstNode *node, uint32_t *next_node_index);
 void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *context), void *context);
 
 #endif

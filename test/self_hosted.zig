@@ -515,6 +515,7 @@ three)";
 #attribute("test")
 fn simple_generic_fn() {
     assert(max(i32)(3, -1) == 3);
+    assert(max(f32)(0.123, 0.456) == 0.456);
 }
 
 fn max(T: type)(a: T, b: T) -> T {
@@ -529,6 +530,11 @@ fn constant_equal_function_pointers() {
 }
 
 fn empty_fn() {}
+
+#attribute("test")
+fn generic_function_equality() {
+    assert(max(i32) == max(i32));
+}
 
 
 fn assert(b: bool) {

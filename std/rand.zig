@@ -1,10 +1,25 @@
 // Mersenne Twister
 const ARRAY_SIZE = 624;
 
-/// Use `rand_init` to initialize this state.
+/// Use `init` to initialize this state.
 pub struct Rand {
     array: [ARRAY_SIZE]u32,
     index: isize,
+
+    /// Initialize random state with the given seed.
+    pub fn init(seed: u32) -> Rand {
+        var r: Rand = undefined;
+        r.index = 0;
+        r.array[0] = seed;
+        var i : isize = 1;
+        var prev_value: u64 = seed;
+        while (i < ARRAY_SIZE) {
+            r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + u32(i));
+            prev_value = r.array[i];
+            i += 1;
+        }
+        return r;
+    }
 
     /// Get 32 bits of randomness.
     pub fn get_u32(r: &Rand) -> u32 {
@@ -85,20 +100,6 @@ pub struct Rand {
         return bytes_left;
     }
 
-    /// Initialize random state with the given seed.
-    pub fn init(seed: u32) -> Rand {
-        var r: Rand = undefined;
-        r.index = 0;
-        r.array[0] = seed;
-        var i : isize = 1;
-        var prev_value: u64 = seed;
-        while (i < ARRAY_SIZE) {
-            r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + u32(i));
-            prev_value = r.array[i];
-            i += 1;
-        }
-        return r;
-    }
 }
 
 #attribute("test")

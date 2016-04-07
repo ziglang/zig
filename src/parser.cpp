@@ -2842,20 +2842,231 @@ void normalize_parent_ptrs(AstNode *node) {
     ast_visit_node_children(node, normalize_parent_ptrs_visit, nullptr);
 }
 
-static AstNode *clone_node(AstNode *old_node) {
+static void clone_subtree_list(ZigList<AstNode *> *dest, ZigList<AstNode *> *src, uint32_t *next_node_index) {
+    memset(dest, 0, sizeof(ZigList<AstNode *>));
+    dest->resize(src->length);
+    for (int i = 0; i < src->length; i += 1) {
+        dest->at(i) = ast_clone_subtree(src->at(i), next_node_index);
+    }
+}
+
+static void clone_subtree_list_ptr(ZigList<AstNode *> **dest_ptr, ZigList<AstNode *> *src,
+        uint32_t *next_node_index)
+{
+    if (src) {
+        ZigList<AstNode *> *dest = allocate<ZigList<AstNode *>>(1);
+        *dest_ptr = dest;
+        clone_subtree_list(dest, src, next_node_index);
+    }
+}
+
+static void clone_subtree_field(AstNode **dest, AstNode *src, uint32_t *next_node_index) {
+    *dest = ast_clone_subtree(src, next_node_index);
+    (*dest)->parent_field = dest;
+}
+
+static void clone_subtree_tld(TopLevelDecl *dest, TopLevelDecl *src, uint32_t *next_node_index) {
+    clone_subtree_list_ptr(&dest->directives, src->directives, next_node_index);
+}
+
+AstNode *ast_clone_subtree(AstNode *old_node, uint32_t *next_node_index) {
     AstNode *new_node = allocate_nonzero<AstNode>(1);
     memcpy(new_node, old_node, sizeof(AstNode));
-    return new_node;
-}
+    new_node->create_index = *next_node_index;
+    *next_node_index += 1;
 
-static void ast_clone_subtree_visit(AstNode **node, void *context) {
-    *node = clone_node(*node);
-    (*node)->parent_field = node;
-    ast_visit_node_children(*node, ast_clone_subtree_visit, nullptr);
-}
+    switch (new_node->type) {
+        case NodeTypeRoot:
+            clone_subtree_list(&new_node->data.root.top_level_decls, &old_node->data.root.top_level_decls,
+                    next_node_index);
+            break;
+        case NodeTypeFnProto:
+            clone_subtree_tld(&new_node->data.fn_proto.top_level_decl, &old_node->data.fn_proto.top_level_decl,
+                    next_node_index);
+            clone_subtree_field(&new_node->data.fn_proto.return_type, old_node->data.fn_proto.return_type,
+                    next_node_index);
+            clone_subtree_list(&new_node->data.fn_proto.generic_params,
+                               &old_node->data.fn_proto.generic_params, next_node_index);
+            clone_subtree_list(&new_node->data.fn_proto.params, &old_node->data.fn_proto.params,
+                    next_node_index);
 
-AstNode *ast_clone_subtree(AstNode *old_node) {
-    AstNode *new_node = clone_node(old_node);
-    ast_visit_node_children(new_node, ast_clone_subtree_visit, nullptr);
+            break;
+        case NodeTypeFnDef:
+            clone_subtree_field(&new_node->data.fn_def.fn_proto, old_node->data.fn_def.fn_proto, next_node_index);
+            new_node->data.fn_def.fn_proto->data.fn_proto.fn_def_node = new_node;
+            clone_subtree_field(&new_node->data.fn_def.body, old_node->data.fn_def.body, next_node_index);
+            break;
+        case NodeTypeFnDecl:
+            clone_subtree_field(&new_node->data.fn_decl.fn_proto, old_node->data.fn_decl.fn_proto,
+                    next_node_index);
+            break;
+        case NodeTypeParamDecl:
+            clone_subtree_field(&new_node->data.param_decl.type, old_node->data.param_decl.type, next_node_index);
+            break;
+        case NodeTypeBlock:
+            clone_subtree_list(&new_node->data.block.statements, &old_node->data.block.statements,
+                    next_node_index);
+            break;
+        case NodeTypeDirective:
+            clone_subtree_field(&new_node->data.directive.expr, old_node->data.directive.expr, next_node_index);
+            break;
+        case NodeTypeReturnExpr:
+            clone_subtree_field(&new_node->data.return_expr.expr, old_node->data.return_expr.expr, next_node_index);
+            break;
+        case NodeTypeDefer:
+            clone_subtree_field(&new_node->data.defer.expr, old_node->data.defer.expr, next_node_index);
+            break;
+        case NodeTypeVariableDeclaration:
+            clone_subtree_list_ptr(&new_node->data.variable_declaration.top_level_decl.directives,
+                    old_node->data.variable_declaration.top_level_decl.directives, next_node_index);
+            clone_subtree_field(&new_node->data.variable_declaration.type, old_node->data.variable_declaration.type, next_node_index);
+            clone_subtree_field(&new_node->data.variable_declaration.expr, old_node->data.variable_declaration.expr, next_node_index);
+            break;
+        case NodeTypeTypeDecl:
+            clone_subtree_list_ptr(&new_node->data.type_decl.top_level_decl.directives,
+                    old_node->data.type_decl.top_level_decl.directives, next_node_index);
+            clone_subtree_field(&new_node->data.type_decl.child_type, old_node->data.type_decl.child_type, next_node_index);
+            break;
+        case NodeTypeErrorValueDecl:
+            // none
+            break;
+        case NodeTypeBinOpExpr:
+            clone_subtree_field(&new_node->data.bin_op_expr.op1, old_node->data.bin_op_expr.op1, next_node_index);
+            clone_subtree_field(&new_node->data.bin_op_expr.op2, old_node->data.bin_op_expr.op2, next_node_index);
+            break;
+        case NodeTypeUnwrapErrorExpr:
+            clone_subtree_field(&new_node->data.unwrap_err_expr.op1, old_node->data.unwrap_err_expr.op1, next_node_index);
+            clone_subtree_field(&new_node->data.unwrap_err_expr.symbol, old_node->data.unwrap_err_expr.symbol, next_node_index);
+            clone_subtree_field(&new_node->data.unwrap_err_expr.op2, old_node->data.unwrap_err_expr.op2, next_node_index);
+            break;
+        case NodeTypeNumberLiteral:
+            // none
+            break;
+        case NodeTypeStringLiteral:
+            // none
+            break;
+        case NodeTypeCharLiteral:
+            // none
+            break;
+        case NodeTypeSymbol:
+            // none
+            break;
+        case NodeTypePrefixOpExpr:
+            clone_subtree_field(&new_node->data.prefix_op_expr.primary_expr, old_node->data.prefix_op_expr.primary_expr, next_node_index);
+            break;
+        case NodeTypeFnCallExpr:
+            clone_subtree_field(&new_node->data.fn_call_expr.fn_ref_expr, old_node->data.fn_call_expr.fn_ref_expr, next_node_index);
+            clone_subtree_list(&new_node->data.fn_call_expr.params, &old_node->data.fn_call_expr.params, next_node_index);
+            break;
+        case NodeTypeArrayAccessExpr:
+            clone_subtree_field(&new_node->data.array_access_expr.array_ref_expr, old_node->data.array_access_expr.array_ref_expr, next_node_index);
+            clone_subtree_field(&new_node->data.array_access_expr.subscript, old_node->data.array_access_expr.subscript, next_node_index);
+            break;
+        case NodeTypeSliceExpr:
+            clone_subtree_field(&new_node->data.slice_expr.array_ref_expr, old_node->data.slice_expr.array_ref_expr, next_node_index);
+            clone_subtree_field(&new_node->data.slice_expr.start, old_node->data.slice_expr.start, next_node_index);
+            clone_subtree_field(&new_node->data.slice_expr.end, old_node->data.slice_expr.end, next_node_index);
+            break;
+        case NodeTypeFieldAccessExpr:
+            clone_subtree_field(&new_node->data.field_access_expr.struct_expr, old_node->data.field_access_expr.struct_expr, next_node_index);
+            break;
+        case NodeTypeUse:
+            clone_subtree_field(&new_node->data.use.expr, old_node->data.use.expr, next_node_index);
+            clone_subtree_list_ptr(&new_node->data.use.top_level_decl.directives,
+                    old_node->data.use.top_level_decl.directives, next_node_index);
+            break;
+        case NodeTypeBoolLiteral:
+            // none
+            break;
+        case NodeTypeNullLiteral:
+            // none
+            break;
+        case NodeTypeUndefinedLiteral:
+            // none
+            break;
+        case NodeTypeIfBoolExpr:
+            clone_subtree_field(&new_node->data.if_bool_expr.condition, old_node->data.if_bool_expr.condition, next_node_index);
+            clone_subtree_field(&new_node->data.if_bool_expr.then_block, old_node->data.if_bool_expr.then_block, next_node_index);
+            clone_subtree_field(&new_node->data.if_bool_expr.else_node, old_node->data.if_bool_expr.else_node, next_node_index);
+            break;
+        case NodeTypeIfVarExpr:
+            clone_subtree_field(&new_node->data.if_var_expr.var_decl.type, old_node->data.if_var_expr.var_decl.type, next_node_index);
+            clone_subtree_field(&new_node->data.if_var_expr.var_decl.expr, old_node->data.if_var_expr.var_decl.expr, next_node_index);
+            clone_subtree_field(&new_node->data.if_var_expr.then_block, old_node->data.if_var_expr.then_block, next_node_index);
+            clone_subtree_field(&new_node->data.if_var_expr.else_node, old_node->data.if_var_expr.else_node, next_node_index);
+            break;
+        case NodeTypeWhileExpr:
+            clone_subtree_field(&new_node->data.while_expr.condition, old_node->data.while_expr.condition, next_node_index);
+            clone_subtree_field(&new_node->data.while_expr.body, old_node->data.while_expr.body, next_node_index);
+            break;
+        case NodeTypeForExpr:
+            clone_subtree_field(&new_node->data.for_expr.elem_node, old_node->data.for_expr.elem_node, next_node_index);
+            clone_subtree_field(&new_node->data.for_expr.array_expr, old_node->data.for_expr.array_expr, next_node_index);
+            clone_subtree_field(&new_node->data.for_expr.index_node, old_node->data.for_expr.index_node, next_node_index);
+            clone_subtree_field(&new_node->data.for_expr.body, old_node->data.for_expr.body, next_node_index);
+            break;
+        case NodeTypeSwitchExpr:
+            clone_subtree_field(&new_node->data.switch_expr.expr, old_node->data.switch_expr.expr, next_node_index);
+            clone_subtree_list(&new_node->data.switch_expr.prongs, &old_node->data.switch_expr.prongs,
+                    next_node_index);
+            break;
+        case NodeTypeSwitchProng:
+            clone_subtree_list(&new_node->data.switch_prong.items, &old_node->data.switch_prong.items,
+                    next_node_index);
+            clone_subtree_field(&new_node->data.switch_prong.var_symbol, old_node->data.switch_prong.var_symbol, next_node_index);
+            clone_subtree_field(&new_node->data.switch_prong.expr, old_node->data.switch_prong.expr, next_node_index);
+            break;
+        case NodeTypeSwitchRange:
+            clone_subtree_field(&new_node->data.switch_range.start, old_node->data.switch_range.start, next_node_index);
+            clone_subtree_field(&new_node->data.switch_range.end, old_node->data.switch_range.end, next_node_index);
+            break;
+        case NodeTypeLabel:
+            // none
+            break;
+        case NodeTypeGoto:
+            // none
+            break;
+        case NodeTypeBreak:
+            // none
+            break;
+        case NodeTypeContinue:
+            // none
+            break;
+        case NodeTypeAsmExpr:
+            zig_panic("TODO");
+            break;
+        case NodeTypeStructDecl:
+            clone_subtree_list(&new_node->data.struct_decl.fields, &old_node->data.struct_decl.fields,
+                    next_node_index);
+            clone_subtree_list(&new_node->data.struct_decl.fns, &old_node->data.struct_decl.fns,
+                    next_node_index);
+            clone_subtree_list_ptr(&new_node->data.struct_decl.top_level_decl.directives,
+                    old_node->data.struct_decl.top_level_decl.directives, next_node_index);
+            break;
+        case NodeTypeStructField:
+            clone_subtree_field(&new_node->data.struct_field.type, old_node->data.struct_field.type, next_node_index);
+            clone_subtree_list_ptr(&new_node->data.struct_field.top_level_decl.directives,
+                    old_node->data.struct_field.top_level_decl.directives, next_node_index);
+            break;
+        case NodeTypeContainerInitExpr:
+            clone_subtree_field(&new_node->data.container_init_expr.type, old_node->data.container_init_expr.type, next_node_index);
+            clone_subtree_list(&new_node->data.container_init_expr.entries,
+                    &old_node->data.container_init_expr.entries, next_node_index);
+            break;
+        case NodeTypeStructValueField:
+            clone_subtree_field(&new_node->data.struct_val_field.expr, old_node->data.struct_val_field.expr, next_node_index);
+            break;
+        case NodeTypeArrayType:
+            clone_subtree_field(&new_node->data.array_type.size, old_node->data.array_type.size, next_node_index);
+            clone_subtree_field(&new_node->data.array_type.child_type, old_node->data.array_type.child_type, next_node_index);
+            break;
+        case NodeTypeErrorType:
+            // none
+            break;
+        case NodeTypeTypeLiteral:
+            // none
+            break;
+    }
+
     return new_node;
 }
