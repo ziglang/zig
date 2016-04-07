@@ -1781,6 +1781,13 @@ b";
 fn foo() {}
 const invalid = foo > foo;
     )SOURCE", 1, ".tmp_source.zig:3:21: error: operator not allowed for type 'fn()'");
+
+    add_compile_fail_case("generic function instance with non-constant expression", R"SOURCE(
+fn foo(x: i32)(y: i32) -> i32 { return x + y; }
+fn test1(a: i32, b: i32) -> i32 {
+    return foo(a)(b);
+}
+    )SOURCE", 1, ".tmp_source.zig:4:16: error: unable to resolve constant expression");
 }
 
 //////////////////////////////////////////////////////////////////////////////

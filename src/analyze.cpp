@@ -4674,7 +4674,7 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
         }
         AstNode **param_node = &node->data.fn_call_expr.params.at(i);
 
-        TypeTableEntry *param_type = analyze_expression(g, import, child_context, expected_param_type,
+        TypeTableEntry *param_type = analyze_expression(g, import, parent_context, expected_param_type,
                 *param_node);
         if (param_type->id == TypeTableEntryIdInvalid) {
             return param_type;
