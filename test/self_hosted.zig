@@ -516,10 +516,15 @@ three)";
 fn simple_generic_fn() {
     assert(max(i32)(3, -1) == 3);
     assert(max(f32)(0.123, 0.456) == 0.456);
+    assert(add(2)(3) == 5);
 }
 
 fn max(T: type)(a: T, b: T) -> T {
     return if (a > b) a else b;
+}
+
+fn add(a: i32)(b: i32) -> i32 {
+    return a + b;
 }
 
 

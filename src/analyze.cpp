@@ -4667,8 +4667,8 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
 
         AstNode **generic_param_type_node = &generic_param_decl_node->data.param_decl.type;
 
-        TypeTableEntry *expected_param_type = analyze_expression(g, decl_node->owner,
-                decl_node->owner->block_context, nullptr, *generic_param_type_node);
+        TypeTableEntry *expected_param_type = analyze_type_expr(g, decl_node->owner,
+                decl_node->owner->block_context, *generic_param_type_node);
         if (expected_param_type->id == TypeTableEntryIdInvalid) {
             return expected_param_type;
         }
