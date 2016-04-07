@@ -542,6 +542,18 @@ fn generic_function_equality() {
 }
 
 
+#attribute("test")
+fn generic_malloc_free() {
+    const a = %%mem_alloc(u8)(10);
+    mem_free(u8)(a);
+}
+const some_mem : [100]u8 = undefined;
+fn mem_alloc(T: type)(n: isize) -> %[]T {
+    return (&T)(&some_mem[0])[0...n];
+}
+fn mem_free(T: type)(mem: []T) { }
+
+
 fn assert(b: bool) {
     if (!b) unreachable{}
 }

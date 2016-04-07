@@ -2861,8 +2861,12 @@ static void clone_subtree_list_ptr(ZigList<AstNode *> **dest_ptr, ZigList<AstNod
 }
 
 static void clone_subtree_field(AstNode **dest, AstNode *src, uint32_t *next_node_index) {
-    *dest = ast_clone_subtree(src, next_node_index);
-    (*dest)->parent_field = dest;
+    if (src) {
+        *dest = ast_clone_subtree(src, next_node_index);
+        (*dest)->parent_field = dest;
+    } else {
+        *dest = nullptr;
+    }
 }
 
 static void clone_subtree_tld(TopLevelDecl *dest, TopLevelDecl *src, uint32_t *next_node_index) {
