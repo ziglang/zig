@@ -1416,7 +1416,7 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
         err->value = existing_entry->value->value;
     } else {
         int error_value_count = g->error_decls.length;
-        assert(error_value_count < (((uint32_t)1) << (uint32_t)g->err_tag_type->data.integral.bit_count));
+        assert((uint32_t)error_value_count < (((uint32_t)1) << (uint32_t)g->err_tag_type->data.integral.bit_count));
         err->value = error_value_count;
         g->error_decls.append(node);
         g->error_table.put(&err->name, err);
