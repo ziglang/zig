@@ -65,7 +65,9 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->generic_table.init(16);
     g->is_release_build = false;
     g->is_test_build = false;
-    g->error_value_count = 1;
+
+    // the error.Ok value
+    g->error_decls.append(nullptr);
 
     g->root_package = new_package(buf_ptr(root_source_dir), "");
     g->std_package = new_package(ZIG_STD_DIR, "index.zig");
@@ -328,6 +330,14 @@ static LLVMValueRef get_handle_value(CodeGen *g, AstNode *source_node, LLVMValue
     }
 }
 
+static LLVMValueRef gen_err_name(CodeGen *g, AstNode *node) {
+    zig_panic("TODO");
+    //assert(node->type == NodeTypeFnCallExpr);
+    //AstNode *err_val_node = node->data.fn_call_expr.params.at(0);
+    //LLVMValueRef err_val = gen_expr(g, err_val_node);
+    //arg
+}
+
 static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
     AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
@@ -467,6 +477,8 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
             zig_unreachable();
         case BuiltinFnIdCompileVar:
             return nullptr;
+        case BuiltinFnIdErrName:
+            return gen_err_name(g, node);
     }
     zig_unreachable();
 }
@@ -3739,6 +3751,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdClz, "clz", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdImport, "import", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCImport, "c_import", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdErrName, "err_name", 1);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

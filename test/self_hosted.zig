@@ -1,5 +1,5 @@
 // test std library
-const std = @import("std");
+use @import("std");
 
 #attribute("test")
 fn empty_function() {}
@@ -554,14 +554,3 @@ fn mem_alloc(T: type)(n: isize) -> %[]T {
 fn mem_free(T: type)(mem: []T) { }
 
 
-fn assert(b: bool) {
-    if (!b) unreachable{}
-}
-
-fn str_eql(s1: []u8, s2: []u8) -> bool {
-    if (s1.len != s2.len) return false;
-    for (s1) |c, i| {
-        if (s2[i] != c) return false;
-    }
-    return true;
-}

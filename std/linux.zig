@@ -1,86 +1,6 @@
-const SYS_read = switch (@compile_var("arch")) {
-    x86_64 => 0,
-    i386 => 3,
-    else => unreachable{},
-};
-const SYS_write = switch (@compile_var("arch")) {
-    x86_64 => 1,
-    i386 => 4,
-    else => unreachable{},
-};
-const SYS_open = switch (@compile_var("arch")) {
-    x86_64 => 2,
-    i386 => 5,
-    else => unreachable{},
-};
-const SYS_close = switch (@compile_var("arch")) {
-    x86_64 => 3,
-    i386 => 6,
-    else => unreachable{},
-};
-const SYS_creat = switch (@compile_var("arch")) {
-    x86_64 => 85,
-    i386 => 8,
-    else => unreachable{},
-};
-const SYS_lseek = switch (@compile_var("arch")) {
-    x86_64 => 8,
-    i386 => 19,
-    else => unreachable{},
-};
-const SYS_mmap = switch (@compile_var("arch")) {
-    x86_64 => 9,
-    i386 => 90,
-    else => unreachable{},
-};
-const SYS_munmap = switch (@compile_var("arch")) {
-    x86_64 => 11,
-    i386 => 91,
-    else => unreachable{},
-};
-const SYS_rt_sigprocmask = switch (@compile_var("arch")) {
-    x86_64 => 14,
-    i386 => 175,
-    else => unreachable{},
-};
-const SYS_exit = switch (@compile_var("arch")) {
-    x86_64 => 60,
-    i386 => 1,
-    else => unreachable{},
-};
-const SYS_kill = switch (@compile_var("arch")) {
-    x86_64 => 62,
-    i386 => 37,
-    else => unreachable{},
-};
-const SYS_getgid = switch (@compile_var("arch")) {
-    x86_64 => 104,
-    i386 => 47,
-    else => unreachable{},
-};
-const SYS_gettid = switch (@compile_var("arch")) {
-    x86_64 => 186,
-    i386 => 224,
-    else => unreachable{},
-};
-const SYS_tkill = switch (@compile_var("arch")) {
-    x86_64 => 200,
-    i386 => 238,
-    else => unreachable{},
-};
-const SYS_tgkill = switch (@compile_var("arch")) {
-    x86_64 => 234,
-    i386 => 270,
-    else => unreachable{},
-};
-const SYS_openat = switch (@compile_var("arch")) {
-    x86_64 => 257,
-    i386 => 295,
-    else => unreachable{},
-};
-const SYS_getrandom = switch (@compile_var("arch")) {
-    x86_64 => 318,
-    i386 => 355,
+const arch = switch (@compile_var("arch")) {
+    x86_64 => @import("linux_x86_64.zig"),
+    i386 => @import("linux_i386.zig"),
     else => unreachable{},
 };
 
@@ -94,15 +14,6 @@ pub const MMAP_MAP_SHARED =  1;
 pub const MMAP_MAP_PRIVATE = 2;
 pub const MMAP_MAP_FIXED =   16;
 pub const MMAP_MAP_ANON =    32;
-
-pub const O_RDONLY  = 0x0;
-pub const O_WRONLY  = 0x1;
-pub const O_RDWR    = 0x2;
-pub const O_CREAT   = 0x40;
-pub const O_EXCL    = 0x80;
-pub const O_TRUNC   = 0x200;
-pub const O_APPEND  = 0x400;
-pub const O_SYNC    = 0x101000;
 
 pub const SIGHUP    = 1;
 pub const SIGINT    = 2;
@@ -139,209 +50,93 @@ pub const SIGPWR    = 30;
 pub const SIGSYS    = 31;
 pub const SIGUNUSED = SIGSYS;
 
+pub const O_RDONLY = 0o0;
+pub const O_WRONLY = 0o1;
+pub const O_RDWR   = 0o2;
+
+pub const O_CREAT = arch.O_CREAT;
+pub const O_EXCL = arch.O_EXCL;
+pub const O_NOCTTY = arch.O_NOCTTY;
+pub const O_TRUNC = arch.O_TRUNC;
+pub const O_APPEND = arch.O_APPEND;
+pub const O_NONBLOCK = arch.O_NONBLOCK;
+pub const O_DSYNC = arch.O_DSYNC;
+pub const O_SYNC = arch.O_SYNC;
+pub const O_RSYNC = arch.O_RSYNC;
+pub const O_DIRECTORY = arch.O_DIRECTORY;
+pub const O_NOFOLLOW = arch.O_NOFOLLOW;
+pub const O_CLOEXEC = arch.O_CLOEXEC;
+
+pub const O_ASYNC = arch.O_ASYNC;
+pub const O_DIRECT = arch.O_DIRECT;
+pub const O_LARGEFILE = arch.O_LARGEFILE;
+pub const O_NOATIME = arch.O_NOATIME;
+pub const O_PATH = arch.O_PATH;
+pub const O_TMPFILE = arch.O_TMPFILE;
+pub const O_NDELAY = arch.O_NDELAY;
+
 const SIG_BLOCK   = 0;
 const SIG_UNBLOCK = 1;
 const SIG_SETMASK = 2;
 
-const syscall0 = switch (@compile_var("arch")) {
-    x86_64 => x86_64_syscall0,
-    i386 => i386_syscall0,
-    else => unreachable{},
-};
-const syscall1 = switch (@compile_var("arch")) {
-    x86_64 => x86_64_syscall1,
-    i386 => i386_syscall1,
-    else => unreachable{},
-};
-const syscall2 = switch (@compile_var("arch")) {
-    x86_64 => x86_64_syscall2,
-    i386 => i386_syscall2,
-    else => unreachable{},
-};
-const syscall3 = switch (@compile_var("arch")) {
-    x86_64 => x86_64_syscall3,
-    i386 => i386_syscall3,
-    else => unreachable{},
-};
-const syscall4 = switch (@compile_var("arch")) {
-    x86_64 => x86_64_syscall4,
-    i386 => i386_syscall4,
-    else => unreachable{},
-};
-const syscall6 = switch (@compile_var("arch")) {
-    x86_64 => x86_64_syscall6,
-    i386 => i386_syscall6,
-    else => unreachable{},
-};
-
-fn x86_64_syscall0(number: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number)
-        : "rcx", "r11")
-}
-
-fn x86_64_syscall1(number: isize, arg1: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1)
-        : "rcx", "r11")
-}
-
-fn x86_64_syscall2(number: isize, arg1: isize, arg2: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1),
-            [arg2] "{rsi}" (arg2)
-        : "rcx", "r11")
-}
-
-fn x86_64_syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1),
-            [arg2] "{rsi}" (arg2),
-            [arg3] "{rdx}" (arg3)
-        : "rcx", "r11")
-}
-
-fn x86_64_syscall4(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1),
-            [arg2] "{rsi}" (arg2),
-            [arg3] "{rdx}" (arg3),
-            [arg4] "{r10}" (arg4)
-        : "rcx", "r11")
-}
-
-fn x86_64_syscall6(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize, arg5: isize, arg6: isize) -> isize {
-    asm volatile ("syscall"
-        : [ret] "={rax}" (-> isize)
-        : [number] "{rax}" (number),
-            [arg1] "{rdi}" (arg1),
-            [arg2] "{rsi}" (arg2),
-            [arg3] "{rdx}" (arg3),
-            [arg4] "{r10}" (arg4),
-            [arg5] "{r8}" (arg5),
-            [arg6] "{r9}" (arg6)
-        : "rcx", "r11")
-}
-
-fn i386_syscall0(number: isize) -> isize {
-    asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> isize)
-        : [number] "{eax}" (number))
-}
-
-fn i386_syscall1(number: isize, arg1: isize) -> isize {
-    asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> isize)
-        : [number] "{eax}" (number),
-            [arg1] "{ebx}" (arg1))
-}
-
-fn i386_syscall2(number: isize, arg1: isize, arg2: isize) -> isize {
-    asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> isize)
-        : [number] "{eax}" (number),
-            [arg1] "{ebx}" (arg1),
-            [arg2] "{ecx}" (arg2))
-}
-
-fn i386_syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
-    asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> isize)
-        : [number] "{eax}" (number),
-            [arg1] "{ebx}" (arg1),
-            [arg2] "{ecx}" (arg2),
-            [arg3] "{edx}" (arg3))
-}
-
-fn i386_syscall4(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize) -> isize {
-    asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> isize)
-        : [number] "{eax}" (number),
-            [arg1] "{ebx}" (arg1),
-            [arg2] "{ecx}" (arg2),
-            [arg3] "{edx}" (arg3),
-            [arg4] "{esi}" (arg4))
-}
-
-fn i386_syscall6(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize, arg5: isize, arg6: isize) -> isize {
-    asm volatile ("int $0x80"
-        : [ret] "={eax}" (-> isize)
-        : [number] "{eax}" (number),
-            [arg1] "{ebx}" (arg1),
-            [arg2] "{ecx}" (arg2),
-            [arg3] "{edx}" (arg3),
-            [arg4] "{esi}" (arg4),
-            [arg5] "{edi}" (arg5),
-            [arg6] "{ebp}" (arg6))
-}
-
 pub fn mmap(address: ?&u8, length: isize, prot: isize, flags: isize, fd: isize, offset: isize) -> isize {
     // TODO ability to cast maybe pointer to isize
     const addr = if (const unwrapped ?= address) isize(unwrapped) else 0;
-    syscall6(SYS_mmap, addr, length, prot, flags, fd, offset)
+    arch.syscall6(arch.SYS_mmap, addr, length, prot, flags, fd, offset)
 }
 
 pub fn munmap(address: &u8, length: isize) -> isize {
-    syscall2(SYS_munmap, isize(address), length)
+    arch.syscall2(arch.SYS_munmap, isize(address), length)
 }
 
 pub fn read(fd: isize, buf: &u8, count: isize) -> isize {
-    syscall3(SYS_read, isize(fd), isize(buf), count)
+    arch.syscall3(arch.SYS_read, isize(fd), isize(buf), count)
 }
 
 pub fn write(fd: isize, buf: &const u8, count: isize) -> isize {
-    syscall3(SYS_write, isize(fd), isize(buf), count)
+    arch.syscall3(arch.SYS_write, isize(fd), isize(buf), count)
 }
 
 pub fn open(path: []u8, flags: isize, perm: isize) -> isize {
     var buf: [path.len + 1]u8 = undefined;
     @memcpy(&buf[0], &path[0], path.len);
     buf[path.len] = 0;
-    syscall3(SYS_open, isize(&buf[0]), flags, perm)
+    arch.syscall3(arch.SYS_open, isize(&buf[0]), flags, perm)
 }
 
 pub fn create(path: []u8, perm: isize) -> isize {
     var buf: [path.len + 1]u8 = undefined;
     @memcpy(&buf[0], &path[0], path.len);
     buf[path.len] = 0;
-    syscall2(SYS_creat, isize(&buf[0]), perm)
+    arch.syscall2(arch.SYS_creat, isize(&buf[0]), perm)
 }
 
 pub fn openat(dirfd: isize, path: []u8, flags: isize, mode: isize) -> isize {
     var buf: [path.len + 1]u8 = undefined;
     @memcpy(&buf[0], &path[0], path.len);
     buf[path.len] = 0;
-    syscall4(SYS_openat, dirfd, isize(&buf[0]), flags, mode)
+    arch.syscall4(arch.SYS_openat, dirfd, isize(&buf[0]), flags, mode)
 }
 
 pub fn close(fd: isize) -> isize {
-    syscall1(SYS_close, fd)
+    arch.syscall1(arch.SYS_close, fd)
 }
 
 pub fn lseek(fd: isize, offset: isize, ref_pos: isize) -> isize {
-    syscall3(SYS_lseek, fd, offset, ref_pos)
+    arch.syscall3(arch.SYS_lseek, fd, offset, ref_pos)
 }
 
 pub fn exit(status: i32) -> unreachable {
-    syscall1(SYS_exit, isize(status));
+    arch.syscall1(arch.SYS_exit, isize(status));
     unreachable{}
 }
 
 pub fn getrandom(buf: &u8, count: isize, flags: u32) -> isize {
-    syscall3(SYS_getrandom, isize(buf), count, isize(flags))
+    arch.syscall3(arch.SYS_getrandom, isize(buf), count, isize(flags))
 }
 
 pub fn kill(pid: i32, sig: i32) -> i32 {
-    i32(syscall2(SYS_kill, pid, sig))
+    i32(arch.syscall2(arch.SYS_kill, pid, sig))
 }
 
 const NSIG = 65;
@@ -352,20 +147,20 @@ const app_mask = []u8 { 0xff, 0xff, 0xff, 0xfc, 0x7f, 0xff, 0xff, 0xff, };
 pub fn raise(sig: i32) -> i32 {
     var set: sigset_t = undefined;
     block_app_signals(&set);
-    const tid = i32(syscall0(SYS_gettid));
-    const ret = i32(syscall2(SYS_tkill, tid, sig));
+    const tid = i32(arch.syscall0(arch.SYS_gettid));
+    const ret = i32(arch.syscall2(arch.SYS_tkill, tid, sig));
     restore_signals(&set);
     return ret;
 }
 
 fn block_all_signals(set: &sigset_t) {
-    syscall4(SYS_rt_sigprocmask, SIG_BLOCK, isize(&all_mask), isize(set), NSIG/8);
+    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, isize(&all_mask), isize(set), NSIG/8);
 }
 
 fn block_app_signals(set: &sigset_t) {
-    syscall4(SYS_rt_sigprocmask, SIG_BLOCK, isize(&app_mask), isize(set), NSIG/8);
+    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, isize(&app_mask), isize(set), NSIG/8);
 }
 
 fn restore_signals(set: &sigset_t) {
-    syscall4(SYS_rt_sigprocmask, SIG_SETMASK, isize(set), 0, NSIG/8);
+    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_SETMASK, isize(set), 0, NSIG/8);
 }

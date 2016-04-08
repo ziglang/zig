@@ -1415,9 +1415,10 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
         // duplicate error definitions allowed and they get the same value
         err->value = existing_entry->value->value;
     } else {
-        assert(g->error_value_count < (((uint32_t)1) << (uint32_t)g->err_tag_type->data.integral.bit_count));
-        err->value = g->error_value_count;
-        g->error_value_count += 1;
+        int error_value_count = g->error_decls.length;
+        assert(error_value_count < (((uint32_t)1) << (uint32_t)g->err_tag_type->data.integral.bit_count));
+        err->value = error_value_count;
+        g->error_decls.append(node);
         g->error_table.put(&err->name, err);
     }
 
@@ -4084,7 +4085,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         wanted_type->id == TypeTableEntryIdInt)
     {
         BigNum bn;
-        bignum_init_unsigned(&bn, g->error_value_count);
+        bignum_init_unsigned(&bn, g->error_decls.length);
         if (bignum_fits_in_bits(&bn, wanted_type->data.integral.bit_count,
                     wanted_type->data.integral.is_signed))
         {
@@ -4240,6 +4241,25 @@ static TypeTableEntry *analyze_c_import(CodeGen *g, ImportTableEntry *parent_imp
 
     scan_decls(g, child_import, child_import->block_context, child_import->root);
     return resolve_expr_const_val_as_import(g, node, child_import);
+}
+
+static TypeTableEntry *analyze_err_name(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode *err_value = node->data.fn_call_expr.params.at(0);
+    TypeTableEntry *resolved_type = analyze_expression(g, import, context,
+            g->builtin_types.entry_pure_error, err_value);
+
+    if (resolved_type->id == TypeTableEntryIdInvalid) {
+        return resolved_type;
+    }
+
+    g->generate_error_name_table = true;
+
+    TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
+    return str_type;
 }
 
 static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -4570,7 +4590,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             return analyze_import(g, import, context, node);
         case BuiltinFnIdCImport:
             return analyze_c_import(g, import, context, node);
-
+        case BuiltinFnIdErrName:
+            return analyze_err_name(g, import, context, node);
     }
     zig_unreachable();
 }

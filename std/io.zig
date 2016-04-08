@@ -39,37 +39,51 @@ pub error NoSpaceLeft;
 pub error BadPerm;
 pub error PipeFail;
 pub error BadFd;
+pub error IsDir;
+pub error NotDir;
+pub error SymLinkLoop;
+pub error ProcessFdQuotaExceeded;
+pub error SystemFdQuotaExceeded;
+pub error NameTooLong;
+pub error NoDevice;
+pub error PathNotFound;
+pub error NoMem;
 
 const buffer_size = 4 * 1024;
 const max_u64_base10_digits = 20;
 const max_f64_digits = 65;
+
+pub const OpenRead     = 0b0001;
+pub const OpenWrite    = 0b0010;
+pub const OpenCreate   = 0b0100;
+pub const OpenTruncate = 0b1000;
 
 pub struct OutStream {
     fd: isize,
     buffer: [buffer_size]u8,
     index: isize,
 
-    pub fn print_str(os: &OutStream, str: []const u8) -> %isize {
-        var src_bytes_left = str.len;
-        var src_index: @typeof(str.len) = 0;
+    pub fn write(os: &OutStream, bytes: []const u8) -> %isize {
+        var src_bytes_left = bytes.len;
+        var src_index: @typeof(bytes.len) = 0;
         const dest_space_left = os.buffer.len - os.index;
 
         while (src_bytes_left > 0) {
             const copy_amt = math.min_isize(dest_space_left, src_bytes_left);
-            @memcpy(&os.buffer[os.index], &str[src_index], copy_amt);
+            @memcpy(&os.buffer[os.index], &bytes[src_index], copy_amt);
             os.index += copy_amt;
             if (os.index == os.buffer.len) {
                 %return os.flush();
             }
             src_bytes_left -= copy_amt;
         }
-        return str.len;
+        return bytes.len;
     }
 
     /// Prints a byte buffer, flushes the buffer, then returns the number of
     /// bytes printed. The "f" is for "flush".
     pub fn printf(os: &OutStream, str: []const u8) -> %isize {
-        const byte_count = %return os.print_str(str);
+        const byte_count = %return os.write(str);
         %return os.flush();
         return byte_count;
     }
@@ -137,6 +151,33 @@ pub struct OutStream {
 
 pub struct InStream {
     fd: isize,
+
+    pub fn open(path: []u8) -> %InStream {
+        const fd = linux.open(path, linux.O_LARGEFILE|linux.O_RDONLY, 0);
+        if (fd < 0) {
+            return switch (-fd) {
+                errno.EFAULT => unreachable{},
+                errno.EINVAL => unreachable{},
+                errno.EACCES => error.BadPerm,
+                errno.EFBIG, errno.EOVERFLOW => error.FileTooBig,
+                errno.EINTR => error.SigInterrupt,
+                errno.EISDIR => error.IsDir,
+                errno.ELOOP => error.SymLinkLoop,
+                errno.EMFILE => error.ProcessFdQuotaExceeded,
+                errno.ENAMETOOLONG => error.NameTooLong,
+                errno.ENFILE => error.SystemFdQuotaExceeded,
+                errno.ENODEV => error.NoDevice,
+                errno.ENOENT => error.PathNotFound,
+                errno.ENOMEM => error.NoMem,
+                errno.ENOSPC => error.NoSpaceLeft,
+                errno.ENOTDIR => error.NotDir,
+                errno.EPERM => error.BadPerm,
+                else => error.Unexpected,
+            }
+        }
+
+        return InStream { .fd = fd, };
+    }
 
     pub fn read(is: &InStream, buf: []u8) -> %isize {
         const amt_read = linux.read(is.fd, &buf[0], buf.len);
