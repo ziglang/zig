@@ -2879,6 +2879,7 @@ static bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEn
         case TypeTableEntryIdUnreachable:
             zig_unreachable();
     }
+    zig_unreachable();
 }
 
 static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -6238,6 +6239,7 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
         case TypeTableEntryIdUnreachable:
             zig_unreachable();
     }
+    zig_unreachable();
 }
 
 uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {
