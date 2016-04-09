@@ -223,6 +223,42 @@ static uint8_t parse_char_literal(ParseContext *pc, Token *token) {
     return return_value;
 }
 
+static int get_hex_digit(uint8_t c) {
+    switch (c) {
+        case '0': return 0;
+        case '1': return 1;
+        case '2': return 2;
+        case '3': return 3;
+        case '4': return 4;
+        case '5': return 5;
+        case '6': return 6;
+        case '7': return 7;
+        case '8': return 8;
+        case '9': return 9;
+
+        case 'a':
+        case 'A':
+            return 10;
+        case 'b':
+        case 'B':
+            return 11;
+        case 'c':
+        case 'C':
+            return 12;
+        case 'd':
+        case 'D':
+            return 13;
+        case 'e':
+        case 'E':
+            return 14;
+        case 'f':
+        case 'F':
+            return 15;
+        default:
+            return -1;
+    }
+}
+
 static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool *out_c_str,
         ZigList<SrcPos> *offset_map)
 {
@@ -240,12 +276,22 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
     // convert escape sequences
     // detect c string literal
 
+    enum State {
+        StateStart,
+        StateEscape,
+        StateHex1,
+        StateHex2,
+    };
+
     buf_resize(buf, 0);
-    bool escape = false;
+
+    State state = StateStart;
     bool skip_quote;
     SrcPos pos = {token->start_line, token->start_column};
+    int hex_value = 0;
     for (int i = token->start_pos; i < token->end_pos - 1; i += 1) {
         uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
+
         if (i == token->start_pos) {
             skip_quote = (c == 'c');
             if (out_c_str) {
@@ -256,41 +302,72 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
         } else if (skip_quote) {
             skip_quote = false;
         } else {
-            if (escape) {
-                switch (c) {
-                    case '\\':
-                        buf_append_char(buf, '\\');
+            switch (state) {
+                case StateStart:
+                    if (c == '\\') {
+                        state = StateEscape;
+                    } else {
+                        buf_append_char(buf, c);
                         if (offset_map) offset_map->append(pos);
+                    }
+                    break;
+                case StateEscape:
+                    switch (c) {
+                        case '\\':
+                            buf_append_char(buf, '\\');
+                            if (offset_map) offset_map->append(pos);
+                            state = StateStart;
+                            break;
+                        case 'r':
+                            buf_append_char(buf, '\r');
+                            if (offset_map) offset_map->append(pos);
+                            state = StateStart;
+                            break;
+                        case 'n':
+                            buf_append_char(buf, '\n');
+                            if (offset_map) offset_map->append(pos);
+                            state = StateStart;
+                            break;
+                        case 't':
+                            buf_append_char(buf, '\t');
+                            if (offset_map) offset_map->append(pos);
+                            state = StateStart;
+                            break;
+                        case '"':
+                            buf_append_char(buf, '"');
+                            if (offset_map) offset_map->append(pos);
+                            state = StateStart;
+                            break;
+                        case 'x':
+                            state = StateHex1;
+                            break;
+                        default:
+                            ast_error(pc, token, "invalid escape character");
+                            break;
+                    }
+                    break;
+                case StateHex1:
+                    {
+                        int hex_digit = get_hex_digit(c);
+                        if (hex_digit == -1) {
+                            ast_error(pc, token, "invalid hex digit: '%c'", c);
+                        }
+                        hex_value = hex_digit * 16;
+                        state = StateHex2;
                         break;
-                    case 'r':
-                        buf_append_char(buf, '\r');
-                        if (offset_map) offset_map->append(pos);
+                    }
+                case StateHex2:
+                    {
+                        int hex_digit = get_hex_digit(c);
+                        if (hex_digit == -1) {
+                            ast_error(pc, token, "invalid hex digit: '%c'", c);
+                        }
+                        hex_value += hex_digit;
+                        assert(hex_value >= 0 && hex_value <= 255);
+                        buf_append_char(buf, hex_value);
+                        state = StateStart;
                         break;
-                    case 'n':
-                        buf_append_char(buf, '\n');
-                        if (offset_map) offset_map->append(pos);
-                        break;
-                    case 't':
-                        buf_append_char(buf, '\t');
-                        if (offset_map) offset_map->append(pos);
-                        break;
-                    case '"':
-                        buf_append_char(buf, '"');
-                        if (offset_map) offset_map->append(pos);
-                        break;
-                    case 'x':
-                        zig_panic("TODO");
-                        break;
-                    default:
-                        ast_error(pc, token, "invalid escape character");
-                        break;
-                }
-                escape = false;
-            } else if (c == '\\') {
-                escape = true;
-            } else {
-                buf_append_char(buf, c);
-                if (offset_map) offset_map->append(pos);
+                    }
             }
         }
         if (c == '\n') {
@@ -300,7 +377,7 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
             pos.column += 1;
         }
     }
-    assert(!escape);
+    assert(state == StateStart);
     if (offset_map) offset_map->append(pos);
 }
 

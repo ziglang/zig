@@ -560,3 +560,9 @@ fn call_fn_with_empty_string() {
 }
 
 fn accepts_string(foo: []u8) { }
+
+
+#attribute("test")
+fn hex_escape() {
+    assert(str_eql("\x68\x65\x6c\x6c\x6f", "hello"));
+}
