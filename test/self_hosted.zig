@@ -566,3 +566,12 @@ fn accepts_string(foo: []u8) { }
 fn hex_escape() {
     assert(str_eql("\x68\x65\x6c\x6c\x6f", "hello"));
 }
+
+
+error AnError;
+error ALongerErrorName;
+#attribute("test")
+fn error_name_string() {
+    assert(str_eql(@err_name(error.AnError), "AnError"));
+    assert(str_eql(@err_name(error.ALongerErrorName), "ALongerErrorName"));
+}

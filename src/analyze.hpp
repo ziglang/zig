@@ -26,6 +26,7 @@ TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *
 TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type);
 TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size);
+TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
 TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import,
         ContainerKind kind, AstNode *decl_node, const char *name);
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);

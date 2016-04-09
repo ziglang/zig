@@ -1178,7 +1178,6 @@ struct CodeGen {
     LLVMValueRef trap_fn_val;
     bool error_during_imports;
     uint32_t next_node_index;
-    ZigList<AstNode *> error_decls;
     TypeTableEntry *err_tag_type;
     LLVMValueRef int_overflow_fns[2][3][4]; // [0-signed,1-unsigned][0-add,1-sub,2-mul][0-8,1-16,2-32,3-64]
     LLVMValueRef int_builtin_fns[2][4]; // [0-ctz,1-clz][0-8,1-16,2-32,3-64]
@@ -1191,7 +1190,9 @@ struct CodeGen {
 
     bool check_unused;
 
+    ZigList<AstNode *> error_decls;
     bool generate_error_name_table;
+    LLVMValueRef err_name_table;
 };
 
 struct VariableTableEntry {

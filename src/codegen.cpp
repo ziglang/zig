@@ -331,12 +331,45 @@ static LLVMValueRef get_handle_value(CodeGen *g, AstNode *source_node, LLVMValue
 }
 
 static LLVMValueRef gen_err_name(CodeGen *g, AstNode *node) {
-    zig_panic("TODO");
-    //assert(node->type == NodeTypeFnCallExpr);
-    //assert(g->generate_error_name_table);
-    //AstNode *err_val_node = node->data.fn_call_expr.params.at(0);
-    //LLVMValueRef err_val = gen_expr(g, err_val_node);
-    //arg
+    assert(node->type == NodeTypeFnCallExpr);
+    assert(g->generate_error_name_table);
+
+    if (g->error_decls.length == 1) {
+        LLVMBuildUnreachable(g->builder);
+        return nullptr;
+    }
+
+
+    AstNode *err_val_node = node->data.fn_call_expr.params.at(0);
+    LLVMValueRef err_val = gen_expr(g, err_val_node);
+    add_debug_source_node(g, node);
+
+    if (!g->is_release_build) {
+        LLVMBasicBlockRef bounds_check_fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoundsCheckFail");
+        LLVMBasicBlockRef lower_ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "LowerBoundsCheckOk");
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoundsCheckOk");
+
+        LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(err_val));
+        LLVMValueRef is_zero_val = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, zero, "");
+        LLVMBuildCondBr(g->builder, is_zero_val, bounds_check_fail_block, lower_ok_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, bounds_check_fail_block);
+        LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
+        LLVMBuildUnreachable(g->builder);
+
+        LLVMPositionBuilderAtEnd(g->builder, lower_ok_block);
+        LLVMValueRef end_val = LLVMConstInt(LLVMTypeOf(err_val), g->error_decls.length, false);
+        LLVMValueRef is_too_big_val = LLVMBuildICmp(g->builder, LLVMIntUGE, err_val, end_val, "");
+        LLVMBuildCondBr(g->builder, is_too_big_val, bounds_check_fail_block, ok_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    }
+
+    LLVMValueRef indices[] = {
+        LLVMConstNull(g->builtin_types.entry_isize->type_ref),
+        err_val,
+    };
+    return LLVMBuildInBoundsGEP(g->builder, g->err_name_table, indices, 2, "");
 }
 
 static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
@@ -3030,6 +3063,46 @@ static LLVMValueRef gen_test_fn_val(CodeGen *g, FnTableEntry *fn_entry) {
     return LLVMConstStruct(fields, 2, false);
 }
 
+static void generate_error_name_table(CodeGen *g) {
+    if (!g->generate_error_name_table || g->error_decls.length == 1) {
+        return;
+    }
+
+    assert(g->error_decls.length > 0);
+
+    TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
+    TypeTableEntry *u8_ptr_type = str_type->data.structure.fields[0].type_entry;
+
+    LLVMValueRef *values = allocate<LLVMValueRef>(g->error_decls.length);
+    values[0] = LLVMGetUndef(str_type->type_ref);
+    for (int i = 1; i < g->error_decls.length; i += 1) {
+        AstNode *error_decl_node = g->error_decls.at(i);
+        assert(error_decl_node->type == NodeTypeErrorValueDecl);
+        Buf *name = &error_decl_node->data.error_value_decl.name;
+
+        LLVMValueRef str_init = LLVMConstString(buf_ptr(name), buf_len(name), true);
+        LLVMValueRef str_global = LLVMAddGlobal(g->module, LLVMTypeOf(str_init), "");
+        LLVMSetInitializer(str_global, str_init);
+        LLVMSetLinkage(str_global, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(str_global, true);
+        LLVMSetUnnamedAddr(str_global, true);
+
+        LLVMValueRef fields[] = {
+            LLVMConstBitCast(str_global, u8_ptr_type->type_ref),
+            LLVMConstInt(g->builtin_types.entry_isize->type_ref, buf_len(name), false),
+        };
+        values[i] = LLVMConstNamedStruct(str_type->type_ref, fields, 2);
+    }
+
+    LLVMValueRef err_name_table_init = LLVMConstArray(str_type->type_ref, values, g->error_decls.length);
+
+    g->err_name_table = LLVMAddGlobal(g->module, LLVMTypeOf(err_name_table_init), "err_name_table");
+    LLVMSetInitializer(g->err_name_table, err_name_table_init);
+    LLVMSetLinkage(g->err_name_table, LLVMPrivateLinkage);
+    LLVMSetGlobalConstant(g->err_name_table, true);
+    LLVMSetUnnamedAddr(g->err_name_table, true);
+}
+
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
@@ -3037,6 +3110,7 @@ static void do_code_gen(CodeGen *g) {
 
 
     gen_const_globals(g);
+    generate_error_name_table(g);
 
     // Generate module level variables
     for (int i = 0; i < g->global_vars.length; i += 1) {

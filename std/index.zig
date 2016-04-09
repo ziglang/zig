@@ -9,7 +9,7 @@ pub fn assert(b: bool) {
 
 pub const str_eql = slice_eql(u8);
 
-pub fn slice_eql(T: type)(a: []T, b: []T) -> bool {
+pub fn slice_eql(T: type)(a: []const T, b: []const T) -> bool {
     if (a.len != b.len) return false;
     for (a) |item, index| {
         if (b[index] != item) return false;

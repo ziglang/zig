@@ -454,7 +454,7 @@ static void slice_type_common_init(CodeGen *g, TypeTableEntry *child_type,
     entry->data.structure.fields[1].gen_index = 1;
 }
 
-static TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
+TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
     assert(child_type->id != TypeTableEntryIdInvalid);
     TypeTableEntry **parent_pointer = &child_type->unknown_size_array_parent[(is_const ? 1 : 0)];
 
