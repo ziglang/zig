@@ -4606,6 +4606,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             return analyze_c_import(g, import, context, node);
         case BuiltinFnIdErrName:
             return analyze_err_name(g, import, context, node);
+        case BuiltinFnIdBreakpoint:
+            return g->builtin_types.entry_void;
     }
     zig_unreachable();
 }

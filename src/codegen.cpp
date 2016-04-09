@@ -513,6 +513,8 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
             return nullptr;
         case BuiltinFnIdErrName:
             return gen_err_name(g, node);
+        case BuiltinFnIdBreakpoint:
+            return LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
     }
     zig_unreachable();
 }
@@ -3790,9 +3792,15 @@ static BuiltinFnEntry *create_builtin_fn_with_arg_count(CodeGen *g, BuiltinFnId 
 
 static void define_builtin_fns(CodeGen *g) {
     {
+        BuiltinFnEntry *builtin_fn = create_builtin_fn_with_arg_count(g, BuiltinFnIdBreakpoint, "breakpoint", 0);
+        builtin_fn->return_type = g->builtin_types.entry_void;
+        builtin_fn->ref_count = 1;
+
         LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), nullptr, 0, false);
-        g->trap_fn_val = LLVMAddFunction(g->module, "llvm.debugtrap", fn_type);
-        assert(LLVMGetIntrinsicID(g->trap_fn_val));
+        builtin_fn->fn_val = LLVMAddFunction(g->module, "llvm.debugtrap", fn_type);
+        assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
+
+        g->trap_fn_val = builtin_fn->fn_val;
     }
     {
         BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy");
