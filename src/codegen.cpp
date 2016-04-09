@@ -744,6 +744,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
         case CastOpBoolToInt:
             assert(wanted_type->id == TypeTableEntryIdInt);
             assert(actual_type->id == TypeTableEntryIdBool);
+            add_debug_source_node(g, node);
             return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
 
     }
@@ -1965,6 +1966,7 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
         endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
     }
 
+    add_debug_source_node(g, source_node);
     LLVMBuildCondBr(g->builder, cond_value, then_block, else_block);
 
     LLVMPositionBuilderAtEnd(g->builder, then_block);
@@ -3835,6 +3837,8 @@ static void init(CodeGen *g, Buf *source_path) {
     get_target_triple(&g->triple_str, &g->zig_target);
 
     LLVMSetTarget(g->module, buf_ptr(&g->triple_str));
+
+    ZigLLVMAddModuleDebugInfoFlag(g->module);
 
     LLVMTargetRef target_ref;
     char *err_msg = nullptr;

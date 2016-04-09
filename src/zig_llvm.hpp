@@ -100,6 +100,7 @@ unsigned LLVMZigTag_DW_variable(void);
 unsigned LLVMZigTag_DW_structure_type(void);
 
 LLVMZigDIBuilder *LLVMZigCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
+void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module);
 
 void LLVMZigSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, LLVMZigDIScope *scope);
 
@@ -131,6 +132,9 @@ LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigD
         const char *name, const char *linkage_name, LLVMZigDIFile *file, unsigned lineno,
         LLVMZigDIType *fn_di_type, bool is_local_to_unit, bool is_definition, unsigned scope_line,
         unsigned flags, bool is_optimized, LLVMZigDISubprogram *decl_subprogram);
+
+
+void ZigLLVMFnSetSubprogram(LLVMValueRef fn, LLVMZigDISubprogram *subprogram);
 
 void LLVMZigDIBuilderFinalize(LLVMZigDIBuilder *dibuilder);
 

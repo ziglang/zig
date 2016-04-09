@@ -1012,6 +1012,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         BlockContext *context = new_block_context(fn_table_entry->fn_def_node, containing_context);
         fn_table_entry->fn_def_node->data.fn_def.block_context = context;
         context->di_scope = LLVMZigSubprogramToScope(subprogram);
+        ZigLLVMFnSetSubprogram(fn_table_entry->fn_value, subprogram);
     }
 }
 

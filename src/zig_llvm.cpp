@@ -150,6 +150,12 @@ void LLVMZigAddNonNullAttr(LLVMValueRef fn, unsigned i)
     unwrapped_function->addAttribute(i, Attribute::NonNull);
 }
 
+void ZigLLVMFnSetSubprogram(LLVMValueRef fn, LLVMZigDISubprogram *subprogram) {
+    assert( isa<Function>(unwrap(fn)) );
+    Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(fn));
+    unwrapped_function->setSubprogram(reinterpret_cast<DISubprogram*>(subprogram));
+}
+
 
 LLVMZigDIType *LLVMZigCreateDebugPointerType(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *pointee_type,
         uint64_t size_in_bits, uint64_t align_in_bits, const char *name)
@@ -612,6 +618,10 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
     abort();
 }
 
+void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
+    unwrap(module)->addModuleFlag(Module::Warning, "Debug Info Version", DEBUG_METADATA_VERSION);
+}
+
 //------------------------------------
 
 #include "buffer.hpp"
@@ -627,7 +637,8 @@ void ZigLLVMGetTargetTriple(Buf *out_buf, ZigLLVM_ArchType arch_type, ZigLLVM_Su
     triple.setVendor((Triple::VendorType)vendor_type);
     triple.setOS((Triple::OSType)os_type);
     triple.setEnvironment((Triple::EnvironmentType)environ_type);
-    triple.setObjectFormat((Triple::ObjectFormatType)oformat);
+    // I guess it's a "triple" because we don't set the object format?
+    //triple.setObjectFormat((Triple::ObjectFormatType)oformat);
 
     const std::string &str = triple.str();
     buf_init_from_mem(out_buf, str.c_str(), str.size());

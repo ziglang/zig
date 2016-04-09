@@ -55,14 +55,8 @@ fn test_loc_vars(b: i32) {
 
 #attribute("test")
 fn bool_literals() {
-    should_be_true(true);
-    should_be_false(false);
-}
-fn should_be_true(b: bool) {
-    if (!b) unreachable{};
-}
-fn should_be_false(b: bool) {
-    if (b) unreachable{};
+    assert(true);
+    assert(!false);
 }
 
 
