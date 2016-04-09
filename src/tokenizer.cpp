@@ -947,12 +947,15 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case 'b':
                         t.cur_tok->radix = 2;
+                        t.state = TokenizeStateNumber;
                         break;
                     case 'o':
                         t.cur_tok->radix = 8;
+                        t.state = TokenizeStateNumber;
                         break;
                     case 'x':
                         t.cur_tok->radix = 16;
+                        t.state = TokenizeStateNumber;
                         break;
                     default:
                         // reinterpret as normal number
