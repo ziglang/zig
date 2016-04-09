@@ -2719,6 +2719,29 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
     }
 }
 
+static LLVMValueRef gen_goto(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeGoto);
+
+    add_debug_source_node(g, node);
+    LLVMBuildBr(g->builder, node->data.goto_expr.label_entry->basic_block);
+    return nullptr;
+}
+
+static LLVMValueRef gen_label(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeLabel);
+
+    LabelTableEntry *label = node->data.label.label_entry;
+    assert(label);
+
+    LLVMBasicBlockRef basic_block = label->basic_block;
+    if (label->entered_from_fallthrough) {
+        add_debug_source_node(g, node);
+        LLVMBuildBr(g->builder, basic_block);
+    }
+    LLVMPositionBuilderAtEnd(g->builder, basic_block);
+    return nullptr;
+}
+
 static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
     Expr *expr = get_resolved_expr(node);
     if (expr->const_val.ok) {
@@ -2766,13 +2789,13 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeBlock:
             return gen_block(g, node, nullptr);
         case NodeTypeGoto:
-            zig_unreachable();
+            return gen_goto(g, node);
         case NodeTypeBreak:
             return gen_break(g, node);
         case NodeTypeContinue:
             return gen_continue(g, node);
         case NodeTypeLabel:
-            zig_unreachable();
+            return gen_label(g, node);
         case NodeTypeContainerInitExpr:
             return gen_container_init_expr(g, node);
         case NodeTypeSwitchExpr:
@@ -3105,6 +3128,16 @@ static void generate_error_name_table(CodeGen *g) {
     LLVMSetUnnamedAddr(g->err_name_table, true);
 }
 
+static void build_label_blocks(CodeGen *g, FnTableEntry *fn) {
+    LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn->fn_value, "entry");
+    for (int i = 0; i < fn->all_labels.length; i += 1) {
+        LabelTableEntry *label = fn->all_labels.at(i);
+        Buf *name = &label->decl_node->data.label.name;
+        label->basic_block = LLVMAppendBasicBlock(fn->fn_value, buf_ptr(name));
+    }
+    LLVMPositionBuilderAtEnd(g->builder, entry_block);
+}
+
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
@@ -3279,8 +3312,7 @@ static void do_code_gen(CodeGen *g) {
         assert(proto_node->type == NodeTypeFnProto);
         AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-        LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn, "entry");
-        LLVMPositionBuilderAtEnd(g->builder, entry_block);
+        build_label_blocks(g, fn_table_entry);
 
 
         // Set up debug info for blocks

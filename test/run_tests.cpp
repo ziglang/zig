@@ -1788,6 +1788,28 @@ fn test1(a: i32, b: i32) -> i32 {
     return foo(a)(b);
 }
     )SOURCE", 1, ".tmp_source.zig:4:16: error: unable to resolve constant expression");
+
+    add_compile_fail_case("goto jumping into block", R"SOURCE(
+fn f() {
+    {
+a_label:
+    }
+    goto a_label;
+}
+    )SOURCE", 2,
+            ".tmp_source.zig:4:1: error: label 'a_label' defined but not used",
+            ".tmp_source.zig:6:5: error: no label in scope named 'a_label'");
+
+    add_compile_fail_case("goto jumping past a defer", R"SOURCE(
+fn f(b: bool) {
+    if (b) goto label;
+    defer derp();
+label:
+}
+fn derp(){}
+    )SOURCE", 2,
+            ".tmp_source.zig:3:12: error: no label in scope named 'label'",
+            ".tmp_source.zig:5:1: error: label 'label' defined but not used");
 }
 
 //////////////////////////////////////////////////////////////////////////////

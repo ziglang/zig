@@ -569,3 +569,25 @@ fn error_name_string() {
     assert(str_eql(@err_name(error.AnError), "AnError"));
     assert(str_eql(@err_name(error.ALongerErrorName), "ALongerErrorName"));
 }
+
+
+#attribute("test")
+fn goto_and_labels() {
+    goto_loop();
+    assert(goto_counter == 10);
+}
+fn goto_loop() {
+    var i: i32 = 0;
+    goto cond;
+loop:
+    i += 1;
+cond:
+    if (!(i < 10)) goto end;
+    goto_counter += 1;
+    goto loop;
+end:
+}
+var goto_counter: i32 = 0;
+
+
+

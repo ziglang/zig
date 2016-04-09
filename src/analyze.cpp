@@ -1992,6 +1992,7 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     context->parent = parent;
     context->decl_table.init(1);
     context->var_table.init(1);
+    context->label_table.init(1);
 
     if (parent) {
         context->parent_loop_node = parent->parent_loop_node;
@@ -2034,6 +2035,18 @@ static VariableTableEntry *find_variable(CodeGen *g, BlockContext *orig_context,
         context = context->parent;
     }
 
+    return nullptr;
+}
+
+static LabelTableEntry *find_label(CodeGen *g, BlockContext *orig_context, Buf *name) {
+    BlockContext *context = orig_context;
+    while (context && context->fn_entry) {
+        auto entry = context->label_table.maybe_get(name);
+        if (entry) {
+            return entry->value;
+        }
+        context = context->parent;
+    }
     return nullptr;
 }
 
@@ -5326,8 +5339,19 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
     for (int i = 0; i < node->data.block.statements.length; i += 1) {
         AstNode *child = node->data.block.statements.at(i);
         if (child->type == NodeTypeLabel) {
-            add_node_error(g, child,
-                buf_sprintf("label and goto not supported yet, see https://github.com/andrewrk/zig/issues/44"));
+            FnTableEntry *fn_table_entry = child_context->fn_entry;
+            assert(fn_table_entry);
+
+            LabelTableEntry *label = allocate<LabelTableEntry>(1);
+            label->decl_node = child;
+            label->entered_from_fallthrough = (return_type->id != TypeTableEntryIdUnreachable);
+
+            child->block_context = child_context;
+            child->data.label.label_entry = label;
+            fn_table_entry->all_labels.append(label);
+
+            child_context->label_table.put(&child->data.label.name, label);
+
             return_type = g->builtin_types.entry_void;
             continue;
         }
@@ -5405,11 +5429,33 @@ static TypeTableEntry *analyze_asm_expr(CodeGen *g, ImportTableEntry *import, Bl
     return return_type;
 }
 
-static TypeTableEntry *analyze_goto(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+static TypeTableEntry *analyze_goto_pass1(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    add_node_error(g, node, buf_sprintf("goto is broken, see https://github.com/andrewrk/zig/issues/44"));
+    assert(node->type == NodeTypeGoto);
+
+    FnTableEntry *fn_table_entry = context->fn_entry;
+    assert(fn_table_entry);
+
+    fn_table_entry->goto_list.append(node);
+
     return g->builtin_types.entry_unreachable;
+}
+
+static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+    assert(node->type == NodeTypeGoto);
+    Buf *label_name = &node->data.goto_expr.name;
+    BlockContext *context = node->block_context;
+    assert(context);
+    LabelTableEntry *label = find_label(g, context, label_name);
+
+    if (!label) {
+        add_node_error(g, node, buf_sprintf("no label in scope named '%s'", buf_ptr(label_name)));
+        return;
+    }
+
+    label->used = true;
+    node->data.goto_expr.label_entry = label;
 }
 
 static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEntry *import,
@@ -5433,7 +5479,7 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
             return_type = g->builtin_types.entry_void;
             break;
         case NodeTypeGoto:
-            analyze_goto(g, import, context, expected_type, node);
+            return_type = analyze_goto_pass1(g, import, context, expected_type, node);
             break;
         case NodeTypeBreak:
             return_type = analyze_break_expr(g, import, context, expected_type, node);
@@ -5611,6 +5657,21 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     TypeTableEntry *block_return_type = analyze_expression(g, import, context, expected_type, node->data.fn_def.body);
 
     node->data.fn_def.implicit_return_type = block_return_type;
+
+    for (int i = 0; i < fn_table_entry->goto_list.length; i += 1) {
+        AstNode *goto_node = fn_table_entry->goto_list.at(i);
+        assert(goto_node->type == NodeTypeGoto);
+        analyze_goto_pass2(g, import, goto_node);
+    }
+
+    for (int i = 0; i < fn_table_entry->all_labels.length; i += 1) {
+        LabelTableEntry *label = fn_table_entry->all_labels.at(i);
+        if (!label->used) {
+            add_node_error(g, label->decl_node,
+                    buf_sprintf("label '%s' defined but not used",
+                        buf_ptr(&label->decl_node->data.label.name)));
+        }
+    }
 }
 
 static void add_top_level_decl(CodeGen *g, ImportTableEntry *import, BlockContext *block_context,

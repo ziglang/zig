@@ -24,6 +24,7 @@ struct BlockContext;
 struct TypeTableEntry;
 struct VariableTableEntry;
 struct ErrorTableEntry;
+struct LabelTableEntry;
 struct BuiltinFnEntry;
 struct TypeStructField;
 struct CodeGen;
@@ -538,6 +539,7 @@ struct AstNodeLabel {
 
     // populated by semantic analyzer
     Expr resolved_expr;
+    LabelTableEntry *label_entry;
 };
 
 struct AstNodeGoto {
@@ -545,6 +547,7 @@ struct AstNodeGoto {
 
     // populated by semantic analyzer
     Expr resolved_expr;
+    LabelTableEntry *label_entry;
 };
 
 struct AsmOutput {
@@ -1009,6 +1012,7 @@ struct FnTableEntry {
     ImportTableEntry *import_entry;
     // Required to be a pre-order traversal of the AST. (parents must come before children)
     ZigList<BlockContext *> all_block_contexts;
+    ZigList<LabelTableEntry *> all_labels;
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
     bool is_inline;
@@ -1020,6 +1024,7 @@ struct FnTableEntry {
     ZigList<AstNode *> cast_alloca_list;
     ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
     ZigList<VariableTableEntry *> variable_list;
+    ZigList<AstNode *> goto_list;
 };
 
 enum BuiltinFnId {
@@ -1217,6 +1222,13 @@ struct ErrorTableEntry {
     AstNode *decl_node;
 };
 
+struct LabelTableEntry {
+    AstNode *decl_node;
+    LLVMBasicBlockRef basic_block;
+    bool used;
+    bool entered_from_fallthrough;
+};
+
 struct BlockContext {
     // One of: NodeTypeFnDef, NodeTypeBlock, NodeTypeRoot, NodeTypeDefer, NodeTypeVariableDeclaration
     AstNode *node;
@@ -1224,6 +1236,7 @@ struct BlockContext {
     // any variables that are introduced by this scope
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> decl_table;
     HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> var_table;
+    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table; 
 
     // if the block is inside a function, this is the function it is in:
     FnTableEntry *fn_entry;
