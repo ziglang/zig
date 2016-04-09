@@ -27,6 +27,7 @@ pub fn main(args: [][]u8) -> %void {
     if (!catted_anything) {
         cat_stream(io.stdin) %% |err| return err;
     }
+    io.stdout.flush() %% |err| return err;
 }
 
 fn usage(exe: []u8) -> %void {
