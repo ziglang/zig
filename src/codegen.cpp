@@ -333,6 +333,7 @@ static LLVMValueRef get_handle_value(CodeGen *g, AstNode *source_node, LLVMValue
 static LLVMValueRef gen_err_name(CodeGen *g, AstNode *node) {
     zig_panic("TODO");
     //assert(node->type == NodeTypeFnCallExpr);
+    //assert(g->generate_error_name_table);
     //AstNode *err_val_node = node->data.fn_call_expr.params.at(0);
     //LLVMValueRef err_val = gen_expr(g, err_val_node);
     //arg
@@ -2895,7 +2896,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
                     }
                     target_val = LLVMConstArray(child_type->type_ref, values, len);
                 } else {
-                    zig_unreachable();
+                    return LLVMGetUndef(type_entry->type_ref);
                 }
                 LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(target_val), "");
                 LLVMSetInitializer(global_value, target_val);

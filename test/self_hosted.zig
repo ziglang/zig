@@ -554,3 +554,9 @@ fn mem_alloc(T: type)(n: isize) -> %[]T {
 fn mem_free(T: type)(mem: []T) { }
 
 
+#attribute("test")
+fn call_fn_with_empty_string() {
+    accepts_string("");
+}
+
+fn accepts_string(foo: []u8) { }

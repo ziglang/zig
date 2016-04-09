@@ -278,6 +278,9 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
                         buf_append_char(buf, '"');
                         if (offset_map) offset_map->append(pos);
                         break;
+                    case 'x':
+                        zig_panic("TODO");
+                        break;
                     default:
                         ast_error(pc, token, "invalid escape character");
                         break;
