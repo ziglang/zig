@@ -2724,6 +2724,12 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_goto(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeGoto);
 
+    // generate defers for blocks that we exit
+    LabelTableEntry *label = node->data.goto_expr.label_entry;
+    BlockContext *this_context = node->block_context;
+    BlockContext *target_context = label->decl_node->block_context;
+    gen_defers_for_block(g, this_context, target_context, false, false);
+
     add_debug_source_node(g, node);
     LLVMBuildBr(g->builder, node->data.goto_expr.label_entry->basic_block);
     return nullptr;

@@ -591,3 +591,21 @@ var goto_counter: i32 = 0;
 
 
 
+#attribute("test")
+fn goto_leave_defer_scope() {
+    test_goto_leave_defer_scope(true);
+}
+fn test_goto_leave_defer_scope(b: bool) {
+    var it_worked = false;
+
+    goto entry;
+exit:
+    if (it_worked) {
+        return;
+    }
+    unreachable{};
+entry:
+    defer it_worked = true;
+    if (b) goto exit;
+}
+
