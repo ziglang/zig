@@ -37,6 +37,8 @@ compromises backward compatibility.
    syntax.
  * The binaries produced by Zig have complete debugging information so you can,
    for example, use GDB to debug your software.
+ * Debug mode optimizes for fast compilation time and crashing when undefined
+   behavior *would* happen.
  * Release mode produces heavily optimized code. What other projects call
    "Link Time Optimization" Zig does automatically.
  * Mark functions as tests and automatically run them with `zig test`.
@@ -46,6 +48,8 @@ compromises backward compatibility.
    process carefully documented. Issues filed by package maintainers are
    considered especially important.
  * Easy cross-compiling.
+ * Eliminate the preprocessor, but (most) everything you can accomplish with
+   the preprocessor, you can accomplish directly in the language.
 
 ## Planned Features
 
@@ -54,15 +58,11 @@ compromises backward compatibility.
  * Generics so that one can write efficient data structures that work for any
    data type.
  * Eliminate the need for configure, make, cmake, etc.
- * Eliminate the preprocessor, but (most) everything you can accomplish with
-   the preprocessor, you can accomplish directly in the language.
  * Automatically provide test coverage.
  * Ability to declare dependencies as Git URLS with commit locking (can
-   provide a tag or sha1).
+   provide a tag or sha256).
  * Include documentation generator.
  * Shebang line OK so language can be used for "scripting" as well.
- * Debug mode optimizes for fast compilation time and crashing when undefined
-   behavior *would* happen.
  * Compiler exposes itself as a library.
  * Support for all popular architectures and operating systems.
 
