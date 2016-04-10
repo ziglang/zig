@@ -2479,37 +2479,40 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
                 value, variable->type, expr_type);
     } else {
         bool ignore_uninit = false;
-        TypeTableEntry *var_type = get_type_for_type_node(var_decl->type);
-        if (var_type->id == TypeTableEntryIdStruct &&
-            var_type->data.structure.is_unknown_size_array)
-        {
-            assert(var_decl->type->type == NodeTypeArrayType);
-            AstNode *size_node = var_decl->type->data.array_type.size;
-            if (size_node) {
-                ConstExprValue *const_val = &get_resolved_expr(size_node)->const_val;
-                if (!const_val->ok) {
-                    TypeTableEntry *ptr_type = var_type->data.structure.fields[0].type_entry;
-                    assert(ptr_type->id == TypeTableEntryIdPointer);
-                    TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
+        // handle runtime stack allocation
+        if (var_decl->type) {
+            TypeTableEntry *var_type = get_type_for_type_node(var_decl->type);
+            if (var_type->id == TypeTableEntryIdStruct &&
+                var_type->data.structure.is_unknown_size_array)
+            {
+                assert(var_decl->type->type == NodeTypeArrayType);
+                AstNode *size_node = var_decl->type->data.array_type.size;
+                if (size_node) {
+                    ConstExprValue *const_val = &get_resolved_expr(size_node)->const_val;
+                    if (!const_val->ok) {
+                        TypeTableEntry *ptr_type = var_type->data.structure.fields[0].type_entry;
+                        assert(ptr_type->id == TypeTableEntryIdPointer);
+                        TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
 
-                    LLVMValueRef size_val = gen_expr(g, size_node);
+                        LLVMValueRef size_val = gen_expr(g, size_node);
 
-                    add_debug_source_node(g, source_node);
-                    LLVMValueRef ptr_val = LLVMBuildArrayAlloca(g->builder, child_type->type_ref,
-                            size_val, "");
+                        add_debug_source_node(g, source_node);
+                        LLVMValueRef ptr_val = LLVMBuildArrayAlloca(g->builder, child_type->type_ref,
+                                size_val, "");
 
-                    // store the freshly allocated pointer in the unknown size array struct
-                    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder,
-                            variable->value_ref, 0, "");
-                    LLVMBuildStore(g->builder, ptr_val, ptr_field_ptr);
+                        // store the freshly allocated pointer in the unknown size array struct
+                        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder,
+                                variable->value_ref, 0, "");
+                        LLVMBuildStore(g->builder, ptr_val, ptr_field_ptr);
 
-                    // store the size in the len field
-                    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder,
-                            variable->value_ref, 1, "");
-                    LLVMBuildStore(g->builder, size_val, len_field_ptr);
+                        // store the size in the len field
+                        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder,
+                                variable->value_ref, 1, "");
+                        LLVMBuildStore(g->builder, size_val, len_field_ptr);
 
-                    // don't clobber what we just did with debug initialization
-                    ignore_uninit = true;
+                        // don't clobber what we just did with debug initialization
+                        ignore_uninit = true;
+                    }
                 }
             }
         }

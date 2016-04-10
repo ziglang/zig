@@ -609,3 +609,11 @@ entry:
     if (b) goto exit;
 }
 
+
+#attribute("test")
+fn cast_undefined() {
+    const array: [100]u8 = undefined;
+    const slice = ([]u8)(array);
+    test_cast_undefined(slice);
+}
+fn test_cast_undefined(x: []u8) {}

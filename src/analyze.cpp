@@ -3838,6 +3838,7 @@ static void eval_const_expr_implicit_cast(CodeGen *g, AstNode *node, AstNode *ex
         return;
     }
     const_val->depends_on_compile_var = other_val->depends_on_compile_var;
+    const_val->undef = other_val->undef;
 
     assert(other_val != const_val);
     switch (node->data.fn_call_expr.cast_op) {
