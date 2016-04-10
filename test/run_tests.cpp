@@ -1810,6 +1810,10 @@ fn derp(){}
     )SOURCE", 2,
             ".tmp_source.zig:3:12: error: no label in scope named 'label'",
             ".tmp_source.zig:5:1: error: label 'label' defined but not used");
+
+    add_compile_fail_case("assign null to non-nullable pointer", R"SOURCE(
+const a: &u8 = null;
+    )SOURCE", 1, ".tmp_source.zig:2:16: error: expected maybe type, got '&u8'");
 }
 
 //////////////////////////////////////////////////////////////////////////////

@@ -3391,12 +3391,15 @@ static TypeTableEntry *analyze_null_literal_expr(CodeGen *g, ImportTableEntry *i
     assert(node->type == NodeTypeNullLiteral);
 
     if (!expected_type) {
-        add_node_error(g, node,
-                buf_sprintf("unable to determine null type"));
+        add_node_error(g, node, buf_sprintf("unable to determine null type"));
         return g->builtin_types.entry_invalid;
     }
 
-    assert(expected_type->id == TypeTableEntryIdMaybe);
+    if (expected_type->id != TypeTableEntryIdMaybe) {
+        add_node_error(g, node,
+                buf_sprintf("expected maybe type, got '%s'", buf_ptr(&expected_type->name)));
+        return g->builtin_types.entry_invalid;
+    }
 
     node->data.null_literal.resolved_struct_val_expr.type_entry = expected_type;
     node->data.null_literal.resolved_struct_val_expr.source_node = node;
