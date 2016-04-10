@@ -45,6 +45,15 @@ fn first_eql_third(a: i32, b: i32, c: i32) {
 
 
 #attribute("test")
+fn params() {
+    assert(test_params_add(22, 11) == 33);
+}
+fn test_params_add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+
+#attribute("test")
 fn local_variables() {
     test_loc_vars(2);
 }
@@ -57,6 +66,99 @@ fn test_loc_vars(b: i32) {
 fn bool_literals() {
     assert(true);
     assert(!false);
+}
+
+#attribute("test")
+fn void_parameters() {
+    void_fun(1, void{}, 2, {});
+}
+fn void_fun(a : i32, b : void, c : i32, d : void) {
+    const v = b;
+    const vv : void = if (a == 1) {v} else {};
+    assert(a + c == 3);
+    return vv;
+}
+
+#attribute("test")
+fn mutable_local_variables() {
+    var zero : i32 = 0;
+    assert(zero == 0);
+
+    var i = i32(0);
+    while (i != 3) {
+        i += 1;
+    }
+    assert(i == 3);
+}
+
+#attribute("test")
+fn arrays() {
+    var array : [5]i32 = undefined;
+
+    var i : i32 = 0;
+    while (i < 5) {
+        array[i] = i + 1;
+        i = array[i];
+    }
+
+    i = 0;
+    var accumulator = i32(0);
+    while (i < 5) {
+        accumulator += array[i];
+
+        i += 1;
+    }
+
+    assert(accumulator == 15);
+    assert(get_array_len(array) == 5);
+}
+fn get_array_len(a: []i32) -> isize {
+    a.len
+}
+
+#attribute("test")
+fn short_circuit() {
+    var hit_1 = false;
+    var hit_2 = false;
+    var hit_3 = false;
+    var hit_4 = false;
+
+    if (true || { assert(false); false }) {
+        hit_1 = true;
+    }
+    if (false || { hit_2 = true; false }) {
+        assert(false);
+    }
+
+    if (true && { hit_3 = true; false }) {
+        %%io.stdout.printf("BAD 3\n");
+    }
+    if (false && { assert(false); false }) {
+        assert(false);
+    } else {
+        hit_4 = true;
+    }
+    assert(hit_1);
+    assert(hit_2);
+    assert(hit_3);
+    assert(hit_4);
+}
+
+#attribute("test")
+fn modify_operators() {
+    var i : i32 = 0;
+    i += 5;  assert(i == 5);
+    i -= 2;  assert(i == 3);
+    i *= 20; assert(i == 60);
+    i /= 3;  assert(i == 20);
+    i %= 11; assert(i == 9);
+    i <<= 1; assert(i == 18);
+    i >>= 2; assert(i == 4);
+    i = 6;
+    i &= 5;  assert(i == 4);
+    i ^= 6;  assert(i == 2);
+    i = 6;
+    i |= 3;  assert(i == 7);
 }
 
 
@@ -91,6 +193,98 @@ struct VoidStructFieldsFoo {
     c : void,
 }
 
+
+
+#attribute("test")
+pub fn structs() {
+    var foo : StructFoo = undefined;
+    @memset(&foo, 0, @sizeof(StructFoo));
+    foo.a += 1;
+    foo.b = foo.a == 1;
+    test_foo(foo);
+    test_mutation(&foo);
+    assert(foo.c == 100);
+}
+struct StructFoo {
+    a : i32,
+    b : bool,
+    c : f32,
+}
+fn test_foo(foo : StructFoo) {
+    assert(foo.b);
+}
+fn test_mutation(foo : &StructFoo) {
+    foo.c = 100;
+}
+struct Node {
+    val: Val,
+    next: &Node,
+}
+
+struct Val {
+    x: i32,
+}
+
+#attribute("test")
+fn struct_point_to_self() {
+    var root : Node = undefined;
+    root.val.x = 1;
+
+    var node : Node = undefined;
+    node.next = &root;
+    node.val.x = 2;
+
+    root.next = &node;
+
+    assert(node.next.next.next.val.x == 1);
+}
+
+#attribute("test")
+fn struct_byval_assign() {
+    var foo1 : StructFoo = undefined;
+    var foo2 : StructFoo = undefined;
+
+    foo1.a = 1234;
+    foo2.a = 0;
+    assert(foo2.a == 0);
+    foo2 = foo1;
+    assert(foo2.a == 1234);
+}
+
+fn struct_initializer() {
+    const val = Val { .x = 42 };
+    assert(val.x == 42);
+}
+
+
+const g1 : i32 = 1233 + 1;
+var g2 : i32 = 0;
+
+#attribute("test")
+fn global_variables() {
+    assert(g2 == 0);
+    g2 = g1;
+    assert(g2 == 1234);
+}
+
+
+#attribute("test")
+fn while_loop() {
+    var i : i32 = 0;
+    while (i < 4) {
+        i += 1;
+    }
+    assert(i == 4);
+    assert(while_loop_1() == 1);
+}
+fn while_loop_1() -> i32 {
+    return while_loop_2();
+}
+fn while_loop_2() -> i32 {
+    while (true) {
+        return 1;
+    }
+}
 
 #attribute("test")
 fn void_arrays() {
