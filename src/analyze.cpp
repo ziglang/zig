@@ -2445,6 +2445,9 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
     if (array_type->id == TypeTableEntryIdInvalid) {
         return_type = g->builtin_types.entry_invalid;
     } else if (array_type->id == TypeTableEntryIdArray) {
+        if (array_type->data.array.len == 0) {
+            add_node_error(g, node, buf_sprintf("out of bounds array access"));
+        }
         return_type = array_type->data.array.child_type;
     } else if (array_type->id == TypeTableEntryIdPointer) {
         return_type = array_type->data.pointer.child_type;

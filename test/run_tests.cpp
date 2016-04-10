@@ -1814,6 +1814,13 @@ fn derp(){}
     add_compile_fail_case("assign null to non-nullable pointer", R"SOURCE(
 const a: &u8 = null;
     )SOURCE", 1, ".tmp_source.zig:2:16: error: expected maybe type, got '&u8'");
+
+    add_compile_fail_case("indexing an array of size zero", R"SOURCE(
+const array = []u8{};
+fn foo() {
+    const pointer = &array[0];
+}
+    )SOURCE", 1, ".tmp_source.zig:4:27: error: out of bounds array access");
 }
 
 //////////////////////////////////////////////////////////////////////////////
