@@ -65,6 +65,7 @@ struct ConstExprValue {
     bool ok; // true if constant expression evalution worked
     bool depends_on_compile_var;
     bool undef;
+    bool deep_const;
 
     union {
         BigNum x_bignum;
@@ -1005,6 +1006,13 @@ struct ImportTableEntry {
     ZigList<AstNode *> use_decls;
 };
 
+enum FnAnalState {
+    FnAnalStateReady,
+    FnAnalStateProbing,
+    FnAnalStateComplete,
+    FnAnalStateSkipped,
+};
+
 struct FnTableEntry {
     LLVMValueRef fn_value;
     AstNode *proto_node;
@@ -1019,12 +1027,40 @@ struct FnTableEntry {
     bool internal_linkage;
     bool is_extern;
     bool is_test;
+    bool is_pure;
     BlockContext *parent_block_context;
+    FnAnalState anal_state;
 
     ZigList<AstNode *> cast_alloca_list;
     ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
     ZigList<VariableTableEntry *> variable_list;
     ZigList<AstNode *> goto_list;
+};
+
+struct EvalVar {
+    Buf *name;
+    ConstExprValue value;
+};
+
+struct EvalScope {
+    BlockContext *block_context;
+    ZigList<EvalVar> vars;
+};
+
+struct EvalFnRoot {
+    CodeGen *codegen;
+    FnTableEntry *fn;
+    AstNode *call_node;
+    int branch_quota;
+    int branches_used;
+    AstNode *exceeded_quota_node;
+};
+
+struct EvalFn {
+    EvalFnRoot *root;
+    FnTableEntry *fn;
+    ConstExprValue *return_expr;
+    ZigList<EvalScope*> scope_stack;
 };
 
 enum BuiltinFnId {

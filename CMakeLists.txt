@@ -41,6 +41,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/bignum.cpp"
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/parser.cpp"
+    "${CMAKE_SOURCE_DIR}/src/eval.cpp"
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
     "${CMAKE_SOURCE_DIR}/src/codegen.cpp"
     "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
