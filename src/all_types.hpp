@@ -497,8 +497,8 @@ struct AstNodeWhileExpr {
 };
 
 struct AstNodeForExpr {
-    AstNode *elem_node; // always a symbol
     AstNode *array_expr;
+    AstNode *elem_node; // always a symbol
     AstNode *index_node; // always a symbol, might be null
     AstNode *body;
 
@@ -1054,6 +1054,7 @@ struct EvalFnRoot {
     int branch_quota;
     int branches_used;
     AstNode *exceeded_quota_node;
+    bool abort;
 };
 
 struct EvalFn {

@@ -1074,15 +1074,12 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
 
     AstNode *struct_expr = node->data.field_access_expr.struct_expr;
     TypeTableEntry *struct_type = get_expr_type(struct_expr);
-    Buf *name = &node->data.field_access_expr.field_name;
 
     if (struct_type->id == TypeTableEntryIdArray) {
-        if (buf_eql_str(name, "len")) {
-            return LLVMConstInt(g->builtin_types.entry_isize->type_ref,
-                    struct_type->data.array.len, false);
-        } else {
-            zig_panic("gen_field_access_expr bad array field");
-        }
+        Buf *name = &node->data.field_access_expr.field_name;
+        assert(buf_eql_str(name, "len"));
+        return LLVMConstInt(g->builtin_types.entry_isize->type_ref,
+                struct_type->data.array.len, false);
     } else if (struct_type->id == TypeTableEntryIdStruct || (struct_type->id == TypeTableEntryIdPointer &&
                struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct))
     {

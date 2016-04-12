@@ -327,6 +327,13 @@ static bool eval_container_init_expr(EvalFn *ef, AstNode *node, ConstExprValue *
         }
     } else if (container_type->id == TypeTableEntryIdVoid) {
         return false;
+    } else if (container_type->id == TypeTableEntryIdUnreachable) {
+        ef->root->abort = true;
+        ErrorMsg *msg = add_node_error(ef->root->codegen, ef->root->fn->fn_def_node,
+                buf_sprintf("function evaluation reached unreachable expression"));
+        add_error_note(ef->root->codegen, msg, ef->root->call_node, buf_sprintf("called from here"));
+        add_error_note(ef->root->codegen, msg, node, buf_sprintf("unreachable expression here"));
+        return true;
     } else {
         zig_panic("TODO");
     }
@@ -472,6 +479,194 @@ static bool eval_fn_call_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val
     return false;
 }
 
+static bool eval_field_access_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
+    assert(node->type == NodeTypeFieldAccessExpr);
+
+    AstNode *struct_expr = node->data.field_access_expr.struct_expr;
+    TypeTableEntry *struct_type = get_resolved_expr(struct_expr)->type_entry;
+
+    if (struct_type->id == TypeTableEntryIdArray) {
+        Buf *name = &node->data.field_access_expr.field_name;
+        assert(buf_eql_str(name, "len"));
+        zig_panic("TODO");
+    } else if (struct_type->id == TypeTableEntryIdStruct || (struct_type->id == TypeTableEntryIdPointer &&
+               struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct))
+    {
+        TypeStructField *tsf = node->data.field_access_expr.type_struct_field;
+        assert(tsf);
+        if (struct_type->id == TypeTableEntryIdStruct) {
+            ConstExprValue struct_val = {0};
+            if (eval_expr(ef, struct_expr, &struct_val)) return true;
+            ConstExprValue *field_value = struct_val.data.x_struct.fields[tsf->src_index];
+            *out_val = *field_value;
+        } else {
+            zig_panic("TODO");
+        }
+    } else if (struct_type->id == TypeTableEntryIdMetaType) {
+        zig_panic("TODO");
+    } else if (struct_type->id == TypeTableEntryIdNamespace) {
+        zig_panic("TODO");
+    } else {
+        zig_unreachable();
+    }
+
+    return false;
+}
+
+static bool eval_for_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
+    assert(node->type == NodeTypeForExpr);
+
+    AstNode *array_node = node->data.for_expr.array_expr;
+    AstNode *elem_node = node->data.for_expr.elem_node;
+    AstNode *index_node = node->data.for_expr.index_node;
+    AstNode *body_node = node->data.for_expr.body;
+
+    TypeTableEntry *array_type = get_resolved_expr(array_node)->type_entry;
+
+    ConstExprValue array_val = {0};
+    if (eval_expr(ef, array_node, &array_val)) return true;
+
+    assert(elem_node->type == NodeTypeSymbol);
+    Buf *elem_var_name = &elem_node->data.symbol_expr.symbol;
+
+    Buf *index_var_name = nullptr;
+    if (index_node) {
+        assert(index_node->type == NodeTypeSymbol);
+        index_var_name = &index_node->data.symbol_expr.symbol;
+    }
+
+    uint64_t it_index = 0;
+    uint64_t array_len;
+    ConstExprValue **array_ptr_val;
+    if (array_type->id == TypeTableEntryIdArray) {
+        array_len = array_type->data.array.len;
+        array_ptr_val = array_val.data.x_array.fields;
+    } else if (array_type->id == TypeTableEntryIdStruct) {
+        ConstExprValue *len_field_val = array_val.data.x_struct.fields[1];
+        array_len = len_field_val->data.x_bignum.data.x_uint;
+        array_ptr_val = array_val.data.x_struct.fields[0]->data.x_ptr.ptr;
+    } else {
+        zig_unreachable();
+    }
+
+    EvalScope *my_scope = allocate<EvalScope>(1);
+    my_scope->block_context = body_node->block_context;
+    ef->scope_stack.append(my_scope);
+
+    for (; it_index < array_len; it_index += 1) {
+        my_scope->vars.resize(0);
+
+        if (index_var_name) {
+            my_scope->vars.add_one();
+            EvalVar *index_var = &my_scope->vars.last();
+            index_var->name = index_var_name;
+            memset(&index_var->value, 0, sizeof(ConstExprValue));
+            index_var->value.ok = true;
+            bignum_init_unsigned(&index_var->value.data.x_bignum, it_index);
+        }
+        {
+            my_scope->vars.add_one();
+            EvalVar *elem_var = &my_scope->vars.last();
+            elem_var->name = elem_var_name;
+            elem_var->value = *array_ptr_val[it_index];
+        }
+
+        ConstExprValue body_val = {0};
+        if (eval_expr(ef, body_node, &body_val)) return true;
+
+        ef->root->branches_used += 1;
+    }
+
+    ef->scope_stack.pop();
+
+    return false;
+}
+
+static bool eval_array_access_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
+    assert(node->type == NodeTypeArrayAccessExpr);
+
+    AstNode *array_ref_node = node->data.array_access_expr.array_ref_expr;
+    AstNode *index_node = node->data.array_access_expr.subscript;
+
+    TypeTableEntry *array_type = get_resolved_expr(array_ref_node)->type_entry;
+
+    ConstExprValue array_val = {0};
+    if (eval_expr(ef, array_ref_node, &array_val)) return true;
+
+    ConstExprValue index_val = {0};
+    if (eval_expr(ef, index_node, &index_val)) return true;
+    uint64_t index_int = index_val.data.x_bignum.data.x_uint;
+
+    if (array_type->id == TypeTableEntryIdPointer) {
+        if (index_int >= array_val.data.x_ptr.len) {
+            zig_panic("TODO");
+        }
+        *out_val = *array_val.data.x_ptr.ptr[index_int];
+    } else if (array_type->id == TypeTableEntryIdStruct) {
+        assert(array_type->data.structure.is_unknown_size_array);
+
+        ConstExprValue *len_value = array_val.data.x_struct.fields[1];
+        uint64_t len_int = len_value->data.x_bignum.data.x_uint;
+        if (index_int >= len_int) {
+            zig_panic("TODO");
+        }
+
+        ConstExprValue *ptr_value = array_val.data.x_struct.fields[0];
+        *out_val = *ptr_value->data.x_ptr.ptr[index_int];
+    } else if (array_type->id == TypeTableEntryIdArray) {
+        uint64_t array_len = array_type->data.array.len;
+        if (index_int >= array_len) {
+            zig_panic("TODO");
+        }
+        *out_val = *array_val.data.x_array.fields[index_int];
+    } else {
+        zig_unreachable();
+    }
+
+    return false;
+}
+
+static bool eval_bool_literal_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
+    assert(node->type == NodeTypeBoolLiteral);
+
+    out_val->ok = true;
+    out_val->deep_const = true;
+    out_val->data.x_bool = node->data.bool_literal.value;
+
+    return false;
+}
+
+static bool eval_prefix_op_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
+    assert(node->type == NodeTypePrefixOpExpr);
+
+    PrefixOp prefix_op = node->data.prefix_op_expr.prefix_op;
+
+    ConstExprValue expr_val = {0};
+    if (eval_expr(ef, node->data.prefix_op_expr.primary_expr, &expr_val)) return true;
+
+    switch (prefix_op) {
+        case PrefixOpBoolNot:
+            *out_val = expr_val;
+            out_val->data.x_bool = !out_val->data.x_bool;
+            break;
+        case PrefixOpBinNot:
+        case PrefixOpNegation:
+        case PrefixOpAddressOf:
+        case PrefixOpConstAddressOf:
+        case PrefixOpDereference:
+        case PrefixOpMaybe:
+        case PrefixOpError:
+        case PrefixOpUnwrapError:
+        case PrefixOpUnwrapMaybe:
+            zig_panic("TODO");
+        case PrefixOpInvalid:
+            zig_unreachable();
+    }
+
+    return false;
+}
+
+
 static bool eval_expr(EvalFn *ef, AstNode *node, ConstExprValue *out) {
     if (ef->root->branches_used > ef->root->branch_quota) {
         ef->root->exceeded_quota_node = node;
@@ -492,6 +687,16 @@ static bool eval_expr(EvalFn *ef, AstNode *node, ConstExprValue *out) {
             return eval_if_bool_expr(ef, node, out);
         case NodeTypeFnCallExpr:
             return eval_fn_call_expr(ef, node, out);
+        case NodeTypeFieldAccessExpr:
+            return eval_field_access_expr(ef, node, out);
+        case NodeTypeForExpr:
+            return eval_for_expr(ef, node, out);
+        case NodeTypeArrayAccessExpr:
+            return eval_array_access_expr(ef, node, out);
+        case NodeTypeBoolLiteral:
+            return eval_bool_literal_expr(ef, node, out);
+        case NodeTypePrefixOpExpr:
+            return eval_prefix_op_expr(ef, node, out);
         case NodeTypeRoot:
         case NodeTypeFnProto:
         case NodeTypeFnDef:
@@ -506,17 +711,12 @@ static bool eval_expr(EvalFn *ef, AstNode *node, ConstExprValue *out) {
         case NodeTypeNumberLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
-        case NodeTypePrefixOpExpr:
-        case NodeTypeArrayAccessExpr:
         case NodeTypeSliceExpr:
-        case NodeTypeFieldAccessExpr:
         case NodeTypeUse:
-        case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
         case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
-        case NodeTypeForExpr:
         case NodeTypeSwitchExpr:
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
@@ -602,6 +802,6 @@ bool eval_fn(CodeGen *g, AstNode *node, FnTableEntry *fn, ConstExprValue *out_va
         return true;
     }
 
-    return false;
+    return efr.abort;
 }
 
