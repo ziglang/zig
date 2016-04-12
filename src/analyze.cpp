@@ -1855,6 +1855,14 @@ static bool types_match_with_implicit_cast(CodeGen *g, TypeTableEntry *expected_
         return true;
     }
 
+    // small enough unsigned ints can get casted to large enough signed ints
+    if (expected_type->id == TypeTableEntryIdInt && expected_type->data.integral.is_signed &&
+        actual_type->id == TypeTableEntryIdInt && !actual_type->data.integral.is_signed &&
+        expected_type->data.integral.bit_count > actual_type->data.integral.bit_count)
+    {
+        return true;
+    }
+
     // implicit float widening conversion
     if (expected_type->id == TypeTableEntryIdFloat &&
         actual_type->id == TypeTableEntryIdFloat &&
@@ -1889,27 +1897,30 @@ static bool types_match_with_implicit_cast(CodeGen *g, TypeTableEntry *expected_
     return false;
 }
 
-static AstNode *create_ast_node(CodeGen *g, ImportTableEntry *import, NodeType kind) {
+static AstNode *create_ast_node(CodeGen *g, ImportTableEntry *import, NodeType kind, AstNode *source_node) {
     AstNode *node = allocate<AstNode>(1);
     node->type = kind;
     node->owner = import;
     node->create_index = g->next_node_index;
     g->next_node_index += 1;
+    node->line = source_node->line;
+    node->column = source_node->column;
     return node;
 }
 
-static AstNode *create_ast_type_node(CodeGen *g, ImportTableEntry *import, TypeTableEntry *type_entry) {
-    AstNode *node = create_ast_node(g, import, NodeTypeSymbol);
+static AstNode *create_ast_type_node(CodeGen *g, ImportTableEntry *import, TypeTableEntry *type_entry,
+        AstNode *source_node)
+{
+    AstNode *node = create_ast_node(g, import, NodeTypeSymbol, source_node);
     node->data.symbol_expr.override_type_entry = type_entry;
     return node;
 }
 
 static AstNode *create_ast_void_node(CodeGen *g, ImportTableEntry *import, AstNode *source_node) {
-    AstNode *node = create_ast_node(g, import, NodeTypeContainerInitExpr);
+    AstNode *node = create_ast_node(g, import, NodeTypeContainerInitExpr, source_node);
     node->data.container_init_expr.kind = ContainerInitKindArray;
-    node->data.container_init_expr.type = create_ast_type_node(g, import, g->builtin_types.entry_void);
-    node->line = source_node->line;
-    node->column = source_node->column;
+    node->data.container_init_expr.type = create_ast_type_node(g, import, g->builtin_types.entry_void,
+            source_node);
     normalize_parent_ptrs(node);
     return node;
 }
@@ -1917,13 +1928,11 @@ static AstNode *create_ast_void_node(CodeGen *g, ImportTableEntry *import, AstNo
 static TypeTableEntry *create_and_analyze_cast_node(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, TypeTableEntry *cast_to_type, AstNode *node)
 {
-    AstNode *new_parent_node = create_ast_node(g, import, NodeTypeFnCallExpr);
-    new_parent_node->line = node->line;
-    new_parent_node->column = node->column;
+    AstNode *new_parent_node = create_ast_node(g, import, NodeTypeFnCallExpr, node);
     *node->parent_field = new_parent_node;
     new_parent_node->parent_field = node->parent_field;
 
-    new_parent_node->data.fn_call_expr.fn_ref_expr = create_ast_type_node(g, import, cast_to_type);
+    new_parent_node->data.fn_call_expr.fn_ref_expr = create_ast_type_node(g, import, cast_to_type, node);
     new_parent_node->data.fn_call_expr.params.append(node);
     normalize_parent_ptrs(new_parent_node);
 

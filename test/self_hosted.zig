@@ -811,3 +811,12 @@ fn cast_undefined() {
     test_cast_undefined(slice);
 }
 fn test_cast_undefined(x: []u8) {}
+
+
+#attribute("test")
+fn cast_small_unsigned_to_larger_signed() {
+    assert(cast_small_unsigned_to_larger_signed_1(200) == i16(200));
+    assert(cast_small_unsigned_to_larger_signed_2(9999) == isize(9999));
+}
+fn cast_small_unsigned_to_larger_signed_1(x: u8) -> i16 { x }
+fn cast_small_unsigned_to_larger_signed_2(x: u16) -> isize { x }
