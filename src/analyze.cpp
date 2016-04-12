@@ -35,7 +35,8 @@ static TypeTableEntry *resolve_expr_const_val_as_type(CodeGen *g, AstNode *node,
 static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, AstNode *node,
         TypeTableEntry *expected_type, uint64_t x);
 static AstNode *find_decl(BlockContext *context, Buf *name);
-static TypeTableEntry *analyze_decl_ref(CodeGen *g, AstNode *source_node, AstNode *decl_node, bool pointer_only);
+static TypeTableEntry *analyze_decl_ref(CodeGen *g, AstNode *source_node, AstNode *decl_node,
+        bool pointer_only, BlockContext *block_context);
 static TopLevelDecl *get_as_top_level_decl(AstNode *node);
 static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, AstNode *source_node,
@@ -956,6 +957,19 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
                 } else {
                     add_node_error(g, directive_node,
                         buf_sprintf("#condition valid only on exported symbols"));
+                }
+            } else if (buf_eql_str(name, "static_eval_enable")) {
+                if (fn_table_entry->is_extern) {
+                    add_node_error(g, directive_node,
+                        buf_sprintf("#static_val_enable invalid on extern functions"));
+                } else {
+                    bool enable;
+                    bool ok = resolve_const_expr_bool(g, import, import->block_context,
+                            &directive_node->data.directive.expr, &enable);
+                    if (!enable || !ok) {
+                        fn_table_entry->is_pure = false;
+                    }
+                    // TODO cause compile error if enable is true and impure fn
                 }
             } else {
                 add_node_error(g, directive_node,
@@ -2227,9 +2241,9 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
                     const_val->ok = false;
                 }
             }
-            if (!const_val->ok) {
-                context->fn_entry->struct_val_expr_alloca_list.append(codegen);
-            }
+        }
+        if (!const_val->ok) {
+            context->fn_entry->struct_val_expr_alloca_list.append(codegen);
         }
 
         for (int i = 0; i < actual_field_count; i += 1) {
@@ -2381,7 +2395,7 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
             AstNode *decl_node = entry ? entry->value : nullptr;
             if (decl_node) {
                 bool pointer_only = false;
-                return analyze_decl_ref(g, node, decl_node, pointer_only);
+                return analyze_decl_ref(g, node, decl_node, pointer_only, context);
             } else {
                 add_node_error(g, node,
                     buf_sprintf("container '%s' has no member called '%s'",
@@ -2408,7 +2422,7 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
                 add_error_note(g, msg, decl_node, buf_sprintf("declared here"));
             }
             bool pointer_only = false;
-            return analyze_decl_ref(g, node, decl_node, pointer_only);
+            return analyze_decl_ref(g, node, decl_node, pointer_only, context);
         } else {
             const char *import_name = namespace_import->path ? buf_ptr(namespace_import->path) : "(C import)";
             add_node_error(g, node,
@@ -2674,8 +2688,21 @@ static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *
     return g->builtin_types.entry_invalid;
 }
 
-static TypeTableEntry *analyze_var_ref(CodeGen *g, AstNode *source_node, VariableTableEntry *var) {
+static bool var_is_pure(VariableTableEntry *var, BlockContext *context) {
+    if (var->block_context->fn_entry == context->fn_entry) {
+        // variable was declared in the current function, so it's OK.
+        return true;
+    }
+    return var->is_const && var->type->deep_const;
+}
+
+static TypeTableEntry *analyze_var_ref(CodeGen *g, AstNode *source_node, VariableTableEntry *var,
+        BlockContext *context)
+{
     get_resolved_expr(source_node)->variable = var;
+    if (!var_is_pure(var, context)) {
+        mark_impure_fn(context);
+    }
     if (var->is_const && var->val_node) {
         ConstExprValue *other_const_val = &get_resolved_expr(var->val_node)->const_val;
         if (other_const_val->ok) {
@@ -2686,7 +2713,7 @@ static TypeTableEntry *analyze_var_ref(CodeGen *g, AstNode *source_node, Variabl
 }
 
 static TypeTableEntry *analyze_decl_ref(CodeGen *g, AstNode *source_node, AstNode *decl_node,
-        bool pointer_only)
+        bool pointer_only, BlockContext *block_context)
 {
     resolve_top_level_decl(g, decl_node, pointer_only);
     TopLevelDecl *tld = get_as_top_level_decl(decl_node);
@@ -2696,7 +2723,7 @@ static TypeTableEntry *analyze_decl_ref(CodeGen *g, AstNode *source_node, AstNod
 
     if (decl_node->type == NodeTypeVariableDeclaration) {
         VariableTableEntry *var = decl_node->data.variable_declaration.variable;
-        return analyze_var_ref(g, source_node, var);
+        return analyze_var_ref(g, source_node, var, block_context);
     } else if (decl_node->type == NodeTypeFnProto) {
         if (decl_node->data.fn_proto.generic_params.length > 0) {
             TypeTableEntry *type_entry = decl_node->data.fn_proto.generic_fn_type;
@@ -2716,14 +2743,6 @@ static TypeTableEntry *analyze_decl_ref(CodeGen *g, AstNode *source_node, AstNod
     }
 }
 
-static bool var_is_pure(VariableTableEntry *var, TypeTableEntry *var_type, BlockContext *context) {
-    if (var->block_context->fn_entry == context->fn_entry) {
-        // variable was declared in the current function, so it's OK.
-        return true;
-    }
-    return var->is_const && var->type->deep_const;
-}
-
 static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node, bool pointer_only)
 {
@@ -2740,16 +2759,13 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
 
     VariableTableEntry *var = find_variable(g, context, variable_name);
     if (var) {
-        TypeTableEntry *var_type = analyze_var_ref(g, node, var);
-        if (!var_is_pure(var, var_type, context)) {
-            mark_impure_fn(context);
-        }
+        TypeTableEntry *var_type = analyze_var_ref(g, node, var, context);
         return var_type;
     }
 
     AstNode *decl_node = find_decl(context, variable_name);
     if (decl_node) {
-        return analyze_decl_ref(g, node, decl_node, pointer_only);
+        return analyze_decl_ref(g, node, decl_node, pointer_only, context);
     }
 
     if (import->any_imports_failed) {
@@ -2992,7 +3008,8 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                 }
 
                 analyze_expression(g, import, context, expected_rhs_type, node->data.bin_op_expr.op2);
-                return resolve_expr_const_val_as_void(g, node);
+                // not const ok because expression has side effects
+                return g->builtin_types.entry_void;
             }
         case BinOpTypeBoolOr:
         case BinOpTypeBoolAnd:
@@ -4473,12 +4490,16 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
         actual_param_count += 1;
     }
 
+    bool ok_invocation = true;
+
     if (fn_type->data.fn.fn_type_id.is_var_args) {
         if (actual_param_count < src_param_count) {
+            ok_invocation = false;
             add_node_error(g, node,
                 buf_sprintf("expected at least %d arguments, got %d", src_param_count, actual_param_count));
         }
     } else if (src_param_count != actual_param_count) {
+        ok_invocation = false;
         add_node_error(g, node,
                 buf_sprintf("expected %d arguments, got %d", src_param_count, actual_param_count));
     }
@@ -4517,7 +4538,7 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
     }
 
     FnTableEntry *fn_table_entry = node->data.fn_call_expr.fn_entry;
-    if (fn_table_entry && fn_table_entry->is_pure && all_args_const_expr) {
+    if (ok_invocation && fn_table_entry && fn_table_entry->is_pure && all_args_const_expr) {
         if (fn_table_entry->anal_state == FnAnalStateReady) {
             analyze_fn_body(g, fn_table_entry);
         } else if (fn_table_entry->anal_state == FnAnalStateProbing) {
@@ -4726,7 +4747,7 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
             if (fn_ref_expr->type == NodeTypeFieldAccessExpr &&
                 fn_ref_expr->data.field_access_expr.is_member_fn)
             {
-                struct_node = fn_ref_expr;
+                struct_node = fn_ref_expr->data.field_access_expr.struct_expr;
             } else {
                 struct_node = nullptr;
             }

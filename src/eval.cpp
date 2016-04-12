@@ -70,6 +70,7 @@ static bool eval_block(EvalFn *ef, AstNode *node, ConstExprValue *out) {
 
     for (int i = 0; i < node->data.block.statements.length; i += 1) {
         AstNode *child = node->data.block.statements.at(i);
+        memset(out, 0, sizeof(ConstExprValue));
         if (eval_expr(ef, child, out)) return true;
     }
 
@@ -109,7 +110,6 @@ void eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
 {
     assert(op1_val->ok);
     assert(op2_val->ok);
-    assert(op1_type == op2_type);
 
     switch (bin_op) {
         case BinOpTypeAssign:
@@ -275,6 +275,7 @@ static bool eval_symbol_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val)
 
     Buf *name = &node->data.symbol_expr.symbol;
     EvalVar *var = find_var(ef, name);
+    assert(var);
 
     *out_val = var->value;
 
@@ -374,6 +375,8 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
             *const_val = *other_val;
             break;
         case CastOpPointerReinterpret:
+            if (other_type->id == TypeTableEntryIdPointer &&
+                new_type->id == TypeTableEntryIdPointer)
             {
                 TypeTableEntry *other_child_type = other_type->data.pointer.child_type;
                 TypeTableEntry *new_child_type = new_type->data.pointer.child_type;
@@ -393,8 +396,47 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
                 } else {
                     zig_panic("TODO");
                 }
-                break;
+            } else if (other_type->id == TypeTableEntryIdMaybe &&
+                       new_type->id == TypeTableEntryIdMaybe)
+            {
+                if (!other_val->data.x_maybe) {
+                    *const_val = *other_val;
+                    break;
+                }
+
+                TypeTableEntry *other_ptr_type = other_type->data.maybe.child_type;
+                TypeTableEntry *new_ptr_type = new_type->data.maybe.child_type;
+
+                if (other_ptr_type->id == TypeTableEntryIdPointer &&
+                    new_ptr_type->id == TypeTableEntryIdPointer) 
+                {
+                    TypeTableEntry *other_child_type = other_ptr_type->data.pointer.child_type;
+                    TypeTableEntry *new_child_type = new_ptr_type->data.pointer.child_type;
+
+                    if ((other_child_type->id == TypeTableEntryIdInt ||
+                        other_child_type->id == TypeTableEntryIdFloat) &&
+                        (new_child_type->id == TypeTableEntryIdInt ||
+                        new_child_type->id == TypeTableEntryIdFloat))
+                    {
+                        ConstExprValue *ptr_parent = allocate<ConstExprValue>(1);
+                        ConstExprValue **ptr_val = allocate<ConstExprValue*>(1);
+                        *ptr_val = other_val->data.x_maybe->data.x_ptr.ptr[0];
+                        ptr_parent->data.x_ptr.ptr = ptr_val;
+                        ptr_parent->data.x_ptr.len = 1;
+                        ptr_parent->ok = true;
+
+                        const_val->data.x_maybe = ptr_parent;
+                        const_val->ok = true;
+                        const_val->undef = other_val->undef;
+                        const_val->depends_on_compile_var = other_val->depends_on_compile_var;
+                    } else {
+                        zig_panic("TODO");
+                    }
+                } else {
+                    zig_panic("TODO");
+                }
             }
+            break;
         case CastOpPtrToInt:
         case CastOpIntToPtr:
             // can't do it
@@ -684,6 +726,7 @@ static bool eval_field_access_expr(EvalFn *ef, AstNode *node, ConstExprValue *ou
             if (eval_expr(ef, struct_expr, &struct_val)) return true;
             ConstExprValue *field_value = struct_val.data.x_struct.fields[tsf->src_index];
             *out_val = *field_value;
+            assert(out_val->ok);
         } else {
             zig_panic("TODO");
         }
@@ -916,10 +959,44 @@ static bool eval_char_literal_expr(EvalFn *ef, AstNode *node, ConstExprValue *ou
     return false;
 }
 
+static bool eval_while_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
+    assert(node->type == NodeTypeWhileExpr);
+
+    AstNode *cond_node = node->data.while_expr.condition;
+    AstNode *body_node = node->data.while_expr.body;
+
+    EvalScope *my_scope = allocate<EvalScope>(1);
+    my_scope->block_context = body_node->block_context;
+    ef->scope_stack.append(my_scope);
+
+    for (;;) {
+        my_scope->vars.resize(0);
+
+        ConstExprValue cond_val = {0};
+        if (eval_expr(ef, cond_node, &cond_val)) return true;
+
+        if (!cond_val.data.x_bool) break;
+
+        ConstExprValue body_val = {0};
+        if (eval_expr(ef, body_node, &body_val)) return true;
+
+        ef->root->branches_used += 1;
+    }
+
+    ef->scope_stack.pop();
+
+    return false;
+}
+
 static bool eval_expr(EvalFn *ef, AstNode *node, ConstExprValue *out) {
     if (ef->root->branches_used > ef->root->branch_quota) {
         ef->root->exceeded_quota_node = node;
         return true;
+    }
+    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+    if (const_val->ok) {
+        *out = *const_val;
+        return false;
     }
     switch (node->type) {
         case NodeTypeBlock:
@@ -952,23 +1029,16 @@ static bool eval_expr(EvalFn *ef, AstNode *node, ConstExprValue *out) {
             return eval_number_literal_expr(ef, node, out);
         case NodeTypeCharLiteral:
             return eval_char_literal_expr(ef, node, out);
-        case NodeTypeRoot:
-        case NodeTypeFnProto:
-        case NodeTypeFnDef:
-        case NodeTypeFnDecl:
-        case NodeTypeParamDecl:
-        case NodeTypeDirective:
+        case NodeTypeWhileExpr:
+            return eval_while_expr(ef, node, out);
         case NodeTypeDefer:
-        case NodeTypeTypeDecl:
         case NodeTypeErrorValueDecl:
         case NodeTypeUnwrapErrorExpr:
         case NodeTypeStringLiteral:
         case NodeTypeSliceExpr:
-        case NodeTypeUse:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
         case NodeTypeIfVarExpr:
-        case NodeTypeWhileExpr:
         case NodeTypeSwitchExpr:
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
@@ -976,13 +1046,22 @@ static bool eval_expr(EvalFn *ef, AstNode *node, ConstExprValue *out) {
         case NodeTypeGoto:
         case NodeTypeBreak:
         case NodeTypeContinue:
-        case NodeTypeAsmExpr:
         case NodeTypeStructDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeArrayType:
         case NodeTypeErrorType:
         case NodeTypeTypeLiteral:
+            zig_panic("TODO");
+        case NodeTypeRoot:
+        case NodeTypeFnProto:
+        case NodeTypeFnDef:
+        case NodeTypeFnDecl:
+        case NodeTypeUse:
+        case NodeTypeAsmExpr:
+        case NodeTypeParamDecl:
+        case NodeTypeDirective:
+        case NodeTypeTypeDecl:
             zig_unreachable();
     }
 }
@@ -1053,6 +1132,8 @@ bool eval_fn(CodeGen *g, AstNode *node, FnTableEntry *fn, ConstExprValue *out_va
         add_error_note(g, msg, efr.exceeded_quota_node, buf_sprintf("quota exceeded here"));
         return true;
     }
+
+    assert(out_val->ok);
 
     return efr.abort;
 }
