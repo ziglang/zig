@@ -2592,6 +2592,7 @@ static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, As
     expr->const_val.ok = true;
 
     bignum_init_unsigned(&expr->const_val.data.x_bignum, x);
+
     return g->builtin_types.entry_num_lit_int;
 }
 
@@ -2603,12 +2604,7 @@ static TypeTableEntry *resolve_expr_const_val_as_float_num_lit(CodeGen *g, AstNo
 
     bignum_init_float(&expr->const_val.data.x_bignum, x);
 
-    if (expected_type) {
-        num_lit_fits_in_other_type(g, node, expected_type);
-        return expected_type;
-    } else {
-        return g->builtin_types.entry_num_lit_float;
-    }
+    return g->builtin_types.entry_num_lit_float;
 }
 
 static TypeTableEntry *resolve_expr_const_val_as_bignum_op(CodeGen *g, AstNode *node,
@@ -2915,12 +2911,12 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
     assert(node->type == NodeTypeBinOpExpr);
     BinOpType bin_op_type = node->data.bin_op_expr.bin_op;
 
-    AstNode *op1 = node->data.bin_op_expr.op1;
-    AstNode *op2 = node->data.bin_op_expr.op2;
-    TypeTableEntry *op1_type = analyze_expression(g, import, context, nullptr, op1);
-    TypeTableEntry *op2_type = analyze_expression(g, import, context, nullptr, op2);
+    AstNode **op1 = &node->data.bin_op_expr.op1;
+    AstNode **op2 = &node->data.bin_op_expr.op2;
+    TypeTableEntry *op1_type = analyze_expression(g, import, context, nullptr, *op1);
+    TypeTableEntry *op2_type = analyze_expression(g, import, context, nullptr, *op2);
 
-    AstNode *op_nodes[] = {op1, op2};
+    AstNode *op_nodes[] = {*op1, *op2};
     TypeTableEntry *op_types[] = {op1_type, op2_type};
 
     TypeTableEntry *resolved_type = resolve_peer_type_compatibility(g, import, context, node,
@@ -2942,8 +2938,8 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
         return g->builtin_types.entry_invalid;
     }
 
-    ConstExprValue *op1_val = &get_resolved_expr(op1)->const_val;
-    ConstExprValue *op2_val = &get_resolved_expr(op2)->const_val;
+    ConstExprValue *op1_val = &get_resolved_expr(*op1)->const_val;
+    ConstExprValue *op2_val = &get_resolved_expr(*op2)->const_val;
     if (!op1_val->ok || !op2_val->ok) {
         return g->builtin_types.entry_bool;
     }
@@ -3637,6 +3633,17 @@ static TypeTableEntry *analyze_continue_expr(CodeGen *g, ImportTableEntry *impor
     return g->builtin_types.entry_unreachable;
 }
 
+static TypeTableEntry *add_error_if_type_is_num_lit(CodeGen *g, TypeTableEntry *type_entry, AstNode *source_node) {
+    if (type_entry->id == TypeTableEntryIdNumLitInt ||
+        type_entry->id == TypeTableEntryIdNumLitFloat)
+    {
+        add_node_error(g, source_node, buf_sprintf("unable to infer expression type"));
+        return g->builtin_types.entry_invalid;
+    } else {
+        return type_entry;
+    }
+}
+
 static TypeTableEntry *analyze_if(CodeGen *g, ImportTableEntry *import, BlockContext *parent_context,
         TypeTableEntry *expected_type, AstNode *node,
         AstNode **then_node, AstNode **else_node, bool cond_is_const, bool cond_bool_val)
@@ -3682,7 +3689,7 @@ static TypeTableEntry *analyze_if(CodeGen *g, ImportTableEntry *import, BlockCon
     }
 
     if (!cond_is_const) {
-        return result_type;
+        return add_error_if_type_is_num_lit(g, result_type, node);
     }
 
     ConstExprValue *other_const_val;
@@ -3692,7 +3699,7 @@ static TypeTableEntry *analyze_if(CodeGen *g, ImportTableEntry *import, BlockCon
         other_const_val = &get_resolved_expr(*else_node)->const_val;
     }
     if (!other_const_val->ok) {
-        return result_type;
+        return add_error_if_type_is_num_lit(g, result_type, node);
     }
 
     ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
