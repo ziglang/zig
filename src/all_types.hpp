@@ -65,7 +65,6 @@ struct ConstExprValue {
     bool ok; // true if constant expression evalution worked
     bool depends_on_compile_var;
     bool undef;
-    bool deep_const;
 
     union {
         BigNum x_bignum;
@@ -961,6 +960,7 @@ struct TypeTableEntry {
     LLVMZigDIType *di_type;
 
     bool zero_bits;
+    bool deep_const;
 
     union {
         TypeTableEntryPointer pointer;

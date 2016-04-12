@@ -47,6 +47,8 @@ void bignum_negate(BigNum *dest, BigNum *op);
 void bignum_cast_to_float(BigNum *dest, BigNum *op);
 void bignum_cast_to_int(BigNum *dest, BigNum *op);
 
+void bignum_truncate(BigNum *dest, int bit_count);
+
 // returns the result of the comparison
 bool bignum_cmp_eq(BigNum *op1, BigNum *op2);
 bool bignum_cmp_neq(BigNum *op1, BigNum *op2);

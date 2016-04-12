@@ -71,6 +71,11 @@ bool bignum_fits_in_bits(BigNum *bn, int bit_count, bool is_signed) {
     }
 }
 
+void bignum_truncate(BigNum *bn, int bit_count) {
+    assert(bn->kind == BigNumKindInt);
+    bn->data.x_uint &= (1LL << bit_count) - 1;
+}
+
 uint64_t bignum_to_twos_complement(BigNum *bn) {
     assert(bn->kind == BigNumKindInt);
 

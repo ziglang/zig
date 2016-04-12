@@ -19,6 +19,8 @@ void eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
 
 void eval_const_expr_implicit_cast(CastOp cast_op,
         ConstExprValue *other_val, TypeTableEntry *other_type,
-        ConstExprValue *const_val);
+        ConstExprValue *const_val, TypeTableEntry *new_type);
+
+void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val, bool is_max);
 
 #endif
