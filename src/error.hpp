@@ -19,6 +19,8 @@ enum Error {
     ErrorFileNotFound,
     ErrorFileSystem,
     ErrorFileTooBig,
+    ErrorDivByZero,
+    ErrorOverflow
 };
 
 const char *err_str(int err);

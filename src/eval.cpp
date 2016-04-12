@@ -1,5 +1,6 @@
 #include "eval.hpp"
 #include "analyze.hpp"
+#include "error.hpp"
 
 static bool eval_fn_args(EvalFnRoot *efr, FnTableEntry *fn, ConstExprValue *args, ConstExprValue *out_val);
 
@@ -96,16 +97,20 @@ static bool eval_bool_bin_op_bool(bool a, BinOpType bin_op, bool b) {
     }
 }
 
-static void eval_const_expr_bin_op_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
+static int eval_const_expr_bin_op_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
         ConstExprValue *out_val, bool (*bignum_fn)(BigNum *, BigNum *, BigNum *))
 {
     bool overflow = bignum_fn(&out_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum);
-    assert(!overflow);
+    if (overflow) {
+        return ErrorOverflow;
+    }
+
     out_val->ok = true;
     out_val->depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
+    return 0;
 }
 
-void eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
+int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
         BinOpType bin_op, ConstExprValue *op2_val, TypeTableEntry *op2_type, ConstExprValue *out_val)
 {
     assert(op1_val->ok);
@@ -126,7 +131,7 @@ void eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
         case BinOpTypeAssignBoolAnd:
         case BinOpTypeAssignBoolOr:
             out_val->ok = true;
-            return;
+            return 0;
         case BinOpTypeBoolOr:
         case BinOpTypeBoolAnd:
             assert(op1_type->id == TypeTableEntryIdBool);
@@ -134,7 +139,7 @@ void eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
             out_val->data.x_bool = eval_bool_bin_op_bool(op1_val->data.x_bool, bin_op, op2_val->data.x_bool);
             out_val->ok = true;
             out_val->depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
-            return;
+            return 0;
         case BinOpTypeCmpEq:
         case BinOpTypeCmpNotEq:
         case BinOpTypeCmpLessThan:
@@ -181,7 +186,7 @@ void eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
                     op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
                 out_val->data.x_bool = answer;
                 out_val->ok = true;
-                return;
+                return 0;
             }
         case BinOpTypeAdd:
             return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_add);
@@ -215,7 +220,7 @@ void eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
                 if ((is_int && op2_val->data.x_bignum.data.x_uint == 0) ||
                     (is_float && op2_val->data.x_bignum.data.x_float == 0.0))
                 {
-                    zig_panic("TODO handle errors in eval");
+                    return ErrorDivByZero;
                 } else {
                     return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_div);
                 }
@@ -249,7 +254,26 @@ static bool eval_bin_op_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val)
 
     BinOpType bin_op = node->data.bin_op_expr.bin_op;
 
-    eval_const_expr_bin_op(&op1_val, op1_type, bin_op, &op2_val, op2_type, out_val);
+    int err;
+    if ((err = eval_const_expr_bin_op(&op1_val, op1_type, bin_op, &op2_val, op2_type, out_val))) {
+        ef->root->abort = true;
+        if (err == ErrorDivByZero) {
+            ErrorMsg *msg = add_node_error(ef->root->codegen, ef->root->fn->fn_def_node,
+                    buf_sprintf("function evaluation caused division by zero"));
+            add_error_note(ef->root->codegen, msg, ef->root->call_node, buf_sprintf("called from here"));
+            add_error_note(ef->root->codegen, msg, node, buf_sprintf("division by zero here"));
+        } else if (err == ErrorOverflow) {
+            ErrorMsg *msg = add_node_error(ef->root->codegen, ef->root->fn->fn_def_node,
+                    buf_sprintf("function evaluation caused overflow"));
+            add_error_note(ef->root->codegen, msg, ef->root->call_node, buf_sprintf("called from here"));
+            add_error_note(ef->root->codegen, msg, node, buf_sprintf("overflow occurred here"));
+        } else {
+            zig_unreachable();
+        }
+        return true;
+    }
+
+    assert(out_val->ok);
 
     return false;
 }
@@ -1133,8 +1157,11 @@ bool eval_fn(CodeGen *g, AstNode *node, FnTableEntry *fn, ConstExprValue *out_va
         return true;
     }
 
-    assert(out_val->ok);
+    if (efr.abort) {
+        return true;
+    }
 
-    return efr.abort;
+    assert(out_val->ok);
+    return false;
 }
 

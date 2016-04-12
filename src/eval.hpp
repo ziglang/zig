@@ -14,7 +14,7 @@ bool eval_fn(CodeGen *g, AstNode *node, FnTableEntry *fn, ConstExprValue *out_va
         AstNode *struct_node);
 
 bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *type_entry);
-void eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
+int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
         BinOpType bin_op, ConstExprValue *op2_val, TypeTableEntry *op2_type, ConstExprValue *out_val);
 
 void eval_const_expr_implicit_cast(CastOp cast_op,

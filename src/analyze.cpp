@@ -2653,26 +2653,6 @@ static TypeTableEntry *resolve_expr_const_val_as_float_num_lit(CodeGen *g, AstNo
     return g->builtin_types.entry_num_lit_float;
 }
 
-static TypeTableEntry *resolve_expr_const_val_as_bignum_op(CodeGen *g, AstNode *node,
-        bool (*bignum_fn)(BigNum *, BigNum *, BigNum *), AstNode *op1, AstNode *op2,
-        TypeTableEntry *resolved_type)
-{
-    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-    ConstExprValue *op1_val = &get_resolved_expr(op1)->const_val;
-    ConstExprValue *op2_val = &get_resolved_expr(op2)->const_val;
-
-    const_val->ok = true;
-
-    if (bignum_fn(&const_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum)) {
-        add_node_error(g, node,
-            buf_sprintf("value cannot be represented in any integer type"));
-    } else {
-        num_lit_fits_in_other_type(g, node, resolved_type);
-    }
-
-    return resolved_type;
-}
-
 static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, AstNode *node, Buf *err_name)
 {
@@ -3074,37 +3054,23 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                     return resolved_type;
                 }
 
-                if (bin_op_type == BinOpTypeAdd) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_add, *op1, *op2, resolved_type);
-                } else if (bin_op_type == BinOpTypeSub) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_sub, *op1, *op2, resolved_type);
-                } else if (bin_op_type == BinOpTypeMult) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_mul, *op1, *op2, resolved_type);
-                } else if (bin_op_type == BinOpTypeDiv) {
-                    ConstExprValue *op2_val = &get_resolved_expr(*op2)->const_val;
-                    if ((is_int && op2_val->data.x_bignum.data.x_uint == 0) ||
-                        (is_float && op2_val->data.x_bignum.data.x_float == 0.0))
-                    {
+                ConstExprValue *out_val = &get_resolved_expr(node)->const_val;
+                int err;
+                if ((err = eval_const_expr_bin_op(op1_val, resolved_type, bin_op_type,
+                                op2_val, resolved_type, out_val)))
+                {
+                    if (err == ErrorDivByZero) {
                         add_node_error(g, node, buf_sprintf("division by zero is undefined"));
                         return g->builtin_types.entry_invalid;
-                    } else {
-                        return resolve_expr_const_val_as_bignum_op(g, node, bignum_div, *op1, *op2, resolved_type);
+                    } else if (err == ErrorOverflow) {
+                        add_node_error(g, node, buf_sprintf("value cannot be represented in any integer type"));
+                        return g->builtin_types.entry_invalid;
                     }
-                } else if (bin_op_type == BinOpTypeMod) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_mod, *op1, *op2, resolved_type);
-                } else if (bin_op_type == BinOpTypeBinOr) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_or, *op1, *op2, resolved_type);
-                } else if (bin_op_type == BinOpTypeBinAnd) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_and, *op1, *op2, resolved_type);
-                } else if (bin_op_type == BinOpTypeBinXor) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_xor, *op1, *op2, resolved_type);
-                } else if (bin_op_type == BinOpTypeBitShiftLeft) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_shl, *op1, *op2, resolved_type);
-                } else if (bin_op_type == BinOpTypeBitShiftRight) {
-                    return resolve_expr_const_val_as_bignum_op(g, node, bignum_shr, *op1, *op2, resolved_type);
-                } else {
-                    zig_unreachable();
+                    return g->builtin_types.entry_invalid;
                 }
+
+                num_lit_fits_in_other_type(g, node, resolved_type);
+                return resolved_type;
             }
         case BinOpTypeUnwrapMaybe:
             {

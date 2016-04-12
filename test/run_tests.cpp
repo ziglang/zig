@@ -1481,6 +1481,16 @@ fn foo() {
     const pointer = &array[0];
 }
     )SOURCE", 1, ".tmp_source.zig:4:27: error: out of bounds array access");
+
+    add_compile_fail_case("compile time division by zero", R"SOURCE(
+const x = foo(0);
+fn foo(x: i32) -> i32 {
+    1 / x
+}
+    )SOURCE", 3,
+            ".tmp_source.zig:3:1: error: function evaluation caused division by zero",
+            ".tmp_source.zig:2:14: note: called from here",
+            ".tmp_source.zig:4:7: note: division by zero here");
 }
 
 //////////////////////////////////////////////////////////////////////////////
