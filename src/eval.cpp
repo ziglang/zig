@@ -359,6 +359,28 @@ static bool eval_container_init_expr(EvalFn *ef, AstNode *node, ConstExprValue *
         add_error_note(ef->root->codegen, msg, ef->root->call_node, buf_sprintf("called from here"));
         add_error_note(ef->root->codegen, msg, node, buf_sprintf("unreachable expression here"));
         return true;
+    } else if (container_type->id == TypeTableEntryIdStruct &&
+               container_type->data.structure.is_unknown_size_array &&
+               kind == ContainerInitKindArray)
+    {
+
+        int elem_count = container_init_expr->entries.length;
+
+        out_val->ok = true;
+        out_val->data.x_array.fields = allocate<ConstExprValue*>(elem_count);
+
+        for (int i = 0; i < elem_count; i += 1) {
+            AstNode *elem_node = container_init_expr->entries.at(i);
+
+            ConstExprValue *elem_val = allocate<ConstExprValue>(1);
+            if (eval_expr(ef, elem_node, elem_val)) return true;
+
+            assert(elem_val->ok);
+
+            out_val->data.x_array.fields[i] = elem_val;
+            out_val->depends_on_compile_var = out_val->depends_on_compile_var ||
+                elem_val->depends_on_compile_var;
+        }
     } else {
         zig_panic("TODO");
     }

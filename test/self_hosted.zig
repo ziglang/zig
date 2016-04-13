@@ -961,3 +961,17 @@ fn static_while_loop_2() -> i32 {
         return 1;
     }
 }
+
+#attribute("test")
+fn static_eval_list_init() {
+    assert(static_vec3.data[2] == 1.0);
+}
+const static_vec3 = vec3(0.0, 0.0, 1.0);
+pub struct Vec3 {
+    data: [3]f32,
+}
+pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
+    Vec3 {
+        .data = []f32 { x, y, z, },
+    }
+}
