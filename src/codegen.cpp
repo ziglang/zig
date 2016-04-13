@@ -3033,6 +3033,7 @@ static void gen_const_globals(CodeGen *g) {
         } else {
             expr->const_llvm_val = gen_const_val(g, type_entry, const_val);
         }
+        assert(expr->const_llvm_val);
     }
 }
 

@@ -3036,15 +3036,21 @@ AstNode *ast_clone_subtree(AstNode *old_node, uint32_t *next_node_index) {
             // none
             break;
         case NodeTypePrefixOpExpr:
-            clone_subtree_field(&new_node->data.prefix_op_expr.primary_expr, old_node->data.prefix_op_expr.primary_expr, next_node_index);
+            clone_subtree_field(&new_node->data.prefix_op_expr.primary_expr,
+                                 old_node->data.prefix_op_expr.primary_expr, next_node_index);
             break;
         case NodeTypeFnCallExpr:
-            clone_subtree_field(&new_node->data.fn_call_expr.fn_ref_expr, old_node->data.fn_call_expr.fn_ref_expr, next_node_index);
-            clone_subtree_list(&new_node->data.fn_call_expr.params, &old_node->data.fn_call_expr.params, next_node_index);
+            assert(!old_node->data.fn_call_expr.resolved_expr.has_global_const);
+            clone_subtree_field(&new_node->data.fn_call_expr.fn_ref_expr,
+                                 old_node->data.fn_call_expr.fn_ref_expr, next_node_index);
+            clone_subtree_list(&new_node->data.fn_call_expr.params,
+                               &old_node->data.fn_call_expr.params, next_node_index);
             break;
         case NodeTypeArrayAccessExpr:
-            clone_subtree_field(&new_node->data.array_access_expr.array_ref_expr, old_node->data.array_access_expr.array_ref_expr, next_node_index);
-            clone_subtree_field(&new_node->data.array_access_expr.subscript, old_node->data.array_access_expr.subscript, next_node_index);
+            clone_subtree_field(&new_node->data.array_access_expr.array_ref_expr,
+                                 old_node->data.array_access_expr.array_ref_expr, next_node_index);
+            clone_subtree_field(&new_node->data.array_access_expr.subscript,
+                                 old_node->data.array_access_expr.subscript, next_node_index);
             break;
         case NodeTypeSliceExpr:
             clone_subtree_field(&new_node->data.slice_expr.array_ref_expr, old_node->data.slice_expr.array_ref_expr, next_node_index);

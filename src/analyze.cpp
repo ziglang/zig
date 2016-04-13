@@ -4564,7 +4564,7 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
     generic_fn_type_id->generic_param_count = actual_param_count;
     generic_fn_type_id->generic_params = allocate<GenericParamValue>(actual_param_count);
 
-    BlockContext *child_context = import->block_context;
+    BlockContext *child_context = decl_node->owner->block_context;
     for (int i = 0; i < actual_param_count; i += 1) {
         AstNode *generic_param_decl_node = decl_node->data.fn_proto.generic_params.at(i);
         assert(generic_param_decl_node->type == NodeTypeParamDecl);
