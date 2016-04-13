@@ -1491,6 +1491,21 @@ fn foo(x: i32) -> i32 {
             ".tmp_source.zig:3:1: error: function evaluation caused division by zero",
             ".tmp_source.zig:2:14: note: called from here",
             ".tmp_source.zig:4:7: note: division by zero here");
+
+    add_compile_fail_case("branch on undefined value", R"SOURCE(
+const x = if (undefined) true else false;
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: branch on undefined value");
+
+
+    add_compile_fail_case("endless loop in function evaluation", R"SOURCE(
+const seventh_fib_number = fibbonaci(7);
+fn fibbonaci(x: i32) -> i32 {
+    return fibbonaci(x - 1) + fibbonaci(x - 2);
+}
+    )SOURCE", 3,
+            ".tmp_source.zig:3:1: error: function evaluation exceeded 1000 branches",
+            ".tmp_source.zig:2:37: note: called from here",
+            ".tmp_source.zig:4:40: note: quota exceeded here");
 }
 
 //////////////////////////////////////////////////////////////////////////////

@@ -415,9 +415,7 @@ error err2;
 
 #attribute("test")
 fn fn_call_of_struct_field() {
-    if (call_struct_field(Foo {.ptr = a_func,}) != 13) {
-        unreachable{};
-    }
+    assert(call_struct_field(Foo {.ptr = a_func,}) == 13);
 }
 
 struct Foo {
@@ -909,5 +907,57 @@ struct MemberFnRand {
     seed: u32,
     pub fn get_seed(r: MemberFnRand) -> u32 {
         r.seed
+    }
+}
+
+#attribute("test")
+fn static_function_evaluation() {
+    assert(statically_added_number == 3);
+}
+const statically_added_number = static_add(1, 2);
+fn static_add(a: i32, b: i32) -> i32 { a + b }
+
+
+#attribute("test")
+fn statically_initalized_list() {
+    assert(static_point_list[0].x == 1);
+    assert(static_point_list[0].y == 2);
+    assert(static_point_list[1].x == 3);
+    assert(static_point_list[1].y == 4);
+}
+struct Point {
+    x: i32,
+    y: i32,
+}
+const static_point_list = []Point { make_point(1, 2), make_point(3, 4) };
+fn make_point(x: i32, y: i32) -> Point {
+    return Point {
+        .x = x,
+        .y = y,
+    };
+}
+
+
+#attribute("test")
+fn static_eval_recursive() {
+    assert(seventh_fib_number == 21);
+}
+const seventh_fib_number = fibbonaci(7);
+fn fibbonaci(x: i32) -> i32 {
+    if (x <= 1) return 1;
+    return fibbonaci(x - 1) + fibbonaci(x - 2);
+}
+
+#attribute("test")
+fn static_eval_while() {
+    assert(static_eval_while_number == 1);
+}
+const static_eval_while_number = static_while_loop_1();
+fn static_while_loop_1() -> i32 {
+    return while_loop_2();
+}
+fn static_while_loop_2() -> i32 {
+    while (true) {
+        return 1;
     }
 }

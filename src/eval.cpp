@@ -713,7 +713,9 @@ static bool eval_fn_call_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val
     }
 
     if (!fn_table_entry) {
-        zig_panic("TODO");
+        ConstExprValue fn_val = {0};
+        if (eval_expr(ef, fn_ref_expr, &fn_val)) return true;
+        fn_table_entry = fn_val.data.x_fn;
     }
 
     int param_count = node->data.fn_call_expr.params.length;

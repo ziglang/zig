@@ -4504,28 +4504,23 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
     }
 
     FnTableEntry *fn_table_entry = node->data.fn_call_expr.fn_entry;
-    if (ok_invocation && fn_table_entry && fn_table_entry->is_pure && all_args_const_expr) {
+    if (ok_invocation && fn_table_entry && fn_table_entry->is_pure) {
         if (fn_table_entry->anal_state == FnAnalStateReady) {
             analyze_fn_body(g, fn_table_entry);
-        } else if (fn_table_entry->anal_state == FnAnalStateProbing) {
-            mark_impure_fn(context);
         }
-        if (fn_table_entry->is_pure) {
-            if (fn_table_entry->anal_state == FnAnalStateComplete) {
+        if (all_args_const_expr) {
+            if (fn_table_entry->is_pure && fn_table_entry->anal_state == FnAnalStateComplete) {
                 ConstExprValue *result_val = &get_resolved_expr(node)->const_val;
                 if (eval_fn(g, node, fn_table_entry, result_val, 1000, struct_node)) {
                     // function evaluation generated an error
                     return g->builtin_types.entry_invalid;
                 }
                 return return_type;
-            } else if (fn_table_entry->anal_state == FnAnalStateSkipped) {
-                return g->builtin_types.entry_invalid;
             }
-        } else {
-            // calling an impure fn is impure
-            mark_impure_fn(context);
         }
-    } else {
+    }
+    if (!ok_invocation || !fn_table_entry || !fn_table_entry->is_pure) {
+        // calling an impure fn is impure
         mark_impure_fn(context);
     }
 
