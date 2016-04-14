@@ -7,6 +7,7 @@ pub struct Rand {
     index: isize,
 
     /// Initialize random state with the given seed.
+    #static_eval_enable(false)
     pub fn init(seed: u32) -> Rand {
         var r: Rand = undefined;
         r.index = 0;

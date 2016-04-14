@@ -496,8 +496,8 @@ struct AstNodeWhileExpr {
 };
 
 struct AstNodeForExpr {
-    AstNode *elem_node; // always a symbol
     AstNode *array_expr;
+    AstNode *elem_node; // always a symbol
     AstNode *index_node; // always a symbol, might be null
     AstNode *body;
 
@@ -960,6 +960,7 @@ struct TypeTableEntry {
     LLVMZigDIType *di_type;
 
     bool zero_bits;
+    bool deep_const;
 
     union {
         TypeTableEntryPointer pointer;
@@ -1005,6 +1006,13 @@ struct ImportTableEntry {
     ZigList<AstNode *> use_decls;
 };
 
+enum FnAnalState {
+    FnAnalStateReady,
+    FnAnalStateProbing,
+    FnAnalStateComplete,
+    FnAnalStateSkipped,
+};
+
 struct FnTableEntry {
     LLVMValueRef fn_value;
     AstNode *proto_node;
@@ -1019,12 +1027,41 @@ struct FnTableEntry {
     bool internal_linkage;
     bool is_extern;
     bool is_test;
+    bool is_pure;
     BlockContext *parent_block_context;
+    FnAnalState anal_state;
 
     ZigList<AstNode *> cast_alloca_list;
     ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
     ZigList<VariableTableEntry *> variable_list;
     ZigList<AstNode *> goto_list;
+};
+
+struct EvalVar {
+    Buf *name;
+    ConstExprValue value;
+};
+
+struct EvalScope {
+    BlockContext *block_context;
+    ZigList<EvalVar> vars;
+};
+
+struct EvalFnRoot {
+    CodeGen *codegen;
+    FnTableEntry *fn;
+    AstNode *call_node;
+    int branch_quota;
+    int branches_used;
+    AstNode *exceeded_quota_node;
+    bool abort;
+};
+
+struct EvalFn {
+    EvalFnRoot *root;
+    FnTableEntry *fn;
+    ConstExprValue *return_expr;
+    ZigList<EvalScope*> scope_stack;
 };
 
 enum BuiltinFnId {

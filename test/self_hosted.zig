@@ -123,18 +123,18 @@ fn short_circuit() {
     var hit_3 = false;
     var hit_4 = false;
 
-    if (true || { assert(false); false }) {
+    if (true || {assert_runtime(false); false}) {
         hit_1 = true;
     }
     if (false || { hit_2 = true; false }) {
-        assert(false);
+        assert_runtime(false);
     }
 
     if (true && { hit_3 = true; false }) {
-        %%io.stdout.printf("BAD 3\n");
+        assert_runtime(false);
     }
-    if (false && { assert(false); false }) {
-        assert(false);
+    if (false && {assert_runtime(false); false}) {
+        assert_runtime(false);
     } else {
         hit_4 = true;
     }
@@ -142,6 +142,11 @@ fn short_circuit() {
     assert(hit_2);
     assert(hit_3);
     assert(hit_4);
+}
+
+#static_eval_enable(false)
+fn assert_runtime(b: bool) {
+    if (!b) unreachable{}
 }
 
 #attribute("test")
@@ -410,9 +415,7 @@ error err2;
 
 #attribute("test")
 fn fn_call_of_struct_field() {
-    if (call_struct_field(Foo {.ptr = a_func,}) != 13) {
-        unreachable{};
-    }
+    assert(call_struct_field(Foo {.ptr = a_func,}) == 13);
 }
 
 struct Foo {
@@ -509,6 +512,7 @@ enum Fruit {
     Orange,
     Banana,
 }
+#static_eval_enable(false)
 fn non_const_switch_on_enum(fruit: Fruit) {
     switch (fruit) {
         Apple => unreachable{},
@@ -521,6 +525,7 @@ fn non_const_switch_on_enum(fruit: Fruit) {
 fn switch_statement() {
     non_const_switch(SwitchStatmentFoo.C);
 }
+#static_eval_enable(false)
 fn non_const_switch(foo: SwitchStatmentFoo) {
     const val: i32 = switch (foo) {
         A => 1,
@@ -549,6 +554,7 @@ enum SwitchProngWithVarEnum {
     Two: f32,
     Meh,
 }
+#static_eval_enable(false)
 fn switch_prong_with_var_fn(a: SwitchProngWithVarEnum) {
     switch(a) {
         One => |x| {
@@ -569,6 +575,7 @@ fn err_return_in_assignment() {
     %%do_err_return_in_assignment();
 }
 
+#static_eval_enable(false)
 fn do_err_return_in_assignment() -> %void {
     var x : i32 = undefined;
     x = %return make_a_non_err();
@@ -608,7 +615,7 @@ fn explicit_cast_maybe_pointers() {
 
 #attribute("test")
 fn const_expr_eval_on_single_expr_blocks() {
-    if (const_expr_eval_on_single_expr_blocks_fn(1, true) != 3) unreachable{}
+    assert(const_expr_eval_on_single_expr_blocks_fn(1, true) == 3);
 }
 
 fn const_expr_eval_on_single_expr_blocks_fn(x: i32, b: bool) -> i32 {
@@ -736,6 +743,7 @@ fn generic_malloc_free() {
     mem_free(u8)(a);
 }
 const some_mem : [100]u8 = undefined;
+#static_eval_enable(false)
 fn mem_alloc(T: type)(n: isize) -> %[]T {
     return (&T)(&some_mem[0])[0...n];
 }
@@ -789,6 +797,7 @@ var goto_counter: i32 = 0;
 fn goto_leave_defer_scope() {
     test_goto_leave_defer_scope(true);
 }
+#static_eval_enable(false)
 fn test_goto_leave_defer_scope(b: bool) {
     var it_worked = false;
 
@@ -820,3 +829,160 @@ fn cast_small_unsigned_to_larger_signed() {
 }
 fn cast_small_unsigned_to_larger_signed_1(x: u8) -> i16 { x }
 fn cast_small_unsigned_to_larger_signed_2(x: u16) -> isize { x }
+
+
+#attribute("test")
+fn implicit_cast_after_unreachable() {
+    assert(outer() == 1234);
+}
+fn inner() -> i32 { 1234 }
+fn outer() -> isize {
+    return inner();
+}
+
+
+#attribute("test")
+fn else_if_expression() {
+    assert(else_if_expression_f(1) == 1);
+}
+fn else_if_expression_f(c: u8) -> u8 {
+    if (c == 0) {
+        0
+    } else if (c == 1) {
+        1
+    } else {
+        2
+    }
+}
+
+#attribute("test")
+fn err_binary_operator() {
+    const a = err_binary_operator_g(true) %% 3;
+    const b = err_binary_operator_g(false) %% 3;
+    assert(a == 3);
+    assert(b == 10);
+}
+error ItBroke;
+fn err_binary_operator_g(x: bool) -> %isize {
+    if (x) {
+        error.ItBroke
+    } else {
+        10
+    }
+}
+
+#attribute("test")
+fn unwrap_simple_value_from_error() {
+    const i = %%unwrap_simple_value_from_error_do();
+    assert(i == 13);
+}
+fn unwrap_simple_value_from_error_do() -> %isize { 13 }
+
+
+#attribute("test")
+fn store_member_function_in_variable() {
+    const instance = MemberFnTestFoo { .x = 1234, };
+    const member_fn = MemberFnTestFoo.member;
+    const result = member_fn(instance);
+    assert(result == 1234);
+}
+struct MemberFnTestFoo {
+    x: i32,
+    fn member(foo: MemberFnTestFoo) -> i32 { foo.x }
+}
+
+#attribute("test")
+fn call_member_function_directly() {
+    const instance = MemberFnTestFoo { .x = 1234, };
+    const result = MemberFnTestFoo.member(instance);
+    assert(result == 1234);
+}
+
+#attribute("test")
+fn member_functions() {
+    const r = MemberFnRand {.seed = 1234};
+    assert(r.get_seed() == 1234);
+}
+struct MemberFnRand {
+    seed: u32,
+    pub fn get_seed(r: MemberFnRand) -> u32 {
+        r.seed
+    }
+}
+
+#attribute("test")
+fn static_function_evaluation() {
+    assert(statically_added_number == 3);
+}
+const statically_added_number = static_add(1, 2);
+fn static_add(a: i32, b: i32) -> i32 { a + b }
+
+
+#attribute("test")
+fn statically_initalized_list() {
+    assert(static_point_list[0].x == 1);
+    assert(static_point_list[0].y == 2);
+    assert(static_point_list[1].x == 3);
+    assert(static_point_list[1].y == 4);
+}
+struct Point {
+    x: i32,
+    y: i32,
+}
+const static_point_list = []Point { make_point(1, 2), make_point(3, 4) };
+fn make_point(x: i32, y: i32) -> Point {
+    return Point {
+        .x = x,
+        .y = y,
+    };
+}
+
+
+#attribute("test")
+fn static_eval_recursive() {
+    assert(seventh_fib_number == 21);
+}
+const seventh_fib_number = fibbonaci(7);
+fn fibbonaci(x: i32) -> i32 {
+    if (x <= 1) return 1;
+    return fibbonaci(x - 1) + fibbonaci(x - 2);
+}
+
+#attribute("test")
+fn static_eval_while() {
+    assert(static_eval_while_number == 1);
+}
+const static_eval_while_number = static_while_loop_1();
+fn static_while_loop_1() -> i32 {
+    return while_loop_2();
+}
+fn static_while_loop_2() -> i32 {
+    while (true) {
+        return 1;
+    }
+}
+
+#attribute("test")
+fn static_eval_list_init() {
+    assert(static_vec3.data[2] == 1.0);
+}
+const static_vec3 = vec3(0.0, 0.0, 1.0);
+pub struct Vec3 {
+    data: [3]f32,
+}
+pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
+    Vec3 {
+        .data = []f32 { x, y, z, },
+    }
+}
+
+
+#attribute("test")
+fn generic_fn_with_implicit_cast() {
+    assert(get_first_byte(u8)([]u8 {13}) == 13);
+    assert(get_first_byte(u16)([]u16 {0, 13}) == 0);
+}
+fn get_byte(ptr: ?&u8) -> u8 {*??ptr}
+fn get_first_byte(T: type)(mem: []T) -> u8 {
+    get_byte((&u8)(&mem[0]))
+}

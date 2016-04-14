@@ -326,9 +326,9 @@ static void render_node(AstRender *ar, AstNode *node) {
                 AstNode *statement = node->data.block.statements.at(i);
                 print_indent(ar);
                 render_node(ar, statement);
+                fprintf(ar->f, ";\n");
             }
             ar->indent -= ar->indent_size;
-            fprintf(ar->f, "\n");
             print_indent(ar);
             fprintf(ar->f, "}");
             break;
@@ -438,7 +438,11 @@ static void render_node(AstRender *ar, AstNode *node) {
             fprintf(ar->f, ")");
             break;
         case NodeTypeArrayAccessExpr:
-            zig_panic("TODO");
+            render_node(ar, node->data.array_access_expr.array_ref_expr);
+            fprintf(ar->f, "[");
+            render_node(ar, node->data.array_access_expr.subscript);
+            fprintf(ar->f, "]");
+            break;
         case NodeTypeSliceExpr:
             zig_panic("TODO");
         case NodeTypeFieldAccessExpr:

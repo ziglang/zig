@@ -218,6 +218,7 @@ pub fn bar_function() {
         )SOURCE");
 
         add_source_file(tc, "other.zig", R"SOURCE(
+#static_eval_enable(false)
 pub fn foo_function() -> bool {
     // this one conflicts with the one from foo
     return true;
@@ -406,20 +407,6 @@ pub fn main(args: [][]u8) -> %void {
 }
     )SOURCE", "loop\nloop\nloop\nloop\n");
 
-    add_simple_case("implicit cast after unreachable", R"SOURCE(
-const io = @import("std").io;
-pub fn main(args: [][]u8) -> %void {
-    const x = outer();
-    if (x == 1234) {
-        %%io.stdout.printf("OK\n");
-    }
-}
-fn inner() -> i32 { 1234 }
-fn outer() -> isize {
-    return inner();
-}
-    )SOURCE", "OK\n");
-
     add_simple_case("@sizeof() and @typeof()", R"SOURCE(
 const io = @import("std").io;
 const x: u16 = 13;
@@ -430,23 +417,6 @@ pub fn main(args: [][]u8) -> %void {
     %%io.stdout.printf("\n");
 }
     )SOURCE", "2\n");
-
-    add_simple_case("member functions", R"SOURCE(
-const io = @import("std").io;
-struct Rand {
-    seed: u32,
-    pub fn get_seed(r: Rand) -> u32 {
-        r.seed
-    }
-}
-pub fn main(args: [][]u8) -> %void {
-    const r = Rand {.seed = 1234};
-    if (r.get_seed() != 1234) {
-        %%io.stdout.printf("BAD seed\n");
-    }
-    %%io.stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
 
     add_simple_case("pointer dereferencing", R"SOURCE(
 const io = @import("std").io;
@@ -564,24 +534,6 @@ pub fn main(args: [][]u8) -> %void {
         "min i32: -2147483648\n"
         "min i64: -9223372036854775808\n");
 
-
-    add_simple_case("else if expression", R"SOURCE(
-const io = @import("std").io;
-pub fn main(args: [][]u8) -> %void {
-    if (f(1) == 1) {
-        %%io.stdout.printf("OK\n");
-    }
-}
-fn f(c: u8) -> u8 {
-    if (c == 0) {
-        0
-    } else if (c == 1) {
-        1
-    } else {
-        2
-    }
-}
-    )SOURCE", "OK\n");
 
     add_simple_case("overflow intrinsics", R"SOURCE(
 const io = @import("std").io;
@@ -730,29 +682,6 @@ pub fn main(args: [][]u8) -> %void {
 }
     )SOURCE", "OK\n");
 
-    add_simple_case("%% binary operator", R"SOURCE(
-const io = @import("std").io;
-error ItBroke;
-fn g(x: bool) -> %isize {
-    if (x) {
-        error.ItBroke
-    } else {
-        10
-    }
-}
-pub fn main(args: [][]u8) -> %void {
-    const a = g(true) %% 3;
-    const b = g(false) %% 3;
-    if (a != 3) {
-        %%io.stdout.printf("BAD\n");
-    }
-    if (b != 10) {
-        %%io.stdout.printf("BAD\n");
-    }
-    %%io.stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
     add_simple_case("string concatenation", R"SOURCE(
 const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
@@ -805,54 +734,6 @@ fn f() -> &void {
 pub fn main(args: [][]u8) -> %void {
     const a = f();
     return *a;
-}
-    )SOURCE", "OK\n");
-
-    add_simple_case("unwrap simple value from error", R"SOURCE(
-const io = @import("std").io;
-fn do() -> %isize {
-    13
-}
-
-pub fn main(args: [][]u8) -> %void {
-    const i = %%do();
-    if (i != 13) {
-        %%io.stdout.printf("BAD\n");
-    }
-    %%io.stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
-    add_simple_case("store member function in variable", R"SOURCE(
-const io = @import("std").io;
-struct Foo {
-    x: i32,
-    fn member(foo: Foo) -> i32 { foo.x }
-}
-pub fn main(args: [][]u8) -> %void {
-    const instance = Foo { .x = 1234, };
-    const member_fn = Foo.member;
-    const result = member_fn(instance);
-    if (result != 1234) {
-        %%io.stdout.printf("BAD\n");
-    }
-    %%io.stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
-
-    add_simple_case("call member function directly", R"SOURCE(
-const io = @import("std").io;
-struct Foo {
-    x: i32,
-    fn member(foo: Foo) -> i32 { foo.x }
-}
-pub fn main(args: [][]u8) -> %void {
-    const instance = Foo { .x = 1234, };
-    const result = Foo.member(instance);
-    if (result != 1234) {
-        %%io.stdout.printf("BAD\n");
-    }
-    %%io.stdout.printf("OK\n");
 }
     )SOURCE", "OK\n");
 
@@ -1496,7 +1377,8 @@ fn a(x: i32) {
 struct Foo {
     y: [get()]u8,
 }
-fn get() -> isize { 1 }
+var global_var: isize = 1;
+fn get() -> isize { global_var }
     )SOURCE", 1, ".tmp_source.zig:3:9: error: unable to evaluate constant expression");
 
 
@@ -1599,6 +1481,31 @@ fn foo() {
     const pointer = &array[0];
 }
     )SOURCE", 1, ".tmp_source.zig:4:27: error: out of bounds array access");
+
+    add_compile_fail_case("compile time division by zero", R"SOURCE(
+const x = foo(0);
+fn foo(x: i32) -> i32 {
+    1 / x
+}
+    )SOURCE", 3,
+            ".tmp_source.zig:3:1: error: function evaluation caused division by zero",
+            ".tmp_source.zig:2:14: note: called from here",
+            ".tmp_source.zig:4:7: note: division by zero here");
+
+    add_compile_fail_case("branch on undefined value", R"SOURCE(
+const x = if (undefined) true else false;
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: branch on undefined value");
+
+
+    add_compile_fail_case("endless loop in function evaluation", R"SOURCE(
+const seventh_fib_number = fibbonaci(7);
+fn fibbonaci(x: i32) -> i32 {
+    return fibbonaci(x - 1) + fibbonaci(x - 2);
+}
+    )SOURCE", 3,
+            ".tmp_source.zig:3:1: error: function evaluation exceeded 1000 branches",
+            ".tmp_source.zig:2:37: note: called from here",
+            ".tmp_source.zig:4:40: note: quota exceeded here");
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1760,7 +1667,7 @@ extern void (*fn_ptr)(void);
     )SOURCE", 2,
             "pub extern var fn_ptr: ?extern fn();",
             R"SOURCE(pub inline fn foo() {
-    (??fn_ptr)()
+    (??fn_ptr)();
 })SOURCE");
 
 

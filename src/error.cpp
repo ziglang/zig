@@ -12,6 +12,8 @@ const char *err_str(int err) {
         case ErrorFileNotFound: return "file not found";
         case ErrorFileSystem: return "file system error";
         case ErrorFileTooBig: return "file too big";
+        case ErrorDivByZero: return "division by zero";
+        case ErrorOverflow: return "overflow";
     }
     return "(invalid error)";
 }

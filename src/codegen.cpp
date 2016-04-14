@@ -1074,15 +1074,12 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
 
     AstNode *struct_expr = node->data.field_access_expr.struct_expr;
     TypeTableEntry *struct_type = get_expr_type(struct_expr);
-    Buf *name = &node->data.field_access_expr.field_name;
 
     if (struct_type->id == TypeTableEntryIdArray) {
-        if (buf_eql_str(name, "len")) {
-            return LLVMConstInt(g->builtin_types.entry_isize->type_ref,
-                    struct_type->data.array.len, false);
-        } else {
-            zig_panic("gen_field_access_expr bad array field");
-        }
+        Buf *name = &node->data.field_access_expr.field_name;
+        assert(buf_eql_str(name, "len"));
+        return LLVMConstInt(g->builtin_types.entry_isize->type_ref,
+                struct_type->data.array.len, false);
     } else if (struct_type->id == TypeTableEntryIdStruct || (struct_type->id == TypeTableEntryIdPointer &&
                struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct))
     {
@@ -3036,6 +3033,7 @@ static void gen_const_globals(CodeGen *g) {
         } else {
             expr->const_llvm_val = gen_const_val(g, type_entry, const_val);
         }
+        assert(expr->const_llvm_val);
     }
 }
 
@@ -3466,23 +3464,27 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNamespace);
         buf_init_from_str(&entry->name, "(namespace)");
         entry->zero_bits = true;
+        entry->deep_const = true;
         g->builtin_types.entry_namespace = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumLitFloat);
         buf_init_from_str(&entry->name, "(float literal)");
         entry->zero_bits = true;
+        entry->deep_const = true;
         g->builtin_types.entry_num_lit_float = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumLitInt);
         buf_init_from_str(&entry->name, "(integer literal)");
         entry->zero_bits = true;
+        entry->deep_const = true;
         g->builtin_types.entry_num_lit_int = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUndefLit);
         buf_init_from_str(&entry->name, "(undefined)");
+        entry->deep_const = true;
         g->builtin_types.entry_undef = entry;
     }
 
@@ -3492,6 +3494,7 @@ static void define_builtin_types(CodeGen *g) {
         for (;;) {
             TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
             entry->type_ref = LLVMIntType(size_in_bits);
+            entry->deep_const = true;
 
             const char u_or_i = is_signed ? 'i' : 'u';
             buf_resize(&entry->name, 0);
@@ -3537,6 +3540,7 @@ static void define_builtin_types(CodeGen *g) {
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMIntType(size_in_bits);
+        entry->deep_const = true;
 
         buf_init_from_str(&entry->name, info->name);
 
@@ -3556,6 +3560,7 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBool);
         entry->type_ref = LLVMInt1Type();
+        entry->deep_const = true;
         buf_init_from_str(&entry->name, "bool");
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
@@ -3568,6 +3573,7 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->deep_const = true;
         entry->type_ref = LLVMIntType(g->pointer_size_bytes * 8);
         buf_init_from_str(&entry->name, "isize");
         entry->data.integral.is_signed = true;
@@ -3584,6 +3590,7 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->deep_const = true;
         entry->type_ref = LLVMIntType(g->pointer_size_bytes * 8);
         buf_init_from_str(&entry->name, "usize");
         entry->data.integral.is_signed = false;
@@ -3600,6 +3607,7 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
+        entry->deep_const = true;
         entry->type_ref = LLVMFloatType();
         buf_init_from_str(&entry->name, "f32");
         entry->data.floating.bit_count = 32;
@@ -3615,6 +3623,7 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
+        entry->deep_const = true;
         entry->type_ref = LLVMDoubleType();
         buf_init_from_str(&entry->name, "f64");
         entry->data.floating.bit_count = 64;
@@ -3630,6 +3639,7 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
+        entry->deep_const = true;
         entry->type_ref = LLVMX86FP80Type();
         buf_init_from_str(&entry->name, "c_long_double");
         entry->data.floating.bit_count = 80;
@@ -3645,6 +3655,7 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);
+        entry->deep_const = true;
         entry->type_ref = LLVMVoidType();
         entry->zero_bits = true;
         buf_init_from_str(&entry->name, "void");
@@ -3657,6 +3668,7 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUnreachable);
+        entry->deep_const = true;
         entry->type_ref = LLVMVoidType();
         entry->zero_bits = true;
         buf_init_from_str(&entry->name, "unreachable");
@@ -3666,6 +3678,7 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMetaType);
+        entry->deep_const = true;
         buf_init_from_str(&entry->name, "type");
         entry->zero_bits = true;
         g->builtin_types.entry_type = entry;
@@ -3688,6 +3701,7 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPureError);
+        entry->deep_const = true;
         buf_init_from_str(&entry->name, "error");
 
         // TODO allow overriding this type and keep track of max value and emit an
@@ -3703,6 +3717,7 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
+        entry->deep_const = true;
         entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "@OS");
         uint32_t field_count = target_os_count();
@@ -3728,6 +3743,7 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
+        entry->deep_const = true;
         entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "@Arch");
         uint32_t field_count = target_arch_count();
@@ -3759,6 +3775,7 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
+        entry->deep_const = true;
         entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "@Environ");
         uint32_t field_count = target_environ_count();

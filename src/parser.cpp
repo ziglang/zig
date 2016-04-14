@@ -2927,6 +2927,7 @@ static void clone_subtree_list(ZigList<AstNode *> *dest, ZigList<AstNode *> *src
     dest->resize(src->length);
     for (int i = 0; i < src->length; i += 1) {
         dest->at(i) = ast_clone_subtree(src->at(i), next_node_index);
+        dest->at(i)->parent_field = &dest->at(i);
     }
 }
 
@@ -2958,11 +2959,12 @@ AstNode *ast_clone_subtree(AstNode *old_node, uint32_t *next_node_index) {
     memcpy(new_node, old_node, sizeof(AstNode));
     new_node->create_index = *next_node_index;
     *next_node_index += 1;
+    new_node->parent_field = nullptr;
 
     switch (new_node->type) {
         case NodeTypeRoot:
-            clone_subtree_list(&new_node->data.root.top_level_decls, &old_node->data.root.top_level_decls,
-                    next_node_index);
+            clone_subtree_list(&new_node->data.root.top_level_decls,
+                               &old_node->data.root.top_level_decls, next_node_index);
             break;
         case NodeTypeFnProto:
             clone_subtree_tld(&new_node->data.fn_proto.top_level_decl, &old_node->data.fn_proto.top_level_decl,
@@ -3036,15 +3038,21 @@ AstNode *ast_clone_subtree(AstNode *old_node, uint32_t *next_node_index) {
             // none
             break;
         case NodeTypePrefixOpExpr:
-            clone_subtree_field(&new_node->data.prefix_op_expr.primary_expr, old_node->data.prefix_op_expr.primary_expr, next_node_index);
+            clone_subtree_field(&new_node->data.prefix_op_expr.primary_expr,
+                                 old_node->data.prefix_op_expr.primary_expr, next_node_index);
             break;
         case NodeTypeFnCallExpr:
-            clone_subtree_field(&new_node->data.fn_call_expr.fn_ref_expr, old_node->data.fn_call_expr.fn_ref_expr, next_node_index);
-            clone_subtree_list(&new_node->data.fn_call_expr.params, &old_node->data.fn_call_expr.params, next_node_index);
+            assert(!old_node->data.fn_call_expr.resolved_expr.has_global_const);
+            clone_subtree_field(&new_node->data.fn_call_expr.fn_ref_expr,
+                                 old_node->data.fn_call_expr.fn_ref_expr, next_node_index);
+            clone_subtree_list(&new_node->data.fn_call_expr.params,
+                               &old_node->data.fn_call_expr.params, next_node_index);
             break;
         case NodeTypeArrayAccessExpr:
-            clone_subtree_field(&new_node->data.array_access_expr.array_ref_expr, old_node->data.array_access_expr.array_ref_expr, next_node_index);
-            clone_subtree_field(&new_node->data.array_access_expr.subscript, old_node->data.array_access_expr.subscript, next_node_index);
+            clone_subtree_field(&new_node->data.array_access_expr.array_ref_expr,
+                                 old_node->data.array_access_expr.array_ref_expr, next_node_index);
+            clone_subtree_field(&new_node->data.array_access_expr.subscript,
+                                 old_node->data.array_access_expr.subscript, next_node_index);
             break;
         case NodeTypeSliceExpr:
             clone_subtree_field(&new_node->data.slice_expr.array_ref_expr, old_node->data.slice_expr.array_ref_expr, next_node_index);
