@@ -986,3 +986,183 @@ fn get_byte(ptr: ?&u8) -> u8 {*??ptr}
 fn get_first_byte(T: type)(mem: []T) -> u8 {
     get_byte((&u8)(&mem[0]))
 }
+
+#attribute("test")
+fn continue_and_break() {
+    run_continue_and_break_test();
+    assert(continue_and_break_counter == 8);
+}
+var continue_and_break_counter: i32 = 0;
+fn run_continue_and_break_test() {
+    var i : i32 = 0;
+    while (true) {
+        continue_and_break_counter += 2;
+        i += 1;
+        if (i < 4) {
+            continue;
+        }
+        break;
+    }
+    assert(i == 4);
+}
+
+#attribute("test")
+fn sizeof_and_typeof() {
+    const y: @typeof(sizeof_and_typeof_x) = 120;
+    assert(@sizeof(@typeof(y)) == 2);
+}
+const sizeof_and_typeof_x: u16 = 13;
+const sizeof_and_typeof_z: @typeof(sizeof_and_typeof_x) = 19;
+
+
+#attribute("test")
+fn pointer_dereferencing() {
+    var x = i32(3);
+    const y = &x;
+
+    *y += 1;
+
+    assert(x == 4);
+    assert(*y == 4);
+}
+
+#attribute("test")
+fn constant_expressions() {
+    var array : [ARRAY_SIZE]u8 = undefined;
+    assert(@sizeof(@typeof(array)) == 20);
+}
+const ARRAY_SIZE : i8 = 20;
+
+
+#attribute("test")
+fn min_value_and_max_value() {
+    assert(@max_value(u8) == 255);
+    assert(@max_value(u16) == 65535);
+    assert(@max_value(u32) == 4294967295);
+    assert(@max_value(u64) == 18446744073709551615);
+
+    assert(@max_value(i8) == 127);
+    assert(@max_value(i16) == 32767);
+    assert(@max_value(i32) == 2147483647);
+    assert(@max_value(i64) == 9223372036854775807);
+
+    assert(@min_value(u8) == 0);
+    assert(@min_value(u16) == 0);
+    assert(@min_value(u32) == 0);
+    assert(@min_value(u64) == 0);
+
+    assert(@min_value(i8) == -128);
+    assert(@min_value(i16) == -32768);
+    assert(@min_value(i32) == -2147483648);
+    assert(@min_value(i64) == -9223372036854775808);
+}
+
+#attribute("test")
+fn overflow_intrinsics() {
+    var result: u8 = undefined;
+    assert(@add_with_overflow(u8, 250, 100, &result));
+    assert(!@add_with_overflow(u8, 100, 150, &result));
+    assert(result == 250);
+}
+
+
+#attribute("test")
+fn nested_arrays() {
+    const array_of_strings = [][]u8 {"hello", "this", "is", "my", "thing"};
+    for (array_of_strings) |str, i| {
+        if (i == 0) assert(str_eql(str, "hello"));
+        if (i == 1) assert(str_eql(str, "this"));
+        if (i == 2) assert(str_eql(str, "is"));
+        if (i == 3) assert(str_eql(str, "my"));
+        if (i == 4) assert(str_eql(str, "thing"));
+    }
+}
+
+#attribute("test")
+fn int_to_ptr_cast() {
+    const x = isize(13);
+    const y = (&u8)(x);
+    const z = usize(y);
+    assert(z == 13);
+}
+
+#attribute("test")
+fn string_concatenation() {
+    assert(str_eql("OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
+}
+
+#attribute("test")
+fn constant_struct_with_negation() {
+    assert(vertices[0].x == -0.6);
+}
+struct Vertex {
+    x: f32,
+    y: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+}
+const vertices = []Vertex {
+    Vertex { .x = -0.6, .y = -0.4, .r = 1.0, .g = 0.0, .b = 0.0 },
+    Vertex { .x =  0.6, .y = -0.4, .r = 0.0, .g = 1.0, .b = 0.0 },
+    Vertex { .x =  0.0, .y =  0.6, .r = 0.0, .g = 0.0, .b = 1.0 },
+};
+
+
+#attribute("test")
+fn return_with_implicit_cast_from_while_loop() {
+    %%return_with_implicit_cast_from_while_loop_test();
+}
+fn return_with_implicit_cast_from_while_loop_test() -> %void {
+    while (true) {
+        return;
+    }
+}
+
+#attribute("test")
+fn return_struct_byval_from_function() {
+    const bar = make_bar(1234, 5678);
+    assert(bar.y == 5678);
+}
+struct Bar {
+    x: i32,
+    y: i32,
+}
+fn make_bar(x: i32, y: i32) -> Bar {
+    Bar {
+        .x = x,
+        .y = y,
+    }
+}
+
+#attribute("test")
+fn function_pointers() {
+    const fns = []@typeof(fn1) { fn1, fn2, fn3, fn4, };
+    for (fns) |f, i| {
+        assert(f() == u32(i) + 5);
+    }
+}
+fn fn1() -> u32 {5}
+fn fn2() -> u32 {6}
+fn fn3() -> u32 {7}
+fn fn4() -> u32 {8}
+
+
+
+#attribute("test")
+fn statically_initalized_struct() {
+    st_init_str_foo.x += 1;
+    assert(st_init_str_foo.x == 14);
+}
+struct StInitStrFoo {
+    x: i32,
+    y: bool,
+}
+var st_init_str_foo = StInitStrFoo { .x = 13, .y = true, };
+
+#attribute("test")
+fn statically_initialized_array_literal() {
+    const y : [4]u8 = st_init_arr_lit_x;
+    assert(y[3] == 4);
+}
+const st_init_arr_lit_x = []u8{1,2,3,4};

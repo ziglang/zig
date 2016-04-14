@@ -1228,6 +1228,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
                     } else {
                         err_val = expr_val;
                     }
+                    add_debug_source_node(g, node);
                     LLVMValueRef zero = LLVMConstNull(g->err_tag_type->type_ref);
                     LLVMValueRef cond_val = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, zero, "");
                     LLVMBasicBlockRef err_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "UnwrapErrError");
