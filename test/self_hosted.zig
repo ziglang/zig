@@ -975,3 +975,14 @@ pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
         .data = []f32 { x, y, z, },
     }
 }
+
+
+#attribute("test")
+fn generic_fn_with_implicit_cast() {
+    assert(get_first_byte(u8)([]u8 {13}) == 13);
+    assert(get_first_byte(u16)([]u16 {0, 13}) == 0);
+}
+fn get_byte(ptr: ?&u8) -> u8 {*??ptr}
+fn get_first_byte(T: type)(mem: []T) -> u8 {
+    get_byte((&u8)(&mem[0]))
+}

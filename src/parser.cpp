@@ -2927,6 +2927,7 @@ static void clone_subtree_list(ZigList<AstNode *> *dest, ZigList<AstNode *> *src
     dest->resize(src->length);
     for (int i = 0; i < src->length; i += 1) {
         dest->at(i) = ast_clone_subtree(src->at(i), next_node_index);
+        dest->at(i)->parent_field = &dest->at(i);
     }
 }
 
@@ -2958,11 +2959,12 @@ AstNode *ast_clone_subtree(AstNode *old_node, uint32_t *next_node_index) {
     memcpy(new_node, old_node, sizeof(AstNode));
     new_node->create_index = *next_node_index;
     *next_node_index += 1;
+    new_node->parent_field = nullptr;
 
     switch (new_node->type) {
         case NodeTypeRoot:
-            clone_subtree_list(&new_node->data.root.top_level_decls, &old_node->data.root.top_level_decls,
-                    next_node_index);
+            clone_subtree_list(&new_node->data.root.top_level_decls,
+                               &old_node->data.root.top_level_decls, next_node_index);
             break;
         case NodeTypeFnProto:
             clone_subtree_tld(&new_node->data.fn_proto.top_level_decl, &old_node->data.fn_proto.top_level_decl,

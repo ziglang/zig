@@ -1667,7 +1667,7 @@ extern void (*fn_ptr)(void);
     )SOURCE", 2,
             "pub extern var fn_ptr: ?extern fn();",
             R"SOURCE(pub inline fn foo() {
-    (??fn_ptr)()
+    (??fn_ptr)();
 })SOURCE");
 
 
