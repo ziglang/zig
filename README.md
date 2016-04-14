@@ -124,6 +124,3 @@ To fix this, you have 2 options:
 
  * IRC chat: `#zig` on Freenode.
  * Reddit: [/r/zig](https://www.reddit.com/r/zig)
-
-Zig is in its infancy. However one place you can gather to chat is the `#zig`
-IRC channel on Freenode.
