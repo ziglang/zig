@@ -9,10 +9,10 @@
  * **guess_number** - simple console game where you guess the number the
    computer is thinking of and it says higher or lower. No dependency on
    libc.
+ * **cat** - implementation of the `cat` UNIX utility in Zig, with no dependency
+   on libc.
 
 ## Work-In-Progress Examples
 
- * **cat** - implementation of the `cat` UNIX utility in Zig, with no dependency
-   on libc.
  * **shared_library** - demonstration of building a shared library and generating
    a header file and documentation for interop with C code.

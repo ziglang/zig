@@ -62,7 +62,6 @@ compromises backward compatibility.
  * Ability to declare dependencies as Git URLS with commit locking (can
    provide a tag or sha256).
  * Include documentation generator.
- * Shebang line OK so language can be used for "scripting" as well.
  * Compiler exposes itself as a library.
  * Support for all popular architectures and operating systems.
 
@@ -122,6 +121,9 @@ To fix this, you have 2 options:
  * Add `-DZIG_LLVM_OLD_CXX_ABI=yes` to the cmake configure line.
 
 ## Community
+
+ * IRC chat: `#zig` on Freenode.
+ * Reddit: [/r/zig](https://www.reddit.com/r/zig)
 
 Zig is in its infancy. However one place you can gather to chat is the `#zig`
 IRC channel on Freenode.
