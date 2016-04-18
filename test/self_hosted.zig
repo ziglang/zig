@@ -1166,3 +1166,39 @@ fn statically_initialized_array_literal() {
     assert(y[3] == 4);
 }
 const st_init_arr_lit_x = []u8{1,2,3,4};
+
+
+
+#attribute("test")
+fn pointer_to_void_return_type() {
+    %%test_pointer_to_void_return_type();
+}
+fn test_pointer_to_void_return_type() -> %void {
+    const a = test_pointer_to_void_return_type_2();
+    return *a;
+}
+const test_pointer_to_void_return_type_x = void{};
+fn test_pointer_to_void_return_type_2() -> &void {
+    return &test_pointer_to_void_return_type_x;
+}
+
+
+#attribute("test")
+fn call_result_of_if_else_expression() {
+    assert(str_eql(f2(true), "a"));
+    assert(str_eql(f2(false), "b"));
+}
+fn f2(x: bool) -> []u8 {
+    return (if (x) f_a else f_b)();
+}
+fn f_a() -> []u8 { "a" }
+fn f_b() -> []u8 { "b" }
+
+
+#attribute("test")
+fn const_expression_eval_handling_of_variables() {
+    var x = true;
+    while (x) {
+        x = false;
+    }
+}

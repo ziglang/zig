@@ -430,33 +430,6 @@ pub fn main(args: [][]u8) -> %void {
 }
     )SOURCE", "9\n8\n7\n6\n0\n1\n2\n3\n9\n8\n7\n6\n0\n1\n2\n3\n");
 
-    add_simple_case("pointer to void return type", R"SOURCE(
-const io = @import("std").io;
-const x = void{};
-fn f() -> &void {
-    %%io.stdout.printf("OK\n");
-    return &x;
-}
-pub fn main(args: [][]u8) -> %void {
-    const a = f();
-    return *a;
-}
-    )SOURCE", "OK\n");
-
-    add_simple_case("call result of if else expression", R"SOURCE(
-const io = @import("std").io;
-fn a() -> []u8 { "a\n" }
-fn b() -> []u8 { "b\n" }
-fn f(x: bool) {
-    %%io.stdout.printf((if (x) a else b)());
-}
-pub fn main(args: [][]u8) -> %void {
-    f(true);
-    f(false);
-}
-    )SOURCE", "a\nb\n");
-
-
     add_simple_case_libc("expose function pointer to C land", R"SOURCE(
 const c = @c_import(@c_include("stdlib.h"));
 
@@ -500,18 +473,6 @@ export fn main(argc: c_int, argv: &&u8) -> c_int {
     return 0;
 }
     )SOURCE", "3.25\n3\n3.00\n-0.40\n");
-
-
-    add_simple_case("const expression eval handling of variables", R"SOURCE(
-const io = @import("std").io;
-pub fn main(args: [][]u8) -> %void {
-    var x = true;
-    while (x) {
-        x = false;
-    }
-    %%io.stdout.printf("OK\n");
-}
-    )SOURCE", "OK\n");
 
 
     add_simple_case("incomplete struct parameter top level decl", R"SOURCE(
