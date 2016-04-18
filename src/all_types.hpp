@@ -1088,6 +1088,7 @@ enum BuiltinFnId {
     BuiltinFnIdCImport,
     BuiltinFnIdErrName,
     BuiltinFnIdBreakpoint,
+    BuiltinFnIdEmbedFile,
 };
 
 struct BuiltinFnEntry {

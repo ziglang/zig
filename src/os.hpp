@@ -18,9 +18,12 @@ void os_spawn_process(const char *exe, ZigList<const char *> &args, int *return_
 int os_exec_process(const char *exe, ZigList<const char *> &args,
         int *return_code, Buf *out_stderr, Buf *out_stdout);
 
+void os_path_dirname(Buf *full_path, Buf *out_dirname);
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename);
 void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path);
 int os_path_real(Buf *rel_path, Buf *out_abs_path);
+void os_path_resolve(Buf *ref_path, Buf *target_path, Buf *out_abs_path);
+bool os_path_is_absolute(Buf *path);
 
 void os_write_file(Buf *full_path, Buf *contents);
 

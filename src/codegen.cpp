@@ -507,6 +507,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdMaxValue:
         case BuiltinFnIdMemberCount:
         case BuiltinFnIdConstEval:
+        case BuiltinFnIdEmbedFile:
             // caught by constant expression eval codegen
             zig_unreachable();
         case BuiltinFnIdCompileVar:
@@ -3896,6 +3897,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdImport, "import", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCImport, "c_import", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdErrName, "err_name", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdEmbedFile, "embed_file", 1);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

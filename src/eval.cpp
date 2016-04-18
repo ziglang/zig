@@ -696,6 +696,7 @@ static bool eval_fn_call_builtin(EvalFn *ef, AstNode *node, ConstExprValue *out_
         case BuiltinFnIdImport:
         case BuiltinFnIdCImport:
         case BuiltinFnIdErrName:
+        case BuiltinFnIdEmbedFile:
             zig_panic("TODO");
         case BuiltinFnIdBreakpoint:
         case BuiltinFnIdInvalid:

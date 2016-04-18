@@ -4101,6 +4101,45 @@ static TypeTableEntry *analyze_err_name(CodeGen *g, ImportTableEntry *import,
     return str_type;
 }
 
+static TypeTableEntry *analyze_embed_file(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode **first_param_node = &node->data.fn_call_expr.params.at(0);
+    Buf *rel_file_path = resolve_const_expr_str(g, import, context, first_param_node);
+    if (!rel_file_path) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    // figure out absolute path to resource
+    Buf source_dir_path = BUF_INIT;
+    os_path_dirname(import->path, &source_dir_path);
+
+    Buf file_path = BUF_INIT;
+    os_path_resolve(&source_dir_path, rel_file_path, &file_path);
+
+    // load from file system into const expr
+    Buf file_contents = BUF_INIT;
+    int err;
+    if ((err = os_fetch_file_path(&file_path, &file_contents))) {
+        if (err == ErrorFileNotFound) {
+            add_node_error(g, node,
+                    buf_sprintf("unable to find '%s'", buf_ptr(&file_path)));
+            return g->builtin_types.entry_invalid;
+        } else {
+            add_node_error(g, node,
+                    buf_sprintf("unable to open '%s': %s", buf_ptr(&file_path), err_str(err)));
+            return g->builtin_types.entry_invalid;
+        }
+    }
+
+    // TODO add dependency on the file we embedded so that we know if it changes
+    // we'll have to invalidate the cache
+
+    return resolve_expr_const_val_as_string_lit(g, node, &file_contents);
+}
+
 static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -4434,6 +4473,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
         case BuiltinFnIdBreakpoint:
             mark_impure_fn(context);
             return g->builtin_types.entry_void;
+        case BuiltinFnIdEmbedFile:
+            return analyze_embed_file(g, import, context, node);
     }
     zig_unreachable();
 }

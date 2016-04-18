@@ -91,6 +91,10 @@ void os_spawn_process(const char *exe, ZigList<const char *> &args, int *return_
 #endif
 }
 
+void os_path_dirname(Buf *full_path, Buf *out_dirname) {
+    return os_path_split(full_path, out_dirname, nullptr);
+}
+
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
     int last_index = buf_len(full_path) - 1;
     if (last_index >= 0 && buf_ptr(full_path)[last_index] == '/') {
@@ -99,13 +103,17 @@ void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
     for (int i = last_index; i >= 0; i -= 1) {
         uint8_t c = buf_ptr(full_path)[i];
         if (c == '/') {
-            buf_init_from_mem(out_dirname, buf_ptr(full_path), i);
-            buf_init_from_mem(out_basename, buf_ptr(full_path) + i + 1, buf_len(full_path) - (i + 1));
+            if (out_dirname) {
+                buf_init_from_mem(out_dirname, buf_ptr(full_path), i);
+            }
+            if (out_basename) {
+                buf_init_from_mem(out_basename, buf_ptr(full_path) + i + 1, buf_len(full_path) - (i + 1));
+            }
             return;
         }
     }
-    buf_init_from_mem(out_dirname, ".", 1);
-    buf_init_from_buf(out_basename, full_path);
+    if (out_dirname) buf_init_from_mem(out_dirname, ".", 1);
+    if (out_basename) buf_init_from_buf(out_basename, full_path);
 }
 
 void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
@@ -144,6 +152,26 @@ int os_path_real(Buf *rel_path, Buf *out_abs_path) {
 #else
 #error "missing os_path_real implementation"
 #endif
+}
+
+bool os_path_is_absolute(Buf *path) {
+#if defined(ZIG_OS_WINDOWS)
+#error "missing os_path_is_absolute implementation"
+#elif defined(ZIG_OS_POSIX)
+    return buf_ptr(path)[0] == '/';
+#else
+#error "missing os_path_is_absolute implementation"
+#endif
+}
+
+void os_path_resolve(Buf *ref_path, Buf *target_path, Buf *out_abs_path) {
+    if (os_path_is_absolute(target_path)) {
+        buf_init_from_buf(out_abs_path, target_path);
+        return;
+    }
+
+    os_path_join(ref_path, target_path, out_abs_path);
+    return;
 }
 
 int os_fetch_file(FILE *f, Buf *out_buf) {

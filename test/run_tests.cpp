@@ -600,6 +600,20 @@ fn do_test() -> %void {
 }
 fn its_gonna_pass() -> %void { }
     )SOURCE", "before\nafter\ndefer3\ndefer1\n");
+
+
+    {
+        TestCase *tc = add_simple_case("@embed_file", R"SOURCE(
+const foo_txt = @embed_file("foo.txt");
+const io = @import("std").io;
+
+pub fn main(args: [][]u8) -> %void {
+    %%io.stdout.printf(foo_txt);
+}
+        )SOURCE", "1234\nabcd\n");
+
+        add_source_file(tc, "foo.txt", "1234\nabcd\n");
+    }
 }
 
 
@@ -1173,6 +1187,10 @@ fn fibbonaci(x: i32) -> i32 {
             ".tmp_source.zig:3:1: error: function evaluation exceeded 1000 branches",
             ".tmp_source.zig:2:37: note: called from here",
             ".tmp_source.zig:4:40: note: quota exceeded here");
+
+    add_compile_fail_case("@embed_file with bogus file", R"SOURCE(
+const resource = @embed_file("bogus.txt");
+    )SOURCE", 1, ".tmp_source.zig:2:18: error: unable to find './bogus.txt'");
 }
 
 //////////////////////////////////////////////////////////////////////////////
