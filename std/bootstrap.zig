@@ -2,6 +2,7 @@
 
 const root = @import("@root");
 const linux = @import("linux.zig");
+const str = @import("str.zig");
 
 const want_start_symbol = switch(@compile_var("os")) {
     linux => true,
@@ -29,19 +30,11 @@ export fn _start() -> unreachable {
     call_main_and_exit()
 }
 
-fn strlen(ptr: &const u8) -> isize {
-    var count: isize = 0;
-    while (ptr[count] != 0) {
-        count += 1;
-    }
-    return count;
-}
-
 fn call_main() -> %void {
     var args: [argc][]u8 = undefined;
     for (args) |arg, i| {
         const ptr = argv[i];
-        args[i] = ptr[0...strlen(ptr)];
+        args[i] = ptr[0...str.len(ptr)];
     }
     return root.main(args);
 }

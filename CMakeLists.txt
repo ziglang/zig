@@ -194,6 +194,7 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/test_runner_libc.zig" DESTINATION "${ZIG_
 install(FILES "${CMAKE_SOURCE_DIR}/std/test_runner_nolibc.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/io.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/os.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/str.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/linux.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/errno.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/rand.zig" DESTINATION "${ZIG_STD_DEST}")

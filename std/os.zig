@@ -26,3 +26,11 @@ pub fn get_random_bytes(buf: []u8) -> %void {
         else => unreachable{},
     }
 }
+
+#attribute("cold")
+pub fn abort() -> unreachable {
+    linux.raise(linux.SIGABRT);
+    linux.raise(linux.SIGKILL);
+    while (true) {}
+}
+

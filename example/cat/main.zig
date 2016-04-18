@@ -1,4 +1,6 @@
-use @import("std");
+const std = @import("std");
+const io = std.io;
+const str = std.str;
 
 // TODO var args printing
 
@@ -6,7 +8,7 @@ pub fn main(args: [][]u8) -> %void {
     const exe = args[0];
     var catted_anything = false;
     for (args[1...]) |arg| {
-        if (str_eql(arg, "-")) {
+        if (str.eql(arg, "-")) {
             catted_anything = true;
             cat_stream(io.stdin) %% |err| return err;
         } else if (arg[0] == '-') {

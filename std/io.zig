@@ -207,13 +207,6 @@ pub struct InStream {
     }
 }
 
-#attribute("cold")
-pub fn abort() -> unreachable {
-    linux.raise(linux.SIGABRT);
-    linux.raise(linux.SIGKILL);
-    while (true) {}
-}
-
 pub error InvalidChar;
 pub error Overflow;
 

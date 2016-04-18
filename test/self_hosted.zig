@@ -1,5 +1,7 @@
 // test std library
-use @import("std");
+const std = @import("std");
+const assert = std.assert;
+const str = std.str;
 
 #attribute("test")
 fn empty_function() {}
@@ -701,8 +703,8 @@ three)AOEU";
 one
 two)
 three)";
-    assert(str_eql(s1, s2));
-    assert(str_eql(s3, s2));
+    assert(str.eql(s1, s2));
+    assert(str.eql(s3, s2));
 }
 
 
@@ -760,7 +762,7 @@ fn accepts_string(foo: []u8) { }
 
 #attribute("test")
 fn hex_escape() {
-    assert(str_eql("\x68\x65\x6c\x6c\x6f", "hello"));
+    assert(str.eql("\x68\x65\x6c\x6c\x6f", "hello"));
 }
 
 
@@ -768,8 +770,8 @@ error AnError;
 error ALongerErrorName;
 #attribute("test")
 fn error_name_string() {
-    assert(str_eql(@err_name(error.AnError), "AnError"));
-    assert(str_eql(@err_name(error.ALongerErrorName), "ALongerErrorName"));
+    assert(str.eql(@err_name(error.AnError), "AnError"));
+    assert(str.eql(@err_name(error.ALongerErrorName), "ALongerErrorName"));
 }
 
 
@@ -1069,12 +1071,12 @@ fn overflow_intrinsics() {
 #attribute("test")
 fn nested_arrays() {
     const array_of_strings = [][]u8 {"hello", "this", "is", "my", "thing"};
-    for (array_of_strings) |str, i| {
-        if (i == 0) assert(str_eql(str, "hello"));
-        if (i == 1) assert(str_eql(str, "this"));
-        if (i == 2) assert(str_eql(str, "is"));
-        if (i == 3) assert(str_eql(str, "my"));
-        if (i == 4) assert(str_eql(str, "thing"));
+    for (array_of_strings) |s, i| {
+        if (i == 0) assert(str.eql(s, "hello"));
+        if (i == 1) assert(str.eql(s, "this"));
+        if (i == 2) assert(str.eql(s, "is"));
+        if (i == 3) assert(str.eql(s, "my"));
+        if (i == 4) assert(str.eql(s, "thing"));
     }
 }
 
@@ -1088,7 +1090,7 @@ fn int_to_ptr_cast() {
 
 #attribute("test")
 fn string_concatenation() {
-    assert(str_eql("OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
+    assert(str.eql("OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
 #attribute("test")
@@ -1185,8 +1187,8 @@ fn test_pointer_to_void_return_type_2() -> &void {
 
 #attribute("test")
 fn call_result_of_if_else_expression() {
-    assert(str_eql(f2(true), "a"));
-    assert(str_eql(f2(false), "b"));
+    assert(str.eql(f2(true), "a"));
+    assert(str.eql(f2(false), "b"));
 }
 fn f2(x: bool) -> []u8 {
     return (if (x) f_a else f_b)();
