@@ -1191,6 +1191,15 @@ fn fibbonaci(x: i32) -> i32 {
     add_compile_fail_case("@embed_file with bogus file", R"SOURCE(
 const resource = @embed_file("bogus.txt");
     )SOURCE", 1, ".tmp_source.zig:2:18: error: unable to find './bogus.txt'");
+
+
+    add_compile_fail_case("non-const expression in struct literal outside function", R"SOURCE(
+struct Foo {
+    x: i32,
+}
+const a = Foo {.x = get_it()};
+extern fn get_it() -> i32;
+    )SOURCE", 1, ".tmp_source.zig:5:27: error: unable to evaluate constant expression");
 }
 
 //////////////////////////////////////////////////////////////////////////////

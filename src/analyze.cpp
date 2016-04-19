@@ -2195,6 +2195,8 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
         int expr_field_count = container_init_expr->entries.length;
         int actual_field_count = container_type->data.structure.src_field_count;
 
+        AstNode *non_const_expr_culprit = nullptr;
+
         int *field_use_counts = allocate<int>(actual_field_count);
         ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
         const_val->ok = true;
@@ -2239,11 +2241,17 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
                     const_val->depends_on_compile_var = const_val->depends_on_compile_var || field_val->depends_on_compile_var;
                 } else {
                     const_val->ok = false;
+                    non_const_expr_culprit = val_field_node->data.struct_val_field.expr;
                 }
             }
         }
         if (!const_val->ok) {
-            context->fn_entry->struct_val_expr_alloca_list.append(codegen);
+            assert(non_const_expr_culprit);
+            if (context->fn_entry) {
+                context->fn_entry->struct_val_expr_alloca_list.append(codegen);
+            } else {
+                add_node_error(g, non_const_expr_culprit, buf_sprintf("unable to evaluate constant expression"));
+            }
         }
 
         for (int i = 0; i < actual_field_count; i += 1) {
