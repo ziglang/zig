@@ -2110,7 +2110,8 @@ static TypeEnumField *get_enum_field(TypeTableEntry *enum_type, Buf *name) {
 }
 
 static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        AstNode *field_access_node, AstNode *value_node, TypeTableEntry *enum_type, Buf *field_name)
+        AstNode *field_access_node, AstNode *value_node, TypeTableEntry *enum_type, Buf *field_name,
+        AstNode *out_node)
 {
     assert(field_access_node->type == NodeTypeFieldAccessExpr);
 
@@ -2119,15 +2120,32 @@ static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *imp
 
     if (type_enum_field) {
         if (value_node) {
-            analyze_expression(g, import, context, type_enum_field->type_entry, value_node);
+            AstNode **value_node_ptr = value_node->parent_field;
+            TypeTableEntry *value_type = analyze_expression(g, import, context,
+                    type_enum_field->type_entry, value_node);
+
+            if (value_type->id == TypeTableEntryIdInvalid) {
+                return g->builtin_types.entry_invalid;
+            }
 
             StructValExprCodeGen *codegen = &field_access_node->data.field_access_expr.resolved_struct_val_expr;
             codegen->type_entry = enum_type;
             codegen->source_node = field_access_node;
-            context->fn_entry->struct_val_expr_alloca_list.append(codegen);
 
-            Expr *expr = get_resolved_expr(field_access_node);
-            expr->const_val.ok = false;
+            ConstExprValue *value_const_val = &get_resolved_expr(*value_node_ptr)->const_val;
+            if (value_const_val->ok) {
+                ConstExprValue *const_val = &get_resolved_expr(out_node)->const_val;
+                const_val->ok = true;
+                const_val->data.x_enum.tag = type_enum_field->value;
+                const_val->data.x_enum.payload = value_const_val;
+            } else {
+                if (context->fn_entry) {
+                    context->fn_entry->struct_val_expr_alloca_list.append(codegen);
+                } else {
+                    add_node_error(g, *value_node_ptr, buf_sprintf("unable to evaluate constant expression"));
+                    return g->builtin_types.entry_invalid;
+                }
+            }
         } else if (type_enum_field->type_entry->id != TypeTableEntryIdVoid) {
             add_node_error(g, field_access_node,
                 buf_sprintf("enum value '%s.%s' requires parameter of type '%s'",
@@ -2135,7 +2153,7 @@ static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *imp
                     buf_ptr(field_name),
                     buf_ptr(&type_enum_field->type_entry->name)));
         } else {
-            Expr *expr = get_resolved_expr(field_access_node);
+            Expr *expr = get_resolved_expr(out_node);
             expr->const_val.ok = true;
             expr->const_val.data.x_enum.tag = type_enum_field->value;
             expr->const_val.data.x_enum.payload = nullptr;
@@ -2396,7 +2414,7 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
         } else if (wrapped_in_fn_call) {
             return resolve_expr_const_val_as_type(g, node, child_type);
         } else if (child_type->id == TypeTableEntryIdEnum) {
-            return analyze_enum_value_expr(g, import, context, node, nullptr, child_type, field_name);
+            return analyze_enum_value_expr(g, import, context, node, nullptr, child_type, field_name, node);
         } else if (child_type->id == TypeTableEntryIdStruct) {
             BlockContext *container_block_context = get_container_block_context(child_type);
             auto entry = container_block_context->decl_table.maybe_get(field_name);
@@ -4725,7 +4743,7 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
                         node->data.fn_call_expr.enum_type = child_type;
 
                         return analyze_enum_value_expr(g, import, context, fn_ref_expr, value_node,
-                                child_type, field_name);
+                                child_type, field_name, node);
                     }
                 } else if (child_type->id == TypeTableEntryIdStruct) {
                     Buf *field_name = &fn_ref_expr->data.field_access_expr.field_name;

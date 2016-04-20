@@ -2937,7 +2937,23 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
                     assert(enum_field->value == const_val->data.x_enum.tag);
                     LLVMValueRef union_value;
                     if (type_has_bits(enum_field->type_entry)) {
-                        union_value = gen_const_val(g, union_type, const_val->data.x_enum.payload);
+                        uint64_t union_type_bytes = LLVMStoreSizeOfType(g->target_data_ref,
+                                union_type->type_ref);
+                        uint64_t field_type_bytes = LLVMStoreSizeOfType(g->target_data_ref,
+                                enum_field->type_entry->type_ref);
+                        uint64_t pad_bytes = union_type_bytes - field_type_bytes;
+
+                        LLVMValueRef correctly_typed_value = gen_const_val(g, enum_field->type_entry,
+                                const_val->data.x_enum.payload);
+                        if (pad_bytes == 0) {
+                            union_value = correctly_typed_value;
+                        } else {
+                            LLVMValueRef fields[] = {
+                                correctly_typed_value,
+                                LLVMGetUndef(LLVMArrayType(LLVMInt8Type(), pad_bytes)),
+                            };
+                            union_value = LLVMConstStruct(fields, 2, false);
+                        }
                     } else {
                         union_value = LLVMGetUndef(union_type->type_ref);
                     }

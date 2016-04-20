@@ -1204,3 +1204,43 @@ fn const_expression_eval_handling_of_variables() {
         x = false;
     }
 }
+
+
+
+#attribute("test")
+fn constant_enum_initialization_with_differing_sizes() {
+    test3_1(test3_foo);
+    test3_2(test3_bar);
+}
+enum Test3Foo {
+    One,
+    Two: f32,
+    Three: Test3Point,
+}
+struct Test3Point {
+    x: i32,
+    y: i32,
+}
+const test3_foo = Test3Foo.Three(Test3Point {.x = 3, .y = 4});
+const test3_bar = Test3Foo.Two(13);
+#static_eval_enable(false)
+fn test3_1(f: Test3Foo) {
+    switch (f) {
+        Three => |pt| {
+            assert(pt.x == 3);
+            assert(pt.y == 4);
+        },
+        else => unreachable{},
+    }
+}
+#static_eval_enable(false)
+fn test3_2(f: Test3Foo) {
+    switch (f) {
+        Two => |x| {
+            assert(x == 13);
+        },
+        else => unreachable{},
+    }
+}
+
+
