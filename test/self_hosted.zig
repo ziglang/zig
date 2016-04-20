@@ -1252,3 +1252,9 @@ fn pub_enum() {
 fn pub_enum_test(foo: other.APubEnum) {
     assert(foo == other.APubEnum.Two);
 }
+
+
+#attribute("test")
+fn cast_with_imported_symbol() {
+    assert(other.size_t(42) == 42);
+}

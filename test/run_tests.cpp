@@ -1128,7 +1128,7 @@ fn foo(x: i32)(y: i32) -> i32 { return x + y; }
 fn test1(a: i32, b: i32) -> i32 {
     return foo(a)(b);
 }
-    )SOURCE", 1, ".tmp_source.zig:4:16: error: unable to resolve constant expression");
+    )SOURCE", 1, ".tmp_source.zig:4:16: error: unable to evaluate constant expression");
 
     add_compile_fail_case("goto jumping into block", R"SOURCE(
 fn f() {
@@ -1200,6 +1200,15 @@ struct Foo {
 const a = Foo {.x = get_it()};
 extern fn get_it() -> i32;
     )SOURCE", 1, ".tmp_source.zig:5:27: error: unable to evaluate constant expression");
+
+    add_compile_fail_case("non-const expression function call with struct return value outside function", R"SOURCE(
+struct Foo {
+    x: i32,
+}
+const a = get_it();
+#static_eval_enable(false)
+fn get_it() -> Foo { Foo {.x = 13} }
+    )SOURCE", 1, ".tmp_source.zig:5:17: error: unable to evaluate constant expression");
 }
 
 //////////////////////////////////////////////////////////////////////////////

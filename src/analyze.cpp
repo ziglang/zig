@@ -755,7 +755,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
 
     ConstExprValue *const_val = &expr->const_val;
     if (!const_val->ok) {
-        add_node_error(g, node, buf_sprintf("unable to resolve constant expression"));
+        add_node_error(g, node, buf_sprintf("unable to evaluate constant expression"));
         return g->builtin_types.entry_invalid;
     }
 
@@ -867,7 +867,7 @@ static Buf *resolve_const_expr_str(CodeGen *g, ImportTableEntry *import, BlockCo
     ConstExprValue *const_str_val = &get_resolved_expr(*node)->const_val;
 
     if (!const_str_val->ok) {
-        add_node_error(g, *node, buf_sprintf("unable to resolve constant expression"));
+        add_node_error(g, *node, buf_sprintf("unable to evaluate constant expression"));
         return nullptr;
     }
 
@@ -896,7 +896,7 @@ static bool resolve_const_expr_bool(CodeGen *g, ImportTableEntry *import, BlockC
     ConstExprValue *const_bool_val = &get_resolved_expr(*node)->const_val;
 
     if (!const_bool_val->ok) {
-        add_node_error(g, *node, buf_sprintf("unable to resolve constant expression"));
+        add_node_error(g, *node, buf_sprintf("unable to evaluate constant expression"));
         return false;
     }
 
@@ -2424,8 +2424,6 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
 
         if (child_type->id == TypeTableEntryIdInvalid) {
             return g->builtin_types.entry_invalid;
-        } else if (wrapped_in_fn_call) {
-            return resolve_expr_const_val_as_type(g, node, child_type);
         } else if (child_type->id == TypeTableEntryIdEnum) {
             AstNode *container_init_node = node->data.field_access_expr.container_init_expr_node;
             AstNode *value_node;
@@ -2464,6 +2462,8 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
             }
         } else if (child_type->id == TypeTableEntryIdPureError) {
             return analyze_error_literal_expr(g, import, context, node, field_name);
+        } else if (wrapped_in_fn_call) { // this branch should go last, before the error in the else case
+            return resolve_expr_const_val_as_type(g, node, child_type);
         } else {
             add_node_error(g, node,
                 buf_sprintf("type '%s' does not support field access", buf_ptr(&struct_type->name)));
@@ -4605,13 +4605,13 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
     }
 
     FnTableEntry *fn_table_entry = node->data.fn_call_expr.fn_entry;
+    ConstExprValue *result_val = &get_resolved_expr(node)->const_val;
     if (ok_invocation && fn_table_entry && fn_table_entry->is_pure) {
         if (fn_table_entry->anal_state == FnAnalStateReady) {
             analyze_fn_body(g, fn_table_entry);
         }
         if (all_args_const_expr) {
             if (fn_table_entry->is_pure && fn_table_entry->anal_state == FnAnalStateComplete) {
-                ConstExprValue *result_val = &get_resolved_expr(node)->const_val;
                 if (eval_fn(g, node, fn_table_entry, result_val, 1000, struct_node)) {
                     // function evaluation generated an error
                     return g->builtin_types.entry_invalid;
@@ -4626,7 +4626,11 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
     }
 
     if (handle_is_ptr(return_type)) {
-        context->fn_entry->cast_alloca_list.append(node);
+        if (context->fn_entry) {
+            context->fn_entry->cast_alloca_list.append(node);
+        } else if (!result_val->ok) {
+            add_node_error(g, node, buf_sprintf("unable to evaluate constant expression"));
+        }
     }
 
     return return_type;
@@ -4693,7 +4697,7 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
             add_local_var(g, generic_param_decl_node, decl_node->owner, child_context,
                     &generic_param_decl_node->data.param_decl.name, param_type, true, *param_node);
         } else {
-            add_node_error(g, *param_node, buf_sprintf("unable to resolve constant expression"));
+            add_node_error(g, *param_node, buf_sprintf("unable to evaluate constant expression"));
 
             add_local_var(g, generic_param_decl_node, decl_node->owner, child_context,
                     &generic_param_decl_node->data.param_decl.name, g->builtin_types.entry_invalid,
@@ -4754,36 +4758,7 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
 
     if (const_val->ok) {
         if (invoke_type_entry->id == TypeTableEntryIdMetaType) {
-            if (fn_ref_expr->type == NodeTypeFieldAccessExpr) {
-                TypeTableEntry *child_type = resolve_type(g, fn_ref_expr);
-
-                if (child_type->id == TypeTableEntryIdInvalid) {
-                    return g->builtin_types.entry_invalid;
-                } else if (child_type->id == TypeTableEntryIdStruct) {
-                    Buf *field_name = &fn_ref_expr->data.field_access_expr.field_name;
-                    BlockContext *container_block_context = get_container_block_context(child_type);
-                    auto entry = container_block_context->decl_table.maybe_get(field_name);
-                    AstNode *decl_node = entry ? entry->value : nullptr;
-                    if (decl_node && decl_node->type == NodeTypeFnProto) {
-                        bool pointer_only = false;
-                        resolve_top_level_decl(g, decl_node, pointer_only);
-
-                        FnTableEntry *fn_entry = decl_node->data.fn_proto.fn_table_entry;
-                        assert(fn_entry);
-                        return analyze_fn_call_raw(g, import, context, expected_type, node, fn_entry, nullptr);
-                    } else {
-                        add_node_error(g, node,
-                            buf_sprintf("struct '%s' has no function called '%s'",
-                                buf_ptr(&child_type->name), buf_ptr(field_name)));
-                        return g->builtin_types.entry_invalid;
-                    }
-                } else {
-                    add_node_error(g, fn_ref_expr, buf_sprintf("member reference base type not struct or enum"));
-                    return g->builtin_types.entry_invalid;
-                }
-            } else {
-                return analyze_cast_expr(g, import, context, node);
-            }
+            return analyze_cast_expr(g, import, context, node);
         } else if (invoke_type_entry->id == TypeTableEntryIdFn) {
             AstNode *struct_node;
             if (fn_ref_expr->type == NodeTypeFieldAccessExpr &&
@@ -5120,7 +5095,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                         ConstExprValue *const_val = &get_resolved_expr(item_node)->const_val;
                         if (!const_val->ok) {
                             add_node_error(g, item_node,
-                                buf_sprintf("unable to resolve constant expression"));
+                                buf_sprintf("unable to evaluate constant expression"));
                             any_errors = true;
                         }
                     }

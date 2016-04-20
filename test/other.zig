@@ -3,3 +3,4 @@ pub enum APubEnum {
     Two,
     Three,
 }
+pub const size_t = u64;
