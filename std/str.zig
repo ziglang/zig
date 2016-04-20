@@ -2,9 +2,7 @@ const assert = @import("index.zig").assert;
 
 pub fn len(ptr: &const u8) -> isize {
     var count: isize = 0;
-    while (ptr[count] != 0) {
-        count += 1;
-    }
+    while (ptr[count] != 0; count += 1) {}
     return count;
 }
 

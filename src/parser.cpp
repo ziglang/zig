@@ -1886,7 +1886,7 @@ static AstNode *ast_parse_bool_or_expr(ParseContext *pc, int *token_index, bool 
 }
 
 /*
-WhileExpression : token(While) token(LParen) Expression token(RParen) Expression
+WhileExpression = "while" "(" Expression option(";" Expression) ")" Expression
 */
 static AstNode *ast_parse_while_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1904,9 +1904,20 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, int *token_index, bool ma
 
     ast_eat_token(pc, token_index, TokenIdLParen);
     node->data.while_expr.condition = ast_parse_expression(pc, token_index, true);
-    ast_eat_token(pc, token_index, TokenIdRParen);
 
-    node->data.while_expr.body = ast_parse_expression(pc, token_index, true);
+    Token *semi_or_rparen = &pc->tokens->at(*token_index);
+
+    if (semi_or_rparen->id == TokenIdRParen) {
+        *token_index += 1;
+        node->data.while_expr.body = ast_parse_expression(pc, token_index, true);
+    } else if (semi_or_rparen->id == TokenIdSemicolon) {
+        *token_index += 1;
+        node->data.while_expr.continue_expr = ast_parse_expression(pc, token_index, true);
+        ast_eat_token(pc, token_index, TokenIdRParen);
+        node->data.while_expr.body = ast_parse_expression(pc, token_index, true);
+    } else {
+        ast_invalid_token_error(pc, semi_or_rparen);
+    }
 
 
     normalize_parent_ptrs(node);

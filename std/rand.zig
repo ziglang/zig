@@ -107,12 +107,9 @@ pub struct Rand {
 fn test_float32() {
     var r = Rand.init(42);
 
-    // TODO for loop with range
-    var i: i32 = 0;
-    while (i < 1000) {
+    {var i: i32 = 0; while (i < 1000; i += 1) {
         const val = r.float32();
         if (!(val >= 0.0)) unreachable{};
         if (!(val < 1.0)) unreachable{};
-        i += 1;
-    }
+    }}
 }

@@ -1258,3 +1258,14 @@ fn pub_enum_test(foo: other.APubEnum) {
 fn cast_with_imported_symbol() {
     assert(other.size_t(42) == 42);
 }
+
+
+#attribute("test")
+fn while_with_continue_expr() {
+    var sum: i32 = 0;
+    {var i: i32 = 0; while (i < 10; i += 1) {
+        if (i == 5) continue;
+        sum += i;
+    }}
+    assert(sum == 40);
+}

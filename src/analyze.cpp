@@ -3507,9 +3507,14 @@ static TypeTableEntry *analyze_while_expr(CodeGen *g, ImportTableEntry *import, 
 
     AstNode *condition_node = node->data.while_expr.condition;
     AstNode *while_body_node = node->data.while_expr.body;
+    AstNode **continue_expr_node = &node->data.while_expr.continue_expr;
 
     TypeTableEntry *condition_type = analyze_expression(g, import, context,
             g->builtin_types.entry_bool, condition_node);
+
+    if (*continue_expr_node) {
+        analyze_expression(g, import, context, g->builtin_types.entry_void, *continue_expr_node);
+    }
 
     BlockContext *child_context = new_block_context(node, context);
     child_context->parent_loop_node = node;

@@ -79,7 +79,7 @@ SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" "Symbol" "|") Exp
 
 SwitchItem = Expression | (Expression "..." Expression)
 
-WhileExpression = "while" "(" Expression ")" Expression
+WhileExpression = "while" "(" Expression option(";" Expression) ")" Expression
 
 ForExpression = "for" "(" Expression ")" option("|" "Symbol" option("," "Symbol") "|") Expression
 

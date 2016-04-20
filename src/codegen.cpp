@@ -2282,12 +2282,16 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
     assert(node->data.while_expr.condition);
     assert(node->data.while_expr.body);
 
+    AstNode *continue_expr_node = node->data.while_expr.continue_expr;
+
     bool condition_always_true = node->data.while_expr.condition_always_true;
     bool contains_break = node->data.while_expr.contains_break;
     if (condition_always_true) {
         // generate a forever loop
 
         LLVMBasicBlockRef body_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileBody");
+        LLVMBasicBlockRef continue_block = continue_expr_node ?
+            LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileContinue") : body_block;
         LLVMBasicBlockRef end_block = nullptr;
         if (contains_break) {
             end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileEnd");
@@ -2296,16 +2300,25 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
         add_debug_source_node(g, node);
         LLVMBuildBr(g->builder, body_block);
 
+        if (continue_expr_node) {
+            LLVMPositionBuilderAtEnd(g->builder, continue_block);
+
+            gen_expr(g, continue_expr_node);
+
+            add_debug_source_node(g, node);
+            LLVMBuildBr(g->builder, body_block);
+        }
+
         LLVMPositionBuilderAtEnd(g->builder, body_block);
         g->break_block_stack.append(end_block);
-        g->continue_block_stack.append(body_block);
+        g->continue_block_stack.append(continue_block);
         gen_expr(g, node->data.while_expr.body);
         g->break_block_stack.pop();
         g->continue_block_stack.pop();
 
         if (get_expr_type(node->data.while_expr.body)->id != TypeTableEntryIdUnreachable) {
             add_debug_source_node(g, node);
-            LLVMBuildBr(g->builder, body_block);
+            LLVMBuildBr(g->builder, continue_block);
         }
 
         if (contains_break) {
@@ -2316,10 +2329,21 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
 
         LLVMBasicBlockRef cond_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileCond");
         LLVMBasicBlockRef body_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileBody");
+        LLVMBasicBlockRef continue_block = continue_expr_node ?
+            LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileContinue") : cond_block;
         LLVMBasicBlockRef end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "WhileEnd");
 
         add_debug_source_node(g, node);
         LLVMBuildBr(g->builder, cond_block);
+
+        if (continue_expr_node) {
+            LLVMPositionBuilderAtEnd(g->builder, continue_block);
+
+            gen_expr(g, continue_expr_node);
+
+            add_debug_source_node(g, node);
+            LLVMBuildBr(g->builder, cond_block);
+        }
 
         LLVMPositionBuilderAtEnd(g->builder, cond_block);
         LLVMValueRef cond_val = gen_expr(g, node->data.while_expr.condition);
@@ -2328,13 +2352,13 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
 
         LLVMPositionBuilderAtEnd(g->builder, body_block);
         g->break_block_stack.append(end_block);
-        g->continue_block_stack.append(cond_block);
+        g->continue_block_stack.append(continue_block);
         gen_expr(g, node->data.while_expr.body);
         g->break_block_stack.pop();
         g->continue_block_stack.pop();
         if (get_expr_type(node->data.while_expr.body)->id != TypeTableEntryIdUnreachable) {
             add_debug_source_node(g, node);
-            LLVMBuildBr(g->builder, cond_block);
+            LLVMBuildBr(g->builder, continue_block);
         }
 
         LLVMPositionBuilderAtEnd(g->builder, end_block);

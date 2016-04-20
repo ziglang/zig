@@ -1014,6 +1014,7 @@ static bool eval_while_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) 
 
     AstNode *cond_node = node->data.while_expr.condition;
     AstNode *body_node = node->data.while_expr.body;
+    AstNode *continue_expr_node = node->data.while_expr.continue_expr;
 
     EvalScope *my_scope = allocate<EvalScope>(1);
     my_scope->block_context = body_node->block_context;
@@ -1029,6 +1030,11 @@ static bool eval_while_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) 
 
         ConstExprValue body_val = {0};
         if (eval_expr(ef, body_node, &body_val)) return true;
+
+        if (continue_expr_node) {
+            ConstExprValue continue_expr_val = {0};
+            if (eval_expr(ef, continue_expr_node, &continue_expr_val)) return true;
+        }
 
         ef->root->branches_used += 1;
     }

@@ -486,6 +486,7 @@ struct AstNodeIfVarExpr {
 
 struct AstNodeWhileExpr {
     AstNode *condition;
+    AstNode *continue_expr;
     AstNode *body;
 
     // populated by semantic analyzer
