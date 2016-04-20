@@ -1269,3 +1269,19 @@ fn while_with_continue_expr() {
     }}
     assert(sum == 40);
 }
+
+
+#attribute("test")
+fn for_loop_with_pointer_elem_var() {
+    const source = "abcdefg";
+    var target: [source.len]u8 = undefined;
+    @memcpy(&target[0], &source[0], source.len);
+    mangle_string(target);
+    assert(str.eql(target, "bcdefgh"));
+}
+#static_eval_enable(false)
+fn mangle_string(s: []u8) {
+    for (s) |*c| {
+        *c += 1;
+    }
+}

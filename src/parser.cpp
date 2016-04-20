@@ -1932,7 +1932,7 @@ static AstNode *ast_parse_symbol(ParseContext *pc, int *token_index) {
 }
 
 /*
-ForExpression = "for" "(" Expression ")" option("|" "Symbol" option("," "Symbol") "|") Expression
+ForExpression = "for" "(" Expression ")" option("|" option("*") "Symbol" option("," "Symbol") "|") Expression
 */
 static AstNode *ast_parse_for_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1955,6 +1955,13 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, int *token_index, bool mand
     Token *maybe_bar = &pc->tokens->at(*token_index);
     if (maybe_bar->id == TokenIdBinOr) {
         *token_index += 1;
+
+        Token *maybe_star = &pc->tokens->at(*token_index);
+        if (maybe_star->id == TokenIdStar) {
+            *token_index += 1;
+            node->data.for_expr.elem_is_ptr = true;
+        }
+
         node->data.for_expr.elem_node = ast_parse_symbol(pc, token_index);
 
         Token *maybe_comma = &pc->tokens->at(*token_index);

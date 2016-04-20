@@ -812,6 +812,10 @@ static bool eval_for_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
     assert(elem_node->type == NodeTypeSymbol);
     Buf *elem_var_name = &elem_node->data.symbol_expr.symbol;
 
+    if (node->data.for_expr.elem_is_ptr) {
+        zig_panic("TODO");
+    }
+
     Buf *index_var_name = nullptr;
     if (index_node) {
         assert(index_node->type == NodeTypeSymbol);

@@ -2427,9 +2427,14 @@ static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
 
     LLVMPositionBuilderAtEnd(g->builder, body_block);
     LLVMValueRef elem_ptr = gen_array_elem_ptr(g, node, array_val, array_type, index_val);
-    LLVMValueRef elem_val = handle_is_ptr(child_type) ? elem_ptr : LLVMBuildLoad(g->builder, elem_ptr, "");
-    gen_assign_raw(g, node, BinOpTypeAssign, elem_var->value_ref, elem_val,
-            elem_var->type, child_type);
+
+    LLVMValueRef elem_val;
+    if (node->data.for_expr.elem_is_ptr) {
+        elem_val = elem_ptr;
+    } else {
+        elem_val = handle_is_ptr(child_type) ? elem_ptr : LLVMBuildLoad(g->builder, elem_ptr, "");
+    }
+    gen_assign_raw(g, node, BinOpTypeAssign, elem_var->value_ref, elem_val, elem_var->type, child_type);
     gen_var_debug_decl(g, elem_var);
     g->break_block_stack.append(end_block);
     g->continue_block_stack.append(continue_block);

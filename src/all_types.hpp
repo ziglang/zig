@@ -508,6 +508,7 @@ struct AstNodeForExpr {
     Expr resolved_expr;
     VariableTableEntry *elem_var;
     VariableTableEntry *index_var;
+    bool elem_is_ptr;
 };
 
 struct AstNodeSwitchExpr {

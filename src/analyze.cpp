@@ -3567,6 +3567,13 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
         child_type = g->builtin_types.entry_invalid;
     }
 
+    TypeTableEntry *var_type;
+    if (node->data.for_expr.elem_is_ptr) {
+        var_type = get_pointer_to_type(g, child_type, false);
+    } else {
+        var_type = child_type;
+    }
+
     BlockContext *child_context = new_block_context(node, context);
     child_context->parent_loop_node = node;
 
@@ -3574,7 +3581,7 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
     elem_var_node->block_context = child_context;
     Buf *elem_var_name = &elem_var_node->data.symbol_expr.symbol;
     node->data.for_expr.elem_var = add_local_var(g, elem_var_node, import, child_context, elem_var_name,
-            child_type, true, nullptr);
+            var_type, true, nullptr);
 
     AstNode *index_var_node = node->data.for_expr.index_node;
     if (index_var_node) {
