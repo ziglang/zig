@@ -320,6 +320,11 @@ static bool eval_container_init_expr(EvalFn *ef, AstNode *node, ConstExprValue *
 
     AstNodeContainerInitExpr *container_init_expr = &node->data.container_init_expr;
     ContainerInitKind kind = container_init_expr->kind;
+
+    if (container_init_expr->enum_type) {
+        zig_panic("TODO");
+    }
+
     TypeTableEntry *container_type = resolve_expr_type(container_init_expr->type);
     out_val->ok = true;
 
@@ -721,10 +726,6 @@ static bool eval_fn_call_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val
         if (eval_expr(ef, param_node, &param_val)) return true;
         eval_const_expr_implicit_cast(cast_op, &param_val, old_type, out_val, new_type);
         return false;
-    }
-
-    if (node->data.fn_call_expr.enum_type) {
-        zig_panic("TODO");
     }
 
     FnTableEntry *fn_table_entry = node->data.fn_call_expr.fn_entry;

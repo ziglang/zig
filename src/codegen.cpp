@@ -764,23 +764,11 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         return gen_cast_expr(g, node);
     }
 
-    AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
-    if (node->data.fn_call_expr.enum_type) {
-        int param_count = node->data.fn_call_expr.params.length;
-        AstNode *arg1_node;
-        if (param_count == 1) {
-            arg1_node = node->data.fn_call_expr.params.at(0);
-        } else {
-            assert(param_count == 0);
-            arg1_node = nullptr;
-        }
-        return gen_enum_value_expr(g, fn_ref_expr, node->data.fn_call_expr.enum_type, arg1_node);
-    }
-
     FnTableEntry *fn_table_entry = node->data.fn_call_expr.fn_entry;
     TypeTableEntry *struct_type = nullptr;
     AstNode *first_param_expr = nullptr;
 
+    AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
     if (fn_ref_expr->type == NodeTypeFieldAccessExpr &&
         fn_ref_expr->data.field_access_expr.is_member_fn)
     {
@@ -2206,6 +2194,21 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeContainerInitExpr);
 
     TypeTableEntry *type_entry = get_expr_type(node);
+
+
+    if (node->data.container_init_expr.enum_type) {
+        int param_count = node->data.container_init_expr.entries.length;
+        AstNode *arg1_node;
+        if (param_count == 1) {
+            arg1_node = node->data.container_init_expr.entries.at(0);
+        } else {
+            assert(param_count == 0);
+            arg1_node = nullptr;
+        }
+        return gen_enum_value_expr(g, node->data.container_init_expr.type,
+                node->data.container_init_expr.enum_type, arg1_node);
+    }
+
 
     if (type_entry->id == TypeTableEntryIdStruct) {
         assert(node->data.container_init_expr.kind == ContainerInitKindStruct);

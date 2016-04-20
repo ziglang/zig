@@ -2197,7 +2197,23 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
 
     ContainerInitKind kind = container_init_expr->kind;
 
-    TypeTableEntry *container_type = analyze_type_expr(g, import, context, container_init_expr->type);
+    if (container_init_expr->type->type == NodeTypeFieldAccessExpr) {
+        container_init_expr->type->data.field_access_expr.container_init_expr_node = node;
+    }
+
+    TypeTableEntry *container_meta_type = analyze_expression(g, import, context, nullptr,
+            container_init_expr->type);
+
+    if (container_meta_type->id == TypeTableEntryIdInvalid) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (node->data.container_init_expr.enum_type) {
+        get_resolved_expr(node)->const_val = get_resolved_expr(container_init_expr->type)->const_val;
+        return node->data.container_init_expr.enum_type;
+    }
+
+    TypeTableEntry *container_type = resolve_type(g, container_init_expr->type);
 
     if (container_type->id == TypeTableEntryIdInvalid) {
         return container_type;
@@ -2322,9 +2338,6 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
     } else if (container_type->id == TypeTableEntryIdArray) {
         zig_panic("TODO array container init");
         return container_type;
-    } else if (container_type->id == TypeTableEntryIdEnum) {
-        zig_panic("TODO enum container init");
-        return container_type;
     } else if (container_type->id == TypeTableEntryIdVoid) {
         if (container_init_expr->entries.length != 0) {
             add_node_error(g, node, buf_sprintf("void expression expects no arguments"));
@@ -2414,7 +2427,28 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
         } else if (wrapped_in_fn_call) {
             return resolve_expr_const_val_as_type(g, node, child_type);
         } else if (child_type->id == TypeTableEntryIdEnum) {
-            return analyze_enum_value_expr(g, import, context, node, nullptr, child_type, field_name, node);
+            AstNode *container_init_node = node->data.field_access_expr.container_init_expr_node;
+            AstNode *value_node;
+            if (container_init_node) {
+                assert(container_init_node->type == NodeTypeContainerInitExpr);
+                int param_count = container_init_node->data.container_init_expr.entries.length;
+                if (param_count > 1) {
+                    AstNode *first_invalid_node = container_init_node->data.container_init_expr.entries.at(1);
+                    add_node_error(g, first_executing_node(first_invalid_node),
+                            buf_sprintf("enum values accept only one parameter"));
+                    return child_type;
+                } else {
+                    if (param_count == 1) {
+                        value_node = container_init_node->data.container_init_expr.entries.at(0);
+                    } else {
+                        value_node = nullptr;
+                    }
+                    container_init_node->data.container_init_expr.enum_type = child_type;
+                }
+            } else {
+                value_node = nullptr;
+            }
+            return analyze_enum_value_expr(g, import, context, node, value_node, child_type, field_name, node);
         } else if (child_type->id == TypeTableEntryIdStruct) {
             BlockContext *container_block_context = get_container_block_context(child_type);
             auto entry = container_block_context->decl_table.maybe_get(field_name);
@@ -4725,26 +4759,6 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
 
                 if (child_type->id == TypeTableEntryIdInvalid) {
                     return g->builtin_types.entry_invalid;
-                } else if (child_type->id == TypeTableEntryIdEnum) {
-                    Buf *field_name = &fn_ref_expr->data.field_access_expr.field_name;
-                    int param_count = node->data.fn_call_expr.params.length;
-                    if (param_count > 1) {
-                        add_node_error(g, first_executing_node(node->data.fn_call_expr.params.at(1)),
-                                buf_sprintf("enum values accept only one parameter"));
-                        return child_type;
-                    } else {
-                        AstNode *value_node;
-                        if (param_count == 1) {
-                            value_node = node->data.fn_call_expr.params.at(0);
-                        } else {
-                            value_node = nullptr;
-                        }
-
-                        node->data.fn_call_expr.enum_type = child_type;
-
-                        return analyze_enum_value_expr(g, import, context, fn_ref_expr, value_node,
-                                child_type, field_name, node);
-                    }
                 } else if (child_type->id == TypeTableEntryIdStruct) {
                     Buf *field_name = &fn_ref_expr->data.field_access_expr.field_name;
                     BlockContext *container_block_context = get_container_block_context(child_type);

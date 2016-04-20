@@ -353,8 +353,8 @@ fn maybe_type() {
 
 #attribute("test")
 fn enum_type() {
-    const foo1 = EnumTypeFoo.One(13);
-    const foo2 = EnumTypeFoo.Two(EnumType { .x = 1234, .y = 5678, });
+    const foo1 = EnumTypeFoo.One {13};
+    const foo2 = EnumTypeFoo.Two {EnumType { .x = 1234, .y = 5678, }};
     const bar = EnumTypeBar.B;
 
     assert(bar == EnumTypeBar.B);
@@ -449,7 +449,7 @@ fn should_be_not_equal(a: error, b: error) {
 #attribute("test")
 fn constant_enum_with_payload() {
     var empty = AnEnumWithPayload.Empty;
-    var full = AnEnumWithPayload.Full(13);
+    var full = AnEnumWithPayload.Full {13};
     should_be_empty(empty);
     should_be_not_empty(full);
 }
@@ -547,8 +547,8 @@ enum SwitchStatmentFoo {
 
 #attribute("test")
 fn switch_prong_with_var() {
-    switch_prong_with_var_fn(SwitchProngWithVarEnum.One(13));
-    switch_prong_with_var_fn(SwitchProngWithVarEnum.Two(13.0));
+    switch_prong_with_var_fn(SwitchProngWithVarEnum.One {13});
+    switch_prong_with_var_fn(SwitchProngWithVarEnum.Two {13.0});
     switch_prong_with_var_fn(SwitchProngWithVarEnum.Meh);
 }
 enum SwitchProngWithVarEnum {
@@ -1221,8 +1221,8 @@ struct Test3Point {
     x: i32,
     y: i32,
 }
-const test3_foo = Test3Foo.Three(Test3Point {.x = 3, .y = 4});
-const test3_bar = Test3Foo.Two(13);
+const test3_foo = Test3Foo.Three{Test3Point {.x = 3, .y = 4}};
+const test3_bar = Test3Foo.Two{13};
 #static_eval_enable(false)
 fn test3_1(f: Test3Foo) {
     switch (f) {
