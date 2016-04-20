@@ -17,12 +17,6 @@ pub fn get_random_bytes(buf: []u8) -> %void {
                 }
             }
         },
-        windows => {
-            // TODO
-            for (buf) |_, i| {
-                buf[i] = 4;
-            }
-        },
         else => unreachable{},
     }
 }
