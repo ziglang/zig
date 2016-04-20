@@ -1,7 +1,7 @@
-// test std library
 const std = @import("std");
 const assert = std.assert;
 const str = std.str;
+const other = @import("other.zig");
 
 #attribute("test")
 fn empty_function() {}
@@ -1244,3 +1244,11 @@ fn test3_2(f: Test3Foo) {
 }
 
 
+
+#attribute("test")
+fn pub_enum() {
+    pub_enum_test(other.APubEnum.Two);
+}
+fn pub_enum_test(foo: other.APubEnum) {
+    assert(foo == other.APubEnum.Two);
+}
