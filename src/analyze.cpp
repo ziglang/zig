@@ -2219,7 +2219,8 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
         return container_type;
     } else if (container_type->id == TypeTableEntryIdStruct &&
                !container_type->data.structure.is_unknown_size_array &&
-               kind == ContainerInitKindStruct)
+               (kind == ContainerInitKindStruct || (kind == ContainerInitKindArray &&
+                                                    container_init_expr->entries.length == 0)))
     {
         StructValExprCodeGen *codegen = &container_init_expr->resolved_struct_val_expr;
         codegen->type_entry = container_type;

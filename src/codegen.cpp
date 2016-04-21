@@ -801,14 +801,16 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         gen_param_values[gen_param_index] = node->data.fn_call_expr.tmp_ptr;
         gen_param_index += 1;
     }
-    if (struct_type) {
+    if (struct_type && type_has_bits(struct_type)) {
         gen_param_values[gen_param_index] = gen_expr(g, first_param_expr);
+        assert(gen_param_values[gen_param_index]);
         gen_param_index += 1;
     }
 
     for (int i = 0; i < fn_call_param_count; i += 1) {
         AstNode *expr_node = node->data.fn_call_expr.params.at(i);
         LLVMValueRef param_value = gen_expr(g, expr_node);
+        assert(param_value);
         TypeTableEntry *param_type = get_expr_type(expr_node);
         if (is_var_args || type_has_bits(param_type)) {
             gen_param_values[gen_param_index] = param_value;

@@ -1285,3 +1285,13 @@ fn mangle_string(s: []u8) {
         *c += 1;
     }
 }
+
+#attribute("test")
+fn empty_struct_method_call() {
+    const es = EmptyStruct{};
+    assert(es.method() == 1234);
+}
+struct EmptyStruct {
+    #static_eval_enable(false)
+    fn method(es: EmptyStruct) -> i32 { 1234 }
+}
