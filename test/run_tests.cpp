@@ -1209,6 +1209,15 @@ const a = get_it();
 #static_eval_enable(false)
 fn get_it() -> Foo { Foo {.x = 13} }
     )SOURCE", 1, ".tmp_source.zig:5:17: error: unable to evaluate constant expression");
+
+    add_compile_fail_case("undeclared identifier error should mark fn as impure", R"SOURCE(
+fn foo() {
+    test_a_thing();
+}
+fn test_a_thing() {
+    bad_fn_call();
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: use of undeclared identifier 'bad_fn_call'");
 }
 
 //////////////////////////////////////////////////////////////////////////////

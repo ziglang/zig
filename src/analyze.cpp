@@ -2814,6 +2814,7 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
         return g->builtin_types.entry_invalid;
     }
 
+    mark_impure_fn(context);
     add_node_error(g, node, buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
     return g->builtin_types.entry_invalid;
 }
