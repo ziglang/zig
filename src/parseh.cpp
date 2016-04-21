@@ -12,6 +12,7 @@
 #include "parser.hpp"
 #include "all_types.hpp"
 #include "tokenizer.hpp"
+#include "c_tokenizer.hpp"
 #include "analyze.hpp"
 
 #include <clang/Frontend/ASTUnit.h>
@@ -176,11 +177,30 @@ static AstNode *create_str_lit_node(Context *c, Buf *buf) {
     return node;
 }
 
+static AstNode *create_num_lit_float(Context *c, double x) {
+    AstNode *node = create_node(c, NodeTypeNumberLiteral);
+    node->data.number_literal.kind = NumLitFloat;
+    node->data.number_literal.data.x_float = x;
+    return node;
+}
+
+static AstNode *create_num_lit_float_negative(Context *c, double x, bool negative) {
+    AstNode *num_lit_node = create_num_lit_float(c, x);
+    if (!negative) return num_lit_node;
+    return create_prefix_node(c, PrefixOpNegation, num_lit_node);
+}
+
 static AstNode *create_num_lit_unsigned(Context *c, uint64_t x) {
     AstNode *node = create_node(c, NodeTypeNumberLiteral);
     node->data.number_literal.kind = NumLitUInt;
     node->data.number_literal.data.x_uint = x;
     return node;
+}
+
+static AstNode *create_num_lit_unsigned_negative(Context *c, uint64_t x, bool negative) {
+    AstNode *num_lit_node = create_num_lit_unsigned(c, x);
+    if (!negative) return num_lit_node;
+    return create_prefix_node(c, PrefixOpNegation, num_lit_node);
 }
 
 static AstNode *create_num_lit_signed(Context *c, int64_t x) {
@@ -1244,209 +1264,70 @@ static void render_macros(Context *c) {
     }
 }
 
-static int parse_c_char_lit(Buf *value, uint8_t *out_c) {
-    enum State {
-        StateExpectStartQuot,
-        StateExpectChar,
-        StateExpectEndQuot,
-        StateExpectEnd,
-    };
-    State state = StateExpectStartQuot;
-    for (int i = 0; i < buf_len(value); i += 1) {
-        uint8_t c = buf_ptr(value)[i];
-        switch (state) {
-            case StateExpectStartQuot:
-                switch (c) {
-                    case '\'':
-                        state = StateExpectChar;
-                        break;
-                    default:
-                        return -1;
-                }
-                break;
-            case StateExpectChar:
-                switch (c) {
-                    case '\\':
-                    case '\'':
-                        return -1;
-                    default:
-                        *out_c = c;
-                        state = StateExpectEndQuot;
-                }
-                break;
-            case StateExpectEndQuot:
-                switch (c) {
-                    case '\'':
-                        state = StateExpectEnd;
-                        break;
-                    default:
-                        return -1;
-                }
-                break;
-            case StateExpectEnd:
-                return -1;
-        }
-    }
-    return (state == StateExpectEnd) ? 0 : -1;
-}
-
-static int parse_c_num_lit_unsigned(Buf *buf, uint64_t *out_val) {
-    char *temp;
-    *out_val = strtoull(buf_ptr(buf), &temp, 0);
-
-    if (temp == buf_ptr(buf) || *temp != 0 || *out_val == ULLONG_MAX) {
-        return -1;
-    }
-
-    return 0;
-}
-
-static bool is_simple_symbol(Buf *buf) {
-    bool first = true;
-    for (int i = 0; i < buf_len(buf); i += 1) {
-        uint8_t c = buf_ptr(buf)[i];
-        bool valid_alpha = (c >= 'a' && c <= 'z') ||
-            (c >= 'A' && c <= 'Z') || c == '_';
-        bool valid_digit = (c >= '0' && c <= '9');
-
-        bool ok = (valid_alpha || (!first && valid_digit));
-        first = false;
-
-        if (!ok) {
-            return false;
-        }
-    }
-    return true;
-}
-
-enum ParseCStrState {
-    ParseCStrStateExpectQuot,
-    ParseCStrStateNormal,
-    ParseCStrStateEscape,
-};
-
-static int parse_c_str_lit(Buf *buf, Buf *out_str) {
-    ParseCStrState state = ParseCStrStateExpectQuot;
-    buf_resize(out_str, 0);
-
-    for (int i = 0; i < buf_len(buf); i += 1) {
-        uint8_t c = buf_ptr(buf)[i];
-        switch (state) {
-            case ParseCStrStateExpectQuot:
-                if (c == '"') {
-                    state = ParseCStrStateNormal;
-                } else {
-                    return -1;
-                }
-                break;
-            case ParseCStrStateNormal:
-                switch (c) {
-                    case '\\':
-                        state = ParseCStrStateEscape;
-                        break;
-                    case '\n':
-                        return -1;
-                    case '"':
-                        return 0;
-                    default:
-                        buf_append_char(out_str, c);
-                }
-                break;
-            case ParseCStrStateEscape:
-                switch (c) {
-                    case '\'':
-                        buf_append_char(out_str, '\'');
-                        state = ParseCStrStateNormal;
-                        break;
-                    case '"':
-                        buf_append_char(out_str, '"');
-                        state = ParseCStrStateNormal;
-                        break;
-                    case '?':
-                        buf_append_char(out_str, '\?');
-                        state = ParseCStrStateNormal;
-                        break;
-                    case '\\':
-                        buf_append_char(out_str, '\\');
-                        state = ParseCStrStateNormal;
-                        break;
-                    case 'a':
-                        buf_append_char(out_str, '\a');
-                        state = ParseCStrStateNormal;
-                        break;
-                    case 'b':
-                        buf_append_char(out_str, '\b');
-                        state = ParseCStrStateNormal;
-                        break;
-                    case 'f':
-                        buf_append_char(out_str, '\f');
-                        state = ParseCStrStateNormal;
-                        break;
-                    case 'n':
-                        buf_append_char(out_str, '\n');
-                        state = ParseCStrStateNormal;
-                        break;
-                    case 'r':
-                        buf_append_char(out_str, '\r');
-                        state = ParseCStrStateNormal;
-                        break;
-                    case 't':
-                        buf_append_char(out_str, '\t');
-                        state = ParseCStrStateNormal;
-                        break;
-                    case 'v':
-                        buf_append_char(out_str, '\v');
-                        state = ParseCStrStateNormal;
-                        break;
-                    default:
-                        // TODO octal escape sequence, hexadecimal escape sequence, and
-                        // universal character name
-                        return -1;
-                }
-                break;
-        }
-    }
-
-    return -1;
-}
-
-static void process_macro(Context *c, Buf *name, Buf *value) {
-    //fprintf(stderr, "macro '%s' = '%s'\n", buf_ptr(name), buf_ptr(value));
+static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *char_ptr) {
     if (is_zig_keyword(name)) {
         return;
     }
 
-    // maybe it's a character literal
-    uint8_t ch;
-    if (!parse_c_char_lit(value, &ch)) {
-        AstNode *var_node = create_var_decl_node(c, buf_ptr(name), create_char_lit_node(c, ch));
-        c->macro_table.put(name, var_node);
-        return;
-    }
-    // maybe it's a string literal
-    Buf str_lit = BUF_INIT;
-    if (!parse_c_str_lit(value, &str_lit)) {
-        AstNode *var_node = create_var_decl_node(c, buf_ptr(name), create_str_lit_node(c, &str_lit));
-        c->macro_table.put(name, var_node);
+    tokenize_c_macro(ctok, (const uint8_t *)char_ptr);
+
+    if (ctok->error) {
         return;
     }
 
-    // maybe it's an unsigned integer
-    uint64_t uint;
-    if (!parse_c_num_lit_unsigned(value, &uint)) {
-        AstNode *var_node = create_var_decl_node(c, buf_ptr(name), create_num_lit_unsigned(c, uint));
-        c->macro_table.put(name, var_node);
-        return;
-    }
-
-    // maybe it's a symbol
-    if (is_simple_symbol(value)) {
-        // if it equals itself, ignore. for example, from stdio.h:
-        // #define stdin stdin
-        if (buf_eql_buf(name, value)) {
-            return;
+    bool negate = false;
+    for (int i = 0; i < ctok->tokens.length; i += 1) {
+        bool is_first = (i == 0);
+        bool is_last = (i == ctok->tokens.length - 1);
+        CTok *tok = &ctok->tokens.at(i);
+        switch (tok->id) {
+            case CTokIdCharLit:
+                if (is_last && is_first) {
+                    AstNode *var_node = create_var_decl_node(c, buf_ptr(name),
+                            create_char_lit_node(c, tok->data.char_lit));
+                    c->macro_table.put(name, var_node);
+                }
+                return;
+            case CTokIdStrLit:
+                if (is_last && is_first) {
+                    AstNode *var_node = create_var_decl_node(c, buf_ptr(name),
+                            create_str_lit_node(c, &tok->data.str_lit));
+                    c->macro_table.put(name, var_node);
+                }
+                return;
+            case CTokIdNumLitInt:
+                if (is_last) {
+                    AstNode *var_node = create_var_decl_node(c, buf_ptr(name),
+                            create_num_lit_unsigned_negative(c, tok->data.num_lit_int, negate));
+                    c->macro_table.put(name, var_node);
+                }
+                return;
+            case CTokIdNumLitFloat:
+                if (is_last) {
+                    AstNode *var_node = create_var_decl_node(c, buf_ptr(name),
+                            create_num_lit_float_negative(c, tok->data.num_lit_float, negate));
+                    c->macro_table.put(name, var_node);
+                }
+                return;
+            case CTokIdSymbol:
+                if (is_last && is_first) {
+                    // if it equals itself, ignore. for example, from stdio.h:
+                    // #define stdin stdin
+                    Buf *symbol_name = buf_create_from_buf(&tok->data.symbol);
+                    if (buf_eql_buf(name, symbol_name)) {
+                        return;
+                    }
+                    c->macro_symbols.append({name, symbol_name});
+                    return;
+                }
+            case CTokIdMinus:
+                if (is_first) {
+                    negate = true;
+                    break;
+                } else {
+                    return;
+                }
         }
-        c->macro_symbols.append({name, value});
     }
 }
 
@@ -1473,6 +1354,8 @@ static void process_symbol_macros(Context *c) {
 }
 
 static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
+    CTokenize ctok = {{0}};
+
     for (PreprocessedEntity *entity : unit.getLocalPreprocessingEntities()) {
         switch (entity->getKind()) {
             case PreprocessedEntity::InvalidKind:
@@ -1494,16 +1377,7 @@ static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
                     }
 
                     const char *end_c = c->source_manager->getCharacterData(end_loc);
-                    Buf *value = buf_alloc();
-                    while (*end_c && *end_c != '\n') {
-                        buf_append_char(value, *end_c);
-                        if (end_c[0] == '\\' && end_c[1] == '\n') {
-                            end_c += 2;
-                        } else {
-                            end_c += 1;
-                        }
-                    }
-                    process_macro(c, buf_create_from_str(name), value);
+                    process_macro(c, &ctok, buf_create_from_str(name), end_c);
                 }
         }
     }

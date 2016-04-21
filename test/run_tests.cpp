@@ -1390,6 +1390,10 @@ extern void (*fn_ptr)(void);
     add_parseh_case("__cdecl doesn't mess up function pointers", R"SOURCE(
 void foo(void (__cdecl *fn_ptr)(void));
     )SOURCE", 1, "pub extern fn foo(fn_ptr: ?extern fn());");
+
+    add_parseh_case("comment after integer literal", R"SOURCE(
+#define SDL_INIT_VIDEO 0x00000020  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    )SOURCE", 1, "pub const SDL_INIT_VIDEO = 32;");
 }
 
 static void run_self_hosted_test(void) {
