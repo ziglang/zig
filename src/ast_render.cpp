@@ -239,10 +239,80 @@ static bool is_node_void(AstNode *node) {
     return false;
 }
 
-static bool is_printable(uint8_t c) {
+static bool is_alpha_under(uint8_t c) {
     return (c >= 'a' && c <= 'z') ||
-           (c >= 'A' && c <= 'A') ||
-           (c >= '0' && c <= '9');
+        (c >= 'A' && c <= 'Z') || c == '_';
+}
+
+static bool is_digit(uint8_t c) {
+    return (c >= '0' && c <= '9');
+}
+
+static bool is_printable(uint8_t c) {
+    return is_alpha_under(c) || is_digit(c);
+}
+
+static void string_literal_escape(Buf *source, Buf *dest) {
+    buf_resize(dest, 0);
+    for (int i = 0; i < buf_len(source); i += 1) {
+        uint8_t c = *((uint8_t*)buf_ptr(source) + i);
+        if (is_printable(c)) {
+            buf_append_char(dest, c);
+        } else if (c == '\'') {
+            buf_append_str(dest, "\\'");
+        } else if (c == '"') {
+            buf_append_str(dest, "\\\"");
+        } else if (c == '\\') {
+            buf_append_str(dest, "\\\\");
+        } else if (c == '\a') {
+            buf_append_str(dest, "\\a");
+        } else if (c == '\b') {
+            buf_append_str(dest, "\\b");
+        } else if (c == '\f') {
+            buf_append_str(dest, "\\f");
+        } else if (c == '\n') {
+            buf_append_str(dest, "\\n");
+        } else if (c == '\r') {
+            buf_append_str(dest, "\\r");
+        } else if (c == '\t') {
+            buf_append_str(dest, "\\t");
+        } else if (c == '\v') {
+            buf_append_str(dest, "\\v");
+        } else {
+            buf_appendf(dest, "\\x%x", (int)c);
+        }
+    }
+}
+
+static bool is_valid_bare_symbol(Buf *symbol) {
+    if (buf_len(symbol) == 0) {
+        return false;
+    }
+    uint8_t first_char = *buf_ptr(symbol);
+    if (!is_alpha_under(first_char)) {
+        return false;
+    }
+    for (int i = 1; i < buf_len(symbol); i += 1) {
+        uint8_t c = *((uint8_t*)buf_ptr(symbol) + i);
+        if (!is_alpha_under(c) && !is_digit(c)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void print_symbol(AstRender *ar, Buf *symbol) {
+    if (is_zig_keyword(symbol)) {
+        fprintf(ar->f, "@\"%s\"", buf_ptr(symbol));
+        return;
+    }
+    if (is_valid_bare_symbol(symbol)) {
+        fprintf(ar->f, "%s", buf_ptr(symbol));
+        return;
+    }
+    Buf escaped = BUF_INIT;
+    string_literal_escape(symbol, &escaped);
+    fprintf(ar->f, "@\"%s\"", buf_ptr(&escaped));
 }
 
 static void render_node(AstRender *ar, AstNode *node) {
@@ -268,20 +338,22 @@ static void render_node(AstRender *ar, AstNode *node) {
             break;
         case NodeTypeFnProto:
             {
-                const char *fn_name = buf_ptr(&node->data.fn_proto.name);
                 const char *pub_str = visib_mod_string(node->data.fn_proto.top_level_decl.visib_mod);
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
                 const char *inline_str = inline_string(node->data.fn_proto.is_inline);
-                fprintf(ar->f, "%s%s%sfn %s(", pub_str, inline_str, extern_str, fn_name);
+                fprintf(ar->f, "%s%s%sfn ", pub_str, inline_str, extern_str);
+                print_symbol(ar, &node->data.fn_proto.name);
+                fprintf(ar->f, "(");
                 int arg_count = node->data.fn_proto.params.length;
                 bool is_var_args = node->data.fn_proto.is_var_args;
                 for (int arg_i = 0; arg_i < arg_count; arg_i += 1) {
                     AstNode *param_decl = node->data.fn_proto.params.at(arg_i);
                     assert(param_decl->type == NodeTypeParamDecl);
-                    const char *arg_name = buf_ptr(&param_decl->data.param_decl.name);
                     if (buf_len(&param_decl->data.param_decl.name) > 0) {
                         const char *noalias_str = param_decl->data.param_decl.is_noalias ? "noalias " : "";
-                        fprintf(ar->f, "%s%s: ", noalias_str, arg_name);
+                        fprintf(ar->f, "%s", noalias_str);
+                        print_symbol(ar, &param_decl->data.param_decl.name);
+                        fprintf(ar->f, ": ");
                     }
                     render_node(ar, param_decl->data.param_decl.type);
 
@@ -345,9 +417,10 @@ static void render_node(AstRender *ar, AstNode *node) {
             {
                 const char *pub_str = visib_mod_string(node->data.variable_declaration.top_level_decl.visib_mod);
                 const char *extern_str = extern_string(node->data.variable_declaration.is_extern);
-                const char *var_name = buf_ptr(&node->data.variable_declaration.symbol);
                 const char *const_or_var = const_or_var_string(node->data.variable_declaration.is_const);
-                fprintf(ar->f, "%s%s%s %s", pub_str, extern_str, const_or_var, var_name);
+                fprintf(ar->f, "%s%s%s ", pub_str, extern_str, const_or_var);
+                print_symbol(ar, &node->data.variable_declaration.symbol);
+
                 if (node->data.variable_declaration.type) {
                     fprintf(ar->f, ": ");
                     render_node(ar, node->data.variable_declaration.type);
@@ -495,9 +568,8 @@ static void render_node(AstRender *ar, AstNode *node) {
                 for (int field_i = 0; field_i < node->data.struct_decl.fields.length; field_i += 1) {
                     AstNode *field_node = node->data.struct_decl.fields.at(field_i);
                     assert(field_node->type == NodeTypeStructField);
-                    const char *field_name = buf_ptr(&field_node->data.struct_field.name);
                     print_indent(ar);
-                    fprintf(ar->f, "%s", field_name);
+                    print_symbol(ar, &field_node->data.struct_field.name);
                     if (!is_node_void(field_node->data.struct_field.type)) {
                         fprintf(ar->f, ": ");
                         render_node(ar, field_node->data.struct_field.type);

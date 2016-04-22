@@ -11,7 +11,6 @@
 #include "error.hpp"
 #include "parser.hpp"
 #include "all_types.hpp"
-#include "tokenizer.hpp"
 #include "c_tokenizer.hpp"
 #include "analyze.hpp"
 
@@ -1265,10 +1264,6 @@ static void render_macros(Context *c) {
 }
 
 static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *char_ptr) {
-    if (is_zig_keyword(name)) {
-        return;
-    }
-
     tokenize_c_macro(ctok, (const uint8_t *)char_ptr);
 
     if (ctok->error) {

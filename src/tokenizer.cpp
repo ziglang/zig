@@ -159,6 +159,7 @@ enum TokenizeState {
     TokenizeStateSawDot,
     TokenizeStateSawDotDot,
     TokenizeStateSawQuestionMark,
+    TokenizeStateSawAtSign,
     TokenizeStateError,
 };
 
@@ -429,7 +430,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                     case '@':
                         begin_token(&t, TokenIdAtSign);
-                        end_token(&t);
+                        t.state = TokenizeStateSawAtSign;
                         break;
                     case '-':
                         begin_token(&t, TokenIdDash);
@@ -858,6 +859,19 @@ void tokenize(Buf *buf, Tokenization *out) {
                         continue;
                 }
                 break;
+            case TokenizeStateSawAtSign:
+                switch (c) {
+                    case '"':
+                        t.cur_tok->id = TokenIdSymbol;
+                        t.state = TokenizeStateString;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
             case TokenizeStateFirstR:
                 switch (c) {
                     case '"':
@@ -1131,6 +1145,7 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawGreaterThanGreaterThan:
         case TokenizeStateSawDot:
         case TokenizeStateSawQuestionMark:
+        case TokenizeStateSawAtSign:
             end_token(&t);
             break;
         case TokenizeStateSawDotDot:

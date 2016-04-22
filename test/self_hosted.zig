@@ -1295,3 +1295,7 @@ struct EmptyStruct {
     #static_eval_enable(false)
     fn method(es: EmptyStruct) -> i32 { 1234 }
 }
+
+
+#attribute("test")
+fn @"weird function name"() { }
