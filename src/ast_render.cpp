@@ -523,7 +523,8 @@ static void render_node(AstRender *ar, AstNode *node) {
                 AstNode *lhs = node->data.field_access_expr.struct_expr;
                 Buf *rhs = &node->data.field_access_expr.field_name;
                 render_node(ar, lhs);
-                fprintf(ar->f, ".%s", buf_ptr(rhs));
+                fprintf(ar->f, ".");
+                print_symbol(ar, rhs);
                 break;
             }
         case NodeTypeUse:

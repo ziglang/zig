@@ -1244,15 +1244,14 @@ enum Foo {
     FooB,
     Foo1,
 };
-    )SOURCE", 1, R"OUTPUT(export enum enum_Foo {
+    )SOURCE", 3, R"(export enum enum_Foo {
     A,
     B,
-    _1,
-}
-pub const FooA = enum_Foo.A;
+    @"1",
+})", R"(pub const FooA = enum_Foo.A;
 pub const FooB = enum_Foo.B;
-pub const Foo1 = enum_Foo._1;)OUTPUT",
-            R"OUTPUT(pub const Foo = enum_Foo;)OUTPUT");
+pub const Foo1 = enum_Foo.@"1";)",
+            R"(pub const Foo = enum_Foo;)");
 
     add_parseh_case("restrict -> noalias", R"SOURCE(
 void foo(void *restrict bar, void *restrict);
@@ -1279,15 +1278,14 @@ enum Bar {
     BarB,
 };
 void func(struct Foo *a, enum Bar **b);
-    )SOURCE", 3, R"OUTPUT(export struct struct_Foo {
+    )SOURCE", 5, R"OUTPUT(export struct struct_Foo {
     x: c_int,
     y: c_int,
-}
+})OUTPUT", R"OUTPUT(
 export enum enum_Bar {
     A,
     B,
-}
-pub const BarA = enum_Bar.A;
+})OUTPUT", R"OUTPUT(pub const BarA = enum_Bar.A;
 pub const BarB = enum_Bar.B;)OUTPUT",
             "pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);",
     R"OUTPUT(pub const Foo = struct_Foo;
@@ -1323,12 +1321,6 @@ pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;)OUTPUT",
     add_parseh_case("#define an unsigned integer literal", R"SOURCE(
 #define CHANNEL_COUNT 24
     )SOURCE", 1, R"OUTPUT(pub const CHANNEL_COUNT = 24;)OUTPUT");
-
-
-    add_parseh_case("overide previous #define", R"SOURCE(
-#define A_CHAR 'a'
-#define A_CHAR 'b'
-    )SOURCE", 1, "pub const A_CHAR = 'b';");
 
 
     add_parseh_case("#define referencing another #define", R"SOURCE(

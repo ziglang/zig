@@ -42,6 +42,7 @@ struct Context {
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> struct_type_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> struct_decl_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> enum_type_table;
+    HashMap<const void *, TypeTableEntry *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> fn_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
     SourceManager *source_manager;
@@ -58,6 +59,7 @@ static TypeTableEntry *resolve_qual_type_with_table(Context *c, QualType qt, con
 
 static TypeTableEntry *resolve_qual_type(Context *c, QualType qt, const Decl *decl);
 static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_decl);
+static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl);
 
 
 __attribute__ ((format (printf, 3, 4)))
@@ -292,6 +294,7 @@ static const char *decl_name(const Decl *decl) {
 
 static AstNode *add_typedef_node(Context *c, TypeTableEntry *type_decl) {
     assert(type_decl);
+    assert(type_decl->id == TypeTableEntryIdTypeDecl);
 
     AstNode *node = create_type_decl_node(c, buf_ptr(&type_decl->name),
             make_type_node(c, type_decl->data.type_decl.child_type));
@@ -308,6 +311,26 @@ static AstNode *add_const_var_node(Context *c, Buf *name, TypeTableEntry *type_e
     c->global_type_table.put(name, type_entry);
     c->root->data.root.top_level_decls.append(node);
     return node;
+}
+
+static AstNode *create_ap_num_lit_node(Context *c, const Decl *source_decl,
+        const llvm::APSInt &aps_int)
+{
+    if (aps_int.isSigned()) {
+        if (aps_int > INT64_MAX || aps_int < INT64_MIN) {
+            emit_warning(c, source_decl, "integer overflow\n");
+            return nullptr;
+        } else {
+            return create_num_lit_signed(c, aps_int.getExtValue());
+        }
+    } else {
+        if (aps_int > INT64_MAX) {
+            emit_warning(c, source_decl, "integer overflow\n");
+            return nullptr;
+        } else {
+            return create_num_lit_unsigned(c, aps_int.getExtValue());
+        }
+    }
 }
 
 static bool is_c_void_type(Context *c, TypeTableEntry *type_entry) {
@@ -586,18 +609,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
         case Type::Enum:
             {
                 const EnumType *enum_ty = static_cast<const EnumType*>(ty);
-                Buf *record_name = buf_create_from_str(decl_name(enum_ty->getDecl()));
-                if (buf_len(record_name) == 0) {
-                    emit_warning(c, decl, "unhandled anonymous enum");
-                    return c->codegen->builtin_types.entry_invalid;
-                }
-
-                auto entry = type_table->maybe_get(record_name);
-                if (!entry) {
-                    return c->codegen->builtin_types.entry_invalid;
-                }
-
-                return entry->value;
+                return resolve_enum_decl(c, enum_ty->getDecl());
             }
         case Type::ConstantArray:
             {
@@ -759,146 +771,6 @@ static void add_alias(Context *c, const char *new_name, const char *target_name)
     c->aliases.append(alias_node);
 }
 
-static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
-    const char *raw_name = decl_name(enum_decl);
-    // we have no interest in top level anonymous enums since they're
-    // not exposing anything.
-    if (raw_name[0] == 0) {
-        return;
-    }
-
-    Buf *bare_name = buf_create_from_str(raw_name);
-    Buf *full_type_name = buf_sprintf("enum_%s", buf_ptr(bare_name));
-
-    if (c->enum_type_table.maybe_get(bare_name)) {
-        // we've already seen it
-        return;
-    }
-
-    const EnumDecl *enum_def = enum_decl->getDefinition();
-
-    if (!enum_def) {
-        TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(full_type_name),
-                c->codegen->builtin_types.entry_u8);
-        c->enum_type_table.put(bare_name, typedecl_type);
-
-        // this is a type that we can point to but that's it, same as `struct Foo;`.
-        add_typedef_node(c, typedecl_type);
-        add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
-        return;
-    }
-
-    // count and validate
-    uint32_t field_count = 0;
-    for (auto it = enum_def->enumerator_begin(),
-              it_end = enum_def->enumerator_end();
-              it != it_end; ++it, field_count += 1)
-    {
-        const EnumConstantDecl *enum_const = *it;
-        if (enum_const->getInitExpr()) {
-            emit_warning(c, enum_const, "skipping enum %s - has init expression\n", buf_ptr(bare_name));
-            return;
-        }
-    }
-
-    TypeTableEntry *enum_type = get_partial_container_type(c->codegen, c->import,
-            ContainerKindEnum, c->source_node, buf_ptr(full_type_name));
-
-    enum_type->data.enumeration.gen_field_count = 0;
-    enum_type->data.enumeration.complete = true;
-
-    TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(c->codegen, field_count);
-    enum_type->data.enumeration.tag_type = tag_type_entry;
-
-    c->enum_type_table.put(bare_name, enum_type);
-    // make an alias without the "enum_" prefix. this will get emitted at the
-    // end if it doesn't conflict with anything else
-    add_alias(c, buf_ptr(bare_name), buf_ptr(full_type_name));
-
-    enum_type->data.enumeration.field_count = field_count;
-    enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
-    LLVMZigDIEnumerator **di_enumerators = allocate<LLVMZigDIEnumerator*>(field_count);
-
-    ZigList<AstNode *> var_decls = {0};
-    uint32_t i = 0;
-    for (auto it = enum_def->enumerator_begin(),
-              it_end = enum_def->enumerator_end();
-              it != it_end; ++it, i += 1)
-    {
-        const EnumConstantDecl *enum_const = *it;
-
-        Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
-        Buf *field_name;
-        if (buf_starts_with_buf(enum_val_name, bare_name)) {
-            Buf *slice = buf_slice(enum_val_name, buf_len(bare_name), buf_len(enum_val_name));
-            if (valid_symbol_starter(buf_ptr(slice)[0])) {
-                field_name = slice;
-            } else {
-                field_name = buf_sprintf("_%s", buf_ptr(slice));
-            }
-        } else {
-            field_name = enum_val_name;
-        }
-
-        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
-        type_enum_field->name = field_name;
-        type_enum_field->type_entry = c->codegen->builtin_types.entry_void;
-        type_enum_field->value = i;
-
-        di_enumerators[i] = LLVMZigCreateDebugEnumerator(c->codegen->dbuilder, buf_ptr(type_enum_field->name), i);
-
-
-        // in C each enum value is in the global namespace. so we put them there too.
-        // at this point we can rely on the enum emitting successfully
-        AstNode *field_access_node = create_field_access_node(c, buf_ptr(full_type_name), buf_ptr(field_name));
-        AstNode *var_node = create_var_decl_node(c, buf_ptr(enum_val_name), field_access_node);
-        var_decls.append(var_node);
-        c->global_value_table.put(enum_val_name, {enum_type, true});
-    }
-
-    // create llvm type for root struct
-    enum_type->type_ref = tag_type_entry->type_ref;
-
-    // create debug type for tag
-    unsigned line = c->source_node ? (c->source_node->line + 1) : 0;
-    uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, enum_type->type_ref);
-    uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, enum_type->type_ref);
-    LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(c->codegen->dbuilder,
-            LLVMZigFileToScope(c->import->di_file), buf_ptr(bare_name),
-            c->import->di_file, line,
-            debug_size_in_bits,
-            debug_align_in_bits,
-            di_enumerators, field_count, tag_type_entry->di_type, "");
-
-    LLVMZigReplaceTemporary(c->codegen->dbuilder, enum_type->di_type, tag_di_type);
-    enum_type->di_type = tag_di_type;
-
-    //////////
-
-    // now create top level decl for the type
-    AstNode *enum_node = create_node(c, NodeTypeStructDecl);
-    buf_init_from_buf(&enum_node->data.struct_decl.name, full_type_name);
-    enum_node->data.struct_decl.kind = ContainerKindEnum;
-    enum_node->data.struct_decl.top_level_decl.visib_mod = VisibModExport;
-    enum_node->data.struct_decl.type_entry = enum_type;
-
-    for (uint32_t i = 0; i < field_count; i += 1) {
-        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
-        AstNode *type_node = make_type_node(c, type_enum_field->type_entry);
-        AstNode *field_node = create_struct_field_node(c, buf_ptr(type_enum_field->name), type_node);
-        enum_node->data.struct_decl.fields.append(field_node);
-    }
-
-    normalize_parent_ptrs(enum_node);
-    c->root->data.root.top_level_decls.append(enum_node);
-
-    for (int i = 0; i < var_decls.length; i += 1) {
-        AstNode *var_node = var_decls.at(i);
-        c->root->data.root.top_level_decls.append(var_node);
-    }
-
-}
-
 static void replace_with_fwd_decl(Context *c, TypeTableEntry *struct_type, Buf *full_type_name) {
     unsigned line = c->source_node ? c->source_node->line : 0;
     LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugForwardDeclType(c->codegen->dbuilder,
@@ -909,7 +781,192 @@ static void replace_with_fwd_decl(Context *c, TypeTableEntry *struct_type, Buf *
     struct_type->di_type = replacement_di_type;
 }
 
+static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
+    auto existing_entry = c->decl_table.maybe_get((void*)enum_decl);
+    if (existing_entry) {
+        return existing_entry->value;
+    }
+
+    const char *raw_name = decl_name(enum_decl);
+
+    Buf *bare_name;
+    if (raw_name[0] == 0) {
+        bare_name = buf_sprintf("anon_$%" PRIu32, get_next_node_index(c));
+    } else {
+        bare_name = buf_create_from_str(raw_name);
+    }
+
+    Buf *full_type_name = buf_sprintf("enum_%s", buf_ptr(bare_name));
+
+    const EnumDecl *enum_def = enum_decl->getDefinition();
+    if (!enum_def) {
+        TypeTableEntry *enum_type = get_partial_container_type(c->codegen, c->import,
+                ContainerKindEnum, c->source_node, buf_ptr(full_type_name));
+        c->enum_type_table.put(bare_name, enum_type);
+        c->decl_table.put(enum_decl, enum_type);
+        replace_with_fwd_decl(c, enum_type, full_type_name);
+
+        return enum_type;
+    }
+
+    bool pure_enum = true;
+    uint32_t field_count = 0;
+    for (auto it = enum_def->enumerator_begin(),
+              it_end = enum_def->enumerator_end();
+              it != it_end; ++it, field_count += 1)
+    {
+        const EnumConstantDecl *enum_const = *it;
+        if (enum_const->getInitExpr()) {
+            pure_enum = false;
+        }
+    }
+
+    TypeTableEntry *tag_type_entry = resolve_qual_type(c, enum_decl->getIntegerType(), enum_decl);
+
+    if (pure_enum) {
+        TypeTableEntry *enum_type = get_partial_container_type(c->codegen, c->import,
+                ContainerKindEnum, c->source_node, buf_ptr(full_type_name));
+        c->enum_type_table.put(bare_name, enum_type);
+        c->decl_table.put(enum_decl, enum_type);
+
+        enum_type->data.enumeration.gen_field_count = 0;
+        enum_type->data.enumeration.complete = true;
+        enum_type->data.enumeration.tag_type = tag_type_entry;
+
+        enum_type->data.enumeration.field_count = field_count;
+        enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+        LLVMZigDIEnumerator **di_enumerators = allocate<LLVMZigDIEnumerator*>(field_count);
+
+        uint32_t i = 0;
+        for (auto it = enum_def->enumerator_begin(),
+                it_end = enum_def->enumerator_end();
+                it != it_end; ++it, i += 1)
+        {
+            const EnumConstantDecl *enum_const = *it;
+
+            Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
+            Buf *field_name;
+            if (buf_starts_with_buf(enum_val_name, bare_name)) {
+                field_name = buf_slice(enum_val_name, buf_len(bare_name), buf_len(enum_val_name));
+            } else {
+                field_name = enum_val_name;
+            }
+
+            TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
+            type_enum_field->name = field_name;
+            type_enum_field->type_entry = c->codegen->builtin_types.entry_void;
+            type_enum_field->value = i;
+
+            di_enumerators[i] = LLVMZigCreateDebugEnumerator(c->codegen->dbuilder, buf_ptr(type_enum_field->name), i);
+
+
+            // in C each enum value is in the global namespace. so we put them there too.
+            // at this point we can rely on the enum emitting successfully
+            AstNode *field_access_node = create_field_access_node(c, buf_ptr(full_type_name), buf_ptr(field_name));
+            AstNode *var_node = create_var_decl_node(c, buf_ptr(enum_val_name), field_access_node);
+            c->root->data.root.top_level_decls.append(var_node);
+
+            c->global_value_table.put(enum_val_name, {enum_type, true});
+        }
+
+        // create llvm type for root struct
+        enum_type->type_ref = tag_type_entry->type_ref;
+
+        // create debug type for tag
+        unsigned line = c->source_node ? (c->source_node->line + 1) : 0;
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, enum_type->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, enum_type->type_ref);
+        LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(c->codegen->dbuilder,
+                LLVMZigFileToScope(c->import->di_file), buf_ptr(bare_name),
+                c->import->di_file, line,
+                debug_size_in_bits,
+                debug_align_in_bits,
+                di_enumerators, field_count, tag_type_entry->di_type, "");
+
+        LLVMZigReplaceTemporary(c->codegen->dbuilder, enum_type->di_type, tag_di_type);
+        enum_type->di_type = tag_di_type;
+
+        return enum_type;
+    } else {
+        TypeTableEntry *enum_type = get_typedecl_type(c->codegen, buf_ptr(full_type_name), tag_type_entry);
+        c->enum_type_table.put(bare_name, enum_type);
+        c->decl_table.put(enum_decl, enum_type);
+
+        // add variables for all the values with enum_type
+        for (auto it = enum_def->enumerator_begin(),
+                it_end = enum_def->enumerator_end();
+                it != it_end; ++it)
+        {
+            const EnumConstantDecl *enum_const = *it;
+            AstNode *num_lit_node = create_ap_num_lit_node(c, enum_decl, enum_const->getInitVal());
+            if (!num_lit_node) {
+                return c->codegen->builtin_types.entry_invalid;
+            }
+
+            Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
+
+            AstNode *type_node = make_type_node(c, enum_type);
+            AstNode *var_decl_node = create_typed_var_decl_node(c, true, buf_ptr(enum_val_name),
+                    type_node, num_lit_node);
+
+            c->root->data.root.top_level_decls.append(var_decl_node);
+            c->global_value_table.put(enum_val_name, {enum_type, true});
+
+        }
+
+        return enum_type;
+    }
+}
+
+static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
+    TypeTableEntry *enum_type = resolve_enum_decl(c, enum_decl);
+
+    if (enum_type->id == TypeTableEntryIdInvalid) {
+        return;
+    }
+
+    // make an alias without the "enum_" prefix. this will get emitted at the
+    // end if it doesn't conflict with anything else
+    if (decl_name(enum_decl)[0] != 0) {
+        add_alias(c, decl_name(enum_decl), buf_ptr(&enum_type->name));
+    }
+
+    if (enum_type->id == TypeTableEntryIdEnum) {
+        if (enum_type->data.enumeration.complete) {
+            // now create top level decl for the type
+            AstNode *enum_node = create_node(c, NodeTypeStructDecl);
+            buf_init_from_buf(&enum_node->data.struct_decl.name, &enum_type->name);
+            enum_node->data.struct_decl.kind = ContainerKindEnum;
+            enum_node->data.struct_decl.top_level_decl.visib_mod = VisibModExport;
+            enum_node->data.struct_decl.type_entry = enum_type;
+
+            for (uint32_t i = 0; i < enum_type->data.enumeration.field_count; i += 1) {
+                TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
+                AstNode *type_node = make_type_node(c, type_enum_field->type_entry);
+                AstNode *field_node = create_struct_field_node(c, buf_ptr(type_enum_field->name), type_node);
+                enum_node->data.struct_decl.fields.append(field_node);
+            }
+
+            normalize_parent_ptrs(enum_node);
+            c->root->data.root.top_level_decls.append(enum_node);
+        } else {
+            TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(&enum_type->name),
+                    c->codegen->builtin_types.entry_u8);
+            add_typedef_node(c, typedecl_type);
+        }
+    } else if (enum_type->id == TypeTableEntryIdTypeDecl) {
+        add_typedef_node(c, enum_type);
+    } else {
+        zig_unreachable();
+    }
+}
+
 static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
+    auto existing_entry = c->decl_table.maybe_get((void*)record_decl);
+    if (existing_entry) {
+        return existing_entry->value;
+    }
+
     const char *raw_name = decl_name(record_decl);
 
     if (!record_decl->isStruct()) {
@@ -922,11 +979,6 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
         bare_name = buf_sprintf("anon_$%" PRIu32, get_next_node_index(c));
     } else {
         bare_name = buf_create_from_str(raw_name);
-
-        auto existing_entry = c->struct_type_table.maybe_get(bare_name);
-        if (existing_entry) {
-            return existing_entry->value;
-        }
     }
 
     Buf *full_type_name = buf_sprintf("struct_%s", buf_ptr(bare_name));
@@ -936,6 +988,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
             ContainerKindStruct, c->source_node, buf_ptr(full_type_name));
 
     c->struct_type_table.put(bare_name, struct_type);
+    c->decl_table.put(record_decl, struct_type);
 
     RecordDecl *record_def = record_decl->getDefinition();
     unsigned line = c->source_node ? c->source_node->line : 0;
@@ -1125,23 +1178,9 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                             "ignoring variable '%s' - int initializer for non int type\n", buf_ptr(name));
                         return;
                     }
-                    llvm::APSInt aps_int = ap_value->getInt();
-                    if (aps_int.isSigned()) {
-                        if (aps_int > INT64_MAX || aps_int < INT64_MIN) {
-                            emit_warning(c, var_decl,
-                                "ignoring variable '%s' - initializer overflow\n", buf_ptr(name));
-                            return;
-                        } else {
-                            init_node = create_num_lit_signed(c, aps_int.getExtValue());
-                        }
-                    } else {
-                        if (aps_int > UINT64_MAX) {
-                            emit_warning(c, var_decl,
-                                "ignoring variable '%s' - initializer overflow\n", buf_ptr(name));
-                            return;
-                        } else {
-                            init_node = create_num_lit_unsigned(c, aps_int.getExtValue());
-                        }
+                    init_node = create_ap_num_lit_node(c, var_decl, ap_value->getInt());
+                    if (!init_node) {
+                        return;
                     }
                     break;
                 }
@@ -1360,7 +1399,7 @@ static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
             case PreprocessedEntity::MacroDefinitionKind:
                 {
                     MacroDefinitionRecord *macro = static_cast<MacroDefinitionRecord *>(entity);
-                    const char *name = macro->getName()->getNameStart();
+                    const char *raw_name = macro->getName()->getNameStart();
                     SourceRange range = macro->getSourceRange();
                     SourceLocation begin_loc = range.getBegin();
                     SourceLocation end_loc = range.getEnd();
@@ -1370,9 +1409,13 @@ static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
                         // we don't care about such things
                         continue;
                     }
+                    Buf *name = buf_create_from_str(raw_name);
+                    if (name_exists(c, name)) {
+                        continue;
+                    }
 
                     const char *end_c = c->source_manager->getCharacterData(end_loc);
-                    process_macro(c, &ctok, buf_create_from_str(name), end_c);
+                    process_macro(c, &ctok, name, end_c);
                 }
         }
     }
@@ -1408,6 +1451,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->enum_type_table.init(8);
     c->struct_type_table.init(8);
     c->struct_decl_table.init(8);
+    c->decl_table.init(8);
     c->fn_table.init(8);
     c->macro_table.init(8);
     c->codegen = codegen;

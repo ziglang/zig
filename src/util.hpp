@@ -83,5 +83,7 @@ uint32_t int_hash(int i);
 bool int_eq(int a, int b);
 uint32_t uint64_hash(uint64_t i);
 bool uint64_eq(uint64_t a, uint64_t b);
+uint32_t ptr_hash(const void *ptr);
+bool ptr_eq(const void *a, const void *b);
 
 #endif

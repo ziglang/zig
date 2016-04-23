@@ -34,3 +34,11 @@ uint32_t uint64_hash(uint64_t i) {
 bool uint64_eq(uint64_t a, uint64_t b) {
     return a == b;
 }
+
+uint32_t ptr_hash(const void *ptr) {
+    return ((uintptr_t)ptr) % UINT32_MAX;
+}
+
+bool ptr_eq(const void *a, const void *b) {
+    return a == b;
+}
