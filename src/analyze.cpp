@@ -3089,12 +3089,10 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                     return resolved_type;
                 }
 
-                bool is_int = false;
-                bool is_float = false;
                 if (resolved_type->id == TypeTableEntryIdInt ||
                     resolved_type->id == TypeTableEntryIdNumLitInt)
                 {
-                    is_int = true;
+                    // int
                 } else if ((resolved_type->id == TypeTableEntryIdFloat ||
                            resolved_type->id == TypeTableEntryIdNumLitFloat) &&
                     (bin_op_type == BinOpTypeAdd ||
@@ -3103,7 +3101,7 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                      bin_op_type == BinOpTypeDiv ||
                      bin_op_type == BinOpTypeMod))
                 {
-                    is_float = true;
+                    // float
                 } else {
                     add_node_error(g, node, buf_sprintf("invalid operands to binary expression: '%s' and '%s'",
                             buf_ptr(&lhs_type->name), buf_ptr(&rhs_type->name)));

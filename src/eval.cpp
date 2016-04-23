@@ -1124,6 +1124,7 @@ static bool eval_expr(EvalFn *ef, AstNode *node, ConstExprValue *out) {
         case NodeTypeTypeDecl:
             zig_unreachable();
     }
+    zig_unreachable();
 }
 
 static bool eval_fn_args(EvalFnRoot *efr, FnTableEntry *fn, ConstExprValue *args, ConstExprValue *out_val) {
