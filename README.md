@@ -101,6 +101,20 @@ make
 sudo make install
 ```
 
+### Test Coverage
+
+To see test coverage in Zig, configure with `-DZIG_TEST_COVERAGE=ON` as an
+additional parameter to the Debug build.
+
+You must have `lcov` installed and available.
+
+Then `make coverage`.
+
+With GCC you will get a nice HTML view of the coverage data. With clang,
+the last step will fail, but you can execute
+`llvm-cov gcov $(find CMakeFiles/ -name "*.gcda")` and then inspect the
+produced .gcov files.
+
 ### Troubleshooting
 
 If you get one of these:

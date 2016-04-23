@@ -20,6 +20,8 @@ set(ZIG_LIBC_INCLUDE_DIR "/usr/include" CACHE STRING "Default native target libc
 set(ZIG_LD_PATH "ld" CACHE STRING "Path to ld for the native target")
 set(ZIG_DYNAMIC_LINKER "" CACHE STRING "Override dynamic linker for native target")
 
+option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
+
 
 
 find_package(llvm)
@@ -175,10 +177,17 @@ if(MINGW)
 endif()
 
 set(EXE_CFLAGS "-std=c++11 -fno-exceptions -fno-rtti -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D__USE_MINGW_ANSI_STDIO -Werror=strict-prototypes -Werror=old-style-definition -Werror=missing-prototypes")
+set(EXE_LDFLAGS " ")
+if(ZIG_TEST_COVERAGE)
+    set(EXE_CFLAGS "${EXE_CFLAGS} -fprofile-arcs -ftest-coverage")
+    set(EXE_LDFLAGS "-fprofile-arcs -ftest-coverage")
+endif()
 
 add_executable(zig ${ZIG_SOURCES})
 set_target_properties(zig PROPERTIES
-    COMPILE_FLAGS ${EXE_CFLAGS})
+    COMPILE_FLAGS ${EXE_CFLAGS}
+    LINK_FLAGS ${EXE_LDFLAGS}
+)
 target_link_libraries(zig LINK_PUBLIC
     ${CLANG_LIBRARIES}
     ${LLVM_LIBRARIES}
@@ -208,4 +217,18 @@ add_executable(run_tests ${TEST_SOURCES})
 target_link_libraries(run_tests)
 set_target_properties(run_tests PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
+    LINK_FLAGS ${EXE_LDFLAGS}
 )
+
+if (ZIG_TEST_COVERAGE)
+    add_custom_target(coverage
+        DEPENDS run_tests
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMAND lcov --directory . --zerocounters --rc lcov_branch_coverage=1
+        COMMAND ./run_tests
+        COMMAND lcov --directory . --capture --output-file coverage.info --rc lcov_branch_coverage=1
+        COMMAND lcov --remove coverage.info '/usr/*' --output-file coverage.info.cleaned --rc lcov_branch_coverage=1
+        COMMAND genhtml -o coverage coverage.info.cleaned --rc lcov_branch_coverage=1
+        COMMAND rm coverage.info coverage.info.cleaned
+    )
+endif()
