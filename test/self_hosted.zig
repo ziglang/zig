@@ -1314,3 +1314,11 @@ fn test_return_empty_struct_from_fn() -> EmptyStruct2 {
 fn test_return_empty_struct_from_fn_noeval() -> EmptyStruct2 {
     EmptyStruct2 {}
 }
+
+#attribute("test")
+fn pass_slice_of_empty_struct_to_fn() {
+    assert(test_pass_slice_of_empty_struct_to_fn([]EmptyStruct2{ EmptyStruct2{} }) == 1);
+}
+fn test_pass_slice_of_empty_struct_to_fn(slice: []EmptyStruct2) -> isize {
+    slice.len
+}

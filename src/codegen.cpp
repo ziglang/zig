@@ -714,11 +714,15 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 add_debug_source_node(g, node);
 
-                LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 0, "");
-                LLVMValueRef expr_bitcast = LLVMBuildBitCast(g->builder, expr_val, pointer_type->type_ref, "");
-                LLVMBuildStore(g->builder, expr_bitcast, ptr_ptr);
+                int ptr_index = wanted_type->data.structure.fields[0].gen_index;
+                if (ptr_index >= 0) {
+                    LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, ptr_index, "");
+                    LLVMValueRef expr_bitcast = LLVMBuildBitCast(g->builder, expr_val, pointer_type->type_ref, "");
+                    LLVMBuildStore(g->builder, expr_bitcast, ptr_ptr);
+                }
 
-                LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 1, "");
+                int len_index = wanted_type->data.structure.fields[1].gen_index;
+                LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, len_index, "");
                 LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref,
                         actual_type->data.array.len, false);
                 LLVMBuildStore(g->builder, len_val, len_ptr);
@@ -884,7 +888,9 @@ static LLVMValueRef gen_array_elem_ptr(CodeGen *g, AstNode *source_node, LLVMVal
         assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
 
         add_debug_source_node(g, source_node);
-        LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, 0, "");
+        int ptr_index = array_type->data.structure.fields[0].gen_index;
+        assert(ptr_index >= 0);
+        LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, ptr_index, "");
         LLVMValueRef ptr = LLVMBuildLoad(g->builder, ptr_ptr, "");
         return LLVMBuildInBoundsGEP(g->builder, ptr, &subscript_value, 1, "");
     } else {
@@ -1002,18 +1008,25 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
             end_val = gen_expr(g, node->data.slice_expr.end);
         } else {
             add_debug_source_node(g, node);
-            LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, 1, "");
+            int len_index = array_type->data.structure.fields[1].gen_index;
+            assert(len_index >= 0);
+            LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, len_index, "");
             end_val = LLVMBuildLoad(g->builder, src_len_ptr, "");
         }
 
+        int ptr_index = array_type->data.structure.fields[0].gen_index;
+        assert(ptr_index >= 0);
+        int len_index = array_type->data.structure.fields[1].gen_index;
+        assert(len_index >= 0);
+
         add_debug_source_node(g, node);
-        LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, 0, "");
+        LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, ptr_index, "");
         LLVMValueRef src_ptr = LLVMBuildLoad(g->builder, src_ptr_ptr, "");
-        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 0, "");
-        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr, &start_val, 1, "");
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, ptr_index, "");
+        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr, &start_val, len_index, "");
         LLVMBuildStore(g->builder, slice_start_ptr, ptr_field_ptr);
 
-        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 1, "");
+        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, len_index, "");
         LLVMValueRef len_value = LLVMBuildSub(g->builder, end_val, start_val, "");
         LLVMBuildStore(g->builder, len_value, len_field_ptr);
 
@@ -2419,7 +2432,9 @@ static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
         TypeTableEntry *child_ptr_type = array_type->data.structure.fields[0].type_entry;
         assert(child_ptr_type->id == TypeTableEntryIdPointer);
         child_type = child_ptr_type->data.pointer.child_type;
-        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, array_val, 1, "");
+        int len_index = array_type->data.structure.fields[1].gen_index;
+        assert(len_index >= 0);
+        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, array_val, len_index, "");
         len_val = LLVMBuildLoad(g->builder, len_field_ptr, "");
     } else {
         zig_unreachable();
@@ -2537,14 +2552,19 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
                         LLVMValueRef ptr_val = LLVMBuildArrayAlloca(g->builder, child_type->type_ref,
                                 size_val, "");
 
+                        int ptr_index = var_type->data.structure.fields[0].gen_index;
+                        assert(ptr_index >= 0);
+                        int len_index = var_type->data.structure.fields[1].gen_index;
+                        assert(len_index >= 0);
+
                         // store the freshly allocated pointer in the unknown size array struct
                         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder,
-                                variable->value_ref, 0, "");
+                                variable->value_ref, ptr_index, "");
                         LLVMBuildStore(g->builder, ptr_val, ptr_field_ptr);
 
                         // store the size in the len field
                         LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder,
-                                variable->value_ref, 1, "");
+                                variable->value_ref, len_index, "");
                         LLVMBuildStore(g->builder, size_val, len_field_ptr);
 
                         // don't clobber what we just did with debug initialization
