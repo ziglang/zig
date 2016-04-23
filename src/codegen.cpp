@@ -788,8 +788,10 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
 
     TypeTableEntry *src_return_type = fn_type->data.fn.fn_type_id.return_type;
 
+    bool ret_has_bits = type_has_bits(src_return_type);
+
     int fn_call_param_count = node->data.fn_call_expr.params.length;
-    bool first_arg_ret = handle_is_ptr(src_return_type);
+    bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type);
     int actual_param_count = fn_call_param_count + (struct_type ? 1 : 0) + (first_arg_ret ? 1 : 0);
     bool is_var_args = fn_type->data.fn.fn_type_id.is_var_args;
 
@@ -824,10 +826,10 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
 
     if (src_return_type->id == TypeTableEntryIdUnreachable) {
         return LLVMBuildUnreachable(g->builder);
+    } else if (!ret_has_bits) {
+        return nullptr;
     } else if (first_arg_ret) {
         return node->data.fn_call_expr.tmp_ptr;
-    } else if (!type_has_bits(src_return_type)) {
-        return nullptr;
     } else {
         return result;
     }
@@ -1568,6 +1570,9 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType b
         LLVMValueRef target_ref, LLVMValueRef value,
         TypeTableEntry *op1_type, TypeTableEntry *op2_type)
 {
+    if (!type_has_bits(op1_type)) {
+        return nullptr;
+    }
     if (handle_is_ptr(op1_type)) {
         assert(op1_type == op2_type);
         assert(bin_op == BinOpTypeAssign);
@@ -1584,7 +1589,8 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType b
     }
 
     add_debug_source_node(g, source_node);
-    return LLVMBuildStore(g->builder, value, target_ref);
+    LLVMBuildStore(g->builder, value, target_ref);
+    return nullptr;
 }
 
 static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
@@ -1600,11 +1606,8 @@ static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
 
     LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
 
-    if (!type_has_bits(op1_type)) {
-        return nullptr;
-    }
-
-    return gen_assign_raw(g, node, node->data.bin_op_expr.bin_op, target_ref, value, op1_type, op2_type);
+    gen_assign_raw(g, node, node->data.bin_op_expr.bin_op, target_ref, value, op1_type, op2_type);
+    return nullptr;
 }
 
 static LLVMValueRef gen_unwrap_maybe(CodeGen *g, AstNode *node, LLVMValueRef maybe_struct_ref) {
@@ -1846,11 +1849,12 @@ static LLVMValueRef gen_return(CodeGen *g, AstNode *source_node, LLVMValueRef va
         assert(g->cur_ret_ptr);
         gen_assign_raw(g, source_node, BinOpTypeAssign, g->cur_ret_ptr, value, return_type, return_type);
         add_debug_source_node(g, source_node);
-        return LLVMBuildRetVoid(g->builder);
+        LLVMBuildRetVoid(g->builder);
     } else {
         add_debug_source_node(g, source_node);
-        return LLVMBuildRet(g->builder, value);
+        LLVMBuildRet(g->builder, value);
     }
+    return nullptr;
 }
 
 static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {

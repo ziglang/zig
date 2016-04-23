@@ -1299,3 +1299,18 @@ struct EmptyStruct {
 
 #attribute("test")
 fn @"weird function name"() { }
+
+
+#attribute("test")
+fn return_empty_struct_from_fn() {
+    test_return_empty_struct_from_fn();
+    test_return_empty_struct_from_fn_noeval();
+}
+struct EmptyStruct2 {}
+fn test_return_empty_struct_from_fn() -> EmptyStruct2 {
+    EmptyStruct2 {}
+}
+#static_eval_enable(false)
+fn test_return_empty_struct_from_fn_noeval() -> EmptyStruct2 {
+    EmptyStruct2 {}
+}

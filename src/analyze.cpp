@@ -623,7 +623,6 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         buf_appendf(&fn_type->name, " -> %s", buf_ptr(&fn_type_id->return_type->name));
     }
 
-
     // next, loop over the parameters again and compute debug information
     // and codegen information
     bool first_arg_return = handle_is_ptr(fn_type_id->return_type);
@@ -634,14 +633,14 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     param_di_types[0] = fn_type_id->return_type->di_type;
     int gen_param_index = 0;
     TypeTableEntry *gen_return_type;
-    if (first_arg_return) {
+    if (!type_has_bits(fn_type_id->return_type)) {
+        gen_return_type = g->builtin_types.entry_void;
+    } else if (first_arg_return) {
         TypeTableEntry *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
         gen_param_types[gen_param_index] = gen_type->type_ref;
         gen_param_index += 1;
         // after the gen_param_index += 1 because 0 is the return type
         param_di_types[gen_param_index] = gen_type->di_type;
-        gen_return_type = g->builtin_types.entry_void;
-    } else if (!type_has_bits(fn_type_id->return_type)) {
         gen_return_type = g->builtin_types.entry_void;
     } else {
         gen_return_type = fn_type_id->return_type;
