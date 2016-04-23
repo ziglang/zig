@@ -51,8 +51,8 @@ syn match     zigEscape        display contained /\\\([nrt0\\'"]\|x\x\{2}\)/
 syn match     zigEscapeUnicode display contained /\\\(u\x\{4}\|U\x\{8}\)/
 syn match     zigEscapeUnicode display contained /\\u{\x\{1,6}}/
 syn match     zigStringContinuation display contained /\\\n\s*/
-syn region    zigString      start=+r\?c\?"+ skip=+\\\\\|\\"+ end=+"+ contains=zigEscape,zigEscapeUnicode,zigEscapeError,zigStringContinuation,@Spell
-syn region    zigString      start='b\?r\z(#*\)"' end='"\z1' contains=@Spell
+syn region    zigString      start=+c\?"+ skip=+\\\\\|\\"+ end=+"+ contains=zigEscape,zigEscapeUnicode,zigEscapeError,zigStringContinuation,@Spell
+syn region    zigString      start='r"\z([^)]*\)(' end=')\z1"' contains=@Spell
 
 let b:current_syntax = "zig"
 
