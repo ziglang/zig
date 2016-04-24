@@ -1333,3 +1333,9 @@ fn pointer_comparison() {
 fn ptr_eql(a: &[]u8, b: &[]u8) -> bool {
     a == b
 }
+
+#attribute("test")
+fn character_literals() {
+    assert('\'' == single_quote);
+}
+const single_quote = '\'';

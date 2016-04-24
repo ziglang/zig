@@ -136,6 +136,8 @@ enum TokenizeState {
     TokenizeStateRawStringContents,
     TokenizeStateRawStringMaybeEnd,
     TokenizeStateCharLiteral,
+    TokenizeStateCharLiteralEscape,
+    TokenizeStateCharLiteralEnd,
     TokenizeStateSawStar,
     TokenizeStateSawSlash,
     TokenizeStateSawPercent,
@@ -955,8 +957,25 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
-                    default:
+                    case '\\':
+                        t.state = TokenizeStateCharLiteralEscape;
                         break;
+                    default:
+                        t.state = TokenizeStateCharLiteralEnd;
+                        break;
+                }
+                break;
+            case TokenizeStateCharLiteralEscape:
+                t.state = TokenizeStateCharLiteralEnd;
+                break;
+            case TokenizeStateCharLiteralEnd:
+                switch (c) {
+                    case '\'':
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    default:
+                        tokenize_error(&t, "invalid character: '%c'", c);
                 }
                 break;
             case TokenizeStateZero:
@@ -1118,6 +1137,8 @@ void tokenize(Buf *buf, Tokenization *out) {
             tokenize_error(&t, "unterminated raw string");
             break;
         case TokenizeStateCharLiteral:
+        case TokenizeStateCharLiteralEscape:
+        case TokenizeStateCharLiteralEnd:
             tokenize_error(&t, "unterminated character literal");
             break;
         case TokenizeStateSymbol:
