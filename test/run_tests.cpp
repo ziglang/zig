@@ -1218,6 +1218,21 @@ fn test_a_thing() {
     bad_fn_call();
 }
     )SOURCE", 1, ".tmp_source.zig:6:5: error: use of undeclared identifier 'bad_fn_call'");
+
+    add_compile_fail_case("illegal comparison of types", R"SOURCE(
+fn bad_eql_1(a: []u8, b: []u8) -> bool {
+    a == b
+}
+enum EnumWithData {
+    One,
+    Two: i32,
+}
+fn bad_eql_2(a: EnumWithData, b: EnumWithData) -> bool {
+    a == b
+}
+    )SOURCE", 2,
+            ".tmp_source.zig:3:7: error: operator not allowed for type '[]u8'",
+            ".tmp_source.zig:10:7: error: operator not allowed for type 'EnumWithData'");
 }
 
 //////////////////////////////////////////////////////////////////////////////
