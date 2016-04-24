@@ -454,7 +454,7 @@ static void slice_type_common_init(CodeGen *g, TypeTableEntry *child_type,
 
     unsigned element_count = 2;
     entry->data.structure.is_packed = false;
-    entry->data.structure.is_unknown_size_array = true;
+    entry->data.structure.is_slice = true;
     entry->data.structure.src_field_count = element_count;
     entry->data.structure.gen_field_count = element_count;
     entry->data.structure.fields = allocate<TypeStructField>(element_count);
@@ -1762,8 +1762,8 @@ static bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTable
     // unknown size array const
     if (expected_type->id == TypeTableEntryIdStruct &&
         actual_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_unknown_size_array &&
-        actual_type->data.structure.is_unknown_size_array &&
+        expected_type->data.structure.is_slice &&
+        actual_type->data.structure.is_slice &&
         (!actual_type->data.structure.fields[0].type_entry->data.pointer.is_const ||
           expected_type->data.structure.fields[0].type_entry->data.pointer.is_const))
     {
@@ -1966,9 +1966,9 @@ static bool types_match_with_implicit_cast(CodeGen *g, TypeTableEntry *expected_
         return true;
     }
 
-    // implicit constant sized array to unknown size array conversion
+    // implicit array to slice conversion
     if (expected_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_unknown_size_array &&
+        expected_type->data.structure.is_slice &&
         actual_type->id == TypeTableEntryIdArray &&
         types_match_const_cast_only(
             expected_type->data.structure.fields[0].type_entry->data.pointer.child_type,
@@ -2273,7 +2273,7 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
     if (container_type->id == TypeTableEntryIdInvalid) {
         return container_type;
     } else if (container_type->id == TypeTableEntryIdStruct &&
-               !container_type->data.structure.is_unknown_size_array &&
+               !container_type->data.structure.is_slice &&
                (kind == ContainerInitKindStruct || (kind == ContainerInitKindArray &&
                                                     container_init_expr->entries.length == 0)))
     {
@@ -2352,7 +2352,7 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
         }
         return container_type;
     } else if (container_type->id == TypeTableEntryIdStruct &&
-               container_type->data.structure.is_unknown_size_array &&
+               container_type->data.structure.is_slice &&
                kind == ContainerInitKindArray)
     {
         int elem_count = container_init_expr->entries.length;
@@ -2573,7 +2573,7 @@ static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, 
         return_type = get_slice_type(g, array_type->data.pointer.child_type,
                 node->data.slice_expr.is_const);
     } else if (array_type->id == TypeTableEntryIdStruct &&
-               array_type->data.structure.is_unknown_size_array)
+               array_type->data.structure.is_slice)
     {
         return_type = get_slice_type(g,
                 array_type->data.structure.fields[0].type_entry->data.pointer.child_type,
@@ -2623,7 +2623,7 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
     } else if (array_type->id == TypeTableEntryIdPointer) {
         return_type = array_type->data.pointer.child_type;
     } else if (array_type->id == TypeTableEntryIdStruct &&
-               array_type->data.structure.is_unknown_size_array)
+               array_type->data.structure.is_slice)
     {
         return_type = array_type->data.structure.fields[0].type_entry->data.pointer.child_type;
     } else {
@@ -3643,7 +3643,7 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
     } else if (array_type->id == TypeTableEntryIdArray) {
         child_type = array_type->data.array.child_type;
     } else if (array_type->id == TypeTableEntryIdStruct &&
-               array_type->data.structure.is_unknown_size_array)
+               array_type->data.structure.is_slice)
     {
         TypeTableEntry *pointer_type = array_type->data.structure.fields[0].type_entry;
         assert(pointer_type->id == TypeTableEntryIdPointer);
@@ -3979,9 +3979,9 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpFloatToInt, false);
     }
 
-    // explicit cast from fixed size array to unknown size array
+    // explicit cast from array to slice
     if (wanted_type->id == TypeTableEntryIdStruct &&
-        wanted_type->data.structure.is_unknown_size_array &&
+        wanted_type->data.structure.is_slice &&
         actual_type->id == TypeTableEntryIdArray &&
         types_match_const_cast_only(
             wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type,

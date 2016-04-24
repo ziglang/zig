@@ -870,7 +870,7 @@ struct TypeTableEntryStruct {
     TypeStructField *fields;
     uint64_t size_bytes;
     bool is_invalid; // true if any fields are invalid
-    bool is_unknown_size_array;
+    bool is_slice;
     BlockContext *block_context;
 
     // set this flag temporarily to detect infinite loops

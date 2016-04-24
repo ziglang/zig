@@ -708,7 +708,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
             {
                 assert(cast_expr->tmp_ptr);
                 assert(wanted_type->id == TypeTableEntryIdStruct);
-                assert(wanted_type->data.structure.is_unknown_size_array);
+                assert(wanted_type->data.structure.is_slice);
 
                 TypeTableEntry *pointer_type = wanted_type->data.structure.fields[0].type_entry;
 
@@ -883,7 +883,7 @@ static LLVMValueRef gen_array_elem_ptr(CodeGen *g, AstNode *source_node, LLVMVal
         add_debug_source_node(g, source_node);
         return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 1, "");
     } else if (array_type->id == TypeTableEntryIdStruct) {
-        assert(array_type->data.structure.is_unknown_size_array);
+        assert(array_type->data.structure.is_slice);
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
         assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
 
@@ -998,7 +998,7 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
 
         return tmp_struct_ptr;
     } else if (array_type->id == TypeTableEntryIdStruct) {
-        assert(array_type->data.structure.is_unknown_size_array);
+        assert(array_type->data.structure.is_slice);
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
         assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
 
@@ -1046,7 +1046,7 @@ static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node, bool is_lva
     if (array_type->id == TypeTableEntryIdPointer) {
         child_type = array_type->data.pointer.child_type;
     } else if (array_type->id == TypeTableEntryIdStruct) {
-        assert(array_type->data.structure.is_unknown_size_array);
+        assert(array_type->data.structure.is_slice);
         TypeTableEntry *child_ptr_type = array_type->data.structure.fields[0].type_entry;
         assert(child_ptr_type->id == TypeTableEntryIdPointer);
         child_type = child_ptr_type->data.pointer.child_type;
@@ -1134,7 +1134,7 @@ static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *expr_node, AstNode *node,
             *out_type_entry = array_type->data.pointer.child_type;
             target_ref = gen_array_ptr(g, node);
         } else if (array_type->id == TypeTableEntryIdStruct) {
-            assert(array_type->data.structure.is_unknown_size_array);
+            assert(array_type->data.structure.is_slice);
             *out_type_entry = array_type->data.structure.fields[0].type_entry->data.pointer.child_type;
             target_ref = gen_array_ptr(g, node);
         } else {
@@ -2430,7 +2430,7 @@ static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
                 array_type->data.array.len, false);
         child_type = array_type->data.array.child_type;
     } else if (array_type->id == TypeTableEntryIdStruct) {
-        assert(array_type->data.structure.is_unknown_size_array);
+        assert(array_type->data.structure.is_slice);
         TypeTableEntry *child_ptr_type = array_type->data.structure.fields[0].type_entry;
         assert(child_ptr_type->id == TypeTableEntryIdPointer);
         child_type = child_ptr_type->data.pointer.child_type;
@@ -2537,7 +2537,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
         if (var_decl->type) {
             TypeTableEntry *var_type = get_type_for_type_node(var_decl->type);
             if (var_type->id == TypeTableEntryIdStruct &&
-                var_type->data.structure.is_unknown_size_array)
+                var_type->data.structure.is_slice)
             {
                 assert(var_decl->type->type == NodeTypeArrayType);
                 AstNode *size_node = var_decl->type->data.array_type.size;

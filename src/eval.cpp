@@ -331,7 +331,7 @@ static bool eval_container_init_expr(EvalFn *ef, AstNode *node, ConstExprValue *
     out_val->ok = true;
 
     if (container_type->id == TypeTableEntryIdStruct &&
-        !container_type->data.structure.is_unknown_size_array &&
+        !container_type->data.structure.is_slice &&
         kind == ContainerInitKindStruct)
     {
         int expr_field_count = container_init_expr->entries.length;
@@ -367,7 +367,7 @@ static bool eval_container_init_expr(EvalFn *ef, AstNode *node, ConstExprValue *
         add_error_note(ef->root->codegen, msg, node, buf_sprintf("unreachable expression here"));
         return true;
     } else if (container_type->id == TypeTableEntryIdStruct &&
-               container_type->data.structure.is_unknown_size_array &&
+               container_type->data.structure.is_slice &&
                kind == ContainerInitKindArray)
     {
 
@@ -892,7 +892,7 @@ static bool eval_array_access_expr(EvalFn *ef, AstNode *node, ConstExprValue *ou
         }
         *out_val = *array_val.data.x_ptr.ptr[index_int];
     } else if (array_type->id == TypeTableEntryIdStruct) {
-        assert(array_type->data.structure.is_unknown_size_array);
+        assert(array_type->data.structure.is_slice);
 
         ConstExprValue *len_value = array_val.data.x_struct.fields[1];
         uint64_t len_int = len_value->data.x_bignum.data.x_uint;
