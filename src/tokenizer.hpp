@@ -30,6 +30,7 @@ enum TokenId {
     TokenIdKeywordVolatile,
     TokenIdKeywordStruct,
     TokenIdKeywordEnum,
+    TokenIdKeywordUnion,
     TokenIdKeywordWhile,
     TokenIdKeywordFor,
     TokenIdKeywordContinue,

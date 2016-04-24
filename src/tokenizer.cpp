@@ -108,7 +108,7 @@ const char * zig_keywords[] = {
     "pub", "export", "use", "if", "else", "goto", "asm",
     "volatile", "struct", "enum", "while", "for", "continue", "break",
     "null", "noalias", "switch", "undefined", "error", "type", "inline",
-    "defer",
+    "defer", "union",
 };
 
 bool is_zig_keyword(Buf *buf) {
@@ -269,6 +269,8 @@ static void end_token(Tokenize *t) {
         t->cur_tok->id = TokenIdKeywordStruct;
     } else if (mem_eql_str(token_mem, token_len, "enum")) {
         t->cur_tok->id = TokenIdKeywordEnum;
+    } else if (mem_eql_str(token_mem, token_len, "union")) {
+        t->cur_tok->id = TokenIdKeywordUnion;
     } else if (mem_eql_str(token_mem, token_len, "for")) {
         t->cur_tok->id = TokenIdKeywordFor;
     } else if (mem_eql_str(token_mem, token_len, "while")) {
@@ -1195,6 +1197,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordAsm: return "asm";
         case TokenIdKeywordStruct: return "struct";
         case TokenIdKeywordEnum: return "enum";
+        case TokenIdKeywordUnion: return "union";
         case TokenIdKeywordWhile: return "while";
         case TokenIdKeywordFor: return "for";
         case TokenIdKeywordContinue: return "continue";

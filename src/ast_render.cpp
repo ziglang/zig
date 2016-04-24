@@ -84,6 +84,7 @@ static const char *container_string(ContainerKind kind) {
     switch (kind) {
         case ContainerKindEnum: return "enum";
         case ContainerKindStruct: return "struct";
+        case ContainerKindUnion: return "union";
     }
     zig_unreachable();
 }

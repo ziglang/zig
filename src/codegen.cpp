@@ -2972,6 +2972,10 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
                 return LLVMConstNamedStruct(type_entry->type_ref, fields,
                         type_entry->data.structure.gen_field_count);
             }
+        case TypeTableEntryIdUnion:
+            {
+                zig_panic("TODO");
+            }
         case TypeTableEntryIdArray:
             {
                 TypeTableEntry *child_type = type_entry->data.array.child_type;

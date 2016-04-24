@@ -15,7 +15,7 @@ GlobalVarDecl = VariableDeclaration ";"
 
 VariableDeclaration = ("var" | "const") "Symbol" option(":" TypeExpr) "=" Expression
 
-ContainerDecl = ("struct" | "enum") "Symbol" "{" many(StructMember) "}"
+ContainerDecl = ("struct" | "enum" | "union") "Symbol" "{" many(StructMember) "}"
 
 StructMember = many(Directive) option(VisibleMod) (StructField | FnDef)
 

@@ -2504,11 +2504,11 @@ static AstNode *ast_parse_use(ParseContext *pc, int *token_index,
 }
 
 /*
-ContainerDecl : ("struct" | "enum") "Symbol" "{" many(StructMember) "}"
+ContainerDecl = ("struct" | "enum" | "union") "Symbol" "{" many(StructMember) "}"
 StructMember: many(Directive) option(VisibleMod) (StructField | FnDef)
 StructField : "Symbol" option(":" Expression) ",")
 */
-static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index,
+static AstNode *ast_parse_container_decl(ParseContext *pc, int *token_index,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
 {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2519,6 +2519,8 @@ static AstNode *ast_parse_struct_decl(ParseContext *pc, int *token_index,
         kind = ContainerKindStruct;
     } else if (first_token->id == TokenIdKeywordEnum) {
         kind = ContainerKindEnum;
+    } else if (first_token->id == TokenIdKeywordUnion) {
+        kind = ContainerKindUnion;
     } else {
         return nullptr;
     }
@@ -2689,7 +2691,7 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
             continue;
         }
 
-        AstNode *struct_node = ast_parse_struct_decl(pc, token_index, directives, visib_mod);
+        AstNode *struct_node = ast_parse_container_decl(pc, token_index, directives, visib_mod);
         if (struct_node) {
             top_level_decls->append(struct_node);
             continue;

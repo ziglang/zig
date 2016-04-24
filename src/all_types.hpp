@@ -135,7 +135,7 @@ struct TopLevelDecl {
 struct TypeEnumField {
     Buf *name;
     TypeTableEntry *type_entry;
-    uint32_t value;
+    uint32_t value; // TODO is this used?
 };
 
 enum NodeType {
@@ -590,6 +590,7 @@ struct AstNodeAsmExpr {
 enum ContainerKind {
     ContainerKindStruct,
     ContainerKindEnum,
+    ContainerKindUnion,
 };
 
 struct AstNodeStructDecl {
@@ -905,6 +906,22 @@ struct TypeTableEntryEnum {
     bool complete;
 };
 
+struct TypeTableEntryUnion {
+    AstNode *decl_node;
+    uint32_t src_field_count;
+    uint32_t gen_field_count;
+    TypeStructField *fields;
+    uint64_t size_bytes;
+    bool is_invalid; // true if any fields are invalid
+    BlockContext *block_context;
+
+    // set this flag temporarily to detect infinite loops
+    bool embedded_in_current;
+    bool reported_infinite_err;
+    // whether we've finished resolving it
+    bool complete;
+};
+
 struct FnGenParamInfo {
     int src_index;
     int gen_index;
@@ -949,6 +966,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdPureError,
     TypeTableEntryIdEnum,
+    TypeTableEntryIdUnion,
     TypeTableEntryIdFn,
     TypeTableEntryIdTypeDecl,
     TypeTableEntryIdNamespace,
@@ -974,6 +992,7 @@ struct TypeTableEntry {
         TypeTableEntryMaybe maybe;
         TypeTableEntryError error;
         TypeTableEntryEnum enumeration;
+        TypeTableEntryUnion unionation;
         TypeTableEntryFn fn;
         TypeTableEntryTypeDecl type_decl;
         TypeTableEntryGenericFn generic_fn;

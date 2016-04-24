@@ -41,6 +41,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *ty
             zig_panic("TODO");
         case TypeTableEntryIdStruct:
             zig_panic("TODO");
+        case TypeTableEntryIdUnion:
+            zig_panic("TODO");
         case TypeTableEntryIdUndefLit:
             zig_panic("TODO");
         case TypeTableEntryIdMaybe:

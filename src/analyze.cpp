@@ -141,6 +141,8 @@ static BlockContext **get_container_block_context_ptr(TypeTableEntry *type_entry
         return &type_entry->data.structure.block_context;
     } else if (type_entry->id == TypeTableEntryIdEnum) {
         return &type_entry->data.enumeration.block_context;
+    } else if (type_entry->id == TypeTableEntryIdUnion) {
+        return &type_entry->data.unionation.block_context;
     }
     zig_unreachable();
 }
@@ -178,6 +180,8 @@ static bool type_is_complete(TypeTableEntry *type_entry) {
             return type_entry->data.structure.complete;
         case TypeTableEntryIdEnum:
             return type_entry->data.enumeration.complete;
+        case TypeTableEntryIdUnion:
+            return type_entry->data.unionation.complete;
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
@@ -732,6 +736,8 @@ static TypeTableEntryId container_to_type(ContainerKind kind) {
             return TypeTableEntryIdStruct;
         case ContainerKindEnum:
             return TypeTableEntryIdEnum;
+        case ContainerKindUnion:
+            return TypeTableEntryIdUnion;
     }
     zig_unreachable();
 }
@@ -748,6 +754,9 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import,
             break;
         case ContainerKindEnum:
             entry->data.enumeration.decl_node = decl_node;
+            break;
+        case ContainerKindUnion:
+            entry->data.unionation.decl_node = decl_node;
             break;
     }
 
@@ -874,6 +883,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
             case TypeTableEntryIdErrorUnion:
             case TypeTableEntryIdPureError:
             case TypeTableEntryIdEnum:
+            case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
             case TypeTableEntryIdTypeDecl:
                 break;
@@ -1397,6 +1407,10 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     struct_type->zero_bits = (debug_size_in_bits == 0);
 }
 
+static void resolve_union_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *enum_type) {
+    zig_panic("TODO");
+}
+
 static void get_fully_qualified_decl_name(Buf *buf, AstNode *decl_node, uint8_t sep) {
     TopLevelDecl *tld = get_as_top_level_decl(decl_node);
     AstNode *parent_decl = tld->parent_decl;
@@ -1541,6 +1555,9 @@ static void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only)
                     case ContainerKindEnum:
                         resolve_enum_type(g, import, type_entry);
                         break;
+                    case ContainerKindUnion:
+                        resolve_union_type(g, import, type_entry);
+                        break;
                 }
 
                 break;
@@ -1672,6 +1689,7 @@ static bool type_has_codegen_value(TypeTableEntry *type_entry) {
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
             return true;
 
@@ -4450,6 +4468,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     case TypeTableEntryIdErrorUnion:
                     case TypeTableEntryIdPureError:
                     case TypeTableEntryIdEnum:
+                    case TypeTableEntryIdUnion:
                     case TypeTableEntryIdFn:
                     case TypeTableEntryIdTypeDecl:
                         return resolve_expr_const_val_as_type(g, node, type_entry);
@@ -6179,6 +6198,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
              return false;
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
+        case TypeTableEntryIdUnion:
              return true;
         case TypeTableEntryIdErrorUnion:
              return type_has_bits(type_entry->data.error.child_type);
@@ -6280,6 +6300,9 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
         case TypeTableEntryIdStruct:
             // TODO better hashing algorithm
             return 1532530855;
+        case TypeTableEntryIdUnion:
+            // TODO better hashing algorithm
+            return 2709806591;
         case TypeTableEntryIdMaybe:
             if (const_val->data.x_maybe) {
                 TypeTableEntry *child_type = type->data.maybe.child_type;
@@ -6374,6 +6397,8 @@ static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry)
             return type_of_first_thing_in_memory(type_entry->data.array.child_type);
         case TypeTableEntryIdStruct:
             return type_of_first_thing_in_memory(first_struct_field_type(type_entry));
+        case TypeTableEntryIdUnion:
+            zig_panic("TODO");
         case TypeTableEntryIdMaybe:
             return type_of_first_thing_in_memory(type_entry->data.maybe.child_type);
         case TypeTableEntryIdErrorUnion:
