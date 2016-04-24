@@ -1322,3 +1322,14 @@ fn pass_slice_of_empty_struct_to_fn() {
 fn test_pass_slice_of_empty_struct_to_fn(slice: []EmptyStruct2) -> isize {
     slice.len
 }
+
+
+#attribute("test")
+fn pointer_comparison() {
+    const a = ([]u8)("a");
+    const b = &a;
+    assert(ptr_eql(b, b));
+}
+fn ptr_eql(a: &[]u8, b: &[]u8) -> bool {
+    a == b
+}

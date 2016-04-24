@@ -1480,7 +1480,9 @@ static LLVMValueRef gen_cmp_expr(CodeGen *g, AstNode *node) {
         } else {
             zig_unreachable();
         }
-    } else if (op1_type->id == TypeTableEntryIdPureError) {
+    } else if (op1_type->id == TypeTableEntryIdPureError ||
+               op1_type->id == TypeTableEntryIdPointer)
+    {
         LLVMIntPredicate pred = cmp_op_to_int_predicate(node->data.bin_op_expr.bin_op, false);
         return LLVMBuildICmp(g->builder, pred, val1, val2, "");
     } else {
