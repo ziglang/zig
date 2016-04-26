@@ -1368,3 +1368,11 @@ error NoMem;
 error CrappedOut;
 #static_eval_enable(false)
 fn returns_ten() -> %i32 { 10 }
+
+
+#attribute("test")
+fn bool_cmp() {
+    assert(test_bool_cmp(true, false) == false);
+}
+#static_eval_enable(false)
+fn test_bool_cmp(a: bool, b: bool) -> bool { a == b }
