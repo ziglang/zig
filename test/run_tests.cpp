@@ -27,6 +27,7 @@ struct TestCase {
     ZigList<const char *> program_args;
     bool is_parseh;
     bool is_self_hosted;
+    bool is_debug_safety;
 };
 
 static ZigList<TestCase*> test_cases = {0};
@@ -120,6 +121,55 @@ static TestCase *add_compile_fail_case(const char *case_name, const char *source
     va_end(ap);
 
     return test_case;
+}
+
+static void add_debug_safety_case(const char *case_name, const char *source) {
+    {
+        TestCase *test_case = allocate<TestCase>(1);
+        test_case->is_debug_safety = true;
+        test_case->case_name = buf_ptr(buf_sprintf("%s (debug)", case_name));
+        test_case->source_files.resize(1);
+        test_case->source_files.at(0).relative_path = tmp_source_path;
+        test_case->source_files.at(0).source_code = source;
+
+        test_case->compiler_args.append("build");
+        test_case->compiler_args.append(tmp_source_path);
+
+        test_case->compiler_args.append("--name");
+        test_case->compiler_args.append("test");
+
+        test_case->compiler_args.append("--export");
+        test_case->compiler_args.append("exe");
+
+        test_case->compiler_args.append("--output");
+        test_case->compiler_args.append(tmp_exe_path);
+
+        test_cases.append(test_case);
+    }
+    {
+        TestCase *test_case = allocate<TestCase>(1);
+        test_case->case_name = buf_ptr(buf_sprintf("%s (release)", case_name));
+        test_case->source_files.resize(1);
+        test_case->source_files.at(0).relative_path = tmp_source_path;
+        test_case->source_files.at(0).source_code = source;
+        test_case->output = "";
+
+        test_case->compiler_args.append("build");
+        test_case->compiler_args.append(tmp_source_path);
+
+        test_case->compiler_args.append("--name");
+        test_case->compiler_args.append("test");
+
+        test_case->compiler_args.append("--export");
+        test_case->compiler_args.append("exe");
+
+        test_case->compiler_args.append("--output");
+        test_case->compiler_args.append(tmp_exe_path);
+
+        test_case->compiler_args.append("--release");
+
+        test_cases.append(test_case);
+    }
 }
 
 static TestCase *add_parseh_case(const char *case_name, const char *source, int count, ...) {
@@ -1247,6 +1297,22 @@ fn bar() -> i32 { 2 }
     )SOURCE", 1, ".tmp_source.zig:3:15: error: unable to infer expression type");
 }
 
+static void add_debug_safety_test_cases(void) {
+    add_debug_safety_case("out of bounds slice access", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    const a = []i32{1, 2, 3, 4};
+    baz(bar(a));
+}
+#static_eval_enable(false)
+fn bar(a: []i32) -> i32 {
+    a[4]
+}
+#static_eval_enable(false)
+fn baz(a: i32) {}
+    )SOURCE");
+
+}
+
 //////////////////////////////////////////////////////////////////////////////
 
 static void add_parseh_test_cases(void) {
@@ -1455,6 +1521,14 @@ static void print_compiler_invocation(TestCase *test_case) {
     printf("\n");
 }
 
+static void print_exe_invocation(TestCase *test_case) {
+    printf("%s", tmp_exe_path);
+    for (int i = 0; i < test_case->program_args.length; i += 1) {
+        printf(" %s", test_case->program_args.at(i));
+    }
+    printf("\n");
+}
+
 static void run_test(TestCase *test_case) {
     if (test_case->is_self_hosted) {
         return run_self_hosted_test();
@@ -1531,32 +1605,33 @@ static void run_test(TestCase *test_case) {
         Buf program_stdout = BUF_INIT;
         os_exec_process(tmp_exe_path, test_case->program_args, &return_code, &program_stderr, &program_stdout);
 
-        if (return_code != 0) {
-            printf("\nProgram exited with return code %d:\n", return_code);
-            print_compiler_invocation(test_case);
-            printf("%s", tmp_exe_path);
-            for (int i = 0; i < test_case->program_args.length; i += 1) {
-                printf(" %s", test_case->program_args.at(i));
+        if (test_case->is_debug_safety) {
+            if (return_code == 0) {
+                printf("\nProgram expected to hit debug trap but exited with return code 0\n");
+                print_compiler_invocation(test_case);
+                print_exe_invocation(test_case);
+                exit(1);
             }
-            printf("\n");
-            printf("%s\n", buf_ptr(&program_stderr));
-            exit(1);
-        }
+        } else {
+            if (return_code != 0) {
+                printf("\nProgram exited with return code %d:\n", return_code);
+                print_compiler_invocation(test_case);
+                print_exe_invocation(test_case);
+                printf("%s\n", buf_ptr(&program_stderr));
+                exit(1);
+            }
 
-        if (!buf_eql_str(&program_stdout, test_case->output)) {
-            printf("\n");
-            print_compiler_invocation(test_case);
-            printf("%s", tmp_exe_path);
-            for (int i = 0; i < test_case->program_args.length; i += 1) {
-                printf(" %s", test_case->program_args.at(i));
+            if (!buf_eql_str(&program_stdout, test_case->output)) {
+                printf("\n");
+                print_compiler_invocation(test_case);
+                print_exe_invocation(test_case);
+                printf("==== Test failed. Expected output: ====\n");
+                printf("%s\n", test_case->output);
+                printf("========= Actual output: ==============\n");
+                printf("%s\n", buf_ptr(&program_stdout));
+                printf("=======================================\n");
+                exit(1);
             }
-            printf("\n");
-            printf("==== Test failed. Expected output: ====\n");
-            printf("%s\n", test_case->output);
-            printf("========= Actual output: ==============\n");
-            printf("%s\n", buf_ptr(&program_stdout));
-            printf("=======================================\n");
-            exit(1);
         }
     }
 
@@ -1606,6 +1681,7 @@ int main(int argc, char **argv) {
         }
     }
     add_compiling_test_cases();
+    add_debug_safety_test_cases();
     add_compile_failure_test_cases();
     add_parseh_test_cases();
     add_self_hosted_tests();

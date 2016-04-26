@@ -1051,6 +1051,7 @@ struct FnTableEntry {
     bool is_extern;
     bool is_test;
     bool is_pure;
+    bool safety_off;
     BlockContext *parent_block_context;
     FnAnalState anal_state;
 
@@ -1315,6 +1316,8 @@ struct BlockContext {
 
     // if this is true, then this code will not be generated
     bool codegen_excluded;
+
+    bool safety_off;
 };
 
 

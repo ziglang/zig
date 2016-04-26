@@ -993,6 +993,18 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
                     add_node_error(g, directive_node,
                             buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
                 }
+            } else if (buf_eql_str(name, "debug_safety")) {
+                if (fn_table_entry->is_extern) {
+                    add_node_error(g, directive_node,
+                        buf_sprintf("#debug_safety invalid on extern functions"));
+                } else {
+                    bool enable;
+                    bool ok = resolve_const_expr_bool(g, import, import->block_context,
+                            &directive_node->data.directive.expr, &enable);
+                    if (ok && !enable) {
+                        fn_table_entry->safety_off = true;
+                    }
+                }
             } else if (buf_eql_str(name, "condition")) {
                 if (fn_proto->top_level_decl.visib_mod == VisibModExport) {
                     bool include;
@@ -2102,11 +2114,13 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
         context->parent_loop_node = parent->parent_loop_node;
         context->c_import_buf = parent->c_import_buf;
         context->codegen_excluded = parent->codegen_excluded;
+        context->safety_off = parent->safety_off;
     }
 
     if (node && node->type == NodeTypeFnDef) {
         AstNode *fn_proto_node = node->data.fn_def.fn_proto;
         context->fn_entry = fn_proto_node->data.fn_proto.fn_table_entry;
+        context->safety_off = context->fn_entry->safety_off;
     } else if (parent) {
         context->fn_entry = parent->fn_entry;
     }
