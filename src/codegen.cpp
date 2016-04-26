@@ -540,6 +540,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdErrName:
             return gen_err_name(g, node);
         case BuiltinFnIdBreakpoint:
+            add_debug_source_node(g, node);
             return LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
     }
     zig_unreachable();
