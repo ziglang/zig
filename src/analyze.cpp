@@ -5116,8 +5116,11 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
 
 
     int *field_use_counts = nullptr;
+    HashMap<int, AstNode *, int_hash, int_eq> err_use_nodes;
     if (expr_type->id == TypeTableEntryIdEnum) {
         field_use_counts = allocate<int>(expr_type->data.enumeration.field_count);
+    } else if (expr_type->id == TypeTableEntryIdErrorUnion) {
+        err_use_nodes.init(10);
     }
 
     int *const_chosen_prong_index = &node->data.switch_expr.const_chosen_prong_index;
@@ -5186,8 +5189,54 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                         add_node_error(g, item_node, buf_sprintf("expected enum tag name"));
                         any_errors = true;
                     }
+                } else if (expr_type->id == TypeTableEntryIdErrorUnion) {
+                    if (item_node->type == NodeTypeSymbol) {
+                        Buf *err_name = &item_node->data.symbol_expr.symbol;
+                        bool is_ok_case = buf_eql_str(err_name, "Ok");
+                        auto err_table_entry = is_ok_case ? nullptr: g->error_table.maybe_get(err_name);
+                        if (is_ok_case || err_table_entry) {
+                            uint32_t err_value = is_ok_case ? 0 : err_table_entry->value->value;
+                            item_node->data.symbol_expr.err_value = err_value;
+                            TypeTableEntry *this_var_type;
+                            if (is_ok_case) {
+                                this_var_type = expr_type->data.error.child_type;
+                            } else {
+                                this_var_type = g->builtin_types.entry_pure_error;
+                            }
+                            if (!var_type) {
+                                var_type = this_var_type;
+                            }
+                            if (this_var_type != var_type) {
+                                all_agree_on_var_type = false;
+                            }
+
+                            // detect duplicate switch values
+                            auto existing_entry = err_use_nodes.maybe_get(err_value);
+                            if (existing_entry) {
+                                add_node_error(g, existing_entry->value,
+                                        buf_sprintf("duplicate switch value: '%s'", buf_ptr(err_name)));
+                                any_errors = true;
+                            } else {
+                                err_use_nodes.put(err_value, item_node);
+                            }
+
+                            if (!any_errors && expr_val->ok) {
+                                if (expr_val->data.x_err.err->value == err_value) {
+                                    *const_chosen_prong_index = prong_i;
+                                }
+                            }
+                        } else {
+                            add_node_error(g, item_node,
+                                    buf_sprintf("use of undeclared error value '%s'", buf_ptr(err_name)));
+                            any_errors = true;
+                        }
+                    } else {
+                        add_node_error(g, item_node, buf_sprintf("expected error value name"));
+                        any_errors = true;
+                    }
                 } else {
                     if (!any_errors && expr_val->ok) {
+                        // note: there is now a function in eval.cpp for doing const expr comparison
                         zig_panic("TODO determine if const exprs are equal");
                     }
                     TypeTableEntry *item_type = analyze_expression(g, import, context, expr_type, item_node);
@@ -5252,17 +5301,25 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
         return g->builtin_types.entry_invalid;
     }
 
+    TypeTableEntry *result_type = resolve_peer_type_compatibility(g, import, context, node,
+            peer_nodes, peer_types, prong_count);
+
     if (expr_val->ok) {
         assert(*const_chosen_prong_index != -1);
 
         *const_val = get_resolved_expr(peer_nodes[*const_chosen_prong_index])->const_val;
-        // the target expr depends on a compile var,
-        // so the entire if statement does too
+        // the target expr depends on a compile var because we have an error on unnecessary
+        // switch statement, so the entire switch statement does too
         const_val->depends_on_compile_var = true;
+
+        if (!const_val->ok) {
+            return add_error_if_type_is_num_lit(g, result_type, node);
+        }
+    } else {
+        return add_error_if_type_is_num_lit(g, result_type, node);
     }
 
-
-    return resolve_peer_type_compatibility(g, import, context, node, peer_nodes, peer_types, prong_count);
+    return result_type;
 }
 
 static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,

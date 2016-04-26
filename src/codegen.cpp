@@ -2627,12 +2627,6 @@ static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
     }
 
     zig_unreachable();
-
-    /* TODO delete
-    FnTableEntry *fn_entry = node->data.symbol_expr.fn_entry;
-    assert(fn_entry);
-    return fn_entry->fn_value;
-    */
 }
 
 static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
@@ -2650,6 +2644,10 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef target_value;
     if (handle_is_ptr(target_type)) {
         if (target_type->id == TypeTableEntryIdEnum) {
+            add_debug_source_node(g, node);
+            LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, target_value_handle, 0, "");
+            target_value = LLVMBuildLoad(g->builder, tag_field_ptr, "");
+        } else if (target_type->id == TypeTableEntryIdErrorUnion) {
             add_debug_source_node(g, node);
             LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, target_value_handle, 0, "");
             target_value = LLVMBuildLoad(g->builder, tag_field_ptr, "");
@@ -2696,12 +2694,23 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
 
                 assert(item_node->type != NodeTypeSwitchRange);
                 LLVMValueRef val;
-                if (target_type->id == TypeTableEntryIdEnum) {
+                if (target_type->id == TypeTableEntryIdEnum ||
+                    target_type->id == TypeTableEntryIdErrorUnion)
+                {
                     assert(item_node->type == NodeTypeSymbol);
-                    TypeEnumField *enum_field = item_node->data.symbol_expr.enum_field;
-                    assert(enum_field);
-                    val = LLVMConstInt(target_type->data.enumeration.tag_type->type_ref,
-                            enum_field->value, false);
+                    TypeEnumField *enum_field = nullptr;
+                    uint32_t err_value = 0;
+                    if (target_type->id == TypeTableEntryIdEnum) {
+                        enum_field = item_node->data.symbol_expr.enum_field;
+                        assert(enum_field);
+                        val = LLVMConstInt(target_type->data.enumeration.tag_type->type_ref,
+                                enum_field->value, false);
+                    } else if (target_type->id == TypeTableEntryIdErrorUnion) {
+                        err_value = item_node->data.symbol_expr.err_value;
+                        val = LLVMConstInt(g->err_tag_type->type_ref, err_value, false);
+                    } else {
+                        zig_unreachable();
+                    }
 
                     if (prong_var && type_has_bits(prong_var->type)) {
                         LLVMBasicBlockRef item_block;
@@ -2721,6 +2730,7 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
                             gen_assign_raw(g, var_node, BinOpTypeAssign,
                                     prong_var->value_ref, target_value, prong_var->type, target_type);
                         } else if (target_type->id == TypeTableEntryIdEnum) {
+                            assert(enum_field);
                             assert(type_has_bits(enum_field->type_entry));
                             LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, target_value_handle,
                                     1, "");
@@ -2731,6 +2741,25 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
 
                             gen_assign_raw(g, var_node, BinOpTypeAssign,
                                     prong_var->value_ref, handle_val, prong_var->type, enum_field->type_entry);
+                        } else if (target_type->id == TypeTableEntryIdErrorUnion) {
+                            if (err_value == 0) {
+                                // variable is the payload
+                                LLVMValueRef err_payload_ptr = LLVMBuildStructGEP(g->builder,
+                                        target_value_handle, 1, "");
+                                LLVMValueRef handle_val = get_handle_value(g, var_node,
+                                        err_payload_ptr, prong_var->type);
+                                gen_assign_raw(g, var_node, BinOpTypeAssign,
+                                        prong_var->value_ref, handle_val, prong_var->type, prong_var->type);
+                            } else {
+                                // variable is the pure error value
+                                LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder,
+                                        target_value_handle, 0, "");
+                                LLVMValueRef handle_val = LLVMBuildLoad(g->builder, err_tag_ptr, "");
+                                gen_assign_raw(g, var_node, BinOpTypeAssign,
+                                        prong_var->value_ref, handle_val, prong_var->type, g->err_tag_type);
+                            }
+                        } else {
+                            zig_unreachable();
                         }
                         if (make_item_blocks) {
                             LLVMBuildBr(g->builder, prong_block);

@@ -1339,3 +1339,32 @@ fn character_literals() {
     assert('\'' == single_quote);
 }
 const single_quote = '\'';
+
+
+#attribute("test")
+fn switch_with_multiple_expressions() {
+    const x: i32 = switch (returns_five()) {
+        1, 2, 3 => 1,
+        4, 5, 6 => 2,
+        else => 3,
+    };
+    assert(x == 2);
+}
+#static_eval_enable(false)
+fn returns_five() -> i32 { 5 }
+
+
+#attribute("test")
+fn switch_on_error_union() {
+    const x = switch (returns_ten()) {
+        Ok => |val| val + 1,
+        ItBroke, NoMem => 1,
+        CrappedOut => 2,
+    };
+    assert(x == 11);
+}
+error ItBroke;
+error NoMem;
+error CrappedOut;
+#static_eval_enable(false)
+fn returns_ten() -> %i32 { 10 }

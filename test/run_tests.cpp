@@ -1233,6 +1233,18 @@ fn bad_eql_2(a: EnumWithData, b: EnumWithData) -> bool {
     )SOURCE", 2,
             ".tmp_source.zig:3:7: error: operator not allowed for type '[]u8'",
             ".tmp_source.zig:10:7: error: operator not allowed for type 'EnumWithData'");
+
+    add_compile_fail_case("non-const switch number literal", R"SOURCE(
+fn foo() {
+    const x = switch (bar()) {
+        1, 2 => 1,
+        3, 4 => 2,
+        else => 3,
+    };
+}
+#static_eval_enable(false)
+fn bar() -> i32 { 2 }
+    )SOURCE", 1, ".tmp_source.zig:3:15: error: unable to infer expression type");
 }
 
 //////////////////////////////////////////////////////////////////////////////
