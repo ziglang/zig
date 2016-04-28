@@ -369,9 +369,13 @@ LLVMZigDIBuilder *LLVMZigCreateDIBuilder(LLVMModuleRef module, bool allow_unreso
     return reinterpret_cast<LLVMZigDIBuilder *>(di_builder);
 }
 
-void LLVMZigSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, LLVMZigDIScope *scope) {
+void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, LLVMZigDIScope *scope) {
     unwrap(builder)->SetCurrentDebugLocation(DebugLoc::get(
                 line, column, reinterpret_cast<DIScope*>(scope)));
+}
+
+void ZigLLVMClearCurrentDebugLocation(LLVMBuilderRef builder) {
+    unwrap(builder)->SetCurrentDebugLocation(DebugLoc());
 }
 
 
@@ -528,6 +532,21 @@ void LLVMZigSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
     } else {
         unwrap(builder_wrapped)->clearFastMathFlags();
     }
+}
+
+void ZigLLVMAddFunctionAttr(LLVMValueRef fn_ref, const char *attr_name, const char *attr_value) {
+    Function *func = unwrap<Function>(fn_ref);
+    const AttributeSet attr_set = func->getAttributes();
+    AttrBuilder attr_builder;
+    if (attr_value) {
+        attr_builder.addAttribute(attr_name, attr_value);
+    } else {
+        attr_builder.addAttribute(attr_name);
+    }
+    const AttributeSet new_attr_set = attr_set.addAttributes(func->getContext(),
+            AttributeSet::FunctionIndex, AttributeSet::get(func->getContext(),
+                AttributeSet::FunctionIndex, attr_builder));
+    func->setAttributes(new_attr_set);
 }
 
 

@@ -8,16 +8,17 @@ const udwords = [2]su_int;
 const low = if (@compile_var("is_big_endian")) 1 else 0;
 const high = 1 - low;
 
+#debug_safety(false)
 export fn __udivdi3(a: du_int, b: du_int) -> du_int {
     return __udivmoddi4(a, b, null);
 }
 
+#debug_safety(false)
 fn du_int_to_udwords(x: du_int) -> udwords {
-    // TODO ability to take address of params
-    const x2 = x;
-    return *(&udwords)(&x2);
+    return *(&udwords)(&x);
 }
 
+#debug_safety(false)
 export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
     const n_uword_bits = @sizeof(su_int) * CHAR_BIT;
     const n_udword_bits = @sizeof(du_int) * CHAR_BIT;
@@ -214,6 +215,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
     return *(&du_int)(&q[0]);
 }
 
+#debug_safety(false)
 export fn __umoddi3(a: du_int, b: du_int) -> du_int {
     var r: du_int = undefined;
     __udivmoddi4(a, b, &r);

@@ -1268,7 +1268,6 @@ struct VariableTableEntry {
     TypeTableEntry *type;
     LLVMValueRef value_ref;
     bool is_const;
-    bool is_ptr; // if true, value_ref is a pointer
     // which node is the declaration of the variable
     AstNode *decl_node;
     // which node contains the ConstExprValue for this variable's value
@@ -1277,6 +1276,7 @@ struct VariableTableEntry {
     int src_arg_index;
     int gen_arg_index;
     BlockContext *block_context;
+    LLVMValueRef param_value_ref;
 };
 
 struct ErrorTableEntry {

@@ -1081,6 +1081,10 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     if (!fn_table_entry->is_extern) {
         LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoUnwindAttribute);
     }
+    if (!g->is_release_build) {
+        ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim", "true");
+        ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim-non-leaf", nullptr);
+    }
 
     if (fn_table_entry->fn_def_node) {
         // Add debug info.
@@ -3369,7 +3373,6 @@ static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, Impor
     }
 
     variable_entry->is_const = is_const;
-    variable_entry->is_ptr = true;
     variable_entry->decl_node = source_node;
     variable_entry->val_node = val_node;
 

@@ -1376,3 +1376,19 @@ fn bool_cmp() {
 }
 #static_eval_enable(false)
 fn test_bool_cmp(a: bool, b: bool) -> bool { a == b }
+
+
+#attribute("test")
+fn take_address_of_parameter() {
+    test_take_address_of_parameter(12.34);
+    test_take_address_of_parameter_noeval(12.34);
+}
+fn test_take_address_of_parameter(f: f32) {
+    const f_ptr = &f;
+    assert(*f_ptr == 12.34);
+}
+#static_eval_enable(false)
+fn test_take_address_of_parameter_noeval(f: f32) {
+    const f_ptr = &f;
+    assert(*f_ptr == 12.34);
+}

@@ -102,7 +102,8 @@ unsigned LLVMZigTag_DW_structure_type(void);
 LLVMZigDIBuilder *LLVMZigCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
 void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module);
 
-void LLVMZigSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, LLVMZigDIScope *scope);
+void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, LLVMZigDIScope *scope);
+void ZigLLVMClearCurrentDebugLocation(LLVMBuilderRef builder);
 
 LLVMZigDIScope *LLVMZigLexicalBlockToScope(LLVMZigDILexicalBlock *lexical_block);
 LLVMZigDIScope *LLVMZigCompileUnitToScope(LLVMZigDICompileUnit *compile_unit);
@@ -148,6 +149,8 @@ LLVMValueRef LLVMZigInsertDeclare(LLVMZigDIBuilder *dibuilder, LLVMValueRef stor
 LLVMZigDILocation *LLVMZigGetDebugLoc(unsigned line, unsigned col, LLVMZigDIScope *scope);
 
 void LLVMZigSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
+
+void ZigLLVMAddFunctionAttr(LLVMValueRef fn, const char *attr_name, const char *attr_value);
 
 
 // copied from include/llvm/ADT/Triple.h

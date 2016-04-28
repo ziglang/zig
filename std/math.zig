@@ -1,11 +1,9 @@
 pub fn f64_from_bits(bits: u64) -> f64 {
-    const bits2 = bits;
-    *(&f64)(&bits2)
+    *(&f64)(&bits)
 }
 
 pub fn f64_to_bits(f: f64) -> u64 {
-    const f2 = f;
-    *(&u64)(&f2)
+    *(&u64)(&f)
 }
 
 pub fn f64_get_pos_inf() -> f64 {
