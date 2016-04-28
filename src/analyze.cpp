@@ -994,9 +994,9 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
                             buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
                 }
             } else if (buf_eql_str(name, "debug_safety")) {
-                if (fn_table_entry->is_extern) {
+                if (!fn_table_entry->fn_def_node) {
                     add_node_error(g, directive_node,
-                        buf_sprintf("#debug_safety invalid on extern functions"));
+                        buf_sprintf("#debug_safety valid only on function definitions"));
                 } else {
                     bool enable;
                     bool ok = resolve_const_expr_bool(g, import, import->block_context,
@@ -1018,9 +1018,9 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
                         buf_sprintf("#condition valid only on exported symbols"));
                 }
             } else if (buf_eql_str(name, "static_eval_enable")) {
-                if (fn_table_entry->is_extern) {
+                if (!fn_table_entry->fn_def_node) {
                     add_node_error(g, directive_node,
-                        buf_sprintf("#static_val_enable invalid on extern functions"));
+                        buf_sprintf("#static_val_enable valid only on function definitions"));
                 } else {
                     bool enable;
                     bool ok = resolve_const_expr_bool(g, import, import->block_context,
@@ -1470,9 +1470,9 @@ static void preview_fn_proto_instance(CodeGen *g, ImportTableEntry *import, AstN
 
     assert(!is_extern || !is_generic_instance);
 
-    if (!is_extern && proto_node->data.fn_proto.is_var_args) {
+    if (fn_def_node && proto_node->data.fn_proto.is_var_args) {
         add_node_error(g, proto_node,
-                buf_sprintf("variadic arguments only allowed in extern functions"));
+                buf_sprintf("variadic arguments only allowed in extern function declarations"));
     }
 
     FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
@@ -1480,13 +1480,13 @@ static void preview_fn_proto_instance(CodeGen *g, ImportTableEntry *import, AstN
     fn_table_entry->proto_node = proto_node;
     fn_table_entry->fn_def_node = fn_def_node;
     fn_table_entry->is_extern = is_extern;
-    fn_table_entry->is_pure = !is_extern;
+    fn_table_entry->is_pure = fn_def_node != nullptr;
 
     get_fully_qualified_decl_name(&fn_table_entry->symbol_name, proto_node, '_');
 
     g->fn_protos.append(fn_table_entry);
 
-    if (!is_extern) {
+    if (fn_def_node) {
         g->fn_defs.append(fn_table_entry);
     }
 

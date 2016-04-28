@@ -2414,27 +2414,46 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
 }
 
 /*
-FnDef = option("inline") FnProto Block
+FnDef = option("inline" | "extern") FnProto Block
 */
 static AstNode *ast_parse_fn_def(ParseContext *pc, int *token_index, bool mandatory,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
 {
     Token *first_token = &pc->tokens->at(*token_index);
     bool is_inline;
+    bool is_extern;
     if (first_token->id == TokenIdKeywordInline) {
         *token_index += 1;
         is_inline = true;
+        is_extern = false;
+    } else if (first_token->id == TokenIdKeywordExtern) {
+        *token_index += 1;
+        is_extern = true;
+        is_inline = false;
     } else {
         is_inline = false;
+        is_extern = false;
     }
 
     AstNode *fn_proto = ast_parse_fn_proto(pc, token_index, mandatory, directives, visib_mod);
-    if (!fn_proto)
+    if (!fn_proto) {
+        if (is_inline || is_extern) {
+            *token_index -= 1;
+        }
         return nullptr;
-    AstNode *node = ast_create_node(pc, NodeTypeFnDef, first_token);
+    }
 
     fn_proto->data.fn_proto.is_inline = is_inline;
+    fn_proto->data.fn_proto.is_extern = is_extern;
 
+    Token *semi_token = &pc->tokens->at(*token_index);
+    if (semi_token->id == TokenIdSemicolon) {
+        *token_index += 1;
+        normalize_parent_ptrs(fn_proto);
+        return fn_proto;
+    }
+
+    AstNode *node = ast_create_node(pc, NodeTypeFnDef, first_token);
     node->data.fn_def.fn_proto = fn_proto;
     node->data.fn_def.body = ast_parse_block(pc, token_index, true);
     normalize_parent_ptrs(node);

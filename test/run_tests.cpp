@@ -819,7 +819,7 @@ fn f() {
 
     add_compile_fail_case("variadic functions only allowed in extern", R"SOURCE(
 fn f(...) {}
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: variadic arguments only allowed in extern functions");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: variadic arguments only allowed in extern function declarations");
 
     add_compile_fail_case("write to const global variable", R"SOURCE(
 const x : i32 = 99;
