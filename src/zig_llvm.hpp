@@ -152,6 +152,8 @@ void LLVMZigSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
 
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn, const char *attr_name, const char *attr_value);
 
+unsigned ZigLLVMGetPrefTypeAlignment(LLVMTargetDataRef TD, LLVMTypeRef Ty);
+
 
 // copied from include/llvm/ADT/Triple.h
 

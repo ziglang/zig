@@ -3547,25 +3547,25 @@ static void do_code_gen(CodeGen *g) {
 
             if (var->block_context->node->type == NodeTypeFnDef) {
                 assert(var->gen_arg_index >= 0);
+                TypeTableEntry *gen_type;
                 if (handle_is_ptr(var->type)) {
-                    TypeTableEntry *gen_type = fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index].type;
+                    gen_type = fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index].type;
                     var->value_ref = LLVMGetParam(fn, var->gen_arg_index);
-                    var->di_loc_var = LLVMZigCreateParameterVariable(g->dbuilder, var->block_context->di_scope,
-                            buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
-                            gen_type->di_type, !g->strip_debug_symbols, 0, var->gen_arg_index + 1);
                 } else {
+                    gen_type = var->type;
                     var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
-                    uint64_t align_bytes = LLVMABISizeOfType(g->target_data_ref, var->type->type_ref);
+                    unsigned align_bytes = ZigLLVMGetPrefTypeAlignment(g->target_data_ref, var->type->type_ref);
                     LLVMSetAlignment(var->value_ref, align_bytes);
-                    var->di_loc_var = LLVMZigCreateAutoVariable(g->dbuilder, var->block_context->di_scope,
-                            buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
-                            var->type->di_type, !g->strip_debug_symbols, 0);
                 }
+                var->di_loc_var = LLVMZigCreateParameterVariable(g->dbuilder, var->block_context->di_scope,
+                        buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
+                        gen_type->di_type, !g->strip_debug_symbols, 0, var->gen_arg_index + 1);
 
             } else {
                 var->value_ref = LLVMBuildAlloca(g->builder, var->type->type_ref, buf_ptr(&var->name));
 
-                uint64_t align_bytes = LLVMABISizeOfType(g->target_data_ref, var->type->type_ref);
+
+                unsigned align_bytes = ZigLLVMGetPrefTypeAlignment(g->target_data_ref, var->type->type_ref);
                 LLVMSetAlignment(var->value_ref, align_bytes);
 
                 var->di_loc_var = LLVMZigCreateAutoVariable(g->dbuilder, var->block_context->di_scope,

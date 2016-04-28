@@ -641,6 +641,10 @@ void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
     unwrap(module)->addModuleFlag(Module::Warning, "Debug Info Version", DEBUG_METADATA_VERSION);
 }
 
+unsigned ZigLLVMGetPrefTypeAlignment(LLVMTargetDataRef TD, LLVMTypeRef Ty) {
+    return unwrap(TD)->getPrefTypeAlignment(unwrap(Ty));
+}
+
 //------------------------------------
 
 #include "buffer.hpp"
