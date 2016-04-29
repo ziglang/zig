@@ -1392,3 +1392,9 @@ fn test_take_address_of_parameter_noeval(f: f32) {
     const f_ptr = &f;
     assert(*f_ptr == 12.34);
 }
+
+
+#attribute("test")
+fn array_mult_operator() {
+    assert(str.eql("ab" ** 5, "ababababab"));
+}

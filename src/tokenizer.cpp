@@ -626,6 +626,11 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
+                    case '*':
+                        t.cur_tok->id = TokenIdStarStar;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
                     default:
                         t.pos -= 1;
                         end_token(&t);
@@ -1235,6 +1240,7 @@ const char * token_name(TokenId id) {
         case TokenIdRParen: return ")";
         case TokenIdComma: return ",";
         case TokenIdStar: return "*";
+        case TokenIdStarStar: return "**";
         case TokenIdLBrace: return "{";
         case TokenIdRBrace: return "}";
         case TokenIdLBracket: return "[";

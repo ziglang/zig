@@ -1297,6 +1297,7 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdPercentPercent: return PrefixOpUnwrapError;
         case TokenIdDoubleQuestion: return PrefixOpUnwrapMaybe;
         case TokenIdBoolAnd: return PrefixOpAddressOf;
+        case TokenIdStarStar: return PrefixOpDereference;
         default: return PrefixOpInvalid;
     }
 }
@@ -1332,6 +1333,14 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, boo
         parent_node->data.prefix_op_expr.prefix_op = PrefixOpAddressOf;
 
         node->column += 1;
+    } else if (token->id == TokenIdStarStar) {
+        // pretend that we got 2 star tokens
+
+        parent_node = ast_create_node(pc, NodeTypePrefixOpExpr, token);
+        parent_node->data.prefix_op_expr.primary_expr = node;
+        parent_node->data.prefix_op_expr.prefix_op = PrefixOpDereference;
+
+        node->column += 1;
     }
 
     if (prefix_op == PrefixOpAddressOf) {
@@ -1355,6 +1364,7 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, boo
 static BinOpType tok_to_mult_op(Token *token) {
     switch (token->id) {
         case TokenIdStar: return BinOpTypeMult;
+        case TokenIdStarStar: return BinOpTypeArrayMult;
         case TokenIdSlash: return BinOpTypeDiv;
         case TokenIdPercent: return BinOpTypeMod;
         default: return BinOpTypeInvalid;
@@ -1362,7 +1372,7 @@ static BinOpType tok_to_mult_op(Token *token) {
 }
 
 /*
-MultiplyOperator : token(Star) | token(Slash) | token(Percent)
+MultiplyOperator = "*" | "/" | "%" | "**"
 */
 static BinOpType ast_parse_mult_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);

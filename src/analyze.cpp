@@ -2937,6 +2937,7 @@ static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
         case BinOpTypeMod:
         case BinOpTypeUnwrapMaybe:
         case BinOpTypeStrCat:
+        case BinOpTypeArrayMult:
             zig_unreachable();
     }
     zig_unreachable();
@@ -3121,9 +3122,93 @@ static TypeTableEntry *analyze_logic_bin_op_expr(CodeGen *g, ImportTableEntry *i
     return g->builtin_types.entry_bool;
 }
 
+static TypeTableEntry *analyze_array_mult(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    assert(node->type == NodeTypeBinOpExpr);
+    assert(node->data.bin_op_expr.bin_op == BinOpTypeArrayMult);
+
+    AstNode **op1 = node->data.bin_op_expr.op1->parent_field;
+    AstNode **op2 = node->data.bin_op_expr.op2->parent_field;
+
+    TypeTableEntry *op1_type = analyze_expression(g, import, context, nullptr, *op1);
+    TypeTableEntry *op2_type = analyze_expression(g, import, context, nullptr, *op2);
+
+    if (op1_type->id == TypeTableEntryIdInvalid ||
+        op2_type->id == TypeTableEntryIdInvalid)
+    {
+        return g->builtin_types.entry_invalid;
+    }
+
+    ConstExprValue *op1_val = &get_resolved_expr(*op1)->const_val;
+    ConstExprValue *op2_val = &get_resolved_expr(*op2)->const_val;
+
+    AstNode *bad_node;
+    if (!op1_val->ok) {
+        bad_node = *op1;
+    } else if (!op2_val->ok) {
+        bad_node = *op2;
+    } else {
+        bad_node = nullptr;
+    }
+    if (bad_node) {
+        add_node_error(g, bad_node, buf_sprintf("array multiplication requires constant expression"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (op1_type->id != TypeTableEntryIdArray) {
+        add_node_error(g, *op1,
+            buf_sprintf("expected array type, got '%s'", buf_ptr(&op1_type->name)));
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (op2_type->id != TypeTableEntryIdNumLitInt &&
+        op2_type->id != TypeTableEntryIdInt)
+    {
+        add_node_error(g, *op2, buf_sprintf("expected integer type, got '%s'", buf_ptr(&op2_type->name)));
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (op2_val->data.x_bignum.is_negative) {
+        add_node_error(g, *op2, buf_sprintf("expected positive number"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+    const_val->ok = true;
+    const_val->depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
+
+    TypeTableEntry *child_type = op1_type->data.array.child_type;
+    BigNum old_array_len;
+    bignum_init_unsigned(&old_array_len, op1_type->data.array.len);
+
+    BigNum new_array_len;
+    if (bignum_mul(&new_array_len, &old_array_len, &op2_val->data.x_bignum)) {
+        add_node_error(g, node, buf_sprintf("operation results in overflow"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    uint64_t old_array_len_bare = op1_type->data.array.len;
+    uint64_t operand_amt = op2_val->data.x_bignum.data.x_uint;
+
+    uint64_t new_array_len_bare = new_array_len.data.x_uint;
+    const_val->data.x_array.fields = allocate<ConstExprValue*>(new_array_len_bare);
+
+    uint64_t i = 0;
+    for (uint64_t x = 0; x < operand_amt; x += 1) {
+        for (uint64_t y = 0; y < old_array_len_bare; y += 1) {
+            const_val->data.x_array.fields[i] = op1_val->data.x_array.fields[y];
+            i += 1;
+        }
+    }
+
+    return get_array_type(g, child_type, new_array_len_bare);
+}
+
 static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
+    assert(node->type == NodeTypeBinOpExpr);
     BinOpType bin_op_type = node->data.bin_op_expr.bin_op;
     switch (bin_op_type) {
         case BinOpTypeAssign:
@@ -3320,6 +3405,8 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
 
                 return str_type;
             }
+        case BinOpTypeArrayMult:
+            return analyze_array_mult(g, import, context, expected_type, node);
         case BinOpTypeInvalid:
             zig_unreachable();
     }

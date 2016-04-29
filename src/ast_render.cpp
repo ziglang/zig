@@ -38,6 +38,7 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeAssignBoolOr:        return "||=";
         case BinOpTypeUnwrapMaybe:         return "??";
         case BinOpTypeStrCat:              return "++";
+        case BinOpTypeArrayMult:           return "**";
     }
     zig_unreachable();
 }

@@ -342,6 +342,7 @@ enum BinOpType {
     BinOpTypeMod,
     BinOpTypeUnwrapMaybe,
     BinOpTypeStrCat,
+    BinOpTypeArrayMult,
 };
 
 struct AstNodeBinOpExpr {

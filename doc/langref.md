@@ -121,7 +121,7 @@ MultiplyExpression = CurlySuffixExpression MultiplyOperator MultiplyExpression |
 
 CurlySuffixExpression = TypeExpr option(ContainerInitExpression)
 
-MultiplyOperator = "*" | "/" | "%"
+MultiplyOperator = "*" | "/" | "%" | "**"
 
 PrefixOpExpression = PrefixOp PrefixOpExpression | SuffixOpExpression
 

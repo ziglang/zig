@@ -232,7 +232,7 @@ int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
         case BinOpTypeUnwrapMaybe:
             zig_panic("TODO");
         case BinOpTypeStrCat:
-            zig_panic("TODO");
+        case BinOpTypeArrayMult:
         case BinOpTypeInvalid:
             zig_unreachable();
     }
