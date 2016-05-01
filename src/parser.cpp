@@ -219,7 +219,7 @@ static uint8_t parse_char_literal(ParseContext *pc, Token *token) {
     return return_value;
 }
 
-static int get_hex_digit(uint8_t c) {
+static uint32_t get_hex_digit(uint8_t c) {
     switch (c) {
         case '0': return 0;
         case '1': return 1;
@@ -251,7 +251,7 @@ static int get_hex_digit(uint8_t c) {
         case 'F':
             return 15;
         default:
-            return -1;
+            return UINT32_MAX;
     }
 }
 
@@ -279,13 +279,17 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
         StateEscape,
         StateHex1,
         StateHex2,
+        StateUnicode,
     };
 
     buf_resize(buf, 0);
 
+    int unicode_index;
+    int unicode_end;
+
     State state = StatePre;
     SrcPos pos = {token->start_line, token->start_column};
-    int hex_value = 0;
+    uint32_t hex_value = 0;
     for (int i = token->start_pos; i < token->end_pos - 1; i += 1) {
         uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
 
@@ -348,8 +352,25 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
                         if (offset_map) offset_map->append(pos);
                         state = StateStart;
                         break;
+                    case '\'':
+                        buf_append_char(buf, '\'');
+                        if (offset_map) offset_map->append(pos);
+                        state = StateStart;
+                        break;
                     case 'x':
                         state = StateHex1;
+                        break;
+                    case 'u':
+                        state = StateUnicode;
+                        unicode_index = 0;
+                        unicode_end = 4;
+                        hex_value = 0;
+                        break;
+                    case 'U':
+                        state = StateUnicode;
+                        unicode_index = 0;
+                        unicode_end = 6;
+                        hex_value = 0;
                         break;
                     default:
                         ast_error(pc, token, "invalid escape character");
@@ -357,8 +378,8 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
                 break;
             case StateHex1:
                 {
-                    int hex_digit = get_hex_digit(c);
-                    if (hex_digit == -1) {
+                    uint32_t hex_digit = get_hex_digit(c);
+                    if (hex_digit == UINT32_MAX) {
                         ast_error(pc, token, "invalid hex digit: '%c'", c);
                     }
                     hex_value = hex_digit * 16;
@@ -367,14 +388,55 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
                 }
             case StateHex2:
                 {
-                    int hex_digit = get_hex_digit(c);
-                    if (hex_digit == -1) {
+                    uint32_t hex_digit = get_hex_digit(c);
+                    if (hex_digit == UINT32_MAX) {
                         ast_error(pc, token, "invalid hex digit: '%c'", c);
                     }
                     hex_value += hex_digit;
                     assert(hex_value >= 0 && hex_value <= 255);
                     buf_append_char(buf, hex_value);
                     state = StateStart;
+                    break;
+                }
+            case StateUnicode:
+                {
+                    uint32_t hex_digit = get_hex_digit(c);
+                    if (hex_digit == UINT32_MAX) {
+                        ast_error(pc, token, "invalid hex digit: '%c'", c);
+                    }
+                    hex_value *= 16;
+                    hex_value += hex_digit;
+                    unicode_index += 1;
+                    if (unicode_index >= unicode_end) {
+                        if (hex_value <= 0x7f) {
+                            // 00000000 00000000 00000000 0xxxxxxx
+                            buf_append_char(buf, hex_value);
+                        } else if (hex_value <= 0x7ff) {
+                            // 00000000 00000000 00000xxx xx000000
+                            buf_append_char(buf, (unsigned char)(0xc0 | (hex_value >> 6)));
+                            // 00000000 00000000 00000000 00xxxxxx
+                            buf_append_char(buf, (unsigned char)(0x80 | (hex_value & 0x3f)));
+                        } else if (hex_value <= 0xffff) {
+                            // 00000000 00000000 xxxx0000 00000000
+                            buf_append_char(buf, (unsigned char)(0xe0 | (hex_value >> 12)));
+                            // 00000000 00000000 0000xxxx xx000000
+                            buf_append_char(buf, (unsigned char)(0x80 | ((hex_value >> 6) & 0x3f)));
+                            // 00000000 00000000 00000000 00xxxxxx
+                            buf_append_char(buf, (unsigned char)(0x80 | (hex_value & 0x3f)));
+                        } else if (hex_value <= 0x10ffff) {
+                            // 00000000 000xxx00 00000000 00000000
+                            buf_append_char(buf, (unsigned char)(0xf0 | (hex_value >> 18)));
+                            // 00000000 000000xx xxxx0000 00000000
+                            buf_append_char(buf, (unsigned char)(0x80 | ((hex_value >> 12) & 0x3f)));
+                            // 00000000 00000000 0000xxxx xx000000
+                            buf_append_char(buf, (unsigned char)(0x80 | ((hex_value >> 6) & 0x3f)));
+                            // 00000000 00000000 00000000 00xxxxxx
+                            buf_append_char(buf, (unsigned char)(0x80 | (hex_value & 0x3f)));
+                        } else {
+                            ast_error(pc, token, "unicode value out of range: %x", hex_value);
+                        }
+                        state = StateStart;
+                    }
                     break;
                 }
         }

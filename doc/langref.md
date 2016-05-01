@@ -272,9 +272,25 @@ Literal            Example       Characters   Escapes         Null Term  Type
 Byte               'H'           All ASCII    Byte            No         u8
 UTF-8 Bytes        "hello"       All Unicode  Byte & Unicode  No         [5]u8
 UTF-8 C string     c"hello"      All Unicode  Byte & Unicode  Yes        &const u8
-UTF-8 Raw String   r"A(hello)A"  All Unicode  None            No         [5]u8
-UTF-8 Raw C String rc"A(hello)A" All Unicode  None            Yes        &const u8
+UTF-8 Raw String   r"X(hello)X"  All Unicode  None            No         [5]u8
+UTF-8 Raw C String rc"X(hello)X" All Unicode  None            Yes        &const u8
 ```
+
+### Escapes
+
+ Escape   | Name
+----------|-------------------------------------------------------------------
+ \n       | Newline
+ \r       | Carriage Return
+ \t       | Tab
+ \\       | Backslash
+ \'       | Single Quote
+ \"       | Double Quote
+ \xNN     | hexadecimal 8-bit character code (2 digits)
+ \uNNNN   | hexadecimal 16-bit Unicode character code UTF-8 encoded (4 digits)
+ \UNNNNNN | hexadecimal 24-bit Unicode character code UTF-8 encoded (6 digits)
+
+Note that the maximum valid Unicode point is 0x10ffff.
 
 ##### Raw Strings
 
@@ -282,25 +298,6 @@ Raw string literals have no escapes and can span across multiple lines. To
 start a raw string, use 'r"' or 'rc"' followed by unique bytes followed by '('.
 To end a raw string, use ')' followed by the same unique bytes, followed by '"'.
 
-
-```
-Escape  Name
-
-\xNN    hexadecimal 8-bit character code (exactly 2 digits)
-\n      Newline
-\r      Carriage return
-\t      Tab
-\\      Backslash
-\0      Null
-\'      Single quote
-\"      Double quote
-```
-
-### Unicode Escapes
-
- Escape     | Name
-------------|-----------------------------------------------
- \u{NNNNNN} | hexadecimal 24-bit Unicode character code (up to 6 digits)
 
 #### Numeric Literals
 

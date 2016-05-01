@@ -103,6 +103,21 @@
     ALPHA: \
     case '_'
 
+#define HEX_DIGIT \
+         'a': \
+    case 'b': \
+    case 'c': \
+    case 'd': \
+    case 'e': \
+    case 'f': \
+    case 'A': \
+    case 'B': \
+    case 'C': \
+    case 'D': \
+    case 'E': \
+    case 'F': \
+    case DIGIT
+
 const char * zig_keywords[] = {
     "true", "false", "null", "fn", "return", "var", "const", "extern",
     "pub", "export", "use", "if", "else", "goto", "asm",
@@ -132,11 +147,11 @@ enum TokenizeState {
     TokenizeStateFloatExponentUnsigned, // "123.456e", "123e", "0x123p"
     TokenizeStateFloatExponentNumber, // "123.456e-", "123.456e5", "123.456e5e-5"
     TokenizeStateString,
+    TokenizeStateStringEscape,
     TokenizeStateRawString,
     TokenizeStateRawStringContents,
     TokenizeStateRawStringMaybeEnd,
     TokenizeStateCharLiteral,
-    TokenizeStateCharLiteralEscape,
     TokenizeStateCharLiteralEnd,
     TokenizeStateSawStar,
     TokenizeStateSawSlash,
@@ -162,6 +177,7 @@ enum TokenizeState {
     TokenizeStateSawDotDot,
     TokenizeStateSawQuestionMark,
     TokenizeStateSawAtSign,
+    TokenizeStateHex,
     TokenizeStateError,
 };
 
@@ -179,6 +195,7 @@ struct Tokenize {
     int raw_string_id_start;
     int raw_string_id_end;
     int raw_string_id_cmp_pos;
+    int hex_chars_left;
 };
 
 __attribute__ ((format (printf, 2, 3)))
@@ -921,8 +938,61 @@ void tokenize(Buf *buf, Tokenization *out) {
                     case '\n':
                         tokenize_error(&t, "use raw string for multiline string literal");
                         break;
+                    case '\\':
+                        t.state = TokenizeStateStringEscape;
+                        break;
                     default:
                         break;
+                }
+                break;
+            case TokenizeStateStringEscape:
+                switch (c) {
+                    case 'x':
+                        t.state = TokenizeStateHex;
+                        t.hex_chars_left = 2;
+                        break;
+                    case 'u':
+                        t.state = TokenizeStateHex;
+                        t.hex_chars_left = 4;
+                        break;
+                    case 'U':
+                        t.state = TokenizeStateHex;
+                        t.hex_chars_left = 6;
+                        break;
+                    case 'n':
+                    case 'r':
+                    case '\\':
+                    case 't':
+                    case '\'':
+                    case '"':
+                        if (t.cur_tok->id == TokenIdCharLiteral) {
+                            t.state = TokenizeStateCharLiteralEnd;
+                        } else if (t.cur_tok->id == TokenIdStringLiteral) {
+                            t.state = TokenizeStateString;
+                        } else {
+                            zig_unreachable();
+                        }
+                        break;
+                    default:
+                        tokenize_error(&t, "invalid character: '%c'", c);
+                }
+                break;
+            case TokenizeStateHex:
+                switch (c) {
+                    case HEX_DIGIT:
+                        t.hex_chars_left -= 1;
+                        if (t.hex_chars_left == 0) {
+                            if (t.cur_tok->id == TokenIdCharLiteral) {
+                                t.state = TokenizeStateCharLiteralEnd;
+                            } else if (t.cur_tok->id == TokenIdStringLiteral) {
+                                t.state = TokenizeStateString;
+                            } else {
+                                zig_unreachable();
+                            }
+                        }
+                        break;
+                    default:
+                        tokenize_error(&t, "invalid character: '%c'", c);
                 }
                 break;
             case TokenizeStateRawString:
@@ -963,15 +1033,12 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateStart;
                         break;
                     case '\\':
-                        t.state = TokenizeStateCharLiteralEscape;
+                        t.state = TokenizeStateStringEscape;
                         break;
                     default:
                         t.state = TokenizeStateCharLiteralEnd;
                         break;
                 }
-                break;
-            case TokenizeStateCharLiteralEscape:
-                t.state = TokenizeStateCharLiteralEnd;
                 break;
             case TokenizeStateCharLiteralEnd:
                 switch (c) {
@@ -1136,13 +1203,22 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateString:
             tokenize_error(&t, "unterminated string");
             break;
+        case TokenizeStateStringEscape:
+        case TokenizeStateHex:
+            if (t.cur_tok->id == TokenIdStringLiteral) {
+                tokenize_error(&t, "unterminated string");
+            } else if (t.cur_tok->id == TokenIdCharLiteral) {
+                tokenize_error(&t, "unterminated character literal");
+            } else {
+                zig_unreachable();
+            }
+            break;
         case TokenizeStateRawString:
         case TokenizeStateRawStringContents:
         case TokenizeStateRawStringMaybeEnd:
             tokenize_error(&t, "unterminated raw string");
             break;
         case TokenizeStateCharLiteral:
-        case TokenizeStateCharLiteralEscape:
         case TokenizeStateCharLiteralEnd:
             tokenize_error(&t, "unterminated character literal");
             break;

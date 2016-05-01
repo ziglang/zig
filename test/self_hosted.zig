@@ -1398,3 +1398,14 @@ fn test_take_address_of_parameter_noeval(f: f32) {
 fn array_mult_operator() {
     assert(str.eql("ab" ** 5, "ababababab"));
 }
+
+#attribute("test")
+fn string_escapes() {
+    assert(str.eql("\"", "\x22"));
+    assert(str.eql("\'", "\x27"));
+    assert(str.eql("\n", "\x0a"));
+    assert(str.eql("\r", "\x0d"));
+    assert(str.eql("\t", "\x09"));
+    assert(str.eql("\\", "\x5c"));
+    assert(str.eql("\u1234\u0069", "\xe1\x88\xb4\x69"));
+}
