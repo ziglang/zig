@@ -212,7 +212,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *expr_node);
 static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *expr_node, AstNode *node, TypeTableEntry **out_type_entry);
 static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lvalue);
 static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVariableDeclaration *var_decl,
-        bool unwrap_maybe, LLVMValueRef *init_val, TypeTableEntry **init_val_type);
+        bool unwrap_maybe, LLVMValueRef *init_val, TypeTableEntry **init_val_type, bool var_is_ptr);
 static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType bin_op,
         LLVMValueRef target_ref, LLVMValueRef value,
         TypeTableEntry *op1_type, TypeTableEntry *op2_type);
@@ -2102,21 +2102,32 @@ static LLVMValueRef gen_if_bool_expr(CodeGen *g, AstNode *node) {
     }
 }
 
+static void gen_var_debug_decl(CodeGen *g, VariableTableEntry *var) {
+    BlockContext *block_context = var->block_context;
+    AstNode *source_node = var->decl_node;
+    LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(source_node->line + 1, source_node->column + 1,
+            block_context->di_scope);
+    LLVMZigInsertDeclareAtEnd(g->dbuilder, var->value_ref, var->di_loc_var, debug_loc,
+            LLVMGetInsertBlock(g->builder));
+}
+
 static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeIfVarExpr);
     assert(node->data.if_var_expr.var_decl.expr);
 
-    LLVMValueRef init_val;
-    TypeTableEntry *expr_type;
-    gen_var_decl_raw(g, node, &node->data.if_var_expr.var_decl, true, &init_val, &expr_type);
+    AstNodeVariableDeclaration *var_decl = &node->data.if_var_expr.var_decl;
+    VariableTableEntry *variable = var_decl->variable;
 
     // test if value is the maybe state
-    assert(expr_type->id == TypeTableEntryIdMaybe);
+    TypeTableEntry *expr_type = get_expr_type(var_decl->expr);
     TypeTableEntry *child_type = expr_type->data.maybe.child_type;
+
+    LLVMValueRef init_val = gen_expr(g, var_decl->expr);
+
     LLVMValueRef cond_value;
-    if (child_type->id == TypeTableEntryIdPointer ||
-        child_type->id == TypeTableEntryIdFn)
-    {
+    bool maybe_is_ptr = child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
+    if (maybe_is_ptr) {
+        set_debug_source_node(g, node);
         cond_value = LLVMBuildICmp(g->builder, LLVMIntNE, init_val, LLVMConstNull(child_type->type_ref), "");
     } else {
         set_debug_source_node(g, node);
@@ -2124,11 +2135,80 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
         cond_value = LLVMBuildLoad(g->builder, maybe_field_ptr, "");
     }
 
-    LLVMValueRef return_value = gen_if_bool_expr_raw(g, node, cond_value,
-            node->data.if_var_expr.then_block,
-            node->data.if_var_expr.else_node);
+    AstNode *then_node = node->data.if_var_expr.then_block;
+    AstNode *else_node = node->data.if_var_expr.else_node;
 
-    return return_value;
+    TypeTableEntry *then_type = get_expr_type(then_node);
+    TypeTableEntry *else_type = get_expr_type(else_node);
+
+    bool use_then_value = type_has_bits(then_type);
+    bool use_else_value = type_has_bits(else_type);
+
+    LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeThen");
+    LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeElse");
+
+    LLVMBasicBlockRef endif_block;
+    bool then_endif_reachable = then_type->id != TypeTableEntryIdUnreachable;
+    bool else_endif_reachable = else_type->id != TypeTableEntryIdUnreachable;
+    if (then_endif_reachable || else_endif_reachable) {
+        endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeEndIf");
+    }
+
+    set_debug_source_node(g, node);
+    LLVMBuildCondBr(g->builder, cond_value, then_block, else_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, then_block);
+    if (node->data.if_var_expr.var_is_ptr) {
+        LLVMValueRef payload_ptr;
+        if (maybe_is_ptr) {
+            zig_panic("TODO");
+        } else {
+            payload_ptr = LLVMBuildStructGEP(g->builder, init_val, 0, "");
+        }
+        LLVMBuildStore(g->builder, payload_ptr, variable->value_ref);
+    } else {
+        LLVMValueRef payload_val;
+        if (maybe_is_ptr) {
+            payload_val = init_val;
+        } else {
+            LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, init_val, 0, "");
+            payload_val = get_handle_value(g, node, payload_ptr, child_type);
+        }
+        gen_assign_raw(g, node, BinOpTypeAssign, variable->value_ref, payload_val,
+                variable->type, child_type);
+    }
+    gen_var_debug_decl(g, variable);
+
+    LLVMValueRef then_expr_result = gen_expr(g, then_node);
+    if (then_endif_reachable) {
+        LLVMBuildBr(g->builder, endif_block);
+    }
+    LLVMBasicBlockRef after_then_block = LLVMGetInsertBlock(g->builder);
+
+
+    LLVMPositionBuilderAtEnd(g->builder, else_block);
+    LLVMValueRef else_expr_result = gen_expr(g, else_node);
+    if (else_endif_reachable) {
+        LLVMBuildBr(g->builder, endif_block);
+    }
+    LLVMBasicBlockRef after_else_block = LLVMGetInsertBlock(g->builder);
+
+    if (then_endif_reachable || else_endif_reachable) {
+        LLVMPositionBuilderAtEnd(g->builder, endif_block);
+        if (use_then_value && use_else_value) {
+            LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(then_expr_result), "");
+            LLVMValueRef incoming_values[2] = {then_expr_result, else_expr_result};
+            LLVMBasicBlockRef incoming_blocks[2] = {after_then_block, after_else_block};
+            LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
+            return phi;
+        } else if (use_then_value) {
+            return then_expr_result;
+        } else if (use_else_value) {
+            return else_expr_result;
+        }
+    }
+
+    return nullptr;
 }
 
 static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *implicit_return_type) {
@@ -2456,15 +2536,6 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
     return nullptr;
 }
 
-static void gen_var_debug_decl(CodeGen *g, VariableTableEntry *var) {
-    BlockContext *block_context = var->block_context;
-    AstNode *source_node = var->decl_node;
-    LLVMZigDILocation *debug_loc = LLVMZigGetDebugLoc(source_node->line + 1, source_node->column + 1,
-            block_context->di_scope);
-    LLVMZigInsertDeclareAtEnd(g->dbuilder, var->value_ref, var->di_loc_var, debug_loc,
-            LLVMGetInsertBlock(g->builder));
-}
-
 static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeForExpr);
     assert(node->data.for_expr.array_expr);
@@ -2564,7 +2635,7 @@ static LLVMValueRef gen_continue(CodeGen *g, AstNode *node) {
 }
 
 static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVariableDeclaration *var_decl,
-        bool unwrap_maybe, LLVMValueRef *init_value, TypeTableEntry **expr_type)
+        bool unwrap_maybe, LLVMValueRef *init_value, TypeTableEntry **expr_type, bool var_is_ptr)
 {
     VariableTableEntry *variable = var_decl->variable;
 
@@ -2683,7 +2754,7 @@ static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
 
     LLVMValueRef init_val;
     TypeTableEntry *init_val_type;
-    return gen_var_decl_raw(g, node, &node->data.variable_declaration, false, &init_val, &init_val_type);
+    return gen_var_decl_raw(g, node, &node->data.variable_declaration, false, &init_val, &init_val_type, false);
 }
 
 static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {

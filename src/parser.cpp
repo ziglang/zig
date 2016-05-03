@@ -1755,7 +1755,7 @@ static AstNode *ast_parse_else(ParseContext *pc, int *token_index, bool mandator
 /*
 IfExpression : IfVarExpression | IfBoolExpression
 IfBoolExpression : token(If) token(LParen) Expression token(RParen) Expression option(Else)
-IfVarExpression : token(If) token(LParen) (token(Const) | token(Var)) token(Symbol) option(Expression) Token(MaybeAssign) Expression token(RParen) Expression Option(Else)
+IfVarExpression = "if" "(" ("const" | "var") option("*") "Symbol" option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
 */
 static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *if_tok = &pc->tokens->at(*token_index);
@@ -1776,8 +1776,19 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool manda
         node->data.if_var_expr.var_decl.is_const = (token->id == TokenIdKeywordConst);
         *token_index += 1;
 
-        Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
-        ast_buf_from_token(pc, name_token, &node->data.if_var_expr.var_decl.symbol);
+        Token *star_or_symbol = &pc->tokens->at(*token_index);
+        if (star_or_symbol->id == TokenIdStar) {
+            *token_index += 1;
+            node->data.if_var_expr.var_is_ptr = true;
+            Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
+            ast_buf_from_token(pc, name_token, &node->data.if_var_expr.var_decl.symbol);
+        } else if (star_or_symbol->id == TokenIdSymbol) {
+            *token_index += 1;
+            ast_buf_from_token(pc, star_or_symbol, &node->data.if_var_expr.var_decl.symbol);
+        } else {
+            ast_invalid_token_error(pc, star_or_symbol);
+        }
+
 
         Token *eq_or_colon = &pc->tokens->at(*token_index);
         if (eq_or_colon->id == TokenIdMaybeAssign) {

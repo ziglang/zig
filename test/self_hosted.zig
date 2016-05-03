@@ -1409,3 +1409,36 @@ fn string_escapes() {
     assert(str.eql("\\", "\x5c"));
     assert(str.eql("\u1234\u0069", "\xe1\x88\xb4\x69"));
 }
+
+#attribute("test")
+fn if_var_maybe_pointer() {
+    assert(should_be_a_plus_1(Particle {.a = 14, .b = 1, .c = 1, .d = 1}) == 15);
+}
+#static_eval_enable(false)
+fn should_be_a_plus_1(p: Particle) -> u64 {
+    var maybe_particle: ?Particle = p;
+    if (const *particle ?= maybe_particle) {
+        particle.a += 1;
+    }
+    if (const particle ?= maybe_particle) {
+        return particle.a;
+    }
+    return 0;
+}
+struct Particle {
+    a: u64,
+    b: u64,
+    c: u64,
+    d: u64,
+}
+
+#attribute("test")
+fn assign_to_if_var_ptr() {
+    var maybe_bool: ?bool = true;
+
+    if (const *b ?= maybe_bool) {
+        *b = false;
+    }
+
+    assert(??maybe_bool == false);
+}

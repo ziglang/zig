@@ -41,7 +41,7 @@ static TopLevelDecl *get_as_top_level_decl(AstNode *node);
 static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, AstNode *source_node,
         AstNodeVariableDeclaration *variable_declaration,
-        bool expr_is_maybe, AstNode *decl_node);
+        bool expr_is_maybe, AstNode *decl_node, bool var_is_ptr);
 static void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *context, AstNode *node);
 static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
 
@@ -1582,7 +1582,7 @@ static void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only)
             {
                 AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
                 VariableTableEntry *var = analyze_variable_declaration_raw(g, import, import->block_context,
-                        node, variable_declaration, false, node);
+                        node, variable_declaration, false, node, false);
 
                 g->global_vars.append(var);
                 break;
@@ -3503,7 +3503,7 @@ static TypeTableEntry *analyze_unwrap_error_expr(CodeGen *g, ImportTableEntry *i
 static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, AstNode *source_node,
         AstNodeVariableDeclaration *variable_declaration,
-        bool expr_is_maybe, AstNode *decl_node)
+        bool expr_is_maybe, AstNode *decl_node, bool var_is_ptr)
 {
     bool is_const = variable_declaration->is_const;
     bool is_export = (variable_declaration->top_level_decl.visib_mod == VisibModExport);
@@ -3528,7 +3528,12 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
             // ignore the poison value
         } else if (expr_is_maybe) {
             if (implicit_type->id == TypeTableEntryIdMaybe) {
-                implicit_type = implicit_type->data.maybe.child_type;
+                if (var_is_ptr) {
+                    // TODO if the expression is constant, can't get pointer to it
+                    implicit_type = get_pointer_to_type(g, implicit_type->data.maybe.child_type, false);
+                } else {
+                    implicit_type = implicit_type->data.maybe.child_type;
+                }
             } else {
                 add_node_error(g, variable_declaration->expr, buf_sprintf("expected maybe type"));
                 implicit_type = g->builtin_types.entry_invalid;
@@ -3575,7 +3580,8 @@ static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableE
         BlockContext *context, TypeTableEntry *expected_type, AstNode *node)
 {
     AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
-    return analyze_variable_declaration_raw(g, import, context, node, variable_declaration, false, nullptr);
+    return analyze_variable_declaration_raw(g, import, context, node, variable_declaration,
+            false, nullptr, false);
 }
 
 static TypeTableEntry *analyze_null_literal_expr(CodeGen *g, ImportTableEntry *import,
@@ -3945,7 +3951,7 @@ static TypeTableEntry *analyze_if_var_expr(CodeGen *g, ImportTableEntry *import,
     BlockContext *child_context = new_block_context(node, parent_context);
 
     analyze_variable_declaration_raw(g, import, child_context, node, &node->data.if_var_expr.var_decl, true,
-        nullptr);
+        nullptr, node->data.if_var_expr.var_is_ptr);
     VariableTableEntry *var = node->data.if_var_expr.var_decl.variable;
     if (var->type->id == TypeTableEntryIdInvalid) {
         return g->builtin_types.entry_invalid;

@@ -479,6 +479,7 @@ struct AstNodeIfVarExpr {
     AstNodeVariableDeclaration var_decl;
     AstNode *then_block;
     AstNode *else_node; // null, block node, or other if expr node
+    bool var_is_ptr;
 
     // populated by semantic analyzer
     TypeTableEntry *type;
@@ -502,6 +503,7 @@ struct AstNodeForExpr {
     AstNode *elem_node; // always a symbol
     AstNode *index_node; // always a symbol, might be null
     AstNode *body;
+    bool elem_is_ptr;
 
     // populated by semantic analyzer
     bool contains_break;
@@ -509,7 +511,6 @@ struct AstNodeForExpr {
     Expr resolved_expr;
     VariableTableEntry *elem_var;
     VariableTableEntry *index_var;
-    bool elem_is_ptr;
 };
 
 struct AstNodeSwitchExpr {
