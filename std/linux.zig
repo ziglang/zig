@@ -80,9 +80,9 @@ const SIG_BLOCK   = 0;
 const SIG_UNBLOCK = 1;
 const SIG_SETMASK = 2;
 
-const SOCK_STREAM = 1;
-const SOCK_DGRAM = 2;
-const SOCK_RAW = 3;
+pub const SOCK_STREAM = 1;
+pub const SOCK_DGRAM = 2;
+pub const SOCK_RAW = 3;
 pub const SOCK_RDM = 4;
 pub const SOCK_SEQPACKET = 5;
 pub const SOCK_DCCP = 6;
@@ -90,6 +90,135 @@ pub const SOCK_PACKET = 10;
 pub const SOCK_CLOEXEC = 0o2000000;
 pub const SOCK_NONBLOCK = 0o4000;
 
+
+pub const PROTO_ip = 0o000;
+pub const PROTO_icmp = 0o001;
+pub const PROTO_igmp = 0o002;
+pub const PROTO_ggp = 0o003;
+pub const PROTO_ipencap = 0o004;
+pub const PROTO_st = 0o005;
+pub const PROTO_tcp = 0o006;
+pub const PROTO_egp = 0o010;
+pub const PROTO_pup = 0o014;
+pub const PROTO_udp = 0o021;
+pub const PROTO_hmp = 0o024;
+pub const PROTO_xns_idp = 0o026;
+pub const PROTO_rdp = 0o033;
+pub const PROTO_iso_tp4 = 0o035;
+pub const PROTO_xtp = 0o044;
+pub const PROTO_ddp = 0o045;
+pub const PROTO_idpr_cmtp = 0o046;
+pub const PROTO_ipv6 = 0o051;
+pub const PROTO_ipv6_route = 0o053;
+pub const PROTO_ipv6_frag = 0o054;
+pub const PROTO_idrp = 0o055;
+pub const PROTO_rsvp = 0o056;
+pub const PROTO_gre = 0o057;
+pub const PROTO_esp = 0o062;
+pub const PROTO_ah = 0o063;
+pub const PROTO_skip = 0o071;
+pub const PROTO_ipv6_icmp = 0o072;
+pub const PROTO_ipv6_nonxt = 0o073;
+pub const PROTO_ipv6_opts = 0o074;
+pub const PROTO_rspf = 0o111;
+pub const PROTO_vmtp = 0o121;
+pub const PROTO_ospf = 0o131;
+pub const PROTO_ipip = 0o136;
+pub const PROTO_encap = 0o142;
+pub const PROTO_pim = 0o147;
+pub const PROTO_raw = 0o377;
+
+pub const PF_UNSPEC = 0;
+pub const PF_LOCAL = 1;
+pub const PF_UNIX = PF_LOCAL;
+pub const PF_FILE = PF_LOCAL;
+pub const PF_INET = 2;
+pub const PF_AX25 = 3;
+pub const PF_IPX = 4;
+pub const PF_APPLETALK = 5;
+pub const PF_NETROM = 6;
+pub const PF_BRIDGE = 7;
+pub const PF_ATMPVC = 8;
+pub const PF_X25 = 9;
+pub const PF_INET6 = 10;
+pub const PF_ROSE = 11;
+pub const PF_DECnet = 12;
+pub const PF_NETBEUI = 13;
+pub const PF_SECURITY = 14;
+pub const PF_KEY = 15;
+pub const PF_NETLINK = 16;
+pub const PF_ROUTE = PF_NETLINK;
+pub const PF_PACKET = 17;
+pub const PF_ASH = 18;
+pub const PF_ECONET = 19;
+pub const PF_ATMSVC = 20;
+pub const PF_RDS = 21;
+pub const PF_SNA = 22;
+pub const PF_IRDA = 23;
+pub const PF_PPPOX = 24;
+pub const PF_WANPIPE = 25;
+pub const PF_LLC = 26;
+pub const PF_IB = 27;
+pub const PF_MPLS = 28;
+pub const PF_CAN = 29;
+pub const PF_TIPC = 30;
+pub const PF_BLUETOOTH = 31;
+pub const PF_IUCV = 32;
+pub const PF_RXRPC = 33;
+pub const PF_ISDN = 34;
+pub const PF_PHONET = 35;
+pub const PF_IEEE802154 = 36;
+pub const PF_CAIF = 37;
+pub const PF_ALG = 38;
+pub const PF_NFC = 39;
+pub const PF_VSOCK = 40;
+pub const PF_MAX = 41;
+
+pub const AF_UNSPEC = PF_UNSPEC;
+pub const AF_LOCAL = PF_LOCAL;
+pub const AF_UNIX = AF_LOCAL;
+pub const AF_FILE = AF_LOCAL;
+pub const AF_INET = PF_INET;
+pub const AF_AX25 = PF_AX25;
+pub const AF_IPX = PF_IPX;
+pub const AF_APPLETALK = PF_APPLETALK;
+pub const AF_NETROM = PF_NETROM;
+pub const AF_BRIDGE = PF_BRIDGE;
+pub const AF_ATMPVC = PF_ATMPVC;
+pub const AF_X25 = PF_X25;
+pub const AF_INET6 = PF_INET6;
+pub const AF_ROSE = PF_ROSE;
+pub const AF_DECnet = PF_DECnet;
+pub const AF_NETBEUI = PF_NETBEUI;
+pub const AF_SECURITY = PF_SECURITY;
+pub const AF_KEY = PF_KEY;
+pub const AF_NETLINK = PF_NETLINK;
+pub const AF_ROUTE = PF_ROUTE;
+pub const AF_PACKET = PF_PACKET;
+pub const AF_ASH = PF_ASH;
+pub const AF_ECONET = PF_ECONET;
+pub const AF_ATMSVC = PF_ATMSVC;
+pub const AF_RDS = PF_RDS;
+pub const AF_SNA = PF_SNA;
+pub const AF_IRDA = PF_IRDA;
+pub const AF_PPPOX = PF_PPPOX;
+pub const AF_WANPIPE = PF_WANPIPE;
+pub const AF_LLC = PF_LLC;
+pub const AF_IB = PF_IB;
+pub const AF_MPLS = PF_MPLS;
+pub const AF_CAN = PF_CAN;
+pub const AF_TIPC = PF_TIPC;
+pub const AF_BLUETOOTH = PF_BLUETOOTH;
+pub const AF_IUCV = PF_IUCV;
+pub const AF_RXRPC = PF_RXRPC;
+pub const AF_ISDN = PF_ISDN;
+pub const AF_PHONET = PF_PHONET;
+pub const AF_IEEE802154 = PF_IEEE802154;
+pub const AF_CAIF = PF_CAIF;
+pub const AF_ALG = PF_ALG;
+pub const AF_NFC = PF_NFC;
+pub const AF_VSOCK = PF_VSOCK;
+pub const AF_MAX = PF_MAX;
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn get_errno(r: isize) -> isize {
@@ -185,10 +314,35 @@ fn restore_signals(set: &sigset_t) {
 
 pub type sa_family_t = u16;
 pub type socklen_t = u32;
+pub type in_addr_t = u32;
+
+export struct in_addr {
+    s_addr: in_addr_t,
+}
 
 export struct sockaddr {
-    sa_family: sa_family_t,
-    sa_data: [14]u8,
+    family: sa_family_t,
+    port: u16,
+    data: [12]u8,
+}
+
+export struct sockaddr_in {
+    family: sa_family_t,
+    port: u16,
+    addr: in_addr,
+    zero: [8]u8,
+}
+
+export struct sockaddr_in6 {
+    family: sa_family_t,
+    port: u16,
+    flowinfo: u32,
+    addr: in6_addr,
+    scope_id: u32,
+}
+
+export struct in6_addr {
+    addr: [16]u8,
 }
 
 export struct iovec {
