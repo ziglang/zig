@@ -3,6 +3,7 @@ const arch = switch (@compile_var("arch")) {
     i386 => @import("linux_i386.zig"),
     else => unreachable{},
 };
+const errno = @import("errno.zig");
 
 pub const MMAP_PROT_NONE =  0;
 pub const MMAP_PROT_READ =  1;
@@ -78,6 +79,22 @@ pub const O_NDELAY = arch.O_NDELAY;
 const SIG_BLOCK   = 0;
 const SIG_UNBLOCK = 1;
 const SIG_SETMASK = 2;
+
+const SOCK_STREAM = 1;
+const SOCK_DGRAM = 2;
+const SOCK_RAW = 3;
+pub const SOCK_RDM = 4;
+pub const SOCK_SEQPACKET = 5;
+pub const SOCK_DCCP = 6;
+pub const SOCK_PACKET = 10;
+pub const SOCK_CLOEXEC = 0o2000000;
+pub const SOCK_NONBLOCK = 0o4000;
+
+
+/// Get the errno from a syscall return value, or 0 for no error.
+pub fn get_errno(r: isize) -> isize {
+    if (r > -4096) -r else 0
+}
 
 pub fn mmap(address: ?&u8, length: isize, prot: isize, flags: isize, fd: isize, offset: isize) -> isize {
     // TODO ability to cast maybe pointer to isize
@@ -163,4 +180,84 @@ fn block_app_signals(set: &sigset_t) {
 
 fn restore_signals(set: &sigset_t) {
     arch.syscall4(arch.SYS_rt_sigprocmask, SIG_SETMASK, isize(set), 0, NSIG/8);
+}
+
+
+pub type sa_family_t = u16;
+pub type socklen_t = u32;
+
+export struct sockaddr {
+    sa_family: sa_family_t,
+    sa_data: [14]u8,
+}
+
+export struct iovec {
+    iov_base: &u8,
+    iov_len: usize,
+}
+
+pub fn getsockname(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> isize {
+    arch.syscall3(arch.SYS_getsockname, fd, isize(addr), isize(len))
+}
+
+pub fn getpeername(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> isize {
+    arch.syscall3(arch.SYS_getpeername, fd, isize(addr), isize(len))
+}
+
+pub fn socket(domain: i32, socket_type: i32, protocol: i32) -> isize {
+    arch.syscall3(arch.SYS_socket, domain, socket_type, protocol)
+}
+
+pub fn setsockopt(fd: i32, level: i32, optname: i32, optval: &const u8, optlen: socklen_t) -> isize {
+    arch.syscall5(arch.SYS_setsockopt, fd, level, optname, isize(optval), isize(optlen))
+}
+
+pub fn getsockopt(fd: i32, level: i32, optname: i32, noalias optval: &u8, noalias optlen: &socklen_t) -> isize {
+    arch.syscall5(arch.SYS_getsockopt, fd, level, optname, isize(optval), isize(optlen))
+}
+
+pub fn sendmsg(fd: i32, msg: &const arch.msghdr, flags: i32) -> isize {
+    arch.syscall3(arch.SYS_sendmsg, fd, isize(msg), flags)
+}
+
+pub fn connect(fd: i32, addr: &const sockaddr, len: socklen_t) -> isize {
+    arch.syscall3(arch.SYS_connect, fd, isize(addr), isize(len))
+}
+
+pub fn accept(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> isize {
+    arch.syscall3(arch.SYS_accept, fd, isize(addr), isize(len))
+}
+
+pub fn recvmsg(fd: i32, msg: &arch.msghdr, flags: i32) -> isize {
+    arch.syscall3(arch.SYS_recvmsg, fd, isize(msg), flags)
+}
+
+pub fn recvfrom(fd: i32, noalias buf: &u8, len: isize, flags: i32,
+    noalias addr: &sockaddr, noalias alen: &socklen_t) -> isize
+{
+    arch.syscall6(arch.SYS_recvfrom, fd, isize(buf), len, flags, isize(addr), isize(alen))
+}
+
+pub fn shutdown(fd: i32, how: i32) -> isize {
+    arch.syscall2(arch.SYS_shutdown, fd, how)
+}
+
+pub fn bind(fd: i32, addr: &const sockaddr, len: socklen_t) {
+    arch.syscall3(arch.SYS_bind, fd, isize(addr), isize(len));
+}
+
+pub fn listen(fd: i32, backlog: i32) -> isize {
+    arch.syscall2(arch.SYS_listen, fd, backlog)
+}
+
+pub fn sendto(fd: i32, buf: &const u8, len: isize, flags: i32, addr: &const sockaddr, alen: socklen_t) -> isize {
+    arch.syscall6(arch.SYS_sendto, fd, isize(buf), len, flags, isize(addr), isize(alen))
+}
+
+pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) -> isize {
+    arch.syscall4(arch.SYS_socketpair, domain, socket_type, protocol, isize(&fd[0]))
+}
+
+pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags: i32) -> isize {
+    arch.syscall4(arch.SYS_accept4, fd, isize(addr), isize(len), flags)
 }

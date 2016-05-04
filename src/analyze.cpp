@@ -1728,25 +1728,28 @@ static void add_global_const_expr(CodeGen *g, AstNode *expr_node) {
 }
 
 static bool num_lit_fits_in_other_type(CodeGen *g, AstNode *literal_node, TypeTableEntry *other_type) {
-    if (other_type->id == TypeTableEntryIdInvalid) {
+    TypeTableEntry *other_type_underlying = get_underlying_type(other_type);
+
+    if (other_type_underlying->id == TypeTableEntryIdInvalid) {
         return false;
     }
+
     Expr *expr = get_resolved_expr(literal_node);
     ConstExprValue *const_val = &expr->const_val;
     assert(const_val->ok);
-    if (other_type->id == TypeTableEntryIdFloat) {
+    if (other_type_underlying->id == TypeTableEntryIdFloat) {
         return true;
-    } else if (other_type->id == TypeTableEntryIdInt &&
+    } else if (other_type_underlying->id == TypeTableEntryIdInt &&
                const_val->data.x_bignum.kind == BigNumKindInt)
     {
-        if (bignum_fits_in_bits(&const_val->data.x_bignum, other_type->data.integral.bit_count,
-                    other_type->data.integral.is_signed))
+        if (bignum_fits_in_bits(&const_val->data.x_bignum, other_type_underlying->data.integral.bit_count,
+                    other_type_underlying->data.integral.is_signed))
         {
             return true;
         }
-    } else if ((other_type->id == TypeTableEntryIdNumLitFloat &&
+    } else if ((other_type_underlying->id == TypeTableEntryIdNumLitFloat &&
                 const_val->data.x_bignum.kind == BigNumKindFloat) ||
-               (other_type->id == TypeTableEntryIdNumLitInt &&
+               (other_type_underlying->id == TypeTableEntryIdNumLitInt &&
                 const_val->data.x_bignum.kind == BigNumKindInt))
     {
         return true;
@@ -4032,9 +4035,11 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     AstNode *expr_node = node->data.fn_call_expr.params.at(0);
     TypeTableEntry *wanted_type = resolve_type(g, fn_ref_expr);
     TypeTableEntry *actual_type = analyze_expression(g, import, context, nullptr, expr_node);
+    TypeTableEntry *wanted_type_canon = get_underlying_type(wanted_type);
+    TypeTableEntry *actual_type_canon = get_underlying_type(actual_type);
 
-    if (wanted_type->id == TypeTableEntryIdInvalid ||
-        actual_type->id == TypeTableEntryIdInvalid)
+    if (wanted_type_canon->id == TypeTableEntryIdInvalid ||
+        actual_type_canon->id == TypeTableEntryIdInvalid)
     {
         return g->builtin_types.entry_invalid;
     }
@@ -4045,46 +4050,46 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     }
 
     // explicit cast from bool to int
-    if (wanted_type->id == TypeTableEntryIdInt &&
-        actual_type->id == TypeTableEntryIdBool)
+    if (wanted_type_canon->id == TypeTableEntryIdInt &&
+        actual_type_canon->id == TypeTableEntryIdBool)
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpBoolToInt, false);
     }
 
     // explicit cast from pointer to isize or usize
-    if ((wanted_type == g->builtin_types.entry_isize || wanted_type == g->builtin_types.entry_usize) &&
-        actual_type->id == TypeTableEntryIdPointer)
+    if ((wanted_type_canon == g->builtin_types.entry_isize || wanted_type_canon == g->builtin_types.entry_usize) &&
+        actual_type_canon->id == TypeTableEntryIdPointer)
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPtrToInt, false);
     }
 
 
     // explicit cast from isize or usize to pointer
-    if (wanted_type->id == TypeTableEntryIdPointer &&
-        (actual_type == g->builtin_types.entry_isize || actual_type == g->builtin_types.entry_usize))
+    if (wanted_type_canon->id == TypeTableEntryIdPointer &&
+        (actual_type_canon == g->builtin_types.entry_isize || actual_type_canon == g->builtin_types.entry_usize))
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpIntToPtr, false);
     }
 
     // explicit widening or shortening cast
-    if ((wanted_type->id == TypeTableEntryIdInt &&
-        actual_type->id == TypeTableEntryIdInt) ||
-        (wanted_type->id == TypeTableEntryIdFloat &&
-        actual_type->id == TypeTableEntryIdFloat))
+    if ((wanted_type_canon->id == TypeTableEntryIdInt &&
+        actual_type_canon->id == TypeTableEntryIdInt) ||
+        (wanted_type_canon->id == TypeTableEntryIdFloat &&
+        actual_type_canon->id == TypeTableEntryIdFloat))
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpWidenOrShorten, false);
     }
 
     // explicit cast from int to float
-    if (wanted_type->id == TypeTableEntryIdFloat &&
-        actual_type->id == TypeTableEntryIdInt)
+    if (wanted_type_canon->id == TypeTableEntryIdFloat &&
+        actual_type_canon->id == TypeTableEntryIdInt)
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpIntToFloat, false);
     }
 
     // explicit cast from float to int
-    if (wanted_type->id == TypeTableEntryIdInt &&
-        actual_type->id == TypeTableEntryIdFloat)
+    if (wanted_type_canon->id == TypeTableEntryIdInt &&
+        actual_type_canon->id == TypeTableEntryIdFloat)
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpFloatToInt, false);
     }
@@ -4164,17 +4169,17 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     if (actual_type->id == TypeTableEntryIdNumLitFloat ||
         actual_type->id == TypeTableEntryIdNumLitInt)
     {
-        if (num_lit_fits_in_other_type(g, expr_node, wanted_type)) {
+        if (num_lit_fits_in_other_type(g, expr_node, wanted_type_canon)) {
             CastOp op;
             if ((actual_type->id == TypeTableEntryIdNumLitFloat &&
-                 wanted_type->id == TypeTableEntryIdFloat) ||
+                 wanted_type_canon->id == TypeTableEntryIdFloat) ||
                 (actual_type->id == TypeTableEntryIdNumLitInt &&
-                 wanted_type->id == TypeTableEntryIdInt))
+                 wanted_type_canon->id == TypeTableEntryIdInt))
             {
                 op = CastOpNoop;
-            } else if (wanted_type->id == TypeTableEntryIdInt) {
+            } else if (wanted_type_canon->id == TypeTableEntryIdInt) {
                 op = CastOpFloatToInt;
-            } else if (wanted_type->id == TypeTableEntryIdFloat) {
+            } else if (wanted_type_canon->id == TypeTableEntryIdFloat) {
                 op = CastOpIntToFloat;
             } else {
                 zig_unreachable();

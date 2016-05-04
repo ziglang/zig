@@ -594,10 +594,14 @@ static LLVMValueRef gen_enum_value_expr(CodeGen *g, AstNode *node, TypeTableEntr
     }
 }
 
-static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeTableEntry *actual_type,
-        TypeTableEntry *wanted_type, LLVMValueRef expr_val)
+static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeTableEntry *actual_type_non_canon,
+        TypeTableEntry *wanted_type_non_canon, LLVMValueRef expr_val)
 {
+    TypeTableEntry *actual_type = get_underlying_type(actual_type_non_canon);
+    TypeTableEntry *wanted_type = get_underlying_type(wanted_type_non_canon);
+
     assert(actual_type->id == wanted_type->id);
+
     uint64_t actual_bits;
     uint64_t wanted_bits;
     if (actual_type->id == TypeTableEntryIdFloat) {
