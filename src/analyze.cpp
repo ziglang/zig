@@ -4414,6 +4414,77 @@ static TypeTableEntry *analyze_embed_file(CodeGen *g, ImportTableEntry *import,
     return resolve_expr_const_val_as_string_lit(g, node, &file_contents);
 }
 
+static TypeTableEntry *analyze_cmpxchg(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    AstNode **ptr_arg = &node->data.fn_call_expr.params.at(0);
+    AstNode **cmp_arg = &node->data.fn_call_expr.params.at(1);
+    AstNode **new_arg = &node->data.fn_call_expr.params.at(2);
+    AstNode **success_order_arg = &node->data.fn_call_expr.params.at(3);
+    AstNode **failure_order_arg = &node->data.fn_call_expr.params.at(4);
+
+    TypeTableEntry *ptr_type = analyze_expression(g, import, context, nullptr, *ptr_arg);
+    if (ptr_type->id == TypeTableEntryIdInvalid) {
+        return g->builtin_types.entry_invalid;
+    } else if (ptr_type->id != TypeTableEntryIdPointer) {
+        add_node_error(g, *ptr_arg,
+            buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&ptr_type->name)));
+        return g->builtin_types.entry_invalid;
+    }
+
+    TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
+    TypeTableEntry *cmp_type = analyze_expression(g, import, context, child_type, *cmp_arg);
+    TypeTableEntry *new_type = analyze_expression(g, import, context, child_type, *new_arg);
+
+    TypeTableEntry *success_order_type = analyze_expression(g, import, context,
+            g->builtin_types.entry_mem_order_enum, *success_order_arg);
+    TypeTableEntry *failure_order_type = analyze_expression(g, import, context,
+            g->builtin_types.entry_mem_order_enum, *failure_order_arg);
+
+    if (cmp_type->id == TypeTableEntryIdInvalid ||
+        new_type->id == TypeTableEntryIdInvalid ||
+        success_order_type->id == TypeTableEntryIdInvalid ||
+        failure_order_type->id == TypeTableEntryIdInvalid)
+    {
+        return g->builtin_types.entry_invalid;
+    }
+
+    ConstExprValue *success_order_val = &get_resolved_expr(*success_order_arg)->const_val;
+    ConstExprValue *failure_order_val = &get_resolved_expr(*failure_order_arg)->const_val;
+    if (!success_order_val->ok) {
+        add_node_error(g, *success_order_arg, buf_sprintf("unable to evaluate constant expression"));
+        return g->builtin_types.entry_invalid;
+    } else if (!failure_order_val->ok) {
+        add_node_error(g, *failure_order_arg, buf_sprintf("unable to evaluate constant expression"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (success_order_val->data.x_enum.tag < AtomicOrderMonotonic) {
+        add_node_error(g, *success_order_arg,
+                buf_sprintf("success atomic ordering must be Monotonic or stricter"));
+        return g->builtin_types.entry_invalid;
+    }
+    if (failure_order_val->data.x_enum.tag < AtomicOrderMonotonic) {
+        add_node_error(g, *failure_order_arg,
+                buf_sprintf("failure atomic ordering must be Monotonic or stricter"));
+        return g->builtin_types.entry_invalid;
+    }
+    if (failure_order_val->data.x_enum.tag > success_order_val->data.x_enum.tag) {
+        add_node_error(g, *failure_order_arg,
+                buf_sprintf("failure atomic ordering must be no stricter than success"));
+        return g->builtin_types.entry_invalid;
+    }
+    if (failure_order_val->data.x_enum.tag == AtomicOrderRelease ||
+        failure_order_val->data.x_enum.tag == AtomicOrderAcqRel)
+    {
+        add_node_error(g, *failure_order_arg,
+                buf_sprintf("failure atomic ordering must not be Release or AcqRel"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    return g->builtin_types.entry_bool;
+}
+
 static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -4750,6 +4821,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             return g->builtin_types.entry_void;
         case BuiltinFnIdEmbedFile:
             return analyze_embed_file(g, import, context, node);
+        case BuiltinFnIdCmpExchange:
+            return analyze_cmpxchg(g, import, context, node);
     }
     zig_unreachable();
 }

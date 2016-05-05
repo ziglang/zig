@@ -39,6 +39,11 @@ void LLVMZigOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef 
 LLVMValueRef LLVMZigBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, unsigned CC, const char *Name);
 
+LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
+        LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
+        LLVMAtomicOrdering failure_ordering,
+        const char *name);
+
 // 0 is return value, 1 is first arg
 void LLVMZigAddNonNullAttr(LLVMValueRef fn, unsigned i);
 

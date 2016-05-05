@@ -401,6 +401,46 @@ static LLVMValueRef gen_err_name(CodeGen *g, AstNode *node) {
     return LLVMBuildInBoundsGEP(g->builder, g->err_name_table, indices, 2, "");
 }
 
+static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
+    switch (atomic_order) {
+        case AtomicOrderUnordered: return LLVMAtomicOrderingUnordered;
+        case AtomicOrderMonotonic: return LLVMAtomicOrderingMonotonic;
+        case AtomicOrderAcquire: return LLVMAtomicOrderingAcquire;
+        case AtomicOrderRelease: return LLVMAtomicOrderingRelease;
+        case AtomicOrderAcqRel: return LLVMAtomicOrderingAcquireRelease;
+        case AtomicOrderSeqCst: return LLVMAtomicOrderingSequentiallyConsistent;
+    }
+    zig_unreachable();
+}
+
+static LLVMValueRef gen_cmp_exchange(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode *ptr_arg = node->data.fn_call_expr.params.at(0);
+    AstNode *cmp_arg = node->data.fn_call_expr.params.at(1);
+    AstNode *new_arg = node->data.fn_call_expr.params.at(2);
+    AstNode *success_order_arg = node->data.fn_call_expr.params.at(3);
+    AstNode *failure_order_arg = node->data.fn_call_expr.params.at(4);
+
+    LLVMValueRef ptr_val = gen_expr(g, ptr_arg);
+    LLVMValueRef cmp_val = gen_expr(g, cmp_arg);
+    LLVMValueRef new_val = gen_expr(g, new_arg);
+
+    ConstExprValue *success_order_val = &get_resolved_expr(success_order_arg)->const_val;
+    ConstExprValue *failure_order_val = &get_resolved_expr(failure_order_arg)->const_val;
+
+    assert(success_order_val->ok);
+    assert(failure_order_val->ok);
+
+    LLVMAtomicOrdering success_order = to_LLVMAtomicOrdering((AtomicOrder)success_order_val->data.x_enum.tag);
+    LLVMAtomicOrdering failure_order = to_LLVMAtomicOrdering((AtomicOrder)failure_order_val->data.x_enum.tag);
+
+    LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
+            success_order, failure_order, "");
+
+    return LLVMBuildExtractValue(g->builder, result_val, 1, "");
+}
+
 static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
     AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
@@ -546,6 +586,8 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdBreakpoint:
             set_debug_source_node(g, node);
             return LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
+        case BuiltinFnIdCmpExchange:
+            return gen_cmp_exchange(g, node);
     }
     zig_unreachable();
 }
@@ -4052,6 +4094,7 @@ static void define_builtin_types(CodeGen *g) {
             ZigLLVM_EnvironmentType environ_type = get_target_environ(i);
             type_enum_field->name = buf_create_from_str(ZigLLVMGetEnvironmentTypeName(environ_type));
             type_enum_field->value = i;
+            type_enum_field->type_entry = g->builtin_types.entry_void;
 
             if (environ_type == g->zig_target.env_type) {
                 g->target_environ_index = i;
@@ -4063,6 +4106,41 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.enumeration.tag_type = tag_type_entry;
 
         g->builtin_types.entry_environ_enum = entry;
+    }
+
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
+        entry->deep_const = true;
+        buf_init_from_str(&entry->name, "AtomicOrder");
+        uint32_t field_count = 6;
+        entry->data.enumeration.field_count = field_count;
+        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+        entry->data.enumeration.fields[0].name = buf_create_from_str("Unordered");
+        entry->data.enumeration.fields[0].value = AtomicOrderUnordered;
+        entry->data.enumeration.fields[0].type_entry = g->builtin_types.entry_void;
+        entry->data.enumeration.fields[1].name = buf_create_from_str("Monotonic");
+        entry->data.enumeration.fields[1].value = AtomicOrderMonotonic;
+        entry->data.enumeration.fields[1].type_entry = g->builtin_types.entry_void;
+        entry->data.enumeration.fields[2].name = buf_create_from_str("Acquire");
+        entry->data.enumeration.fields[2].value = AtomicOrderAcquire;
+        entry->data.enumeration.fields[2].type_entry = g->builtin_types.entry_void;
+        entry->data.enumeration.fields[3].name = buf_create_from_str("Release");
+        entry->data.enumeration.fields[3].value = AtomicOrderRelease;
+        entry->data.enumeration.fields[3].type_entry = g->builtin_types.entry_void;
+        entry->data.enumeration.fields[4].name = buf_create_from_str("AcqRel");
+        entry->data.enumeration.fields[4].value = AtomicOrderAcqRel;
+        entry->data.enumeration.fields[4].type_entry = g->builtin_types.entry_void;
+        entry->data.enumeration.fields[5].name = buf_create_from_str("SeqCst");
+        entry->data.enumeration.fields[5].value = AtomicOrderSeqCst;
+        entry->data.enumeration.fields[5].type_entry = g->builtin_types.entry_void;
+
+        entry->data.enumeration.complete = true;
+
+        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
+        entry->data.enumeration.tag_type = tag_type_entry;
+
+        g->builtin_types.entry_mem_order_enum = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
 }
 
@@ -4162,6 +4240,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCImport, "c_import", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdErrName, "err_name", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdEmbedFile, "embed_file", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCmpExchange, "cmpxchg", 5);
+    //create_builtin_fn_with_arg_count(g, BuiltinFnIdAtomicRmw, "atomicrmw", 1);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

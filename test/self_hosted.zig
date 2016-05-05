@@ -1442,3 +1442,10 @@ fn assign_to_if_var_ptr() {
 
     assert(??maybe_bool == false);
 }
+
+#attribute("test")
+fn cmpxchg() {
+    var x: i32 = 1234;
+    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
+    assert(x == 5678);
+}

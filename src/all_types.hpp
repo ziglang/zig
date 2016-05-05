@@ -1115,6 +1115,7 @@ enum BuiltinFnId {
     BuiltinFnIdErrName,
     BuiltinFnIdBreakpoint,
     BuiltinFnIdEmbedFile,
+    BuiltinFnIdCmpExchange,
 };
 
 struct BuiltinFnEntry {
@@ -1183,6 +1184,7 @@ struct CodeGen {
         TypeTableEntry *entry_os_enum;
         TypeTableEntry *entry_arch_enum;
         TypeTableEntry *entry_environ_enum;
+        TypeTableEntry *entry_mem_order_enum;
     } builtin_types;
 
     ZigTarget zig_target;
@@ -1322,6 +1324,14 @@ struct BlockContext {
     bool safety_off;
 };
 
+enum AtomicOrder {
+    AtomicOrderUnordered,
+    AtomicOrderMonotonic,
+    AtomicOrderAcquire,
+    AtomicOrderRelease,
+    AtomicOrderAcqRel,
+    AtomicOrderSeqCst,
+};
 
 
 #endif

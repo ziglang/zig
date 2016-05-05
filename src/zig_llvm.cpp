@@ -645,6 +645,31 @@ unsigned ZigLLVMGetPrefTypeAlignment(LLVMTargetDataRef TD, LLVMTypeRef Ty) {
     return unwrap(TD)->getPrefTypeAlignment(unwrap(Ty));
 }
 
+
+static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
+    switch (Ordering) {
+        case LLVMAtomicOrderingNotAtomic: return NotAtomic;
+        case LLVMAtomicOrderingUnordered: return Unordered;
+        case LLVMAtomicOrderingMonotonic: return Monotonic;
+        case LLVMAtomicOrderingAcquire: return Acquire;
+        case LLVMAtomicOrderingRelease: return Release;
+        case LLVMAtomicOrderingAcquireRelease: return AcquireRelease;
+        case LLVMAtomicOrderingSequentiallyConsistent: return SequentiallyConsistent;
+    }
+    abort();
+}
+
+LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
+        LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
+        LLVMAtomicOrdering failure_ordering,
+        const char *name)
+{
+    return wrap(unwrap(builder)->CreateAtomicCmpXchg(unwrap(ptr), unwrap(cmp), unwrap(new_val),
+                mapFromLLVMOrdering(success_ordering), mapFromLLVMOrdering(failure_ordering),
+                CrossThread));
+}
+
+
 //------------------------------------
 
 #include "buffer.hpp"

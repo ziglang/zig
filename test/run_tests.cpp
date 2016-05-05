@@ -1295,7 +1295,19 @@ fn foo() {
 #static_eval_enable(false)
 fn bar() -> i32 { 2 }
     )SOURCE", 1, ".tmp_source.zig:3:15: error: unable to infer expression type");
+
+    add_compile_fail_case("atomic orderings of cmpxchg", R"SOURCE(
+fn f() {
+    var x: i32 = 1234;
+    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Monotonic, AtomicOrder.SeqCst)) {}
+    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Unordered, AtomicOrder.Unordered)) {}
 }
+    )SOURCE", 2,
+            ".tmp_source.zig:4:72: error: failure atomic ordering must be no stricter than success",
+            ".tmp_source.zig:5:49: error: success atomic ordering must be Monotonic or stricter");
+}
+
+//////////////////////////////////////////////////////////////////////////////
 
 static void add_debug_safety_test_cases(void) {
     add_debug_safety_case("out of bounds slice access", R"SOURCE(
