@@ -441,6 +441,20 @@ static LLVMValueRef gen_cmp_exchange(CodeGen *g, AstNode *node) {
     return LLVMBuildExtractValue(g->builder, result_val, 1, "");
 }
 
+static LLVMValueRef gen_fence(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode *atomic_order_arg = node->data.fn_call_expr.params.at(0);
+    ConstExprValue *atomic_order_val = &get_resolved_expr(atomic_order_arg)->const_val;
+
+    assert(atomic_order_val->ok);
+
+    LLVMAtomicOrdering atomic_order = to_LLVMAtomicOrdering((AtomicOrder)atomic_order_val->data.x_enum.tag);
+
+    LLVMBuildFence(g->builder, atomic_order, false, "");
+    return nullptr;
+}
+
 static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
     AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
@@ -588,6 +602,8 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
             return LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
         case BuiltinFnIdCmpExchange:
             return gen_cmp_exchange(g, node);
+        case BuiltinFnIdFence:
+            return gen_fence(g, node);
     }
     zig_unreachable();
 }
@@ -4139,7 +4155,7 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
         entry->data.enumeration.tag_type = tag_type_entry;
 
-        g->builtin_types.entry_mem_order_enum = entry;
+        g->builtin_types.entry_atomic_order_enum = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
 }
@@ -4241,7 +4257,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdErrName, "err_name", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdEmbedFile, "embed_file", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCmpExchange, "cmpxchg", 5);
-    //create_builtin_fn_with_arg_count(g, BuiltinFnIdAtomicRmw, "atomicrmw", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdFence, "fence", 1);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

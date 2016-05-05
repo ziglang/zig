@@ -4417,6 +4417,8 @@ static TypeTableEntry *analyze_embed_file(CodeGen *g, ImportTableEntry *import,
 static TypeTableEntry *analyze_cmpxchg(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, AstNode *node)
 {
+    assert(node->type == NodeTypeFnCallExpr);
+
     AstNode **ptr_arg = &node->data.fn_call_expr.params.at(0);
     AstNode **cmp_arg = &node->data.fn_call_expr.params.at(1);
     AstNode **new_arg = &node->data.fn_call_expr.params.at(2);
@@ -4437,9 +4439,9 @@ static TypeTableEntry *analyze_cmpxchg(CodeGen *g, ImportTableEntry *import,
     TypeTableEntry *new_type = analyze_expression(g, import, context, child_type, *new_arg);
 
     TypeTableEntry *success_order_type = analyze_expression(g, import, context,
-            g->builtin_types.entry_mem_order_enum, *success_order_arg);
+            g->builtin_types.entry_atomic_order_enum, *success_order_arg);
     TypeTableEntry *failure_order_type = analyze_expression(g, import, context,
-            g->builtin_types.entry_mem_order_enum, *failure_order_arg);
+            g->builtin_types.entry_atomic_order_enum, *failure_order_arg);
 
     if (cmp_type->id == TypeTableEntryIdInvalid ||
         new_type->id == TypeTableEntryIdInvalid ||
@@ -4483,6 +4485,29 @@ static TypeTableEntry *analyze_cmpxchg(CodeGen *g, ImportTableEntry *import,
     }
 
     return g->builtin_types.entry_bool;
+}
+
+static TypeTableEntry *analyze_fence(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode **atomic_order_arg = &node->data.fn_call_expr.params.at(0);
+    TypeTableEntry *atomic_order_type = analyze_expression(g, import, context,
+            g->builtin_types.entry_atomic_order_enum, *atomic_order_arg);
+
+    if (atomic_order_type->id == TypeTableEntryIdInvalid) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    ConstExprValue *atomic_order_val = &get_resolved_expr(*atomic_order_arg)->const_val;
+
+    if (!atomic_order_val->ok) {
+        add_node_error(g, *atomic_order_arg, buf_sprintf("unable to evaluate constant expression"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    return g->builtin_types.entry_void;
 }
 
 static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -4823,6 +4848,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             return analyze_embed_file(g, import, context, node);
         case BuiltinFnIdCmpExchange:
             return analyze_cmpxchg(g, import, context, node);
+        case BuiltinFnIdFence:
+            return analyze_fence(g, import, context, node);
     }
     zig_unreachable();
 }

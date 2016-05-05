@@ -1116,6 +1116,7 @@ enum BuiltinFnId {
     BuiltinFnIdBreakpoint,
     BuiltinFnIdEmbedFile,
     BuiltinFnIdCmpExchange,
+    BuiltinFnIdFence,
 };
 
 struct BuiltinFnEntry {
@@ -1184,7 +1185,7 @@ struct CodeGen {
         TypeTableEntry *entry_os_enum;
         TypeTableEntry *entry_arch_enum;
         TypeTableEntry *entry_environ_enum;
-        TypeTableEntry *entry_mem_order_enum;
+        TypeTableEntry *entry_atomic_order_enum;
     } builtin_types;
 
     ZigTarget zig_target;

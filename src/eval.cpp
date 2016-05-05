@@ -687,6 +687,8 @@ static bool eval_fn_call_builtin(EvalFn *ef, AstNode *node, ConstExprValue *out_
             return eval_fn_with_overflow(ef, node, out_val, bignum_add);
         case BuiltinFnIdSubWithOverflow:
             return eval_fn_with_overflow(ef, node, out_val, bignum_sub);
+        case BuiltinFnIdFence:
+            return false;
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdSizeof:
