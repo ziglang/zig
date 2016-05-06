@@ -846,8 +846,9 @@ struct TypeTableEntryPointer {
 };
 
 struct TypeTableEntryInt {
-    bool is_signed;
     int bit_count;
+    bool is_signed;
+    bool is_wrapping;
 };
 
 struct TypeTableEntryFloat {
@@ -1157,7 +1158,7 @@ struct CodeGen {
 
     struct {
         TypeTableEntry *entry_bool;
-        TypeTableEntry *entry_int[2][4]; // [signed,unsigned][8,16,32,64]
+        TypeTableEntry *entry_int[2][2][4]; // [signed,unsigned][wrapping,nonwrapping][8,16,32,64]
         TypeTableEntry *entry_c_int[CIntTypeCount];
         TypeTableEntry *entry_c_long_double;
         TypeTableEntry *entry_c_void;

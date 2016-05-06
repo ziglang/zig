@@ -206,7 +206,7 @@ static bool type_is_complete(TypeTableEntry *type_entry) {
 }
 
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
-    return get_int_type(g, false, bits_needed_for_unsigned(x));
+    return get_int_type(g, false, false, bits_needed_for_unsigned(x));
 }
 
 static TypeTableEntry *get_generic_fn_type(CodeGen *g, AstNode *decl_node) {
@@ -6453,7 +6453,7 @@ bool is_node_void_expr(AstNode *node) {
     return false;
 }
 
-TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, int size_in_bits) {
+TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, bool is_wrapping, int size_in_bits) {
     int index;
     if (size_in_bits == 8) {
         index = 0;
@@ -6466,11 +6466,11 @@ TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, int size_in_bits) 
     } else {
         zig_unreachable();
     }
-    return &g->builtin_types.entry_int[is_signed ? 0 : 1][index];
+    return &g->builtin_types.entry_int[is_signed ? 0 : 1][is_wrapping ? 0 : 1][index];
 }
 
-TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, int size_in_bits) {
-    return *get_int_type_ptr(g, is_signed, size_in_bits);
+TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, bool is_wrapping, int size_in_bits) {
+    return *get_int_type_ptr(g, is_signed, is_wrapping, size_in_bits);
 }
 
 TypeTableEntry **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type) {

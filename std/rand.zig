@@ -13,11 +13,10 @@ pub struct Rand {
         r.index = 0;
         r.array[0] = seed;
         var i : isize = 1;
-        var prev_value: u64 = seed;
-        while (i < ARRAY_SIZE) {
-            r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + u32(i));
+        var prev_value: u64w = seed;
+        while (i < ARRAY_SIZE; i += 1) {
+            r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + u64w(i));
             prev_value = r.array[i];
-            i += 1;
         }
         return r;
     }
