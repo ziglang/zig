@@ -440,7 +440,7 @@ static LLVMValueRef gen_cmp_exchange(CodeGen *g, AstNode *node) {
     LLVMAtomicOrdering failure_order = to_LLVMAtomicOrdering((AtomicOrder)failure_order_val->data.x_enum.tag);
 
     LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
-            success_order, failure_order, "");
+            success_order, failure_order);
 
     return LLVMBuildExtractValue(g->builder, result_val, 1, "");
 }
@@ -1309,6 +1309,36 @@ static LLVMValueRef gen_overflow_op(CodeGen *g, TypeTableEntry *type_entry, AddS
     return result;
 }
 
+static LLVMValueRef gen_overflow_shl_op(CodeGen *g, TypeTableEntry *type_entry,
+        LLVMValueRef val1, LLVMValueRef val2)
+{
+    // for unsigned left shifting, we do the wrapping shift, then logically shift
+    // right the same number of bits
+    // if the values don't match, we have an overflow
+    // for signed left shifting we do the same except arithmetic shift right
+
+    assert(type_entry->id == TypeTableEntryIdInt);
+
+    LLVMValueRef result = LLVMBuildShl(g->builder, val1, val2, "");
+    LLVMValueRef orig_val;
+    if (type_entry->data.integral.is_signed) {
+        orig_val = LLVMBuildAShr(g->builder, result, val2, "");
+    } else {
+        orig_val = LLVMBuildLShr(g->builder, result, val2, "");
+    }
+    LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val1, orig_val, "");
+
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "OverflowOk");
+    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "OverflowFail");
+    LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, fail_block);
+    gen_debug_safety_crash(g);
+
+    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    return result;
+}
+
 static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypePrefixOpExpr);
     assert(node->data.prefix_op_expr.primary_expr);
@@ -1484,7 +1514,16 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
         case BinOpTypeBitShiftLeft:
         case BinOpTypeAssignBitShiftLeft:
             set_debug_source_node(g, source_node);
-            return LLVMBuildShl(g->builder, val1, val2, "");
+            assert(op1_type->id == TypeTableEntryIdInt);
+            if (op1_type->data.integral.is_wrapping) {
+                return LLVMBuildShl(g->builder, val1, val2, "");
+            } else if (want_debug_safety(g, source_node)) {
+                return gen_overflow_shl_op(g, op1_type, val1, val2);
+            } else if (op1_type->data.integral.is_signed) {
+                return ZigLLVMBuildNSWShl(g->builder, val1, val2, "");
+            } else {
+                return ZigLLVMBuildNUWShl(g->builder, val1, val2, "");
+            }
         case BinOpTypeBitShiftRight:
         case BinOpTypeAssignBitShiftRight:
             assert(op1_type->id == TypeTableEntryIdInt);

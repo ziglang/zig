@@ -1363,6 +1363,26 @@ fn neg(a: i16) -> i16 {
 }
     )SOURCE");
 
+    add_debug_safety_case("signed shift left overflow", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    shl(-16385, 1);
+}
+#static_eval_enable(false)
+fn shl(a: i16, b: i16) -> i16 {
+    a << b
+}
+    )SOURCE");
+
+    add_debug_safety_case("unsigned shift left overflow", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    shl(0b0010111111111111, 3);
+}
+#static_eval_enable(false)
+fn shl(a: u16, b: u16) -> u16 {
+    a << b
+}
+    )SOURCE");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
