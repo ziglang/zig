@@ -1456,3 +1456,69 @@ fn fence() {
     @fence(AtomicOrder.SeqCst);
     x = 5678;
 }
+
+#attribute("test")
+fn unsigned_wrapping() {
+    var x_u32: u32w = @max_value(u32);
+    x_u32 += 1;
+    assert(x_u32 == 0);
+    x_u32 -= 1;
+    assert(x_u32 == @max_value(u32));
+    test_unsigned_wrapping_noeval(@max_value(u32));
+}
+#static_eval_enable(false)
+fn test_unsigned_wrapping_noeval(x: u32w) {
+    var x_u32 = x;
+    x_u32 += 1;
+    assert(x_u32 == 0);
+    x_u32 -= 1;
+    assert(x_u32 == @max_value(u32));
+}
+
+#attribute("test")
+fn signed_wrapping() {
+    var x_i32: i32w = @max_value(i32);
+    x_i32 += 1;
+    assert(x_i32 == @min_value(i32));
+    x_i32 -= 1;
+    assert(x_i32 == @max_value(i32));
+    test_signed_wrapping_noeval(@max_value(i32));
+}
+#static_eval_enable(false)
+fn test_signed_wrapping_noeval(x: i32w) {
+    var x_i32 = x;
+    x_i32 += 1;
+    assert(x_i32 == @min_value(i32));
+    x_i32 -= 1;
+    assert(x_i32 == @max_value(i32));
+}
+
+#attribute("test")
+fn negation_wrapping() {
+    var x_i16 = @min_value(i16w);
+    assert(x_i16 == -32768);
+    x_i16 = -x_i16;
+    assert(x_i16 == -32768);
+    test_negation_wrapping_noeval(@min_value(i16));
+}
+#static_eval_enable(false)
+fn test_negation_wrapping_noeval(x: i16w) {
+    var x_i16 = x;
+    assert(x_i16 == -32768);
+    x_i16 = -x_i16;
+    assert(x_i16 == -32768);
+}
+
+#attribute("test")
+fn shl_wrapping() {
+    var x_u16 = @max_value(u16w);
+    x_u16 <<= 1;
+    assert(x_u16 == 65534);
+    test_shl_wrapping_noeval(@max_value(u16));
+}
+#static_eval_enable(false)
+fn test_shl_wrapping_noeval(x: u16w) {
+    var x_u16 = x;
+    x_u16 <<= 1;
+    assert(x_u16 == 65534);
+}
