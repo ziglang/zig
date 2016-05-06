@@ -1522,3 +1522,11 @@ fn test_shl_wrapping_noeval(x: u16w) {
     x_u16 <<= 1;
     assert(x_u16 == 65534);
 }
+
+#attribute("test")
+fn shl_with_overflow() {
+    var result: u16 = undefined;
+    assert(@shl_with_overflow(u16, 0b0010111111111111, 3, &result));
+    assert(!@shl_with_overflow(u16, 0b0010111111111111, 2, &result));
+    assert(result == 0b1011111111111100);
+}

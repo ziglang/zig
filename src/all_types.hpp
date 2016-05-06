@@ -1104,6 +1104,7 @@ enum BuiltinFnId {
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
     BuiltinFnIdMulWithOverflow,
+    BuiltinFnIdShlWithOverflow,
     BuiltinFnIdCInclude,
     BuiltinFnIdCDefine,
     BuiltinFnIdCUndef,

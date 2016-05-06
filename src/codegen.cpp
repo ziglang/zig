@@ -459,6 +459,34 @@ static LLVMValueRef gen_fence(CodeGen *g, AstNode *node) {
     return nullptr;
 }
 
+static LLVMValueRef gen_shl_with_overflow(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeFnCallExpr);
+
+    int fn_call_param_count = node->data.fn_call_expr.params.length;
+    assert(fn_call_param_count == 4);
+
+    TypeTableEntry *int_type = get_type_for_type_node(node->data.fn_call_expr.params.at(0));
+    assert(int_type->id == TypeTableEntryIdInt);
+
+    LLVMValueRef val1 = gen_expr(g, node->data.fn_call_expr.params.at(1));
+    LLVMValueRef val2 = gen_expr(g, node->data.fn_call_expr.params.at(2));
+    LLVMValueRef ptr_result = gen_expr(g, node->data.fn_call_expr.params.at(3));
+
+    set_debug_source_node(g, node);
+    LLVMValueRef result = LLVMBuildShl(g->builder, val1, val2, "");
+    LLVMValueRef orig_val;
+    if (int_type->data.integral.is_signed) {
+        orig_val = LLVMBuildAShr(g->builder, result, val2, "");
+    } else {
+        orig_val = LLVMBuildLShr(g->builder, result, val2, "");
+    }
+    LLVMValueRef overflow_bit = LLVMBuildICmp(g->builder, LLVMIntNE, val1, orig_val, "");
+
+    LLVMBuildStore(g->builder, result, ptr_result);
+
+    return overflow_bit;
+}
+
 static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
     AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
@@ -527,6 +555,8 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
 
                 return overflow_bit;
             }
+        case BuiltinFnIdShlWithOverflow:
+            return gen_shl_with_overflow(g, node);
         case BuiltinFnIdMemcpy:
             {
                 int fn_call_param_count = node->data.fn_call_expr.params.length;
@@ -4357,6 +4387,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdAddWithOverflow, "add_with_overflow", 4);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSubWithOverflow, "sub_with_overflow", 4);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdMulWithOverflow, "mul_with_overflow", 4);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdShlWithOverflow, "shl_with_overflow", 4);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCInclude, "c_include", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCDefine, "c_define", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCUndef, "c_undef", 1);

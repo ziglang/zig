@@ -4546,6 +4546,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
         case BuiltinFnIdAddWithOverflow:
         case BuiltinFnIdSubWithOverflow:
         case BuiltinFnIdMulWithOverflow:
+        case BuiltinFnIdShlWithOverflow:
             {
                 AstNode *type_node = node->data.fn_call_expr.params.at(0);
                 TypeTableEntry *int_type = analyze_type_expr(g, import, context, type_node);
