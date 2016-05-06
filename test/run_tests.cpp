@@ -1323,6 +1323,46 @@ fn bar(a: []i32) -> i32 {
 fn baz(a: i32) {}
     )SOURCE");
 
+    add_debug_safety_case("integer addition overflow", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    add(65530, 10);
+}
+#static_eval_enable(false)
+fn add(a: u16, b: u16) -> u16 {
+    a + b
+}
+    )SOURCE");
+
+    add_debug_safety_case("integer subtraction overflow", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    sub(10, 20);
+}
+#static_eval_enable(false)
+fn sub(a: u16, b: u16) -> u16 {
+    a - b
+}
+    )SOURCE");
+
+    add_debug_safety_case("integer multiplication overflow", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    mul(300, 6000);
+}
+#static_eval_enable(false)
+fn mul(a: u16, b: u16) -> u16 {
+    a * b
+}
+    )SOURCE");
+
+    add_debug_safety_case("integer negation overflow", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    neg(-32768);
+}
+#static_eval_enable(false)
+fn neg(a: i16) -> i16 {
+    -a
+}
+    )SOURCE");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
