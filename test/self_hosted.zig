@@ -1534,3 +1534,20 @@ fn shl_with_overflow() {
     assert(!@shl_with_overflow(u16, 0b0010111111111111, 2, &result));
     assert(result == 0b1011111111111100);
 }
+
+#attribute("test")
+fn combine_non_wrap_with_wrap() {
+    const x: i32 = 123;
+    const y: i32w = 456;
+    const z = x + y;
+    const z2 = y + x;
+    assert(@typeof(z) == i32w);
+    assert(@typeof(z2) == i32w);
+
+    const a: i8 = 123;
+    const b: i32w = 456;
+    const c = b + a;
+    const d = a + b;
+    assert(@typeof(c) == i32w);
+    assert(@typeof(d) == i32w);
+}

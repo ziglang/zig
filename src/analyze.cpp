@@ -1892,12 +1892,25 @@ static TypeTableEntry *determine_peer_type_compatibility(CodeGen *g, AstNode *pa
             continue;
         } else if (prev_type->id == TypeTableEntryIdInt &&
                    cur_type->id == TypeTableEntryIdInt &&
-                   prev_type->data.integral.is_signed == cur_type->data.integral.is_signed)
+                   prev_type->data.integral.is_signed == cur_type->data.integral.is_signed &&
+                   (cur_type->data.integral.bit_count >= prev_type->data.integral.bit_count &&
+                    (cur_type->data.integral.is_wrapping || !prev_type->data.integral.is_wrapping)))
         {
             if (cur_type->data.integral.bit_count > prev_type->data.integral.bit_count) {
                 prev_type = cur_type;
                 prev_node = cur_node;
+            } else if (cur_type->data.integral.is_wrapping && !prev_type->data.integral.is_wrapping) {
+                prev_type = cur_type;
+                prev_node = cur_node;
             }
+            continue;
+        } else if (prev_type->id == TypeTableEntryIdInt &&
+                   cur_type->id == TypeTableEntryIdInt &&
+                   prev_type->data.integral.is_signed == cur_type->data.integral.is_signed &&
+                   (prev_type->data.integral.bit_count >= cur_type->data.integral.bit_count &&
+                    (prev_type->data.integral.is_wrapping || !cur_type->data.integral.is_wrapping)))
+        {
+            continue;
         } else if (prev_type->id == TypeTableEntryIdFloat &&
                    cur_type->id == TypeTableEntryIdFloat)
         {
