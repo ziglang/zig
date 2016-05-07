@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = std.assert;
 const str = std.str;
+const cstr = std.cstr;
 const other = @import("other.zig");
 
 #attribute("test")
@@ -1557,7 +1558,7 @@ fn c_string_concatenation() {
     const a = c"OK" ++ c" IT " ++ c"WORKED";
     const b = c"OK IT WORKED";
 
-    const len = str.len(b);
+    const len = cstr.len(b);
     const len_with_null = len + 1;
     {var i: i32 = 0; while (i < len_with_null; i += 1) {
         assert(a[i] == b[i]);
