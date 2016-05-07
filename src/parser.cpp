@@ -1480,7 +1480,7 @@ static BinOpType tok_to_add_op(Token *token) {
     switch (token->id) {
         case TokenIdPlus: return BinOpTypeAdd;
         case TokenIdDash: return BinOpTypeSub;
-        case TokenIdPlusPlus: return BinOpTypeStrCat;
+        case TokenIdPlusPlus: return BinOpTypeArrayCat;
         default: return BinOpTypeInvalid;
     }
 }

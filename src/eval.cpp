@@ -296,7 +296,7 @@ int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
             return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_mod, op1_type);
         case BinOpTypeUnwrapMaybe:
             zig_panic("TODO");
-        case BinOpTypeStrCat:
+        case BinOpTypeArrayCat:
         case BinOpTypeArrayMult:
         case BinOpTypeInvalid:
             zig_unreachable();
@@ -345,7 +345,7 @@ static bool eval_bin_op_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val)
         case BinOpTypeDiv:
         case BinOpTypeMod:
         case BinOpTypeUnwrapMaybe:
-        case BinOpTypeStrCat:
+        case BinOpTypeArrayCat:
         case BinOpTypeArrayMult:
             break;
         case BinOpTypeInvalid:

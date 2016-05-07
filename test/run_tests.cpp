@@ -999,11 +999,17 @@ extern fn foo() -> i32;
 const x = foo();
     )SOURCE", 1, ".tmp_source.zig:3:11: error: global variable initializer requires constant expression");
 
-    add_compile_fail_case("non compile time string concatenation", R"SOURCE(
+    add_compile_fail_case("array concatenation with wrong type", R"SOURCE(
 fn f(s: []u8) -> []u8 {
     s ++ "foo"
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: string concatenation requires constant expression");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: expected array or C string literal, got '[]u8'");
+
+    add_compile_fail_case("non compile time array concatenation", R"SOURCE(
+fn f(s: [10]u8) -> []u8 {
+    s ++ "foo"
+}
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: array concatenation requires constant expression");
 
     add_compile_fail_case("c_import with bogus include", R"SOURCE(
 const c = @c_import(@c_include("bogus.h"));

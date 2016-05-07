@@ -2770,6 +2770,7 @@ static TypeTableEntry *resolve_expr_const_val_as_c_string_lit(CodeGen *g, AstNod
     int len_with_null = buf_len(str) + 1;
     expr->const_val.data.x_ptr.ptr = allocate<ConstExprValue*>(len_with_null);
     expr->const_val.data.x_ptr.len = len_with_null;
+    expr->const_val.data.x_ptr.is_c_str = true;
 
     ConstExprValue *all_chars = allocate<ConstExprValue>(len_with_null);
     for (int i = 0; i < buf_len(str); i += 1) {
@@ -2974,7 +2975,7 @@ static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
         case BinOpTypeDiv:
         case BinOpTypeMod:
         case BinOpTypeUnwrapMaybe:
-        case BinOpTypeStrCat:
+        case BinOpTypeArrayCat:
         case BinOpTypeArrayMult:
             zig_unreachable();
     }
@@ -3379,19 +3380,42 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                     return g->builtin_types.entry_invalid;
                 }
             }
-        case BinOpTypeStrCat:
+        case BinOpTypeArrayCat:
             {
                 AstNode **op1 = node->data.bin_op_expr.op1->parent_field;
                 AstNode **op2 = node->data.bin_op_expr.op2->parent_field;
 
-                TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
+                TypeTableEntry *op1_type = analyze_expression(g, import, context, nullptr, *op1);
+                TypeTableEntry *child_type;
+                if (op1_type->id == TypeTableEntryIdInvalid) {
+                    return g->builtin_types.entry_invalid;
+                } else if (op1_type->id == TypeTableEntryIdArray) {
+                    child_type = op1_type->data.array.child_type;
+                } else if (op1_type->id == TypeTableEntryIdPointer &&
+                           op1_type->data.pointer.child_type == g->builtin_types.entry_u8) {
+                    child_type = op1_type->data.pointer.child_type;
+                } else {
+                    add_node_error(g, *op1, buf_sprintf("expected array or C string literal, got '%s'",
+                                buf_ptr(&op1_type->name)));
+                    return g->builtin_types.entry_invalid;
+                }
 
-                TypeTableEntry *op1_type = analyze_expression(g, import, context, str_type, *op1);
-                TypeTableEntry *op2_type = analyze_expression(g, import, context, str_type, *op2);
+                TypeTableEntry *op2_type = analyze_expression(g, import, context, nullptr, *op2);
 
-                if (op1_type->id == TypeTableEntryIdInvalid ||
-                    op2_type->id == TypeTableEntryIdInvalid)
-                {
+                if (op2_type->id == TypeTableEntryIdInvalid) {
+                    return g->builtin_types.entry_invalid;
+                } else if (op2_type->id == TypeTableEntryIdArray) {
+                    if (op2_type->data.array.child_type != child_type) {
+                        add_node_error(g, *op2, buf_sprintf("expected array of type '%s', got '%s'",
+                                    buf_ptr(&child_type->name),
+                                    buf_ptr(&op2_type->name)));
+                        return g->builtin_types.entry_invalid;
+                    }
+                } else if (op2_type->id == TypeTableEntryIdPointer &&
+                        op2_type->data.pointer.child_type == g->builtin_types.entry_u8) {
+                } else {
+                    add_node_error(g, *op2, buf_sprintf("expected array or C string literal, got '%s'",
+                                buf_ptr(&op2_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
 
@@ -3407,41 +3431,52 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                     bad_node = nullptr;
                 }
                 if (bad_node) {
-                    add_node_error(g, bad_node, buf_sprintf("string concatenation requires constant expression"));
+                    add_node_error(g, bad_node, buf_sprintf("array concatenation requires constant expression"));
                     return g->builtin_types.entry_invalid;
                 }
+
                 ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
                 const_val->ok = true;
                 const_val->depends_on_compile_var = op1_val->depends_on_compile_var ||
                     op2_val->depends_on_compile_var;
 
-                ConstExprValue *all_fields = allocate<ConstExprValue>(2);
-                ConstExprValue *ptr_field = &all_fields[0];
-                ConstExprValue *len_field = &all_fields[1];
-
-                const_val->data.x_struct.fields = allocate<ConstExprValue*>(2);
-                const_val->data.x_struct.fields[0] = ptr_field;
-                const_val->data.x_struct.fields[1] = len_field;
-
-                len_field->ok = true;
-                uint64_t op1_len = op1_val->data.x_struct.fields[1]->data.x_bignum.data.x_uint;
-                uint64_t op2_len = op2_val->data.x_struct.fields[1]->data.x_bignum.data.x_uint;
-                uint64_t len = op1_len + op2_len;
-                bignum_init_unsigned(&len_field->data.x_bignum, len);
-
-                ptr_field->ok = true;
-                ptr_field->data.x_ptr.ptr = allocate<ConstExprValue*>(len);
-                ptr_field->data.x_ptr.len = len;
-
-                uint64_t i = 0;
-                for (uint64_t op1_i = 0; op1_i < op1_len; op1_i += 1, i += 1) {
-                    ptr_field->data.x_ptr.ptr[i] = op1_val->data.x_struct.fields[0]->data.x_ptr.ptr[op1_i];
+                if (op1_type->id == TypeTableEntryIdArray) {
+                    uint64_t new_len = op1_type->data.array.len + op2_type->data.array.len;
+                    const_val->data.x_array.fields = allocate<ConstExprValue*>(new_len);
+                    uint64_t next_index = 0;
+                    for (uint64_t i = 0; i < op1_type->data.array.len; i += 1, next_index += 1) {
+                        const_val->data.x_array.fields[next_index] = op1_val->data.x_array.fields[i];
+                    }
+                    for (uint64_t i = 0; i < op2_type->data.array.len; i += 1, next_index += 1) {
+                        const_val->data.x_array.fields[next_index] = op2_val->data.x_array.fields[i];
+                    }
+                    return get_array_type(g, child_type, new_len);
+                } else if (op1_type->id == TypeTableEntryIdPointer) {
+                    if (!op1_val->data.x_ptr.is_c_str) {
+                        add_node_error(g, *op1,
+                                buf_sprintf("expected array or C string literal, got '%s'",
+                                    buf_ptr(&op1_type->name)));
+                        return g->builtin_types.entry_invalid;
+                    } else if (!op2_val->data.x_ptr.is_c_str) {
+                        add_node_error(g, *op2,
+                                buf_sprintf("expected array or C string literal, got '%s'",
+                                    buf_ptr(&op2_type->name)));
+                        return g->builtin_types.entry_invalid;
+                    }
+                    const_val->data.x_ptr.is_c_str = true;
+                    const_val->data.x_ptr.len = op1_val->data.x_ptr.len + op2_val->data.x_ptr.len - 1;
+                    const_val->data.x_ptr.ptr = allocate<ConstExprValue*>(const_val->data.x_ptr.len);
+                    uint64_t next_index = 0;
+                    for (uint64_t i = 0; i < op1_val->data.x_ptr.len - 1; i += 1, next_index += 1) {
+                        const_val->data.x_ptr.ptr[next_index] = op1_val->data.x_ptr.ptr[i];
+                    }
+                    for (uint64_t i = 0; i < op2_val->data.x_ptr.len; i += 1, next_index += 1) {
+                        const_val->data.x_ptr.ptr[next_index] = op2_val->data.x_ptr.ptr[i];
+                    }
+                    return op1_type;
+                } else {
+                    zig_unreachable();
                 }
-                for (uint64_t op2_i = 0; op2_i < op2_len; op2_i += 1, i += 1) {
-                    ptr_field->data.x_ptr.ptr[i] = op2_val->data.x_struct.fields[0]->data.x_ptr.ptr[op2_i];
-                }
-
-                return str_type;
             }
         case BinOpTypeArrayMult:
             return analyze_array_mult(g, import, context, expected_type, node);

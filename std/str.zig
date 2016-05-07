@@ -1,5 +1,8 @@
 const assert = @import("index.zig").assert;
 
+// fix https://github.com/andrewrk/zig/issues/140
+// and then make this able to run at compile time
+#static_eval_enable(false)
 pub fn len(ptr: &const u8) -> isize {
     var count: isize = 0;
     while (ptr[count] != 0; count += 1) {}

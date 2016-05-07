@@ -54,6 +54,7 @@ struct ConstPtrValue {
     ConstExprValue **ptr;
     // len should almost always be 1. exceptions include C strings
     uint64_t len;
+    bool is_c_str;
 };
 
 struct ConstErrValue {
@@ -341,7 +342,7 @@ enum BinOpType {
     BinOpTypeDiv,
     BinOpTypeMod,
     BinOpTypeUnwrapMaybe,
-    BinOpTypeStrCat,
+    BinOpTypeArrayCat,
     BinOpTypeArrayMult,
 };
 

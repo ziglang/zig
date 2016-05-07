@@ -1551,3 +1551,17 @@ fn combine_non_wrap_with_wrap() {
     assert(@typeof(c) == i32w);
     assert(@typeof(d) == i32w);
 }
+
+#attribute("test")
+fn c_string_concatenation() {
+    const a = c"OK" ++ c" IT " ++ c"WORKED";
+    const b = c"OK IT WORKED";
+
+    const len = str.len(b);
+    const len_with_null = len + 1;
+    {var i: i32 = 0; while (i < len_with_null; i += 1) {
+        assert(a[i] == b[i]);
+    }}
+    assert(a[len] == 0);
+    assert(b[len] == 0);
+}
