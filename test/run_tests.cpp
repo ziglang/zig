@@ -27,6 +27,7 @@ struct TestCase {
     ZigList<const char *> program_args;
     bool is_parseh;
     bool is_self_hosted;
+    bool is_release_mode;
     bool is_debug_safety;
 };
 
@@ -1623,28 +1624,44 @@ struct type {
 })", R"(pub const @"type" = struct_type;)");
 }
 
-static void run_self_hosted_test(void) {
+static void run_self_hosted_test(bool is_release_mode) {
     Buf zig_stderr = BUF_INIT;
     Buf zig_stdout = BUF_INIT;
     int return_code;
     ZigList<const char *> args = {0};
     args.append("test");
     args.append("../test/self_hosted.zig");
+    if (is_release_mode) {
+        args.append("--release");
+    }
     os_exec_process(zig_exe, args, &return_code, &zig_stderr, &zig_stdout);
 
     if (return_code) {
         printf("\nSelf-hosted tests failed:\n");
-        printf("./zig test ../test/self_hosted.zig\n");
-        printf("%s\n", buf_ptr(&zig_stderr));
+        printf("./zig");
+        for (int i = 0; i < args.length; i += 1) {
+            printf(" %s", args.at(i));
+        }
+        printf("\n%s\n", buf_ptr(&zig_stderr));
         exit(1);
     }
 }
 
 static void add_self_hosted_tests(void) {
-    TestCase *test_case = allocate<TestCase>(1);
-    test_case->case_name = "self hosted tests";
-    test_case->is_self_hosted = true;
-    test_cases.append(test_case);
+    {
+        TestCase *test_case = allocate<TestCase>(1);
+        test_case->case_name = "self hosted tests (debug)";
+        test_case->is_self_hosted = true;
+        test_case->is_release_mode = false;
+        test_cases.append(test_case);
+    }
+    {
+        TestCase *test_case = allocate<TestCase>(1);
+        test_case->case_name = "self hosted tests (release)";
+        test_case->is_self_hosted = true;
+        test_case->is_release_mode = true;
+        test_cases.append(test_case);
+    }
 }
 
 static void print_compiler_invocation(TestCase *test_case) {
@@ -1665,7 +1682,7 @@ static void print_exe_invocation(TestCase *test_case) {
 
 static void run_test(TestCase *test_case) {
     if (test_case->is_self_hosted) {
-        return run_self_hosted_test();
+        return run_self_hosted_test(test_case->is_release_mode);
     }
 
     for (int i = 0; i < test_case->source_files.length; i += 1) {

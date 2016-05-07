@@ -2609,7 +2609,7 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
     } else if (type_entry->id == TypeTableEntryIdUnreachable) {
         assert(node->data.container_init_expr.entries.length == 0);
         set_debug_source_node(g, node);
-        if (want_debug_safety(g, node)) {
+        if (want_debug_safety(g, node) || g->is_test_build) {
             gen_debug_safety_crash(g);
         } else {
             LLVMBuildUnreachable(g->builder);
