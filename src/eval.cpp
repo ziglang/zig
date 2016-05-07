@@ -787,6 +787,8 @@ static bool eval_fn_call_builtin(EvalFn *ef, AstNode *node, ConstExprValue *out_
             zig_panic("TODO");
         case BuiltinFnIdBreakpoint:
         case BuiltinFnIdInvalid:
+        case BuiltinFnIdFrameAddress:
+        case BuiltinFnIdReturnAddress:
             zig_unreachable();
     }
 

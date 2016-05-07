@@ -980,6 +980,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     bool is_cold = false;
     bool is_naked = false;
     bool is_test = false;
+    bool is_noinline = false;
 
     if (fn_proto->top_level_decl.directives) {
         for (int i = 0; i < fn_proto->top_level_decl.directives->length; i += 1) {
@@ -993,6 +994,8 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
                     if (attr_name) {
                         if (buf_eql_str(attr_name, "naked")) {
                             is_naked = true;
+                        } else if (buf_eql_str(attr_name, "noinline")) {
+                            is_noinline = true;
                         } else if (buf_eql_str(attr_name, "cold")) {
                             is_cold = true;
                         } else if (buf_eql_str(attr_name, "test")) {
@@ -1062,11 +1065,19 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
 
     fn_table_entry->type_entry = fn_type;
     fn_table_entry->is_test = is_test;
+    fn_table_entry->is_noinline = is_noinline;
 
     if (fn_type->id == TypeTableEntryIdInvalid) {
         fn_proto->skip = true;
         return;
     }
+
+    if (fn_table_entry->is_inline && fn_table_entry->is_noinline) {
+        add_node_error(g, node, buf_sprintf("function is both inline and noinline"));
+        fn_proto->skip = true;
+        return;
+    }
+
 
     Buf *symbol_name;
     if (is_c_compat) {
@@ -1080,6 +1091,9 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
 
     if (fn_table_entry->is_inline) {
         LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMAlwaysInlineAttribute);
+    }
+    if (fn_table_entry->is_noinline) {
+        LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoInlineAttribute);
     }
     if (fn_type->data.fn.fn_type_id.is_naked) {
         LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNakedAttribute);
@@ -4866,6 +4880,10 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
         case BuiltinFnIdBreakpoint:
             mark_impure_fn(context);
             return g->builtin_types.entry_void;
+        case BuiltinFnIdReturnAddress:
+        case BuiltinFnIdFrameAddress:
+            mark_impure_fn(context);
+            return builtin_fn->return_type;
         case BuiltinFnIdEmbedFile:
             return analyze_embed_file(g, import, context, node);
         case BuiltinFnIdCmpExchange:

@@ -1055,6 +1055,7 @@ struct FnTableEntry {
     bool is_test;
     bool is_pure;
     bool safety_off;
+    bool is_noinline;
     BlockContext *parent_block_context;
     FnAnalState anal_state;
 
@@ -1116,6 +1117,8 @@ enum BuiltinFnId {
     BuiltinFnIdCImport,
     BuiltinFnIdErrName,
     BuiltinFnIdBreakpoint,
+    BuiltinFnIdReturnAddress,
+    BuiltinFnIdFrameAddress,
     BuiltinFnIdEmbedFile,
     BuiltinFnIdCmpExchange,
     BuiltinFnIdFence,

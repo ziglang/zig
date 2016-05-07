@@ -634,6 +634,13 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdBreakpoint:
             set_debug_source_node(g, node);
             return LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
+        case BuiltinFnIdFrameAddress:
+        case BuiltinFnIdReturnAddress:
+            {
+                LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->type_ref);
+                set_debug_source_node(g, node);
+                return LLVMBuildCall(g->builder, builtin_fn->fn_val, &zero, 1, "");
+            }
         case BuiltinFnIdCmpExchange:
             return gen_cmp_exchange(g, node);
         case BuiltinFnIdFence:
@@ -4329,6 +4336,26 @@ static void define_builtin_fns(CodeGen *g) {
         assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
 
         g->trap_fn_val = builtin_fn->fn_val;
+    }
+    {
+        BuiltinFnEntry *builtin_fn = create_builtin_fn_with_arg_count(g, BuiltinFnIdReturnAddress,
+                "return_address", 0);
+        builtin_fn->return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+
+        LLVMTypeRef fn_type = LLVMFunctionType(builtin_fn->return_type->type_ref,
+                &g->builtin_types.entry_i32->type_ref, 1, false);
+        builtin_fn->fn_val = LLVMAddFunction(g->module, "llvm.returnaddress", fn_type);
+        assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
+    }
+    {
+        BuiltinFnEntry *builtin_fn = create_builtin_fn_with_arg_count(g, BuiltinFnIdFrameAddress,
+                "frame_address", 0);
+        builtin_fn->return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+
+        LLVMTypeRef fn_type = LLVMFunctionType(builtin_fn->return_type->type_ref,
+                &g->builtin_types.entry_i32->type_ref, 1, false);
+        builtin_fn->fn_val = LLVMAddFunction(g->module, "llvm.frameaddress", fn_type);
+        assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
     }
     {
         BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy");
