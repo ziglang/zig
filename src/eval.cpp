@@ -99,12 +99,76 @@ static bool eval_bool_bin_op_bool(bool a, BinOpType bin_op, bool b) {
     }
 }
 
+static uint64_t max_unsigned_val(TypeTableEntry *type_entry) {
+    assert(type_entry->id == TypeTableEntryIdInt);
+    if (type_entry->data.integral.bit_count == 64) {
+        return UINT64_MAX;
+    } else if (type_entry->data.integral.bit_count == 32) {
+        return UINT32_MAX;
+    } else if (type_entry->data.integral.bit_count == 16) {
+        return UINT16_MAX;
+    } else if (type_entry->data.integral.bit_count == 8) {
+        return UINT8_MAX;
+    } else {
+        zig_unreachable();
+    }
+}
+
+static int64_t max_signed_val(TypeTableEntry *type_entry) {
+    assert(type_entry->id == TypeTableEntryIdInt);
+    if (type_entry->data.integral.bit_count == 64) {
+        return INT64_MAX;
+    } else if (type_entry->data.integral.bit_count == 32) {
+        return INT32_MAX;
+    } else if (type_entry->data.integral.bit_count == 16) {
+        return INT16_MAX;
+    } else if (type_entry->data.integral.bit_count == 8) {
+        return INT8_MAX;
+    } else {
+        zig_unreachable();
+    }
+}
+
+static int64_t min_signed_val(TypeTableEntry *type_entry) {
+    assert(type_entry->id == TypeTableEntryIdInt);
+    if (type_entry->data.integral.bit_count == 64) {
+        return INT64_MIN;
+    } else if (type_entry->data.integral.bit_count == 32) {
+        return INT32_MIN;
+    } else if (type_entry->data.integral.bit_count == 16) {
+        return INT16_MIN;
+    } else if (type_entry->data.integral.bit_count == 8) {
+        return INT8_MIN;
+    } else {
+        zig_unreachable();
+    }
+}
+
 static int eval_const_expr_bin_op_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
-        ConstExprValue *out_val, bool (*bignum_fn)(BigNum *, BigNum *, BigNum *))
+        ConstExprValue *out_val, bool (*bignum_fn)(BigNum *, BigNum *, BigNum *),
+        TypeTableEntry *type)
 {
     bool overflow = bignum_fn(&out_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum);
     if (overflow) {
         return ErrorOverflow;
+    }
+
+    if (type->id == TypeTableEntryIdInt && !bignum_fits_in_bits(&out_val->data.x_bignum,
+                type->data.integral.bit_count, type->data.integral.is_signed))
+    {
+        if (type->data.integral.is_wrapping) {
+            if (type->data.integral.is_signed) {
+                out_val->data.x_bignum.data.x_uint = max_unsigned_val(type) - out_val->data.x_bignum.data.x_uint + 1;
+                out_val->data.x_bignum.is_negative = !out_val->data.x_bignum.is_negative;
+            } else if (out_val->data.x_bignum.is_negative) {
+                out_val->data.x_bignum.data.x_uint = max_unsigned_val(type) - out_val->data.x_bignum.data.x_uint + 1;
+                out_val->data.x_bignum.is_negative = false;
+            } else {
+                bignum_truncate(&out_val->data.x_bignum, type->data.integral.bit_count);
+            }
+        } else {
+            return ErrorOverflow;
+        }
     }
 
     out_val->ok = true;
@@ -117,6 +181,8 @@ int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
 {
     assert(op1_val->ok);
     assert(op2_val->ok);
+    assert(op1_type->id != TypeTableEntryIdInvalid);
+    assert(op2_type->id != TypeTableEntryIdInvalid);
 
     switch (bin_op) {
         case BinOpTypeAssign:
@@ -132,8 +198,7 @@ int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
         case BinOpTypeAssignBitOr:
         case BinOpTypeAssignBoolAnd:
         case BinOpTypeAssignBoolOr:
-            out_val->ok = true;
-            return 0;
+            zig_unreachable();
         case BinOpTypeBoolOr:
         case BinOpTypeBoolAnd:
             assert(op1_type->id == TypeTableEntryIdBool);
@@ -191,21 +256,21 @@ int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
                 return 0;
             }
         case BinOpTypeAdd:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_add);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_add, op1_type);
         case BinOpTypeBinOr:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_or);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_or, op1_type);
         case BinOpTypeBinXor:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_xor);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_xor, op1_type);
         case BinOpTypeBinAnd:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_and);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_and, op1_type);
         case BinOpTypeBitShiftLeft:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_shl);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_shl, op1_type);
         case BinOpTypeBitShiftRight:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_shr);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_shr, op1_type);
         case BinOpTypeSub:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_sub);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_sub, op1_type);
         case BinOpTypeMult:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_mul);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_mul, op1_type);
         case BinOpTypeDiv:
             {
                 bool is_int = false;
@@ -224,11 +289,11 @@ int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
                 {
                     return ErrorDivByZero;
                 } else {
-                    return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_div);
+                    return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_div, op1_type);
                 }
             }
         case BinOpTypeMod:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_mod);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_mod, op1_type);
         case BinOpTypeUnwrapMaybe:
             zig_panic("TODO");
         case BinOpTypeStrCat:
@@ -244,17 +309,60 @@ static bool eval_bin_op_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val)
 
     AstNode *op1 = node->data.bin_op_expr.op1;
     AstNode *op2 = node->data.bin_op_expr.op2;
+    BinOpType bin_op = node->data.bin_op_expr.bin_op;
+
+    switch (bin_op) {
+        case BinOpTypeAssign:
+        case BinOpTypeAssignTimes:
+        case BinOpTypeAssignDiv:
+        case BinOpTypeAssignMod:
+        case BinOpTypeAssignPlus:
+        case BinOpTypeAssignMinus:
+        case BinOpTypeAssignBitShiftLeft:
+        case BinOpTypeAssignBitShiftRight:
+        case BinOpTypeAssignBitAnd:
+        case BinOpTypeAssignBitXor:
+        case BinOpTypeAssignBitOr:
+        case BinOpTypeAssignBoolAnd:
+        case BinOpTypeAssignBoolOr:
+            zig_panic("TODO");
+        case BinOpTypeBoolOr:
+        case BinOpTypeBoolAnd:
+        case BinOpTypeCmpEq:
+        case BinOpTypeCmpNotEq:
+        case BinOpTypeCmpLessThan:
+        case BinOpTypeCmpGreaterThan:
+        case BinOpTypeCmpLessOrEq:
+        case BinOpTypeCmpGreaterOrEq:
+        case BinOpTypeBinOr:
+        case BinOpTypeBinXor:
+        case BinOpTypeBinAnd:
+        case BinOpTypeBitShiftLeft:
+        case BinOpTypeBitShiftRight:
+        case BinOpTypeAdd:
+        case BinOpTypeSub:
+        case BinOpTypeMult:
+        case BinOpTypeDiv:
+        case BinOpTypeMod:
+        case BinOpTypeUnwrapMaybe:
+        case BinOpTypeStrCat:
+        case BinOpTypeArrayMult:
+            break;
+        case BinOpTypeInvalid:
+            zig_unreachable();
+    }
 
     TypeTableEntry *op1_type = get_resolved_expr(op1)->type_entry;
     TypeTableEntry *op2_type = get_resolved_expr(op2)->type_entry;
+
+    assert(op1_type);
+    assert(op2_type);
 
     ConstExprValue op1_val = {0};
     if (eval_expr(ef, op1, &op1_val)) return true;
 
     ConstExprValue op2_val = {0};
     if (eval_expr(ef, op2, &op2_val)) return true;
-
-    BinOpType bin_op = node->data.bin_op_expr.bin_op;
 
     int err;
     if ((err = eval_const_expr_bin_op(&op1_val, op1_type, bin_op, &op2_val, op2_type, out_val))) {
@@ -568,48 +676,15 @@ void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *
         const_val->depends_on_compile_var = int_type_depends_on_compile_var(g, type_entry);
         if (is_max) {
             if (type_entry->data.integral.is_signed) {
-                int64_t val;
-                if (type_entry->data.integral.bit_count == 64) {
-                    val = INT64_MAX;
-                } else if (type_entry->data.integral.bit_count == 32) {
-                    val = INT32_MAX;
-                } else if (type_entry->data.integral.bit_count == 16) {
-                    val = INT16_MAX;
-                } else if (type_entry->data.integral.bit_count == 8) {
-                    val = INT8_MAX;
-                } else {
-                    zig_unreachable();
-                }
+                int64_t val = max_signed_val(type_entry);
                 bignum_init_signed(&const_val->data.x_bignum, val);
             } else {
-                uint64_t val;
-                if (type_entry->data.integral.bit_count == 64) {
-                    val = UINT64_MAX;
-                } else if (type_entry->data.integral.bit_count == 32) {
-                    val = UINT32_MAX;
-                } else if (type_entry->data.integral.bit_count == 16) {
-                    val = UINT16_MAX;
-                } else if (type_entry->data.integral.bit_count == 8) {
-                    val = UINT8_MAX;
-                } else {
-                    zig_unreachable();
-                }
+                uint64_t val = max_unsigned_val(type_entry);
                 bignum_init_unsigned(&const_val->data.x_bignum, val);
             }
         } else {
             if (type_entry->data.integral.is_signed) {
-                int64_t val;
-                if (type_entry->data.integral.bit_count == 64) {
-                    val = INT64_MIN;
-                } else if (type_entry->data.integral.bit_count == 32) {
-                    val = INT32_MIN;
-                } else if (type_entry->data.integral.bit_count == 16) {
-                    val = INT16_MIN;
-                } else if (type_entry->data.integral.bit_count == 8) {
-                    val = INT8_MIN;
-                } else {
-                    zig_unreachable();
-                }
+                int64_t val = min_signed_val(type_entry);
                 bignum_init_signed(&const_val->data.x_bignum, val);
             } else {
                 bignum_init_unsigned(&const_val->data.x_bignum, 0);
@@ -687,6 +762,8 @@ static bool eval_fn_call_builtin(EvalFn *ef, AstNode *node, ConstExprValue *out_
             return eval_fn_with_overflow(ef, node, out_val, bignum_add);
         case BuiltinFnIdSubWithOverflow:
             return eval_fn_with_overflow(ef, node, out_val, bignum_sub);
+        case BuiltinFnIdShlWithOverflow:
+            return eval_fn_with_overflow(ef, node, out_val, bignum_shl);
         case BuiltinFnIdFence:
             return false;
         case BuiltinFnIdMemcpy:
@@ -707,7 +784,6 @@ static bool eval_fn_call_builtin(EvalFn *ef, AstNode *node, ConstExprValue *out_
         case BuiltinFnIdErrName:
         case BuiltinFnIdEmbedFile:
         case BuiltinFnIdCmpExchange:
-        case BuiltinFnIdShlWithOverflow:
             zig_panic("TODO");
         case BuiltinFnIdBreakpoint:
         case BuiltinFnIdInvalid:
@@ -962,8 +1038,31 @@ static bool eval_prefix_op_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_v
                 out_val->ok = true;
                 break;
             }
-        case PrefixOpBinNot:
         case PrefixOpNegation:
+            if (expr_type->id == TypeTableEntryIdInt) {
+                assert(expr_type->data.integral.is_signed);
+                bignum_negate(&out_val->data.x_bignum, &expr_val.data.x_bignum);
+                out_val->ok = true;
+                bool overflow = !bignum_fits_in_bits(&out_val->data.x_bignum,
+                        expr_type->data.integral.bit_count, expr_type->data.integral.is_signed);
+                if (expr_type->data.integral.is_wrapping) {
+                    if (overflow) {
+                        out_val->data.x_bignum.is_negative = true;
+                    }
+                } else if (overflow) {
+                    ErrorMsg *msg = add_node_error(ef->root->codegen, ef->root->fn->fn_def_node,
+                            buf_sprintf("function evaluation caused overflow"));
+                    add_error_note(ef->root->codegen, msg, ef->root->call_node, buf_sprintf("called from here"));
+                    add_error_note(ef->root->codegen, msg, node, buf_sprintf("overflow occurred here"));
+                    return true;
+                }
+            } else if (expr_type->id == TypeTableEntryIdFloat) {
+                zig_panic("TODO");
+            } else {
+                zig_unreachable();
+            }
+            break;
+        case PrefixOpBinNot:
         case PrefixOpMaybe:
         case PrefixOpError:
         case PrefixOpUnwrapError:

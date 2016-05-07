@@ -1459,68 +1459,72 @@ fn fence() {
 
 #attribute("test")
 fn unsigned_wrapping() {
-    var x_u32: u32w = @max_value(u32);
-    x_u32 += 1;
-    assert(x_u32 == 0);
-    x_u32 -= 1;
-    assert(x_u32 == @max_value(u32));
+    test_unsigned_wrapping_eval(@max_value(u32));
     test_unsigned_wrapping_noeval(@max_value(u32));
+}
+fn test_unsigned_wrapping_eval(x: u32w) {
+    const zero = x + 1;
+    assert(zero == 0);
+    const orig = zero - 1;
+    assert(orig == @max_value(u32));
 }
 #static_eval_enable(false)
 fn test_unsigned_wrapping_noeval(x: u32w) {
-    var x_u32 = x;
-    x_u32 += 1;
-    assert(x_u32 == 0);
-    x_u32 -= 1;
-    assert(x_u32 == @max_value(u32));
+    const zero = x + 1;
+    assert(zero == 0);
+    const orig = zero - 1;
+    assert(orig == @max_value(u32));
 }
 
 #attribute("test")
 fn signed_wrapping() {
-    var x_i32: i32w = @max_value(i32);
-    x_i32 += 1;
-    assert(x_i32 == @min_value(i32));
-    x_i32 -= 1;
-    assert(x_i32 == @max_value(i32));
+    test_signed_wrapping_eval(@max_value(i32));
     test_signed_wrapping_noeval(@max_value(i32));
+}
+fn test_signed_wrapping_eval(x: i32w) {
+    const min_val = x + 1;
+    assert(min_val == @min_value(i32));
+    const max_val = min_val - 1;
+    assert(max_val == @max_value(i32));
 }
 #static_eval_enable(false)
 fn test_signed_wrapping_noeval(x: i32w) {
-    var x_i32 = x;
-    x_i32 += 1;
-    assert(x_i32 == @min_value(i32));
-    x_i32 -= 1;
-    assert(x_i32 == @max_value(i32));
+    const min_val = x + 1;
+    assert(min_val == @min_value(i32));
+    const max_val = min_val - 1;
+    assert(max_val == @max_value(i32));
 }
 
 #attribute("test")
 fn negation_wrapping() {
-    var x_i16 = @min_value(i16w);
-    assert(x_i16 == -32768);
-    x_i16 = -x_i16;
-    assert(x_i16 == -32768);
+    test_negation_wrapping_eval(@min_value(i16));
     test_negation_wrapping_noeval(@min_value(i16));
+}
+fn test_negation_wrapping_eval(x: i16w) {
+    assert(x == -32768);
+    const neg = -x;
+    assert(neg == -32768);
 }
 #static_eval_enable(false)
 fn test_negation_wrapping_noeval(x: i16w) {
-    var x_i16 = x;
-    assert(x_i16 == -32768);
-    x_i16 = -x_i16;
-    assert(x_i16 == -32768);
+    assert(x == -32768);
+    const neg = -x;
+    assert(neg == -32768);
 }
 
 #attribute("test")
 fn shl_wrapping() {
-    var x_u16 = @max_value(u16w);
-    x_u16 <<= 1;
-    assert(x_u16 == 65534);
+    test_shl_wrapping_eval(@max_value(u16));
     test_shl_wrapping_noeval(@max_value(u16));
+}
+fn test_shl_wrapping_eval(x: u16w) {
+    const shifted = x << 1;
+    assert(shifted == 65534);
 }
 #static_eval_enable(false)
 fn test_shl_wrapping_noeval(x: u16w) {
-    var x_u16 = x;
-    x_u16 <<= 1;
-    assert(x_u16 == 65534);
+    const shifted = x << 1;
+    assert(shifted == 65534);
 }
 
 #attribute("test")

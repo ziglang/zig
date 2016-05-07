@@ -1305,6 +1305,55 @@ fn f() {
     )SOURCE", 2,
             ".tmp_source.zig:4:72: error: failure atomic ordering must be no stricter than success",
             ".tmp_source.zig:5:49: error: success atomic ordering must be Monotonic or stricter");
+
+    add_compile_fail_case("negation overflow in function evaluation", R"SOURCE(
+fn f() {
+    const x = neg(-128);
+}
+fn neg(x: i8) -> i8 {
+    -x
+}
+    )SOURCE", 3,
+            ".tmp_source.zig:5:1: error: function evaluation caused overflow",
+            ".tmp_source.zig:3:18: note: called from here",
+            ".tmp_source.zig:6:5: note: overflow occurred here");
+
+    add_compile_fail_case("add overflow in function evaluation", R"SOURCE(
+fn f() {
+    const x = add(65530, 10);
+}
+fn add(a: u16, b: u16) -> u16 {
+    a + b
+}
+    )SOURCE", 3,
+            ".tmp_source.zig:5:1: error: function evaluation caused overflow",
+            ".tmp_source.zig:3:18: note: called from here",
+            ".tmp_source.zig:6:7: note: overflow occurred here");
+
+
+    add_compile_fail_case("sub overflow in function evaluation", R"SOURCE(
+fn f() {
+    const x = sub(10, 20);
+}
+fn sub(a: u16, b: u16) -> u16 {
+    a - b
+}
+    )SOURCE", 3,
+            ".tmp_source.zig:5:1: error: function evaluation caused overflow",
+            ".tmp_source.zig:3:18: note: called from here",
+            ".tmp_source.zig:6:7: note: overflow occurred here");
+
+    add_compile_fail_case("mul overflow in function evaluation", R"SOURCE(
+fn f() {
+    const x = mul(300, 6000);
+}
+fn mul(a: u16, b: u16) -> u16 {
+    a * b
+}
+    )SOURCE", 3,
+            ".tmp_source.zig:5:1: error: function evaluation caused overflow",
+            ".tmp_source.zig:3:18: note: called from here",
+            ".tmp_source.zig:6:7: note: overflow occurred here");
 }
 
 //////////////////////////////////////////////////////////////////////////////

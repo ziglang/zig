@@ -105,10 +105,24 @@ static AstNode *first_executing_node(AstNode *node) {
     zig_unreachable();
 }
 
+static void mark_impure_fn(BlockContext *context) {
+    if (context->fn_entry) {
+        context->fn_entry->is_pure = false;
+    }
+}
+
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     // if this assert fails, then parseh generated code that
     // failed semantic analysis, which isn't supposed to happen
     assert(!node->owner->c_import_node);
+
+    // if an error occurs in a function then it becomes impure
+    if (node->block_context) {
+        FnTableEntry *fn_entry = node->block_context->fn_entry;
+        if (fn_entry) {
+            fn_entry->is_pure = false;
+        }
+    }
 
     ErrorMsg *err = err_msg_create_with_line(node->owner->path, node->line, node->column,
             node->owner->source_code, node->owner->line_offsets, msg);
@@ -2618,12 +2632,6 @@ static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, 
     }
 
     return return_type;
-}
-
-static void mark_impure_fn(BlockContext *context) {
-    if (context->fn_entry) {
-        context->fn_entry->is_pure = false;
-    }
 }
 
 static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -5149,7 +5157,7 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
             }
         case PrefixOpNegation:
             {
-                TypeTableEntry *expr_type = analyze_expression(g, import, context, expected_type, *expr_node);
+                TypeTableEntry *expr_type = analyze_expression(g, import, context, nullptr, *expr_node);
                 if (expr_type->id == TypeTableEntryIdInvalid) {
                     return expr_type;
                 } else if ((expr_type->id == TypeTableEntryIdInt &&
@@ -5762,6 +5770,7 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
 {
     assert(!expected_type || expected_type->id != TypeTableEntryIdInvalid);
     TypeTableEntry *return_type = nullptr;
+    node->block_context = context;
     switch (node->type) {
         case NodeTypeBlock:
             return_type = analyze_block_expr(g, import, context, expected_type, node);
@@ -5889,7 +5898,6 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
 
     Expr *expr = get_resolved_expr(node);
     expr->type_entry = return_type;
-    node->block_context = context;
 
     add_global_const_expr(g, node);
 

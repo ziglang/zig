@@ -45,11 +45,21 @@ bool bignum_fits_in_bits(BigNum *bn, int bit_count, bool is_signed) {
     assert(bn->kind == BigNumKindInt);
 
     if (is_signed) {
-        if (bn->data.x_uint <= ((uint64_t)(INT8_MAX)) + 1) {
+        if (bn->is_negative) {
+            if (bn->data.x_uint <= ((uint64_t)INT8_MAX) + 1) {
+                return bit_count >= 8;
+            } else if (bn->data.x_uint <= ((uint64_t)INT16_MAX) + 1) {
+                return bit_count >= 16;
+            } else if (bn->data.x_uint <= ((uint64_t)INT32_MAX) + 1) {
+                return bit_count >= 32;
+            } else {
+                return bit_count >= 64;
+            }
+        } else if (bn->data.x_uint <= (uint64_t)INT8_MAX) {
             return bit_count >= 8;
-        } else if (bn->data.x_uint <= ((uint64_t)(INT16_MAX)) + 1) {
+        } else if (bn->data.x_uint <= (uint64_t)INT16_MAX) {
             return bit_count >= 16;
-        } else if (bn->data.x_uint <= ((uint64_t)(INT32_MAX)) + 1) {
+        } else if (bn->data.x_uint <= (uint64_t)INT32_MAX) {
             return bit_count >= 32;
         } else {
             return bit_count >= 64;
@@ -98,6 +108,7 @@ bool bignum_add(BigNum *dest, BigNum *op1, BigNum *op2) {
     }
 
     if (op1->is_negative == op2->is_negative) {
+        dest->is_negative = op1->is_negative;
         return __builtin_uaddll_overflow(op1->data.x_uint, op2->data.x_uint, &dest->data.x_uint);
     } else if (!op1->is_negative && op2->is_negative) {
         if (__builtin_usubll_overflow(op1->data.x_uint, op2->data.x_uint, &dest->data.x_uint)) {
