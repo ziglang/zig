@@ -238,7 +238,14 @@ static void construct_linker_job_linux(LinkJob *lj) {
 
     for (int i = 0; i < g->link_libs.length; i += 1) {
         Buf *link_lib = g->link_libs.at(i);
-        Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
+        Buf *arg;
+        if (buf_starts_with_str(link_lib, "/") || buf_ends_with_str(link_lib, ".a") ||
+            buf_ends_with_str(link_lib, ".so"))
+        {
+            arg = link_lib;
+        } else {
+            arg = buf_sprintf("-l%s", buf_ptr(link_lib));
+        }
         lj->args.append(buf_ptr(arg));
     }
 

@@ -140,11 +140,30 @@ static inline bool buf_eql_str(Buf *buf, const char *str) {
     return buf_eql_mem(buf, str, strlen(str));
 }
 
-static inline bool buf_starts_with_buf(Buf *buf, Buf *sub) {
-    if (buf_len(buf) < buf_len(sub)) {
+static inline bool buf_starts_with_mem(Buf *buf, const char *mem, int mem_len) {
+    if (buf_len(buf) < mem_len) {
         return false;
     }
-    return buf_eql_mem(sub, buf_ptr(buf), buf_len(sub));
+    return memcmp(buf_ptr(buf), mem, mem_len) == 0;
+}
+
+static inline bool buf_starts_with_buf(Buf *buf, Buf *sub) {
+    return buf_starts_with_mem(buf, buf_ptr(sub), buf_len(sub));
+}
+
+static inline bool buf_starts_with_str(Buf *buf, const char *str) {
+    return buf_starts_with_mem(buf, str, strlen(str));
+}
+
+static inline bool buf_ends_with_mem(Buf *buf, const char *mem, int mem_len) {
+    if (buf_len(buf) < mem_len) {
+        return false;
+    }
+    return memcmp(buf_ptr(buf) + buf_len(buf) - mem_len, mem, mem_len) == 0;
+}
+
+static inline bool buf_ends_with_str(Buf *buf, const char *str) {
+    return buf_ends_with_mem(buf, str, strlen(str));
 }
 
 bool buf_eql_buf(Buf *buf, Buf *other);
