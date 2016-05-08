@@ -4657,6 +4657,37 @@ static TypeTableEntry *analyze_fence(CodeGen *g, ImportTableEntry *import,
     return g->builtin_types.entry_void;
 }
 
+static TypeTableEntry *analyze_div_exact(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode **op1 = &node->data.fn_call_expr.params.at(0);
+    AstNode **op2 = &node->data.fn_call_expr.params.at(1);
+
+    TypeTableEntry *op1_type = analyze_expression(g, import, context, nullptr, *op1);
+    TypeTableEntry *op2_type = analyze_expression(g, import, context, nullptr, *op2);
+
+    AstNode *op_nodes[] = {*op1, *op2};
+    TypeTableEntry *op_types[] = {op1_type, op2_type};
+    TypeTableEntry *result_type = resolve_peer_type_compatibility(g, import, context, node,
+            op_nodes, op_types, 2);
+
+    if (result_type->id == TypeTableEntryIdInvalid) {
+        return g->builtin_types.entry_invalid;
+    } else if (result_type->id == TypeTableEntryIdInt) {
+        return result_type;
+    } else if (result_type->id == TypeTableEntryIdNumLitInt) {
+        // check for division by zero
+        // check for non exact division
+        zig_panic("TODO");
+    } else {
+        add_node_error(g, node,
+                buf_sprintf("expected integer type, got '%s'", buf_ptr(&result_type->name)));
+        return g->builtin_types.entry_invalid;
+    }
+}
+
 static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -4997,6 +5028,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             return analyze_cmpxchg(g, import, context, node);
         case BuiltinFnIdFence:
             return analyze_fence(g, import, context, node);
+        case BuiltinFnIdDivExact:
+            return analyze_div_exact(g, import, context, node);
     }
     zig_unreachable();
 }

@@ -47,6 +47,8 @@ LLVMValueRef ZigLLVMBuildNSWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMVa
         const char *name);
 LLVMValueRef ZigLLVMBuildNUWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
         const char *name);
+LLVMValueRef ZigLLVMBuildExactUDiv(LLVMBuilderRef B, LLVMValueRef LHS,
+        LLVMValueRef RHS, const char *Name);
 
 // 0 is return value, 1 is first arg
 void LLVMZigAddNonNullAttr(LLVMValueRef fn, unsigned i);

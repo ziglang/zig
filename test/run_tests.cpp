@@ -1456,6 +1456,16 @@ fn div0(a: i32, b: i32) -> i32 {
 }
     )SOURCE");
 
+    add_debug_safety_case("exact division failure", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    div_exact(10, 3);
+}
+#static_eval_enable(false)
+fn div_exact(a: i32, b: i32) -> i32 {
+    @div_exact(a, b)
+}
+    )SOURCE");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////

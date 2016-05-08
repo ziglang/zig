@@ -1128,6 +1128,7 @@ enum BuiltinFnId {
     BuiltinFnIdEmbedFile,
     BuiltinFnIdCmpExchange,
     BuiltinFnIdFence,
+    BuiltinFnIdDivExact,
 };
 
 struct BuiltinFnEntry {

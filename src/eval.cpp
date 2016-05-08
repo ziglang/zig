@@ -709,6 +709,46 @@ static bool eval_min_max(EvalFn *ef, AstNode *node, ConstExprValue *out_val, boo
     return false;
 }
 
+static bool eval_div_exact(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
+    assert(node->type == NodeTypeFnCallExpr);
+    AstNode *op1_node = node->data.fn_call_expr.params.at(0);
+    AstNode *op2_node = node->data.fn_call_expr.params.at(1);
+
+    TypeTableEntry *type_entry = get_resolved_expr(op1_node)->type_entry;
+    assert(type_entry->id == TypeTableEntryIdInt);
+
+    ConstExprValue op1_val = {0};
+    if (eval_expr(ef, op1_node, &op1_val)) return true;
+
+    ConstExprValue op2_val = {0};
+    if (eval_expr(ef, op2_node, &op2_val)) return true;
+
+    if (op2_val.data.x_bignum.data.x_uint == 0) {
+        ErrorMsg *msg = add_node_error(ef->root->codegen, ef->root->fn->fn_def_node,
+                buf_sprintf("function evaluation caused division by zero"));
+        add_error_note(ef->root->codegen, msg, ef->root->call_node, buf_sprintf("called from here"));
+        add_error_note(ef->root->codegen, msg, node, buf_sprintf("division by zero here"));
+        return true;
+    }
+
+    bignum_div(&out_val->data.x_bignum, &op1_val.data.x_bignum, &op2_val.data.x_bignum);
+
+    BigNum orig_bn;
+    bignum_mul(&orig_bn, &out_val->data.x_bignum, &op2_val.data.x_bignum);
+
+    if (bignum_cmp_neq(&orig_bn, &op1_val.data.x_bignum)) {
+        ErrorMsg *msg = add_node_error(ef->root->codegen, ef->root->fn->fn_def_node,
+                buf_sprintf("function evaluation violated exact division"));
+        add_error_note(ef->root->codegen, msg, ef->root->call_node, buf_sprintf("called from here"));
+        add_error_note(ef->root->codegen, msg, node, buf_sprintf("exact division violation here"));
+        return true;
+    }
+
+    out_val->ok = true;
+    out_val->depends_on_compile_var = op1_val.depends_on_compile_var || op2_val.depends_on_compile_var;
+    return false;
+}
+
 static bool eval_fn_with_overflow(EvalFn *ef, AstNode *node, ConstExprValue *out_val,
     bool (*bignum_fn)(BigNum *dest, BigNum *op1, BigNum *op2))
 {
@@ -767,6 +807,8 @@ static bool eval_fn_call_builtin(EvalFn *ef, AstNode *node, ConstExprValue *out_
             return eval_fn_with_overflow(ef, node, out_val, bignum_shl);
         case BuiltinFnIdFence:
             return false;
+        case BuiltinFnIdDivExact:
+            return eval_div_exact(ef, node, out_val);
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdSizeof:

@@ -217,6 +217,8 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType b
         LLVMValueRef target_ref, LLVMValueRef value,
         TypeTableEntry *op1_type, TypeTableEntry *op2_type);
 static LLVMValueRef gen_unwrap_maybe(CodeGen *g, AstNode *node, LLVMValueRef maybe_struct_ref);
+static LLVMValueRef gen_div(CodeGen *g, AstNode *source_node, LLVMValueRef val1, LLVMValueRef val2,
+        TypeTableEntry *type_entry, bool exact);
 
 static TypeTableEntry *get_type_for_type_node(AstNode *node) {
     Expr *expr = get_resolved_expr(node);
@@ -459,6 +461,18 @@ static LLVMValueRef gen_fence(CodeGen *g, AstNode *node) {
     return nullptr;
 }
 
+static LLVMValueRef gen_div_exact(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode *op1_node = node->data.fn_call_expr.params.at(0);
+    AstNode *op2_node = node->data.fn_call_expr.params.at(1);
+
+    LLVMValueRef op1_val = gen_expr(g, op1_node);
+    LLVMValueRef op2_val = gen_expr(g, op2_node);
+
+    return gen_div(g, node, op1_val, op2_val, get_expr_type(op1_node), true);
+}
+
 static LLVMValueRef gen_shl_with_overflow(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
@@ -645,6 +659,8 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
             return gen_cmp_exchange(g, node);
         case BuiltinFnIdFence:
             return gen_fence(g, node);
+        case BuiltinFnIdDivExact:
+            return gen_div_exact(g, node);
     }
     zig_unreachable();
 }
@@ -1566,7 +1582,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
 }
 
 static LLVMValueRef gen_div(CodeGen *g, AstNode *source_node, LLVMValueRef val1, LLVMValueRef val2,
-        TypeTableEntry *type_entry)
+        TypeTableEntry *type_entry, bool exact)
 {
     set_debug_source_node(g, source_node);
 
@@ -1591,9 +1607,38 @@ static LLVMValueRef gen_div(CodeGen *g, AstNode *source_node, LLVMValueRef val1,
     }
 
     if (type_entry->id == TypeTableEntryIdFloat) {
+        assert(!exact);
         return LLVMBuildFDiv(g->builder, val1, val2, "");
+    }
+
+    assert(type_entry->id == TypeTableEntryIdInt);
+
+    if (exact) {
+        if (want_debug_safety(g, source_node)) {
+            LLVMValueRef remainder_val;
+            if (type_entry->data.integral.is_signed) {
+                remainder_val = LLVMBuildSRem(g->builder, val1, val2, "");
+            } else {
+                remainder_val = LLVMBuildURem(g->builder, val1, val2, "");
+            }
+            LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
+            LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
+
+            LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivExactOk");
+            LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivExactFail");
+            LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+            LLVMPositionBuilderAtEnd(g->builder, fail_block);
+            gen_debug_safety_crash(g);
+
+            LLVMPositionBuilderAtEnd(g->builder, ok_block);
+        }
+        if (type_entry->data.integral.is_signed) {
+            return LLVMBuildExactSDiv(g->builder, val1, val2, "");
+        } else {
+            return ZigLLVMBuildExactUDiv(g->builder, val1, val2, "");
+        }
     } else {
-        assert(type_entry->id == TypeTableEntryIdInt);
         if (type_entry->data.integral.is_signed) {
             return LLVMBuildSDiv(g->builder, val1, val2, "");
         } else {
@@ -1702,7 +1747,7 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
             }
         case BinOpTypeDiv:
         case BinOpTypeAssignDiv:
-            return gen_div(g, source_node, val1, val2, op1_type);
+            return gen_div(g, source_node, val1, val2, op1_type, false);
         case BinOpTypeMod:
         case BinOpTypeAssignMod:
             set_debug_source_node(g, source_node);
@@ -4492,6 +4537,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdEmbedFile, "embed_file", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCmpExchange, "cmpxchg", 5);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdFence, "fence", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdDivExact, "div_exact", 2);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

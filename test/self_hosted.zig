@@ -1603,3 +1603,12 @@ fn float_division() {
 fn fdiv32(a: f32, b: f32) -> f32 {
     a / b
 }
+
+#attribute("test")
+fn exact_division() {
+    assert(div_exact(55, 11) == 5);
+}
+#static_eval_enable(false)
+fn div_exact(a: u32, b: u32) -> u32 {
+    @div_exact(a, b)
+}
