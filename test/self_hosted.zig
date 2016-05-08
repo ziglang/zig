@@ -1580,3 +1580,17 @@ struct GenNode(T: type) {
     next: ?&GenNode(T),
     fn get_val(n: &const GenNode(T)) -> T { n.value }
 }
+
+#attribute("test")
+fn cast_slice_to_u8_slice() {
+    assert(@sizeof(i32) == 4);
+    var big_thing_array = []i32{1, 2, 3, 4};
+    const big_thing_slice: []i32 = big_thing_array;
+    const bytes = ([]u8)(big_thing_slice);
+    assert(bytes.len == 4 * 4);
+    bytes[4] = 0;
+    bytes[5] = 0;
+    bytes[6] = 0;
+    bytes[7] = 0;
+    assert(big_thing_slice[1] == 0);
+}

@@ -18,6 +18,7 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
 BlockContext *new_block_context(AstNode *node, BlockContext *parent);
 Expr *get_resolved_expr(AstNode *node);
 bool is_node_void_expr(AstNode *node);
+uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry);
 TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, bool is_wrapping, int size_in_bits);
 TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, bool is_wrapping, int size_in_bits);
 TypeTableEntry **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);

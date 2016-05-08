@@ -862,6 +862,43 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 return cast_expr->tmp_ptr;
             }
+        case CastOpResizeSlice:
+            {
+                assert(cast_expr->tmp_ptr);
+                assert(wanted_type->id == TypeTableEntryIdStruct);
+                assert(wanted_type->data.structure.is_slice);
+                assert(actual_type->id == TypeTableEntryIdStruct);
+                assert(actual_type->data.structure.is_slice);
+
+                TypeTableEntry *actual_pointer_type = actual_type->data.structure.fields[0].type_entry;
+                TypeTableEntry *actual_child_type = actual_pointer_type->data.pointer.child_type;
+
+                set_debug_source_node(g, node);
+
+                int actual_ptr_index = actual_type->data.structure.fields[0].gen_index;
+                int actual_len_index = actual_type->data.structure.fields[1].gen_index;
+                int wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
+                int wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
+
+                LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, expr_val, actual_len_index, "");
+                LLVMValueRef src_len = LLVMBuildLoad(g->builder, src_len_ptr, "");
+                LLVMValueRef src_size = LLVMConstInt(g->builtin_types.entry_isize->type_ref,
+                        type_size(g, actual_child_type), false);
+                LLVMValueRef new_len = LLVMBuildMul(g->builder, src_len, src_size, "");
+                LLVMValueRef dest_len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr,
+                        wanted_len_index, "");
+                LLVMBuildStore(g->builder, new_len, dest_len_ptr);
+
+                LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, expr_val, actual_ptr_index, "");
+                LLVMValueRef src_ptr = LLVMBuildLoad(g->builder, src_ptr_ptr, "");
+                LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr,
+                        wanted_type->data.structure.fields[0].type_entry->type_ref, "");
+                LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr,
+                        wanted_ptr_index, "");
+                LLVMBuildStore(g->builder, src_ptr_casted, dest_ptr_ptr);
+
+                return cast_expr->tmp_ptr;
+            }
         case CastOpIntToFloat:
             assert(actual_type->id == TypeTableEntryIdInt);
             if (actual_type->data.integral.is_signed) {

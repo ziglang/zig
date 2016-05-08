@@ -219,6 +219,23 @@ static bool type_is_complete(TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
+uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry) {
+    if (type_has_bits(type_entry)) {
+        return LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
+    } else {
+        return 0;
+    }
+}
+
+static bool is_u8(TypeTableEntry *type) {
+    return type->id == TypeTableEntryIdInt &&
+        !type->data.integral.is_signed && type->data.integral.bit_count == 8;
+}
+
+static bool is_slice(TypeTableEntry *type) {
+    return type->id == TypeTableEntryIdStruct && type->data.structure.is_slice;
+}
+
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
     return get_int_type(g, false, false, bits_needed_for_unsigned(x));
 }
@@ -4215,8 +4232,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     }
 
     // explicit cast from array to slice
-    if (wanted_type->id == TypeTableEntryIdStruct &&
-        wanted_type->data.structure.is_slice &&
+    if (is_slice(wanted_type) &&
         actual_type->id == TypeTableEntryIdArray &&
         types_match_const_cast_only(
             wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type,
@@ -4224,6 +4240,17 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpToUnknownSizeArray, true);
     }
+
+    // explicit cast from []T to []u8
+    if (is_slice(wanted_type) &&
+        is_u8(wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type) &&
+        is_slice(actual_type) &&
+        (wanted_type->data.structure.fields[0].type_entry->data.pointer.is_const ||
+         !actual_type->data.structure.fields[0].type_entry->data.pointer.is_const))
+    {
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpResizeSlice, true);
+    }
+
 
     // explicit cast from pointer to another pointer
     if ((actual_type->id == TypeTableEntryIdPointer || actual_type->id == TypeTableEntryIdFn) &&
@@ -4757,12 +4784,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                             buf_sprintf("no size available for type '%s'", buf_ptr(&type_entry->name)));
                     return g->builtin_types.entry_invalid;
                 } else {
-                    uint64_t size_in_bytes;
-                    if (type_has_bits(type_entry)) {
-                        size_in_bytes = LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
-                    } else {
-                        size_in_bytes = 0;
-                    }
+                    uint64_t size_in_bytes = type_size(g, type_entry);
                     return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type, size_in_bytes);
                 }
             }
