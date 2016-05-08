@@ -2386,6 +2386,7 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
     LLVMPositionBuilderAtEnd(g->builder, then_block);
     LLVMValueRef then_expr_result = gen_expr(g, then_node);
     if (then_endif_reachable) {
+        clear_debug_source_node(g);
         LLVMBuildBr(g->builder, endif_block);
     }
     LLVMBasicBlockRef after_then_block = LLVMGetInsertBlock(g->builder);
@@ -2393,6 +2394,7 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
     LLVMPositionBuilderAtEnd(g->builder, else_block);
     LLVMValueRef else_expr_result = gen_expr(g, else_node);
     if (else_endif_reachable) {
+        clear_debug_source_node(g);
         LLVMBuildBr(g->builder, endif_block);
     }
     LLVMBasicBlockRef after_else_block = LLVMGetInsertBlock(g->builder);
@@ -2400,6 +2402,7 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
     if (then_endif_reachable || else_endif_reachable) {
         LLVMPositionBuilderAtEnd(g->builder, endif_block);
         if (use_then_value && use_else_value) {
+            set_debug_source_node(g, source_node);
             LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(then_expr_result), "");
             LLVMValueRef incoming_values[2] = {then_expr_result, else_expr_result};
             LLVMBasicBlockRef incoming_blocks[2] = {after_then_block, after_else_block};

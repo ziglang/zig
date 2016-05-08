@@ -1622,7 +1622,8 @@ fn div_exact(a: u32, b: u32) -> u32 {
 
 #attribute("test")
 fn null_literal_outside_function() {
-    assert(here_is_a_null_literal.context == null);
+    const is_null = if (const _ ?= here_is_a_null_literal.context) false else true;
+    assert(is_null);
 }
 struct SillyStruct {
     context: ?i32,

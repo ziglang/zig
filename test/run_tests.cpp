@@ -1666,7 +1666,7 @@ static void run_self_hosted_test(bool is_release_mode) {
     Termination term;
     os_exec_process(zig_exe, args, &term, &zig_stderr, &zig_stdout);
 
-    if (term.how != TerminationIdClean) {
+    if (term.how != TerminationIdClean || term.code != 0) {
         printf("\nSelf-hosted tests failed:\n");
         printf("./zig");
         for (int i = 0; i < args.length; i += 1) {

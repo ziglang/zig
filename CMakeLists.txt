@@ -214,6 +214,8 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/math.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/index.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/linux_x86_64.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/linux_i386.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/mem.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/list.zig" DESTINATION "${ZIG_STD_DEST}")
 
 add_executable(run_tests ${TEST_SOURCES})
 target_link_libraries(run_tests)
