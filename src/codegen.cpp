@@ -888,6 +888,8 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 TypeTableEntry *actual_pointer_type = actual_type->data.structure.fields[0].type_entry;
                 TypeTableEntry *actual_child_type = actual_pointer_type->data.pointer.child_type;
+                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
+                TypeTableEntry *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
 
                 set_debug_source_node(g, node);
 
@@ -896,15 +898,6 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
                 int wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
                 int wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
 
-                LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, expr_val, actual_len_index, "");
-                LLVMValueRef src_len = LLVMBuildLoad(g->builder, src_len_ptr, "");
-                LLVMValueRef src_size = LLVMConstInt(g->builtin_types.entry_isize->type_ref,
-                        type_size(g, actual_child_type), false);
-                LLVMValueRef new_len = LLVMBuildMul(g->builder, src_len, src_size, "");
-                LLVMValueRef dest_len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr,
-                        wanted_len_index, "");
-                LLVMBuildStore(g->builder, new_len, dest_len_ptr);
-
                 LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, expr_val, actual_ptr_index, "");
                 LLVMValueRef src_ptr = LLVMBuildLoad(g->builder, src_ptr_ptr, "");
                 LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr,
@@ -912,6 +905,40 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
                 LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr,
                         wanted_ptr_index, "");
                 LLVMBuildStore(g->builder, src_ptr_casted, dest_ptr_ptr);
+
+                LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, expr_val, actual_len_index, "");
+                LLVMValueRef src_len = LLVMBuildLoad(g->builder, src_len_ptr, "");
+                uint64_t src_size = type_size(g, actual_child_type);
+                uint64_t dest_size = type_size(g, wanted_child_type);
+
+                LLVMValueRef new_len;
+                if (dest_size == 1) {
+                    LLVMValueRef src_size_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref, src_size, false);
+                    new_len = LLVMBuildMul(g->builder, src_len, src_size_val, "");
+                } else if (src_size == 1) {
+                    LLVMValueRef dest_size_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref, dest_size, false);
+                    if (want_debug_safety(g, node)) {
+                        LLVMValueRef remainder_val = LLVMBuildURem(g->builder, src_len, dest_size_val, "");
+                        LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_isize->type_ref);
+                        LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
+                        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SliceWidenOk");
+                        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SliceWidenFail");
+                        LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+                        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+                        gen_debug_safety_crash(g);
+
+                        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+                    }
+                    new_len = ZigLLVMBuildExactUDiv(g->builder, src_len, dest_size_val, "");
+                } else {
+                    zig_unreachable();
+                }
+
+                LLVMValueRef dest_len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr,
+                        wanted_len_index, "");
+                LLVMBuildStore(g->builder, new_len, dest_len_ptr);
+
 
                 return cast_expr->tmp_ptr;
             }

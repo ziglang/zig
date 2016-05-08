@@ -1466,6 +1466,16 @@ fn div_exact(a: i32, b: i32) -> i32 {
 }
     )SOURCE");
 
+    add_debug_safety_case("cast []u8 to bigger slice of wrong size", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    widen_slice([]u8{1, 2, 3, 4, 5});
+}
+#static_eval_enable(false)
+fn widen_slice(slice: []u8) -> []i32 {
+    ([]i32)(slice)
+}
+    )SOURCE");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////

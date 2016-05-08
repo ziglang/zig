@@ -4240,16 +4240,15 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpToUnknownSizeArray, true);
     }
 
-    // explicit cast from []T to []u8
-    if (is_slice(wanted_type) &&
-        is_u8(wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type) &&
-        is_slice(actual_type) &&
+    // explicit cast from []T to []u8 or []u8 to []T
+    if (is_slice(wanted_type) && is_slice(actual_type) &&
+        (is_u8(wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type) ||
+        is_u8(actual_type->data.structure.fields[0].type_entry->data.pointer.child_type)) &&
         (wanted_type->data.structure.fields[0].type_entry->data.pointer.is_const ||
          !actual_type->data.structure.fields[0].type_entry->data.pointer.is_const))
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpResizeSlice, true);
     }
-
 
     // explicit cast from pointer to another pointer
     if ((actual_type->id == TypeTableEntryIdPointer || actual_type->id == TypeTableEntryIdFn) &&
