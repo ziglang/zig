@@ -762,9 +762,7 @@ static void ast_parse_param_decl_list(ParseContext *pc, int *token_index,
 {
     *is_var_args = false;
 
-    Token *l_paren = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    ast_expect_token(pc, l_paren, TokenIdLParen);
+    ast_eat_token(pc, token_index, TokenIdLParen);
 
     Token *token = &pc->tokens->at(*token_index);
     if (token->id == TokenIdRParen) {
@@ -2606,7 +2604,7 @@ static AstNode *ast_parse_use(ParseContext *pc, int *token_index,
 }
 
 /*
-ContainerDecl = ("struct" | "enum" | "union") "Symbol" "{" many(StructMember) "}"
+ContainerDecl = ("struct" | "enum" | "union") "Symbol" option(ParamDeclList) "{" many(StructMember) "}"
 StructMember: many(Directive) option(VisibleMod) (StructField | FnDef)
 StructField : "Symbol" option(":" Expression) ",")
 */
@@ -2636,7 +2634,16 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, int *token_index,
     node->data.struct_decl.top_level_decl.visib_mod = visib_mod;
     node->data.struct_decl.top_level_decl.directives = directives;
 
-    ast_eat_token(pc, token_index, TokenIdLBrace);
+    Token *paren_or_brace = &pc->tokens->at(*token_index);
+    if (paren_or_brace->id == TokenIdLParen) {
+        ast_parse_param_decl_list(pc, token_index, &node->data.struct_decl.generic_params,
+                &node->data.struct_decl.generic_params_is_var_args);
+        ast_eat_token(pc, token_index, TokenIdLBrace);
+    } else if (paren_or_brace->id == TokenIdLBrace) {
+        *token_index += 1;
+    } else {
+        ast_invalid_token_error(pc, paren_or_brace);
+    }
 
     for (;;) {
         Token *directive_token = &pc->tokens->at(*token_index);

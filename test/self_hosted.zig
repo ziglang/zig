@@ -1566,3 +1566,15 @@ fn c_string_concatenation() {
     assert(a[len] == 0);
     assert(b[len] == 0);
 }
+
+#attribute("test")
+fn generic_struct() {
+    var a1 = GenNode(i32) {.value = 13, .next = null,};
+    var b1 = GenNode(bool) {.value = true, .next = null,};
+    assert(a1.value == 13);
+    assert(b1.value);
+}
+struct GenNode(T: type) {
+    value: T,
+    next: ?&GenNode(T),
+}

@@ -600,12 +600,16 @@ struct AstNodeStructDecl {
     TopLevelDecl top_level_decl;
     Buf name;
     ContainerKind kind;
+    ZigList<AstNode *> generic_params;
+    bool generic_params_is_var_args; // always an error but it can happen from parsing
     ZigList<AstNode *> fields;
     ZigList<AstNode *> fns;
 
     // populated by semantic analyzer
     BlockContext *block_context;
     TypeTableEntry *type_entry;
+    TypeTableEntry *generic_fn_type;
+    bool skip;
 };
 
 struct AstNodeStructField {
