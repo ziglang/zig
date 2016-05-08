@@ -3742,7 +3742,6 @@ static TypeTableEntry *analyze_null_literal_expr(CodeGen *g, ImportTableEntry *i
 
     node->data.null_literal.resolved_struct_val_expr.type_entry = expected_type;
     node->data.null_literal.resolved_struct_val_expr.source_node = node;
-    block_context->fn_entry->struct_val_expr_alloca_list.append(&node->data.null_literal.resolved_struct_val_expr);
 
     return resolve_expr_const_val_as_null(g, node, expected_type);
 }

@@ -1612,3 +1612,14 @@ fn exact_division() {
 fn div_exact(a: u32, b: u32) -> u32 {
     @div_exact(a, b)
 }
+
+#attribute("test")
+fn null_literal_outside_function() {
+    assert(here_is_a_null_literal.context == null);
+}
+struct SillyStruct {
+    context: ?i32,
+}
+const here_is_a_null_literal = SillyStruct {
+    .context = null,
+};
