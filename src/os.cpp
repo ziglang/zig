@@ -48,7 +48,23 @@
 
 
 #if defined(ZIG_OS_POSIX)
-static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args, int *return_code) {
+static void populate_termination(Termination *term, int status) {
+    if (WIFEXITED(status)) {
+        term->how = TerminationIdClean;
+        term->code = WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+        term->how = TerminationIdSignaled;
+        term->code = WTERMSIG(status);
+    } else if (WIFSTOPPED(status)) {
+        term->how = TerminationIdStopped;
+        term->code = WSTOPSIG(status);
+    } else {
+        term->how = TerminationIdUnknown;
+        term->code = status;
+    }
+}
+
+static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args, Termination *term) {
     pid_t pid = fork();
     if (pid == -1)
         zig_panic("fork failed");
@@ -64,28 +80,30 @@ static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args,
         zig_panic("execvp failed: %s", strerror(errno));
     } else {
         // parent
-        waitpid(pid, return_code, 0);
+        int status;
+        waitpid(pid, &status, 0);
+        populate_termination(term, status);
     }
 }
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
-static void os_spawn_process_windows(const char *exe, ZigList<const char *> &args, int *return_code) {
+static void os_spawn_process_windows(const char *exe, ZigList<const char *> &args, Termination *term) {
     Buf stderr_buf = BUF_INIT;
     Buf stdout_buf = BUF_INIT;
 
     // TODO this is supposed to inherit stdout/stderr instead of capturing it
-    os_exec_process(exe, args, return_code, &stderr_buf, &stdout_buf);
+    os_exec_process(exe, args, term, &stderr_buf, &stdout_buf);
     fwrite(buf_ptr(&stderr_buf), 1, buf_len(&stderr_buf), stderr);
     fwrite(buf_ptr(&stdout_buf), 1, buf_len(&stdout_buf), stdout);
 }
 #endif
 
-void os_spawn_process(const char *exe, ZigList<const char *> &args, int *return_code) {
+void os_spawn_process(const char *exe, ZigList<const char *> &args, Termination *term) {
 #if defined(ZIG_OS_WINDOWS)
-    os_spawn_process_windows(exe, args, return_code);
+    os_spawn_process_windows(exe, args, term);
 #elif defined(ZIG_OS_POSIX)
-    os_spawn_process_posix(exe, args, return_code);
+    os_spawn_process_posix(exe, args, term);
 #else
 #error "missing os_spawn_process implementation"
 #endif
@@ -195,10 +213,9 @@ int os_fetch_file(FILE *f, Buf *out_buf) {
     zig_unreachable();
 }
 
-
 #if defined(ZIG_OS_POSIX)
 static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
-        int *return_code, Buf *out_stderr, Buf *out_stdout)
+        Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
     int stdin_pipe[2];
     int stdout_pipe[2];
@@ -244,7 +261,9 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
         close(stdout_pipe[1]);
         close(stderr_pipe[1]);
 
-        waitpid(pid, return_code, 0);
+        int status;
+        waitpid(pid, &status, 0);
+        populate_termination(term, status);
 
         os_fetch_file(fdopen(stdout_pipe[0], "rb"), out_stdout);
         os_fetch_file(fdopen(stderr_pipe[0], "rb"), out_stderr);
@@ -269,7 +288,7 @@ static void win32_panic(const char *str) {
 */
 
 static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
-        int *return_code, Buf *out_stderr, Buf *out_stdout)
+        Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
     Buf command_line = BUF_INIT;
     buf_resize(&command_line, 0);
@@ -391,7 +410,8 @@ static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
     if (!GetExitCodeProcess(piProcInfo.hProcess, &exit_code)) {
         zig_panic("GetExitCodeProcess failed");
     }
-    *return_code = exit_code;
+    term->how == TerminationIdClean;
+    term->code = exit_code;
 
     CloseHandle(piProcInfo.hProcess);
     CloseHandle(piProcInfo.hThread);
@@ -401,12 +421,12 @@ static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
 #endif
 
 int os_exec_process(const char *exe, ZigList<const char *> &args,
-        int *return_code, Buf *out_stderr, Buf *out_stdout)
+        Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
 #if defined(ZIG_OS_WINDOWS)
-    return os_exec_process_windows(exe, args, return_code, out_stderr, out_stdout);
+    return os_exec_process_windows(exe, args, term, out_stderr, out_stdout);
 #elif defined(ZIG_OS_POSIX)
-    return os_exec_process_posix(exe, args, return_code, out_stderr, out_stdout);
+    return os_exec_process_posix(exe, args, term, out_stderr, out_stdout);
 #else
 #error "missing os_exec_process implementation"
 #endif

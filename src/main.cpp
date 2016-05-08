@@ -395,13 +395,13 @@ int main(int argc, char **argv) {
                 codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);
                 codegen_link(g, "./test");
                 ZigList<const char *> args = {0};
-                int return_code;
-                os_spawn_process("./test", args, &return_code);
-                if (return_code != 0) {
+                Termination term;
+                os_spawn_process("./test", args, &term);
+                if (term.how != TerminationIdClean || term.code != 0) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
                     fprintf(stderr, "./test\n");
                 }
-                return return_code;
+                return (term.how == TerminationIdClean) ? term.code : -1;
             } else {
                 zig_unreachable();
             }

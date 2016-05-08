@@ -1594,3 +1594,12 @@ fn cast_slice_to_u8_slice() {
     bytes[7] = 0;
     assert(big_thing_slice[1] == 0);
 }
+
+#attribute("test")
+fn float_division() {
+    assert(fdiv32(12.0, 3.0) == 4.0);
+}
+#static_eval_enable(false)
+fn fdiv32(a: f32, b: f32) -> f32 {
+    a / b
+}

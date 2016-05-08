@@ -1446,6 +1446,16 @@ fn shl(a: u16, b: u16) -> u16 {
 }
     )SOURCE");
 
+    add_debug_safety_case("integer division by zero", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    div0(999, 0);
+}
+#static_eval_enable(false)
+fn div0(a: i32, b: i32) -> i32 {
+    a / b
+}
+    )SOURCE");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1627,16 +1637,16 @@ struct type {
 static void run_self_hosted_test(bool is_release_mode) {
     Buf zig_stderr = BUF_INIT;
     Buf zig_stdout = BUF_INIT;
-    int return_code;
     ZigList<const char *> args = {0};
     args.append("test");
     args.append("../test/self_hosted.zig");
     if (is_release_mode) {
         args.append("--release");
     }
-    os_exec_process(zig_exe, args, &return_code, &zig_stderr, &zig_stdout);
+    Termination term;
+    os_exec_process(zig_exe, args, &term, &zig_stderr, &zig_stdout);
 
-    if (return_code) {
+    if (term.how != TerminationIdClean) {
         printf("\nSelf-hosted tests failed:\n");
         printf("./zig");
         for (int i = 0; i < args.length; i += 1) {
@@ -1694,14 +1704,14 @@ static void run_test(TestCase *test_case) {
 
     Buf zig_stderr = BUF_INIT;
     Buf zig_stdout = BUF_INIT;
-    int return_code;
     int err;
-    if ((err = os_exec_process(zig_exe, test_case->compiler_args, &return_code, &zig_stderr, &zig_stdout))) {
+    Termination term;
+    if ((err = os_exec_process(zig_exe, test_case->compiler_args, &term, &zig_stderr, &zig_stdout))) {
         fprintf(stderr, "Unable to exec %s: %s\n", zig_exe, err_str(err));
     }
 
     if (!test_case->is_parseh && test_case->compile_errors.length) {
-        if (return_code) {
+        if (term.how != TerminationIdClean || term.code != 0) {
             for (int i = 0; i < test_case->compile_errors.length; i += 1) {
                 const char *err_text = test_case->compile_errors.at(i);
                 if (!strstr(buf_ptr(&zig_stderr), err_text)) {
@@ -1723,8 +1733,8 @@ static void run_test(TestCase *test_case) {
         }
     }
 
-    if (return_code != 0) {
-        printf("\nCompile failed with return code %d:\n", return_code);
+    if (term.how != TerminationIdClean || term.code != 0) {
+        printf("\nCompile failed:\n");
         print_compiler_invocation(test_case);
         printf("%s\n", buf_ptr(&zig_stderr));
         exit(1);
@@ -1754,18 +1764,28 @@ static void run_test(TestCase *test_case) {
     } else {
         Buf program_stderr = BUF_INIT;
         Buf program_stdout = BUF_INIT;
-        os_exec_process(tmp_exe_path, test_case->program_args, &return_code, &program_stderr, &program_stdout);
+        os_exec_process(tmp_exe_path, test_case->program_args, &term, &program_stderr, &program_stdout);
 
         if (test_case->is_debug_safety) {
-            if (return_code == 0) {
-                printf("\nProgram expected to hit debug trap but exited with return code 0\n");
+            int debug_trap_signal = 5;
+            if (term.how != TerminationIdSignaled || term.code != debug_trap_signal) {
+                if (term.how == TerminationIdClean) {
+                    printf("\nProgram expected to hit debug trap (signal %d) but exited with return code %d\n",
+                            debug_trap_signal, term.code);
+                } else if (term.how == TerminationIdSignaled) {
+                    printf("\nProgram expected to hit debug trap (signal %d) but signaled with code %d\n",
+                            debug_trap_signal, term.code);
+                } else {
+                    printf("\nProgram expected to hit debug trap (signal %d) exited in an unexpected way\n",
+                            debug_trap_signal);
+                }
                 print_compiler_invocation(test_case);
                 print_exe_invocation(test_case);
                 exit(1);
             }
         } else {
-            if (return_code != 0) {
-                printf("\nProgram exited with return code %d:\n", return_code);
+            if (term.how != TerminationIdClean || term.code != 0) {
+                printf("\nProgram exited with error\n");
                 print_compiler_invocation(test_case);
                 print_exe_invocation(test_case);
                 printf("%s\n", buf_ptr(&program_stderr));

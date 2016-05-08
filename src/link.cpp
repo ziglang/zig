@@ -821,17 +821,23 @@ void codegen_link(CodeGen *g, const char *out_file) {
         fprintf(stderr, "\n");
     }
 
-    int return_code;
     Buf ld_stderr = BUF_INIT;
     Buf ld_stdout = BUF_INIT;
-    int err = os_exec_process(buf_ptr(g->linker_path), lj.args, &return_code, &ld_stderr, &ld_stdout);
+    Termination term;
+    int err = os_exec_process(buf_ptr(g->linker_path), lj.args, &term, &ld_stderr, &ld_stdout);
     if (err) {
         fprintf(stderr, "linker not found: '%s'\n", buf_ptr(g->linker_path));
         exit(1);
     }
 
-    if (return_code != 0) {
-        fprintf(stderr, "linker failed with return code %d\n", return_code);
+    if (term.how != TerminationIdClean || term.code != 0) {
+        if (term.how == TerminationIdClean) {
+            fprintf(stderr, "linker failed with return code %d\n", term.code);
+        } else if (term.how == TerminationIdSignaled) {
+            fprintf(stderr, "linker failed with signal %d\n", term.code);
+        } else {
+            fprintf(stderr, "linker failed\n");
+        }
         fprintf(stderr, "%s ", buf_ptr(g->linker_path));
         for (int i = 0; i < lj.args.length; i += 1) {
             fprintf(stderr, "%s ", lj.args.at(i));

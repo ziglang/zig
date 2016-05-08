@@ -1565,6 +1565,43 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
     zig_unreachable();
 }
 
+static LLVMValueRef gen_div(CodeGen *g, AstNode *source_node, LLVMValueRef val1, LLVMValueRef val2,
+        TypeTableEntry *type_entry)
+{
+    set_debug_source_node(g, source_node);
+
+    if (want_debug_safety(g, source_node)) {
+        LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
+        LLVMValueRef is_zero_bit;
+        if (type_entry->id == TypeTableEntryIdInt) {
+            is_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
+        } else if (type_entry->id == TypeTableEntryIdFloat) {
+            is_zero_bit = LLVMBuildFCmp(g->builder, LLVMRealOEQ, val2, zero, "");
+        } else {
+            zig_unreachable();
+        }
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivZeroOk");
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivZeroFail");
+        LLVMBuildCondBr(g->builder, is_zero_bit, fail_block, ok_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_debug_safety_crash(g);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    }
+
+    if (type_entry->id == TypeTableEntryIdFloat) {
+        return LLVMBuildFDiv(g->builder, val1, val2, "");
+    } else {
+        assert(type_entry->id == TypeTableEntryIdInt);
+        if (type_entry->data.integral.is_signed) {
+            return LLVMBuildSDiv(g->builder, val1, val2, "");
+        } else {
+            return LLVMBuildUDiv(g->builder, val1, val2, "");
+        }
+    }
+}
+
 static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
     LLVMValueRef val1, LLVMValueRef val2,
     TypeTableEntry *op1_type, TypeTableEntry *op2_type,
@@ -1665,17 +1702,7 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
             }
         case BinOpTypeDiv:
         case BinOpTypeAssignDiv:
-            set_debug_source_node(g, source_node);
-            if (op1_type->id == TypeTableEntryIdFloat) {
-                return LLVMBuildFDiv(g->builder, val1, val2, "");
-            } else {
-                assert(op1_type->id == TypeTableEntryIdInt);
-                if (op1_type->data.integral.is_signed) {
-                    return LLVMBuildSDiv(g->builder, val1, val2, "");
-                } else {
-                    return LLVMBuildUDiv(g->builder, val1, val2, "");
-                }
-            }
+            return gen_div(g, source_node, val1, val2, op1_type);
         case BinOpTypeMod:
         case BinOpTypeAssignMod:
             set_debug_source_node(g, source_node);

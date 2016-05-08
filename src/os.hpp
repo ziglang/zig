@@ -13,10 +13,23 @@
 
 #include <stdio.h>
 
+enum TerminationId {
+    TerminationIdClean,
+    TerminationIdSignaled,
+    TerminationIdStopped,
+    TerminationIdUnknown,
+};
+
+struct Termination {
+    TerminationId how;
+    int code;
+};
+
+
 void os_init(void);
-void os_spawn_process(const char *exe, ZigList<const char *> &args, int *return_code);
+void os_spawn_process(const char *exe, ZigList<const char *> &args, Termination *term);
 int os_exec_process(const char *exe, ZigList<const char *> &args,
-        int *return_code, Buf *out_stderr, Buf *out_stdout);
+        Termination *term, Buf *out_stderr, Buf *out_stdout);
 
 void os_path_dirname(Buf *full_path, Buf *out_dirname);
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename);
