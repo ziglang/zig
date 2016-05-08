@@ -1572,9 +1572,11 @@ fn generic_struct() {
     var a1 = GenNode(i32) {.value = 13, .next = null,};
     var b1 = GenNode(bool) {.value = true, .next = null,};
     assert(a1.value == 13);
-    assert(b1.value);
+    assert(a1.value == a1.get_val());
+    assert(b1.get_val());
 }
 struct GenNode(T: type) {
     value: T,
     next: ?&GenNode(T),
+    fn get_val(n: &const GenNode(T)) -> T { n.value }
 }

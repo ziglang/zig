@@ -1549,7 +1549,7 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import, AstNode *prot
     if (proto_node->data.fn_proto.generic_params.length > 0) {
         return preview_generic_fn_proto(g, import, proto_node);
     } else {
-        return preview_fn_proto_instance(g, import, proto_node, import->block_context);
+        return preview_fn_proto_instance(g, import, proto_node, proto_node->block_context);
     }
 
 }
