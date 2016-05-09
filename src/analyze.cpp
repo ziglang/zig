@@ -5217,7 +5217,7 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
         AstNode **generic_param_type_node = &generic_param_decl_node->data.param_decl.type;
 
         TypeTableEntry *expected_param_type = analyze_type_expr(g, decl_node->owner,
-                decl_node->owner->block_context, *generic_param_type_node);
+                child_context, *generic_param_type_node);
         if (expected_param_type->id == TypeTableEntryIdInvalid) {
             return expected_param_type;
         }
@@ -5809,6 +5809,17 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
                 if (resolved_type->id == TypeTableEntryIdInvalid) {
                     return resolved_type;
                 } else if (resolved_type->id == TypeTableEntryIdErrorUnion) {
+                    TypeTableEntry *return_type = context->fn_entry->type_entry->data.fn.fn_type_id.return_type;
+                    if (return_type->id != TypeTableEntryIdErrorUnion &&
+                        return_type->id != TypeTableEntryIdPureError)
+                    {
+                        ErrorMsg *msg = add_node_error(g, node,
+                            buf_sprintf("%%return statement in function with return type '%s'",
+                                buf_ptr(&return_type->name)));
+                        AstNode *return_type_node = context->fn_entry->fn_def_node->data.fn_def.fn_proto->data.fn_proto.return_type;
+                        add_error_note(g, msg, return_type_node, buf_sprintf("function return type here"));
+                    }
+
                     return resolved_type->data.error.child_type;
                 } else {
                     add_node_error(g, node->data.return_expr.expr,

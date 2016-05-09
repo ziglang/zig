@@ -2605,7 +2605,7 @@ static AstNode *ast_parse_use(ParseContext *pc, int *token_index,
 
 /*
 ContainerDecl = ("struct" | "enum" | "union") "Symbol" option(ParamDeclList) "{" many(StructMember) "}"
-StructMember = many(Directive) option(VisibleMod) (StructField | FnDef | GlobalVarDecl)
+StructMember = many(Directive) option(VisibleMod) (StructField | FnDef | GlobalVarDecl | ContainerDecl)
 StructField : "Symbol" option(":" Expression) ",")
 */
 static AstNode *ast_parse_container_decl(ParseContext *pc, int *token_index,
@@ -2672,6 +2672,12 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, int *token_index,
         if (var_decl_node) {
             ast_eat_token(pc, token_index, TokenIdSemicolon);
             node->data.struct_decl.decls.append(var_decl_node);
+            continue;
+        }
+
+        AstNode *container_decl_node = ast_parse_container_decl(pc, token_index, directive_list, visib_mod);
+        if (container_decl_node) {
+            node->data.struct_decl.decls.append(container_decl_node);
             continue;
         }
 

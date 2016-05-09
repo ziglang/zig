@@ -1648,3 +1648,11 @@ fn const_decls_in_struct() {
 struct GenericDataThing(count: isize) {
     const count_plus_one = count + 1;
 }
+
+#attribute("test")
+fn use_generic_param_in_generic_param() {
+    assert(a_generic_fn(i32, 3)(4) == 7);
+}
+fn a_generic_fn(T: type, a: T)(b: T) -> T {
+    return a + b;
+}

@@ -47,7 +47,7 @@ pub struct HashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)-
             }
             unreachable{} // no next item
         }
-    };
+    }
     
     pub fn init(hm: &Self, allocator: &Allocator, capacity: isize) {
         assert(capacity > 0);
@@ -56,7 +56,7 @@ pub struct HashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)-
     }
 
     pub fn deinit(hm: &Self) {
-        free(_entries);
+        hm.allocator.free(hm.allocator, ([]u8)(hm.entries));
     }
 
     pub fn clear(hm: &Self) {
@@ -128,8 +128,7 @@ pub struct HashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)-
     }
 
     fn init_capacity(hm: &Self, capacity: isize) {
-        hm.capacity = capacity;
-        hm.entries = ([]Entry)(hm.allocator.alloc(hm.allocator, capacity * @sizeof(Entry)));
+        hm.entries = ([]Entry)(%return hm.allocator.alloc(hm.allocator, capacity * @sizeof(Entry)));
         hm.size = 0;
         hm.max_distance_from_start_index = 0;
         for (hm.entries) |*entry| {
@@ -143,7 +142,7 @@ pub struct HashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)-
         }
     }
 
-    fn internal_put(hm: &Self, K orig_key, V orig_value) {
+    fn internal_put(hm: &Self, orig_key: K, orig_value: V) {
         var key = orig_key;
         var value = orig_value;
         const start_index = key_to_index(key);
@@ -179,7 +178,7 @@ pub struct HashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)-
             }
 
             hm.max_distance_from_start_index = math.max(isize)(distance_from_start_index, hm.max_distance_from_start_index);
-            *entry = {
+            *entry = Entry {
                 .used = true,
                 .distance_from_start_index = distance_from_start_index,
                 .key = key,
@@ -200,21 +199,6 @@ pub struct HashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)-
             if (eql(entry.key, key)) return entry;
         }}
         return null;
-    }
-
-    Entry *internal_get(const K &key) const {
-        int start_index = key_to_index(key);
-        for (int roll_over = 0; roll_over <= _max_distance_from_start_index; roll_over += 1) {
-            int index = (start_index + roll_over) % _capacity;
-            Entry *entry = &_entries[index];
-
-            if (!entry->used)
-                return NULL;
-
-            if (EqualFn(entry->key, key))
-                return entry;
-        }
-        return NULL;
     }
 
     fn key_to_index(hm: &Self, key: K) -> isize {
@@ -249,7 +233,7 @@ fn global_free(self: &Allocator, old_mem: []u8) {
 
 #attribute("test")
 fn basic_hash_map_test() {
-    var map: HashMap(i32, i32, hash_i32, eql_i32);
+    var map: HashMap(i32, i32, hash_i32, eql_i32) = undefined;
     map.init(&global_allocator, 4);
     defer map.deinit();
 }
