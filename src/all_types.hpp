@@ -604,7 +604,7 @@ struct AstNodeStructDecl {
     ZigList<AstNode *> generic_params;
     bool generic_params_is_var_args; // always an error but it can happen from parsing
     ZigList<AstNode *> fields;
-    ZigList<AstNode *> fns;
+    ZigList<AstNode *> decls;
 
     // populated by semantic analyzer
     BlockContext *block_context;

@@ -2605,7 +2605,7 @@ static AstNode *ast_parse_use(ParseContext *pc, int *token_index,
 
 /*
 ContainerDecl = ("struct" | "enum" | "union") "Symbol" option(ParamDeclList) "{" many(StructMember) "}"
-StructMember: many(Directive) option(VisibleMod) (StructField | FnDef)
+StructMember = many(Directive) option(VisibleMod) (StructField | FnDef | GlobalVarDecl)
 StructField : "Symbol" option(":" Expression) ",")
 */
 static AstNode *ast_parse_container_decl(ParseContext *pc, int *token_index,
@@ -2664,7 +2664,14 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, int *token_index,
 
         AstNode *fn_def_node = ast_parse_fn_def(pc, token_index, false, directive_list, visib_mod);
         if (fn_def_node) {
-            node->data.struct_decl.fns.append(fn_def_node);
+            node->data.struct_decl.decls.append(fn_def_node);
+            continue;
+        }
+
+        AstNode *var_decl_node = ast_parse_variable_declaration_expr(pc, token_index, false, directive_list, visib_mod);
+        if (var_decl_node) {
+            ast_eat_token(pc, token_index, TokenIdSemicolon);
+            node->data.struct_decl.decls.append(var_decl_node);
             continue;
         }
 
@@ -3035,7 +3042,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeStructDecl:
             visit_node_list(&node->data.struct_decl.fields, visit, context);
-            visit_node_list(&node->data.struct_decl.fns, visit, context);
+            visit_node_list(&node->data.struct_decl.decls, visit, context);
             visit_node_list(node->data.struct_decl.top_level_decl.directives, visit, context);
             break;
         case NodeTypeStructField:
@@ -3278,7 +3285,7 @@ AstNode *ast_clone_subtree(AstNode *old_node, uint32_t *next_node_index) {
         case NodeTypeStructDecl:
             clone_subtree_list(&new_node->data.struct_decl.fields, &old_node->data.struct_decl.fields,
                     next_node_index);
-            clone_subtree_list(&new_node->data.struct_decl.fns, &old_node->data.struct_decl.fns,
+            clone_subtree_list(&new_node->data.struct_decl.decls, &old_node->data.struct_decl.decls,
                     next_node_index);
             clone_subtree_list_ptr(&new_node->data.struct_decl.top_level_decl.directives,
                     old_node->data.struct_decl.top_level_decl.directives, next_node_index);

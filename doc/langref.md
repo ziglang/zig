@@ -17,7 +17,7 @@ VariableDeclaration = ("var" | "const") "Symbol" option(":" TypeExpr) "=" Expres
 
 ContainerDecl = ("struct" | "enum" | "union") "Symbol" option(ParamDeclList) "{" many(StructMember) "}"
 
-StructMember = many(Directive) option(VisibleMod) (StructField | FnDef)
+StructMember = many(Directive) option(VisibleMod) (StructField | FnDef | GlobalVarDecl)
 
 StructField = "Symbol" option(":" Expression) ",")
 

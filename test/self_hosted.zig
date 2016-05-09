@@ -1640,3 +1640,11 @@ fn truncate() {
 fn test_truncate(x: u32) -> u8 {
     @truncate(u8, x)
 }
+
+#attribute("test")
+fn const_decls_in_struct() {
+    assert(GenericDataThing(3).count_plus_one == 4);
+}
+struct GenericDataThing(count: isize) {
+    const count_plus_one = count + 1;
+}

@@ -1580,8 +1580,8 @@ static void scan_struct_decl(CodeGen *g, ImportTableEntry *import, BlockContext 
     node->data.struct_decl.type_entry = container_type;
 
     // handle the member function definitions independently
-    for (int i = 0; i < node->data.struct_decl.fns.length; i += 1) {
-        AstNode *child_node = node->data.struct_decl.fns.at(i);
+    for (int i = 0; i < node->data.struct_decl.decls.length; i += 1) {
+        AstNode *child_node = node->data.struct_decl.decls.at(i);
         get_as_top_level_decl(child_node)->parent_decl = node;
         BlockContext *child_context = get_container_block_context(container_type);
         scan_decls(g, import, child_context, child_node);
@@ -1669,7 +1669,7 @@ static void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only)
         case NodeTypeVariableDeclaration:
             {
                 AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
-                VariableTableEntry *var = analyze_variable_declaration_raw(g, import, import->block_context,
+                VariableTableEntry *var = analyze_variable_declaration_raw(g, import, node->block_context,
                         node, variable_declaration, false, node, false);
 
                 g->global_vars.append(var);
