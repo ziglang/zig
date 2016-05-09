@@ -2501,53 +2501,9 @@ static void gen_var_debug_decl(CodeGen *g, VariableTableEntry *var) {
             LLVMGetInsertBlock(g->builder));
 }
 
-static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeIfVarExpr);
-    assert(node->data.if_var_expr.var_decl.expr);
-
-    AstNodeVariableDeclaration *var_decl = &node->data.if_var_expr.var_decl;
-    VariableTableEntry *variable = var_decl->variable;
-
-    // test if value is the maybe state
-    TypeTableEntry *expr_type = get_expr_type(var_decl->expr);
-    TypeTableEntry *child_type = expr_type->data.maybe.child_type;
-
-    LLVMValueRef init_val = gen_expr(g, var_decl->expr);
-
-    LLVMValueRef cond_value;
-    bool maybe_is_ptr = child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
-    if (maybe_is_ptr) {
-        set_debug_source_node(g, node);
-        cond_value = LLVMBuildICmp(g->builder, LLVMIntNE, init_val, LLVMConstNull(child_type->type_ref), "");
-    } else {
-        set_debug_source_node(g, node);
-        LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, init_val, 1, "");
-        cond_value = LLVMBuildLoad(g->builder, maybe_field_ptr, "");
-    }
-
-    AstNode *then_node = node->data.if_var_expr.then_block;
-    AstNode *else_node = node->data.if_var_expr.else_node;
-
-    TypeTableEntry *then_type = get_expr_type(then_node);
-    TypeTableEntry *else_type = get_expr_type(else_node);
-
-    bool use_then_value = type_has_bits(then_type);
-    bool use_else_value = type_has_bits(else_type);
-
-    LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeThen");
-    LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeElse");
-
-    LLVMBasicBlockRef endif_block;
-    bool then_endif_reachable = then_type->id != TypeTableEntryIdUnreachable;
-    bool else_endif_reachable = else_type->id != TypeTableEntryIdUnreachable;
-    if (then_endif_reachable || else_endif_reachable) {
-        endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeEndIf");
-    }
-
-    set_debug_source_node(g, node);
-    LLVMBuildCondBr(g->builder, cond_value, then_block, else_block);
-
-    LLVMPositionBuilderAtEnd(g->builder, then_block);
+static LLVMValueRef gen_if_var_then_block(CodeGen *g, AstNode *node, VariableTableEntry *variable, bool maybe_is_ptr,
+        LLVMValueRef init_val, TypeTableEntry *child_type, AstNode *then_node)
+{
     if (node->data.if_var_expr.var_is_ptr) {
         LLVMValueRef payload_ptr;
         if (maybe_is_ptr) {
@@ -2569,7 +2525,68 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
     }
     gen_var_debug_decl(g, variable);
 
-    LLVMValueRef then_expr_result = gen_expr(g, then_node);
+    return gen_expr(g, then_node);
+}
+
+static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeIfVarExpr);
+    assert(node->data.if_var_expr.var_decl.expr);
+
+    AstNodeVariableDeclaration *var_decl = &node->data.if_var_expr.var_decl;
+    VariableTableEntry *variable = var_decl->variable;
+
+    // test if value is the maybe state
+    TypeTableEntry *expr_type = get_expr_type(var_decl->expr);
+    TypeTableEntry *child_type = expr_type->data.maybe.child_type;
+
+    LLVMValueRef init_val = gen_expr(g, var_decl->expr);
+
+
+    AstNode *then_node = node->data.if_var_expr.then_block;
+    AstNode *else_node = node->data.if_var_expr.else_node;
+    bool maybe_is_ptr = child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
+
+    ConstExprValue *const_val = &get_resolved_expr(var_decl->expr)->const_val;
+    if (const_val->ok) {
+        if (const_val->data.x_maybe) {
+            return gen_if_var_then_block(g, node, variable, maybe_is_ptr, init_val, child_type, then_node);
+        } else {
+            return gen_expr(g, else_node);
+        }
+    }
+
+    LLVMValueRef cond_value;
+    if (maybe_is_ptr) {
+        set_debug_source_node(g, node);
+        cond_value = LLVMBuildICmp(g->builder, LLVMIntNE, init_val, LLVMConstNull(child_type->type_ref), "");
+    } else {
+        set_debug_source_node(g, node);
+        LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, init_val, 1, "");
+        cond_value = LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+    }
+
+    TypeTableEntry *then_type = get_expr_type(then_node);
+    TypeTableEntry *else_type = get_expr_type(else_node);
+
+    bool use_then_value = type_has_bits(then_type);
+    bool use_else_value = type_has_bits(else_type);
+
+    LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeThen");
+    LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeElse");
+
+    LLVMBasicBlockRef endif_block;
+    bool then_endif_reachable = then_type->id != TypeTableEntryIdUnreachable;
+    bool else_endif_reachable = else_type->id != TypeTableEntryIdUnreachable;
+    if (then_endif_reachable || else_endif_reachable) {
+        endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeEndIf");
+    }
+
+    set_debug_source_node(g, node);
+    LLVMBuildCondBr(g->builder, cond_value, then_block, else_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, then_block);
+    LLVMValueRef then_expr_result = gen_if_var_then_block(g, node, variable, maybe_is_ptr, init_val, child_type, then_node);
+
     if (then_endif_reachable) {
         LLVMBuildBr(g->builder, endif_block);
     }

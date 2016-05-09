@@ -21,7 +21,7 @@ pub struct SmallList(T: type, STATIC_SIZE: isize) {
     }
 
     pub fn deinit(l: &SmallList(T, STATIC_SIZE)) {
-        if (l.items.ptr == &l.prealloc_items[0]) {
+        if (l.items.ptr != &l.prealloc_items[0]) {
             l.allocator.free(l.allocator, ([]u8)(l.items));
         }
     }

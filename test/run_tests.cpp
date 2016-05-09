@@ -831,9 +831,9 @@ fn f() {
 
 
     add_compile_fail_case("missing else clause", R"SOURCE(
-fn f() {
-    const x : i32 = if (true) { 1 };
-    const y = if (true) { i32(1) };
+fn f(b: bool) {
+    const x : i32 = if (b) { 1 };
+    const y = if (b) { i32(1) };
 }
     )SOURCE", 2, ".tmp_source.zig:3:21: error: expected type 'i32', got 'void'",
                  ".tmp_source.zig:4:15: error: incompatible types: 'i32' and 'void'");

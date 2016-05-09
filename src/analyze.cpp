@@ -4014,15 +4014,28 @@ static TypeTableEntry *analyze_if(CodeGen *g, ImportTableEntry *import, BlockCon
         else_context = parent_context;
     }
 
-    TypeTableEntry *then_type = analyze_expression(g, import, then_context, expected_type, *then_node);
-    TypeTableEntry *else_type = analyze_expression(g, import, else_context, expected_type, *else_node);
+    TypeTableEntry *then_type = nullptr;
+    TypeTableEntry *else_type = nullptr;
 
-    if (then_type->id == TypeTableEntryIdInvalid || else_type->id == TypeTableEntryIdInvalid) {
-        return g->builtin_types.entry_invalid;
+    if (!then_context->codegen_excluded) {
+        then_type = analyze_expression(g, import, then_context, expected_type, *then_node);
+        if (then_type->id == TypeTableEntryIdInvalid) {
+            return g->builtin_types.entry_invalid;
+        }
+    }
+    if (!else_context->codegen_excluded) {
+        else_type = analyze_expression(g, import, else_context, expected_type, *else_node);
+        if (else_type->id == TypeTableEntryIdInvalid) {
+            return g->builtin_types.entry_invalid;
+        }
     }
 
     TypeTableEntry *result_type;
-    if (expected_type) {
+    if (then_context->codegen_excluded) {
+        result_type = else_type;
+    } else if (else_context->codegen_excluded) {
+        result_type = then_type;
+    } else if (expected_type) {
         result_type = (then_type->id == TypeTableEntryIdUnreachable) ? else_type : then_type;
     } else {
         AstNode *op_nodes[] = {*then_node, *else_node};

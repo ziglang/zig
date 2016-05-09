@@ -6,6 +6,7 @@ pub const str = @import("str.zig");
 pub const cstr = @import("cstr.zig");
 pub const net = @import("net.zig");
 pub const list = @import("list.zig");
+pub const hash_map = @import("hash_map.zig");
 pub const mem = @import("mem.zig");
 
 pub fn assert(b: bool) {
