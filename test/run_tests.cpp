@@ -1368,6 +1368,20 @@ fn add(x: i8w, y: i32) {
 }
     )SOURCE", 1, ".tmp_source.zig:3:17: error: incompatible types: 'i8w' and 'i32'");
 
+    add_compile_fail_case("truncate sign mismatch", R"SOURCE(
+fn f() {
+    const x: u32 = 10;
+    @truncate(i8, x);
+}
+    )SOURCE", 1, ".tmp_source.zig:4:19: error: expected signed integer type, got 'u32'");
+
+    add_compile_fail_case("truncate same bit count", R"SOURCE(
+fn f() {
+    const x: i8 = 10;
+    @truncate(i8, x);
+}
+    )SOURCE", 1, ".tmp_source.zig:4:19: error: type 'i8' has same or fewer bits than destination type 'i8'");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1473,6 +1487,26 @@ pub fn main(args: [][]u8) -> %void {
 #static_eval_enable(false)
 fn widen_slice(slice: []u8) -> []i32 {
     ([]i32)(slice)
+}
+    )SOURCE");
+
+    add_debug_safety_case("value does not fit in shortening cast", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    shorten_cast(200);
+}
+#static_eval_enable(false)
+fn shorten_cast(x: i32) -> i8 {
+    i8(x)
+}
+    )SOURCE");
+
+    add_debug_safety_case("signed integer not fitting in cast to unsigned integer", R"SOURCE(
+pub fn main(args: [][]u8) -> %void {
+    unsigned_cast(-10);
+}
+#static_eval_enable(false)
+fn unsigned_cast(x: i32) -> u32 {
+    u32(x)
 }
     )SOURCE");
 

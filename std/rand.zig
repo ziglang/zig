@@ -15,7 +15,7 @@ pub struct Rand {
         var i : isize = 1;
         var prev_value: u64w = seed;
         while (i < ARRAY_SIZE; i += 1) {
-            r.array[i] = u32((prev_value ^ (prev_value << 30)) * 0x6c078965 + u64w(i));
+            r.array[i] = @truncate(u32, (prev_value ^ (prev_value << 30)) * 0x6c078965 + u64w(i));
             prev_value = r.array[i];
         }
         return r;

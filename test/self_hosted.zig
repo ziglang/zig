@@ -1631,3 +1631,12 @@ struct SillyStruct {
 const here_is_a_null_literal = SillyStruct {
     .context = null,
 };
+
+#attribute("test")
+fn truncate() {
+    assert(test_truncate(0x10fd) == 0xfd);
+}
+#static_eval_enable(false)
+fn test_truncate(x: u32) -> u8 {
+    @truncate(u8, x)
+}

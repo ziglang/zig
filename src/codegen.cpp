@@ -473,6 +473,18 @@ static LLVMValueRef gen_div_exact(CodeGen *g, AstNode *node) {
     return gen_div(g, node, op1_val, op2_val, get_expr_type(op1_node), true);
 }
 
+static LLVMValueRef gen_truncate(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeFnCallExpr);
+
+    TypeTableEntry *dest_type = get_type_for_type_node(node->data.fn_call_expr.params.at(0));
+    AstNode *src_node = node->data.fn_call_expr.params.at(1);
+
+    LLVMValueRef src_val = gen_expr(g, src_node);
+
+    set_debug_source_node(g, node);
+    return LLVMBuildTrunc(g->builder, src_val, dest_type->type_ref, "");
+}
+
 static LLVMValueRef gen_shl_with_overflow(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
@@ -661,6 +673,8 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
             return gen_fence(g, node);
         case BuiltinFnIdDivExact:
             return gen_div_exact(g, node);
+        case BuiltinFnIdTruncate:
+            return gen_truncate(g, node);
     }
     zig_unreachable();
 }
@@ -729,6 +743,24 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeT
         zig_unreachable();
     }
 
+    if (actual_bits >= wanted_bits && actual_type->id == TypeTableEntryIdInt &&
+        !wanted_type->data.integral.is_signed && actual_type->data.integral.is_signed &&
+        want_debug_safety(g, source_node))
+    {
+        set_debug_source_node(g, source_node);
+        LLVMValueRef zero = LLVMConstNull(actual_type->type_ref);
+        LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntSGE, expr_val, zero, "");
+
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SignCastOk");
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SignCastFail");
+        LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_debug_safety_crash(g);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    }
+
     if (actual_bits == wanted_bits) {
         return expr_val;
     } else if (actual_bits < wanted_bits) {
@@ -752,7 +784,26 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeT
             return LLVMBuildFPTrunc(g->builder, expr_val, wanted_type->type_ref, "");
         } else if (actual_type->id == TypeTableEntryIdInt) {
             set_debug_source_node(g, source_node);
-            return LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
+            LLVMValueRef trunc_val = LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
+            if (!want_debug_safety(g, source_node)) {
+                return trunc_val;
+            }
+            LLVMValueRef orig_val;
+            if (actual_type->data.integral.is_signed) {
+                orig_val = LLVMBuildSExt(g->builder, trunc_val, actual_type->type_ref, "");
+            } else {
+                orig_val = LLVMBuildZExt(g->builder, trunc_val, actual_type->type_ref, "");
+            }
+            LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, expr_val, orig_val, "");
+            LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "CastShortenOk");
+            LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "CastShortenFail");
+            LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+            LLVMPositionBuilderAtEnd(g->builder, fail_block);
+            gen_debug_safety_crash(g);
+
+            LLVMPositionBuilderAtEnd(g->builder, ok_block);
+            return trunc_val;
         } else {
             zig_unreachable();
         }
@@ -4568,6 +4619,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCmpExchange, "cmpxchg", 5);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdFence, "fence", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdDivExact, "div_exact", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdTruncate, "truncate", 2);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

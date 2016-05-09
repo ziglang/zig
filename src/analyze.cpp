@@ -4686,6 +4686,44 @@ static TypeTableEntry *analyze_div_exact(CodeGen *g, ImportTableEntry *import,
     }
 }
 
+static TypeTableEntry *analyze_truncate(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode **op1 = &node->data.fn_call_expr.params.at(0);
+    AstNode **op2 = &node->data.fn_call_expr.params.at(1);
+
+    TypeTableEntry *dest_type = analyze_type_expr(g, import, context, *op1);
+    TypeTableEntry *src_type = analyze_expression(g, import, context, nullptr, *op2);
+
+    if (dest_type->id == TypeTableEntryIdInvalid || src_type->id == TypeTableEntryIdInvalid) {
+        return g->builtin_types.entry_invalid;
+    } else if (dest_type->id != TypeTableEntryIdInt) {
+        add_node_error(g, *op1,
+                buf_sprintf("expected integer type, got '%s'", buf_ptr(&dest_type->name)));
+        return g->builtin_types.entry_invalid;
+    } else if (src_type->id != TypeTableEntryIdInt) {
+        add_node_error(g, *op2,
+                buf_sprintf("expected integer type, got '%s'", buf_ptr(&src_type->name)));
+        return g->builtin_types.entry_invalid;
+    } else if (src_type->data.integral.is_signed != dest_type->data.integral.is_signed) {
+        const char *sign_str = dest_type->data.integral.is_signed ? "signed" : "unsigned";
+        add_node_error(g, *op2,
+                buf_sprintf("expected %s integer type, got '%s'", sign_str, buf_ptr(&src_type->name)));
+        return g->builtin_types.entry_invalid;
+    } else if (src_type->data.integral.bit_count <= dest_type->data.integral.bit_count) {
+        add_node_error(g, *op2,
+                buf_sprintf("type '%s' has same or fewer bits than destination type '%s'",
+                    buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
+        return g->builtin_types.entry_invalid;
+    }
+
+    // TODO const expr eval
+
+    return dest_type;
+}
+
 static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -5028,6 +5066,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             return analyze_fence(g, import, context, node);
         case BuiltinFnIdDivExact:
             return analyze_div_exact(g, import, context, node);
+        case BuiltinFnIdTruncate:
+            return analyze_truncate(g, import, context, node);
     }
     zig_unreachable();
 }
