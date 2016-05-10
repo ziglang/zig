@@ -3,8 +3,8 @@ const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 
 /*
-fn List(T: type) -> type {
-    List(T, 8)
+pub fn List(T: type) -> type {
+    SmallList(T, 8)
 }
 */
 

@@ -312,13 +312,10 @@ fn restore_signals(set: &sigset_t) {
 }
 
 
-pub type sa_family_t = u16;
-pub type socklen_t = u32;
-pub type in_addr_t = u32;
-
-export struct in_addr {
-    s_addr: in_addr_t,
-}
+pub const sa_family_t = u16;
+pub const socklen_t = u32;
+pub const in_addr = u32;
+pub const in6_addr = [16]u8;
 
 export struct sockaddr {
     family: sa_family_t,
@@ -341,14 +338,32 @@ export struct sockaddr_in6 {
     scope_id: u32,
 }
 
-export struct in6_addr {
-    addr: [16]u8,
-}
-
 export struct iovec {
     iov_base: &u8,
     iov_len: usize,
 }
+
+/*
+const IF_NAMESIZE = 16;
+
+export struct ifreq {
+    ifrn_name: [IF_NAMESIZE]u8,
+	union {
+        ifru_addr: sockaddr,
+        ifru_dstaddr: sockaddr,
+        ifru_broadaddr: sockaddr,
+        ifru_netmask: sockaddr,
+        ifru_hwaddr: sockaddr,
+        ifru_flags: i16,
+        ifru_ivalue: i32,
+        ifru_mtu: i32,
+        ifru_map: ifmap,
+        ifru_slave: [IF_NAMESIZE]u8,
+        ifru_newname: [IF_NAMESIZE]u8,
+        ifru_data: &u8,
+	} ifr_ifru;
+}
+*/
 
 pub fn getsockname(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> isize {
     arch.syscall3(arch.SYS_getsockname, fd, isize(addr), isize(len))
@@ -415,3 +430,33 @@ pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) -> i
 pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags: i32) -> isize {
     arch.syscall4(arch.SYS_accept4, fd, isize(addr), isize(len), flags)
 }
+
+/*
+pub error NameTooLong;
+pub error SystemResources;
+pub error Io;
+
+pub fn if_nametoindex(name: []u8) -> %u32 {
+    var ifr: ifreq = undefined;
+
+    if (name.len >= ifr.ifr_name.len) {
+        return error.NameTooLong;
+    }
+
+    const socket_ret = socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0);
+    const socket_err = get_errno(socket_ret);
+    if (socket_err > 0) {
+        return error.SystemResources;
+    }
+    const socket_fd = i32(socket_ret);
+    @memcpy(&ifr.ifr_name[0], &name[0], name.len);
+    ifr.ifr_name[name.len] = 0;
+    const ioctl_ret = ioctl(socket_fd, SIOCGIFINDEX, &ifr);
+    close(socket_fd);
+    const ioctl_err = get_errno(ioctl_ret);
+    if (ioctl_err > 0) {
+        return error.Io;
+    }
+    return ifr.ifr_ifindex;
+}
+*/

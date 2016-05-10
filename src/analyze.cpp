@@ -4260,6 +4260,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         (wanted_type->data.structure.fields[0].type_entry->data.pointer.is_const ||
          !actual_type->data.structure.fields[0].type_entry->data.pointer.is_const))
     {
+        mark_impure_fn(context);
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpResizeSlice, true);
     }
 

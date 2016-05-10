@@ -12,4 +12,3 @@ pub const mem = @import("mem.zig");
 pub fn assert(b: bool) {
     if (!b) unreachable{}
 }
-
