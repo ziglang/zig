@@ -1214,6 +1214,7 @@ struct CodeGen {
     Buf *libc_include_dir;
     Buf *dynamic_linker;
     Buf *linker_path;
+    Buf *ar_path;
     Buf triple_str;
     bool is_release_build;
     bool is_test_build;

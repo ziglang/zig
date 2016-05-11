@@ -119,10 +119,10 @@ pub struct OutStream {
     }
 
     pub fn flush(os: &OutStream) -> %void {
-        const amt_written = linux.write(os.fd, &os.buffer[0], os.index);
-        os.index = 0;
-        if (amt_written < 0) {
-            return switch (-amt_written) {
+        const write_ret = linux.write(os.fd, &os.buffer[0], os.index);
+        const write_err = linux.get_errno(write_ret);
+        if (write_err > 0) {
+            return switch (write_err) {
                 errno.EINVAL => unreachable{},
                 errno.EDQUOT => error.DiskQuota,
                 errno.EFBIG  => error.FileTooBig,
@@ -134,6 +134,7 @@ pub struct OutStream {
                 else         => error.Unexpected,
             }
         }
+        os.index = 0;
     }
 
     pub fn close(os: &OutStream) -> %void {

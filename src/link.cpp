@@ -152,6 +152,7 @@ static void construct_linker_job_linux(LinkJob *lj) {
         find_libc_lib_path(g);
     }
 
+    lj->args.append("--gc-sections");
 
     lj->args.append("-m");
     lj->args.append(getLDMOption(&g->zig_target));

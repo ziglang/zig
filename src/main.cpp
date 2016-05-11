@@ -37,6 +37,7 @@ static int usage(const char *arg0) {
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
         "  --ld-path [path]             set the path to the linker\n"
+        "  --ar-path [path]             set the path to ar\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  --library-path [dir]         add a directory to the library search path\n"
@@ -118,6 +119,7 @@ int main(int argc, char **argv) {
     const char *libc_include_dir = nullptr;
     const char *dynamic_linker = nullptr;
     const char *linker_path = nullptr;
+    const char *ar_path = nullptr;
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> lib_dirs = {0};
     ZigList<const char *> link_libs = {0};
@@ -196,6 +198,8 @@ int main(int argc, char **argv) {
                     dynamic_linker = argv[i];
                 } else if (strcmp(arg, "--ld-path") == 0) {
                     linker_path = argv[i];
+                } else if (strcmp(arg, "--ar-path") == 0) {
+                    ar_path = argv[i];
                 } else if (strcmp(arg, "-isystem") == 0) {
                     clang_argv.append("-isystem");
                     clang_argv.append(argv[i]);
@@ -356,6 +360,8 @@ int main(int argc, char **argv) {
                 codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
             if (linker_path)
                 codegen_set_linker_path(g, buf_create_from_str(linker_path));
+            if (ar_path)
+                codegen_set_ar_path(g, buf_create_from_str(ar_path));
             codegen_set_verbose(g, verbose);
             codegen_set_errmsg_color(g, color);
 

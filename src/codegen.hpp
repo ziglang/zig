@@ -32,6 +32,7 @@ void codegen_set_libc_static_lib_dir(CodeGen *g, Buf *libc_static_lib_dir);
 void codegen_set_libc_include_dir(CodeGen *codegen, Buf *libc_include_dir);
 void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker);
 void codegen_set_linker_path(CodeGen *g, Buf *linker_path);
+void codegen_set_ar_path(CodeGen *g, Buf *ar_path);
 void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole);
 void codegen_set_windows_unicode(CodeGen *g, bool municode);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);

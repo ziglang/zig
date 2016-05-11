@@ -18,6 +18,7 @@ set(ZIG_LIBC_LIB_DIR "" CACHE STRING "Default native target libc directory where
 set(ZIG_LIBC_STATIC_LIB_DIR "" CACHE STRING "Default native target libc directory where crtbeginT.o can be found")
 set(ZIG_LIBC_INCLUDE_DIR "/usr/include" CACHE STRING "Default native target libc include directory")
 set(ZIG_LD_PATH "ld" CACHE STRING "Path to ld for the native target")
+set(ZIG_AR_PATH "ar" CACHE STRING "Path to ar for the native target")
 set(ZIG_DYNAMIC_LINKER "" CACHE STRING "Override dynamic linker for native target")
 
 option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
@@ -217,6 +218,7 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/linux_i386.zig" DESTINATION "${ZIG_STD_DE
 install(FILES "${CMAKE_SOURCE_DIR}/std/mem.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/list.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/hash_map.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/empty.zig" DESTINATION "${ZIG_STD_DEST}")
 
 add_executable(run_tests ${TEST_SOURCES})
 target_link_libraries(run_tests)
