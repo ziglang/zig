@@ -3885,6 +3885,7 @@ static void do_code_gen(CodeGen *g) {
 
         TypeTableEntry *fn_type = fn_table_entry->type_entry;
 
+        bool is_sret = false;
         if (!type_has_bits(fn_type->data.fn.fn_type_id.return_type)) {
             // nothing to do
         } else if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdPointer) {
@@ -3893,7 +3894,12 @@ static void do_code_gen(CodeGen *g) {
             LLVMValueRef first_arg = LLVMGetParam(fn_table_entry->fn_value, 0);
             LLVMAddAttribute(first_arg, LLVMStructRetAttribute);
             LLVMZigAddNonNullAttr(fn_table_entry->fn_value, 1);
+            is_sret = true;
         }
+        if (fn_table_entry->is_pure && !is_sret) {
+            LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMReadOnlyAttribute);
+        }
+
 
         // set parameter attributes
         for (int param_decl_i = 0; param_decl_i < fn_proto->params.length; param_decl_i += 1) {
@@ -3914,7 +3920,7 @@ static void do_code_gen(CodeGen *g) {
             if (param_type->id == TypeTableEntryIdPointer && param_is_noalias) {
                 LLVMAddAttribute(argument_val, LLVMNoAliasAttribute);
             }
-            if ((param_type->id == TypeTableEntryIdPointer && param_type->data.pointer.is_const) ||
+            if ((param_type->id == TypeTableEntryIdPointer && (param_type->data.pointer.is_const || fn_table_entry->is_pure)) ||
                 is_byval)
             {
                 LLVMAddAttribute(argument_val, LLVMReadOnlyAttribute);

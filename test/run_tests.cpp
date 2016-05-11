@@ -1410,8 +1410,10 @@ fn baz(a: i32) {}
     )SOURCE");
 
     add_debug_safety_case("integer addition overflow", R"SOURCE(
+error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    add(65530, 10);
+    const x = add(65530, 10);
+    if (x == 0) return error.Whatever;
 }
 #static_eval_enable(false)
 fn add(a: u16, b: u16) -> u16 {
@@ -1420,8 +1422,10 @@ fn add(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer subtraction overflow", R"SOURCE(
+error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    sub(10, 20);
+    const x = sub(10, 20);
+    if (x == 0) return error.Whatever;
 }
 #static_eval_enable(false)
 fn sub(a: u16, b: u16) -> u16 {
@@ -1430,8 +1434,10 @@ fn sub(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer multiplication overflow", R"SOURCE(
+error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    mul(300, 6000);
+    const x = mul(300, 6000);
+    if (x == 0) return error.Whatever;
 }
 #static_eval_enable(false)
 fn mul(a: u16, b: u16) -> u16 {
@@ -1440,8 +1446,10 @@ fn mul(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer negation overflow", R"SOURCE(
+error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    neg(-32768);
+    const x = neg(-32768);
+    if (x == 0) return error.Whatever;
 }
 #static_eval_enable(false)
 fn neg(a: i16) -> i16 {
@@ -1450,8 +1458,10 @@ fn neg(a: i16) -> i16 {
     )SOURCE");
 
     add_debug_safety_case("signed shift left overflow", R"SOURCE(
+error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    shl(-16385, 1);
+    const x = shl(-16385, 1);
+    if (x == 0) return error.Whatever;
 }
 #static_eval_enable(false)
 fn shl(a: i16, b: i16) -> i16 {
@@ -1460,8 +1470,10 @@ fn shl(a: i16, b: i16) -> i16 {
     )SOURCE");
 
     add_debug_safety_case("unsigned shift left overflow", R"SOURCE(
+error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    shl(0b0010111111111111, 3);
+    const x = shl(0b0010111111111111, 3);
+    if (x == 0) return error.Whatever;
 }
 #static_eval_enable(false)
 fn shl(a: u16, b: u16) -> u16 {
@@ -1470,8 +1482,9 @@ fn shl(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer division by zero", R"SOURCE(
+error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    div0(999, 0);
+    const x = div0(999, 0);
 }
 #static_eval_enable(false)
 fn div0(a: i32, b: i32) -> i32 {
@@ -1480,8 +1493,10 @@ fn div0(a: i32, b: i32) -> i32 {
     )SOURCE");
 
     add_debug_safety_case("exact division failure", R"SOURCE(
+error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    div_exact(10, 3);
+    const x = div_exact(10, 3);
+    if (x == 0) return error.Whatever;
 }
 #static_eval_enable(false)
 fn div_exact(a: i32, b: i32) -> i32 {
@@ -1490,8 +1505,10 @@ fn div_exact(a: i32, b: i32) -> i32 {
     )SOURCE");
 
     add_debug_safety_case("cast []u8 to bigger slice of wrong size", R"SOURCE(
+error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    widen_slice([]u8{1, 2, 3, 4, 5});
+    const x = widen_slice([]u8{1, 2, 3, 4, 5});
+    if (x.len == 0) return error.Whatever;
 }
 #static_eval_enable(false)
 fn widen_slice(slice: []u8) -> []i32 {
@@ -1500,8 +1517,10 @@ fn widen_slice(slice: []u8) -> []i32 {
     )SOURCE");
 
     add_debug_safety_case("value does not fit in shortening cast", R"SOURCE(
+error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    shorten_cast(200);
+    const x = shorten_cast(200);
+    if (x == 0) return error.Whatever;
 }
 #static_eval_enable(false)
 fn shorten_cast(x: i32) -> i8 {
@@ -1510,8 +1529,10 @@ fn shorten_cast(x: i32) -> i8 {
     )SOURCE");
 
     add_debug_safety_case("signed integer not fitting in cast to unsigned integer", R"SOURCE(
+error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    unsigned_cast(-10);
+    const x = unsigned_cast(-10);
+    if (x == 0) return error.Whatever;
 }
 #static_eval_enable(false)
 fn unsigned_cast(x: i32) -> u32 {

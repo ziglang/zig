@@ -1045,6 +1045,13 @@ enum FnAnalState {
     FnAnalStateSkipped,
 };
 
+
+enum WantPure {
+    WantPureAuto,
+    WantPureFalse,
+    WantPureTrue,
+};
+
 struct FnTableEntry {
     LLVMValueRef fn_value;
     AstNode *proto_node;
@@ -1060,6 +1067,7 @@ struct FnTableEntry {
     bool is_extern;
     bool is_test;
     bool is_pure;
+    WantPure want_pure;
     bool safety_off;
     bool is_noinline;
     BlockContext *parent_block_context;

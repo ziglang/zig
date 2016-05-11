@@ -1060,7 +1060,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
                     bool ok = resolve_const_expr_bool(g, import, import->block_context,
                             &directive_node->data.directive.expr, &enable);
                     if (!enable || !ok) {
-                        fn_table_entry->is_pure = false;
+                        fn_table_entry->want_pure = WantPureFalse;
                     }
                     // TODO cause compile error if enable is true and impure fn
                 }
@@ -5153,7 +5153,7 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
 
     FnTableEntry *fn_table_entry = node->data.fn_call_expr.fn_entry;
     ConstExprValue *result_val = &get_resolved_expr(node)->const_val;
-    if (ok_invocation && fn_table_entry && fn_table_entry->is_pure) {
+    if (ok_invocation && fn_table_entry && fn_table_entry->is_pure && fn_table_entry->want_pure != WantPureFalse) {
         if (fn_table_entry->anal_state == FnAnalStateReady) {
             analyze_fn_body(g, fn_table_entry);
         }
@@ -5167,7 +5167,7 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
             }
         }
     }
-    if (!ok_invocation || !fn_table_entry || !fn_table_entry->is_pure) {
+    if (!ok_invocation || !fn_table_entry || !fn_table_entry->is_pure || fn_table_entry->want_pure == WantPureFalse) {
         // calling an impure fn is impure
         mark_impure_fn(context);
     }
