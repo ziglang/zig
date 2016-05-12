@@ -72,6 +72,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->root_package = new_package(buf_ptr(root_source_dir), "");
     g->std_package = new_package(ZIG_STD_DIR, "index.zig");
     g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
+    g->zig_std_dir = buf_create_from_str(ZIG_STD_DIR);
 
 
     if (target) {
@@ -84,7 +85,6 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
         g->libc_lib_dir = buf_create_from_str("");
         g->libc_static_lib_dir = buf_create_from_str("");
         g->libc_include_dir = buf_create_from_str("");
-        g->zig_std_dir = buf_create_from_str("");
         g->linker_path = buf_create_from_str("");
         g->ar_path = buf_create_from_str("");
         g->darwin_linker_version = buf_create_from_str("");
@@ -97,7 +97,6 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
         g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
         g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
         g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
-        g->zig_std_dir = buf_create_from_str(ZIG_STD_DIR);
         g->linker_path = buf_create_from_str(ZIG_LD_PATH);
         g->ar_path = buf_create_from_str(ZIG_AR_PATH);
         g->darwin_linker_version = buf_create_from_str(ZIG_HOST_LINK_VERSION);
