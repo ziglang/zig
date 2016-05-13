@@ -211,8 +211,8 @@ pub struct InStream {
 pub error InvalidChar;
 pub error Overflow;
 
-pub fn parse_u64(buf: []u8, radix: u8) -> %u64 {
-    var x : u64 = 0;
+pub fn parse_unsigned(T: type)(buf: []u8, radix: u8) -> %T {
+    var x: T = 0;
 
     for (buf) |c| {
         const digit = char_to_digit(c);
@@ -222,12 +222,12 @@ pub fn parse_u64(buf: []u8, radix: u8) -> %u64 {
         }
 
         // x *= radix
-        if (@mul_with_overflow(u64, x, radix, &x)) {
+        if (@mul_with_overflow(T, x, radix, &x)) {
             return error.Overflow;
         }
 
         // x += digit
-        if (@add_with_overflow(u64, x, digit, &x)) {
+        if (@add_with_overflow(T, x, digit, &x)) {
             return error.Overflow;
         }
     }
@@ -404,7 +404,7 @@ pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
 
 #attribute("test")
 fn parse_u64_digit_too_big() {
-    parse_u64("123a", 10) %% |err| {
+    parse_unsigned(u64)("123a", 10) %% |err| {
         if (err == error.InvalidChar) return;
         unreachable{};
     };
