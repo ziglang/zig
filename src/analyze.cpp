@@ -1560,6 +1560,17 @@ static void preview_fn_proto_instance(CodeGen *g, ImportTableEntry *import, AstN
 
     proto_node->data.fn_proto.fn_table_entry = fn_table_entry;
     resolve_function_proto(g, proto_node, fn_table_entry, import, containing_context);
+
+    if (is_main_fn && !g->link_libc) {
+        TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
+        TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
+        if (actual_return_type != err_void) {
+            AstNode *return_type_node = fn_table_entry->proto_node->data.fn_proto.return_type;
+            add_node_error(g, return_type_node,
+                    buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
+                        buf_ptr(&actual_return_type->name)));
+        }
+    }
 }
 
 static void preview_fn_proto(CodeGen *g, ImportTableEntry *import, AstNode *proto_node) {

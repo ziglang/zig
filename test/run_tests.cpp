@@ -1391,6 +1391,10 @@ fn something() -> %void { }
             ".tmp_source.zig:3:5: error: %return statement in function with return type 'void'",
             ".tmp_source.zig:2:8: note: function return type here");
 
+    add_compile_fail_case("wrong return type for main", R"SOURCE(
+pub fn main(args: [][]u8) { }
+    )SOURCE", 1, ".tmp_source.zig:2:27: error: expected return type of main to be '%void', instead is 'void'");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
