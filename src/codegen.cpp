@@ -72,6 +72,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->root_package = new_package(buf_ptr(root_source_dir), "");
     g->std_package = new_package(ZIG_STD_DIR, "index.zig");
     g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
+    g->zig_std_dir = buf_create_from_str(ZIG_STD_DIR);
 
 
     if (target) {
@@ -163,6 +164,11 @@ void codegen_set_libc_static_lib_dir(CodeGen *g, Buf *libc_static_lib_dir) {
 
 void codegen_set_libc_include_dir(CodeGen *g, Buf *libc_include_dir) {
     g->libc_include_dir = libc_include_dir;
+}
+
+void codegen_set_zig_std_dir(CodeGen *g, Buf *zig_std_dir) {
+    g->zig_std_dir = zig_std_dir;
+    g->std_package->root_src_dir = *zig_std_dir;
 }
 
 void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker) {
@@ -4752,7 +4758,7 @@ void codegen_render_ast(CodeGen *g, FILE *f, int indent_size) {
 
 
 static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package, const char *basename) {
-    Buf *std_dir = buf_create_from_str(ZIG_STD_DIR);
+    Buf *std_dir = g->zig_std_dir;
     Buf *code_basename = buf_create_from_str(basename);
     Buf path_to_code_src = BUF_INIT;
     os_path_join(std_dir, code_basename, &path_to_code_src);
@@ -4770,7 +4776,7 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
 }
 
 static PackageTableEntry *create_bootstrap_pkg(CodeGen *g) {
-    PackageTableEntry *package = new_package(ZIG_STD_DIR, "");
+    PackageTableEntry *package = new_package(buf_ptr(g->zig_std_dir), "");
     package->package_table.put(buf_create_from_str("std"), g->std_package);
     package->package_table.put(buf_create_from_str("@root"), g->root_package);
     return package;

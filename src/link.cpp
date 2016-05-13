@@ -33,7 +33,7 @@ static const char *get_libc_static_file(CodeGen *g, const char *file) {
 
 static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     Buf *source_basename = buf_sprintf("%s.zig", oname);
-    Buf *std_dir_path = buf_create_from_str(ZIG_STD_DIR);
+    Buf *std_dir_path = parent_gen->zig_std_dir;
 
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
     CodeGen *child_gen = codegen_create(std_dir_path, child_target);

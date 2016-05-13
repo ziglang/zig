@@ -35,6 +35,7 @@ static int usage(const char *arg0) {
         "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
         "  --libc-static-lib-dir [path] directory where libc crtbegin.o resides\n"
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
+        "  --zig-std-dir [path]         directory where zig standard library resides\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
         "  --ld-path [path]             set the path to the linker\n"
         "  --ar-path [path]             set the path to ar\n"
@@ -117,6 +118,7 @@ int main(int argc, char **argv) {
     const char *libc_lib_dir = nullptr;
     const char *libc_static_lib_dir = nullptr;
     const char *libc_include_dir = nullptr;
+    const char *zig_std_dir = nullptr;
     const char *dynamic_linker = nullptr;
     const char *linker_path = nullptr;
     const char *ar_path = nullptr;
@@ -194,6 +196,8 @@ int main(int argc, char **argv) {
                     libc_static_lib_dir = argv[i];
                 } else if (strcmp(arg, "--libc-include-dir") == 0) {
                     libc_include_dir = argv[i];
+                } else if (strcmp(arg, "--zig-std-dir") == 0) {
+                    zig_std_dir = argv[i];
                 } else if (strcmp(arg, "--dynamic-linker") == 0) {
                     dynamic_linker = argv[i];
                 } else if (strcmp(arg, "--ld-path") == 0) {
@@ -356,6 +360,8 @@ int main(int argc, char **argv) {
                 codegen_set_libc_static_lib_dir(g, buf_create_from_str(libc_static_lib_dir));
             if (libc_include_dir)
                 codegen_set_libc_include_dir(g, buf_create_from_str(libc_include_dir));
+            if (zig_std_dir)
+                codegen_set_zig_std_dir(g, buf_create_from_str(zig_std_dir));
             if (dynamic_linker)
                 codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
             if (linker_path)
