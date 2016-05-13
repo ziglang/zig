@@ -7,8 +7,10 @@ pub error Unexpected;
 pub error Io;
 pub error TimedOut;
 pub error ConnectionReset;
+pub error ConnectionRefused;
 pub error NoMem;
 pub error NotSocket;
+pub error BadFd;
 
 struct Connection {
     socket_fd: i32,
@@ -27,16 +29,18 @@ struct Connection {
         }
     }
 
-    pub fn recv(c: Connection, buf: []u8) -> %isize {
+    pub fn recv(c: Connection, buf: []u8) -> %[]u8 {
         const recv_ret = linux.recvfrom(c.socket_fd, buf.ptr, buf.len, 0, null, null);
         const recv_err = linux.get_errno(recv_ret);
         switch (recv_err) {
-            0 => return recv_ret,
+            0 => return buf[0...recv_ret],
             errno.EINVAL => unreachable{},
             errno.EFAULT => unreachable{},
             errno.ENOTSOCK => return error.NotSocket,
             errno.EINTR => return error.SigInterrupt,
             errno.ENOMEM => return error.NoMem,
+            errno.ECONNREFUSED => return error.ConnectionRefused,
+            errno.EBADF => return error.BadFd,
             // TODO more error values
             else => return error.Unexpected,
         }

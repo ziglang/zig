@@ -222,7 +222,7 @@ pub const AF_MAX = PF_MAX;
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn get_errno(r: isize) -> isize {
-    if (r > -4096) -r else 0
+    if (r > -4096 && r < 0) -r else 0
 }
 
 pub fn mmap(address: ?&u8, length: isize, prot: isize, flags: isize, fd: isize, offset: isize) -> isize {
