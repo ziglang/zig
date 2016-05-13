@@ -402,7 +402,7 @@ pub fn recvmsg(fd: i32, msg: &arch.msghdr, flags: i32) -> isize {
 }
 
 pub fn recvfrom(fd: i32, noalias buf: &u8, len: isize, flags: i32,
-    noalias addr: &sockaddr, noalias alen: &socklen_t) -> isize
+    noalias addr: ?&sockaddr, noalias alen: ?&socklen_t) -> isize
 {
     arch.syscall6(arch.SYS_recvfrom, fd, isize(buf), len, flags, isize(addr), isize(alen))
 }
@@ -419,7 +419,7 @@ pub fn listen(fd: i32, backlog: i32) -> isize {
     arch.syscall2(arch.SYS_listen, fd, backlog)
 }
 
-pub fn sendto(fd: i32, buf: &const u8, len: isize, flags: i32, addr: &const sockaddr, alen: socklen_t) -> isize {
+pub fn sendto(fd: i32, buf: &const u8, len: isize, flags: i32, addr: ?&const sockaddr, alen: socklen_t) -> isize {
     arch.syscall6(arch.SYS_sendto, fd, isize(buf), len, flags, isize(addr), isize(alen))
 }
 

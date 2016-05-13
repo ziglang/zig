@@ -6,9 +6,41 @@ pub error SigInterrupt;
 pub error Unexpected;
 pub error Io;
 pub error TimedOut;
+pub error ConnectionReset;
+pub error NoMem;
+pub error NotSocket;
 
 struct Connection {
     socket_fd: i32,
+
+    pub fn send(c: Connection, buf: []const u8) -> %isize {
+        const send_ret = linux.sendto(c.socket_fd, buf.ptr, buf.len, 0, null, 0);
+        const send_err = linux.get_errno(send_ret);
+        switch (send_err) {
+            0 => return send_ret,
+            errno.EINVAL => unreachable{},
+            errno.EFAULT => unreachable{},
+            errno.ECONNRESET => return error.ConnectionReset,
+            errno.EINTR => return error.SigInterrupt,
+            // TODO there are more possible errors
+            else => return error.Unexpected,
+        }
+    }
+
+    pub fn recv(c: Connection, buf: []u8) -> %isize {
+        const recv_ret = linux.recvfrom(c.socket_fd, buf.ptr, buf.len, 0, null, null);
+        const recv_err = linux.get_errno(recv_ret);
+        switch (recv_err) {
+            0 => return recv_ret,
+            errno.EINVAL => unreachable{},
+            errno.EFAULT => unreachable{},
+            errno.ENOTSOCK => return error.NotSocket,
+            errno.EINTR => return error.SigInterrupt,
+            errno.ENOMEM => return error.NoMem,
+            // TODO more error values
+            else => return error.Unexpected,
+        }
+    }
 
     pub fn close(c: Connection) -> %void {
         switch (linux.get_errno(linux.close(c.socket_fd))) {

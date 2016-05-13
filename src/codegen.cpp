@@ -3923,7 +3923,7 @@ static void do_code_gen(CodeGen *g) {
             TypeTableEntry *param_type = info->type;
             LLVMValueRef argument_val = LLVMGetParam(fn_table_entry->fn_value, gen_index);
             bool param_is_noalias = param_node->data.param_decl.is_noalias;
-            if (param_type->id == TypeTableEntryIdPointer && param_is_noalias) {
+            if (param_is_noalias) {
                 LLVMAddAttribute(argument_val, LLVMNoAliasAttribute);
             }
             if ((param_type->id == TypeTableEntryIdPointer && (param_type->data.pointer.is_const || fn_table_entry->is_pure)) ||

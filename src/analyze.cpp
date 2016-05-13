@@ -4168,6 +4168,16 @@ static TypeTableEntry *resolve_cast(CodeGen *g, BlockContext *context, AstNode *
     return wanted_type;
 }
 
+static bool type_is_codegen_pointer(TypeTableEntry *type) {
+    if (type->id == TypeTableEntryIdPointer) return true;
+    if (type->id == TypeTableEntryIdFn) return true;
+    if (type->id == TypeTableEntryIdMaybe) {
+        if (type->data.maybe.child_type->id == TypeTableEntryIdPointer) return true;
+        if (type->data.maybe.child_type->id == TypeTableEntryIdFn) return true;
+    }
+    return false;
+}
+
 static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         AstNode *node)
 {
@@ -4207,7 +4217,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
 
     // explicit cast from pointer to isize or usize
     if ((wanted_type_canon == g->builtin_types.entry_isize || wanted_type_canon == g->builtin_types.entry_usize) &&
-        actual_type_canon->id == TypeTableEntryIdPointer)
+        type_is_codegen_pointer(actual_type_canon))
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPtrToInt, false);
     }
@@ -6193,9 +6203,8 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
         AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
         TypeTableEntry *type = unwrapped_node_type(param_decl->type);
 
-        if (param_decl->is_noalias && type->id != TypeTableEntryIdPointer) {
-            add_node_error(g, param_decl_node,
-                buf_sprintf("noalias on non-pointer parameter"));
+        if (param_decl->is_noalias && !type_is_codegen_pointer(type)) {
+            add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
         }
 
         if (fn_type->data.fn.fn_type_id.is_extern && type->id == TypeTableEntryIdStruct) {
