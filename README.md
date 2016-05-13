@@ -33,6 +33,8 @@ compromises backward compatibility.
  * Powerful constant expression evaluator. Generally, anything that *can* be
    figured out at compile time *is* figured out at compile time.
  * Tagged union enum type. No more accidentally reading the wrong union field.
+ * Generics so that one can write efficient data structures that work for any
+   data type.
  * Easy to parse language so that humans and machines have no trouble with the
    syntax.
  * The binaries produced by Zig have complete debugging information so you can,
@@ -55,8 +57,6 @@ compromises backward compatibility.
 
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
- * Generics so that one can write efficient data structures that work for any
-   data type.
  * Eliminate the need for configure, make, cmake, etc.
  * Automatically provide test coverage.
  * Ability to declare dependencies as Git URLS with commit locking (can
