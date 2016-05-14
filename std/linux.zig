@@ -226,9 +226,7 @@ pub fn get_errno(r: isize) -> isize {
 }
 
 pub fn mmap(address: ?&u8, length: isize, prot: isize, flags: isize, fd: isize, offset: isize) -> isize {
-    // TODO ability to cast maybe pointer to isize
-    const addr = if (const unwrapped ?= address) isize(unwrapped) else 0;
-    arch.syscall6(arch.SYS_mmap, addr, length, prot, flags, fd, offset)
+    arch.syscall6(arch.SYS_mmap, isize(address), length, prot, flags, fd, offset)
 }
 
 pub fn munmap(address: &u8, length: isize) -> isize {
