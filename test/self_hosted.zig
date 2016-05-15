@@ -1656,3 +1656,17 @@ fn use_generic_param_in_generic_param() {
 fn a_generic_fn(T: type, a: T)(b: T) -> T {
     return a + b;
 }
+
+
+#attribute("test")
+fn namespace_depends_on_compile_var() {
+    if (some_namespace.a_bool) {
+        assert(some_namespace.a_bool);
+    } else {
+        assert(!some_namespace.a_bool);
+    }
+}
+const some_namespace = switch(@compile_var("os")) {
+    linux => @import("a.zig"),
+    else => @import("b.zig"),
+};
