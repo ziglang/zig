@@ -540,6 +540,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdImport:
         case BuiltinFnIdCImport:
         case BuiltinFnIdCompileErr:
+        case BuiltinFnIdIntType:
             zig_unreachable();
         case BuiltinFnIdCtz:
         case BuiltinFnIdClz:
@@ -4657,6 +4658,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdDivExact, "div_exact", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdTruncate, "truncate", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileErr, "compile_err", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdIntType, "int_type", 3);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

@@ -4790,6 +4790,52 @@ static TypeTableEntry *analyze_compile_err(CodeGen *g, ImportTableEntry *import,
     return g->builtin_types.entry_invalid;
 }
 
+static TypeTableEntry *analyze_int_type(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    AstNode **is_signed_node = &node->data.fn_call_expr.params.at(0);
+    AstNode **bit_count_node = &node->data.fn_call_expr.params.at(1);
+    AstNode **is_wrap_node = &node->data.fn_call_expr.params.at(2);
+
+    TypeTableEntry *bool_type = g->builtin_types.entry_bool;
+    TypeTableEntry *usize_type = g->builtin_types.entry_usize;
+    TypeTableEntry *is_signed_type = analyze_expression(g, import, context, bool_type, *is_signed_node);
+    TypeTableEntry *bit_count_type = analyze_expression(g, import, context, usize_type, *bit_count_node);
+    TypeTableEntry *is_wrap_type = analyze_expression(g, import, context, bool_type, *is_wrap_node);
+
+    if (is_signed_type->id == TypeTableEntryIdInvalid ||
+        bit_count_type->id == TypeTableEntryIdInvalid ||
+        is_wrap_type->id == TypeTableEntryIdInvalid)
+    {
+        return g->builtin_types.entry_invalid;
+    }
+
+    ConstExprValue *is_signed_val = &get_resolved_expr(*is_signed_node)->const_val;
+    ConstExprValue *bit_count_val = &get_resolved_expr(*bit_count_node)->const_val;
+    ConstExprValue *is_wrap_val = &get_resolved_expr(*is_wrap_node)->const_val;
+
+    AstNode *bad_node = nullptr;
+    if (!is_signed_val->ok) {
+        bad_node = *is_signed_node;
+    } else if (!bit_count_val->ok) {
+        bad_node = *bit_count_node;
+    } else if (!is_wrap_val->ok) {
+        bad_node = *is_wrap_node;
+    }
+    if (bad_node) {
+        add_node_error(g, bad_node, buf_sprintf("unable to evaluate constant expression"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    bool depends_on_compile_var = is_signed_val->depends_on_compile_var ||
+        bit_count_val->depends_on_compile_var || is_wrap_val->depends_on_compile_var;
+
+    TypeTableEntry *int_type = get_int_type(g, is_signed_val->data.x_bool, is_wrap_val->data.x_bool,
+            bit_count_val->data.x_bignum.data.x_uint);
+    return resolve_expr_const_val_as_type(g, node, int_type, depends_on_compile_var);
+
+}
+
 static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -5136,6 +5182,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             return analyze_truncate(g, import, context, node);
         case BuiltinFnIdCompileErr:
             return analyze_compile_err(g, import, context, node);
+        case BuiltinFnIdIntType:
+            return analyze_int_type(g, import, context, node);
     }
     zig_unreachable();
 }

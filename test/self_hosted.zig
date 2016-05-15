@@ -1689,3 +1689,26 @@ struct DivResult {
     quotient: u64,
     remainder: u64,
 }
+
+#attribute("test")
+fn int_type_builtin() {
+    assert(@int_type(true, 8, false) == i8);
+    assert(@int_type(true, 16, false) == i16);
+    assert(@int_type(true, 32, false) == i32);
+    assert(@int_type(true, 64, false) == i64);
+
+    assert(@int_type(false, 8, false) == u8);
+    assert(@int_type(false, 16, false) == u16);
+    assert(@int_type(false, 32, false) == u32);
+    assert(@int_type(false, 64, false) == u64);
+
+    assert(@int_type(true, 8, true) == i8w);
+    assert(@int_type(true, 16, true) == i16w);
+    assert(@int_type(true, 32, true) == i32w);
+    assert(@int_type(true, 64, true) == i64w);
+
+    assert(@int_type(false, 8, true) == u8w);
+    assert(@int_type(false, 16, true) == u16w);
+    assert(@int_type(false, 32, true) == u32w);
+    assert(@int_type(false, 64, true) == u64w);
+}

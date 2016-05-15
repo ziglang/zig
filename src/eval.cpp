@@ -834,6 +834,7 @@ static bool eval_fn_call_builtin(EvalFn *ef, AstNode *node, ConstExprValue *out_
         case BuiltinFnIdFrameAddress:
         case BuiltinFnIdReturnAddress:
         case BuiltinFnIdCompileErr:
+        case BuiltinFnIdIntType:
             zig_unreachable();
     }
 
