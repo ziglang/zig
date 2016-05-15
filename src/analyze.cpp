@@ -35,7 +35,9 @@ static TypeTableEntry *resolve_expr_const_val_as_fn(CodeGen *g, AstNode *node, F
 static TypeTableEntry *resolve_expr_const_val_as_type(CodeGen *g, AstNode *node, TypeTableEntry *type,
         bool depends_on_compile_var);
 static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, AstNode *node,
-        TypeTableEntry *expected_type, uint64_t x);
+        TypeTableEntry *expected_type, uint64_t x, bool depends_on_compile_var);
+static TypeTableEntry *resolve_expr_const_val_as_bool(CodeGen *g, AstNode *node, bool value,
+        bool depends_on_compile_var);
 static AstNode *find_decl(BlockContext *context, Buf *name);
 static TypeTableEntry *analyze_decl_ref(CodeGen *g, AstNode *source_node, AstNode *decl_node,
         bool pointer_only, BlockContext *block_context, bool depends_on_compile_var);
@@ -2562,7 +2564,9 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
 
     bool wrapped_in_fn_call = node->data.field_access_expr.is_fn_call;
 
-    if (struct_type->id == TypeTableEntryIdStruct || (struct_type->id == TypeTableEntryIdPointer &&
+    if (struct_type->id == TypeTableEntryIdInvalid) {
+        return struct_type;
+    } else if (struct_type->id == TypeTableEntryIdStruct || (struct_type->id == TypeTableEntryIdPointer &&
          struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct))
     {
         TypeTableEntry *bare_struct_type = (struct_type->id == TypeTableEntryIdStruct) ?
@@ -2603,7 +2607,7 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
     } else if (struct_type->id == TypeTableEntryIdArray) {
         if (buf_eql_str(field_name, "len")) {
             return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
-                    struct_type->data.array.len);
+                    struct_type->data.array.len, false);
         } else {
             add_node_error(g, node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
@@ -2653,6 +2657,24 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
             }
         } else if (child_type->id == TypeTableEntryIdPureError) {
             return analyze_error_literal_expr(g, import, context, node, field_name);
+        } else if (child_type->id == TypeTableEntryIdInt) {
+            bool depends_on_compile_var =
+                get_resolved_expr(*struct_expr_node)->const_val.depends_on_compile_var;
+            if (buf_eql_str(field_name, "bit_count")) {
+                return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
+                        child_type->data.integral.bit_count, depends_on_compile_var);
+            } else if (buf_eql_str(field_name, "is_signed")) {
+                return resolve_expr_const_val_as_bool(g, node, child_type->data.integral.is_signed,
+                        depends_on_compile_var);
+            } else if (buf_eql_str(field_name, "is_wrapping")) {
+                return resolve_expr_const_val_as_bool(g, node, child_type->data.integral.is_wrapping,
+                        depends_on_compile_var);
+            } else {
+                add_node_error(g, node,
+                    buf_sprintf("type '%s' has no member called '%s'",
+                        buf_ptr(&child_type->name), buf_ptr(field_name)));
+                return g->builtin_types.entry_invalid;
+            }
         } else if (wrapped_in_fn_call) { // this branch should go last, before the error in the else case
             return resolve_expr_const_val_as_type(g, node, child_type, false);
         } else {
@@ -2682,10 +2704,8 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
             return g->builtin_types.entry_invalid;
         }
     } else {
-        if (struct_type->id != TypeTableEntryIdInvalid) {
-            add_node_error(g, node,
-                buf_sprintf("type '%s' does not support field access", buf_ptr(&struct_type->name)));
-        }
+        add_node_error(g, node,
+            buf_sprintf("type '%s' does not support field access", buf_ptr(&struct_type->name)));
         return g->builtin_types.entry_invalid;
     }
 }
@@ -2891,10 +2911,11 @@ static TypeTableEntry *resolve_expr_const_val_as_string_lit(CodeGen *g, AstNode 
 
 
 static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, AstNode *node,
-        TypeTableEntry *expected_type, uint64_t x)
+        TypeTableEntry *expected_type, uint64_t x, bool depends_on_compile_var)
 {
     Expr *expr = get_resolved_expr(node);
     expr->const_val.ok = true;
+    expr->const_val.depends_on_compile_var = depends_on_compile_var;
 
     bignum_init_unsigned(&expr->const_val.data.x_bignum, x);
 
@@ -3797,7 +3818,7 @@ static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry 
 
     if (node->data.number_literal.kind == NumLitUInt) {
         return resolve_expr_const_val_as_unsigned_num_lit(g, node,
-                expected_type, node->data.number_literal.data.x_uint);
+                expected_type, node->data.number_literal.data.x_uint, false);
     } else if (node->data.number_literal.kind == NumLitFloat) {
         return resolve_expr_const_val_as_float_num_lit(g, node,
                 expected_type, node->data.number_literal.data.x_float);
@@ -4964,7 +4985,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     return g->builtin_types.entry_invalid;
                 } else {
                     uint64_t size_in_bytes = type_size(g, type_entry);
-                    return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type, size_in_bytes);
+                    return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
+                            size_in_bytes, false);
                 }
             }
         case BuiltinFnIdAlignof:
@@ -4979,7 +5001,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     return g->builtin_types.entry_invalid;
                 } else {
                     uint64_t align_in_bytes = LLVMABISizeOfType(g->target_data_ref, type_entry->type_ref);
-                    return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type, align_in_bytes);
+                    return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
+                            align_in_bytes, false);
                 }
             }
         case BuiltinFnIdMaxValue:
@@ -4997,7 +5020,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     return type_entry;
                 } else if (type_entry->id == TypeTableEntryIdEnum) {
                     uint64_t value_count = type_entry->data.enumeration.field_count;
-                    return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type, value_count);
+                    return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
+                            value_count, false);
                 } else {
                     add_node_error(g, node,
                             buf_sprintf("no value count available for type '%s'", buf_ptr(&type_entry->name)));
@@ -6188,7 +6212,7 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
             break;
         case NodeTypeCharLiteral:
             return_type = resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
-                    node->data.char_literal.value);
+                    node->data.char_literal.value, false);
             break;
         case NodeTypeBoolLiteral:
             return_type = resolve_expr_const_val_as_bool(g, node, node->data.bool_literal.value, false);

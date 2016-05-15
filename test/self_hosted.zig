@@ -1711,4 +1711,32 @@ fn int_type_builtin() {
     assert(@int_type(false, 16, true) == u16w);
     assert(@int_type(false, 32, true) == u32w);
     assert(@int_type(false, 64, true) == u64w);
+
+    assert(i8.bit_count == 8);
+    assert(i16.bit_count == 16);
+    assert(i32.bit_count == 32);
+    assert(i64.bit_count == 64);
+
+    assert(!i8.is_wrapping);
+    assert(!i16.is_wrapping);
+    assert(!i32.is_wrapping);
+    assert(!i64.is_wrapping);
+
+    assert(i8w.is_wrapping);
+    assert(i16w.is_wrapping);
+    assert(i32w.is_wrapping);
+    assert(i64w.is_wrapping);
+
+    assert(i8.is_signed);
+    assert(i16.is_signed);
+    assert(i32.is_signed);
+    assert(i64.is_signed);
+    assert(isize.is_signed);
+
+    assert(!u8.is_signed);
+    assert(!u16.is_signed);
+    assert(!u32.is_signed);
+    assert(!u64.is_signed);
+    assert(!usize.is_signed);
+
 }
