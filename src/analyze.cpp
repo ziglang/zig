@@ -4759,6 +4759,20 @@ static TypeTableEntry *analyze_truncate(CodeGen *g, ImportTableEntry *import,
     return dest_type;
 }
 
+static TypeTableEntry *analyze_compile_err(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    AstNode *first_param_node = node->data.fn_call_expr.params.at(0);
+    Buf *err_msg = resolve_const_expr_str(g, import, context, first_param_node->parent_field);
+    if (!err_msg) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    add_node_error(g, node, err_msg);
+
+    return g->builtin_types.entry_invalid;
+}
+
 static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -5103,6 +5117,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             return analyze_div_exact(g, import, context, node);
         case BuiltinFnIdTruncate:
             return analyze_truncate(g, import, context, node);
+        case BuiltinFnIdCompileErr:
+            return analyze_compile_err(g, import, context, node);
     }
     zig_unreachable();
 }
@@ -5763,9 +5779,13 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
         BlockContext *child_context = prong_node->data.switch_prong.block_context;
         child_context->codegen_excluded = expr_val->ok && (*const_chosen_prong_index != prong_i);
 
-        peer_types[prong_i] = analyze_expression(g, import, child_context, expected_type,
-                prong_node->data.switch_prong.expr);
         peer_nodes[prong_i] = prong_node->data.switch_prong.expr;
+        if (child_context->codegen_excluded) {
+            peer_types[prong_i] = g->builtin_types.entry_unreachable;
+        } else {
+            peer_types[prong_i] = analyze_expression(g, import, child_context, expected_type,
+                    prong_node->data.switch_prong.expr);
+        }
     }
 
     if (expr_type->id == TypeTableEntryIdEnum && !else_prong) {

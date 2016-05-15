@@ -25,7 +25,7 @@ export fn _start() -> unreachable {
             argc = asm("mov (%%esp), %[argc]": [argc] "=r" (-> isize));
             argv = asm("lea 0x4(%%esp), %[argv]": [argv] "=r" (-> &&u8));
         },
-        else => unreachable{},
+        else => @compile_err("unsupported arch"),
     }
     call_main_and_exit()
 }

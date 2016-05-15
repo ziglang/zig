@@ -17,7 +17,7 @@ pub fn get_random_bytes(buf: []u8) -> %void {
                 }
             }
         },
-        else => unreachable{},
+        else => @compile_err("unsupported os"),
     }
 }
 

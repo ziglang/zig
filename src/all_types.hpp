@@ -1124,6 +1124,7 @@ enum BuiltinFnId {
     BuiltinFnIdCDefine,
     BuiltinFnIdCUndef,
     BuiltinFnIdCompileVar,
+    BuiltinFnIdCompileErr,
     BuiltinFnIdConstEval,
     BuiltinFnIdCtz,
     BuiltinFnIdClz,
