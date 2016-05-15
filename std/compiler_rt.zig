@@ -1,6 +1,6 @@
 const CHAR_BIT = 8;
-const du_int = c_ulonglong;
-const di_int = c_longlong;
+const du_int = u64;
+const di_int = i64;
 const si_int = c_int;
 const su_int = c_uint;
 
@@ -204,11 +204,11 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             */
         const s: di_int = (di_int)(*(&du_int)(&d[0]) - *(&du_int)(&r[0]) - 1) >> (n_udword_bits - 1);
         carry = su_int(s & 1);
-        *(&du_int)(&r[0]) -= *(&du_int)(&d[0]) & c_ulonglong(s);
+        *(&du_int)(&r[0]) -= *(&du_int)(&d[0]) & u64(s);
 
         sr -= 1;
     }
-    *(&du_int)(&q[0]) = (*(&du_int)(&q[0]) << 1) | carry;
+    *(&du_int)(&q[0]) = (*(&du_int)(&q[0]) << 1) | u64(carry);
     if (var rem ?= maybe_rem) {
         *rem = *(&du_int)(&r[0]);
     }
@@ -220,6 +220,17 @@ export fn __umoddi3(a: du_int, b: du_int) -> du_int {
     var r: du_int = undefined;
     __udivmoddi4(a, b, &r);
     return r;
+}
+
+struct AeabiUlDivModResult {
+    quot: u64,
+    rem: u64,
+}
+#debug_safety(false)
+export fn __aeabi_uldivmod(numerator: u64, denominator: u64) -> AeabiUlDivModResult{
+    var result: AeabiUlDivModResult = undefined;
+    result.quot = __udivmoddi4(numerator, denominator, &result.rem);
+    return result;
 }
 
 
