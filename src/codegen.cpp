@@ -2329,11 +2329,18 @@ static LLVMValueRef gen_return(CodeGen *g, AstNode *source_node, LLVMValueRef va
     }
 
     TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
+    bool is_extern = g->cur_fn->type_entry->data.fn.fn_type_id.is_extern;
     if (handle_is_ptr(return_type)) {
-        assert(g->cur_ret_ptr);
-        gen_assign_raw(g, source_node, BinOpTypeAssign, g->cur_ret_ptr, value, return_type, return_type);
-        set_debug_source_node(g, source_node);
-        LLVMBuildRetVoid(g->builder);
+        if (is_extern) {
+            set_debug_source_node(g, source_node);
+            LLVMValueRef by_val_value = LLVMBuildLoad(g->builder, value, "");
+            LLVMBuildRet(g->builder, by_val_value);
+        } else {
+            assert(g->cur_ret_ptr);
+            gen_assign_raw(g, source_node, BinOpTypeAssign, g->cur_ret_ptr, value, return_type, return_type);
+            set_debug_source_node(g, source_node);
+            LLVMBuildRetVoid(g->builder);
+        }
     } else {
         set_debug_source_node(g, source_node);
         LLVMBuildRet(g->builder, value);
@@ -3898,7 +3905,9 @@ static void do_code_gen(CodeGen *g) {
             // nothing to do
         } else if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdPointer) {
             LLVMZigAddNonNullAttr(fn_table_entry->fn_value, 0);
-        } else if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type)) {
+        } else if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type) &&
+                !fn_type->data.fn.fn_type_id.is_extern)
+        {
             LLVMValueRef first_arg = LLVMGetParam(fn_table_entry->fn_value, 0);
             LLVMAddAttribute(first_arg, LLVMStructRetAttribute);
             LLVMZigAddNonNullAttr(fn_table_entry->fn_value, 1);
