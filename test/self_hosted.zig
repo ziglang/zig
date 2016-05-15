@@ -1670,3 +1670,22 @@ const some_namespace = switch(@compile_var("os")) {
     linux => @import("a.zig"),
     else => @import("b.zig"),
 };
+
+
+#attribute("test")
+fn unsigned_64_bit_division() {
+    const result = div(1152921504606846976, 34359738365);
+    assert(result.quotient == 33554432);
+    assert(result.remainder == 100663296);
+}
+#static_eval_enable(false)
+fn div(a: u64, b: u64) -> DivResult {
+    DivResult {
+        .quotient = a / b,
+        .remainder = a % b,
+    }
+}
+struct DivResult {
+    quotient: u64,
+    remainder: u64,
+}
