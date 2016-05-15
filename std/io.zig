@@ -248,16 +248,18 @@ fn char_to_digit(c: u8) -> u8 {
     }
 }
 
-pub fn buf_print_i64(out_buf: []u8, x: i64) -> isize {
+pub fn buf_print_signed(T: type)(out_buf: []u8, x: T) -> isize {
     if (x < 0) {
         out_buf[0] = '-';
-        return 1 + buf_print_u64(out_buf[1...], u64(-(x + 1)) + 1);
+        return 1 + buf_print_unsigned(T)(out_buf[1...], @unsigned_of(T)(-(x + 1)) + 1);
     } else {
-        return buf_print_u64(out_buf, u64(x));
+        return buf_print_unsigned(T)(out_buf, @unsigned_of(T)(x));
     }
 }
 
-pub fn buf_print_u64(out_buf: []u8, x: u64) -> isize {
+pub const buf_print_i64 = buf_print_signed(i64);
+
+pub fn buf_print_unsigned(T: type)(out_buf: []u8, x: T) -> isize {
     var buf: [max_u64_base10_digits]u8 = undefined;
     var a = x;
     var index: isize = buf.len;
@@ -277,6 +279,8 @@ pub fn buf_print_u64(out_buf: []u8, x: u64) -> isize {
 
     return len;
 }
+
+pub const buf_print_u64 = buf_print_unsigned(u64);
 
 pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
     const numExpBits = 11;
