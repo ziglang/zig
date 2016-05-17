@@ -1,4 +1,4 @@
-const assert = @import("index.zig").assert;
+const assert = @import("debug.zig").assert;
 
 pub const eql = slice_eql(u8);
 

@@ -1,4 +1,4 @@
-const assert = @import("index.zig").assert;
+const assert = @import("debug.zig").assert;
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 

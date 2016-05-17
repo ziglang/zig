@@ -1,6 +1,6 @@
 const linux = @import("linux.zig");
 const errno = @import("errno.zig");
-const assert = @import("index.zig").assert;
+const assert = @import("debug.zig").assert;
 
 pub error SigInterrupt;
 pub error Unexpected;

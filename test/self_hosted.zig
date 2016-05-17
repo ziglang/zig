@@ -1,5 +1,5 @@
 const std = @import("std");
-const assert = std.assert;
+const assert = std.debug.assert;
 const str = std.str;
 const cstr = std.cstr;
 const other = @import("other.zig");
