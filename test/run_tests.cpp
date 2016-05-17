@@ -1395,6 +1395,17 @@ fn something() -> %void { }
 pub fn main(args: [][]u8) { }
     )SOURCE", 1, ".tmp_source.zig:2:27: error: expected return type of main to be '%void', instead is 'void'");
 
+
+    add_compile_fail_case("invalid pointer for var type", R"SOURCE(
+extern fn ext() -> isize;
+var bytes: [ext()]u8 = undefined;
+fn f() {
+    for (bytes) |*b, i| {
+        *b = u8(i);
+    }
+}
+    )SOURCE", 1, ".tmp_source.zig:3:13: error: unable to evaluate constant expression");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////

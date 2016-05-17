@@ -3953,7 +3953,7 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
     }
 
     TypeTableEntry *var_type;
-    if (node->data.for_expr.elem_is_ptr) {
+    if (child_type->id != TypeTableEntryIdInvalid && node->data.for_expr.elem_is_ptr) {
         var_type = get_pointer_to_type(g, child_type, false);
     } else {
         var_type = child_type;
