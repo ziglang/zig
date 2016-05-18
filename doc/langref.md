@@ -349,45 +349,255 @@ TODO
 
 ## Built-in Functions
 
-Built-in functions are prefixed with `@`.
+Built-in functions are prefixed with `@`. Remember that the `inline` keyword on
+a parameter means that the parameter must be known at compile time.
 
-### @typeof
+### @typeof(expression) -> type
 
-`@typeof(expression)`
+This function returns a compile-time constant, which is the type of the
+expression passed as an argument. The expression is *not evaluated*.
 
-### @sizeof
+### @sizeof(inline T: type) -> (number literal)
 
-`@sizeof(type)`
+This function returns the number of bytes it takes to store T in memory.
+
+The result is a target-specific compile time constant.
+
+### @alignof(inline T: type) -> (number literal)
+
+This function returns the number of bytes that this type should be aligned to
+for the current target.
+
+The result is a target-specific compile time constant.
 
 ### Overflow Arithmetic
 
-Overflow arithmetic functions have defined behavior on overflow or underflow.
+These functions take an integer type, two variables of the specified type,
+and a pointer to memory of the specified type where the result is stored.
 
-The functions take an integer type, two variables of the specified type, and a
-pointer to a variable of the specified type where the result is stored. The
-functions return a boolean value: true of overflow/underflow occurred, false
-otherwise.
+The functions return a boolean value: true if overflow or underflow occurred,
+false otherwise.
 
 ```
-Function                                                  Operation
-@add_with_overflow(T: type, a: T, b: T, x: &T) -> bool    *x = a + b
-@sub_with_overflow(T: type, a: T, b: T, x: &T) -> bool    *x = a - b
-@mul_with_overflow(T: type, a: T, b: T, x: &T) -> bool    *x = a * b
+Function                                                             Operation
+@add_with_overflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a + b
+@sub_with_overflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a - b
+@mul_with_overflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a * b
+@shl_with_overflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a << b
 ```
 
-### @memset
+### @memset(dest, c: u8, byte_count: isize)
 
-`@memset(dest, char, len)`
+This function sets a region of memory to `c`. `dest` is a pointer.
 
-### @memcpy
+This function is a low level intrinsic with no safety mechanisms. Most higher
+level code will not use this function, instead using something like this:
 
-`@memcpy(dest, source, len)`
+```zig
+// assume dest is a slice
+for (dest) |*b| *b = c;
+```
 
-### @member_count
+### @memcpy(dest, source, byte_count: isize)
 
-`@member_count(enum_type)`
+This function copies bytes from one region of memory to another. `dest` and
+`source` are both pointers and must not overlap.
 
-### Max and Min Value
+This function is a low level intrinsic with no safety mechanisms. Most higher
+level code will not use this function, instead using something like this:
 
-`@max_value(type)`
-`@min_value(type)`
+```zig
+const mem = @import("std").mem;
+// assume dest and source are slices
+mem.copy(dest, source);
+```
+
+### @breakpoint()
+
+This function inserts a platform-specific debug trap instruction which causes
+debuggers to break there.
+
+This function is only valid within function scope.
+
+### @return_address()
+
+This function returns a pointer to the return address of the current stack
+frame.
+
+The implications of this are target specific and not consistent across
+all platforms.
+
+This function is only valid within function scope.
+
+### @frame_address()
+
+This function returns the base pointer of the current stack frame.
+
+The implications of this are target specific and not consistent across all
+platforms. The frame address may not be available in release mode due to
+aggressive optimizations.
+
+This function is only valid within function scope.
+
+### @max_value(inline T: type) -> (number literal)
+
+This function returns the maximum integer value of the integer type T.
+
+The result is a compile time constant. For some types such as `c_long`, the
+result is marked as depending on a compile variable.
+
+### @min_value(inline T: type) -> (number literal)
+
+This function returns the minimum integer value of the integer type T.
+
+The result is a compile time constant. For some types such as `c_long`, the
+result is marked as depending on a compile variable.
+
+### @member_count(inline T: type) -> (number literal)
+
+This function returns the number of enum values in an enum type.
+
+The result is a compile time constant.
+
+### @import(inline path: []u8) -> (namespace)
+
+This function finds a zig file corresponding to `path` and imports all the
+public top level declarations into the resulting namespace.
+
+`path` can be a relative or absolute path, or it can be the name of a package,
+such as "std".
+
+This function is only valid at top level scope.
+
+### @c_import(expression) -> (namespace)
+
+This function parses C code and imports the functions, types, variables, and
+compatible macro definitions into the result namespace.
+
+`expression` is interpreted at compile time. The builtin functions
+`@c_include`, `@c_define`, and `@c_undef` work within this expression,
+appending to a temporary buffer which is then parsed as C code.
+
+This function is only valid at top level scope.
+
+### @c_include(inline path: []u8)
+
+This function can only occur inside `@c_import`.
+
+This appends `#include <$path>\n` to the `c_import` temporary buffer.
+
+### @c_define(inline name: []u8, value)
+
+This function can only occur inside `@c_import`.
+
+This appends `#define $name $value` to the `c_import` temporary buffer.
+
+### @c_undef(inline name: []u8)
+
+This function can only occur inside `@c_import`.
+
+This appends `#undef $name` to the `c_import` temporary buffer.
+
+### @compile_var(inline name: []u8) -> (varying type)
+
+This function returns a compile-time variable. There are built in compile
+variables:
+
+ * "is_big_endian" `bool` - either `true` for big endian or `false` for little endian.
+ * "is_release" `bool`- either `true` for release mode builds or `false` for debug mode builds.
+ * "is_test" `bool`- either `true` for test builds or `false` otherwise.
+ * "os" `@OS` - use `zig targets` to see what enum values are possible here.
+ * "arch" `@Arch` - use `zig targets` to see what enum values are possible here.
+ * "environ" `@Environ` - use `zig targets` to see what enum values are possible here.
+
+Build scripts can set additional compile variables of any name and type.
+
+The result of this function is a compile time constant that is marked as
+depending on a compile variable.
+
+### @const_eval(expression) -> @typeof(expression)
+
+This function wraps an expression and generates a compile error if the
+expression is not known at compile time.
+
+The result of the function is the result of the expression.
+
+### @ctz(inline T: type, x: T) -> T
+
+This function counts the number of trailing zeroes in x which is an integer
+type T.
+
+### @clz(inline T: type, x: T) -> T
+
+This function counts the number of leading zeroes in x which is an integer
+type T.
+
+### @err_name(err: error) -> []u8
+
+This function returns the string representation of an error. If an error
+declaration is:
+
+```zig
+error OutOfMem;
+```
+
+Then the string representation is "OutOfMem".
+
+If there are no calls to `@err_name` in an entire application, then no error
+name table will be generated.
+
+### @embed_file(inline path: []u8) -> [X]u8
+
+This function returns a compile time constant fixed-size array with length
+equal to the byte count of the file given by `path`. The contents of the array
+are the contents of the file.
+
+### @cmpxchg(ptr: &T, cmp: T, new: T, success_order: MemoryOrder, fail_order: MemoryOrder) -> bool
+
+This function performs an atomic compare exchange operation.
+
+### @fence(order: MemoryOrder)
+
+The `fence` function is used to introduce happens-before edges between operations.
+
+### @div_exact(a: T, b: T) -> T
+
+This function performs integer division `a / b` and returns the result.
+
+The caller guarantees that this operation will have no remainder.
+
+In debug mode, a remainder causes a panic. In release mode, a remainder is
+undefined behavior.
+
+### @truncate(inline T: type, integer) -> T
+
+This function truncates bits from an integer type, resulting in a smaller
+integer type.
+
+The following produces a crash in debug mode and undefined behavior in
+release mode:
+
+```zig
+const a: u16 = 0xabcd;
+const b: u8 = u8(a);
+```
+
+However this is well defined and working code:
+
+```zig
+const a: u16 = 0xabcd;
+const b: u8 = @truncate(u8, a);
+// b is now 0xcd
+```
+
+### @compile_err(inline msg: []u8)
+
+This function, when semantically analyzed, causes a compile error with the message `msg`.
+
+There are several ways that code avoids being semantically checked, such as using `if`
+or `switch` with compile variables, and inline functions.
+
+### @int_type(inline is_signed: bool, inline bit_count: u8, inline is_wrapping: bool) -> type
+
+This function returns an integer type with the given signness, bit count, and
+wrapping behavior.
