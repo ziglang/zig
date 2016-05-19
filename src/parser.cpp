@@ -267,6 +267,29 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
         }
         const char *str = buf_ptr(pc->buf) + token->raw_string_start;
         buf_init_from_mem(buf, str, token->raw_string_end - token->raw_string_start);
+        if (offset_map) {
+            SrcPos pos = {token->start_line, token->start_column};
+            for (int i = token->start_pos; i < token->raw_string_start; i += 1) {
+                uint8_t c = buf_ptr(pc->buf)[i];
+                if (c == '\n') {
+                    pos.line += 1;
+                    pos.column = 0;
+                } else {
+                    pos.column += 1;
+                }
+            }
+            for (int i = token->raw_string_start; i < token->raw_string_end; i += 1) {
+                offset_map->append(pos);
+
+                uint8_t c = buf_ptr(pc->buf)[i];
+                if (c == '\n') {
+                    pos.line += 1;
+                    pos.column = 0;
+                } else {
+                    pos.column += 1;
+                }
+            }
+        }
         return;
     }
 
