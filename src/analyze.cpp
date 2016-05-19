@@ -1130,7 +1130,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     if (!fn_table_entry->is_extern) {
         LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoUnwindAttribute);
     }
-    if (!g->is_release_build) {
+    if (!g->is_release_build && !fn_proto->is_inline) {
         ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim-non-leaf", nullptr);
     }

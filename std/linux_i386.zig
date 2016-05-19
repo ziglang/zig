@@ -419,20 +419,20 @@ pub const F_GETOWN_EX = 16;
 
 pub const F_GETOWNER_UIDS = 17;
 
-pub fn syscall0(number: isize) -> isize {
+pub inline fn syscall0(number: isize) -> isize {
     asm volatile ("int $0x80"
         : [ret] "={eax}" (-> isize)
         : [number] "{eax}" (number))
 }
 
-pub fn syscall1(number: isize, arg1: isize) -> isize {
+pub inline fn syscall1(number: isize, arg1: isize) -> isize {
     asm volatile ("int $0x80"
         : [ret] "={eax}" (-> isize)
         : [number] "{eax}" (number),
             [arg1] "{ebx}" (arg1))
 }
 
-pub fn syscall2(number: isize, arg1: isize, arg2: isize) -> isize {
+pub inline fn syscall2(number: isize, arg1: isize, arg2: isize) -> isize {
     asm volatile ("int $0x80"
         : [ret] "={eax}" (-> isize)
         : [number] "{eax}" (number),
@@ -440,7 +440,7 @@ pub fn syscall2(number: isize, arg1: isize, arg2: isize) -> isize {
             [arg2] "{ecx}" (arg2))
 }
 
-pub fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
+pub inline fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
     asm volatile ("int $0x80"
         : [ret] "={eax}" (-> isize)
         : [number] "{eax}" (number),
@@ -449,7 +449,7 @@ pub fn syscall3(number: isize, arg1: isize, arg2: isize, arg3: isize) -> isize {
             [arg3] "{edx}" (arg3))
 }
 
-pub fn syscall4(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize) -> isize {
+pub inline fn syscall4(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isize) -> isize {
     asm volatile ("int $0x80"
         : [ret] "={eax}" (-> isize)
         : [number] "{eax}" (number),
@@ -459,7 +459,7 @@ pub fn syscall4(number: isize, arg1: isize, arg2: isize, arg3: isize, arg4: isiz
             [arg4] "{esi}" (arg4))
 }
 
-pub fn syscall5(number: isize, arg1: isize, arg2: isize, arg3: isize,
+pub inline fn syscall5(number: isize, arg1: isize, arg2: isize, arg3: isize,
     arg4: isize, arg5: isize) -> isize
 {
     asm volatile ("int $0x80"
@@ -472,7 +472,7 @@ pub fn syscall5(number: isize, arg1: isize, arg2: isize, arg3: isize,
             [arg5] "{edi}" (arg5))
 }
 
-pub fn syscall6(number: isize, arg1: isize, arg2: isize, arg3: isize,
+pub inline fn syscall6(number: isize, arg1: isize, arg2: isize, arg3: isize,
     arg4: isize, arg5: isize, arg6: isize) -> isize
 {
     asm volatile ("int $0x80"
