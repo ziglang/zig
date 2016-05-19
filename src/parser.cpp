@@ -262,7 +262,9 @@ static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool 
         uint8_t c1 = *((uint8_t*)buf_ptr(pc->buf) + token->start_pos);
         uint8_t c2 = *((uint8_t*)buf_ptr(pc->buf) + token->start_pos + 1);
         assert(c1 == 'r');
-        *out_c_str = (c2 == 'c');
+        if (out_c_str) {
+            *out_c_str = (c2 == 'c');
+        }
         const char *str = buf_ptr(pc->buf) + token->raw_string_start;
         buf_init_from_mem(buf, str, token->raw_string_end - token->raw_string_start);
         return;
