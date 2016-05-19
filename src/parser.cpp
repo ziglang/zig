@@ -1017,6 +1017,12 @@ static void ast_parse_asm_output(ParseContext *pc, int *token_index, AstNode *no
 
     *token_index += 1;
 
+    Token *colon_again = &pc->tokens->at(*token_index);
+    if (colon_again->id == TokenIdColon) {
+        ast_parse_asm_input(pc, token_index, node);
+        return;
+    }
+
     for (;;) {
         ast_parse_asm_output_item(pc, token_index, node);
 
