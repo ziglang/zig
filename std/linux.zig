@@ -391,10 +391,6 @@ pub fn connect(fd: i32, addr: &const sockaddr, len: socklen_t) -> isize {
     arch.syscall3(arch.SYS_connect, fd, isize(addr), isize(len))
 }
 
-pub fn accept(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> isize {
-    arch.syscall3(arch.SYS_accept, fd, isize(addr), isize(len))
-}
-
 pub fn recvmsg(fd: i32, msg: &arch.msghdr, flags: i32) -> isize {
     arch.syscall3(arch.SYS_recvmsg, fd, isize(msg), flags)
 }
@@ -423,6 +419,10 @@ pub fn sendto(fd: i32, buf: &const u8, len: isize, flags: i32, addr: ?&const soc
 
 pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) -> isize {
     arch.syscall4(arch.SYS_socketpair, domain, socket_type, protocol, isize(&fd[0]))
+}
+
+pub fn accept(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> isize {
+    accept4(fd, addr, len, 0)
 }
 
 pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags: i32) -> isize {
