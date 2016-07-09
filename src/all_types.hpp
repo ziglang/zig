@@ -383,6 +383,7 @@ enum CastOp {
     CastOpFloatToInt,
     CastOpBoolToInt,
     CastOpResizeSlice,
+    CastOpIntToEnum,
 };
 
 struct AstNodeFnCallExpr {

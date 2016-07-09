@@ -657,6 +657,16 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
             bignum_init_unsigned(&const_val->data.x_bignum, other_val->data.x_bool ? 1 : 0);
             const_val->ok = true;
             break;
+        case CastOpIntToEnum:
+            {
+                uint64_t value = other_val->data.x_bignum.data.x_uint;
+                assert(new_type->id == TypeTableEntryIdEnum);
+                assert(value < new_type->data.enumeration.field_count);
+                const_val->data.x_enum.tag = value;
+                const_val->data.x_enum.payload = NULL;
+                const_val->ok = true;
+                break;
+            }
     }
 }
 

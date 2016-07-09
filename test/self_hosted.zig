@@ -1740,3 +1740,23 @@ fn int_type_builtin() {
     assert(!usize.is_signed);
 
 }
+
+#attribute("test")
+fn int_to_enum() {
+    test_int_to_enum_eval(3);
+    test_int_to_enum_noeval(3);
+}
+fn test_int_to_enum_eval(x: i32) {
+    assert(IntToEnumNumber(x) == IntToEnumNumber.Three);
+}
+#static_eval_enable(false)
+fn test_int_to_enum_noeval(x: i32) {
+    assert(IntToEnumNumber(x) == IntToEnumNumber.Three);
+}
+enum IntToEnumNumber {
+    Zero,
+    One,
+    Two,
+    Three,
+    Four,
+}

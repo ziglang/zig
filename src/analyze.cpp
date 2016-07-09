@@ -4428,6 +4428,14 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         }
     }
 
+    // explicit cast from integer to enum type with no payload
+    if (actual_type->id == TypeTableEntryIdInt &&
+        wanted_type->id == TypeTableEntryIdEnum &&
+        wanted_type->data.enumeration.gen_field_count == 0)
+    {
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpIntToEnum, false);
+    }
+
     add_node_error(g, node,
         buf_sprintf("invalid cast from type '%s' to '%s'",
             buf_ptr(&actual_type->name),

@@ -1032,6 +1032,8 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
             set_debug_source_node(g, node);
             return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
 
+        case CastOpIntToEnum:
+            return gen_widen_or_shorten(g, node, actual_type, wanted_type->data.enumeration.tag_type, expr_val);
     }
     zig_unreachable();
 }
@@ -3913,7 +3915,7 @@ static void do_code_gen(CodeGen *g) {
             LLVMZigAddNonNullAttr(fn_table_entry->fn_value, 1);
             is_sret = true;
         }
-        if (fn_table_entry->is_pure && !is_sret) {
+        if (fn_table_entry->is_pure && !is_sret && g->is_release_build) {
             LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMReadOnlyAttribute);
         }
 
