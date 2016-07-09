@@ -1589,6 +1589,11 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import, AstNode *prot
 static void scan_struct_decl(CodeGen *g, ImportTableEntry *import, BlockContext *context, AstNode *node) {
     assert(node->type == NodeTypeStructDecl);
 
+    if (node->data.struct_decl.type_entry) {
+        // already scanned; we can ignore. This can happen from importing from an .h file.
+        return;
+    }
+
     Buf *name = &node->data.struct_decl.name;
     TypeTableEntry *container_type = get_partial_container_type(g, import, context,
             node->data.struct_decl.kind, node, buf_ptr(name));
