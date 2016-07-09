@@ -986,6 +986,8 @@ void tokenize(Buf *buf, Tokenization *out) {
                                 t.state = TokenizeStateCharLiteralEnd;
                             } else if (t.cur_tok->id == TokenIdStringLiteral) {
                                 t.state = TokenizeStateString;
+                            } else if (t.cur_tok->id == TokenIdSymbol) {
+                                t.state = TokenizeStateString;
                             } else {
                                 zig_unreachable();
                             }
