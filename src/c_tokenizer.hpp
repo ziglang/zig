@@ -53,6 +53,7 @@ enum CTokState {
     CTokStateExpSign,
     CTokStateFloatExp,
     CTokStateFloatExpFirst,
+    CTokStateStrOctal,
 };
 
 struct CTokenize {
@@ -63,6 +64,8 @@ struct CTokenize {
     Buf buf;
     bool unsigned_suffix;
     bool long_suffix;
+    uint8_t cur_char;
+    int octal_index;
 };
 
 void tokenize_c_macro(CTokenize *ctok, const uint8_t *c);

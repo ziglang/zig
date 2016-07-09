@@ -1731,6 +1731,15 @@ struct type {
     )SOURCE", 2, R"(export struct struct_type {
     @"defer": c_int,
 })", R"(pub const @"type" = struct_type;)");
+
+    add_parseh_case("macro defines string literal with octal", R"SOURCE(
+#define FOO "aoeu\023 derp"
+#define FOO2 "aoeu\0234 derp"
+#define FOO_CHAR '\077'
+    )SOURCE", 3,
+            R"(pub const FOO = c"aoeu\x13 derp")",
+            R"(pub const FOO2 = c"aoeu\x134 derp")",
+            R"(pub const FOO_CHAR = '\x3f')");
 }
 
 static void run_self_hosted_test(bool is_release_mode) {

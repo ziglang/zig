@@ -251,7 +251,7 @@ static bool is_digit(uint8_t c) {
 }
 
 static bool is_printable(uint8_t c) {
-    return is_alpha_under(c) || is_digit(c);
+    return is_alpha_under(c) || is_digit(c) || c == ' ';
 }
 
 static void string_literal_escape(Buf *source, Buf *dest) {
@@ -463,10 +463,14 @@ static void render_node(AstRender *ar, AstNode *node) {
             }
             break;
         case NodeTypeStringLiteral:
-            if (node->data.string_literal.c) {
-                fprintf(ar->f, "c");
+            {
+                if (node->data.string_literal.c) {
+                    fprintf(ar->f, "c");
+                }
+                Buf tmp_buf = BUF_INIT;
+                string_literal_escape(&node->data.string_literal.buf, &tmp_buf);
+                fprintf(ar->f, "\"%s\"", buf_ptr(&tmp_buf));
             }
-            fprintf(ar->f, "\"%s\"", buf_ptr(&node->data.string_literal.buf));
             break;
         case NodeTypeCharLiteral:
             {
