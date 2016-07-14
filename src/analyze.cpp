@@ -48,6 +48,8 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
         bool expr_is_maybe, AstNode *decl_node, bool var_is_ptr);
 static void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *context, AstNode *node);
 static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
+static void resolve_use_decl(CodeGen *g, AstNode *node);
+static void preview_use_decl(CodeGen *g, AstNode *node);
 
 static AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
@@ -2692,6 +2694,17 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
         assert(const_val->ok);
         ImportTableEntry *namespace_import = const_val->data.x_import;
         AstNode *decl_node = find_decl(namespace_import->block_context, field_name);
+        if (!decl_node) {
+            // we must now resolve all the use decls
+            for (int i = 0; i < namespace_import->use_decls.length; i += 1) {
+                AstNode *use_decl_node = namespace_import->use_decls.at(i);
+                if (!get_resolved_expr(use_decl_node->data.use.expr)->type_entry) {
+                    preview_use_decl(g, use_decl_node);
+                }
+                resolve_use_decl(g, use_decl_node);
+            }
+            decl_node = find_decl(namespace_import->block_context, field_name);
+        }
         if (decl_node) {
             TopLevelDecl *tld = get_as_top_level_decl(decl_node);
             if (tld->visib_mod == VisibModPrivate) {
@@ -6522,6 +6535,8 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
         return;
     }
 
+    tld->resolution = TldResolutionOk;
+
     ConstExprValue *const_val = &expr->const_val;
     assert(const_val->ok);
 
@@ -6570,6 +6585,9 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
 
 static void resolve_use_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeUse);
+    if (get_as_top_level_decl(node)->resolution != TldResolutionUnresolved) {
+        return;
+    }
     add_symbols_from_import(g, node, node);
 }
 
