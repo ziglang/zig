@@ -170,8 +170,8 @@ static const char *node_type_str(NodeType node_type) {
             return "AsmExpr";
         case NodeTypeFieldAccessExpr:
             return "FieldAccessExpr";
-        case NodeTypeStructDecl:
-            return "StructDecl";
+        case NodeTypeContainerDecl:
+            return "ContainerDecl";
         case NodeTypeStructField:
             return "StructField";
         case NodeTypeStructValueField:
@@ -565,7 +565,7 @@ static void render_node(AstRender *ar, AstNode *node) {
             zig_panic("TODO");
         case NodeTypeAsmExpr:
             zig_panic("TODO");
-        case NodeTypeStructDecl:
+        case NodeTypeContainerDecl:
             {
                 const char *struct_name = buf_ptr(&node->data.struct_decl.name);
                 const char *pub_str = visib_mod_string(node->data.struct_decl.top_level_decl.visib_mod);

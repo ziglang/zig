@@ -3487,7 +3487,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeParamDecl:
         case NodeTypeDirective:
         case NodeTypeUse:
-        case NodeTypeStructDecl:
+        case NodeTypeContainerDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeSwitchProng:

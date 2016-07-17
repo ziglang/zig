@@ -2659,7 +2659,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, int *token_index,
 
     Token *struct_name = ast_eat_token(pc, token_index, TokenIdSymbol);
 
-    AstNode *node = ast_create_node(pc, NodeTypeStructDecl, first_token);
+    AstNode *node = ast_create_node(pc, NodeTypeContainerDecl, first_token);
     node->data.struct_decl.kind = kind;
     ast_buf_from_token(pc, struct_name, &node->data.struct_decl.name);
     node->data.struct_decl.top_level_decl.visib_mod = visib_mod;
@@ -3077,7 +3077,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
                 visit_field(&asm_output->return_type, visit, context);
             }
             break;
-        case NodeTypeStructDecl:
+        case NodeTypeContainerDecl:
             visit_node_list(&node->data.struct_decl.fields, visit, context);
             visit_node_list(&node->data.struct_decl.decls, visit, context);
             visit_node_list(node->data.struct_decl.top_level_decl.directives, visit, context);
@@ -3319,7 +3319,7 @@ AstNode *ast_clone_subtree(AstNode *old_node, uint32_t *next_node_index) {
         case NodeTypeAsmExpr:
             zig_panic("TODO");
             break;
-        case NodeTypeStructDecl:
+        case NodeTypeContainerDecl:
             clone_subtree_list(&new_node->data.struct_decl.fields, &old_node->data.struct_decl.fields,
                     next_node_index);
             clone_subtree_list(&new_node->data.struct_decl.decls, &old_node->data.struct_decl.decls,

@@ -179,7 +179,7 @@ enum NodeType {
     NodeTypeBreak,
     NodeTypeContinue,
     NodeTypeAsmExpr,
-    NodeTypeStructDecl,
+    NodeTypeContainerDecl,
     NodeTypeStructField,
     NodeTypeContainerInitExpr,
     NodeTypeStructValueField,

@@ -95,7 +95,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeBreak:
         case NodeTypeContinue:
         case NodeTypeAsmExpr:
-        case NodeTypeStructDecl:
+        case NodeTypeContainerDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeWhileExpr:
@@ -1505,7 +1505,7 @@ static void preview_generic_fn_proto(CodeGen *g, ImportTableEntry *import, AstNo
         }
 
         node->data.fn_proto.generic_fn_type = get_generic_fn_type(g, node);
-    } else if (node->type == NodeTypeStructDecl) {
+    } else if (node->type == NodeTypeContainerDecl) {
         if (node->data.struct_decl.generic_params_is_var_args) {
             add_node_error(g, node, buf_sprintf("generic parameters cannot be var args"));
             node->data.struct_decl.skip = true;
@@ -1589,7 +1589,7 @@ static void preview_fn_proto(CodeGen *g, ImportTableEntry *import, AstNode *prot
 }
 
 static void scan_struct_decl(CodeGen *g, ImportTableEntry *import, BlockContext *context, AstNode *node) {
-    assert(node->type == NodeTypeStructDecl);
+    assert(node->type == NodeTypeContainerDecl);
 
     if (node->data.struct_decl.type_entry) {
         // already scanned; we can ignore. This can happen from importing from an .h file.
@@ -1666,7 +1666,7 @@ static void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only)
     if (tld->resolution != TldResolutionUnresolved) {
         return;
     }
-    if (pointer_only && node->type == NodeTypeStructDecl) {
+    if (pointer_only && node->type == NodeTypeContainerDecl) {
         return;
     }
 
@@ -1685,7 +1685,7 @@ static void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only)
         case NodeTypeFnProto:
             preview_fn_proto(g, import, node);
             break;
-        case NodeTypeStructDecl:
+        case NodeTypeContainerDecl:
             resolve_struct_decl(g, import, node);
             break;
         case NodeTypeVariableDeclaration:
@@ -3013,7 +3013,7 @@ static TypeTableEntry *analyze_decl_ref(CodeGen *g, AstNode *source_node, AstNod
             assert(fn_entry->type_entry);
             return resolve_expr_const_val_as_fn(g, source_node, fn_entry, depends_on_compile_var);
         }
-    } else if (decl_node->type == NodeTypeStructDecl) {
+    } else if (decl_node->type == NodeTypeContainerDecl) {
         if (decl_node->data.struct_decl.generic_params.length > 0) {
             TypeTableEntry *type_entry = decl_node->data.struct_decl.generic_fn_type;
             assert(type_entry);
@@ -5355,7 +5355,7 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
     ZigList<AstNode *> *generic_params;
     if (decl_node->type == NodeTypeFnProto) {
         generic_params = &decl_node->data.fn_proto.generic_params;
-    } else if (decl_node->type == NodeTypeStructDecl) {
+    } else if (decl_node->type == NodeTypeContainerDecl) {
         generic_params = &decl_node->data.struct_decl.generic_params;
     } else {
         zig_unreachable();
@@ -5423,7 +5423,7 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
         if (impl_decl_node->type == NodeTypeFnProto) {
             FnTableEntry *fn_table_entry = impl_decl_node->data.fn_proto.fn_table_entry;
             return resolve_expr_const_val_as_fn(g, node, fn_table_entry, false);
-        } else if (impl_decl_node->type == NodeTypeStructDecl) {
+        } else if (impl_decl_node->type == NodeTypeContainerDecl) {
             TypeTableEntry *type_entry = impl_decl_node->data.struct_decl.type_entry;
             return resolve_expr_const_val_as_type(g, node, type_entry, false);
         } else {
@@ -5440,7 +5440,7 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
         g->generic_table.put(generic_fn_type_id, impl_decl_node);
         FnTableEntry *fn_table_entry = impl_decl_node->data.fn_proto.fn_table_entry;
         return resolve_expr_const_val_as_fn(g, node, fn_table_entry, false);
-    } else if (decl_node->type == NodeTypeStructDecl) {
+    } else if (decl_node->type == NodeTypeContainerDecl) {
         AstNode *impl_decl_node = ast_clone_subtree(decl_node, &g->next_node_index);
         g->generic_table.put(generic_fn_type_id, impl_decl_node);
         scan_struct_decl(g, import, child_context, impl_decl_node);
@@ -6291,7 +6291,7 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
         case NodeTypeFnDef:
         case NodeTypeUse:
         case NodeTypeLabel:
-        case NodeTypeStructDecl:
+        case NodeTypeContainerDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeErrorValueDecl:
@@ -6408,7 +6408,7 @@ static void add_top_level_decl(CodeGen *g, ImportTableEntry *import, BlockContex
 
     bool want_as_export = (g->check_unused || g->is_test_build || tld->visib_mod == VisibModExport);
     bool is_generic = (node->type == NodeTypeFnProto && node->data.fn_proto.generic_params.length > 0) ||
-                      (node->type == NodeTypeStructDecl && node->data.struct_decl.generic_params.length > 0);
+                      (node->type == NodeTypeContainerDecl && node->data.struct_decl.generic_params.length > 0);
     if (!is_generic && want_as_export) {
         g->export_queue.append(node);
     }
@@ -6433,7 +6433,7 @@ static void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *conte
                 scan_decls(g, import, context, child);
             }
             break;
-        case NodeTypeStructDecl:
+        case NodeTypeContainerDecl:
             {
                 Buf *name = &node->data.struct_decl.name;
                 add_top_level_decl(g, import, context, node, name);
@@ -6782,7 +6782,7 @@ Expr *get_resolved_expr(AstNode *node) {
         case NodeTypeParamDecl:
         case NodeTypeDirective:
         case NodeTypeUse:
-        case NodeTypeStructDecl:
+        case NodeTypeContainerDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeErrorValueDecl:
@@ -6800,7 +6800,7 @@ static TopLevelDecl *get_as_top_level_decl(AstNode *node) {
             return &node->data.fn_proto.top_level_decl;
         case NodeTypeFnDef:
             return &node->data.fn_def.fn_proto->data.fn_proto.top_level_decl;
-        case NodeTypeStructDecl:
+        case NodeTypeContainerDecl:
             return &node->data.struct_decl.top_level_decl;
         case NodeTypeErrorValueDecl:
             return &node->data.error_value_decl.top_level_decl;

@@ -1269,7 +1269,7 @@ static bool eval_expr(EvalFn *ef, AstNode *node, ConstExprValue *out) {
         case NodeTypeGoto:
         case NodeTypeBreak:
         case NodeTypeContinue:
-        case NodeTypeStructDecl:
+        case NodeTypeContainerDecl:
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeArrayType:

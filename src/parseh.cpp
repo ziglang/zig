@@ -936,7 +936,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
     if (enum_type->id == TypeTableEntryIdEnum) {
         if (enum_type->data.enumeration.complete) {
             // now create top level decl for the type
-            AstNode *enum_node = create_node(c, NodeTypeStructDecl);
+            AstNode *enum_node = create_node(c, NodeTypeContainerDecl);
             buf_init_from_buf(&enum_node->data.struct_decl.name, &enum_type->name);
             enum_node->data.struct_decl.kind = ContainerKindEnum;
             enum_node->data.struct_decl.top_level_decl.visib_mod = VisibModExport;
@@ -1113,7 +1113,7 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
 
     if (struct_type->data.structure.complete) {
         // now create a top level decl node for the type
-        AstNode *struct_node = create_node(c, NodeTypeStructDecl);
+        AstNode *struct_node = create_node(c, NodeTypeContainerDecl);
         buf_init_from_buf(&struct_node->data.struct_decl.name, &struct_type->name);
         struct_node->data.struct_decl.kind = ContainerKindStruct;
         struct_node->data.struct_decl.top_level_decl.visib_mod = VisibModExport;
