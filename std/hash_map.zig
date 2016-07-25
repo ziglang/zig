@@ -7,7 +7,7 @@ const want_modification_safety = !@compile_var("is_release");
 const debug_u32 = if (want_modification_safety) u32 else void;
 
 /*
-pub fn HashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)->bool) {
+pub inline fn HashMap(inline K: type, inline V: type, inline hash: fn(key: K)->u32, inline eql: fn(a: K, b: K)->bool) {
     SmallHashMap(K, V, hash, eql, 8);
 }
 */
@@ -70,7 +70,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
 
     pub fn deinit(hm: &Self) {
         if (hm.entries.ptr != &hm.prealloc_entries[0]) {
-            hm.allocator.free(hm.allocator, ([]u8)(hm.entries));
+            hm.allocator.free(Entry, hm.entries);
         }
     }
 
@@ -103,7 +103,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
                 }
             }
             if (old_entries.ptr != &hm.prealloc_entries[0]) {
-                hm.allocator.free(hm.allocator, ([]u8)(old_entries));
+                hm.allocator.free(Entry, old_entries);
             }
         }
 
@@ -152,7 +152,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
     }
 
     fn init_capacity(hm: &Self, capacity: isize) -> %void {
-        hm.entries = ([]Entry)(%return hm.allocator.alloc(hm.allocator, capacity * @sizeof(Entry)));
+        hm.entries = %return hm.allocator.alloc(Entry, capacity);
         hm.size = 0;
         hm.max_distance_from_start_index = 0;
         for (hm.entries) |*entry| {
@@ -180,7 +180,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
                 if (entry.distance_from_start_index < distance_from_start_index) {
                     // robin hood to the rescue
                     const tmp = *entry;
-                    hm.max_distance_from_start_index = math.max(isize)(
+                    hm.max_distance_from_start_index = math.max(isize,
                         hm.max_distance_from_start_index, distance_from_start_index);
                     *entry = Entry {
                         .used = true,
@@ -201,7 +201,8 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
                 hm.size += 1;
             }
 
-            hm.max_distance_from_start_index = math.max(isize)(distance_from_start_index, hm.max_distance_from_start_index);
+            hm.max_distance_from_start_index = math.max(isize, distance_from_start_index,
+                hm.max_distance_from_start_index);
             *entry = Entry {
                 .used = true,
                 .distance_from_start_index = distance_from_start_index,
@@ -231,9 +232,9 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
 }
 
 var global_allocator = Allocator {
-    .alloc = global_alloc,
-    .realloc = global_realloc,
-    .free = global_free,
+    .alloc_fn = global_alloc,
+    .realloc_fn = global_realloc,
+    .free_fn = global_free,
     .context = null,
 };
 

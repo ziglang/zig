@@ -195,10 +195,8 @@ struct AstNodeRoot {
 struct AstNodeFnProto {
     TopLevelDecl top_level_decl;
     Buf name;
-    ZigList<AstNode *> generic_params;
     ZigList<AstNode *> params;
     AstNode *return_type;
-    bool generic_params_is_var_args;
     bool is_var_args;
     bool is_extern;
     bool is_inline;
@@ -210,7 +208,10 @@ struct AstNodeFnProto {
     FnTableEntry *fn_table_entry;
     bool skip;
     Expr resolved_expr;
-    TypeTableEntry *generic_fn_type;
+    // computed from params field
+    int inline_arg_count;
+    // if this is a generic function implementation, this points to the generic node
+    AstNode *generic_proto_node;
 };
 
 struct AstNodeFnDef {
@@ -219,6 +220,7 @@ struct AstNodeFnDef {
 
     // populated by semantic analyzer
     TypeTableEntry *implicit_return_type;
+    // the first child block context
     BlockContext *block_context;
 };
 
@@ -230,6 +232,7 @@ struct AstNodeParamDecl {
     Buf name;
     AstNode *type;
     bool is_noalias;
+    bool is_inline;
 
     // populated by semantic analyzer
     VariableTableEntry *variable;
@@ -841,6 +844,7 @@ struct FnTypeId {
     bool is_naked;
     bool is_cold;
     bool is_extern;
+    bool is_inline;
     FnTypeParamInfo prealloc_param_info[fn_type_id_prealloc_param_info_count];
 };
 
@@ -1063,7 +1067,6 @@ struct FnTableEntry {
     ZigList<LabelTableEntry *> all_labels;
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
-    bool is_inline;
     bool internal_linkage;
     bool is_extern;
     bool is_test;
@@ -1172,8 +1175,8 @@ struct CodeGen {
 
     ZigList<ImportTableEntry *> import_queue;
     int import_queue_index;
-    ZigList<AstNode *> export_queue;
-    int export_queue_index;
+    ZigList<AstNode *> resolve_queue;
+    int resolve_queue_index;
     ZigList<AstNode *> use_queue;
     int use_queue_index;
 

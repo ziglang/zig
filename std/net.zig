@@ -99,14 +99,14 @@ pub fn connect_addr(addr: &Address, port: u16) -> %Connection {
     const connect_ret = if (addr.family == linux.AF_INET) {
         var os_addr: linux.sockaddr_in = undefined;
         os_addr.family = addr.family;
-        os_addr.port = host_to_be(u16)(port);
+        os_addr.port = swap_if_little_endian(u16, port);
         @memcpy((&u8)(&os_addr.addr), &addr.addr[0], 4);
         @memset(&os_addr.zero, 0, @sizeof(@typeof(os_addr.zero)));
         linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeof(linux.sockaddr_in))
     } else if (addr.family == linux.AF_INET6) {
         var os_addr: linux.sockaddr_in6 = undefined;
         os_addr.family = addr.family;
-        os_addr.port = host_to_be(u16)(port);
+        os_addr.port = swap_if_little_endian(u16, port);
         os_addr.flowinfo = 0;
         os_addr.scope_id = addr.scope_id;
         @memcpy(&os_addr.addr[0], &addr.addr[0], 16);
@@ -319,7 +319,7 @@ fn parse_ip4(buf: []const u8) -> %u32 {
 
 #attribute("test")
 fn test_parse_ip4() {
-    assert(%%parse_ip4("127.0.0.1") == be_to_host(u32)(0x7f000001));
+    assert(%%parse_ip4("127.0.0.1") == swap_if_little_endian(u32, 0x7f000001));
     switch (parse_ip4("256.0.0.1")) { Overflow => {}, else => unreachable {}, }
     switch (parse_ip4("x.0.0.1")) { InvalidChar => {}, else => unreachable {}, }
     switch (parse_ip4("127.0.0.1.1")) { JunkAtEnd => {}, else => unreachable {}, }
@@ -352,12 +352,11 @@ fn test_lookup_simple_ip() {
     }
 }
 
-const be_to_host = host_to_be;
-fn host_to_be(T: type)(x: T) -> T {
-    if (@compile_var("is_big_endian")) x else endian_swap(T)(x)
+fn swap_if_little_endian(inline T: type, x: T) -> T {
+    if (@compile_var("is_big_endian")) x else endian_swap(T, x)
 }
 
-fn endian_swap(T: type)(x: T) -> T {
+fn endian_swap(inline T: type, x: T) -> T {
     const x_slice = ([]u8)((&const x)[0...1]);
     var result: T = undefined;
     const result_slice = ([]u8)((&result)[0...1]);

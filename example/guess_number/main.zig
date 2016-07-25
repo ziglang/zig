@@ -23,7 +23,7 @@ pub fn main(args: [][]u8) -> %void {
             return err;
         };
 
-        const guess = io.parse_unsigned(u8)(line_buf[0...line_len - 1], 10) %% {
+        const guess = io.parse_unsigned(u8, line_buf[0...line_len - 1], 10) %% {
             %%io.stdout.printf("Invalid number.\n");
             continue;
         };

@@ -1062,12 +1062,15 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
 
     TypeTableEntry *fn_type;
     LLVMValueRef fn_val;
+    AstNode *generic_proto_node;
     if (fn_table_entry) {
         fn_val = fn_table_entry->fn_value;
         fn_type = fn_table_entry->type_entry;
+        generic_proto_node = fn_table_entry->proto_node->data.fn_proto.generic_proto_node;
     } else {
         fn_val = gen_expr(g, fn_ref_expr);
         fn_type = get_expr_type(fn_ref_expr);
+        generic_proto_node = nullptr;
     }
 
     TypeTableEntry *src_return_type = fn_type->data.fn.fn_type_id.return_type;
@@ -1093,8 +1096,14 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         gen_param_index += 1;
     }
 
-    for (int i = 0; i < fn_call_param_count; i += 1) {
-        AstNode *expr_node = node->data.fn_call_expr.params.at(i);
+    for (int call_i = 0; call_i < fn_call_param_count; call_i += 1) {
+        int proto_i = call_i + (struct_type ? 1 : 0);
+        if (generic_proto_node &&
+            generic_proto_node->data.fn_proto.params.at(proto_i)->data.param_decl.is_inline)
+        {
+            continue;
+        }
+        AstNode *expr_node = node->data.fn_call_expr.params.at(call_i);
         LLVMValueRef param_value = gen_expr(g, expr_node);
         assert(param_value);
         TypeTableEntry *param_type = get_expr_type(expr_node);
@@ -3734,7 +3743,7 @@ static void delete_unused_builtin_fns(CodeGen *g) {
     }
 }
 
-static bool skip_fn_codegen(CodeGen *g, FnTableEntry *fn_entry) {
+static bool should_skip_fn_codegen(CodeGen *g, FnTableEntry *fn_entry) {
     if (g->is_test_build) {
         if (fn_entry->is_test) {
             return false;
@@ -3889,7 +3898,7 @@ static void do_code_gen(CodeGen *g) {
     // Generate function prototypes
     for (int fn_proto_i = 0; fn_proto_i < g->fn_protos.length; fn_proto_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_protos.at(fn_proto_i);
-        if (skip_fn_codegen(g, fn_table_entry)) {
+        if (should_skip_fn_codegen(g, fn_table_entry)) {
             // huge time saver
             LLVMDeleteFunction(fn_table_entry->fn_value);
             fn_table_entry->fn_value = nullptr;
@@ -3995,7 +4004,7 @@ static void do_code_gen(CodeGen *g) {
     // Generate function definitions.
     for (int fn_i = 0; fn_i < g->fn_defs.length; fn_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_defs.at(fn_i);
-        if (skip_fn_codegen(g, fn_table_entry)) {
+        if (should_skip_fn_codegen(g, fn_table_entry)) {
             // huge time saver
             continue;
         }

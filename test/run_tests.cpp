@@ -1181,11 +1181,11 @@ const invalid = foo > foo;
     )SOURCE", 1, ".tmp_source.zig:3:21: error: operator not allowed for type 'fn()'");
 
     add_compile_fail_case("generic function instance with non-constant expression", R"SOURCE(
-fn foo(x: i32)(y: i32) -> i32 { return x + y; }
+fn foo(inline x: i32, y: i32) -> i32 { return x + y; }
 fn test1(a: i32, b: i32) -> i32 {
-    return foo(a)(b);
+    return foo(a, b);
 }
-    )SOURCE", 1, ".tmp_source.zig:4:16: error: unable to evaluate constant expression");
+    )SOURCE", 1, ".tmp_source.zig:4:16: error: unable to evaluate constant expression for inline parameter");
 
     add_compile_fail_case("goto jumping into block", R"SOURCE(
 fn f() {
@@ -1405,6 +1405,27 @@ fn f() {
     }
 }
     )SOURCE", 1, ".tmp_source.zig:3:13: error: unable to evaluate constant expression");
+
+    add_compile_fail_case("export function with inline parameter", R"SOURCE(
+export fn foo(inline x: i32, y: i32) -> i32{
+    x + y
+}
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: inline parameter not allowed in extern function");
+
+    add_compile_fail_case("extern function with inline parameter", R"SOURCE(
+extern fn foo(inline x: i32, y: i32) -> i32;
+fn f() -> i32 {
+    foo(1, 2)
+}
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: inline parameter not allowed in extern function");
+
+    /* TODO
+    add_compile_fail_case("inline export function", R"SOURCE(
+export inline fn foo(x: i32, y: i32) -> i32{
+    x + y
+}
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: extern functions cannot be inline");
+    */
 
 }
 

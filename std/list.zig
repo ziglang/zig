@@ -2,59 +2,58 @@ const assert = @import("debug.zig").assert;
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 
-/*
-pub fn List(T: type) -> type {
+pub inline fn List(inline T: type) -> type {
     SmallList(T, 8)
 }
-*/
 
 pub struct SmallList(T: type, STATIC_SIZE: isize) {
+    const Self = SmallList(T, STATIC_SIZE);
+
     items: []T,
     length: isize,
     prealloc_items: [STATIC_SIZE]T,
     allocator: &Allocator,
 
-    pub fn init(l: &SmallList(T, STATIC_SIZE), allocator: &Allocator) {
+    pub fn init(l: &Self, allocator: &Allocator) {
         l.items = l.prealloc_items[0...];
         l.length = 0;
         l.allocator = allocator;
     }
 
-    pub fn deinit(l: &SmallList(T, STATIC_SIZE)) {
+    pub fn deinit(l: &Self) {
         if (l.items.ptr != &l.prealloc_items[0]) {
-            l.allocator.free(l.allocator, ([]u8)(l.items));
+            l.allocator.free(T, l.items);
         }
     }
 
-    pub fn append(l: &SmallList(T, STATIC_SIZE), item: T) -> %void {
+    pub fn append(l: &Self, item: T) -> %void {
         const new_length = l.length + 1;
         %return l.ensure_capacity(new_length);
         l.items[l.length] = item;
         l.length = new_length;
     }
 
-    pub fn ensure_capacity(l: &SmallList(T, STATIC_SIZE), new_capacity: isize) -> %void {
+    pub fn ensure_capacity(l: &Self, new_capacity: isize) -> %void {
         const old_capacity = l.items.len;
         var better_capacity = old_capacity;
         while (better_capacity < new_capacity) {
             better_capacity *= 2;
         }
         if (better_capacity != old_capacity) {
-            const alloc_bytes = better_capacity * @sizeof(T);
             if (l.items.ptr == &l.prealloc_items[0]) {
-                l.items = ([]T)(%return l.allocator.alloc(l.allocator, alloc_bytes));
-                @memcpy(l.items.ptr, &l.prealloc_items[0], old_capacity * @sizeof(T));
+                l.items = %return l.allocator.alloc(T, better_capacity);
+                mem.copy(T, l.items, l.prealloc_items[0...old_capacity]);
             } else {
-                l.items = ([]T)(%return l.allocator.realloc(l.allocator, ([]u8)(l.items), alloc_bytes));
+                l.items = %return l.allocator.realloc(T, l.items, better_capacity);
             }
         }
     }
 }
 
 var global_allocator = Allocator {
-    .alloc = global_alloc,
-    .realloc = global_realloc,
-    .free = global_free,
+    .alloc_fn = global_alloc,
+    .realloc_fn = global_realloc,
+    .free_fn = global_free,
     .context = null,
 };
 

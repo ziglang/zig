@@ -25,7 +25,7 @@ UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" (FnProto | VariableDeclaration) ";"
 
-FnProto = "fn" option("Symbol") option(ParamDeclList) ParamDeclList option("->" TypeExpr)
+FnProto = "fn" option("Symbol") ParamDeclList option("->" TypeExpr)
 
 Directive = "#" "Symbol" "(" Expression ")"
 
@@ -35,7 +35,7 @@ FnDef = option("inline" | "extern") FnProto Block
 
 ParamDeclList = "(" list(ParamDecl, ",") ")"
 
-ParamDecl = option("noalias") option("Symbol" ":") TypeExpr | "..."
+ParamDecl = option("noalias" | "inline") option("Symbol" ":") TypeExpr | "..."
 
 Block = "{" list(option(Statement), ";") "}"
 

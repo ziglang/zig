@@ -712,17 +712,17 @@ three)";
 
 #attribute("test")
 fn simple_generic_fn() {
-    assert(max(i32)(3, -1) == 3);
-    assert(max(f32)(0.123, 0.456) == 0.456);
-    assert(add(2)(3) == 5);
+    assert(max(i32, 3, -1) == 3);
+    assert(max(f32, 0.123, 0.456) == 0.456);
+    assert(add(2, 3) == 5);
 }
 
-fn max(T: type)(a: T, b: T) -> T {
+fn max(inline T: type, a: T, b: T) -> T {
     return if (a > b) a else b;
 }
 
-fn add(a: i32)(b: i32) -> i32 {
-    return a + b;
+fn add(inline a: i32, b: i32) -> i32 {
+    return @const_eval(a) + b;
 }
 
 
@@ -734,23 +734,18 @@ fn constant_equal_function_pointers() {
 
 fn empty_fn() {}
 
-#attribute("test")
-fn generic_function_equality() {
-    assert(max(i32) == max(i32));
-}
-
 
 #attribute("test")
 fn generic_malloc_free() {
-    const a = %%mem_alloc(u8)(10);
-    mem_free(u8)(a);
+    const a = %%mem_alloc(u8, 10);
+    mem_free(u8, a);
 }
 const some_mem : [100]u8 = undefined;
 #static_eval_enable(false)
-fn mem_alloc(T: type)(n: isize) -> %[]T {
+fn mem_alloc(inline T: type, n: isize) -> %[]T {
     return (&T)(&some_mem[0])[0...n];
 }
-fn mem_free(T: type)(mem: []T) { }
+fn mem_free(inline T: type, mem: []T) { }
 
 
 #attribute("test")
@@ -982,11 +977,11 @@ pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
 
 #attribute("test")
 fn generic_fn_with_implicit_cast() {
-    assert(get_first_byte(u8)([]u8 {13}) == 13);
-    assert(get_first_byte(u16)([]u16 {0, 13}) == 0);
+    assert(get_first_byte(u8, []u8 {13}) == 13);
+    assert(get_first_byte(u16, []u16 {0, 13}) == 0);
 }
 fn get_byte(ptr: ?&u8) -> u8 {*??ptr}
-fn get_first_byte(T: type)(mem: []T) -> u8 {
+fn get_first_byte(inline T: type, mem: []T) -> u8 {
     get_byte((&u8)(&mem[0]))
 }
 
@@ -1651,9 +1646,9 @@ struct GenericDataThing(count: isize) {
 
 #attribute("test")
 fn use_generic_param_in_generic_param() {
-    assert(a_generic_fn(i32, 3)(4) == 7);
+    assert(a_generic_fn(i32, 3, 4) == 7);
 }
-fn a_generic_fn(T: type, a: T)(b: T) -> T {
+fn a_generic_fn(inline T: type, inline a: T, b: T) -> T {
     return a + b;
 }
 

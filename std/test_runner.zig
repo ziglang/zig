@@ -9,6 +9,7 @@ extern var zig_test_fn_list: []TestFn;
 
 pub fn run_tests() -> %void {
     for (zig_test_fn_list) |test_fn, i| {
+        // TODO: print var args
         %%io.stderr.write("Test ");
         %%io.stderr.print_i64(i + 1);
         %%io.stderr.write("/");

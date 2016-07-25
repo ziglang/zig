@@ -69,7 +69,7 @@ pub struct OutStream {
         const dest_space_left = os.buffer.len - os.index;
 
         while (src_bytes_left > 0) {
-            const copy_amt = math.min(isize)(dest_space_left, src_bytes_left);
+            const copy_amt = math.min(isize, dest_space_left, src_bytes_left);
             @memcpy(&os.buffer[os.index], &bytes[src_index], copy_amt);
             os.index += copy_amt;
             if (os.index == os.buffer.len) {
@@ -208,59 +208,47 @@ pub struct InStream {
     }
 }
 
-pub error InvalidChar;
-pub error Overflow;
-
-pub fn parse_unsigned(T: type)(buf: []u8, radix: u8) -> %T {
+pub fn parse_unsigned(inline T: type, buf: []u8, radix: u8) -> %T {
     var x: T = 0;
 
     for (buf) |c| {
-        const digit = char_to_digit(c);
-
-        if (digit >= radix) {
-            return error.InvalidChar;
-        }
-
-        // x *= radix
-        if (@mul_with_overflow(T, x, radix, &x)) {
-            return error.Overflow;
-        }
-
-        // x += digit
-        if (@add_with_overflow(T, x, digit, &x)) {
-            return error.Overflow;
-        }
+        const digit = %return char_to_digit(c, radix);
+        x = %return math.mul_overflow(T, x, radix);
+        x = %return math.add_overflow(T, x, digit);
     }
 
     return x;
 }
 
-fn char_to_digit(c: u8) -> u8 {
-    // TODO use switch with range
-    if ('0' <= c && c <= '9') {
+pub error InvalidChar;
+fn char_to_digit(c: u8, radix: u8) -> %u8 {
+    const value = if ('0' <= c && c <= '9') {
         c - '0'
     } else if ('A' <= c && c <= 'Z') {
         c - 'A' + 10
     } else if ('a' <= c && c <= 'z') {
         c - 'a' + 10
     } else {
-        @max_value(u8)
-    }
+        return error.InvalidChar;
+    };
+    return if (value >= radix) error.InvalidChar else value;
 }
 
-pub fn buf_print_signed(T: type)(out_buf: []u8, x: T) -> isize {
+pub fn buf_print_signed(inline T: type, out_buf: []u8, x: T) -> isize {
     const uint = @int_type(false, T.bit_count, false);
     if (x < 0) {
         out_buf[0] = '-';
-        return 1 + buf_print_unsigned(uint)(out_buf[1...], uint(-(x + 1)) + 1);
+        return 1 + buf_print_unsigned(uint, out_buf[1...], uint(-(x + 1)) + 1);
     } else {
-        return buf_print_unsigned(uint)(out_buf, uint(x));
+        return buf_print_unsigned(uint, out_buf, uint(x));
     }
 }
 
-pub const buf_print_i64 = buf_print_signed(i64);
+pub fn buf_print_i64(out_buf: []u8, x: i64) -> isize {
+    buf_print_signed(i64, out_buf, x)
+}
 
-pub fn buf_print_unsigned(T: type)(out_buf: []u8, x: T) -> isize {
+pub fn buf_print_unsigned(inline T: type, out_buf: []u8, x: T) -> isize {
     var buf: [max_u64_base10_digits]u8 = undefined;
     var a = x;
     var index: isize = buf.len;
@@ -281,7 +269,9 @@ pub fn buf_print_unsigned(T: type)(out_buf: []u8, x: T) -> isize {
     return len;
 }
 
-pub const buf_print_u64 = buf_print_unsigned(u64);
+pub fn buf_print_u64(out_buf: []u8, x: u64) -> isize {
+    buf_print_unsigned(u64, out_buf, x)
+}
 
 pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
     const numExpBits = 11;
@@ -409,7 +399,7 @@ pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
 
 #attribute("test")
 fn parse_u64_digit_too_big() {
-    parse_unsigned(u64)("123a", 10) %% |err| {
+    parse_unsigned(u64, "123a", 10) %% |err| {
         if (err == error.InvalidChar) return;
         unreachable{};
     };

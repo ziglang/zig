@@ -884,9 +884,9 @@ static bool eval_fn_call_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val
 
     int param_count = node->data.fn_call_expr.params.length;
     ConstExprValue *args = allocate<ConstExprValue>(param_count);
-    for (int i = 0; i < param_count; i += 1) {
-        AstNode *param_expr_node = node->data.fn_call_expr.params.at(i);
-        ConstExprValue *param_val = &args[i];
+    for (int call_i = 0; call_i < param_count; call_i += 1) {
+        AstNode *param_expr_node = node->data.fn_call_expr.params.at(call_i);
+        ConstExprValue *param_val = &args[call_i];
         if (eval_expr(ef, param_expr_node, param_val)) return true;
     }
 
@@ -1291,6 +1291,13 @@ static bool eval_expr(EvalFn *ef, AstNode *node, ConstExprValue *out) {
 }
 
 static bool eval_fn_args(EvalFnRoot *efr, FnTableEntry *fn, ConstExprValue *args, ConstExprValue *out_val) {
+    AstNode *acting_proto_node;
+    if (fn->proto_node->data.fn_proto.generic_proto_node) {
+        acting_proto_node = fn->proto_node->data.fn_proto.generic_proto_node;
+    } else {
+        acting_proto_node = fn->proto_node;
+    }
+
     EvalFn ef = {0};
     ef.root = efr;
     ef.fn = fn;
@@ -1300,12 +1307,12 @@ static bool eval_fn_args(EvalFnRoot *efr, FnTableEntry *fn, ConstExprValue *args
     root_scope->block_context = fn->fn_def_node->data.fn_def.body->block_context;
     ef.scope_stack.append(root_scope);
 
-    int param_count = fn->type_entry->data.fn.fn_type_id.param_count;
-    for (int i = 0; i < param_count; i += 1) {
-        AstNode *decl_param_node = fn->proto_node->data.fn_proto.params.at(i);
+    int param_count = acting_proto_node->data.fn_proto.params.length;
+    for (int proto_i = 0; proto_i < param_count; proto_i += 1) {
+        AstNode *decl_param_node = acting_proto_node->data.fn_proto.params.at(proto_i);
         assert(decl_param_node->type == NodeTypeParamDecl);
 
-        ConstExprValue *src_const_val = &args[i];
+        ConstExprValue *src_const_val = &args[proto_i];
         assert(src_const_val->ok);
 
         root_scope->vars.add_one();
@@ -1315,7 +1322,6 @@ static bool eval_fn_args(EvalFnRoot *efr, FnTableEntry *fn, ConstExprValue *args
     }
 
     return eval_expr(&ef, fn->fn_def_node->data.fn_def.body, out_val);
-
 }
 
 bool eval_fn(CodeGen *g, AstNode *node, FnTableEntry *fn, ConstExprValue *out_val,
@@ -1329,9 +1335,16 @@ bool eval_fn(CodeGen *g, AstNode *node, FnTableEntry *fn, ConstExprValue *out_va
     efr.call_node = node;
     efr.branch_quota = branch_quota;
 
+    AstNode *acting_proto_node;
+    if (fn->proto_node->data.fn_proto.generic_proto_node) {
+        acting_proto_node = fn->proto_node->data.fn_proto.generic_proto_node;
+    } else {
+        acting_proto_node = fn->proto_node;
+    }
+
     int call_param_count = node->data.fn_call_expr.params.length;
-    int type_param_count = fn->type_entry->data.fn.fn_type_id.param_count;
-    ConstExprValue *args = allocate<ConstExprValue>(type_param_count);
+    int proto_param_count = acting_proto_node->data.fn_proto.params.length;
+    ConstExprValue *args = allocate<ConstExprValue>(proto_param_count);
     int next_arg_index = 0;
     if (struct_node) {
         ConstExprValue *struct_val = &get_resolved_expr(struct_node)->const_val;
