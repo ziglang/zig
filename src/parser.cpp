@@ -3301,6 +3301,8 @@ AstNode *ast_clone_subtree_special(AstNode *old_node, uint32_t *next_node_index,
         case NodeTypeWhileExpr:
             clone_subtree_field(&new_node->data.while_expr.condition, old_node->data.while_expr.condition, next_node_index);
             clone_subtree_field(&new_node->data.while_expr.body, old_node->data.while_expr.body, next_node_index);
+            clone_subtree_field(&new_node->data.while_expr.continue_expr,
+                    old_node->data.while_expr.continue_expr, next_node_index);
             break;
         case NodeTypeForExpr:
             clone_subtree_field(&new_node->data.for_expr.elem_node, old_node->data.for_expr.elem_node, next_node_index);

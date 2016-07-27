@@ -387,6 +387,7 @@ enum CastOp {
     CastOpBoolToInt,
     CastOpResizeSlice,
     CastOpIntToEnum,
+    CastOpBytesToSlice,
 };
 
 struct AstNodeFnCallExpr {
@@ -1311,6 +1312,7 @@ struct VariableTableEntry {
     int gen_arg_index;
     BlockContext *block_context;
     LLVMValueRef param_value_ref;
+    bool force_depends_on_compile_var;
 };
 
 struct ErrorTableEntry {

@@ -1427,6 +1427,12 @@ export inline fn foo(x: i32, y: i32) -> i32{
     )SOURCE", 1, ".tmp_source.zig:2:1: error: extern functions cannot be inline");
     */
 
+    add_compile_fail_case("convert fixed size array to slice with invalid size", R"SOURCE(
+fn f() {
+    var array: [5]u8 = undefined;
+    var foo = ([]u32)(array)[0];
+}
+    )SOURCE", 1, ".tmp_source.zig:4:22: error: unable to convert [5]u8 to []u32: size mismatch");
 }
 
 //////////////////////////////////////////////////////////////////////////////

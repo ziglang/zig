@@ -145,7 +145,6 @@ LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigD
         LLVMZigDIType *fn_di_type, bool is_local_to_unit, bool is_definition, unsigned scope_line,
         unsigned flags, bool is_optimized, LLVMZigDISubprogram *decl_subprogram);
 
-
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, LLVMZigDISubprogram *subprogram);
 
 void LLVMZigDIBuilderFinalize(LLVMZigDIBuilder *dibuilder);

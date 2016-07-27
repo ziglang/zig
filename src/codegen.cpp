@@ -1007,6 +1007,31 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 return cast_expr->tmp_ptr;
             }
+        case CastOpBytesToSlice:
+            {
+                assert(cast_expr->tmp_ptr);
+                assert(wanted_type->id == TypeTableEntryIdStruct);
+                assert(wanted_type->data.structure.is_slice);
+                assert(actual_type->id == TypeTableEntryIdArray);
+
+                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
+                TypeTableEntry *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
+
+                set_debug_source_node(g, node);
+
+                int wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
+                LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, wanted_ptr_index, "");
+                LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, expr_val, wanted_pointer_type->type_ref, "");
+                LLVMBuildStore(g->builder, src_ptr_casted, dest_ptr_ptr);
+
+                int wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
+                LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, wanted_len_index, "");
+                LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+                        actual_type->data.array.len / type_size(g, wanted_child_type), false);
+                LLVMBuildStore(g->builder, len_val, len_ptr);
+
+                return cast_expr->tmp_ptr;
+            }
         case CastOpIntToFloat:
             assert(actual_type->id == TypeTableEntryIdInt);
             if (actual_type->data.integral.is_signed) {

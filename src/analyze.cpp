@@ -3038,7 +3038,7 @@ static TypeTableEntry *analyze_var_ref(CodeGen *g, AstNode *source_node, Variabl
         ConstExprValue *other_const_val = &get_resolved_expr(var->val_node)->const_val;
         if (other_const_val->ok) {
             return resolve_expr_const_val_as_other_expr(g, source_node, var->val_node,
-                    depends_on_compile_var);
+                    depends_on_compile_var || var->force_depends_on_compile_var);
         }
     }
     return var->type;
@@ -3959,12 +3959,12 @@ static TypeTableEntry *analyze_while_expr(CodeGen *g, ImportTableEntry *import, 
 {
     assert(node->type == NodeTypeWhileExpr);
 
-    AstNode *condition_node = node->data.while_expr.condition;
+    AstNode **condition_node = &node->data.while_expr.condition;
     AstNode *while_body_node = node->data.while_expr.body;
     AstNode **continue_expr_node = &node->data.while_expr.continue_expr;
 
     TypeTableEntry *condition_type = analyze_expression(g, import, context,
-            g->builtin_types.entry_bool, condition_node);
+            g->builtin_types.entry_bool, *condition_node);
 
     if (*continue_expr_node) {
         analyze_expression(g, import, context, g->builtin_types.entry_void, *continue_expr_node);
@@ -3983,7 +3983,7 @@ static TypeTableEntry *analyze_while_expr(CodeGen *g, ImportTableEntry *import, 
     } else {
         // if the condition is a simple constant expression and there are no break statements
         // then the return type is unreachable
-        ConstExprValue *const_val = &get_resolved_expr(condition_node)->const_val;
+        ConstExprValue *const_val = &get_resolved_expr(*condition_node)->const_val;
         if (const_val->ok) {
             if (const_val->data.x_bool) {
                 node->data.while_expr.condition_always_true = true;
@@ -4390,6 +4390,24 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     {
         mark_impure_fn(context);
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpResizeSlice, true);
+    }
+
+    // explicit cast from [N]u8 to []T
+    if (is_slice(wanted_type) &&
+        actual_type->id == TypeTableEntryIdArray &&
+        is_u8(actual_type->data.array.child_type))
+    {
+        mark_impure_fn(context);
+        uint64_t child_type_size = type_size(g,
+                wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type);
+        if (actual_type->data.array.len % child_type_size == 0) {
+            return resolve_cast(g, context, node, expr_node, wanted_type, CastOpBytesToSlice, true);
+        } else {
+            add_node_error(g, node,
+                    buf_sprintf("unable to convert %s to %s: size mismatch",
+                        buf_ptr(&actual_type->name), buf_ptr(&wanted_type->name)));
+            return g->builtin_types.entry_invalid;
+        }
     }
 
     // explicit cast from pointer to another pointer
@@ -5062,8 +5080,10 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     return g->builtin_types.entry_invalid;
                 } else {
                     uint64_t size_in_bytes = type_size(g, type_entry);
+                    bool depends_on_compile_var = (type_entry == g->builtin_types.entry_usize ||
+                            type_entry == g->builtin_types.entry_isize);
                     return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
-                            size_in_bytes, false);
+                            size_in_bytes, depends_on_compile_var);
                 }
             }
         case BuiltinFnIdAlignof:
@@ -5461,8 +5481,11 @@ static TypeTableEntry *analyze_fn_call_with_inline_args(CodeGen *g, ImportTableE
 
         ConstExprValue *const_val = &get_resolved_expr(*param_node)->const_val;
         if (const_val->ok) {
-            add_local_var(g, generic_param_decl_node, decl_node->owner, child_context,
+            VariableTableEntry *var = add_local_var(g, generic_param_decl_node, decl_node->owner, child_context,
                     &generic_param_decl_node->data.param_decl.name, param_type, true, *param_node);
+            // This generic function instance could be called with anything, so when this variable is read it
+            // needs to know that it depends on compile time variable data.
+            var->force_depends_on_compile_var = true;
         } else {
             add_node_error(g, *param_node,
                     buf_sprintf("unable to evaluate constant expression for inline parameter"));
@@ -5552,8 +5575,9 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
 
         ConstExprValue *const_val = &get_resolved_expr(*param_node)->const_val;
         if (const_val->ok) {
-            add_local_var(g, generic_param_decl_node, decl_node->owner, child_context,
+            VariableTableEntry *var = add_local_var(g, generic_param_decl_node, decl_node->owner, child_context,
                     &generic_param_decl_node->data.param_decl.name, param_type, true, *param_node);
+            var->force_depends_on_compile_var = true;
         } else {
             add_node_error(g, *param_node, buf_sprintf("unable to evaluate constant expression"));
 

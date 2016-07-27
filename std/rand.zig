@@ -1,51 +1,57 @@
-// Mersenne Twister
-const ARRAY_SIZE = 624;
+const assert = @import("debug.zig").assert;
+
+pub const MT19937_32 = MersenneTwister(
+    u32, 624, 397, 31,
+    0x9908B0DF,
+    11, 0xFFFFFFFF,
+    7, 0x9D2C5680,
+    15, 0xEFC60000,
+    18, 1812433253);
+
+pub const MT19937_64 = MersenneTwister(
+    u64, 312, 156, 31,
+    0xB5026F5AA96619E9,
+    29, 0x5555555555555555,
+    17, 0x71D67FFFEDA60000,
+    37, 0xFFF7EEE000000000,
+    43, 6364136223846793005);
 
 /// Use `init` to initialize this state.
 pub struct Rand {
-    array: [ARRAY_SIZE]u32,
-    index: usize,
+    const Rng = if (@sizeof(usize) >= 8) MT19937_64 else MT19937_32;
+
+    rng: Rng,
 
     /// Initialize random state with the given seed.
-    #static_eval_enable(false)
-    pub fn init(seed: u32) -> Rand {
+    pub fn init(seed: usize) -> Rand {
         var r: Rand = undefined;
-        r.index = 0;
-        r.array[0] = seed;
-        var i : usize = 1;
-        var prev_value: u64w = seed;
-        while (i < ARRAY_SIZE; i += 1) {
-            r.array[i] = @truncate(u32, (prev_value ^ (prev_value << 30)) * 0x6c078965 + u64w(i));
-            prev_value = r.array[i];
-        }
+        r.rng = Rng.init(seed);
         return r;
     }
 
-    /// Get 32 bits of randomness.
-    pub fn get_u32(r: &Rand) -> u32 {
-        if (r.index == 0) {
-            r.generate_numbers();
+    /// Get an integer with random bits.
+    pub fn scalar(r: &Rand, inline T: type) -> T {
+        if (T == usize) {
+            return r.rng.get();
+        } else {
+            var result: T = undefined;
+            r.fill_bytes(([]u8)((&result)[0...@sizeof(T)]));
+            return result;
         }
-
-        // temper the number
-        var y : u32 = r.array[r.index];
-        y ^= y >> 11;
-        y ^= (y >> 7) & 0x9d2c5680;
-        y ^= (y >> 15) & 0xefc60000;
-        y ^= y >> 18;
-
-        r.index = (r.index + 1) % ARRAY_SIZE;
-        return y;
     }
 
     /// Fill `buf` with randomness.
-    pub fn get_bytes(r: &Rand, buf: []u8) {
-        var bytes_left = r.get_bytes_aligned(buf);
+    pub fn fill_bytes(r: &Rand, buf: []u8) {
+        var bytes_left = buf.len;
+        while (bytes_left >= @sizeof(usize)) {
+            *((&usize)(&buf[buf.len - bytes_left])) = r.scalar(usize);
+            bytes_left -= @sizeof(usize);
+        }
         if (bytes_left > 0) {
-            var rand_val_array : [@sizeof(u32)]u8 = undefined;
-            *((&u32)(&rand_val_array[0])) = r.get_u32();
+            var rand_val_array : [@sizeof(usize)]u8 = undefined;
+            ([]usize)(rand_val_array)[0] = r.scalar(usize);
             while (bytes_left > 0) {
-                buf[buf.len - bytes_left] = rand_val_array[@sizeof(u32) - bytes_left];
+                buf[buf.len - bytes_left] = rand_val_array[@sizeof(usize) - bytes_left];
                 bytes_left -= 1;
             }
         }
@@ -53,61 +59,119 @@ pub struct Rand {
 
     /// Get a random unsigned integer with even distribution between `start`
     /// inclusive and `end` exclusive.
-    pub fn range_u64(r: &Rand, start: u64, end: u64) -> u64 {
+    // TODO support signed integers and then rename to "range"
+    pub fn range_unsigned(r: &Rand, inline T: type, start: T, end: T) -> T {
         const range = end - start;
-        const leftover = @max_value(u64) % range;
-        const upper_bound = @max_value(u64) - leftover;
-        var rand_val_array : [@sizeof(u64)]u8 = undefined;
+        const leftover = @max_value(T) % range;
+        const upper_bound = @max_value(T) - leftover;
+        var rand_val_array : [@sizeof(T)]u8 = undefined;
 
         while (true) {
-            r.get_bytes_aligned(rand_val_array);
-            const rand_val = *(&u64)(&rand_val_array[0]);
+            r.fill_bytes(rand_val_array);
+            const rand_val = ([]T)(rand_val_array)[0];
             if (rand_val < upper_bound) {
                 return start + (rand_val % range);
             }
         }
     }
 
-    pub fn float32(r: &Rand) -> f32 {
-        const precision = 16777216;
-        return f32(r.range_u64(0, precision)) / precision;
+    /// Get a floating point value in the range 0.0..1.0.
+    pub fn float(r: &Rand, inline T: type) -> T {
+        const int_type = @int_type(false, @sizeof(T) * 8, false);
+        // TODO switch statement for constant values
+        const precision = if (T == f32) {
+            16777216
+        } else if (T == f64) {
+            9007199254740992
+        } else {
+            @compile_err("unknown floating point type" ++ @type_name(T))
+        };
+        return T(r.range_unsigned(int_type, 0, precision)) / T(precision);
+    }
+}
+
+struct MersenneTwister(
+    int: type, n: usize, m: usize, r: int,
+    a: int,
+    u: int, d: int,
+    s: int, b: int,
+    t: int, c: int,
+    l: int, f: int)
+{
+    const Self = MersenneTwister(int, n, m, r, a, u, d, s, b, t, c, l, f);
+    const intw = @int_type(int.is_signed, int.bit_count, true);
+
+    array: [n]int,
+    index: usize,
+
+    // TODO improve compile time eval code and then allow this function to be executed at compile time.
+    #static_eval_enable(false)
+    pub fn init(seed: int) -> Self {
+        var mt = Self {
+            .index = n,
+            .array = undefined,
+        };
+
+        var prev_value = seed;
+        mt.array[0] = prev_value;
+        {var i: usize = 1; while (i < n; i += 1) {
+            prev_value = intw(i) + intw(f) * intw(prev_value ^ (prev_value >> (int.bit_count - 2)));
+            mt.array[i] = prev_value;
+        }};
+
+        return mt;
     }
 
-    pub fn boolean(r: &Rand) -> bool {
-        return (r.get_u32() & 0x1) == 1;
-    }
+    pub fn get(mt: &Self) -> int {
+        const mag01 = []int{0, a};
+        const LM: int = (1 << r) - 1;
+        const UM = ~LM;
 
-    fn generate_numbers(r: &Rand) {
-        for (r.array) |item, i| {
-            const y : u32 = (item & 0x80000000) + (r.array[(i + 1) % ARRAY_SIZE] & 0x7fffffff);
-            const untempered : u32 = r.array[(i + 397) % ARRAY_SIZE] ^ (y >> 1);
-            r.array[i] = if ((y % 2) == 0) {
-                untempered
-            } else {
-                // y is odd
-                untempered ^ 0x9908b0df
-            };
+        if (int.bit_count == 64) {
+            assert(LM == 0x7fffffff);
+            assert(UM == 0xffffffff80000000);
+        } else if (int.bit_count == 32) {
+            assert(LM == 0x7fffffff);
+            assert(UM == 0x80000000);
         }
-    }
 
-    // does not populate the remaining (buf.len % 4) bytes
-    fn get_bytes_aligned(r: &Rand, buf: []u8) -> usize {
-        var bytes_left = buf.len;
-        while (bytes_left >= 4) {
-            *((&u32)(&buf[buf.len - bytes_left])) = r.get_u32();
-            bytes_left -= @sizeof(u32);
+        if (mt.index >= n) {
+            var i: usize = 0;
+
+            while (i < n - m; i += 1) {
+                const x = (mt.array[i] & UM) | (mt.array[i + 1] & LM);
+                mt.array[i] = mt.array[i + m] ^ (x >> 1) ^ mag01[x & 0x1];
+            }
+
+            while (i < n - 1; i += 1) {
+                const x = (mt.array[i] & UM) | (mt.array[i + 1] & LM);
+                mt.array[i] = mt.array[i + m - n] ^ (x >> 1) ^ mag01[x & 0x1];
+
+            }
+            const x = (mt.array[i] & UM) | (mt.array[0] & LM);
+            mt.array[i] = mt.array[m - 1] ^ (x >> 1) ^ mag01[x & 0x1];
+
+            mt.index = 0;
         }
-        return bytes_left;
-    }
 
+        var x: intw = mt.array[mt.index];
+        mt.index += 1;
+
+        x ^= ((x >> u) & d);
+        x ^= ((x << s) & b);
+        x ^= ((x << t) & c);
+        x ^= (x >> l);
+
+        return x;
+    }
 }
 
 #attribute("test")
 fn test_float32() {
     var r = Rand.init(42);
 
-    {var i: i32 = 0; while (i < 1000; i += 1) {
-        const val = r.float32();
+    {var i: usize = 0; while (i < 1000; i += 1) {
+        const val = r.float(f32);
         if (!(val >= 0.0)) unreachable{};
         if (!(val < 1.0)) unreachable{};
     }}

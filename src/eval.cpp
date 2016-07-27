@@ -601,6 +601,7 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
         case CastOpPtrToInt:
         case CastOpIntToPtr:
         case CastOpResizeSlice:
+        case CastOpBytesToSlice:
             // can't do it
             break;
         case CastOpToUnknownSizeArray:
