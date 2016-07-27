@@ -63,6 +63,12 @@ pub struct OutStream {
     buffer: [buffer_size]u8,
     index: isize,
 
+    pub fn write_byte(os: &OutStream, b: u8) -> %void {
+        if (os.buffer.len == os.index) %return os.flush();
+        os.buffer[os.index] = b;
+        os.index += 1;
+    }
+
     pub fn write(os: &OutStream, bytes: []const u8) -> %isize {
         var src_bytes_left = bytes.len;
         var src_index: @typeof(bytes.len) = 0;
