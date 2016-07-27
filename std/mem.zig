@@ -7,13 +7,13 @@ pub error NoMem;
 
 pub type Context = u8;
 pub struct Allocator {
-    alloc_fn: fn (self: &Allocator, n: isize) -> %[]u8,
-    realloc_fn: fn (self: &Allocator, old_mem: []u8, new_size: isize) -> %[]u8,
+    alloc_fn: fn (self: &Allocator, n: usize) -> %[]u8,
+    realloc_fn: fn (self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8,
     free_fn: fn (self: &Allocator, mem: []u8),
     context: ?&Context,
 
     /// Aborts the program if an allocation fails.
-    fn checked_alloc(self: &Allocator, inline T: type, n: isize) -> []T {
+    fn checked_alloc(self: &Allocator, inline T: type, n: usize) -> []T {
         alloc(self, T, n) %% |err| {
             // TODO var args printf
             %%io.stderr.write("allocation failure: ");
@@ -23,13 +23,13 @@ pub struct Allocator {
         }
     }
 
-    fn alloc(self: &Allocator, inline T: type, n: isize) -> %[]T {
-        const byte_count = %return math.mul_overflow(isize, @sizeof(T), n);
+    fn alloc(self: &Allocator, inline T: type, n: usize) -> %[]T {
+        const byte_count = %return math.mul_overflow(usize, @sizeof(T), n);
         ([]T)(%return self.alloc_fn(self, byte_count))
     }
 
-    fn realloc(self: &Allocator, inline T: type, old_mem: []T, n: isize) -> %[]T {
-        const byte_count = %return math.mul_overflow(isize, @sizeof(T), n);
+    fn realloc(self: &Allocator, inline T: type, old_mem: []T, n: usize) -> %[]T {
+        const byte_count = %return math.mul_overflow(usize, @sizeof(T), n);
         ([]T)(%return self.realloc_fn(self, ([]u8)(old_mem), byte_count))
     }
 

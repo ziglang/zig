@@ -4,7 +4,7 @@ const ARRAY_SIZE = 624;
 /// Use `init` to initialize this state.
 pub struct Rand {
     array: [ARRAY_SIZE]u32,
-    index: isize,
+    index: usize,
 
     /// Initialize random state with the given seed.
     #static_eval_enable(false)
@@ -12,7 +12,7 @@ pub struct Rand {
         var r: Rand = undefined;
         r.index = 0;
         r.array[0] = seed;
-        var i : isize = 1;
+        var i : usize = 1;
         var prev_value: u64w = seed;
         while (i < ARRAY_SIZE; i += 1) {
             r.array[i] = @truncate(u32, (prev_value ^ (prev_value << 30)) * 0x6c078965 + u64w(i));
@@ -91,7 +91,7 @@ pub struct Rand {
     }
 
     // does not populate the remaining (buf.len % 4) bytes
-    fn get_bytes_aligned(r: &Rand, buf: []u8) -> isize {
+    fn get_bytes_aligned(r: &Rand, buf: []u8) -> usize {
         var bytes_left = buf.len;
         while (bytes_left >= 4) {
             *((&u32)(&buf[buf.len - bytes_left])) = r.get_u32();

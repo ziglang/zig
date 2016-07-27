@@ -7,9 +7,10 @@ pub error Unexpected;
 pub fn get_random_bytes(buf: []u8) -> %void {
     switch (@compile_var("os")) {
         linux => {
-            const amt_got = linux.getrandom(buf.ptr, buf.len, 0);
-            if (amt_got < 0) {
-                return switch (-amt_got) {
+            const ret = linux.getrandom(buf.ptr, buf.len, 0);
+            const err = linux.get_errno(ret);
+            if (err > 0) {
+                return switch (err) {
                     errno.EINVAL => unreachable{},
                     errno.EFAULT => unreachable{},
                     errno.EINTR  => error.SigInterrupt,

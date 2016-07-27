@@ -413,7 +413,7 @@ static LLVMValueRef gen_err_name(CodeGen *g, AstNode *node) {
     }
 
     LLVMValueRef indices[] = {
-        LLVMConstNull(g->builtin_types.entry_isize->type_ref),
+        LLVMConstNull(g->builtin_types.entry_usize->type_ref),
         err_val,
     };
     return LLVMBuildInBoundsGEP(g->builder, g->err_name_table, indices, 2, "");
@@ -937,7 +937,7 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 int len_index = wanted_type->data.structure.fields[1].gen_index;
                 LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, len_index, "");
-                LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref,
+                LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                         actual_type->data.array.len, false);
                 LLVMBuildStore(g->builder, len_val, len_ptr);
 
@@ -978,13 +978,13 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 LLVMValueRef new_len;
                 if (dest_size == 1) {
-                    LLVMValueRef src_size_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref, src_size, false);
+                    LLVMValueRef src_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, src_size, false);
                     new_len = LLVMBuildMul(g->builder, src_len, src_size_val, "");
                 } else if (src_size == 1) {
-                    LLVMValueRef dest_size_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref, dest_size, false);
+                    LLVMValueRef dest_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, dest_size, false);
                     if (want_debug_safety(g, node)) {
                         LLVMValueRef remainder_val = LLVMBuildURem(g->builder, src_len, dest_size_val, "");
-                        LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_isize->type_ref);
+                        LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_usize->type_ref);
                         LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
                         LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SliceWidenOk");
                         LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SliceWidenFail");
@@ -1159,12 +1159,12 @@ static LLVMValueRef gen_array_elem_ptr(CodeGen *g, AstNode *source_node, LLVMVal
 
     if (array_type->id == TypeTableEntryIdArray) {
         if (want_debug_safety(g, source_node)) {
-            LLVMValueRef end = LLVMConstInt(g->builtin_types.entry_isize->type_ref,
+            LLVMValueRef end = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                     array_type->data.array.len, false);
             add_bounds_check(g, source_node, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, end);
         }
         LLVMValueRef indices[] = {
-            LLVMConstNull(g->builtin_types.entry_isize->type_ref),
+            LLVMConstNull(g->builtin_types.entry_usize->type_ref),
             subscript_value
         };
         set_debug_source_node(g, source_node);
@@ -1268,13 +1268,13 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
         if (node->data.slice_expr.end) {
             end_val = gen_expr(g, node->data.slice_expr.end);
         } else {
-            end_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref, array_type->data.array.len, false);
+            end_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, array_type->data.array.len, false);
         }
 
         if (want_debug_safety(g, node)) {
             add_bounds_check(g, node, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
             if (node->data.slice_expr.end) {
-                LLVMValueRef array_end = LLVMConstInt(g->builtin_types.entry_isize->type_ref,
+                LLVMValueRef array_end = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                         array_type->data.array.len, false);
                 add_bounds_check(g, node, end_val, LLVMIntEQ, nullptr, LLVMIntULE, array_end);
             }
@@ -1283,7 +1283,7 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
         set_debug_source_node(g, node);
         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 0, "");
         LLVMValueRef indices[] = {
-            LLVMConstNull(g->builtin_types.entry_isize->type_ref),
+            LLVMConstNull(g->builtin_types.entry_usize->type_ref),
             start_val,
         };
         LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
@@ -1408,7 +1408,7 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
     if (struct_type->id == TypeTableEntryIdArray) {
         Buf *name = &node->data.field_access_expr.field_name;
         assert(buf_eql_str(name, "len"));
-        return LLVMConstInt(g->builtin_types.entry_isize->type_ref,
+        return LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                 struct_type->data.array.len, false);
     } else if (struct_type->id == TypeTableEntryIdStruct || (struct_type->id == TypeTableEntryIdPointer &&
                struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct))
@@ -2043,7 +2043,7 @@ static LLVMValueRef gen_struct_memcpy(CodeGen *g, AstNode *source_node, LLVMValu
     LLVMValueRef src_ptr = LLVMBuildBitCast(g->builder, src, ptr_u8, "");
     LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, dest, ptr_u8, "");
 
-    TypeTableEntry *isize = g->builtin_types.entry_isize;
+    TypeTableEntry *usize = g->builtin_types.entry_usize;
     uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
     uint64_t align_bytes = get_memcpy_align(g, type_entry);
     assert(size_bytes > 0);
@@ -2052,7 +2052,7 @@ static LLVMValueRef gen_struct_memcpy(CodeGen *g, AstNode *source_node, LLVMValu
     LLVMValueRef params[] = {
         dest_ptr, // dest pointer
         src_ptr, // source pointer
-        LLVMConstInt(isize->type_ref, size_bytes, false),
+        LLVMConstInt(usize->type_ref, size_bytes, false),
         LLVMConstInt(LLVMInt32Type(), align_bytes, false),
         LLVMConstNull(LLVMInt1Type()), // is volatile
     };
@@ -2871,8 +2871,8 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
             LLVMValueRef elem_val = gen_expr(g, field_node);
 
             LLVMValueRef indices[] = {
-                LLVMConstNull(g->builtin_types.entry_isize->type_ref),
-                LLVMConstInt(g->builtin_types.entry_isize->type_ref, i, false),
+                LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+                LLVMConstInt(g->builtin_types.entry_usize->type_ref, i, false),
             };
             set_debug_source_node(g, field_node);
             LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, tmp_array_ptr, indices, 2, "");
@@ -2989,7 +2989,7 @@ static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
     VariableTableEntry *index_var = node->data.for_expr.index_var;
     assert(index_var);
     LLVMValueRef index_ptr = index_var->value_ref;
-    LLVMValueRef one_const = LLVMConstInt(g->builtin_types.entry_isize->type_ref, 1, false);
+    LLVMValueRef one_const = LLVMConstInt(g->builtin_types.entry_usize->type_ref, 1, false);
 
     LLVMBasicBlockRef cond_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForCond");
     LLVMBasicBlockRef body_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForBody");
@@ -3005,7 +3005,7 @@ static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
     LLVMValueRef len_val;
     TypeTableEntry *child_type;
     if (array_type->id == TypeTableEntryIdArray) {
-        len_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref,
+        len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                 array_type->data.array.len, false);
         child_type = array_type->data.array.child_type;
     } else if (array_type->id == TypeTableEntryIdStruct) {
@@ -3154,7 +3154,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
             }
         }
         if (!ignore_uninit && want_debug_safety(g, source_node)) {
-            TypeTableEntry *isize = g->builtin_types.entry_isize;
+            TypeTableEntry *usize = g->builtin_types.entry_usize;
             uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, variable->type->type_ref);
             uint64_t align_bytes = get_memcpy_align(g, variable->type);
 
@@ -3163,7 +3163,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
             LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
             LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
             LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, variable->value_ref, ptr_u8, "");
-            LLVMValueRef byte_count = LLVMConstInt(isize->type_ref, size_bytes, false);
+            LLVMValueRef byte_count = LLVMConstInt(usize->type_ref, size_bytes, false);
             LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(), align_bytes, false);
             LLVMValueRef params[] = {
                 dest_ptr,
@@ -3771,7 +3771,7 @@ static LLVMValueRef gen_test_fn_val(CodeGen *g, FnTableEntry *fn_entry) {
     LLVMSetGlobalConstant(str_global_val, true);
     LLVMSetUnnamedAddr(str_global_val, true);
 
-    LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref, buf_len(fn_name), false);
+    LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, buf_len(fn_name), false);
 
     LLVMTypeRef ptr_type = LLVMPointerType(g->builtin_types.entry_u8->type_ref, 0);
     LLVMValueRef name_fields[] = {
@@ -3813,7 +3813,7 @@ static void generate_error_name_table(CodeGen *g) {
 
         LLVMValueRef fields[] = {
             LLVMConstBitCast(str_global, u8_ptr_type->type_ref),
-            LLVMConstInt(g->builtin_types.entry_isize->type_ref, buf_len(name), false),
+            LLVMConstInt(g->builtin_types.entry_usize->type_ref, buf_len(name), false),
         };
         values[i] = LLVMConstNamedStruct(str_type->type_ref, fields, 2);
     }
@@ -3986,7 +3986,7 @@ static void do_code_gen(CodeGen *g) {
         LLVMSetGlobalConstant(test_fn_array_val, true);
         LLVMSetUnnamedAddr(test_fn_array_val, true);
 
-        LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_isize->type_ref, g->test_fn_count, false);
+        LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, g->test_fn_count, false);
         LLVMTypeRef ptr_type = LLVMPointerType(LLVMTypeOf(test_fn_vals[0]), 0);
         LLVMValueRef fields[] = {
             LLVMConstBitCast(test_fn_array_val, ptr_type),
@@ -4611,7 +4611,7 @@ static void define_builtin_fns(CodeGen *g) {
         builtin_fn->param_types = allocate<TypeTableEntry *>(builtin_fn->param_count);
         builtin_fn->param_types[0] = nullptr; // manually checked later
         builtin_fn->param_types[1] = nullptr; // manually checked later
-        builtin_fn->param_types[2] = g->builtin_types.entry_isize;
+        builtin_fn->param_types[2] = g->builtin_types.entry_usize;
         builtin_fn->ref_count = 1;
 
         LLVMTypeRef param_types[] = {
@@ -4635,7 +4635,7 @@ static void define_builtin_fns(CodeGen *g) {
         builtin_fn->param_types = allocate<TypeTableEntry *>(builtin_fn->param_count);
         builtin_fn->param_types[0] = nullptr; // manually checked later
         builtin_fn->param_types[1] = g->builtin_types.entry_u8;
-        builtin_fn->param_types[2] = g->builtin_types.entry_isize;
+        builtin_fn->param_types[2] = g->builtin_types.entry_usize;
         builtin_fn->ref_count = 1;
 
         LLVMTypeRef param_types[] = {

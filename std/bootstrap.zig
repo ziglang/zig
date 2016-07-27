@@ -10,7 +10,7 @@ const want_start_symbol = switch(@compile_var("os")) {
 };
 const want_main_symbol = !want_start_symbol;
 
-var argc: isize = undefined;
+var argc: usize = undefined;
 var argv: &&u8 = undefined;
 
 #attribute("naked")
@@ -18,11 +18,11 @@ var argv: &&u8 = undefined;
 export fn _start() -> unreachable {
     switch (@compile_var("arch")) {
         x86_64 => {
-            argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> isize));
+            argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> usize));
             argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));
         },
         i386 => {
-            argc = asm("mov (%%esp), %[argc]": [argc] "=r" (-> isize));
+            argc = asm("mov (%%esp), %[argc]": [argc] "=r" (-> usize));
             argv = asm("lea 0x4(%%esp), %[argv]": [argv] "=r" (-> &&u8));
         },
         else => @compile_err("unsupported arch"),
@@ -46,7 +46,7 @@ fn call_main_and_exit() -> unreachable {
 
 #condition(want_main_symbol)
 export fn main(c_argc: i32, c_argv: &&u8) -> i32 {
-    argc = c_argc;
+    argc = usize(c_argc);
     argv = c_argv;
     call_main() %% return 1;
     return 0;

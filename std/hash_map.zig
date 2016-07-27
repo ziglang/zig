@@ -12,10 +12,10 @@ pub inline fn HashMap(inline K: type, inline V: type, inline hash: fn(key: K)->u
 }
 */
 
-pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)->bool, STATIC_SIZE: isize) {
+pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)->bool, STATIC_SIZE: usize) {
     entries: []Entry,
-    size: isize,
-    max_distance_from_start_index: isize,
+    size: usize,
+    max_distance_from_start_index: usize,
     allocator: &Allocator,
     // if the hash map is small enough, we use linear search through these
     // entries instead of allocating memory
@@ -27,7 +27,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
 
     pub struct Entry {
         used: bool,
-        distance_from_start_index: isize,
+        distance_from_start_index: usize,
         key: K,
         value: V,
     }
@@ -35,9 +35,9 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
     pub struct Iterator {
         hm: &Self,
         // how many items have we returned
-        count: isize,
+        count: usize,
         // iterator through the entry array
-        index: isize,
+        index: usize,
         // used to detect concurrent modification
         initial_modification_count: debug_u32,
 
@@ -117,7 +117,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
     pub fn remove(hm: &Self, key: K) {
         hm.increment_modification_count();
         const start_index = hm.key_to_index(key);
-        {var roll_over: isize = 0; while (roll_over <= hm.max_distance_from_start_index; roll_over += 1) {
+        {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index; roll_over += 1) {
             const index = (start_index + roll_over) % hm.entries.len;
             var entry = &hm.entries[index];
 
@@ -151,7 +151,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
         };
     }
 
-    fn init_capacity(hm: &Self, capacity: isize) -> %void {
+    fn init_capacity(hm: &Self, capacity: usize) -> %void {
         hm.entries = %return hm.allocator.alloc(Entry, capacity);
         hm.size = 0;
         hm.max_distance_from_start_index = 0;
@@ -170,8 +170,8 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
         var key = orig_key;
         var value = orig_value;
         const start_index = hm.key_to_index(key);
-        var roll_over: isize = 0;
-        var distance_from_start_index: isize = 0;
+        var roll_over: usize = 0;
+        var distance_from_start_index: usize = 0;
         while (roll_over < hm.entries.len; {roll_over += 1; distance_from_start_index += 1}) {
             const index = (start_index + roll_over) % hm.entries.len;
             const entry = &hm.entries[index];
@@ -180,7 +180,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
                 if (entry.distance_from_start_index < distance_from_start_index) {
                     // robin hood to the rescue
                     const tmp = *entry;
-                    hm.max_distance_from_start_index = math.max(isize,
+                    hm.max_distance_from_start_index = math.max(usize,
                         hm.max_distance_from_start_index, distance_from_start_index);
                     *entry = Entry {
                         .used = true,
@@ -201,7 +201,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
                 hm.size += 1;
             }
 
-            hm.max_distance_from_start_index = math.max(isize, distance_from_start_index,
+            hm.max_distance_from_start_index = math.max(usize, distance_from_start_index,
                 hm.max_distance_from_start_index);
             *entry = Entry {
                 .used = true,
@@ -216,7 +216,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
 
     fn internal_get(hm: &Self, key: K) -> ?&Entry {
         const start_index = hm.key_to_index(key);
-        {var roll_over: isize = 0; while (roll_over <= hm.max_distance_from_start_index; roll_over += 1) {
+        {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index; roll_over += 1) {
             const index = (start_index + roll_over) % hm.entries.len;
             const entry = &hm.entries[index];
 
@@ -226,8 +226,8 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
         return null;
     }
 
-    fn key_to_index(hm: &Self, key: K) -> isize {
-        return isize(hash(key)) % hm.entries.len;
+    fn key_to_index(hm: &Self, key: K) -> usize {
+        return usize(hash(key)) % hm.entries.len;
     }
 }
 
@@ -239,15 +239,15 @@ var global_allocator = Allocator {
 };
 
 var some_mem: [200]u8 = undefined;
-var some_mem_index: isize = 0;
+var some_mem_index: usize = 0;
 
-fn global_alloc(self: &Allocator, n: isize) -> %[]u8 {
+fn global_alloc(self: &Allocator, n: usize) -> %[]u8 {
     const result = some_mem[some_mem_index ... some_mem_index + n];
     some_mem_index += n;
     return result;
 }
 
-fn global_realloc(self: &Allocator, old_mem: []u8, new_size: isize) -> %[]u8 {
+fn global_realloc(self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8 {
     const result = %return global_alloc(self, new_size);
     @memcpy(result.ptr, old_mem.ptr, old_mem.len);
     return result;

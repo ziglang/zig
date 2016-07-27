@@ -6,11 +6,11 @@ pub inline fn List(inline T: type) -> type {
     SmallList(T, 8)
 }
 
-pub struct SmallList(T: type, STATIC_SIZE: isize) {
+pub struct SmallList(T: type, STATIC_SIZE: usize) {
     const Self = SmallList(T, STATIC_SIZE);
 
     items: []T,
-    length: isize,
+    length: usize,
     prealloc_items: [STATIC_SIZE]T,
     allocator: &Allocator,
 
@@ -33,7 +33,7 @@ pub struct SmallList(T: type, STATIC_SIZE: isize) {
         l.length = new_length;
     }
 
-    pub fn ensure_capacity(l: &Self, new_capacity: isize) -> %void {
+    pub fn ensure_capacity(l: &Self, new_capacity: usize) -> %void {
         const old_capacity = l.items.len;
         var better_capacity = old_capacity;
         while (better_capacity < new_capacity) {
@@ -58,15 +58,15 @@ var global_allocator = Allocator {
 };
 
 var some_mem: [200]u8 = undefined;
-var some_mem_index: isize = 0;
+var some_mem_index: usize = 0;
 
-fn global_alloc(self: &Allocator, n: isize) -> %[]u8 {
+fn global_alloc(self: &Allocator, n: usize) -> %[]u8 {
     const result = some_mem[some_mem_index ... some_mem_index + n];
     some_mem_index += n;
     return result;
 }
 
-fn global_realloc(self: &Allocator, old_mem: []u8, new_size: isize) -> %[]u8 {
+fn global_realloc(self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8 {
     const result = %return global_alloc(self, new_size);
     @memcpy(result.ptr, old_mem.ptr, old_mem.len);
     return result;
@@ -81,11 +81,11 @@ fn basic_list_test() {
     list.init(&global_allocator);
     defer list.deinit();
 
-    {var i: isize = 0; while (i < 10; i += 1) {
+    {var i: usize = 0; while (i < 10; i += 1) {
         %%list.append(i32(i + 1));
     }}
 
-    {var i: isize = 0; while (i < 10; i += 1) {
+    {var i: usize = 0; while (i < 10; i += 1) {
         assert(list.items[i] == i32(i + 1));
     }}
 }

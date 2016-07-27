@@ -15,7 +15,7 @@ pub error BadFd;
 struct Connection {
     socket_fd: i32,
 
-    pub fn send(c: Connection, buf: []const u8) -> %isize {
+    pub fn send(c: Connection, buf: []const u8) -> %usize {
         const send_ret = linux.sendto(c.socket_fd, buf.ptr, buf.len, 0, null, 0);
         const send_err = linux.get_errno(send_ret);
         switch (send_err) {

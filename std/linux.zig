@@ -221,66 +221,67 @@ pub const AF_VSOCK = PF_VSOCK;
 pub const AF_MAX = PF_MAX;
 
 /// Get the errno from a syscall return value, or 0 for no error.
-pub fn get_errno(r: isize) -> isize {
-    if (r > -4096 && r < 0) -r else 0
+pub fn get_errno(r: usize) -> usize {
+    const signed_r = *(&isize)(&r);
+    if (signed_r > -4096 && signed_r < 0) usize(-signed_r) else 0
 }
 
-pub fn mmap(address: ?&u8, length: isize, prot: isize, flags: isize, fd: isize, offset: isize) -> isize {
-    arch.syscall6(arch.SYS_mmap, isize(address), length, prot, flags, fd, offset)
+pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32, offset: usize) -> usize {
+    arch.syscall6(arch.SYS_mmap, usize(address), length, prot, flags, usize(fd), offset)
 }
 
-pub fn munmap(address: &u8, length: isize) -> isize {
-    arch.syscall2(arch.SYS_munmap, isize(address), length)
+pub fn munmap(address: &u8, length: usize) -> usize {
+    arch.syscall2(arch.SYS_munmap, usize(address), length)
 }
 
-pub fn read(fd: isize, buf: &u8, count: isize) -> isize {
-    arch.syscall3(arch.SYS_read, isize(fd), isize(buf), count)
+pub fn read(fd: i32, buf: &u8, count: usize) -> usize {
+    arch.syscall3(arch.SYS_read, usize(fd), usize(buf), count)
 }
 
-pub fn write(fd: isize, buf: &const u8, count: isize) -> isize {
-    arch.syscall3(arch.SYS_write, isize(fd), isize(buf), count)
+pub fn write(fd: i32, buf: &const u8, count: usize) -> usize {
+    arch.syscall3(arch.SYS_write, usize(fd), usize(buf), count)
 }
 
-pub fn open(path: []u8, flags: isize, perm: isize) -> isize {
+pub fn open(path: []u8, flags: usize, perm: usize) -> usize {
     var buf: [path.len + 1]u8 = undefined;
     @memcpy(&buf[0], &path[0], path.len);
     buf[path.len] = 0;
-    arch.syscall3(arch.SYS_open, isize(&buf[0]), flags, perm)
+    arch.syscall3(arch.SYS_open, usize(&buf[0]), flags, perm)
 }
 
-pub fn create(path: []u8, perm: isize) -> isize {
+pub fn create(path: []u8, perm: usize) -> usize {
     var buf: [path.len + 1]u8 = undefined;
     @memcpy(&buf[0], &path[0], path.len);
     buf[path.len] = 0;
-    arch.syscall2(arch.SYS_creat, isize(&buf[0]), perm)
+    arch.syscall2(arch.SYS_creat, usize(&buf[0]), perm)
 }
 
-pub fn openat(dirfd: isize, path: []u8, flags: isize, mode: isize) -> isize {
+pub fn openat(dirfd: i32, path: []u8, flags: usize, mode: usize) -> usize {
     var buf: [path.len + 1]u8 = undefined;
     @memcpy(&buf[0], &path[0], path.len);
     buf[path.len] = 0;
-    arch.syscall4(arch.SYS_openat, dirfd, isize(&buf[0]), flags, mode)
+    arch.syscall4(arch.SYS_openat, usize(dirfd), usize(&buf[0]), flags, mode)
 }
 
-pub fn close(fd: isize) -> isize {
-    arch.syscall1(arch.SYS_close, fd)
+pub fn close(fd: i32) -> usize {
+    arch.syscall1(arch.SYS_close, usize(fd))
 }
 
-pub fn lseek(fd: isize, offset: isize, ref_pos: isize) -> isize {
-    arch.syscall3(arch.SYS_lseek, fd, offset, ref_pos)
+pub fn lseek(fd: i32, offset: usize, ref_pos: usize) -> usize {
+    arch.syscall3(arch.SYS_lseek, usize(fd), offset, ref_pos)
 }
 
 pub fn exit(status: i32) -> unreachable {
-    arch.syscall1(arch.SYS_exit, isize(status));
+    arch.syscall1(arch.SYS_exit, usize(status));
     unreachable{}
 }
 
-pub fn getrandom(buf: &u8, count: isize, flags: u32) -> isize {
-    arch.syscall3(arch.SYS_getrandom, isize(buf), count, isize(flags))
+pub fn getrandom(buf: &u8, count: usize, flags: u32) -> usize {
+    arch.syscall3(arch.SYS_getrandom, usize(buf), count, usize(flags))
 }
 
 pub fn kill(pid: i32, sig: i32) -> i32 {
-    i32(arch.syscall2(arch.SYS_kill, pid, sig))
+    i32(arch.syscall2(arch.SYS_kill, usize(pid), usize(sig)))
 }
 
 const NSIG = 65;
@@ -292,21 +293,21 @@ pub fn raise(sig: i32) -> i32 {
     var set: sigset_t = undefined;
     block_app_signals(&set);
     const tid = i32(arch.syscall0(arch.SYS_gettid));
-    const ret = i32(arch.syscall2(arch.SYS_tkill, tid, sig));
+    const ret = i32(arch.syscall2(arch.SYS_tkill, usize(tid), usize(sig)));
     restore_signals(&set);
     return ret;
 }
 
 fn block_all_signals(set: &sigset_t) {
-    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, isize(&all_mask), isize(set), NSIG/8);
+    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, usize(&all_mask), usize(set), NSIG/8);
 }
 
 fn block_app_signals(set: &sigset_t) {
-    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, isize(&app_mask), isize(set), NSIG/8);
+    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, usize(&app_mask), usize(set), NSIG/8);
 }
 
 fn restore_signals(set: &sigset_t) {
-    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_SETMASK, isize(set), 0, NSIG/8);
+    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_SETMASK, usize(set), 0, NSIG/8);
 }
 
 
@@ -363,98 +364,96 @@ export struct ifreq {
 }
 */
 
-pub fn getsockname(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> isize {
-    arch.syscall3(arch.SYS_getsockname, fd, isize(addr), isize(len))
+pub fn getsockname(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> usize {
+    arch.syscall3(arch.SYS_getsockname, usize(fd), usize(addr), usize(len))
 }
 
-pub fn getpeername(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> isize {
-    arch.syscall3(arch.SYS_getpeername, fd, isize(addr), isize(len))
+pub fn getpeername(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> usize {
+    arch.syscall3(arch.SYS_getpeername, usize(fd), usize(addr), usize(len))
 }
 
-pub fn socket(domain: i32, socket_type: i32, protocol: i32) -> isize {
-    arch.syscall3(arch.SYS_socket, domain, socket_type, protocol)
+pub fn socket(domain: i32, socket_type: i32, protocol: i32) -> usize {
+    arch.syscall3(arch.SYS_socket, usize(domain), usize(socket_type), usize(protocol))
 }
 
-pub fn setsockopt(fd: i32, level: i32, optname: i32, optval: &const u8, optlen: socklen_t) -> isize {
-    arch.syscall5(arch.SYS_setsockopt, fd, level, optname, isize(optval), isize(optlen))
+pub fn setsockopt(fd: i32, level: i32, optname: i32, optval: &const u8, optlen: socklen_t) -> usize {
+    arch.syscall5(arch.SYS_setsockopt, usize(fd), usize(level), usize(optname), usize(optval), usize(optlen))
 }
 
-pub fn getsockopt(fd: i32, level: i32, optname: i32, noalias optval: &u8, noalias optlen: &socklen_t) -> isize {
-    arch.syscall5(arch.SYS_getsockopt, fd, level, optname, isize(optval), isize(optlen))
+pub fn getsockopt(fd: i32, level: i32, optname: i32, noalias optval: &u8, noalias optlen: &socklen_t) -> usize {
+    arch.syscall5(arch.SYS_getsockopt, usize(fd), usize(level), usize(optname), usize(optval), usize(optlen))
 }
 
-pub fn sendmsg(fd: i32, msg: &const arch.msghdr, flags: i32) -> isize {
-    arch.syscall3(arch.SYS_sendmsg, fd, isize(msg), flags)
+pub fn sendmsg(fd: i32, msg: &const arch.msghdr, flags: u32) -> usize {
+    arch.syscall3(arch.SYS_sendmsg, usize(fd), usize(msg), flags)
 }
 
-pub fn connect(fd: i32, addr: &const sockaddr, len: socklen_t) -> isize {
-    arch.syscall3(arch.SYS_connect, fd, isize(addr), isize(len))
+pub fn connect(fd: i32, addr: &const sockaddr, len: socklen_t) -> usize {
+    arch.syscall3(arch.SYS_connect, usize(fd), usize(addr), usize(len))
 }
 
-pub fn recvmsg(fd: i32, msg: &arch.msghdr, flags: i32) -> isize {
-    arch.syscall3(arch.SYS_recvmsg, fd, isize(msg), flags)
+pub fn recvmsg(fd: i32, msg: &arch.msghdr, flags: u32) -> usize {
+    arch.syscall3(arch.SYS_recvmsg, usize(fd), usize(msg), flags)
 }
 
-pub fn recvfrom(fd: i32, noalias buf: &u8, len: isize, flags: i32,
-    noalias addr: ?&sockaddr, noalias alen: ?&socklen_t) -> isize
+pub fn recvfrom(fd: i32, noalias buf: &u8, len: usize, flags: u32,
+    noalias addr: ?&sockaddr, noalias alen: ?&socklen_t) -> usize
 {
-    arch.syscall6(arch.SYS_recvfrom, fd, isize(buf), len, flags, isize(addr), isize(alen))
+    arch.syscall6(arch.SYS_recvfrom, usize(fd), usize(buf), len, flags, usize(addr), usize(alen))
 }
 
-pub fn shutdown(fd: i32, how: i32) -> isize {
-    arch.syscall2(arch.SYS_shutdown, fd, how)
+pub fn shutdown(fd: i32, how: i32) -> usize {
+    arch.syscall2(arch.SYS_shutdown, usize(fd), usize(how))
 }
 
 pub fn bind(fd: i32, addr: &const sockaddr, len: socklen_t) {
-    arch.syscall3(arch.SYS_bind, fd, isize(addr), isize(len));
+    arch.syscall3(arch.SYS_bind, usize(fd), usize(addr), usize(len));
 }
 
-pub fn listen(fd: i32, backlog: i32) -> isize {
-    arch.syscall2(arch.SYS_listen, fd, backlog)
+pub fn listen(fd: i32, backlog: i32) -> usize {
+    arch.syscall2(arch.SYS_listen, usize(fd), usize(backlog))
 }
 
-pub fn sendto(fd: i32, buf: &const u8, len: isize, flags: i32, addr: ?&const sockaddr, alen: socklen_t) -> isize {
-    arch.syscall6(arch.SYS_sendto, fd, isize(buf), len, flags, isize(addr), isize(alen))
+pub fn sendto(fd: i32, buf: &const u8, len: usize, flags: u32, addr: ?&const sockaddr, alen: socklen_t) -> usize {
+    arch.syscall6(arch.SYS_sendto, usize(fd), usize(buf), len, flags, usize(addr), usize(alen))
 }
 
-pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) -> isize {
-    arch.syscall4(arch.SYS_socketpair, domain, socket_type, protocol, isize(&fd[0]))
+pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) -> usize {
+    arch.syscall4(arch.SYS_socketpair, usize(domain), usize(socket_type), usize(protocol), usize(&fd[0]))
 }
 
-pub fn accept(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> isize {
+pub fn accept(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> usize {
     accept4(fd, addr, len, 0)
 }
 
-pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags: i32) -> isize {
-    arch.syscall4(arch.SYS_accept4, fd, isize(addr), isize(len), flags)
+pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags: u32) -> usize {
+    arch.syscall4(arch.SYS_accept4, usize(fd), usize(addr), usize(len), flags)
 }
 
-/*
-pub error NameTooLong;
-pub error SystemResources;
-pub error Io;
-
-pub fn if_nametoindex(name: []u8) -> %u32 {
-    var ifr: ifreq = undefined;
-
-    if (name.len >= ifr.ifr_name.len) {
-        return error.NameTooLong;
-    }
-
-    const socket_ret = socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0);
-    const socket_err = get_errno(socket_ret);
-    if (socket_err > 0) {
-        return error.SystemResources;
-    }
-    const socket_fd = i32(socket_ret);
-    @memcpy(&ifr.ifr_name[0], &name[0], name.len);
-    ifr.ifr_name[name.len] = 0;
-    const ioctl_ret = ioctl(socket_fd, SIOCGIFINDEX, &ifr);
-    close(socket_fd);
-    const ioctl_err = get_errno(ioctl_ret);
-    if (ioctl_err > 0) {
-        return error.Io;
-    }
-    return ifr.ifr_ifindex;
-}
-*/
+// pub error NameTooLong;
+// pub error SystemResources;
+// pub error Io;
+// 
+// pub fn if_nametoindex(name: []u8) -> %u32 {
+//     var ifr: ifreq = undefined;
+// 
+//     if (name.len >= ifr.ifr_name.len) {
+//         return error.NameTooLong;
+//     }
+// 
+//     const socket_ret = socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0);
+//     const socket_err = get_errno(socket_ret);
+//     if (socket_err > 0) {
+//         return error.SystemResources;
+//     }
+//     const socket_fd = i32(socket_ret);
+//     @memcpy(&ifr.ifr_name[0], &name[0], name.len);
+//     ifr.ifr_name[name.len] = 0;
+//     const ioctl_ret = ioctl(socket_fd, SIOCGIFINDEX, &ifr);
+//     close(socket_fd);
+//     const ioctl_err = get_errno(ioctl_ret);
+//     if (ioctl_err > 0) {
+//         return error.Io;
+//     }
+//     return ifr.ifr_ifindex;
+// }

@@ -96,16 +96,16 @@ fn mutable_local_variables() {
 
 #attribute("test")
 fn arrays() {
-    var array : [5]i32 = undefined;
+    var array : [5]u32 = undefined;
 
-    var i : i32 = 0;
+    var i : u32 = 0;
     while (i < 5) {
         array[i] = i + 1;
         i = array[i];
     }
 
     i = 0;
-    var accumulator = i32(0);
+    var accumulator = u32(0);
     while (i < 5) {
         accumulator += array[i];
 
@@ -115,7 +115,7 @@ fn arrays() {
     assert(accumulator == 15);
     assert(get_array_len(array) == 5);
 }
-fn get_array_len(a: []i32) -> isize {
+fn get_array_len(a: []u32) -> usize {
     a.len
 }
 
@@ -742,7 +742,7 @@ fn generic_malloc_free() {
 }
 const some_mem : [100]u8 = undefined;
 #static_eval_enable(false)
-fn mem_alloc(inline T: type, n: isize) -> %[]T {
+fn mem_alloc(inline T: type, n: usize) -> %[]T {
     return (&T)(&some_mem[0])[0...n];
 }
 fn mem_free(inline T: type, mem: []T) { }
@@ -823,10 +823,10 @@ fn test_cast_undefined(x: []u8) {}
 #attribute("test")
 fn cast_small_unsigned_to_larger_signed() {
     assert(cast_small_unsigned_to_larger_signed_1(200) == i16(200));
-    assert(cast_small_unsigned_to_larger_signed_2(9999) == isize(9999));
+    assert(cast_small_unsigned_to_larger_signed_2(9999) == i64(9999));
 }
 fn cast_small_unsigned_to_larger_signed_1(x: u8) -> i16 { x }
-fn cast_small_unsigned_to_larger_signed_2(x: u16) -> isize { x }
+fn cast_small_unsigned_to_larger_signed_2(x: u16) -> i64 { x }
 
 
 #attribute("test")
@@ -834,7 +834,7 @@ fn implicit_cast_after_unreachable() {
     assert(outer() == 1234);
 }
 fn inner() -> i32 { 1234 }
-fn outer() -> isize {
+fn outer() -> i64 {
     return inner();
 }
 
@@ -1029,7 +1029,7 @@ fn constant_expressions() {
     var array : [ARRAY_SIZE]u8 = undefined;
     assert(@sizeof(@typeof(array)) == 20);
 }
-const ARRAY_SIZE : i8 = 20;
+const ARRAY_SIZE : u8 = 20;
 
 
 #attribute("test")
@@ -1315,7 +1315,7 @@ fn test_return_empty_struct_from_fn_noeval() -> EmptyStruct2 {
 fn pass_slice_of_empty_struct_to_fn() {
     assert(test_pass_slice_of_empty_struct_to_fn([]EmptyStruct2{ EmptyStruct2{} }) == 1);
 }
-fn test_pass_slice_of_empty_struct_to_fn(slice: []EmptyStruct2) -> isize {
+fn test_pass_slice_of_empty_struct_to_fn(slice: []EmptyStruct2) -> usize {
     slice.len
 }
 
@@ -1555,7 +1555,7 @@ fn c_string_concatenation() {
 
     const len = cstr.len(b);
     const len_with_null = len + 1;
-    {var i: i32 = 0; while (i < len_with_null; i += 1) {
+    {var i: u32 = 0; while (i < len_with_null; i += 1) {
         assert(a[i] == b[i]);
     }}
     assert(a[len] == 0);

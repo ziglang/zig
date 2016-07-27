@@ -502,7 +502,7 @@ static void slice_type_common_init(CodeGen *g, TypeTableEntry *child_type,
     entry->data.structure.fields[0].src_index = 0;
     entry->data.structure.fields[0].gen_index = 0;
     entry->data.structure.fields[1].name = buf_create_from_str("len");
-    entry->data.structure.fields[1].type_entry = g->builtin_types.entry_isize;
+    entry->data.structure.fields[1].type_entry = g->builtin_types.entry_usize;
     entry->data.structure.fields[1].src_index = 1;
     entry->data.structure.fields[1].gen_index = 1;
 }
@@ -546,7 +546,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
 
         if (child_type->zero_bits) {
             LLVMTypeRef element_types[] = {
-                g->builtin_types.entry_isize->type_ref,
+                g->builtin_types.entry_usize->type_ref,
             };
             LLVMStructSetBody(entry->type_ref, element_types, 1, false);
 
@@ -556,9 +556,9 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
             entry->data.structure.fields[0].gen_index = -1;
             entry->data.structure.fields[1].gen_index = 0;
 
-            TypeTableEntry *isize_type = g->builtin_types.entry_isize;
-            uint64_t len_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, isize_type->type_ref);
-            uint64_t len_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, isize_type->type_ref);
+            TypeTableEntry *usize_type = g->builtin_types.entry_usize;
+            uint64_t len_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, usize_type->type_ref);
+            uint64_t len_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, usize_type->type_ref);
             uint64_t len_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 0);
 
             uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
@@ -570,7 +570,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
                         len_debug_size_in_bits,
                         len_debug_align_in_bits,
                         len_offset_in_bits,
-                        0, isize_type->di_type),
+                        0, usize_type->di_type),
             };
             LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
                     compile_unit_scope,
@@ -586,7 +586,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
             unsigned element_count = 2;
             LLVMTypeRef element_types[] = {
                 pointer_type->type_ref,
-                g->builtin_types.entry_isize->type_ref,
+                g->builtin_types.entry_usize->type_ref,
             };
             LLVMStructSetBody(entry->type_ref, element_types, element_count, false);
 
@@ -597,9 +597,9 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
             uint64_t ptr_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, pointer_type->type_ref);
             uint64_t ptr_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 0);
 
-            TypeTableEntry *isize_type = g->builtin_types.entry_isize;
-            uint64_t len_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, isize_type->type_ref);
-            uint64_t len_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, isize_type->type_ref);
+            TypeTableEntry *usize_type = g->builtin_types.entry_usize;
+            uint64_t len_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, usize_type->type_ref);
+            uint64_t len_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, usize_type->type_ref);
             uint64_t len_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 1);
 
             uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
@@ -617,7 +617,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
                         len_debug_size_in_bits,
                         len_debug_align_in_bits,
                         len_offset_in_bits,
-                        0, isize_type->di_type),
+                        0, usize_type->di_type),
             };
             LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
                     compile_unit_scope,
@@ -2817,10 +2817,10 @@ static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, 
         context->fn_entry->struct_val_expr_alloca_list.append(&node->data.slice_expr.resolved_struct_val_expr);
     }
 
-    analyze_expression(g, import, context, g->builtin_types.entry_isize, node->data.slice_expr.start);
+    analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.slice_expr.start);
 
     if (node->data.slice_expr.end) {
-        analyze_expression(g, import, context, g->builtin_types.entry_isize, node->data.slice_expr.end);
+        analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.slice_expr.end);
     }
 
     return return_type;
@@ -2853,7 +2853,7 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
         return_type = g->builtin_types.entry_invalid;
     }
 
-    analyze_expression(g, import, context, g->builtin_types.entry_isize, node->data.array_access_expr.subscript);
+    analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.array_access_expr.subscript);
 
     return return_type;
 }
@@ -3912,7 +3912,7 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
 
     if (size_node) {
         TypeTableEntry *size_type = analyze_expression(g, import, context,
-                g->builtin_types.entry_isize, size_node);
+                g->builtin_types.entry_usize, size_node);
         if (size_type->id == TypeTableEntryIdInvalid) {
             return g->builtin_types.entry_invalid;
         }
@@ -4042,10 +4042,10 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
         Buf *index_var_name = &index_var_node->data.symbol_expr.symbol;
         index_var_node->block_context = child_context;
         node->data.for_expr.index_var = add_local_var(g, index_var_node, import, child_context, index_var_name,
-                g->builtin_types.entry_isize, true, nullptr);
+                g->builtin_types.entry_usize, true, nullptr);
     } else {
         node->data.for_expr.index_var = add_local_var(g, node, import, child_context, nullptr,
-                g->builtin_types.entry_isize, true, nullptr);
+                g->builtin_types.entry_usize, true, nullptr);
     }
 
     AstNode *for_body_node = node->data.for_expr.body;

@@ -386,7 +386,7 @@ Function                                                             Operation
 @shl_with_overflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a << b
 ```
 
-### @memset(dest, c: u8, byte_count: isize)
+### @memset(dest, c: u8, byte_count: usize)
 
 This function sets a region of memory to `c`. `dest` is a pointer.
 
@@ -398,7 +398,7 @@ level code will not use this function, instead using something like this:
 for (dest) |*b| *b = c;
 ```
 
-### @memcpy(dest, source, byte_count: isize)
+### @memcpy(dest, source, byte_count: usize)
 
 This function copies bytes from one region of memory to another. `dest` and
 `source` are both pointers and must not overlap.

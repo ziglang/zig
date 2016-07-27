@@ -2,8 +2,8 @@
 // sometimes generates code that calls them.
 
 #debug_safety(false)
-export fn memset(dest: &u8, c: u8, n: isize) -> &u8 {
-    var index: isize = 0;
+export fn memset(dest: &u8, c: u8, n: usize) -> &u8 {
+    var index: usize = 0;
     while (index != n) {
         dest[index] = c;
         index += 1;
@@ -12,8 +12,8 @@ export fn memset(dest: &u8, c: u8, n: isize) -> &u8 {
 }
 
 #debug_safety(false)
-export fn memcpy(noalias dest: &u8, noalias src: &const u8, n: isize) -> &u8 {
-    var index: isize = 0;
+export fn memcpy(noalias dest: &u8, noalias src: &const u8, n: usize) -> &u8 {
+    var index: usize = 0;
     while (index != n) {
         dest[index] = src[index];
         index += 1;

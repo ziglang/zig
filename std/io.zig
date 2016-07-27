@@ -59,9 +59,9 @@ pub const OpenCreate   = 0b0100;
 pub const OpenTruncate = 0b1000;
 
 pub struct OutStream {
-    fd: isize,
+    fd: i32,
     buffer: [buffer_size]u8,
-    index: isize,
+    index: usize,
 
     pub fn write_byte(os: &OutStream, b: u8) -> %void {
         if (os.buffer.len == os.index) %return os.flush();
@@ -69,13 +69,13 @@ pub struct OutStream {
         os.index += 1;
     }
 
-    pub fn write(os: &OutStream, bytes: []const u8) -> %isize {
+    pub fn write(os: &OutStream, bytes: []const u8) -> %usize {
         var src_bytes_left = bytes.len;
         var src_index: @typeof(bytes.len) = 0;
         const dest_space_left = os.buffer.len - os.index;
 
         while (src_bytes_left > 0) {
-            const copy_amt = math.min(isize, dest_space_left, src_bytes_left);
+            const copy_amt = math.min(usize, dest_space_left, src_bytes_left);
             @memcpy(&os.buffer[os.index], &bytes[src_index], copy_amt);
             os.index += copy_amt;
             if (os.index == os.buffer.len) {
@@ -88,13 +88,13 @@ pub struct OutStream {
 
     /// Prints a byte buffer, flushes the buffer, then returns the number of
     /// bytes printed. The "f" is for "flush".
-    pub fn printf(os: &OutStream, str: []const u8) -> %isize {
+    pub fn printf(os: &OutStream, str: []const u8) -> %usize {
         const byte_count = %return os.write(str);
         %return os.flush();
         return byte_count;
     }
 
-    pub fn print_u64(os: &OutStream, x: u64) -> %isize {
+    pub fn print_u64(os: &OutStream, x: u64) -> %usize {
         if (os.index + max_u64_base10_digits >= os.buffer.len) {
             %return os.flush();
         }
@@ -104,21 +104,11 @@ pub struct OutStream {
         return amt_printed;
     }
 
-    pub fn print_i64(os: &OutStream, x: i64) -> %isize {
+    pub fn print_i64(os: &OutStream, x: i64) -> %usize {
         if (os.index + max_u64_base10_digits >= os.buffer.len) {
             %return os.flush();
         }
         const amt_printed = buf_print_i64(os.buffer[os.index...], x);
-        os.index += amt_printed;
-
-        return amt_printed;
-    }
-
-    pub fn print_f64(os: &OutStream, x: f64) -> %isize {
-        if (os.index + max_f64_digits >= os.buffer.len) {
-            %return os.flush();
-        }
-        const amt_printed = buf_print_f64(os.buffer[os.index...], x, 4);
         os.index += amt_printed;
 
         return amt_printed;
@@ -144,25 +134,27 @@ pub struct OutStream {
     }
 
     pub fn close(os: &OutStream) -> %void {
-        const closed = linux.close(os.fd);
-        if (closed < 0) {
-            return switch (-closed) {
-                errno.EIO => error.Io,
+        const close_ret = linux.close(os.fd);
+        const close_err = linux.get_errno(close_ret);
+        if (close_err > 0) {
+            return switch (close_err) {
+                errno.EIO   => error.Io,
                 errno.EBADF => error.BadFd,
                 errno.EINTR => error.SigInterrupt,
-                else => error.Unexpected,
+                else        => error.Unexpected,
             }
         }
     }
 }
 
 pub struct InStream {
-    fd: isize,
+    fd: i32,
 
     pub fn open(path: []u8) -> %InStream {
         const fd = linux.open(path, linux.O_LARGEFILE|linux.O_RDONLY, 0);
-        if (fd < 0) {
-            return switch (-fd) {
+        const fd_err = linux.get_errno(fd);
+        if (fd_err > 0) {
+            return switch (fd_err) {
                 errno.EFAULT => unreachable{},
                 errno.EINVAL => unreachable{},
                 errno.EACCES => error.BadPerm,
@@ -183,13 +175,14 @@ pub struct InStream {
             }
         }
 
-        return InStream { .fd = fd, };
+        return InStream { .fd = i32(fd), };
     }
 
-    pub fn read(is: &InStream, buf: []u8) -> %isize {
+    pub fn read(is: &InStream, buf: []u8) -> %usize {
         const amt_read = linux.read(is.fd, &buf[0], buf.len);
-        if (amt_read < 0) {
-            return switch (-amt_read) {
+        const read_err = linux.get_errno(amt_read);
+        if (read_err > 0) {
+            return switch (read_err) {
                 errno.EINVAL => unreachable{},
                 errno.EFAULT => unreachable{},
                 errno.EBADF  => error.BadFd,
@@ -202,9 +195,10 @@ pub struct InStream {
     }
 
     pub fn close(is: &InStream) -> %void {
-        const closed = linux.close(is.fd);
-        if (closed < 0) {
-            return switch (-closed) {
+        const close_ret = linux.close(is.fd);
+        const close_err = linux.get_errno(close_ret);
+        if (close_err > 0) {
+            return switch (close_err) {
                 errno.EIO => error.Io,
                 errno.EBADF => error.BadFd,
                 errno.EINTR => error.SigInterrupt,
@@ -240,7 +234,7 @@ fn char_to_digit(c: u8, radix: u8) -> %u8 {
     return if (value >= radix) error.InvalidChar else value;
 }
 
-pub fn buf_print_signed(inline T: type, out_buf: []u8, x: T) -> isize {
+pub fn buf_print_signed(inline T: type, out_buf: []u8, x: T) -> usize {
     const uint = @int_type(false, T.bit_count, false);
     if (x < 0) {
         out_buf[0] = '-';
@@ -250,14 +244,14 @@ pub fn buf_print_signed(inline T: type, out_buf: []u8, x: T) -> isize {
     }
 }
 
-pub fn buf_print_i64(out_buf: []u8, x: i64) -> isize {
+pub fn buf_print_i64(out_buf: []u8, x: i64) -> usize {
     buf_print_signed(i64, out_buf, x)
 }
 
-pub fn buf_print_unsigned(inline T: type, out_buf: []u8, x: T) -> isize {
+pub fn buf_print_unsigned(inline T: type, out_buf: []u8, x: T) -> usize {
     var buf: [max_u64_base10_digits]u8 = undefined;
     var a = x;
-    var index: isize = buf.len;
+    var index: usize = buf.len;
 
     while (true) {
         const digit = a % 10;
@@ -275,132 +269,8 @@ pub fn buf_print_unsigned(inline T: type, out_buf: []u8, x: T) -> isize {
     return len;
 }
 
-pub fn buf_print_u64(out_buf: []u8, x: u64) -> isize {
+pub fn buf_print_u64(out_buf: []u8, x: u64) -> usize {
     buf_print_unsigned(u64, out_buf, x)
-}
-
-pub fn buf_print_f64(out_buf: []u8, x: f64, decimals: isize) -> isize {
-    const numExpBits = 11;
-    const numRawSigBits = 52; // not including implicit 1 bit
-    const expBias = 1023;
-
-    var decs = decimals;
-    if (decs >= max_u64_base10_digits) {
-        decs = max_u64_base10_digits - 1;
-    }
-
-    if (x == math.f64_get_pos_inf()) {
-        const buf2 = "+Inf";
-        @memcpy(&out_buf[0], &buf2[0], buf2.len);
-        return 4;
-    } else if (x == math.f64_get_neg_inf()) {
-        const buf2 = "-Inf";
-        @memcpy(&out_buf[0], &buf2[0], buf2.len);
-        return 4;
-    } else if (math.f64_is_nan(x)) {
-        const buf2 = "NaN";
-        @memcpy(&out_buf[0], &buf2[0], buf2.len);
-        return 3;
-    }
-
-    var buf: [max_f64_digits]u8 = undefined;
-
-    var len: isize = 0;
-
-    // 1 sign bit
-    // 11 exponent bits
-    // 52 significand bits (+ 1 implicit always non-zero bit)
-
-    const bits = math.f64_to_bits(x);
-    if (bits & (1 << 63) != 0) {
-        buf[0] = '-';
-        len += 1;
-    }
-
-    const rexponent: i64 = i64((bits >> numRawSigBits) & ((1 << numExpBits) - 1));
-    const exponent = rexponent - expBias - numRawSigBits;
-
-    if (rexponent == 0) {
-        buf[len] = '0';
-        len += 1;
-        @memcpy(&out_buf[0], &buf[0], len);
-        return len;
-    }
-
-    const sig = (bits & ((1 << numRawSigBits) - 1)) | (1 << numRawSigBits);
-
-    if (exponent >= 0) {
-        // number is an integer
-
-        if (exponent >= 64 - 53) {
-            // use XeX form
-
-            // TODO support printing large floats
-            //len += buf_print_u64(buf[len...], sig << 10);
-            const str = "LARGEF64";
-            @memcpy(&buf[len], &str[0], str.len);
-            len += str.len;
-        } else {
-            // use typical form
-
-            len += buf_print_u64(buf[len...], sig << u64(exponent));
-            buf[len] = '.';
-            len += 1;
-
-            var i: isize = 0;
-            while (i < decs) {
-                buf[len] = '0';
-                len += 1;
-                i += 1;
-            }
-        }
-    } else {
-        // number is not an integer
-
-        // print out whole part
-        len += buf_print_u64(buf[len...], sig >> u64(-exponent));
-        buf[len] = '.';
-        len += 1;
-
-        // print out fractional part
-        // dec_num holds: fractional part * 10 ^ decs
-        var dec_num: u64 = 0;
-
-        var a: isize = 1;
-        var i: isize = 0;
-        while (i < decs + 5) {
-            a *= 10;
-            i += 1;
-        }
-
-        // create a mask: 1's for the fractional part, 0's for whole part
-        var masked_sig = sig & ((1 << u64(-exponent)) - 1);
-        i = -1;
-        while (i >= exponent) {
-            var bit_set = ((1 << u64(i-exponent)) & masked_sig) != 0;
-
-            if (bit_set) {
-                dec_num += usize(a) >> usize(-i);
-            }
-
-            i -= 1;
-        }
-
-        dec_num /= 100000;
-
-        len += decs;
-
-        i = len - 1;
-        while (i >= len - decs) {
-            buf[i] = '0' + u8(dec_num % 10);
-            dec_num /= 10;
-            i -= 1;
-        }
-    }
-
-    @memcpy(&out_buf[0], &buf[0], len);
-
-    len
 }
 
 #attribute("test")

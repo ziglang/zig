@@ -466,7 +466,7 @@ pub fn main(args: [][]u8) -> %void {
         %%io.stdout.printf("\n");
     }
     for (array) |item, index| {
-        %%io.stdout.print_i64(index);
+        %%io.stdout.print_u64(index);
         %%io.stdout.printf("\n");
     }
     const unknown_size: []u8 = array;
@@ -475,7 +475,7 @@ pub fn main(args: [][]u8) -> %void {
         %%io.stdout.printf("\n");
     }
     for (unknown_size) |item, index| {
-        %%io.stdout.print_i64(index);
+        %%io.stdout.print_u64(index);
         %%io.stdout.printf("\n");
     }
 }
@@ -497,7 +497,7 @@ export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
 }
 
 export fn main(args: c_int, argv: &&u8) -> c_int {
-    var array = []i32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
+    var array = []u32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
 
     c.qsort((&c_void)(&array[0]), c_ulong(array.len), @sizeof(i32), compare_fn);
 
@@ -816,7 +816,7 @@ fn f() {
     )SOURCE", 4, ".tmp_source.zig:4:5: error: use of undeclared identifier 'i'",
                  ".tmp_source.zig:4:7: error: use of undeclared identifier 'i'",
                  ".tmp_source.zig:5:8: error: array access of non-array",
-                 ".tmp_source.zig:5:9: error: expected type 'isize', got 'bool'");
+                 ".tmp_source.zig:5:9: error: expected type 'usize', got 'bool'");
 
     add_compile_fail_case("variadic functions only allowed in extern", R"SOURCE(
 fn f(...) {}
@@ -1115,8 +1115,8 @@ fn a(x: i32) {
 struct Foo {
     y: [get()]u8,
 }
-var global_var: isize = 1;
-fn get() -> isize { global_var }
+var global_var: usize = 1;
+fn get() -> usize { global_var }
     )SOURCE", 1, ".tmp_source.zig:3:9: error: unable to evaluate constant expression");
 
 
@@ -1397,7 +1397,7 @@ pub fn main(args: [][]u8) { }
 
 
     add_compile_fail_case("invalid pointer for var type", R"SOURCE(
-extern fn ext() -> isize;
+extern fn ext() -> usize;
 var bytes: [ext()]u8 = undefined;
 fn f() {
     for (bytes) |*b, i| {
