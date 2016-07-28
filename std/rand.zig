@@ -77,8 +77,12 @@ pub struct Rand {
 
     /// Get a floating point value in the range 0.0..1.0.
     pub fn float(r: &Rand, inline T: type) -> T {
+        // TODO Implement this way instead:
+        // const int = @int_type(false, @sizeof(T) * 8);
+        // const mask = ((1 << @float_mantissa_bit_count(T)) - 1);
+        // const rand_bits = r.rng.scalar(int) & mask;
+        // return @float_compose(T, false, 0, rand_bits) - 1.0
         const int_type = @int_type(false, @sizeof(T) * 8);
-        // TODO switch statement for constant values
         const precision = if (T == f32) {
             16777216
         } else if (T == f64) {
