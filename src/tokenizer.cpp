@@ -154,10 +154,13 @@ enum TokenizeState {
     TokenizeStateCharLiteral,
     TokenizeStateCharLiteralEnd,
     TokenizeStateSawStar,
+    TokenizeStateSawStarPercent,
     TokenizeStateSawSlash,
     TokenizeStateSawPercent,
     TokenizeStateSawPlus,
+    TokenizeStateSawPlusPercent,
     TokenizeStateSawDash,
+    TokenizeStateSawMinusPercent,
     TokenizeStateSawAmpersand,
     TokenizeStateSawAmpersandAmpersand,
     TokenizeStateSawCaret,
@@ -171,6 +174,7 @@ enum TokenizeState {
     TokenizeStateSawBang,
     TokenizeStateSawLessThan,
     TokenizeStateSawLessThanLessThan,
+    TokenizeStateSawShiftLeftPercent,
     TokenizeStateSawGreaterThan,
     TokenizeStateSawGreaterThanGreaterThan,
     TokenizeStateSawDot,
@@ -596,6 +600,24 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
+                    case '%':
+                        t.cur_tok->id = TokenIdBitShiftLeftPercent;
+                        t.state = TokenizeStateSawShiftLeftPercent;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateSawShiftLeftPercent:
+                switch (c) {
+                    case '=':
+                        t.cur_tok->id = TokenIdBitShiftLeftPercentEq;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
                     default:
                         t.pos -= 1;
                         end_token(&t);
@@ -648,6 +670,24 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
+                    case '%':
+                        t.cur_tok->id = TokenIdTimesPercent;
+                        t.state = TokenizeStateSawStarPercent;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateSawStarPercent:
+                switch (c) {
+                    case '=':
+                        t.cur_tok->id = TokenIdTimesPercentEq;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
                     default:
                         t.pos -= 1;
                         end_token(&t);
@@ -688,6 +728,24 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                     case '+':
                         t.cur_tok->id = TokenIdPlusPlus;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
+                    case '%':
+                        t.cur_tok->id = TokenIdPlusPercent;
+                        t.state = TokenizeStateSawPlusPercent;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateSawPlusPercent:
+                switch (c) {
+                    case '=':
+                        t.cur_tok->id = TokenIdPlusPercentEq;
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
@@ -1181,6 +1239,24 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
+                    case '%':
+                        t.cur_tok->id = TokenIdMinusPercent;
+                        t.state = TokenizeStateSawMinusPercent;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateSawMinusPercent:
+                switch (c) {
+                    case '=':
+                        t.cur_tok->id = TokenIdMinusPercentEq;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        break;
                     default:
                         t.pos -= 1;
                         end_token(&t);
@@ -1252,6 +1328,10 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawDot:
         case TokenizeStateSawQuestionMark:
         case TokenizeStateSawAtSign:
+        case TokenizeStateSawStarPercent:
+        case TokenizeStateSawPlusPercent:
+        case TokenizeStateSawMinusPercent:
+        case TokenizeStateSawShiftLeftPercent:
             end_token(&t);
             break;
         case TokenizeStateSawDotDot:
@@ -1372,6 +1452,14 @@ const char * token_name(TokenId id) {
         case TokenIdMaybeAssign: return "?=";
         case TokenIdAtSign: return "@";
         case TokenIdPercentDot: return "%.";
+        case TokenIdTimesPercent: return "*%";
+        case TokenIdTimesPercentEq: return "*%=";
+        case TokenIdPlusPercent: return "+%";
+        case TokenIdPlusPercentEq: return "+%=";
+        case TokenIdMinusPercent: return "-%";
+        case TokenIdMinusPercentEq: return "-%=";
+        case TokenIdBitShiftLeftPercent: return "<<%";
+        case TokenIdBitShiftLeftPercentEq: return "<<%=";
     }
     return "(invalid token)";
 }

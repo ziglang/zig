@@ -69,7 +69,7 @@ UnwrapError = "%%" option("|" "Symbol" "|") Expression
 
 AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | UnwrapExpression
 
-AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||="
+AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||=" | "*%=" | "+%=" | "-%=" | "<<%="
 
 BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression
 
@@ -111,17 +111,17 @@ BinaryAndExpression = BitShiftExpression "&" BinaryAndExpression | BitShiftExpre
 
 BitShiftExpression = AdditionExpression BitShiftOperator BitShiftExpression | AdditionExpression
 
-BitShiftOperator = "<<" | ">>"
+BitShiftOperator = "<<" | ">>" | "<<%"
 
 AdditionExpression = MultiplyExpression AdditionOperator AdditionExpression | MultiplyExpression
 
-AdditionOperator = "+" | "-" | "++"
+AdditionOperator = "+" | "-" | "++" | "+%" | "-%"
 
 MultiplyExpression = CurlySuffixExpression MultiplyOperator MultiplyExpression | CurlySuffixExpression
 
 CurlySuffixExpression = TypeExpr option(ContainerInitExpression)
 
-MultiplyOperator = "*" | "/" | "%" | "**"
+MultiplyOperator = "*" | "/" | "%" | "**" | "*%"
 
 PrefixOpExpression = PrefixOp PrefixOpExpression | SuffixOpExpression
 
@@ -141,7 +141,7 @@ ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField = "." "Symbol" "=" Expression
 
-PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%" | "??"
+PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%" | "??" | "-%"
 
 PrimaryExpression = "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." "Symbol")
 
@@ -181,26 +181,15 @@ x{}
 Type name       C equivalent        Description
 
 i8              int8_t              signed 8-bit integer
-u8              (none)              unsigned 8-bit integer
+u8              uint8_t             unsigned 8-bit integer
 i16             int16_t             signed 16-bit integer
-u16             (none)              unsigned 16-bit integer
+u16             uint16_t            unsigned 16-bit integer
 i32             int32_t             signed 32-bit integer
-u32             (none)              unsigned 32-bit integer
+u32             uint32_t            unsigned 32-bit integer
 i64             int64_t             signed 64-bit integer
-u64             (none)              unsigned 64-bit integer
+u64             uint64_t            unsigned 64-bit integer
 isize           intptr_t            signed pointer sized integer
-usize           (none)              unsigned pointer sized integer
-
-i8w             (none)              wrapping signed 8-bit integer
-u8w             uint8_t             wrapping unsigned 8-bit integer
-i16w            (none)              wrapping signed 16-bit integer
-u16w            uint16_t            wrapping unsigned 16-bit integer
-i32w            (none)              wrapping signed 32-bit integer
-u32w            uint32_t            wrapping unsigned 32-bit integer
-i64w            (none)              wrapping signed 64-bit integer
-u64w            uint64_t            wrapping unsigned 64-bit integer
-isizew          (none)              wrapping signed pointer sized integer
-usizew          uintptr_t           wrapping unsigned pointer sized integer
+usize           uintptr_t           unsigned pointer sized integer
 
 c_short         short               for ABI compatibility with C
 c_ushort        unsigned short      for ABI compatibility with C
@@ -213,8 +202,8 @@ c_ulonglong     unsigned long long  for ABI compatibility with C
 c_long_double   long double         for ABI compatibility with C
 c_void          void                for ABI compatibility with C
 
-f32             float               32-bit IEE754 floating point
-f64             double              64-bit IEE754 floating point
+f32             float               32-bit floating point
+f64             double              64-bit floating point
 ```
 
 ### Boolean Type
@@ -595,9 +584,8 @@ const b: u8 = @truncate(u8, a);
 This function, when semantically analyzed, causes a compile error with the message `msg`.
 
 There are several ways that code avoids being semantically checked, such as using `if`
-or `switch` with compile variables, and inline functions.
+or `switch` with compile time constants, and inline functions.
 
-### @int_type(inline is_signed: bool, inline bit_count: u8, inline is_wrapping: bool) -> type
+### @int_type(inline is_signed: bool, inline bit_count: u8) -> type
 
-This function returns an integer type with the given signness, bit count, and
-wrapping behavior.
+This function returns an integer type with the given signness and bit count.

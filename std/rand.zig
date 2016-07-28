@@ -77,7 +77,7 @@ pub struct Rand {
 
     /// Get a floating point value in the range 0.0..1.0.
     pub fn float(r: &Rand, inline T: type) -> T {
-        const int_type = @int_type(false, @sizeof(T) * 8, false);
+        const int_type = @int_type(false, @sizeof(T) * 8);
         // TODO switch statement for constant values
         const precision = if (T == f32) {
             16777216
@@ -99,7 +99,6 @@ struct MersenneTwister(
     l: int, f: int)
 {
     const Self = MersenneTwister(int, n, m, r, a, u, d, s, b, t, c, l, f);
-    const intw = @int_type(int.is_signed, int.bit_count, true);
 
     array: [n]int,
     index: usize,
@@ -113,7 +112,7 @@ struct MersenneTwister(
         var prev_value = seed;
         mt.array[0] = prev_value;
         {var i: usize = 1; while (i < n; i += 1) {
-            prev_value = intw(i) + intw(f) * intw(prev_value ^ (prev_value >> (int.bit_count - 2)));
+            prev_value = int(i) +% f *% (prev_value ^ (prev_value >> (int.bit_count - 2)));
             mt.array[i] = prev_value;
         }};
 
@@ -152,12 +151,12 @@ struct MersenneTwister(
             mt.index = 0;
         }
 
-        var x: intw = mt.array[mt.index];
+        var x = mt.array[mt.index];
         mt.index += 1;
 
         x ^= ((x >> u) & d);
-        x ^= ((x << s) & b);
-        x ^= ((x << t) & c);
+        x ^= ((x <<% s) & b);
+        x ^= ((x <<% t) & c);
         x ^= (x >> l);
 
         return x;

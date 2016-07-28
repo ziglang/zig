@@ -1362,12 +1362,6 @@ fn mul(a: u16, b: u16) -> u16 {
             ".tmp_source.zig:3:18: note: called from here",
             ".tmp_source.zig:6:7: note: overflow occurred here");
 
-    add_compile_fail_case("add incompatible int types", R"SOURCE(
-fn add(x: i8w, y: i32) {
-    const z = x + y;
-}
-    )SOURCE", 1, ".tmp_source.zig:3:17: error: incompatible types: 'i8w' and 'i32'");
-
     add_compile_fail_case("truncate sign mismatch", R"SOURCE(
 fn f() {
     const x: u32 = 10;

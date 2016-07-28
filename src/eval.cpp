@@ -146,7 +146,7 @@ static int64_t min_signed_val(TypeTableEntry *type_entry) {
 
 static int eval_const_expr_bin_op_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
         ConstExprValue *out_val, bool (*bignum_fn)(BigNum *, BigNum *, BigNum *),
-        TypeTableEntry *type)
+        TypeTableEntry *type, bool wrapping_op)
 {
     bool overflow = bignum_fn(&out_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum);
     if (overflow) {
@@ -156,7 +156,7 @@ static int eval_const_expr_bin_op_bignum(ConstExprValue *op1_val, ConstExprValue
     if (type->id == TypeTableEntryIdInt && !bignum_fits_in_bits(&out_val->data.x_bignum,
                 type->data.integral.bit_count, type->data.integral.is_signed))
     {
-        if (type->data.integral.is_wrapping) {
+        if (wrapping_op) {
             if (type->data.integral.is_signed) {
                 out_val->data.x_bignum.data.x_uint = max_unsigned_val(type) - out_val->data.x_bignum.data.x_uint + 1;
                 out_val->data.x_bignum.is_negative = !out_val->data.x_bignum.is_negative;
@@ -187,11 +187,15 @@ int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
     switch (bin_op) {
         case BinOpTypeAssign:
         case BinOpTypeAssignTimes:
+        case BinOpTypeAssignTimesWrap:
         case BinOpTypeAssignDiv:
         case BinOpTypeAssignMod:
         case BinOpTypeAssignPlus:
+        case BinOpTypeAssignPlusWrap:
         case BinOpTypeAssignMinus:
+        case BinOpTypeAssignMinusWrap:
         case BinOpTypeAssignBitShiftLeft:
+        case BinOpTypeAssignBitShiftLeftWrap:
         case BinOpTypeAssignBitShiftRight:
         case BinOpTypeAssignBitAnd:
         case BinOpTypeAssignBitXor:
@@ -256,21 +260,29 @@ int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
                 return 0;
             }
         case BinOpTypeAdd:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_add, op1_type);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_add, op1_type, false);
+        case BinOpTypeAddWrap:
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_add, op1_type, true);
         case BinOpTypeBinOr:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_or, op1_type);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_or, op1_type, false);
         case BinOpTypeBinXor:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_xor, op1_type);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_xor, op1_type, false);
         case BinOpTypeBinAnd:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_and, op1_type);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_and, op1_type, false);
         case BinOpTypeBitShiftLeft:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_shl, op1_type);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_shl, op1_type, false);
+        case BinOpTypeBitShiftLeftWrap:
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_shl, op1_type, true);
         case BinOpTypeBitShiftRight:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_shr, op1_type);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_shr, op1_type, false);
         case BinOpTypeSub:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_sub, op1_type);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_sub, op1_type, false);
+        case BinOpTypeSubWrap:
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_sub, op1_type, true);
         case BinOpTypeMult:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_mul, op1_type);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_mul, op1_type, false);
+        case BinOpTypeMultWrap:
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_mul, op1_type, true);
         case BinOpTypeDiv:
             {
                 bool is_int = false;
@@ -289,11 +301,11 @@ int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
                 {
                     return ErrorDivByZero;
                 } else {
-                    return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_div, op1_type);
+                    return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_div, op1_type, false);
                 }
             }
         case BinOpTypeMod:
-            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_mod, op1_type);
+            return eval_const_expr_bin_op_bignum(op1_val, op2_val, out_val, bignum_mod, op1_type, false);
         case BinOpTypeUnwrapMaybe:
             zig_panic("TODO");
         case BinOpTypeArrayCat:
@@ -314,11 +326,15 @@ static bool eval_bin_op_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val)
     switch (bin_op) {
         case BinOpTypeAssign:
         case BinOpTypeAssignTimes:
+        case BinOpTypeAssignTimesWrap:
         case BinOpTypeAssignDiv:
         case BinOpTypeAssignMod:
         case BinOpTypeAssignPlus:
+        case BinOpTypeAssignPlusWrap:
         case BinOpTypeAssignMinus:
+        case BinOpTypeAssignMinusWrap:
         case BinOpTypeAssignBitShiftLeft:
+        case BinOpTypeAssignBitShiftLeftWrap:
         case BinOpTypeAssignBitShiftRight:
         case BinOpTypeAssignBitAnd:
         case BinOpTypeAssignBitXor:
@@ -338,10 +354,14 @@ static bool eval_bin_op_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val)
         case BinOpTypeBinXor:
         case BinOpTypeBinAnd:
         case BinOpTypeBitShiftLeft:
+        case BinOpTypeBitShiftLeftWrap:
         case BinOpTypeBitShiftRight:
         case BinOpTypeAdd:
+        case BinOpTypeAddWrap:
         case BinOpTypeSub:
+        case BinOpTypeSubWrap:
         case BinOpTypeMult:
+        case BinOpTypeMultWrap:
         case BinOpTypeDiv:
         case BinOpTypeMod:
         case BinOpTypeUnwrapMaybe:
@@ -1098,13 +1118,14 @@ static bool eval_prefix_op_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_v
                 break;
             }
         case PrefixOpNegation:
+        case PrefixOpNegationWrap:
             if (expr_type->id == TypeTableEntryIdInt) {
                 assert(expr_type->data.integral.is_signed);
                 bignum_negate(&out_val->data.x_bignum, &expr_val.data.x_bignum);
                 out_val->ok = true;
                 bool overflow = !bignum_fits_in_bits(&out_val->data.x_bignum,
                         expr_type->data.integral.bit_count, expr_type->data.integral.is_signed);
-                if (expr_type->data.integral.is_wrapping) {
+                if (prefix_op == PrefixOpNegationWrap) {
                     if (overflow) {
                         out_val->data.x_bignum.is_negative = true;
                     }

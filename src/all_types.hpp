@@ -315,11 +315,15 @@ enum BinOpType {
     BinOpTypeInvalid,
     BinOpTypeAssign,
     BinOpTypeAssignTimes,
+    BinOpTypeAssignTimesWrap,
     BinOpTypeAssignDiv,
     BinOpTypeAssignMod,
     BinOpTypeAssignPlus,
+    BinOpTypeAssignPlusWrap,
     BinOpTypeAssignMinus,
+    BinOpTypeAssignMinusWrap,
     BinOpTypeAssignBitShiftLeft,
+    BinOpTypeAssignBitShiftLeftWrap,
     BinOpTypeAssignBitShiftRight,
     BinOpTypeAssignBitAnd,
     BinOpTypeAssignBitXor,
@@ -338,10 +342,14 @@ enum BinOpType {
     BinOpTypeBinXor,
     BinOpTypeBinAnd,
     BinOpTypeBitShiftLeft,
+    BinOpTypeBitShiftLeftWrap,
     BinOpTypeBitShiftRight,
     BinOpTypeAdd,
+    BinOpTypeAddWrap,
     BinOpTypeSub,
+    BinOpTypeSubWrap,
     BinOpTypeMult,
+    BinOpTypeMultWrap,
     BinOpTypeDiv,
     BinOpTypeMod,
     BinOpTypeUnwrapMaybe,
@@ -449,6 +457,7 @@ enum PrefixOp {
     PrefixOpBoolNot,
     PrefixOpBinNot,
     PrefixOpNegation,
+    PrefixOpNegationWrap,
     PrefixOpAddressOf,
     PrefixOpConstAddressOf,
     PrefixOpDereference,
@@ -860,7 +869,6 @@ struct TypeTableEntryPointer {
 struct TypeTableEntryInt {
     int bit_count;
     bool is_signed;
-    bool is_wrapping;
 };
 
 struct TypeTableEntryFloat {
@@ -1185,7 +1193,7 @@ struct CodeGen {
 
     struct {
         TypeTableEntry *entry_bool;
-        TypeTableEntry *entry_int[2][2][4]; // [signed,unsigned][wrapping,nonwrapping][8,16,32,64]
+        TypeTableEntry *entry_int[2][4]; // [signed,unsigned][8,16,32,64]
         TypeTableEntry *entry_c_int[CIntTypeCount];
         TypeTableEntry *entry_c_long_double;
         TypeTableEntry *entry_c_void;

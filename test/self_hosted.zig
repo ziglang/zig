@@ -1458,17 +1458,17 @@ fn unsigned_wrapping() {
     test_unsigned_wrapping_eval(@max_value(u32));
     test_unsigned_wrapping_noeval(@max_value(u32));
 }
-fn test_unsigned_wrapping_eval(x: u32w) {
-    const zero = x + 1;
+fn test_unsigned_wrapping_eval(x: u32) {
+    const zero = x +% 1;
     assert(zero == 0);
-    const orig = zero - 1;
+    const orig = zero -% 1;
     assert(orig == @max_value(u32));
 }
 #static_eval_enable(false)
-fn test_unsigned_wrapping_noeval(x: u32w) {
-    const zero = x + 1;
+fn test_unsigned_wrapping_noeval(x: u32) {
+    const zero = x +% 1;
     assert(zero == 0);
-    const orig = zero - 1;
+    const orig = zero -% 1;
     assert(orig == @max_value(u32));
 }
 
@@ -1477,17 +1477,17 @@ fn signed_wrapping() {
     test_signed_wrapping_eval(@max_value(i32));
     test_signed_wrapping_noeval(@max_value(i32));
 }
-fn test_signed_wrapping_eval(x: i32w) {
-    const min_val = x + 1;
+fn test_signed_wrapping_eval(x: i32) {
+    const min_val = x +% 1;
     assert(min_val == @min_value(i32));
-    const max_val = min_val - 1;
+    const max_val = min_val -% 1;
     assert(max_val == @max_value(i32));
 }
 #static_eval_enable(false)
-fn test_signed_wrapping_noeval(x: i32w) {
-    const min_val = x + 1;
+fn test_signed_wrapping_noeval(x: i32) {
+    const min_val = x +% 1;
     assert(min_val == @min_value(i32));
-    const max_val = min_val - 1;
+    const max_val = min_val -% 1;
     assert(max_val == @max_value(i32));
 }
 
@@ -1496,15 +1496,15 @@ fn negation_wrapping() {
     test_negation_wrapping_eval(@min_value(i16));
     test_negation_wrapping_noeval(@min_value(i16));
 }
-fn test_negation_wrapping_eval(x: i16w) {
+fn test_negation_wrapping_eval(x: i16) {
     assert(x == -32768);
-    const neg = -x;
+    const neg = -%x;
     assert(neg == -32768);
 }
 #static_eval_enable(false)
-fn test_negation_wrapping_noeval(x: i16w) {
+fn test_negation_wrapping_noeval(x: i16) {
     assert(x == -32768);
-    const neg = -x;
+    const neg = -%x;
     assert(neg == -32768);
 }
 
@@ -1513,13 +1513,13 @@ fn shl_wrapping() {
     test_shl_wrapping_eval(@max_value(u16));
     test_shl_wrapping_noeval(@max_value(u16));
 }
-fn test_shl_wrapping_eval(x: u16w) {
-    const shifted = x << 1;
+fn test_shl_wrapping_eval(x: u16) {
+    const shifted = x <<% 1;
     assert(shifted == 65534);
 }
 #static_eval_enable(false)
-fn test_shl_wrapping_noeval(x: u16w) {
-    const shifted = x << 1;
+fn test_shl_wrapping_noeval(x: u16) {
+    const shifted = x <<% 1;
     assert(shifted == 65534);
 }
 
@@ -1529,23 +1529,6 @@ fn shl_with_overflow() {
     assert(@shl_with_overflow(u16, 0b0010111111111111, 3, &result));
     assert(!@shl_with_overflow(u16, 0b0010111111111111, 2, &result));
     assert(result == 0b1011111111111100);
-}
-
-#attribute("test")
-fn combine_non_wrap_with_wrap() {
-    const x: i32 = 123;
-    const y: i32w = 456;
-    const z = x + y;
-    const z2 = y + x;
-    assert(@typeof(z) == i32w);
-    assert(@typeof(z2) == i32w);
-
-    const a: i8 = 123;
-    const b: i32w = 456;
-    const c = b + a;
-    const d = a + b;
-    assert(@typeof(c) == i32w);
-    assert(@typeof(d) == i32w);
 }
 
 #attribute("test")
@@ -1687,40 +1670,20 @@ struct DivResult {
 
 #attribute("test")
 fn int_type_builtin() {
-    assert(@int_type(true, 8, false) == i8);
-    assert(@int_type(true, 16, false) == i16);
-    assert(@int_type(true, 32, false) == i32);
-    assert(@int_type(true, 64, false) == i64);
+    assert(@int_type(true, 8) == i8);
+    assert(@int_type(true, 16) == i16);
+    assert(@int_type(true, 32) == i32);
+    assert(@int_type(true, 64) == i64);
 
-    assert(@int_type(false, 8, false) == u8);
-    assert(@int_type(false, 16, false) == u16);
-    assert(@int_type(false, 32, false) == u32);
-    assert(@int_type(false, 64, false) == u64);
-
-    assert(@int_type(true, 8, true) == i8w);
-    assert(@int_type(true, 16, true) == i16w);
-    assert(@int_type(true, 32, true) == i32w);
-    assert(@int_type(true, 64, true) == i64w);
-
-    assert(@int_type(false, 8, true) == u8w);
-    assert(@int_type(false, 16, true) == u16w);
-    assert(@int_type(false, 32, true) == u32w);
-    assert(@int_type(false, 64, true) == u64w);
+    assert(@int_type(false, 8) == u8);
+    assert(@int_type(false, 16) == u16);
+    assert(@int_type(false, 32) == u32);
+    assert(@int_type(false, 64) == u64);
 
     assert(i8.bit_count == 8);
     assert(i16.bit_count == 16);
     assert(i32.bit_count == 32);
     assert(i64.bit_count == 64);
-
-    assert(!i8.is_wrapping);
-    assert(!i16.is_wrapping);
-    assert(!i32.is_wrapping);
-    assert(!i64.is_wrapping);
-
-    assert(i8w.is_wrapping);
-    assert(i16w.is_wrapping);
-    assert(i32w.is_wrapping);
-    assert(i64w.is_wrapping);
 
     assert(i8.is_signed);
     assert(i16.is_signed);

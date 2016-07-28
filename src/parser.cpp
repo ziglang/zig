@@ -1384,6 +1384,7 @@ static PrefixOp tok_to_prefix_op(Token *token) {
     switch (token->id) {
         case TokenIdBang: return PrefixOpBoolNot;
         case TokenIdDash: return PrefixOpNegation;
+        case TokenIdMinusPercent: return PrefixOpNegationWrap;
         case TokenIdTilde: return PrefixOpBinNot;
         case TokenIdAmpersand: return PrefixOpAddressOf;
         case TokenIdStar: return PrefixOpDereference;
@@ -1399,7 +1400,7 @@ static PrefixOp tok_to_prefix_op(Token *token) {
 
 /*
 PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
-PrefixOp : token(Not) | token(Dash) | token(Tilde) | token(Star) | (token(Ampersand) option(token(Const)))
+PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%" | "??" | "-%"
 */
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1458,16 +1459,17 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, boo
 
 static BinOpType tok_to_mult_op(Token *token) {
     switch (token->id) {
-        case TokenIdStar: return BinOpTypeMult;
-        case TokenIdStarStar: return BinOpTypeArrayMult;
-        case TokenIdSlash: return BinOpTypeDiv;
-        case TokenIdPercent: return BinOpTypeMod;
-        default: return BinOpTypeInvalid;
+        case TokenIdStar:           return BinOpTypeMult;
+        case TokenIdTimesPercent:   return BinOpTypeMultWrap;
+        case TokenIdStarStar:       return BinOpTypeArrayMult;
+        case TokenIdSlash:          return BinOpTypeDiv;
+        case TokenIdPercent:        return BinOpTypeMod;
+        default:                    return BinOpTypeInvalid;
     }
 }
 
 /*
-MultiplyOperator = "*" | "/" | "%" | "**"
+MultiplyOperator = "*" | "/" | "%" | "**" | "*%"
 */
 static BinOpType ast_parse_mult_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1511,15 +1513,17 @@ static AstNode *ast_parse_mult_expr(ParseContext *pc, int *token_index, bool man
 
 static BinOpType tok_to_add_op(Token *token) {
     switch (token->id) {
-        case TokenIdPlus: return BinOpTypeAdd;
-        case TokenIdDash: return BinOpTypeSub;
-        case TokenIdPlusPlus: return BinOpTypeArrayCat;
-        default: return BinOpTypeInvalid;
+        case TokenIdPlus:           return BinOpTypeAdd;
+        case TokenIdPlusPercent:    return BinOpTypeAddWrap;
+        case TokenIdDash:           return BinOpTypeSub;
+        case TokenIdMinusPercent:   return BinOpTypeSubWrap;
+        case TokenIdPlusPlus:       return BinOpTypeArrayCat;
+        default:                    return BinOpTypeInvalid;
     }
 }
 
 /*
-AdditionOperator : "+" | "-" | "++"
+AdditionOperator = "+" | "-" | "++" | "+%" | "-%"
 */
 static BinOpType ast_parse_add_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1563,14 +1567,15 @@ static AstNode *ast_parse_add_expr(ParseContext *pc, int *token_index, bool mand
 
 static BinOpType tok_to_bit_shift_op(Token *token) {
     switch (token->id) {
-        case TokenIdBitShiftLeft: return BinOpTypeBitShiftLeft;
-        case TokenIdBitShiftRight: return BinOpTypeBitShiftRight;
+        case TokenIdBitShiftLeft:           return BinOpTypeBitShiftLeft;
+        case TokenIdBitShiftLeftPercent:    return BinOpTypeBitShiftLeftWrap;
+        case TokenIdBitShiftRight:          return BinOpTypeBitShiftRight;
         default: return BinOpTypeInvalid;
     }
 }
 
 /*
-BitShiftOperator : token(BitShiftLeft) | token(BitShiftRight)
+BitShiftOperator = "<<" | ">>" | "<<%"
 */
 static BinOpType ast_parse_bit_shift_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -2230,11 +2235,15 @@ static BinOpType tok_to_ass_op(Token *token) {
     switch (token->id) {
         case TokenIdEq: return BinOpTypeAssign;
         case TokenIdTimesEq: return BinOpTypeAssignTimes;
+        case TokenIdTimesPercentEq: return BinOpTypeAssignTimesWrap;
         case TokenIdDivEq: return BinOpTypeAssignDiv;
         case TokenIdModEq: return BinOpTypeAssignMod;
         case TokenIdPlusEq: return BinOpTypeAssignPlus;
+        case TokenIdPlusPercentEq: return BinOpTypeAssignPlusWrap;
         case TokenIdMinusEq: return BinOpTypeAssignMinus;
+        case TokenIdMinusPercentEq: return BinOpTypeAssignMinusWrap;
         case TokenIdBitShiftLeftEq: return BinOpTypeAssignBitShiftLeft;
+        case TokenIdBitShiftLeftPercentEq: return BinOpTypeAssignBitShiftLeftWrap;
         case TokenIdBitShiftRightEq: return BinOpTypeAssignBitShiftRight;
         case TokenIdBitAndEq: return BinOpTypeAssignBitAnd;
         case TokenIdBitXorEq: return BinOpTypeAssignBitXor;
@@ -2246,7 +2255,7 @@ static BinOpType tok_to_ass_op(Token *token) {
 }
 
 /*
-AssignmentOperator : token(Eq) | token(TimesEq) | token(DivEq) | token(ModEq) | token(PlusEq) | token(MinusEq) | token(BitShiftLeftEq) | token(BitShiftRightEq) | token(BitAndEq) | token(BitXorEq) | token(BitOrEq) | token(BoolAndEq) | token(BoolOrEq)
+AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||=" | "*%=" | "+%=" | "-%=" | "<<%="
 */
 static BinOpType ast_parse_ass_op(ParseContext *pc, int *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);

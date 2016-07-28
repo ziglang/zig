@@ -245,7 +245,7 @@ static bool is_slice(TypeTableEntry *type) {
 }
 
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
-    return get_int_type(g, false, false, bits_needed_for_unsigned(x));
+    return get_int_type(g, false, bits_needed_for_unsigned(x));
 }
 
 static TypeTableEntry *get_generic_fn_type(CodeGen *g, AstNode *decl_node) {
@@ -2037,24 +2037,12 @@ static TypeTableEntry *determine_peer_type_compatibility(CodeGen *g, AstNode *pa
             continue;
         } else if (prev_type->id == TypeTableEntryIdInt &&
                    cur_type->id == TypeTableEntryIdInt &&
-                   prev_type->data.integral.is_signed == cur_type->data.integral.is_signed &&
-                   (cur_type->data.integral.bit_count >= prev_type->data.integral.bit_count &&
-                    (cur_type->data.integral.is_wrapping || !prev_type->data.integral.is_wrapping)))
+                   prev_type->data.integral.is_signed == cur_type->data.integral.is_signed)
         {
             if (cur_type->data.integral.bit_count > prev_type->data.integral.bit_count) {
                 prev_type = cur_type;
                 prev_node = cur_node;
-            } else if (cur_type->data.integral.is_wrapping && !prev_type->data.integral.is_wrapping) {
-                prev_type = cur_type;
-                prev_node = cur_node;
             }
-            continue;
-        } else if (prev_type->id == TypeTableEntryIdInt &&
-                   cur_type->id == TypeTableEntryIdInt &&
-                   prev_type->data.integral.is_signed == cur_type->data.integral.is_signed &&
-                   (prev_type->data.integral.bit_count >= cur_type->data.integral.bit_count &&
-                    (prev_type->data.integral.is_wrapping || !cur_type->data.integral.is_wrapping)))
-        {
             continue;
         } else if (prev_type->id == TypeTableEntryIdFloat &&
                    cur_type->id == TypeTableEntryIdFloat)
@@ -2726,9 +2714,6 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
             } else if (buf_eql_str(field_name, "is_signed")) {
                 return resolve_expr_const_val_as_bool(g, node, child_type->data.integral.is_signed,
                         depends_on_compile_var);
-            } else if (buf_eql_str(field_name, "is_wrapping")) {
-                return resolve_expr_const_val_as_bool(g, node, child_type->data.integral.is_wrapping,
-                        depends_on_compile_var);
             } else {
                 add_node_error(g, node,
                     buf_sprintf("type '%s' has no member called '%s'",
@@ -3122,15 +3107,19 @@ static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
         case BinOpTypeAssign:
             return true;
         case BinOpTypeAssignTimes:
+        case BinOpTypeAssignTimesWrap:
         case BinOpTypeAssignDiv:
         case BinOpTypeAssignMod:
             return type->id == TypeTableEntryIdInt || type->id == TypeTableEntryIdFloat;
         case BinOpTypeAssignPlus:
+        case BinOpTypeAssignPlusWrap:
         case BinOpTypeAssignMinus:
+        case BinOpTypeAssignMinusWrap:
             return type->id == TypeTableEntryIdInt ||
                    type->id == TypeTableEntryIdFloat ||
                    type->id == TypeTableEntryIdPointer;
         case BinOpTypeAssignBitShiftLeft:
+        case BinOpTypeAssignBitShiftLeftWrap:
         case BinOpTypeAssignBitShiftRight:
         case BinOpTypeAssignBitAnd:
         case BinOpTypeAssignBitXor:
@@ -3153,10 +3142,14 @@ static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
         case BinOpTypeBinXor:
         case BinOpTypeBinAnd:
         case BinOpTypeBitShiftLeft:
+        case BinOpTypeBitShiftLeftWrap:
         case BinOpTypeBitShiftRight:
         case BinOpTypeAdd:
+        case BinOpTypeAddWrap:
         case BinOpTypeSub:
+        case BinOpTypeSubWrap:
         case BinOpTypeMult:
+        case BinOpTypeMultWrap:
         case BinOpTypeDiv:
         case BinOpTypeMod:
         case BinOpTypeUnwrapMaybe:
@@ -3437,11 +3430,15 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
     switch (bin_op_type) {
         case BinOpTypeAssign:
         case BinOpTypeAssignTimes:
+        case BinOpTypeAssignTimesWrap:
         case BinOpTypeAssignDiv:
         case BinOpTypeAssignMod:
         case BinOpTypeAssignPlus:
+        case BinOpTypeAssignPlusWrap:
         case BinOpTypeAssignMinus:
+        case BinOpTypeAssignMinusWrap:
         case BinOpTypeAssignBitShiftLeft:
+        case BinOpTypeAssignBitShiftLeftWrap:
         case BinOpTypeAssignBitShiftRight:
         case BinOpTypeAssignBitAnd:
         case BinOpTypeAssignBitXor:
@@ -3481,10 +3478,14 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
         case BinOpTypeBinXor:
         case BinOpTypeBinAnd:
         case BinOpTypeBitShiftLeft:
+        case BinOpTypeBitShiftLeftWrap:
         case BinOpTypeBitShiftRight:
         case BinOpTypeAdd:
+        case BinOpTypeAddWrap:
         case BinOpTypeSub:
+        case BinOpTypeSubWrap:
         case BinOpTypeMult:
+        case BinOpTypeMultWrap:
         case BinOpTypeDiv:
         case BinOpTypeMod:
             {
@@ -4911,42 +4912,35 @@ static TypeTableEntry *analyze_int_type(CodeGen *g, ImportTableEntry *import,
 {
     AstNode **is_signed_node = &node->data.fn_call_expr.params.at(0);
     AstNode **bit_count_node = &node->data.fn_call_expr.params.at(1);
-    AstNode **is_wrap_node = &node->data.fn_call_expr.params.at(2);
 
     TypeTableEntry *bool_type = g->builtin_types.entry_bool;
     TypeTableEntry *usize_type = g->builtin_types.entry_usize;
     TypeTableEntry *is_signed_type = analyze_expression(g, import, context, bool_type, *is_signed_node);
     TypeTableEntry *bit_count_type = analyze_expression(g, import, context, usize_type, *bit_count_node);
-    TypeTableEntry *is_wrap_type = analyze_expression(g, import, context, bool_type, *is_wrap_node);
 
     if (is_signed_type->id == TypeTableEntryIdInvalid ||
-        bit_count_type->id == TypeTableEntryIdInvalid ||
-        is_wrap_type->id == TypeTableEntryIdInvalid)
+        bit_count_type->id == TypeTableEntryIdInvalid)
     {
         return g->builtin_types.entry_invalid;
     }
 
     ConstExprValue *is_signed_val = &get_resolved_expr(*is_signed_node)->const_val;
     ConstExprValue *bit_count_val = &get_resolved_expr(*bit_count_node)->const_val;
-    ConstExprValue *is_wrap_val = &get_resolved_expr(*is_wrap_node)->const_val;
 
     AstNode *bad_node = nullptr;
     if (!is_signed_val->ok) {
         bad_node = *is_signed_node;
     } else if (!bit_count_val->ok) {
         bad_node = *bit_count_node;
-    } else if (!is_wrap_val->ok) {
-        bad_node = *is_wrap_node;
     }
     if (bad_node) {
         add_node_error(g, bad_node, buf_sprintf("unable to evaluate constant expression"));
         return g->builtin_types.entry_invalid;
     }
 
-    bool depends_on_compile_var = is_signed_val->depends_on_compile_var ||
-        bit_count_val->depends_on_compile_var || is_wrap_val->depends_on_compile_var;
+    bool depends_on_compile_var = is_signed_val->depends_on_compile_var || bit_count_val->depends_on_compile_var;
 
-    TypeTableEntry *int_type = get_int_type(g, is_signed_val->data.x_bool, is_wrap_val->data.x_bool,
+    TypeTableEntry *int_type = get_int_type(g, is_signed_val->data.x_bool,
             bit_count_val->data.x_bignum.data.x_uint);
     return resolve_expr_const_val_as_type(g, node, int_type, depends_on_compile_var);
 
@@ -5727,15 +5721,17 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                 // TODO const expr eval
             }
         case PrefixOpNegation:
+        case PrefixOpNegationWrap:
             {
                 TypeTableEntry *expr_type = analyze_expression(g, import, context, nullptr, *expr_node);
                 if (expr_type->id == TypeTableEntryIdInvalid) {
                     return expr_type;
                 } else if ((expr_type->id == TypeTableEntryIdInt &&
                             expr_type->data.integral.is_signed) ||
-                            expr_type->id == TypeTableEntryIdFloat ||
                             expr_type->id == TypeTableEntryIdNumLitInt ||
-                            expr_type->id == TypeTableEntryIdNumLitFloat)
+                            ((expr_type->id == TypeTableEntryIdFloat ||
+                            expr_type->id == TypeTableEntryIdNumLitFloat) &&
+                            prefix_op != PrefixOpNegationWrap))
                 {
                     ConstExprValue *target_const_val = &get_resolved_expr(*expr_node)->const_val;
                     if (!target_const_val->ok) {
@@ -5745,10 +5741,28 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                     const_val->ok = true;
                     const_val->depends_on_compile_var = target_const_val->depends_on_compile_var;
                     bignum_negate(&const_val->data.x_bignum, &target_const_val->data.x_bignum);
+                    if (expr_type->id == TypeTableEntryIdFloat ||
+                        expr_type->id == TypeTableEntryIdNumLitFloat ||
+                        expr_type->id == TypeTableEntryIdNumLitInt)
+                    {
+                        return expr_type;
+                    }
+
+                    bool overflow = !bignum_fits_in_bits(&const_val->data.x_bignum,
+                            expr_type->data.integral.bit_count, expr_type->data.integral.is_signed);
+                    if (prefix_op == PrefixOpNegationWrap) {
+                        if (overflow) {
+                            const_val->data.x_bignum.is_negative = true;
+                        }
+                    } else if (overflow) {
+                        add_node_error(g, *expr_node, buf_sprintf("negation caused overflow"));
+                        return g->builtin_types.entry_invalid;
+                    }
                     return expr_type;
                 } else {
-                    add_node_error(g, node, buf_sprintf("invalid negation type: '%s'",
-                            buf_ptr(&expr_type->name)));
+                    const char *fmt = (prefix_op == PrefixOpNegationWrap) ?
+                        "invalid wrapping negation type: '%s'" : "invalid negation type: '%s'";
+                    add_node_error(g, node, buf_sprintf(fmt, buf_ptr(&expr_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
             }
@@ -7059,7 +7073,7 @@ bool is_node_void_expr(AstNode *node) {
     return false;
 }
 
-TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, bool is_wrapping, int size_in_bits) {
+TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, int size_in_bits) {
     int index;
     if (size_in_bits == 8) {
         index = 0;
@@ -7072,11 +7086,11 @@ TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, bool is_wrapping, 
     } else {
         zig_unreachable();
     }
-    return &g->builtin_types.entry_int[is_signed ? 0 : 1][is_wrapping ? 0 : 1][index];
+    return &g->builtin_types.entry_int[is_signed ? 0 : 1][index];
 }
 
-TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, bool is_wrapping, int size_in_bits) {
-    return *get_int_type_ptr(g, is_signed, is_wrapping, size_in_bits);
+TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, int size_in_bits) {
+    return *get_int_type_ptr(g, is_signed, size_in_bits);
 }
 
 TypeTableEntry **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type) {

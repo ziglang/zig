@@ -1564,17 +1564,20 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
     AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
     TypeTableEntry *expr_type = get_expr_type(expr_node);
 
-    switch (node->data.prefix_op_expr.prefix_op) {
+    PrefixOp op = node->data.prefix_op_expr.prefix_op;
+
+    switch (op) {
         case PrefixOpInvalid:
             zig_unreachable();
         case PrefixOpNegation:
+        case PrefixOpNegationWrap:
             {
                 LLVMValueRef expr = gen_expr(g, expr_node);
                 set_debug_source_node(g, node);
                 if (expr_type->id == TypeTableEntryIdFloat) {
                     return LLVMBuildFNeg(g->builder, expr, "");
                 } else if (expr_type->id == TypeTableEntryIdInt) {
-                    if (expr_type->data.integral.is_wrapping) {
+                    if (op == PrefixOpNegationWrap) {
                         return LLVMBuildNeg(g->builder, expr, "");
                     } else if (want_debug_safety(g, expr_node)) {
                         LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(expr));
@@ -1796,17 +1799,23 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
             set_debug_source_node(g, source_node);
             return LLVMBuildAnd(g->builder, val1, val2, "");
         case BinOpTypeBitShiftLeft:
+        case BinOpTypeBitShiftLeftWrap:
         case BinOpTypeAssignBitShiftLeft:
-            set_debug_source_node(g, source_node);
-            assert(op1_type->id == TypeTableEntryIdInt);
-            if (op1_type->data.integral.is_wrapping) {
-                return LLVMBuildShl(g->builder, val1, val2, "");
-            } else if (want_debug_safety(g, source_node)) {
-                return gen_overflow_shl_op(g, op1_type, val1, val2);
-            } else if (op1_type->data.integral.is_signed) {
-                return ZigLLVMBuildNSWShl(g->builder, val1, val2, "");
-            } else {
-                return ZigLLVMBuildNUWShl(g->builder, val1, val2, "");
+        case BinOpTypeAssignBitShiftLeftWrap:
+            {
+                set_debug_source_node(g, source_node);
+                assert(op1_type->id == TypeTableEntryIdInt);
+                bool is_wrapping = (bin_op == BinOpTypeBitShiftLeftWrap) ||
+                    (bin_op == BinOpTypeAssignBitShiftLeftWrap);
+                if (is_wrapping) {
+                    return LLVMBuildShl(g->builder, val1, val2, "");
+                } else if (want_debug_safety(g, source_node)) {
+                    return gen_overflow_shl_op(g, op1_type, val1, val2);
+                } else if (op1_type->data.integral.is_signed) {
+                    return ZigLLVMBuildNSWShl(g->builder, val1, val2, "");
+                } else {
+                    return ZigLLVMBuildNUWShl(g->builder, val1, val2, "");
+                }
             }
         case BinOpTypeBitShiftRight:
         case BinOpTypeAssignBitShiftRight:
@@ -1820,12 +1829,15 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
                 return LLVMBuildLShr(g->builder, val1, val2, "");
             }
         case BinOpTypeAdd:
+        case BinOpTypeAddWrap:
         case BinOpTypeAssignPlus:
+        case BinOpTypeAssignPlusWrap:
             set_debug_source_node(g, source_node);
             if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFAdd(g->builder, val1, val2, "");
             } else if (op1_type->id == TypeTableEntryIdInt) {
-                if (op1_type->data.integral.is_wrapping) {
+                bool is_wrapping = (bin_op == BinOpTypeAddWrap) || (bin_op == BinOpTypeAssignPlusWrap);
+                if (is_wrapping) {
                     return LLVMBuildAdd(g->builder, val1, val2, "");
                 } else if (want_debug_safety(g, source_node)) {
                     return gen_overflow_op(g, op1_type, AddSubMulAdd, val1, val2);
@@ -1838,12 +1850,15 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
                 zig_unreachable();
             }
         case BinOpTypeSub:
+        case BinOpTypeSubWrap:
         case BinOpTypeAssignMinus:
+        case BinOpTypeAssignMinusWrap:
             set_debug_source_node(g, source_node);
             if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFSub(g->builder, val1, val2, "");
             } else if (op1_type->id == TypeTableEntryIdInt) {
-                if (op1_type->data.integral.is_wrapping) {
+                bool is_wrapping = (bin_op == BinOpTypeSubWrap || bin_op == BinOpTypeAssignMinusWrap);
+                if (is_wrapping) {
                     return LLVMBuildSub(g->builder, val1, val2, "");
                 } else if (want_debug_safety(g, source_node)) {
                     return gen_overflow_op(g, op1_type, AddSubMulSub, val1, val2);
@@ -1856,12 +1871,15 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
                 zig_unreachable();
             }
         case BinOpTypeMult:
+        case BinOpTypeMultWrap:
         case BinOpTypeAssignTimes:
+        case BinOpTypeAssignTimesWrap:
             set_debug_source_node(g, source_node);
             if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFMul(g->builder, val1, val2, "");
             } else if (op1_type->id == TypeTableEntryIdInt) {
-                if (op1_type->data.integral.is_wrapping) {
+                bool is_wrapping = (bin_op == BinOpTypeMultWrap || bin_op == BinOpTypeAssignTimesWrap);
+                if (is_wrapping) {
                     return LLVMBuildMul(g->builder, val1, val2, "");
                 } else if (want_debug_safety(g, source_node)) {
                     return gen_overflow_op(g, op1_type, AddSubMulMul, val1, val2);
@@ -2214,11 +2232,15 @@ static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
             zig_unreachable();
         case BinOpTypeAssign:
         case BinOpTypeAssignTimes:
+        case BinOpTypeAssignTimesWrap:
         case BinOpTypeAssignDiv:
         case BinOpTypeAssignMod:
         case BinOpTypeAssignPlus:
+        case BinOpTypeAssignPlusWrap:
         case BinOpTypeAssignMinus:
+        case BinOpTypeAssignMinusWrap:
         case BinOpTypeAssignBitShiftLeft:
+        case BinOpTypeAssignBitShiftLeftWrap:
         case BinOpTypeAssignBitShiftRight:
         case BinOpTypeAssignBitAnd:
         case BinOpTypeAssignBitXor:
@@ -2243,10 +2265,14 @@ static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
         case BinOpTypeBinXor:
         case BinOpTypeBinAnd:
         case BinOpTypeBitShiftLeft:
+        case BinOpTypeBitShiftLeftWrap:
         case BinOpTypeBitShiftRight:
         case BinOpTypeAdd:
+        case BinOpTypeAddWrap:
         case BinOpTypeSub:
+        case BinOpTypeSubWrap:
         case BinOpTypeMult:
+        case BinOpTypeMultWrap:
         case BinOpTypeDiv:
         case BinOpTypeMod:
             return gen_arithmetic_bin_op_expr(g, node);
@@ -4188,17 +4214,7 @@ static const CIntTypeInfo c_int_type_infos[] = {
     {CIntTypeULongLong, "c_ulonglong", false},
 };
 
-struct SignWrap {
-    bool is_signed;
-    bool is_wrapping;
-};
-
-static const SignWrap sign_wrap_list[] = {
-    {false, false},
-    {false, true},
-    {true, false},
-    {true, true},
-};
+static const bool is_signed_list[] = { false, true, };
 
 static void define_builtin_types(CodeGen *g) {
     {
@@ -4238,18 +4254,16 @@ static void define_builtin_types(CodeGen *g) {
 
     for (int int_size_i = 0; int_size_i < array_length(int_sizes_in_bits); int_size_i += 1) {
         int size_in_bits = int_sizes_in_bits[int_size_i];
-        for (int sign_wrap_i = 0; sign_wrap_i < array_length(sign_wrap_list); sign_wrap_i += 1) {
-            bool is_signed = sign_wrap_list[sign_wrap_i].is_signed;
-            bool is_wrapping = sign_wrap_list[sign_wrap_i].is_wrapping;
+        for (int is_sign_i = 0; is_sign_i < array_length(is_signed_list); is_sign_i += 1) {
+            bool is_signed = is_signed_list[is_sign_i];
 
             TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
             entry->type_ref = LLVMIntType(size_in_bits);
             entry->deep_const = true;
 
             const char u_or_i = is_signed ? 'i' : 'u';
-            const char *w_or_none = is_wrapping ? "w" : "";
             buf_resize(&entry->name, 0);
-            buf_appendf(&entry->name, "%c%d%s", u_or_i, size_in_bits, w_or_none);
+            buf_appendf(&entry->name, "%c%d", u_or_i, size_in_bits);
 
             unsigned dwarf_tag;
             if (is_signed) {
@@ -4271,11 +4285,10 @@ static void define_builtin_types(CodeGen *g) {
             entry->di_type = LLVMZigCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                     debug_size_in_bits, debug_align_in_bits, dwarf_tag);
             entry->data.integral.is_signed = is_signed;
-            entry->data.integral.is_wrapping = is_wrapping;
             entry->data.integral.bit_count = size_in_bits;
             g->primitive_type_table.put(&entry->name, entry);
 
-            get_int_type_ptr(g, is_signed, is_wrapping, size_in_bits)[0] = entry;
+            get_int_type_ptr(g, is_signed, size_in_bits)[0] = entry;
         }
     }
 
@@ -4297,7 +4310,6 @@ static void define_builtin_types(CodeGen *g) {
                 debug_align_in_bits,
                 is_signed ? LLVMZigEncoding_DW_ATE_signed() : LLVMZigEncoding_DW_ATE_unsigned());
         entry->data.integral.is_signed = is_signed;
-        entry->data.integral.is_wrapping = !is_signed;
         entry->data.integral.bit_count = size_in_bits;
         g->primitive_type_table.put(&entry->name, entry);
 
@@ -4319,21 +4331,18 @@ static void define_builtin_types(CodeGen *g) {
         g->primitive_type_table.put(&entry->name, entry);
     }
 
-    for (int sign_wrap_i = 0; sign_wrap_i < array_length(sign_wrap_list); sign_wrap_i += 1) {
-        bool is_signed = sign_wrap_list[sign_wrap_i].is_signed;
-        bool is_wrapping = sign_wrap_list[sign_wrap_i].is_wrapping;
+    for (int sign_i = 0; sign_i < array_length(is_signed_list); sign_i += 1) {
+        bool is_signed = is_signed_list[sign_i];
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->deep_const = true;
         entry->type_ref = LLVMIntType(g->pointer_size_bytes * 8);
 
         const char u_or_i = is_signed ? 'i' : 'u';
-        const char *w_or_none = is_wrapping ? "w" : "";
         buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "%csize%s", u_or_i, w_or_none);
+        buf_appendf(&entry->name, "%csize", u_or_i);
 
         entry->data.integral.is_signed = is_signed;
-        entry->data.integral.is_wrapping = is_wrapping;
         entry->data.integral.bit_count = g->pointer_size_bytes * 8;
 
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
@@ -4344,9 +4353,9 @@ static void define_builtin_types(CodeGen *g) {
                 is_signed ? LLVMZigEncoding_DW_ATE_signed() : LLVMZigEncoding_DW_ATE_unsigned());
         g->primitive_type_table.put(&entry->name, entry);
 
-        if (is_signed && !is_wrapping) {
+        if (is_signed) {
             g->builtin_types.entry_isize = entry;
-        } else if (!is_signed && !is_wrapping) {
+        } else {
             g->builtin_types.entry_usize = entry;
         }
     }
@@ -4430,14 +4439,14 @@ static void define_builtin_types(CodeGen *g) {
         g->primitive_type_table.put(&entry->name, entry);
     }
 
-    g->builtin_types.entry_u8 = get_int_type(g, false, false, 8);
-    g->builtin_types.entry_u16 = get_int_type(g, false, false, 16);
-    g->builtin_types.entry_u32 = get_int_type(g, false, false, 32);
-    g->builtin_types.entry_u64 = get_int_type(g, false, false, 64);
-    g->builtin_types.entry_i8 = get_int_type(g, true, false, 8);
-    g->builtin_types.entry_i16 = get_int_type(g, true, false, 16);
-    g->builtin_types.entry_i32 = get_int_type(g, true, false, 32);
-    g->builtin_types.entry_i64 = get_int_type(g, true, false, 64);
+    g->builtin_types.entry_u8 = get_int_type(g, false, 8);
+    g->builtin_types.entry_u16 = get_int_type(g, false, 16);
+    g->builtin_types.entry_u32 = get_int_type(g, false, 32);
+    g->builtin_types.entry_u64 = get_int_type(g, false, 64);
+    g->builtin_types.entry_i8 = get_int_type(g, true, 8);
+    g->builtin_types.entry_i16 = get_int_type(g, true, 16);
+    g->builtin_types.entry_i32 = get_int_type(g, true, 32);
+    g->builtin_types.entry_i64 = get_int_type(g, true, 64);
 
     {
         g->builtin_types.entry_c_void = get_typedecl_type(g, "c_void", g->builtin_types.entry_u8);
@@ -4703,7 +4712,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdDivExact, "div_exact", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdTruncate, "truncate", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileErr, "compile_err", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdIntType, "int_type", 3);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdIntType, "int_type", 2);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

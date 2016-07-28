@@ -235,7 +235,7 @@ fn char_to_digit(c: u8, radix: u8) -> %u8 {
 }
 
 pub fn buf_print_signed(inline T: type, out_buf: []u8, x: T) -> usize {
-    const uint = @int_type(false, T.bit_count, false);
+    const uint = @int_type(false, T.bit_count);
     if (x < 0) {
         out_buf[0] = '-';
         return 1 + buf_print_unsigned(uint, out_buf[1...], uint(-(x + 1)) + 1);
