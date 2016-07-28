@@ -34,9 +34,9 @@ pub struct Rand {
         if (T == usize) {
             return r.rng.get();
         } else {
-            var result: T = undefined;
-            r.fill_bytes(([]u8)((&result)[0...@sizeof(T)]));
-            return result;
+            var result: [@sizeof(T)]u8 = undefined;
+            r.fill_bytes(result);
+            return ([]T)(result)[0];
         }
     }
 
@@ -44,12 +44,12 @@ pub struct Rand {
     pub fn fill_bytes(r: &Rand, buf: []u8) {
         var bytes_left = buf.len;
         while (bytes_left >= @sizeof(usize)) {
-            *((&usize)(&buf[buf.len - bytes_left])) = r.scalar(usize);
+            ([]usize)(buf[buf.len - bytes_left...])[0] = r.rng.get();
             bytes_left -= @sizeof(usize);
         }
         if (bytes_left > 0) {
             var rand_val_array : [@sizeof(usize)]u8 = undefined;
-            ([]usize)(rand_val_array)[0] = r.scalar(usize);
+            ([]usize)(rand_val_array)[0] = r.rng.get();
             while (bytes_left > 0) {
                 buf[buf.len - bytes_left] = rand_val_array[@sizeof(usize) - bytes_left];
                 bytes_left -= 1;
@@ -107,10 +107,8 @@ struct MersenneTwister(
     // TODO improve compile time eval code and then allow this function to be executed at compile time.
     #static_eval_enable(false)
     pub fn init(seed: int) -> Self {
-        var mt = Self {
-            .index = n,
-            .array = undefined,
-        };
+        var mt: Self = undefined;
+        mt.index = n;
 
         var prev_value = seed;
         mt.array[0] = prev_value;
