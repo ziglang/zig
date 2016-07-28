@@ -167,9 +167,6 @@ enum TokenizeState {
     TokenizeStateSawPipe,
     TokenizeStateSawPipePipe,
     TokenizeStateLineComment,
-    TokenizeStateMultiLineComment,
-    TokenizeStateMultiLineCommentSlash,
-    TokenizeStateMultiLineCommentStar,
     TokenizeStateSawEq,
     TokenizeStateSawBang,
     TokenizeStateSawLessThan,
@@ -194,7 +191,6 @@ struct Tokenize {
     int line;
     int column;
     Token *cur_tok;
-    int multi_line_comment_count;
     Tokenization *out;
     int raw_string_id_start;
     int raw_string_id_end;
@@ -840,11 +836,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                         cancel_token(&t);
                         t.state = TokenizeStateLineComment;
                         break;
-                    case '*':
-                        cancel_token(&t);
-                        t.state = TokenizeStateMultiLineComment;
-                        t.multi_line_comment_count = 1;
-                        break;
                     case '=':
                         t.cur_tok->id = TokenIdDivEq;
                         end_token(&t);
@@ -864,49 +855,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                     default:
                         // do nothing
-                        break;
-                }
-                break;
-            case TokenizeStateMultiLineComment:
-                switch (c) {
-                    case '*':
-                        t.state = TokenizeStateMultiLineCommentStar;
-                        break;
-                    case '/':
-                        t.state = TokenizeStateMultiLineCommentSlash;
-                        break;
-                    default:
-                        // do nothing
-                        break;
-                }
-                break;
-            case TokenizeStateMultiLineCommentSlash:
-                switch (c) {
-                    case '*':
-                        t.state = TokenizeStateMultiLineComment;
-                        t.multi_line_comment_count += 1;
-                        break;
-                    case '/':
-                        break;
-                    default:
-                        t.state = TokenizeStateMultiLineComment;
-                        break;
-                }
-                break;
-            case TokenizeStateMultiLineCommentStar:
-                switch (c) {
-                    case '/':
-                        t.multi_line_comment_count -= 1;
-                        if (t.multi_line_comment_count == 0) {
-                            t.state = TokenizeStateStart;
-                        } else {
-                            t.state = TokenizeStateMultiLineComment;
-                        }
-                        break;
-                    case '*':
-                        break;
-                    default:
-                        t.state = TokenizeStateMultiLineComment;
                         break;
                 }
                 break;
@@ -1338,11 +1286,6 @@ void tokenize(Buf *buf, Tokenization *out) {
             tokenize_error(&t, "unexpected EOF");
             break;
         case TokenizeStateLineComment:
-            break;
-        case TokenizeStateMultiLineComment:
-        case TokenizeStateMultiLineCommentSlash:
-        case TokenizeStateMultiLineCommentStar:
-            tokenize_error(&t, "unterminated multi-line comment");
             break;
     }
     if (t.state != TokenizeStateError) {

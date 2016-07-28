@@ -27,45 +27,41 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
     var q: udwords = undefined;
     var r: udwords = undefined;
     var sr: c_uint = undefined;
-    /* special cases, X is unknown, K != 0 */
+    // special cases, X is unknown, K != 0
     if (n[high] == 0) {
         if (d[high] == 0) {
-            /* 0 X
-             * ---
-             * 0 X
-             */
+            // 0 X
+            // ---
+            // 0 X
             if (const rem ?= maybe_rem) {
                 *rem = n[low] % d[low];
             }
             return n[low] / d[low];
         }
-        /* 0 X
-         * ---
-         * K X
-         */
+        // 0 X
+        // ---
+        // K X
         if (const rem ?= maybe_rem) {
             *rem = n[low];
         }
         return 0;
     }
-    /* n[high] != 0 */
+    // n[high] != 0
     if (d[low] == 0) {
         if (d[high] == 0) {
-            /* K X
-             * ---
-             * 0 0
-             */ 
+            // K X
+            // ---
+            // 0 0
             if (var rem ?= maybe_rem) {
                 *rem = n[high] % d[low];
             }
             return n[high] / d[low];
         }
-        /* d[high] != 0 */
+        // d[high] != 0
         if (n[low] == 0) {
-            /* K 0
-             * ---
-             * K 0
-             */
+            // K 0
+            // ---
+            // K 0
             if (var rem ?= maybe_rem) {
                 r[high] = n[high] % d[high];
                 r[low] = 0;
@@ -73,10 +69,9 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             }
             return n[high] / d[high];
         }
-        /* K K
-         * ---
-         * K 0
-         */
+        // K K
+        // ---
+        // K 0
         // if d is a power of 2
         if ((d[high] & (d[high] - 1)) == 0) {
             if (var rem ?= maybe_rem) {
@@ -86,12 +81,11 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             }
             return n[high] >> @ctz(@typeof(d[high]), d[high]);
         }
-        /* K K
-         * ---
-         * K 0
-         */
+        // K K
+        // ---
+        // K 0
         sr = @clz(su_int, d[high]) - @clz(su_int, n[high]);
-        /* 0 <= sr <= n_uword_bits - 2 or sr large */
+        // 0 <= sr <= n_uword_bits - 2 or sr large
         if (sr > n_uword_bits - 2) {
             if (var rem ?= maybe_rem) {
                 *rem = *(&du_int)(&n[0]);
@@ -99,21 +93,20 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             return 0;
         }
         sr += 1;
-        /* 1 <= sr <= n_uword_bits - 1 */
-        /* q.all = n.all << (n_udword_bits - sr); */
+        // 1 <= sr <= n_uword_bits - 1
+        // q.all = n.all << (n_udword_bits - sr);
         q[low] = 0;
         q[high] = n[low] << (n_uword_bits - sr);
-        /* r.all = n.all >> sr; */
+        // r.all = n.all >> sr;
         r[high] = n[high] >> sr;
         r[low] = (n[high] << (n_uword_bits - sr)) | (n[low] >> sr);
     } else {
-        /* d[low] != 0 */
+        // d[low] != 0
         if (d[high] == 0) {
-            /* K X
-             * ---
-             * 0 K
-             */
-            /* if d is a power of 2 */
+            // K X
+            // ---
+            // 0 K
+            // if d is a power of 2
             if ((d[low] & (d[low] - 1)) == 0) {
                 if (var rem ?= maybe_rem) {
                     *rem = n[low] & (d[low] - 1);
@@ -126,15 +119,13 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
                 q[low] = (n[high] << (n_uword_bits - sr)) | (n[low] >> sr);
                 return *(&du_int)(&q[0]);
             }
-            /* K X
-             * ---
-             * 0 K
-             */
+            // K X
+            // ---
+            // 0 K
             sr = 1 + n_uword_bits + @clz(su_int, d[low]) - @clz(su_int, n[high]);
-            /* 2 <= sr <= n_udword_bits - 1
-             * q.all = n.all << (n_udword_bits - sr);
-             * r.all = n.all >> sr;
-             */
+            // 2 <= sr <= n_udword_bits - 1
+            // q.all = n.all << (n_udword_bits - sr);
+            // r.all = n.all >> sr;
             if (sr == n_uword_bits) {
                 q[low] = 0;
                 q[high] = n[low];
@@ -155,12 +146,11 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
                 r[low] = n[high] >> (sr - n_uword_bits);
             }
         } else {
-            /* K X
-             * ---
-             * K K
-             */
+            // K X
+            // ---
+            // K K
             sr = @clz(su_int, d[high]) - @clz(su_int, n[high]);
-            /* 0 <= sr <= n_uword_bits - 1 or sr large */
+            // 0 <= sr <= n_uword_bits - 1 or sr large
             if (sr > n_uword_bits - 1) {
                 if (var rem ?= maybe_rem) {
                     *rem = *(&du_int)(&n[0]);
@@ -168,8 +158,8 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
                 return 0;
             }
             sr += 1;
-            /* 1 <= sr <= n_uword_bits */
-            /*  q.all = n.all << (n_udword_bits - sr); */
+            // 1 <= sr <= n_uword_bits
+            //  q.all = n.all << (n_udword_bits - sr);
             q[low] = 0;
             if (sr == n_uword_bits) {
                 q[high] = n[low];
@@ -182,26 +172,24 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             }
         }
     }
-    /* Not a special case
-     * q and r are initialized with:
-     * q.all = n.all << (n_udword_bits - sr);
-     * r.all = n.all >> sr;
-     * 1 <= sr <= n_udword_bits - 1
-     */
+    // Not a special case
+    // q and r are initialized with:
+    // q.all = n.all << (n_udword_bits - sr);
+    // r.all = n.all >> sr;
+    // 1 <= sr <= n_udword_bits - 1
     var carry: su_int = 0;
     while (sr > 0) {
-        /* r:q = ((r:q)  << 1) | carry */
+        // r:q = ((r:q)  << 1) | carry
         r[high] = (r[high] << 1) | (r[low]  >> (n_uword_bits - 1));
         r[low]  = (r[low]  << 1) | (q[high] >> (n_uword_bits - 1));
         q[high] = (q[high] << 1) | (q[low]  >> (n_uword_bits - 1));
         q[low]  = (q[low]  << 1) | carry;
-        /* carry = 0;
-            * if (r.all >= d.all)
-            * {
-            *      r.all -= d.all;
-            *      carry = 1;
-            * }
-            */
+        // carry = 0;
+        // if (r.all >= d.all)
+        // {
+        //      r.all -= d.all;
+        //      carry = 1;
+        // }
         const s: di_int = (di_int)(*(&du_int)(&d[0]) - *(&du_int)(&r[0]) - 1) >> (n_udword_bits - 1);
         carry = su_int(s & 1);
         *(&du_int)(&r[0]) -= *(&du_int)(&d[0]) & u64(s);

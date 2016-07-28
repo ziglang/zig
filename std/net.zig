@@ -67,12 +67,12 @@ struct Address {
 pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
     if (hostname.len == 0) {
 
-/*
-		if (family != AF_INET6)
-			buf[cnt++] = (struct address){ .family = AF_INET, .addr = { 127,0,0,1 } };
-		if (family != AF_INET)
-			buf[cnt++] = (struct address){ .family = AF_INET6, .addr = { [15] = 1 } };
-            */
+//
+//		if (family != AF_INET6)
+//			buf[cnt++] = (struct address){ .family = AF_INET, .addr = { 127,0,0,1 } };
+//		if (family != AF_INET)
+//			buf[cnt++] = (struct address){ .family = AF_INET6, .addr = { [15] = 1 } };
+//
         unreachable{} // TODO
     }
 
@@ -248,20 +248,20 @@ fn parse_ip6(buf: []const u8) -> %Address {
         return error.Incomplete;
     }
 
-    /*
-	if (p) {
-		if (isdigit(*++p)) scopeid = strtoull(p, &z, 10);
-		else z = p-1;
-		if (*z) {
-			if (!IN6_IS_ADDR_LINKLOCAL(&a6) &&
-			    !IN6_IS_ADDR_MC_LINKLOCAL(&a6))
-				return EAI_NONAME;
-			scopeid = if_nametoindex(p);
-			if (!scopeid) return EAI_NONAME;
-		}
-		if (scopeid > UINT_MAX) return EAI_NONAME;
-	}
-    */
+//
+//	if (p) {
+//		if (isdigit(*++p)) scopeid = strtoull(p, &z, 10);
+//		else z = p-1;
+//		if (*z) {
+//			if (!IN6_IS_ADDR_LINKLOCAL(&a6) &&
+//			    !IN6_IS_ADDR_MC_LINKLOCAL(&a6))
+//				return EAI_NONAME;
+//			scopeid = if_nametoindex(p);
+//			if (!scopeid) return EAI_NONAME;
+//		}
+//		if (scopeid > UINT_MAX) return EAI_NONAME;
+//	}
+//
 
     if (scope_id) {
         return result;

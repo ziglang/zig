@@ -4,22 +4,11 @@ const str = std.str;
 const cstr = std.cstr;
 const other = @import("other.zig");
 
-#attribute("test")
-fn empty_function() {}
-
-
-
-/**
-    * multi line doc comment
-    */
+// normal comment
 /// this is a documentation comment
 /// doc comment line 2
 #attribute("test")
-fn comments() {
-    comments_f1(/* mid-line comment /* nested */ */ "OK\n");
-}
-
-fn comments_f1(s: []u8) {}
+fn empty_function_with_comments() {}
 
 
 #attribute("test")
