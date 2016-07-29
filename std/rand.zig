@@ -1,4 +1,5 @@
 const assert = @import("debug.zig").assert;
+const rand_test = @import("rand_test.zig");
 
 pub const MT19937_32 = MersenneTwister(
     u32, 624, 397, 31,
@@ -128,14 +129,6 @@ struct MersenneTwister(
         const LM: int = (1 << r) - 1;
         const UM = ~LM;
 
-        if (int.bit_count == 64) {
-            assert(LM == 0x7fffffff);
-            assert(UM == 0xffffffff80000000);
-        } else if (int.bit_count == 32) {
-            assert(LM == 0x7fffffff);
-            assert(UM == 0x80000000);
-        }
-
         if (mt.index >= n) {
             var i: usize = 0;
 
@@ -173,7 +166,23 @@ fn test_float32() {
 
     {var i: usize = 0; while (i < 1000; i += 1) {
         const val = r.float(f32);
-        if (!(val >= 0.0)) unreachable{};
-        if (!(val < 1.0)) unreachable{};
+        assert(val >= 0.0);
+        assert(val < 1.0);
     }}
+}
+
+#attribute("test")
+fn test_MT19937_64() {
+    const rng = MT19937_64.init(rand_test.mt64_seed);
+    for (rand_test.mt64_data) |value| {
+        assert(value == rng.get());
+    }
+}
+
+#attribute("test")
+fn test_MT19937_32() {
+    const rng = MT19937_32.init(rand_test.mt32_seed);
+    for (rand_test.mt32_data) |value| {
+        assert(value == rng.get());
+    }
 }
