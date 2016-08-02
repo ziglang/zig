@@ -1431,7 +1431,7 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
     TypeTableEntry *struct_type = get_expr_type(struct_expr);
 
     if (struct_type->id == TypeTableEntryIdArray) {
-        Buf *name = &node->data.field_access_expr.field_name;
+        Buf *name = node->data.field_access_expr.field_name;
         assert(buf_eql_str(name, "len"));
         return LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                 struct_type->data.array.len, false);
@@ -2726,18 +2726,18 @@ static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *i
 }
 
 static int find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok) {
-    const char *ptr = buf_ptr(&node->data.asm_expr.asm_template) + tok->start + 2;
+    const char *ptr = buf_ptr(node->data.asm_expr.asm_template) + tok->start + 2;
     int len = tok->end - tok->start - 2;
     int result = 0;
     for (int i = 0; i < node->data.asm_expr.output_list.length; i += 1, result += 1) {
         AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
-        if (buf_eql_mem(&asm_output->asm_symbolic_name, ptr, len)) {
+        if (buf_eql_mem(asm_output->asm_symbolic_name, ptr, len)) {
             return result;
         }
     }
     for (int i = 0; i < node->data.asm_expr.input_list.length; i += 1, result += 1) {
         AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
-        if (buf_eql_mem(&asm_input->asm_symbolic_name, ptr, len)) {
+        if (buf_eql_mem(asm_input->asm_symbolic_name, ptr, len)) {
             return result;
         }
     }
@@ -2749,7 +2749,7 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
 
     AstNodeAsmExpr *asm_expr = &node->data.asm_expr;
 
-    Buf *src_template = &asm_expr->asm_template;
+    Buf *src_template = asm_expr->asm_template;
 
     Buf llvm_template = BUF_INIT;
     buf_resize(&llvm_template, 0);
@@ -2796,11 +2796,11 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
     for (int i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
         AsmOutput *asm_output = asm_expr->output_list.at(i);
         bool is_return = (asm_output->return_type != nullptr);
-        assert(*buf_ptr(&asm_output->constraint) == '=');
+        assert(*buf_ptr(asm_output->constraint) == '=');
         if (is_return) {
-            buf_appendf(&constraint_buf, "=%s", buf_ptr(&asm_output->constraint) + 1);
+            buf_appendf(&constraint_buf, "=%s", buf_ptr(asm_output->constraint) + 1);
         } else {
-            buf_appendf(&constraint_buf, "=*%s", buf_ptr(&asm_output->constraint) + 1);
+            buf_appendf(&constraint_buf, "=*%s", buf_ptr(asm_output->constraint) + 1);
         }
         if (total_index + 1 < total_constraint_count) {
             buf_append_char(&constraint_buf, ',');
@@ -2816,7 +2816,7 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
     }
     for (int i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1, param_index += 1) {
         AsmInput *asm_input = asm_expr->input_list.at(i);
-        buf_append_buf(&constraint_buf, &asm_input->constraint);
+        buf_append_buf(&constraint_buf, asm_input->constraint);
         if (total_index + 1 < total_constraint_count) {
             buf_append_char(&constraint_buf, ',');
         }
@@ -2885,7 +2885,7 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
             if (type_struct_field->type_entry->id == TypeTableEntryIdVoid) {
                 continue;
             }
-            assert(buf_eql_buf(type_struct_field->name, &field_node->data.struct_val_field.name));
+            assert(buf_eql_buf(type_struct_field->name, field_node->data.struct_val_field.name));
 
             set_debug_source_node(g, field_node);
             LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, type_struct_field->gen_index, "");
@@ -3853,7 +3853,7 @@ static void generate_error_name_table(CodeGen *g) {
     for (int i = 1; i < g->error_decls.length; i += 1) {
         AstNode *error_decl_node = g->error_decls.at(i);
         assert(error_decl_node->type == NodeTypeErrorValueDecl);
-        Buf *name = &error_decl_node->data.error_value_decl.name;
+        Buf *name = error_decl_node->data.error_value_decl.name;
 
         LLVMValueRef str_init = LLVMConstString(buf_ptr(name), buf_len(name), true);
         LLVMValueRef str_global = LLVMAddGlobal(g->module, LLVMTypeOf(str_init), "");
@@ -3882,7 +3882,7 @@ static void build_label_blocks(CodeGen *g, FnTableEntry *fn) {
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn->fn_value, "entry");
     for (int i = 0; i < fn->all_labels.length; i += 1) {
         LabelTableEntry *label = fn->all_labels.at(i);
-        Buf *name = &label->decl_node->data.label.name;
+        Buf *name = label->decl_node->data.label.name;
         label->basic_block = LLVMAppendBasicBlock(fn->fn_value, buf_ptr(name));
     }
     LLVMPositionBuilderAtEnd(g->builder, entry_block);
@@ -4951,7 +4951,7 @@ void codegen_generate_h_file(CodeGen *g) {
         buf_appendf(&h_buf, "%s %s %s(",
                 buf_ptr(export_macro),
                 buf_ptr(&return_type_c),
-                buf_ptr(&fn_proto->name));
+                buf_ptr(fn_proto->name));
 
         Buf param_type_c = BUF_INIT;
         if (fn_proto->params.length) {
@@ -4961,7 +4961,7 @@ void codegen_generate_h_file(CodeGen *g) {
                 to_c_type(g, param_type, &param_type_c);
                 buf_appendf(&h_buf, "%s %s",
                         buf_ptr(&param_type_c),
-                        buf_ptr(&param_decl_node->data.param_decl.name));
+                        buf_ptr(param_decl_node->data.param_decl.name));
                 if (param_i < fn_proto->params.length - 1)
                     buf_appendf(&h_buf, ", ");
             }

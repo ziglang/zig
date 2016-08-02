@@ -7,27 +7,27 @@ Root = many(TopLevelDecl) "EOF"
 
 TopLevelDecl = many(Directive) option(VisibleMod) (FnDef | ExternDecl | ContainerDecl | GlobalVarDecl | ErrorValueDecl | TypeDecl | UseDecl)
 
-TypeDecl = "type" "Symbol" "=" TypeExpr ";"
+TypeDecl = "type" Symbol "=" TypeExpr ";"
 
-ErrorValueDecl = "error" "Symbol" ";"
+ErrorValueDecl = "error" Symbol ";"
 
 GlobalVarDecl = VariableDeclaration ";"
 
-VariableDeclaration = ("var" | "const") "Symbol" option(":" TypeExpr) "=" Expression
+VariableDeclaration = ("var" | "const") Symbol option(":" TypeExpr) "=" Expression
 
-ContainerDecl = ("struct" | "enum" | "union") "Symbol" option(ParamDeclList) "{" many(StructMember) "}"
+ContainerDecl = ("struct" | "enum" | "union") Symbol option(ParamDeclList) "{" many(StructMember) "}"
 
 StructMember = many(Directive) option(VisibleMod) (StructField | FnDef | GlobalVarDecl | ContainerDecl)
 
-StructField = "Symbol" option(":" Expression) ",")
+StructField = Symbol option(":" Expression) ",")
 
 UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" (FnProto | VariableDeclaration) ";"
 
-FnProto = "fn" option("Symbol") ParamDeclList option("->" TypeExpr)
+FnProto = "fn" option(Symbol) ParamDeclList option("->" TypeExpr)
 
-Directive = "#" "Symbol" "(" Expression ")"
+Directive = "#" Symbol "(" Expression ")"
 
 VisibleMod = "pub" | "export"
 
@@ -35,13 +35,13 @@ FnDef = option("inline" | "extern") FnProto Block
 
 ParamDeclList = "(" list(ParamDecl, ",") ")"
 
-ParamDecl = option("noalias" | "inline") option("Symbol" ":") TypeExpr | "..."
+ParamDecl = option("noalias" | "inline") option(Symbol ":") TypeExpr | "..."
 
 Block = "{" list(option(Statement), ";") "}"
 
 Statement = Label | VariableDeclaration ";" | Defer ";" | NonBlockExpression ";" | BlockExpression
 
-Label = "Symbol" ":"
+Label = Symbol ":"
 
 Expression = BlockExpression | NonBlockExpression
 
@@ -49,23 +49,23 @@ TypeExpr = PrefixOpExpression
 
 NonBlockExpression = ReturnExpression | AssignmentExpression
 
-AsmExpression = "asm" option("volatile") "(" "String" option(AsmOutput) ")"
+AsmExpression = "asm" option("volatile") "(" String option(AsmOutput) ")"
 
 AsmOutput = ":" list(AsmOutputItem, ",") option(AsmInput)
 
 AsmInput = ":" list(AsmInputItem, ",") option(AsmClobbers)
 
-AsmOutputItem = "[" "Symbol" "]" "String" "(" ("Symbol" | "->" TypeExpr) ")"
+AsmOutputItem = "[" Symbol "]" String "(" (Symbol | "->" TypeExpr) ")"
 
-AsmInputItem = "[" "Symbol" "]" "String" "(" Expression ")"
+AsmInputItem = "[" Symbol "]" String "(" Expression ")"
 
-AsmClobbers= ":" list("String", ",")
+AsmClobbers= ":" list(String, ",")
 
 UnwrapExpression = BoolOrExpression (UnwrapMaybe | UnwrapError) | BoolOrExpression
 
 UnwrapMaybe = "??" Expression
 
-UnwrapError = "%%" option("|" "Symbol" "|") Expression
+UnwrapError = "%%" option("|" Symbol "|") Expression
 
 AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | UnwrapExpression
 
@@ -75,13 +75,13 @@ BlockExpression = IfExpression | Block | WhileExpression | ForExpression | Switc
 
 SwitchExpression = "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 
-SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" "Symbol" "|") Expression ","
+SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" Symbol "|") Expression ","
 
 SwitchItem = Expression | (Expression "..." Expression)
 
 WhileExpression = "while" "(" Expression option(";" Expression) ")" Expression
 
-ForExpression = "for" "(" Expression ")" option("|" option("*") "Symbol" option("," "Symbol") "|") Expression
+ForExpression = "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") Expression
 
 BoolOrExpression = BoolAndExpression "||" BoolOrExpression | BoolAndExpression
 
@@ -93,7 +93,7 @@ IfExpression = IfVarExpression | IfBoolExpression
 
 IfBoolExpression = "if" "(" Expression ")" Expression option(Else)
 
-IfVarExpression = "if" "(" ("const" | "var") option("*") "Symbol" option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
+IfVarExpression = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
 
 Else = "else" Expression
 
@@ -127,7 +127,7 @@ PrefixOpExpression = PrefixOp PrefixOpExpression | SuffixOpExpression
 
 SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 
-FieldAccessExpression = "." "Symbol"
+FieldAccessExpression = "." Symbol
 
 FnCallExpression = "(" list(Expression, ",") ")"
 
@@ -139,15 +139,15 @@ ContainerInitExpression = "{" ContainerInitBody "}"
 
 ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
-StructLiteralField = "." "Symbol" "=" Expression
+StructLiteralField = "." Symbol "=" Expression
 
 PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%" | "??" | "-%"
 
-PrimaryExpression = "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." "Symbol")
+PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol)
 
 ArrayType = "[" option(Expression) "]" option("const") TypeExpr
 
-GotoExpression = "goto" "Symbol"
+GotoExpression = "goto" Symbol
 
 GroupedExpression = "(" Expression ")"
 
@@ -265,14 +265,13 @@ from codegen.
 ### Literals
 
 #### Character and String Literals
+
 ```
 Literal            Example       Characters   Escapes         Null Term  Type
 
 Byte               'H'           All ASCII    Byte            No         u8
 UTF-8 Bytes        "hello"       All Unicode  Byte & Unicode  No         [5]u8
 UTF-8 C string     c"hello"      All Unicode  Byte & Unicode  Yes        &const u8
-UTF-8 Raw String   r"X(hello)X"  All Unicode  None            No         [5]u8
-UTF-8 Raw C String rc"X(hello)X" All Unicode  None            Yes        &const u8
 ```
 
 ### Escapes
@@ -291,25 +290,55 @@ UTF-8 Raw C String rc"X(hello)X" All Unicode  None            Yes        &const 
 
 Note that the maximum valid Unicode point is 0x10ffff.
 
-##### Raw Strings
+##### Multiline String Literals
 
-Raw string literals have no escapes and can span across multiple lines. To
-start a raw string, use 'r"' or 'rc"' followed by unique bytes followed by '('.
-To end a raw string, use ')' followed by the same unique bytes, followed by '"'.
+Multiline string literals have no escapes and can span across multiple lines.
+To start a multiline string literal, use the `\\` token. Just like a comment,
+the string literal goes until the end of the line. The end of the line is not
+included in the string literal.
 
+However, if the next line begins with `\\` then a newline is appended and
+the string literal continues.
 
-#### Numeric Literals
+Example:
 
+```zig
+const hello_world_in_c =
+    \\#include <stdio.h>
+    \\
+    \\int main(int argc, char **argv) {
+    \\    printf("hello world\n");
+    \\    return 0;
+    \\}
+;
 ```
-Number literals     Example      Exponentiation
 
-Decimal integer     98222        N/A
-Hex integer         0xff         N/A
-Octal integer       0o77         N/A
-Binary integer      0b11110000   N/A
-Floating-point      123.0E+77    Optional
-Hex floating point  TODO         TODO
+For a multiline C string literal, prepend `c` to each `\\`. Example:
+
+```zig
+const c_string_literal =
+    c\\#include <stdio.h>
+    c\\
+    c\\int main(int argc, char **argv) {
+    c\\    printf("hello world\n");
+    c\\    return 0;
+    c\\}
+;
 ```
+
+In this example the variable `c_string_literal` has type `&const char` and
+has a terminating null byte.
+
+#### Number Literals
+
+ Number literals    | Example     | Exponentiation
+--------------------|-------------|--------------
+ Decimal integer    | 98222       | N/A
+ Hex integer        | 0xff        | N/A
+ Octal integer      | 0o77        | N/A
+ Binary integer     | 0b11110000  | N/A
+ Floating point     | 123.0E+77   | Optional
+ Hex floating point | 0x103.70p-5 | Optional
 
 ### Identifiers
 

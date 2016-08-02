@@ -6,6 +6,7 @@
  */
 
 #include "bignum.hpp"
+#include "buffer.hpp"
 
 #include <assert.h>
 #include <math.h>
@@ -39,6 +40,10 @@ void bignum_init_signed(BigNum *dest, int64_t x) {
         dest->is_negative = false;
         dest->data.x_uint = x;
     }
+}
+
+void bignum_init_bignum(BigNum *dest, BigNum *src) {
+    memcpy(dest, src, sizeof(BigNum));
 }
 
 bool bignum_fits_in_bits(BigNum *bn, int bit_count, bool is_signed) {
@@ -342,4 +347,16 @@ bool bignum_cmp_gte(BigNum *op1, BigNum *op2) {
     } else {
         return true;
     }
+}
+
+bool bignum_increment_by_scalar(BigNum *bignum, uint64_t scalar) {
+    assert(bignum->kind == BigNumKindInt);
+    assert(!bignum->is_negative);
+    return __builtin_uaddll_overflow(bignum->data.x_uint, scalar, &bignum->data.x_uint);
+}
+
+bool bignum_multiply_by_scalar(BigNum *bignum, uint64_t scalar) {
+    assert(bignum->kind == BigNumKindInt);
+    assert(!bignum->is_negative);
+    return __builtin_umulll_overflow(bignum->data.x_uint, scalar, &bignum->data.x_uint);
 }

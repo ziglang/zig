@@ -78,6 +78,24 @@ static const char *visib_mod_string(VisibMod mod) {
     zig_unreachable();
 }
 
+static const char *return_string(ReturnKind kind) {
+    switch (kind) {
+        case ReturnKindUnconditional: return "return";
+        case ReturnKindError: return "%return";
+        case ReturnKindMaybe: return "?return";
+    }
+    zig_unreachable();
+}
+
+static const char *defer_string(ReturnKind kind) {
+    switch (kind) {
+        case ReturnKindUnconditional: return "defer";
+        case ReturnKindError: return "%defer";
+        case ReturnKindMaybe: return "?defer";
+    }
+    zig_unreachable();
+}
+
 static const char *extern_string(bool is_extern) {
     return is_extern ? "extern " : "";
 }
@@ -243,7 +261,7 @@ static bool is_node_void(AstNode *node) {
     if (node->type == NodeTypeSymbol) {
         if (node->data.symbol_expr.override_type_entry) {
             return node->data.symbol_expr.override_type_entry->id == TypeTableEntryIdVoid;
-        } else if (buf_eql_str(&node->data.symbol_expr.symbol, "void")) {
+        } else if (buf_eql_str(node->data.symbol_expr.symbol, "void")) {
             return true;
         }
     }
@@ -260,7 +278,12 @@ static bool is_digit(uint8_t c) {
 }
 
 static bool is_printable(uint8_t c) {
-    return is_alpha_under(c) || is_digit(c) || c == ' ';
+    static const uint8_t printables[] =
+        " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.~`!@#$%^&*()_-+=\\{}[];'\"?/<>,";
+    for (size_t i = 0; i < array_length(printables); i += 1) {
+        if (c == printables[i]) return true;
+    }
+    return false;
 }
 
 static void string_literal_escape(Buf *source, Buf *dest) {
@@ -353,18 +376,18 @@ static void render_node(AstRender *ar, AstNode *node) {
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
                 const char *inline_str = inline_string(node->data.fn_proto.is_inline);
                 fprintf(ar->f, "%s%s%sfn ", pub_str, inline_str, extern_str);
-                print_symbol(ar, &node->data.fn_proto.name);
+                print_symbol(ar, node->data.fn_proto.name);
                 fprintf(ar->f, "(");
                 int arg_count = node->data.fn_proto.params.length;
                 bool is_var_args = node->data.fn_proto.is_var_args;
                 for (int arg_i = 0; arg_i < arg_count; arg_i += 1) {
                     AstNode *param_decl = node->data.fn_proto.params.at(arg_i);
                     assert(param_decl->type == NodeTypeParamDecl);
-                    if (buf_len(&param_decl->data.param_decl.name) > 0) {
+                    if (buf_len(param_decl->data.param_decl.name) > 0) {
                         const char *noalias_str = param_decl->data.param_decl.is_noalias ? "noalias " : "";
                         const char *inline_str = param_decl->data.param_decl.is_inline ? "inline  " : "";
                         fprintf(ar->f, "%s%s", noalias_str, inline_str);
-                        print_symbol(ar, &param_decl->data.param_decl.name);
+                        print_symbol(ar, param_decl->data.param_decl.name);
                         fprintf(ar->f, ": ");
                     }
                     render_node(ar, param_decl->data.param_decl.type);
@@ -417,21 +440,31 @@ static void render_node(AstRender *ar, AstNode *node) {
             fprintf(ar->f, "}");
             break;
         case NodeTypeDirective:
-            fprintf(ar->f, "#%s(",  buf_ptr(&node->data.directive.name));
+            fprintf(ar->f, "#%s(",  buf_ptr(node->data.directive.name));
             render_node(ar, node->data.directive.expr);
             fprintf(ar->f, ")\n");
             break;
         case NodeTypeReturnExpr:
-            zig_panic("TODO");
+            {
+                const char *return_str = return_string(node->data.return_expr.kind);
+                fprintf(ar->f, "%s ", return_str);
+                render_node(ar, node->data.return_expr.expr);
+                break;
+            }
         case NodeTypeDefer:
-            zig_panic("TODO");
+            {
+                const char *defer_str = defer_string(node->data.defer.kind);
+                fprintf(ar->f, "%s ", defer_str);
+                render_node(ar, node->data.return_expr.expr);
+                break;
+            }
         case NodeTypeVariableDeclaration:
             {
                 const char *pub_str = visib_mod_string(node->data.variable_declaration.top_level_decl.visib_mod);
                 const char *extern_str = extern_string(node->data.variable_declaration.is_extern);
                 const char *const_or_var = const_or_var_string(node->data.variable_declaration.is_const);
                 fprintf(ar->f, "%s%s%s ", pub_str, extern_str, const_or_var);
-                print_symbol(ar, &node->data.variable_declaration.symbol);
+                print_symbol(ar, node->data.variable_declaration.symbol);
 
                 if (node->data.variable_declaration.type) {
                     fprintf(ar->f, ": ");
@@ -446,7 +479,7 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeTypeDecl:
             {
                 const char *pub_str = visib_mod_string(node->data.type_decl.top_level_decl.visib_mod);
-                const char *var_name = buf_ptr(&node->data.type_decl.symbol);
+                const char *var_name = buf_ptr(node->data.type_decl.symbol);
                 fprintf(ar->f, "%stype %s = ", pub_str, var_name);
                 render_node(ar, node->data.type_decl.child_type);
                 break;
@@ -463,12 +496,15 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeUnwrapErrorExpr:
             zig_panic("TODO");
         case NodeTypeNumberLiteral:
-            switch (node->data.number_literal.kind) {
-                case NumLitUInt:
-                    fprintf(ar->f, "%" PRIu64, node->data.number_literal.data.x_uint);
+            switch (node->data.number_literal.bignum->kind) {
+                case BigNumKindInt:
+                    {
+                        const char *negative_str = node->data.number_literal.bignum->is_negative ? "-" : "";
+                        fprintf(ar->f, "%s%llu", negative_str, node->data.number_literal.bignum->data.x_uint);
+                    }
                     break;
-                case NumLitFloat:
-                    fprintf(ar->f, "%f", node->data.number_literal.data.x_float);
+                case BigNumKindFloat:
+                    fprintf(ar->f, "%f", node->data.number_literal.bignum->data.x_float);
                     break;
             }
             break;
@@ -478,7 +514,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                     fprintf(ar->f, "c");
                 }
                 Buf tmp_buf = BUF_INIT;
-                string_literal_escape(&node->data.string_literal.buf, &tmp_buf);
+                string_literal_escape(node->data.string_literal.buf, &tmp_buf);
                 fprintf(ar->f, "\"%s\"", buf_ptr(&tmp_buf));
             }
             break;
@@ -498,7 +534,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                 if (override_type) {
                     fprintf(ar->f, "%s", buf_ptr(&override_type->name));
                 } else {
-                    fprintf(ar->f, "%s", buf_ptr(&node->data.symbol_expr.symbol));
+                    print_symbol(ar, node->data.symbol_expr.symbol);
                 }
             }
             break;
@@ -513,10 +549,14 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeFnCallExpr:
             if (node->data.fn_call_expr.is_builtin) {
                 fprintf(ar->f, "@");
+            } else {
+                fprintf(ar->f, "(");
+            }
+            render_node(ar, node->data.fn_call_expr.fn_ref_expr);
+            if (!node->data.fn_call_expr.is_builtin) {
+                fprintf(ar->f, ")");
             }
             fprintf(ar->f, "(");
-            render_node(ar, node->data.fn_call_expr.fn_ref_expr);
-            fprintf(ar->f, ")(");
             for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
                 AstNode *param = node->data.fn_call_expr.params.at(i);
                 if (i != 0) {
@@ -537,7 +577,7 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeFieldAccessExpr:
             {
                 AstNode *lhs = node->data.field_access_expr.struct_expr;
-                Buf *rhs = &node->data.field_access_expr.field_name;
+                Buf *rhs = node->data.field_access_expr.field_name;
                 render_node(ar, lhs);
                 fprintf(ar->f, ".");
                 print_symbol(ar, rhs);
@@ -577,7 +617,7 @@ static void render_node(AstRender *ar, AstNode *node) {
             zig_panic("TODO");
         case NodeTypeContainerDecl:
             {
-                const char *struct_name = buf_ptr(&node->data.struct_decl.name);
+                const char *struct_name = buf_ptr(node->data.struct_decl.name);
                 const char *pub_str = visib_mod_string(node->data.struct_decl.top_level_decl.visib_mod);
                 const char *container_str = container_string(node->data.struct_decl.kind);
                 fprintf(ar->f, "%s%s %s {\n", pub_str, container_str, struct_name);
@@ -586,7 +626,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                     AstNode *field_node = node->data.struct_decl.fields.at(field_i);
                     assert(field_node->type == NodeTypeStructField);
                     print_indent(ar);
-                    print_symbol(ar, &field_node->data.struct_field.name);
+                    print_symbol(ar, field_node->data.struct_field.name);
                     if (!is_node_void(field_node->data.struct_field.type)) {
                         fprintf(ar->f, ": ");
                         render_node(ar, field_node->data.struct_field.type);

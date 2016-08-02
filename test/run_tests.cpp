@@ -1173,7 +1173,7 @@ fn f() {
     add_compile_fail_case("normal string with newline", R"SOURCE(
 const foo = "a
 b";
-    )SOURCE", 1, ".tmp_source.zig:2:13: error: use raw string for multiline string literal");
+    )SOURCE", 1, ".tmp_source.zig:2:13: error: newline not allowed in string literal");
 
     add_compile_fail_case("invalid comparison for function pointers", R"SOURCE(
 fn foo() {}
@@ -1760,7 +1760,7 @@ struct type {
     )SOURCE", 3,
             R"(pub const FOO = c"aoeu\x13 derp")",
             R"(pub const FOO2 = c"aoeu\x134 derp")",
-            R"(pub const FOO_CHAR = '\x3f')");
+            R"(pub const FOO_CHAR = '?')");
 }
 
 static void run_self_hosted_test(bool is_release_mode) {

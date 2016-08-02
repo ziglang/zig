@@ -104,14 +104,14 @@ static AstNode *create_node(Context *c, NodeType type) {
 
 static AstNode *create_symbol_node(Context *c, const char *type_name) {
     AstNode *node = create_node(c, NodeTypeSymbol);
-    buf_init_from_str(&node->data.symbol_expr.symbol, type_name);
+    node->data.symbol_expr.symbol = buf_create_from_str(type_name);
     return node;
 }
 
 static AstNode *create_field_access_node(Context *c, const char *lhs, const char *rhs) {
     AstNode *node = create_node(c, NodeTypeFieldAccessExpr);
     node->data.field_access_expr.struct_expr = create_symbol_node(c, lhs);
-    buf_init_from_str(&node->data.field_access_expr.field_name, rhs);
+    node->data.field_access_expr.field_name = buf_create_from_str(rhs);
     normalize_parent_ptrs(node);
     return node;
 }
@@ -120,7 +120,7 @@ static AstNode *create_typed_var_decl_node(Context *c, bool is_const, const char
         AstNode *type_node, AstNode *init_node)
 {
     AstNode *node = create_node(c, NodeTypeVariableDeclaration);
-    buf_init_from_str(&node->data.variable_declaration.symbol, var_name);
+    node->data.variable_declaration.symbol = buf_create_from_str(var_name);
     node->data.variable_declaration.is_const = is_const;
     node->data.variable_declaration.top_level_decl.visib_mod = c->visib_mod;
     node->data.variable_declaration.expr = init_node;
@@ -146,7 +146,7 @@ static AstNode *create_prefix_node(Context *c, PrefixOp op, AstNode *child_node)
 static AstNode *create_struct_field_node(Context *c, const char *name, AstNode *type_node) {
     assert(type_node);
     AstNode *node = create_node(c, NodeTypeStructField);
-    buf_init_from_str(&node->data.struct_field.name, name);
+    node->data.struct_field.name = buf_create_from_str(name);
     node->data.struct_field.top_level_decl.visib_mod = VisibModPub;
     node->data.struct_field.type = type_node;
 
@@ -157,7 +157,7 @@ static AstNode *create_struct_field_node(Context *c, const char *name, AstNode *
 static AstNode *create_param_decl_node(Context *c, const char *name, AstNode *type_node, bool is_noalias) {
     assert(type_node);
     AstNode *node = create_node(c, NodeTypeParamDecl);
-    buf_init_from_str(&node->data.param_decl.name, name);
+    node->data.param_decl.name = buf_create_from_str(name);
     node->data.param_decl.type = type_node;
     node->data.param_decl.is_noalias = is_noalias;
 
@@ -171,17 +171,18 @@ static AstNode *create_char_lit_node(Context *c, uint8_t value) {
     return node;
 }
 
+// accepts ownership of buf
 static AstNode *create_str_lit_node(Context *c, Buf *buf) {
     AstNode *node = create_node(c, NodeTypeStringLiteral);
-    buf_init_from_buf(&node->data.string_literal.buf, buf);
+    node->data.string_literal.buf = buf;
     node->data.string_literal.c = true;
     return node;
 }
 
 static AstNode *create_num_lit_float(Context *c, double x) {
     AstNode *node = create_node(c, NodeTypeNumberLiteral);
-    node->data.number_literal.kind = NumLitFloat;
-    node->data.number_literal.data.x_float = x;
+    node->data.number_literal.bignum = allocate_nonzero<BigNum>(1);
+    bignum_init_float(node->data.number_literal.bignum, x);
     return node;
 }
 
@@ -193,8 +194,8 @@ static AstNode *create_num_lit_float_negative(Context *c, double x, bool negativ
 
 static AstNode *create_num_lit_unsigned(Context *c, uint64_t x) {
     AstNode *node = create_node(c, NodeTypeNumberLiteral);
-    node->data.number_literal.kind = NumLitUInt;
-    node->data.number_literal.data.x_uint = x;
+    node->data.number_literal.bignum = allocate_nonzero<BigNum>(1);
+    bignum_init_unsigned(node->data.number_literal.bignum, x);
     return node;
 }
 
@@ -221,7 +222,7 @@ static AstNode *create_num_lit_signed(Context *c, int64_t x) {
 
 static AstNode *create_type_decl_node(Context *c, const char *name, AstNode *child_type_node) {
     AstNode *node = create_node(c, NodeTypeTypeDecl);
-    buf_init_from_str(&node->data.type_decl.symbol, name);
+    node->data.type_decl.symbol = buf_create_from_str(name);
     node->data.type_decl.top_level_decl.visib_mod = c->visib_mod;
     node->data.type_decl.child_type = child_type_node;
 
@@ -240,7 +241,7 @@ static AstNode *create_fn_proto_node(Context *c, Buf *name, TypeTableEntry *fn_t
     AstNode *node = create_node(c, NodeTypeFnProto);
     node->data.fn_proto.is_inline = true;
     node->data.fn_proto.top_level_decl.visib_mod = c->visib_mod;
-    buf_init_from_buf(&node->data.fn_proto.name, name);
+    node->data.fn_proto.name = name;
     node->data.fn_proto.return_type = make_type_node(c, fn_type->data.fn.fn_type_id.return_type);
 
     for (int i = 0; i < fn_type->data.fn.fn_type_id.param_count; i += 1) {
@@ -273,7 +274,7 @@ static AstNode *create_inline_fn_node(Context *c, Buf *fn_name, Buf *var_name, T
     fn_call_node->data.fn_call_expr.fn_ref_expr = unwrap_node;
     for (int i = 0; i < fn_type->data.fn.fn_type_id.param_count; i += 1) {
         AstNode *decl_node = node->data.fn_def.fn_proto->data.fn_proto.params.at(i);
-        Buf *param_name = &decl_node->data.param_decl.name;
+        Buf *param_name = decl_node->data.param_decl.name;
         fn_call_node->data.fn_call_expr.params.append(create_symbol_node(c, buf_ptr(param_name)));
     }
 
@@ -686,10 +687,9 @@ static TypeTableEntry *resolve_qual_type(Context *c, QualType qt, const Decl *de
 }
 
 static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
-    Buf fn_name = BUF_INIT;
-    buf_init_from_str(&fn_name, decl_name(fn_decl));
+    Buf *fn_name = buf_create_from_str(decl_name(fn_decl));
 
-    if (c->fn_table.maybe_get(&fn_name)) {
+    if (c->fn_table.maybe_get(fn_name)) {
         // we already saw this function
         return;
     }
@@ -697,14 +697,14 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     TypeTableEntry *fn_type = resolve_qual_type(c, fn_decl->getType(), fn_decl);
 
     if (fn_type->id == TypeTableEntryIdInvalid) {
-        emit_warning(c, fn_decl, "ignoring function '%s' - unable to resolve type", buf_ptr(&fn_name));
+        emit_warning(c, fn_decl, "ignoring function '%s' - unable to resolve type", buf_ptr(fn_name));
         return;
     }
     assert(fn_type->id == TypeTableEntryIdFn);
 
 
     AstNode *node = create_node(c, NodeTypeFnProto);
-    buf_init_from_buf(&node->data.fn_proto.name, &fn_name);
+    node->data.fn_proto.name = fn_name;
 
     node->data.fn_proto.is_extern = fn_type->data.fn.fn_type_id.is_extern;
     node->data.fn_proto.top_level_decl.visib_mod = c->visib_mod;
@@ -731,7 +731,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     normalize_parent_ptrs(node);
 
-    c->fn_table.put(buf_create_from_buf(&fn_name), true);
+    c->fn_table.put(buf_create_from_buf(fn_name), true);
     c->root->data.root.top_level_decls.append(node);
 }
 
@@ -937,7 +937,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
         if (enum_type->data.enumeration.complete) {
             // now create top level decl for the type
             AstNode *enum_node = create_node(c, NodeTypeContainerDecl);
-            buf_init_from_buf(&enum_node->data.struct_decl.name, &enum_type->name);
+            enum_node->data.struct_decl.name = &enum_type->name;
             enum_node->data.struct_decl.kind = ContainerKindEnum;
             enum_node->data.struct_decl.top_level_decl.visib_mod = VisibModExport;
             enum_node->data.struct_decl.type_entry = enum_type;
@@ -1114,7 +1114,7 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
     if (struct_type->data.structure.complete) {
         // now create a top level decl node for the type
         AstNode *struct_node = create_node(c, NodeTypeContainerDecl);
-        buf_init_from_buf(&struct_node->data.struct_decl.name, &struct_type->name);
+        struct_node->data.struct_decl.name = &struct_type->name;
         struct_node->data.struct_decl.kind = ContainerKindStruct;
         struct_node->data.struct_decl.top_level_decl.visib_mod = VisibModExport;
         struct_node->data.struct_decl.type_entry = struct_type;
@@ -1284,7 +1284,7 @@ static void render_aliases(Context *c) {
     for (int i = 0; i < c->aliases.length; i += 1) {
         AstNode *alias_node = c->aliases.at(i);
         assert(alias_node->type == NodeTypeVariableDeclaration);
-        Buf *name = &alias_node->data.variable_declaration.symbol;
+        Buf *name = alias_node->data.variable_declaration.symbol;
         if (name_exists(c, name)) {
             continue;
         }
@@ -1327,7 +1327,7 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
             case CTokIdStrLit:
                 if (is_last && is_first) {
                     AstNode *var_node = create_var_decl_node(c, buf_ptr(name),
-                            create_str_lit_node(c, &tok->data.str_lit));
+                            create_str_lit_node(c, buf_create_from_buf(&tok->data.str_lit)));
                     c->macro_table.put(name, var_node);
                 }
                 return;

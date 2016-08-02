@@ -9,6 +9,7 @@
 #define ZIG_TOKENIZER_HPP
 
 #include "buffer.hpp"
+#include "bignum.hpp"
 
 enum TokenId {
     TokenIdEof,
@@ -111,6 +112,22 @@ enum TokenId {
     TokenIdPercentDot,
 };
 
+struct TokenNumLit {
+    BigNum bignum;
+    // overflow is true if when parsing the number, we discovered it would not
+    // fit without losing data in a uint64_t or double
+    bool overflow;
+};
+
+struct TokenStrLit {
+    Buf str;
+    bool is_c_str;
+};
+
+struct TokenCharLit {
+    uint8_t c;
+};
+
 struct Token {
     TokenId id;
     int start_pos;
@@ -118,14 +135,16 @@ struct Token {
     int start_line;
     int start_column;
 
-    // for id == TokenIdNumberLiteral
-    int radix; // if != 10, then skip the first 2 characters
-    int decimal_point_pos; // either exponent_marker_pos or the position of the '.'
-    int exponent_marker_pos; // either end_pos or the position of the 'e'/'p'
+    union {
+        // TokenIdNumberLiteral
+        TokenNumLit num_lit;
 
-    // for id == TokenIdStringLiteral
-    int raw_string_start;
-    int raw_string_end;
+        // TokenIdStringLiteral or TokenIdSymbol
+        TokenStrLit str_lit;
+
+        // TokenIdCharLiteral
+        TokenCharLit char_lit;
+    } data;
 };
 
 struct Tokenization {
@@ -141,8 +160,6 @@ struct Tokenization {
 void tokenize(Buf *buf, Tokenization *out_tokenization);
 
 void print_tokens(Buf *buf, ZigList<Token> *tokens);
-
-int get_digit_value(uint8_t c);
 
 const char * token_name(TokenId id);
 

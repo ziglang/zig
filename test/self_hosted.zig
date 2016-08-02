@@ -684,17 +684,13 @@ fn count_trailing_zeroes() {
 
 #attribute("test")
 fn multiline_string() {
-    const s1 = r"AOEU(
-one
-two)
-three)AOEU";
-    const s2 = "\none\ntwo)\nthree";
-    const s3 = r"(
-one
-two)
-three)";
+    const s1 =
+        \\one
+        \\two)
+        \\three
+    ;
+    const s2 = "one\ntwo)\nthree";
     assert(str.eql(s1, s2));
-    assert(str.eql(s3, s2));
 }
 
 

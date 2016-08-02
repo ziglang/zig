@@ -194,7 +194,7 @@ struct AstNodeRoot {
 
 struct AstNodeFnProto {
     TopLevelDecl top_level_decl;
-    Buf name;
+    Buf *name;
     ZigList<AstNode *> params;
     AstNode *return_type;
     bool is_var_args;
@@ -229,7 +229,7 @@ struct AstNodeFnDecl {
 };
 
 struct AstNodeParamDecl {
-    Buf name;
+    Buf *name;
     AstNode *type;
     bool is_noalias;
     bool is_inline;
@@ -279,7 +279,7 @@ struct AstNodeDefer {
 
 struct AstNodeVariableDeclaration {
     TopLevelDecl top_level_decl;
-    Buf symbol;
+    Buf *symbol;
     bool is_const;
     bool is_extern;
     // one or both of type and expr will be non null
@@ -293,7 +293,7 @@ struct AstNodeVariableDeclaration {
 
 struct AstNodeTypeDecl {
     TopLevelDecl top_level_decl;
-    Buf symbol;
+    Buf *symbol;
     AstNode *child_type;
 
     // populated by semantic analyzer
@@ -305,7 +305,7 @@ struct AstNodeTypeDecl {
 
 struct AstNodeErrorValueDecl {
     TopLevelDecl top_level_decl;
-    Buf name;
+    Buf *name;
 
     // populated by semantic analyzer
     ErrorTableEntry *err;
@@ -434,7 +434,7 @@ struct AstNodeSliceExpr {
 
 struct AstNodeFieldAccessExpr {
     AstNode *struct_expr;
-    Buf field_name;
+    Buf *field_name;
 
     // populated by semantic analyzer
     TypeStructField *type_struct_field;
@@ -448,7 +448,7 @@ struct AstNodeFieldAccessExpr {
 };
 
 struct AstNodeDirective {
-    Buf name;
+    Buf *name;
     AstNode *expr;
 };
 
@@ -555,7 +555,7 @@ struct AstNodeSwitchRange {
 };
 
 struct AstNodeLabel {
-    Buf name;
+    Buf *name;
 
     // populated by semantic analyzer
     Expr resolved_expr;
@@ -563,7 +563,7 @@ struct AstNodeLabel {
 };
 
 struct AstNodeGoto {
-    Buf name;
+    Buf *name;
 
     // populated by semantic analyzer
     Expr resolved_expr;
@@ -571,9 +571,9 @@ struct AstNodeGoto {
 };
 
 struct AsmOutput {
-    Buf asm_symbolic_name;
-    Buf constraint;
-    Buf variable_name;
+    Buf *asm_symbolic_name;
+    Buf *constraint;
+    Buf *variable_name;
     AstNode *return_type; // null unless "=r" and return
 
     // populated by semantic analyzer
@@ -581,8 +581,8 @@ struct AsmOutput {
 };
 
 struct AsmInput {
-    Buf asm_symbolic_name;
-    Buf constraint;
+    Buf *asm_symbolic_name;
+    Buf *constraint;
     AstNode *expr;
 };
 
@@ -593,8 +593,7 @@ struct SrcPos {
 
 struct AstNodeAsmExpr {
     bool is_volatile;
-    Buf asm_template;
-    ZigList<SrcPos> offset_map;
+    Buf *asm_template;
     ZigList<AsmToken> token_list;
     ZigList<AsmOutput*> output_list;
     ZigList<AsmInput*> input_list;
@@ -613,7 +612,7 @@ enum ContainerKind {
 
 struct AstNodeStructDecl {
     TopLevelDecl top_level_decl;
-    Buf name;
+    Buf *name;
     ContainerKind kind;
     ZigList<AstNode *> generic_params;
     bool generic_params_is_var_args; // always an error but it can happen from parsing
@@ -629,12 +628,12 @@ struct AstNodeStructDecl {
 
 struct AstNodeStructField {
     TopLevelDecl top_level_decl;
-    Buf name;
+    Buf *name;
     AstNode *type;
 };
 
 struct AstNodeStringLiteral {
-    Buf buf;
+    Buf *buf;
     bool c;
 
     // populated by semantic analyzer:
@@ -648,29 +647,19 @@ struct AstNodeCharLiteral {
     Expr resolved_expr;
 };
 
-enum NumLit {
-    NumLitFloat,
-    NumLitUInt,
-};
-
 struct AstNodeNumberLiteral {
-    NumLit kind;
+    BigNum *bignum;
 
     // overflow is true if when parsing the number, we discovered it would not
     // fit without losing data in a uint64_t or double
     bool overflow;
-
-    union {
-        uint64_t x_uint;
-        double x_float;
-    } data;
 
     // populated by semantic analyzer
     Expr resolved_expr;
 };
 
 struct AstNodeStructValueField {
-    Buf name;
+    Buf *name;
     AstNode *expr;
 
     // populated by semantic analyzer
@@ -706,7 +695,7 @@ struct AstNodeUndefinedLiteral {
 };
 
 struct AstNodeSymbolExpr {
-    Buf symbol;
+    Buf *symbol;
 
     // populated by semantic analyzer
     Expr resolved_expr;

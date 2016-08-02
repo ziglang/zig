@@ -21,6 +21,9 @@ struct ParseContext {
     ImportTableEntry *owner;
     ErrColor err_color;
     uint32_t *next_node_index;
+    // These buffers are used freqently so we preallocate them once here.
+    Buf *void_buf;
+    Buf *empty_buf;
 };
 
 __attribute__ ((format (printf, 4, 5)))
@@ -29,7 +32,9 @@ static void ast_asm_error(ParseContext *pc, AstNode *node, int offset, const cha
     assert(node->type == NodeTypeAsmExpr);
 
 
-    SrcPos pos = node->data.asm_expr.offset_map.at(offset);
+    // TODO calculate or otherwise keep track of originating line/column number for strings
+    //SrcPos pos = node->data.asm_expr.offset_map.at(offset);
+    SrcPos pos = { node->line, node->column };
 
     va_list ap;
     va_start(ap, format);
@@ -83,12 +88,12 @@ static AstNode *ast_create_node(ParseContext *pc, NodeType type, Token *first_to
 
 static AstNode *ast_create_void_type_node(ParseContext *pc, Token *token) {
     AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
-    buf_init_from_str(&node->data.symbol_expr.symbol, "void");
+    node->data.symbol_expr.symbol = pc->void_buf;
     return node;
 }
 
 static void parse_asm_template(ParseContext *pc, AstNode *node) {
-    Buf *asm_template = &node->data.asm_expr.asm_template;
+    Buf *asm_template = node->data.asm_expr.asm_template;
 
     enum State {
         StateStart,
@@ -170,513 +175,28 @@ static void parse_asm_template(ParseContext *pc, AstNode *node) {
     }
 }
 
-static uint8_t parse_char_literal(ParseContext *pc, Token *token) {
-    // skip the single quotes at beginning and end
-    // convert escape sequences
-    bool escape = false;
-    int return_count = 0;
-    uint8_t return_value;
-    for (int i = token->start_pos + 1; i < token->end_pos - 1; i += 1) {
-        uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
-        if (escape) {
-            switch (c) {
-                case '\\':
-                    return_value = '\\';
-                    return_count += 1;
-                    break;
-                case 'r':
-                    return_value = '\r';
-                    return_count += 1;
-                    break;
-                case 'n':
-                    return_value = '\n';
-                    return_count += 1;
-                    break;
-                case 't':
-                    return_value = '\t';
-                    return_count += 1;
-                    break;
-                case '\'':
-                    return_value = '\'';
-                    return_count += 1;
-                    break;
-                default:
-                    ast_error(pc, token, "invalid escape character");
-            }
-            escape = false;
-        } else if (c == '\\') {
-            escape = true;
-        } else {
-            return_value = c;
-            return_count += 1;
-        }
-    }
-    if (return_count == 0) {
-        ast_error(pc, token, "character literal too short");
-    } else if (return_count > 1) {
-        ast_error(pc, token, "character literal too long");
-    }
-    return return_value;
+static Buf *token_buf(Token *token) {
+    assert(token->id == TokenIdStringLiteral || token->id == TokenIdSymbol);
+    return &token->data.str_lit.str;
 }
 
-static uint32_t get_hex_digit(uint8_t c) {
-    switch (c) {
-        case '0': return 0;
-        case '1': return 1;
-        case '2': return 2;
-        case '3': return 3;
-        case '4': return 4;
-        case '5': return 5;
-        case '6': return 6;
-        case '7': return 7;
-        case '8': return 8;
-        case '9': return 9;
-
-        case 'a':
-        case 'A':
-            return 10;
-        case 'b':
-        case 'B':
-            return 11;
-        case 'c':
-        case 'C':
-            return 12;
-        case 'd':
-        case 'D':
-            return 13;
-        case 'e':
-        case 'E':
-            return 14;
-        case 'f':
-        case 'F':
-            return 15;
-        default:
-            return UINT32_MAX;
-    }
+static BigNum *token_bignum(Token *token) {
+    assert(token->id == TokenIdNumberLiteral);
+    return &token->data.num_lit.bignum;
 }
 
-static void parse_string_literal(ParseContext *pc, Token *token, Buf *buf, bool *out_c_str,
-        ZigList<SrcPos> *offset_map)
-{
-    if (token->raw_string_start > 0) {
-        uint8_t c1 = *((uint8_t*)buf_ptr(pc->buf) + token->start_pos);
-        uint8_t c2 = *((uint8_t*)buf_ptr(pc->buf) + token->start_pos + 1);
-        assert(c1 == 'r');
-        if (out_c_str) {
-            *out_c_str = (c2 == 'c');
-        }
-        const char *str = buf_ptr(pc->buf) + token->raw_string_start;
-        buf_init_from_mem(buf, str, token->raw_string_end - token->raw_string_start);
-        if (offset_map) {
-            SrcPos pos = {token->start_line, token->start_column};
-            for (int i = token->start_pos; i < token->raw_string_start; i += 1) {
-                uint8_t c = buf_ptr(pc->buf)[i];
-                if (c == '\n') {
-                    pos.line += 1;
-                    pos.column = 0;
-                } else {
-                    pos.column += 1;
-                }
-            }
-            for (int i = token->raw_string_start; i < token->raw_string_end; i += 1) {
-                offset_map->append(pos);
-
-                uint8_t c = buf_ptr(pc->buf)[i];
-                if (c == '\n') {
-                    pos.line += 1;
-                    pos.column = 0;
-                } else {
-                    pos.column += 1;
-                }
-            }
-        }
-        return;
-    }
-
-    // skip the double quotes at beginning and end
-    // convert escape sequences
-    // detect c string literal
-
-    enum State {
-        StatePre,
-        StateSkipQuot,
-        StateStart,
-        StateEscape,
-        StateHex1,
-        StateHex2,
-        StateUnicode,
-    };
-
-    buf_resize(buf, 0);
-
-    int unicode_index;
-    int unicode_end;
-
-    State state = StatePre;
-    SrcPos pos = {token->start_line, token->start_column};
-    uint32_t hex_value = 0;
-    for (int i = token->start_pos; i < token->end_pos - 1; i += 1) {
-        uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
-
-        switch (state) {
-            case StatePre:
-                switch (c) {
-                    case '@':
-                        state = StateSkipQuot;
-                        break;
-                    case 'c':
-                        if (out_c_str) {
-                            *out_c_str = true;
-                        } else {
-                            ast_error(pc, token, "C string literal not allowed here");
-                        }
-                        state = StateSkipQuot;
-                        break;
-                    case '"':
-                        state = StateStart;
-                        break;
-                    default:
-                        ast_error(pc, token, "invalid string character");
-                }
-                break;
-            case StateSkipQuot:
-                state = StateStart;
-                break;
-            case StateStart:
-                if (c == '\\') {
-                    state = StateEscape;
-                } else {
-                    buf_append_char(buf, c);
-                    if (offset_map) offset_map->append(pos);
-                }
-                break;
-            case StateEscape:
-                switch (c) {
-                    case '\\':
-                        buf_append_char(buf, '\\');
-                        if (offset_map) offset_map->append(pos);
-                        state = StateStart;
-                        break;
-                    case 'r':
-                        buf_append_char(buf, '\r');
-                        if (offset_map) offset_map->append(pos);
-                        state = StateStart;
-                        break;
-                    case 'n':
-                        buf_append_char(buf, '\n');
-                        if (offset_map) offset_map->append(pos);
-                        state = StateStart;
-                        break;
-                    case 't':
-                        buf_append_char(buf, '\t');
-                        if (offset_map) offset_map->append(pos);
-                        state = StateStart;
-                        break;
-                    case '"':
-                        buf_append_char(buf, '"');
-                        if (offset_map) offset_map->append(pos);
-                        state = StateStart;
-                        break;
-                    case '\'':
-                        buf_append_char(buf, '\'');
-                        if (offset_map) offset_map->append(pos);
-                        state = StateStart;
-                        break;
-                    case 'x':
-                        state = StateHex1;
-                        break;
-                    case 'u':
-                        state = StateUnicode;
-                        unicode_index = 0;
-                        unicode_end = 4;
-                        hex_value = 0;
-                        break;
-                    case 'U':
-                        state = StateUnicode;
-                        unicode_index = 0;
-                        unicode_end = 6;
-                        hex_value = 0;
-                        break;
-                    default:
-                        ast_error(pc, token, "invalid escape character");
-                }
-                break;
-            case StateHex1:
-                {
-                    uint32_t hex_digit = get_hex_digit(c);
-                    if (hex_digit == UINT32_MAX) {
-                        ast_error(pc, token, "invalid hex digit: '%c'", c);
-                    }
-                    hex_value = hex_digit * 16;
-                    state = StateHex2;
-                    break;
-                }
-            case StateHex2:
-                {
-                    uint32_t hex_digit = get_hex_digit(c);
-                    if (hex_digit == UINT32_MAX) {
-                        ast_error(pc, token, "invalid hex digit: '%c'", c);
-                    }
-                    hex_value += hex_digit;
-                    assert(hex_value >= 0 && hex_value <= 255);
-                    buf_append_char(buf, hex_value);
-                    state = StateStart;
-                    break;
-                }
-            case StateUnicode:
-                {
-                    uint32_t hex_digit = get_hex_digit(c);
-                    if (hex_digit == UINT32_MAX) {
-                        ast_error(pc, token, "invalid hex digit: '%c'", c);
-                    }
-                    hex_value *= 16;
-                    hex_value += hex_digit;
-                    unicode_index += 1;
-                    if (unicode_index >= unicode_end) {
-                        if (hex_value <= 0x7f) {
-                            // 00000000 00000000 00000000 0xxxxxxx
-                            buf_append_char(buf, hex_value);
-                        } else if (hex_value <= 0x7ff) {
-                            // 00000000 00000000 00000xxx xx000000
-                            buf_append_char(buf, (unsigned char)(0xc0 | (hex_value >> 6)));
-                            // 00000000 00000000 00000000 00xxxxxx
-                            buf_append_char(buf, (unsigned char)(0x80 | (hex_value & 0x3f)));
-                        } else if (hex_value <= 0xffff) {
-                            // 00000000 00000000 xxxx0000 00000000
-                            buf_append_char(buf, (unsigned char)(0xe0 | (hex_value >> 12)));
-                            // 00000000 00000000 0000xxxx xx000000
-                            buf_append_char(buf, (unsigned char)(0x80 | ((hex_value >> 6) & 0x3f)));
-                            // 00000000 00000000 00000000 00xxxxxx
-                            buf_append_char(buf, (unsigned char)(0x80 | (hex_value & 0x3f)));
-                        } else if (hex_value <= 0x10ffff) {
-                            // 00000000 000xxx00 00000000 00000000
-                            buf_append_char(buf, (unsigned char)(0xf0 | (hex_value >> 18)));
-                            // 00000000 000000xx xxxx0000 00000000
-                            buf_append_char(buf, (unsigned char)(0x80 | ((hex_value >> 12) & 0x3f)));
-                            // 00000000 00000000 0000xxxx xx000000
-                            buf_append_char(buf, (unsigned char)(0x80 | ((hex_value >> 6) & 0x3f)));
-                            // 00000000 00000000 00000000 00xxxxxx
-                            buf_append_char(buf, (unsigned char)(0x80 | (hex_value & 0x3f)));
-                        } else {
-                            ast_error(pc, token, "unicode value out of range: %x", hex_value);
-                        }
-                        state = StateStart;
-                    }
-                    break;
-                }
-        }
-        if (c == '\n') {
-            pos.line += 1;
-            pos.column = 0;
-        } else {
-            pos.column += 1;
-        }
-    }
-    assert(state == StateStart);
-    if (offset_map) offset_map->append(pos);
+static uint8_t token_char_lit(Token *token) {
+    assert(token->id == TokenIdCharLiteral);
+    return token->data.char_lit.c;
 }
 
 static void ast_buf_from_token(ParseContext *pc, Token *token, Buf *buf) {
-    uint8_t *first_char = (uint8_t *)buf_ptr(pc->buf) + token->start_pos;
-    bool at_sign = *first_char == '@';
-    if (at_sign) {
-        parse_string_literal(pc, token, buf, nullptr, nullptr);
+    if (token->id == TokenIdSymbol) {
+        buf_init_from_buf(buf, token_buf(token));
     } else {
         buf_init_from_mem(buf, buf_ptr(pc->buf) + token->start_pos, token->end_pos - token->start_pos);
     }
 }
-
-
-static unsigned long long parse_int_digits(ParseContext *pc, int digits_start, int digits_end, int radix,
-    int skip_index, bool *overflow)
-{
-    unsigned long long x = 0;
-
-    for (int i = digits_start; i < digits_end; i++) {
-        if (i == skip_index)
-            continue;
-        uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + i);
-        unsigned long long digit = get_digit_value(c);
-
-        // x *= radix;
-        if (__builtin_umulll_overflow(x, radix, &x)) {
-            *overflow = true;
-            return 0;
-        }
-
-        // x += digit
-        if (__builtin_uaddll_overflow(x, digit, &x)) {
-            *overflow = true;
-            return 0;
-        }
-    }
-    return x;
-}
-
-static void parse_number_literal(ParseContext *pc, Token *token, AstNodeNumberLiteral *num_lit) {
-    assert(token->id == TokenIdNumberLiteral);
-
-    int whole_number_start = token->start_pos;
-    if (token->radix != 10) {
-        // skip the "0x"
-        whole_number_start += 2;
-    }
-
-    int whole_number_end = token->decimal_point_pos;
-    if (whole_number_end <= whole_number_start) {
-        // TODO: error for empty whole number part
-        num_lit->overflow = true;
-        return;
-    }
-
-    if (token->decimal_point_pos == token->end_pos) {
-        // integer
-        unsigned long long whole_number = parse_int_digits(pc, whole_number_start, whole_number_end,
-            token->radix, -1, &num_lit->overflow);
-        if (num_lit->overflow) return;
-
-        num_lit->data.x_uint = whole_number;
-        num_lit->kind = NumLitUInt;
-    } else {
-        // float
-
-        if (token->radix == 10) {
-            // use a third-party base-10 float parser
-            char *str_begin = buf_ptr(pc->buf) + whole_number_start;
-            char *str_end;
-            errno = 0;
-            double x = strtod(str_begin, &str_end);
-            if (errno) {
-                // TODO: forward error to user
-                num_lit->overflow = true;
-                return;
-            }
-            assert(str_end == buf_ptr(pc->buf) + token->end_pos);
-            num_lit->data.x_float = x;
-            num_lit->kind = NumLitFloat;
-            return;
-        }
-
-        if (token->decimal_point_pos < token->exponent_marker_pos) {
-            // fraction
-            int fraction_start = token->decimal_point_pos + 1;
-            int fraction_end = token->exponent_marker_pos;
-            if (fraction_end <= fraction_start) {
-                // TODO: error for empty fraction part
-                num_lit->overflow = true;
-                return;
-            }
-        }
-
-        // trim leading and trailing zeros in the significand digit sequence
-        int significand_start = whole_number_start;
-        for (; significand_start < token->exponent_marker_pos; significand_start++) {
-            if (significand_start == token->decimal_point_pos)
-                continue;
-            uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + significand_start);
-            if (c != '0')
-                break;
-        }
-        int significand_end = token->exponent_marker_pos;
-        for (; significand_end - 1 > significand_start; significand_end--) {
-            if (significand_end - 1 <= token->decimal_point_pos) {
-                significand_end = token->decimal_point_pos;
-                break;
-            }
-            uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + significand_end - 1);
-            if (c != '0')
-                break;
-        }
-
-        unsigned long long significand_as_int = parse_int_digits(pc, significand_start, significand_end,
-            token->radix, token->decimal_point_pos, &num_lit->overflow);
-        if (num_lit->overflow) return;
-
-        int exponent_in_bin_or_dec = 0;
-        if (significand_end > token->decimal_point_pos) {
-            exponent_in_bin_or_dec = token->decimal_point_pos + 1 - significand_end;
-            if (token->radix == 2) {
-                // already good
-            } else if (token->radix == 8) {
-                exponent_in_bin_or_dec *= 3;
-            } else if (token->radix == 10) {
-                // already good
-            } else if (token->radix == 16) {
-                exponent_in_bin_or_dec *= 4;
-            } else zig_unreachable();
-        }
-
-        if (token->exponent_marker_pos < token->end_pos) {
-            // exponent
-            int exponent_start = token->exponent_marker_pos + 1;
-            int exponent_end = token->end_pos;
-            if (exponent_end <= exponent_start) {
-                // TODO: error for empty exponent part
-                num_lit->overflow = true;
-                return;
-            }
-            bool is_exponent_negative = false;
-            uint8_t c = *((uint8_t*)buf_ptr(pc->buf) + exponent_start);
-            if (c == '+') {
-                exponent_start += 1;
-            } else if (c == '-') {
-                exponent_start += 1;
-                is_exponent_negative = true;
-            }
-
-            if (exponent_end <= exponent_start) {
-                // TODO: error for empty exponent part
-                num_lit->overflow = true;
-                return;
-            }
-
-            unsigned long long specified_exponent = parse_int_digits(pc, exponent_start, exponent_end,
-                10, -1, &num_lit->overflow);
-            // TODO: this check is a little silly
-            if (specified_exponent >= LLONG_MAX) {
-                num_lit->overflow = true;
-                return;
-            }
-
-            if (is_exponent_negative) {
-                exponent_in_bin_or_dec -= specified_exponent;
-            } else {
-                exponent_in_bin_or_dec += specified_exponent;
-            }
-        }
-
-        uint64_t significand_bits;
-        uint64_t exponent_bits;
-        if (significand_as_int != 0) {
-            // normalize the significand
-            if (token->radix == 10) {
-                zig_panic("TODO: decimal floats");
-            } else {
-                int significand_magnitude_in_bin = __builtin_clzll(1) - __builtin_clzll(significand_as_int);
-                exponent_in_bin_or_dec += significand_magnitude_in_bin;
-                if (!(-1023 <= exponent_in_bin_or_dec && exponent_in_bin_or_dec < 1023)) {
-                    num_lit->overflow = true;
-                    return;
-                }
-
-                // this should chop off exactly one 1 bit from the top.
-                significand_bits = ((uint64_t)significand_as_int << (52 - significand_magnitude_in_bin)) & 0xfffffffffffffULL;
-                exponent_bits = exponent_in_bin_or_dec + 1023;
-            }
-        } else {
-            // 0 is all 0's
-            significand_bits = 0;
-            exponent_bits = 0;
-        }
-
-        uint64_t double_bits = (exponent_bits << 52) | significand_bits;
-        double x = *(double *)&double_bits;
-
-        num_lit->data.x_float = x;
-        num_lit->kind = NumLitFloat;
-    }
-}
-
 
 __attribute__ ((noreturn))
 static void ast_invalid_token_error(ParseContext *pc, Token *token) {
@@ -723,7 +243,7 @@ static AstNode *ast_parse_directive(ParseContext *pc, int *token_index) {
 
     Token *name_symbol = ast_eat_token(pc, token_index, TokenIdSymbol);
 
-    ast_buf_from_token(pc, name_symbol, &node->data.directive.name);
+    node->data.directive.name = token_buf(name_symbol);
 
     node->data.directive.expr = ast_parse_grouped_expr(pc, token_index, true);
 
@@ -769,12 +289,12 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, int *token_index) {
         token = &pc->tokens->at(*token_index);
     }
 
-    buf_resize(&node->data.param_decl.name, 0);
+    node->data.param_decl.name = pc->empty_buf;
 
     if (token->id == TokenIdSymbol) {
         Token *next_token = &pc->tokens->at(*token_index + 1);
         if (next_token->id == TokenIdColon) {
-            ast_buf_from_token(pc, token, &node->data.param_decl.name);
+            node->data.param_decl.name = token_buf(token);
             *token_index += 2;
         }
     }
@@ -915,8 +435,8 @@ static void ast_parse_asm_input_item(ParseContext *pc, int *token_index, AstNode
     ast_eat_token(pc, token_index, TokenIdRParen);
 
     AsmInput *asm_input = allocate<AsmInput>(1);
-    ast_buf_from_token(pc, alias, &asm_input->asm_symbolic_name);
-    parse_string_literal(pc, constraint, &asm_input->constraint, nullptr, nullptr);
+    asm_input->asm_symbolic_name = token_buf(alias);
+    asm_input->constraint = token_buf(constraint);
     asm_input->expr = expr_node;
     node->data.asm_expr.input_list.append(asm_input);
 }
@@ -938,7 +458,7 @@ static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNod
     Token *token = &pc->tokens->at(*token_index);
     *token_index += 1;
     if (token->id == TokenIdSymbol) {
-        ast_buf_from_token(pc, token, &asm_output->variable_name);
+        asm_output->variable_name = token_buf(token);
     } else if (token->id == TokenIdArrow) {
         asm_output->return_type = ast_parse_prefix_op_expr(pc, token_index, true);
     } else {
@@ -947,8 +467,8 @@ static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNod
 
     ast_eat_token(pc, token_index, TokenIdRParen);
 
-    ast_buf_from_token(pc, alias, &asm_output->asm_symbolic_name);
-    parse_string_literal(pc, constraint, &asm_output->constraint, nullptr, nullptr);
+    asm_output->asm_symbolic_name = token_buf(alias);
+    asm_output->constraint = token_buf(constraint);
     node->data.asm_expr.output_list.append(asm_output);
 }
 
@@ -968,8 +488,7 @@ static void ast_parse_asm_clobbers(ParseContext *pc, int *token_index, AstNode *
         ast_expect_token(pc, string_tok, TokenIdStringLiteral);
         *token_index += 1;
 
-        Buf *clobber_buf = buf_alloc();
-        parse_string_literal(pc, string_tok, clobber_buf, nullptr, nullptr);
+        Buf *clobber_buf = token_buf(string_tok);
         node->data.asm_expr.clobber_list.append(clobber_buf);
 
         Token *comma = &pc->tokens->at(*token_index);
@@ -1072,19 +591,14 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, int *token_index, bool mand
     ast_expect_token(pc, lparen_tok, TokenIdLParen);
     *token_index += 1;
 
-    Token *template_tok = &pc->tokens->at(*token_index);
-    ast_expect_token(pc, template_tok, TokenIdStringLiteral);
-    *token_index += 1;
+    Token *template_tok = ast_eat_token(pc, token_index, TokenIdStringLiteral);
 
-    parse_string_literal(pc, template_tok, &node->data.asm_expr.asm_template, nullptr,
-            &node->data.asm_expr.offset_map);
+    node->data.asm_expr.asm_template = token_buf(template_tok);
     parse_asm_template(pc, node);
 
     ast_parse_asm_output(pc, token_index, node);
 
-    Token *rparen_tok = &pc->tokens->at(*token_index);
-    ast_expect_token(pc, rparen_tok, TokenIdRParen);
-    *token_index += 1;
+    ast_eat_token(pc, token_index, TokenIdRParen);
 
     normalize_parent_ptrs(node);
     return node;
@@ -1099,17 +613,19 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
 
     if (token->id == TokenIdNumberLiteral) {
         AstNode *node = ast_create_node(pc, NodeTypeNumberLiteral, token);
-        parse_number_literal(pc, token, &node->data.number_literal);
+        node->data.number_literal.bignum = token_bignum(token);
+        node->data.number_literal.overflow = token->data.num_lit.overflow;
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdStringLiteral) {
         AstNode *node = ast_create_node(pc, NodeTypeStringLiteral, token);
-        parse_string_literal(pc, token, &node->data.string_literal.buf, &node->data.string_literal.c, nullptr);
+        node->data.string_literal.buf = token_buf(token);
+        node->data.string_literal.c = token->data.str_lit.is_c_str;
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdCharLiteral) {
         AstNode *node = ast_create_node(pc, NodeTypeCharLiteral, token);
-        node->data.char_literal.value = parse_char_literal(pc, token);
+        node->data.char_literal.value = token_char_lit(token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordTrue) {
@@ -1155,7 +671,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         *token_index += 1;
         Token *name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
         AstNode *name_node = ast_create_node(pc, NodeTypeSymbol, name_tok);
-        ast_buf_from_token(pc, name_tok, &name_node->data.symbol_expr.symbol);
+        name_node->data.symbol_expr.symbol = token_buf(name_tok);
 
         AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, token);
         node->data.fn_call_expr.fn_ref_expr = name_node;
@@ -1168,7 +684,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
     } else if (token->id == TokenIdSymbol) {
         *token_index += 1;
         AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
-        ast_buf_from_token(pc, token, &node->data.symbol_expr.symbol);
+        node->data.symbol_expr.symbol = token_buf(token);
         return node;
     } else if (token->id == TokenIdKeywordGoto) {
         AstNode *node = ast_create_node(pc, NodeTypeGoto, token);
@@ -1178,7 +694,7 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool 
         *token_index += 1;
         ast_expect_token(pc, dest_symbol, TokenIdSymbol);
 
-        ast_buf_from_token(pc, dest_symbol, &node->data.goto_expr.name);
+        node->data.goto_expr.name = token_buf(dest_symbol);
         return node;
     }
 
@@ -1243,7 +759,7 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, int *token_index, 
 
                         AstNode *field_node = ast_create_node(pc, NodeTypeStructValueField, token);
 
-                        ast_buf_from_token(pc, field_name_tok, &field_node->data.struct_val_field.name);
+                        field_node->data.struct_val_field.name = token_buf(field_name_tok);
                         field_node->data.struct_val_field.expr = ast_parse_expression(pc, token_index, true);
 
                         normalize_parent_ptrs(field_node);
@@ -1370,7 +886,7 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, int *token_index, boo
 
             AstNode *node = ast_create_node(pc, NodeTypeFieldAccessExpr, first_token);
             node->data.field_access_expr.struct_expr = primary_expr;
-            ast_buf_from_token(pc, name_token, &node->data.field_access_expr.field_name);
+            node->data.field_access_expr.field_name = token_buf(name_token);
 
             normalize_parent_ptrs(node);
             primary_expr = node;
@@ -1819,10 +1335,10 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool manda
             *token_index += 1;
             node->data.if_var_expr.var_is_ptr = true;
             Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
-            ast_buf_from_token(pc, name_token, &node->data.if_var_expr.var_decl.symbol);
+            node->data.if_var_expr.var_decl.symbol = token_buf(name_token);
         } else if (star_or_symbol->id == TokenIdSymbol) {
             *token_index += 1;
-            ast_buf_from_token(pc, star_or_symbol, &node->data.if_var_expr.var_decl.symbol);
+            node->data.if_var_expr.var_decl.symbol = token_buf(star_or_symbol);
         } else {
             ast_invalid_token_error(pc, star_or_symbol);
         }
@@ -1974,7 +1490,7 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token
     node->data.variable_declaration.top_level_decl.directives = directives;
 
     Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
-    ast_buf_from_token(pc, name_token, &node->data.variable_declaration.symbol);
+    node->data.variable_declaration.symbol = token_buf(name_token);
 
     Token *eq_or_colon = &pc->tokens->at(*token_index);
     *token_index += 1;
@@ -2067,7 +1583,7 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, int *token_index, bool ma
 static AstNode *ast_parse_symbol(ParseContext *pc, int *token_index) {
     Token *token = ast_eat_token(pc, token_index, TokenIdSymbol);
     AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
-    ast_buf_from_token(pc, token, &node->data.symbol_expr.symbol);
+    node->data.symbol_expr.symbol = token_buf(token);
     return node;
 }
 
@@ -2405,7 +1921,7 @@ static AstNode *ast_parse_label(ParseContext *pc, int *token_index, bool mandato
     *token_index += 2;
 
     AstNode *node = ast_create_node(pc, NodeTypeLabel, symbol_token);
-    ast_buf_from_token(pc, symbol_token, &node->data.label.name);
+    node->data.label.name = token_buf(symbol_token);
     return node;
 }
 
@@ -2413,7 +1929,7 @@ static AstNode *ast_create_void_expr(ParseContext *pc, Token *token) {
     AstNode *node = ast_create_node(pc, NodeTypeContainerInitExpr, token);
     node->data.container_init_expr.type = ast_create_node(pc, NodeTypeSymbol, token);
     node->data.container_init_expr.kind = ContainerInitKindArray;
-    buf_init_from_str(&node->data.container_init_expr.type->data.symbol_expr.symbol, "void");
+    node->data.container_init_expr.type->data.symbol_expr.symbol = pc->void_buf;
     normalize_parent_ptrs(node);
     return node;
 }
@@ -2508,9 +2024,9 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
     Token *fn_name = &pc->tokens->at(*token_index);
     if (fn_name->id == TokenIdSymbol) {
         *token_index += 1;
-        ast_buf_from_token(pc, fn_name, &node->data.fn_proto.name);
+        node->data.fn_proto.name = token_buf(fn_name);
     } else {
-        buf_resize(&node->data.fn_proto.name, 0);
+        node->data.fn_proto.name = pc->empty_buf;
     }
 
     ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
@@ -2663,7 +2179,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, int *token_index,
 
     AstNode *node = ast_create_node(pc, NodeTypeContainerDecl, first_token);
     node->data.struct_decl.kind = kind;
-    ast_buf_from_token(pc, struct_name, &node->data.struct_decl.name);
+    node->data.struct_decl.name = token_buf(struct_name);
     node->data.struct_decl.top_level_decl.visib_mod = visib_mod;
     node->data.struct_decl.top_level_decl.directives = directives;
 
@@ -2729,8 +2245,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, int *token_index,
 
             field_node->data.struct_field.top_level_decl.visib_mod = visib_mod;
             field_node->data.struct_field.top_level_decl.directives = directive_list;
-
-            ast_buf_from_token(pc, token, &field_node->data.struct_field.name);
+            field_node->data.struct_field.name = token_buf(token);
 
             Token *expr_or_comma = &pc->tokens->at(*token_index);
             if (expr_or_comma->id == TokenIdComma) {
@@ -2772,7 +2287,7 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index,
     AstNode *node = ast_create_node(pc, NodeTypeErrorValueDecl, first_token);
     node->data.error_value_decl.top_level_decl.visib_mod = visib_mod;
     node->data.error_value_decl.top_level_decl.directives = directives;
-    ast_buf_from_token(pc, name_tok, &node->data.error_value_decl.name);
+    node->data.error_value_decl.name = token_buf(name_tok);
 
     normalize_parent_ptrs(node);
     return node;
@@ -2795,7 +2310,7 @@ static AstNode *ast_parse_type_decl(ParseContext *pc, int *token_index,
     ast_eat_token(pc, token_index, TokenIdEq);
 
     AstNode *node = ast_create_node(pc, NodeTypeTypeDecl, first_token);
-    ast_buf_from_token(pc, name_tok, &node->data.type_decl.symbol);
+    node->data.type_decl.symbol = token_buf(name_tok);
     node->data.type_decl.child_type = ast_parse_prefix_op_expr(pc, token_index, true);
 
     ast_eat_token(pc, token_index, TokenIdSemicolon);
@@ -2901,6 +2416,8 @@ AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
         ErrColor err_color, uint32_t *next_node_index)
 {
     ParseContext pc = {0};
+    pc.void_buf = buf_create_from_str("void");
+    pc.empty_buf = buf_create_from_str("");
     pc.err_color = err_color;
     pc.owner = owner;
     pc.buf = buf;

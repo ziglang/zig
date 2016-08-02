@@ -1053,7 +1053,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     if (fn_proto->top_level_decl.directives) {
         for (int i = 0; i < fn_proto->top_level_decl.directives->length; i += 1) {
             AstNode *directive_node = fn_proto->top_level_decl.directives->at(i);
-            Buf *name = &directive_node->data.directive.name;
+            Buf *name = directive_node->data.directive.name;
 
             if (buf_eql_str(name, "attribute")) {
                 if (fn_table_entry->fn_def_node) {
@@ -1251,7 +1251,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
     for (uint32_t i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
-        type_enum_field->name = &field_node->data.struct_field.name;
+        type_enum_field->name = field_node->data.struct_field.name;
         TypeTableEntry *field_type = analyze_type_expr(g, import, context,
                 field_node->data.struct_field.type);
         type_enum_field->type_entry = field_type;
@@ -1365,7 +1365,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
             uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, enum_type->type_ref);
             LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
                     LLVMZigFileToScope(import->di_file),
-                    buf_ptr(&decl_node->data.struct_decl.name),
+                    buf_ptr(decl_node->data.struct_decl.name),
                     import->di_file, decl_node->line + 1,
                     debug_size_in_bits,
                     debug_align_in_bits,
@@ -1381,7 +1381,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
             uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(g->dbuilder,
-                    LLVMZigFileToScope(import->di_file), buf_ptr(&decl_node->data.struct_decl.name),
+                    LLVMZigFileToScope(import->di_file), buf_ptr(decl_node->data.struct_decl.name),
                     import->di_file, decl_node->line + 1,
                     tag_debug_size_in_bits,
                     tag_debug_align_in_bits,
@@ -1441,7 +1441,7 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     for (int i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
-        type_struct_field->name = &field_node->data.struct_field.name;
+        type_struct_field->name = field_node->data.struct_field.name;
         TypeTableEntry *field_type = analyze_type_expr(g, import, context,
                 field_node->data.struct_field.type);
         type_struct_field->type_entry = field_type;
@@ -1514,7 +1514,7 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, struct_type->type_ref);
     LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(g->dbuilder,
             LLVMZigFileToScope(import->di_file),
-            buf_ptr(&decl_node->data.struct_decl.name),
+            buf_ptr(decl_node->data.struct_decl.name),
             import->di_file, decl_node->line + 1,
             debug_size_in_bits,
             debug_align_in_bits,
@@ -1570,7 +1570,7 @@ static void preview_fn_proto_instance(CodeGen *g, ImportTableEntry *import, AstN
     assert(!is_generic_instance || !is_generic_fn);
 
     AstNode *parent_decl = proto_node->data.fn_proto.top_level_decl.parent_decl;
-    Buf *proto_name = &proto_node->data.fn_proto.name;
+    Buf *proto_name = proto_node->data.fn_proto.name;
 
     AstNode *fn_def_node = proto_node->data.fn_proto.fn_def_node;
     bool is_extern = proto_node->data.fn_proto.is_extern;
@@ -1645,7 +1645,7 @@ static void scan_struct_decl(CodeGen *g, ImportTableEntry *import, BlockContext 
         return;
     }
 
-    Buf *name = &node->data.struct_decl.name;
+    Buf *name = node->data.struct_decl.name;
     TypeTableEntry *container_type = get_partial_container_type(g, import, context,
             node->data.struct_decl.kind, node, buf_ptr(name));
     node->data.struct_decl.type_entry = container_type;
@@ -1692,7 +1692,7 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
     ErrorTableEntry *err = allocate<ErrorTableEntry>(1);
 
     err->decl_node = node;
-    buf_init_from_buf(&err->name, &node->data.error_value_decl.name);
+    buf_init_from_buf(&err->name, node->data.error_value_decl.name);
 
     auto existing_entry = g->error_table.maybe_get(&err->name);
     if (existing_entry) {
@@ -1749,7 +1749,7 @@ static void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only)
         case NodeTypeTypeDecl:
             {
                 AstNode *type_node = node->data.type_decl.child_type;
-                Buf *decl_name = &node->data.type_decl.symbol;
+                Buf *decl_name = node->data.type_decl.symbol;
 
                 TypeTableEntry *entry;
                 if (node->data.type_decl.override_type) {
@@ -2479,12 +2479,12 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
             val_field_node->block_context = context;
 
             TypeStructField *type_field = find_struct_type_field(container_type,
-                    &val_field_node->data.struct_val_field.name);
+                    val_field_node->data.struct_val_field.name);
 
             if (!type_field) {
                 add_node_error(g, val_field_node,
                     buf_sprintf("no member named '%s' in '%s'",
-                        buf_ptr(&val_field_node->data.struct_val_field.name), buf_ptr(&container_type->name)));
+                        buf_ptr(val_field_node->data.struct_val_field.name), buf_ptr(&container_type->name)));
                 continue;
             }
 
@@ -2604,7 +2604,7 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
 
     AstNode **struct_expr_node = &node->data.field_access_expr.struct_expr;
     TypeTableEntry *struct_type = analyze_expression(g, import, context, nullptr, *struct_expr_node);
-    Buf *field_name = &node->data.field_access_expr.field_name;
+    Buf *field_name = node->data.field_access_expr.field_name;
 
     bool wrapped_in_fn_call = node->data.field_access_expr.is_fn_call;
 
@@ -2965,6 +2965,22 @@ static TypeTableEntry *resolve_expr_const_val_as_string_lit(CodeGen *g, AstNode 
     return get_array_type(g, g->builtin_types.entry_u8, buf_len(str));
 }
 
+static TypeTableEntry *resolve_expr_const_val_as_bignum(CodeGen *g, AstNode *node,
+        TypeTableEntry *expected_type, BigNum *bignum, bool depends_on_compile_var)
+{
+    Expr *expr = get_resolved_expr(node);
+    expr->const_val.ok = true;
+    expr->const_val.depends_on_compile_var = depends_on_compile_var;
+
+    bignum_init_bignum(&expr->const_val.data.x_bignum, bignum);
+    if (bignum->kind == BigNumKindInt) {
+        return g->builtin_types.entry_num_lit_int;
+    } else if (bignum->kind == BigNumKindFloat) {
+        return g->builtin_types.entry_num_lit_float;
+    } else {
+        zig_unreachable();
+    }
+}
 
 static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, AstNode *node,
         TypeTableEntry *expected_type, uint64_t x, bool depends_on_compile_var)
@@ -2976,17 +2992,6 @@ static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, As
     bignum_init_unsigned(&expr->const_val.data.x_bignum, x);
 
     return g->builtin_types.entry_num_lit_int;
-}
-
-static TypeTableEntry *resolve_expr_const_val_as_float_num_lit(CodeGen *g, AstNode *node,
-        TypeTableEntry *expected_type, double x)
-{
-    Expr *expr = get_resolved_expr(node);
-    expr->const_val.ok = true;
-
-    bignum_init_float(&expr->const_val.data.x_bignum, x);
-
-    return g->builtin_types.entry_num_lit_float;
 }
 
 static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
@@ -3073,7 +3078,7 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
         return resolve_expr_const_val_as_type(g, node, node->data.symbol_expr.override_type_entry, false);
     }
 
-    Buf *variable_name = &node->data.symbol_expr.symbol;
+    Buf *variable_name = node->data.symbol_expr.symbol;
 
     auto primitive_table_entry = g->primitive_type_table.maybe_get(variable_name);
     if (primitive_table_entry) {
@@ -3177,7 +3182,7 @@ static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, Bloc
             return g->builtin_types.entry_invalid;
         }
         if (purpose != LValPurposeAddressOf) {
-            Buf *name = &lhs_node->data.symbol_expr.symbol;
+            Buf *name = lhs_node->data.symbol_expr.symbol;
             VariableTableEntry *var = find_variable(g, block_context, name);
             if (var) {
                 if (var->is_const) {
@@ -3742,7 +3747,7 @@ static TypeTableEntry *analyze_unwrap_error_expr(CodeGen *g, ImportTableEntry *i
         if (var_node) {
             child_context = new_block_context(node, parent_context);
             var_node->block_context = child_context;
-            Buf *var_name = &var_node->data.symbol_expr.symbol;
+            Buf *var_name = var_node->data.symbol_expr.symbol;
             node->data.unwrap_err_expr.var = add_local_var(g, var_node, import, child_context, var_name,
                     g->builtin_types.entry_pure_error, true, nullptr);
         } else {
@@ -3827,7 +3832,7 @@ static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTa
     assert(type != nullptr); // should have been caught by the parser
 
     VariableTableEntry *var = add_local_var(g, source_node, import, context,
-            &variable_declaration->symbol, type, is_const,
+            variable_declaration->symbol, type, is_const,
             expr_is_maybe ? nullptr : variable_declaration->expr);
 
     variable_declaration->variable = var;
@@ -3886,15 +3891,7 @@ static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry 
         return g->builtin_types.entry_invalid;
     }
 
-    if (node->data.number_literal.kind == NumLitUInt) {
-        return resolve_expr_const_val_as_unsigned_num_lit(g, node,
-                expected_type, node->data.number_literal.data.x_uint, false);
-    } else if (node->data.number_literal.kind == NumLitFloat) {
-        return resolve_expr_const_val_as_float_num_lit(g, node,
-                expected_type, node->data.number_literal.data.x_float);
-    } else {
-        zig_unreachable();
-    }
+    return resolve_expr_const_val_as_bignum(g, node, expected_type, node->data.number_literal.bignum, false);
 }
 
 static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -4034,13 +4031,13 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
 
     AstNode *elem_var_node = node->data.for_expr.elem_node;
     elem_var_node->block_context = child_context;
-    Buf *elem_var_name = &elem_var_node->data.symbol_expr.symbol;
+    Buf *elem_var_name = elem_var_node->data.symbol_expr.symbol;
     node->data.for_expr.elem_var = add_local_var(g, elem_var_node, import, child_context, elem_var_name,
             var_type, true, nullptr);
 
     AstNode *index_var_node = node->data.for_expr.index_node;
     if (index_var_node) {
-        Buf *index_var_name = &index_var_node->data.symbol_expr.symbol;
+        Buf *index_var_name = index_var_node->data.symbol_expr.symbol;
         index_var_node->block_context = child_context;
         node->data.for_expr.index_var = add_local_var(g, index_var_node, import, child_context, index_var_name,
                 g->builtin_types.entry_usize, true, nullptr);
@@ -4952,7 +4949,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
     assert(node->type == NodeTypeFnCallExpr);
 
     AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
-    Buf *name = &fn_ref_expr->data.symbol_expr.symbol;
+    Buf *name = fn_ref_expr->data.symbol_expr.symbol;
 
     auto entry = g->builtin_fn_table.maybe_get(name);
 
@@ -5476,7 +5473,7 @@ static TypeTableEntry *analyze_fn_call_with_inline_args(CodeGen *g, ImportTableE
         ConstExprValue *const_val = &get_resolved_expr(*param_node)->const_val;
         if (const_val->ok) {
             VariableTableEntry *var = add_local_var(g, generic_param_decl_node, decl_node->owner, child_context,
-                    &generic_param_decl_node->data.param_decl.name, param_type, true, *param_node);
+                    generic_param_decl_node->data.param_decl.name, param_type, true, *param_node);
             // This generic function instance could be called with anything, so when this variable is read it
             // needs to know that it depends on compile time variable data.
             var->force_depends_on_compile_var = true;
@@ -5570,7 +5567,7 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
         ConstExprValue *const_val = &get_resolved_expr(*param_node)->const_val;
         if (const_val->ok) {
             VariableTableEntry *var = add_local_var(g, generic_param_decl_node, decl_node->owner, child_context,
-                    &generic_param_decl_node->data.param_decl.name, param_type, true, *param_node);
+                    generic_param_decl_node->data.param_decl.name, param_type, true, *param_node);
             var->force_depends_on_compile_var = true;
         } else {
             add_node_error(g, *param_node, buf_sprintf("unable to evaluate constant expression"));
@@ -5964,7 +5961,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
 
                 if (expr_type->id == TypeTableEntryIdEnum) {
                     if (item_node->type == NodeTypeSymbol) {
-                        Buf *field_name = &item_node->data.symbol_expr.symbol;
+                        Buf *field_name = item_node->data.symbol_expr.symbol;
                         TypeEnumField *type_enum_field = get_enum_field(expr_type, field_name);
                         if (type_enum_field) {
                             item_node->data.symbol_expr.enum_field = type_enum_field;
@@ -6000,7 +5997,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
                     }
                 } else if (expr_type->id == TypeTableEntryIdErrorUnion) {
                     if (item_node->type == NodeTypeSymbol) {
-                        Buf *err_name = &item_node->data.symbol_expr.symbol;
+                        Buf *err_name = item_node->data.symbol_expr.symbol;
                         bool is_ok_case = buf_eql_str(err_name, "Ok");
                         auto err_table_entry = is_ok_case ? nullptr: g->error_table.maybe_get(err_name);
                         if (is_ok_case || err_table_entry) {
@@ -6072,7 +6069,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
         AstNode *var_node = prong_node->data.switch_prong.var_symbol;
         if (var_node) {
             assert(var_node->type == NodeTypeSymbol);
-            Buf *var_name = &var_node->data.symbol_expr.symbol;
+            Buf *var_name = var_node->data.symbol_expr.symbol;
             var_node->block_context = child_context;
             prong_node->data.switch_prong.var = add_local_var(g, var_node, import,
                     child_context, var_name, var_type, true, nullptr);
@@ -6228,9 +6225,9 @@ static TypeTableEntry *analyze_string_literal_expr(CodeGen *g, ImportTableEntry 
         TypeTableEntry *expected_type, AstNode *node)
 {
     if (node->data.string_literal.c) {
-        return resolve_expr_const_val_as_c_string_lit(g, node, &node->data.string_literal.buf);
+        return resolve_expr_const_val_as_c_string_lit(g, node, node->data.string_literal.buf);
     } else {
-        return resolve_expr_const_val_as_string_lit(g, node, &node->data.string_literal.buf);
+        return resolve_expr_const_val_as_string_lit(g, node, node->data.string_literal.buf);
     }
 }
 
@@ -6255,7 +6252,7 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
             child->data.label.label_entry = label;
             fn_table_entry->all_labels.append(label);
 
-            child_context->label_table.put(&child->data.label.name, label);
+            child_context->label_table.put(child->data.label.name, label);
 
             return_type = g->builtin_types.entry_void;
             continue;
@@ -6316,7 +6313,7 @@ static TypeTableEntry *analyze_asm_expr(CodeGen *g, ImportTableEntry *import, Bl
                 break;
             }
         } else {
-            Buf *variable_name = &asm_output->variable_name;
+            Buf *variable_name = asm_output->variable_name;
             VariableTableEntry *var = find_variable(g, context, variable_name);
             if (var) {
                 asm_output->variable = var;
@@ -6351,7 +6348,7 @@ static TypeTableEntry *analyze_goto_pass1(CodeGen *g, ImportTableEntry *import, 
 
 static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *node) {
     assert(node->type == NodeTypeGoto);
-    Buf *label_name = &node->data.goto_expr.name;
+    Buf *label_name = node->data.goto_expr.name;
     BlockContext *context = node->block_context;
     assert(context);
     LabelTableEntry *label = find_label(g, context, label_name);
@@ -6549,11 +6546,11 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
                 buf_sprintf("byvalue struct parameters not yet supported on extern functions"));
         }
 
-        if (buf_len(&param_decl->name) == 0) {
+        if (buf_len(param_decl->name) == 0) {
             add_node_error(g, param_decl_node, buf_sprintf("missing parameter name"));
         }
 
-        VariableTableEntry *var = add_local_var(g, param_decl_node, import, context, &param_decl->name,
+        VariableTableEntry *var = add_local_var(g, param_decl_node, import, context, param_decl->name,
                 type, true, nullptr);
         var->src_arg_index = i;
         param_decl_node->data.param_decl.variable = var;
@@ -6583,7 +6580,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
         if (!label->used) {
             add_node_error(g, label->decl_node,
                     buf_sprintf("label '%s' defined but not used",
-                        buf_ptr(&label->decl_node->data.label.name)));
+                        buf_ptr(label->decl_node->data.label.name)));
         }
     }
 
@@ -6640,7 +6637,7 @@ static void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *conte
             break;
         case NodeTypeContainerDecl:
             {
-                Buf *name = &node->data.struct_decl.name;
+                Buf *name = node->data.struct_decl.name;
                 add_top_level_decl(g, import, context, node, name);
                 if (node->data.struct_decl.generic_params.length == 0) {
                     scan_struct_decl(g, import, context, node);
@@ -6653,20 +6650,20 @@ static void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *conte
             break;
         case NodeTypeVariableDeclaration:
             {
-                Buf *name = &node->data.variable_declaration.symbol;
+                Buf *name = node->data.variable_declaration.symbol;
                 add_top_level_decl(g, import, context, node, name);
                 break;
             }
         case NodeTypeTypeDecl:
             {
-                Buf *name = &node->data.type_decl.symbol;
+                Buf *name = node->data.type_decl.symbol;
                 add_top_level_decl(g, import, context, node, name);
                 break;
             }
         case NodeTypeFnProto:
             {
                 // if the name is missing, we immediately announce an error
-                Buf *fn_name = &node->data.fn_proto.name;
+                Buf *fn_name = node->data.fn_proto.name;
                 if (buf_len(fn_name) == 0) {
                     node->data.fn_proto.skip = true;
                     add_node_error(g, node, buf_sprintf("missing function name"));
@@ -6851,6 +6848,9 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
     assert(import_entry->root);
     if (g->verbose) {
         ast_print(stderr, import_entry->root, 0);
+        //fprintf(stderr, "\nReformatted Source:\n");
+        //fprintf(stderr, "---------------------\n");
+        //ast_render(stderr, import_entry->root, 4);
     }
 
     import_entry->di_file = LLVMZigCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
@@ -6868,7 +6868,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
         if (top_level_decl->type == NodeTypeFnDef) {
             AstNode *proto_node = top_level_decl->data.fn_def.fn_proto;
             assert(proto_node->type == NodeTypeFnProto);
-            Buf *proto_name = &proto_node->data.fn_proto.name;
+            Buf *proto_name = proto_node->data.fn_proto.name;
 
             bool is_private = (proto_node->data.fn_proto.top_level_decl.visib_mod == VisibModPrivate);
 
@@ -7064,7 +7064,7 @@ bool is_node_void_expr(AstNode *node) {
     {
         AstNode *type_node = node->data.container_init_expr.type;
         if (type_node->type == NodeTypeSymbol &&
-            buf_eql_str(&type_node->data.symbol_expr.symbol, "void"))
+            buf_eql_str(type_node->data.symbol_expr.symbol, "void"))
         {
             return true;
         }

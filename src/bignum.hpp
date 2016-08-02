@@ -5,7 +5,8 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#include "buffer.hpp"
+#ifndef ZIG_BIGNUM_HPP
+#define ZIG_BIGNUM_HPP
 
 #include <stdint.h>
 
@@ -26,6 +27,7 @@ struct BigNum {
 void bignum_init_float(BigNum *dest, double x);
 void bignum_init_unsigned(BigNum *dest, uint64_t x);
 void bignum_init_signed(BigNum *dest, int64_t x);
+void bignum_init_bignum(BigNum *dest, BigNum *src);
 
 bool bignum_fits_in_bits(BigNum *bn, int bit_count, bool is_signed);
 uint64_t bignum_to_twos_complement(BigNum *bn);
@@ -57,4 +59,11 @@ bool bignum_cmp_gt(BigNum *op1, BigNum *op2);
 bool bignum_cmp_lte(BigNum *op1, BigNum *op2);
 bool bignum_cmp_gte(BigNum *op1, BigNum *op2);
 
+// helper functions
+bool bignum_increment_by_scalar(BigNum *bignum, uint64_t scalar);
+bool bignum_multiply_by_scalar(BigNum *bignum, uint64_t scalar);
+
+struct Buf;
 Buf *bignum_to_buf(BigNum *bn);
+
+#endif

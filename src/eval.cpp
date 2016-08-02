@@ -427,7 +427,7 @@ static EvalVar *find_var(EvalFn *ef, Buf *name) {
 static bool eval_symbol_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
     assert(node->type == NodeTypeSymbol);
 
-    Buf *name = &node->data.symbol_expr.symbol;
+    Buf *name = node->data.symbol_expr.symbol;
     EvalVar *var = find_var(ef, name);
     assert(var);
 
@@ -924,7 +924,7 @@ static bool eval_field_access_expr(EvalFn *ef, AstNode *node, ConstExprValue *ou
     TypeTableEntry *struct_type = get_resolved_expr(struct_expr)->type_entry;
 
     if (struct_type->id == TypeTableEntryIdArray) {
-        Buf *name = &node->data.field_access_expr.field_name;
+        Buf *name = node->data.field_access_expr.field_name;
         assert(buf_eql_str(name, "len"));
         zig_panic("TODO");
     } else if (struct_type->id == TypeTableEntryIdStruct || (struct_type->id == TypeTableEntryIdPointer &&
@@ -971,7 +971,7 @@ static bool eval_for_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
     if (eval_expr(ef, array_node, &array_val)) return true;
 
     assert(elem_node->type == NodeTypeSymbol);
-    Buf *elem_var_name = &elem_node->data.symbol_expr.symbol;
+    Buf *elem_var_name = elem_node->data.symbol_expr.symbol;
 
     if (node->data.for_expr.elem_is_ptr) {
         zig_panic("TODO");
@@ -980,7 +980,7 @@ static bool eval_for_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
     Buf *index_var_name = nullptr;
     if (index_node) {
         assert(index_node->type == NodeTypeSymbol);
-        index_var_name = &index_node->data.symbol_expr.symbol;
+        index_var_name = index_node->data.symbol_expr.symbol;
     }
 
     uint64_t it_index = 0;
@@ -1164,7 +1164,7 @@ static bool eval_var_decl_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_va
 
     my_scope->vars.add_one();
     EvalVar *var = &my_scope->vars.last();
-    var->name = &node->data.variable_declaration.symbol;
+    var->name = node->data.variable_declaration.symbol;
 
     if (eval_expr(ef, node->data.variable_declaration.expr, &var->value)) return true;
 
@@ -1178,13 +1178,7 @@ static bool eval_number_literal_expr(EvalFn *ef, AstNode *node, ConstExprValue *
     assert(!node->data.number_literal.overflow);
 
     out_val->ok = true;
-    if (node->data.number_literal.kind == NumLitUInt) {
-        bignum_init_unsigned(&out_val->data.x_bignum, node->data.number_literal.data.x_uint);
-    } else if (node->data.number_literal.kind == NumLitFloat) {
-        bignum_init_float(&out_val->data.x_bignum, node->data.number_literal.data.x_float);
-    } else {
-        zig_unreachable();
-    }
+    bignum_init_bignum(&out_val->data.x_bignum, node->data.number_literal.bignum);
 
     return false;
 }
@@ -1339,7 +1333,7 @@ static bool eval_fn_args(EvalFnRoot *efr, FnTableEntry *fn, ConstExprValue *args
 
         root_scope->vars.add_one();
         EvalVar *eval_var = &root_scope->vars.last();
-        eval_var->name = &decl_param_node->data.param_decl.name;
+        eval_var->name = decl_param_node->data.param_decl.name;
         eval_var->value = *src_const_val;
     }
 
