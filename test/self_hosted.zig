@@ -693,6 +693,17 @@ fn multiline_string() {
     assert(str.eql(s1, s2));
 }
 
+#attribute("test")
+fn multiline_c_string() {
+    const s1 =
+        c\\one
+        c\\two)
+        c\\three
+    ;
+    const s2 = c"one\ntwo)\nthree";
+    assert(cstr.cmp(s1, s2) == 0);
+}
+
 
 
 #attribute("test")

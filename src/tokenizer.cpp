@@ -189,6 +189,7 @@ enum TokenizeState {
     TokenizeStateLineString,
     TokenizeStateLineStringEnd,
     TokenizeStateLineStringContinue,
+    TokenizeStateLineStringContinueC,
     TokenizeStateSawEq,
     TokenizeStateSawBang,
     TokenizeStateSawLessThan,
@@ -932,6 +933,30 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case WHITESPACE:
                         break;
+                    case 'c':
+                        if (!t.cur_tok->data.str_lit.is_c_str) {
+                            t.pos -= 1;
+                            end_token(&t);
+                            t.state = TokenizeStateStart;
+                            break;
+                        }
+                        t.state = TokenizeStateLineStringContinueC;
+                        break;
+                    case '\\':
+                        if (t.cur_tok->data.str_lit.is_c_str) {
+                            tokenize_error(&t, "invalid character: '%c'", c);
+                        }
+                        t.state = TokenizeStateLineStringContinue;
+                        break;
+                    default:
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                }
+                break;
+            case TokenizeStateLineStringContinueC:
+                switch (c) {
                     case '\\':
                         t.state = TokenizeStateLineStringContinue;
                         break;
@@ -969,6 +994,11 @@ void tokenize(Buf *buf, Tokenization *out) {
                         set_token_id(&t, t.cur_tok, TokenIdStringLiteral);
                         t.cur_tok->data.str_lit.is_c_str = true;
                         t.state = TokenizeStateString;
+                        break;
+                    case '\\':
+                        set_token_id(&t, t.cur_tok, TokenIdStringLiteral);
+                        t.cur_tok->data.str_lit.is_c_str = true;
+                        t.state = TokenizeStateSawBackslash;
                         break;
                     case SYMBOL_CHAR:
                         t.state = TokenizeStateSymbol;
@@ -1386,6 +1416,7 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawDotDot:
         case TokenizeStateSawBackslash:
         case TokenizeStateLineStringContinue:
+        case TokenizeStateLineStringContinueC:
             tokenize_error(&t, "unexpected EOF");
             break;
         case TokenizeStateLineComment:
