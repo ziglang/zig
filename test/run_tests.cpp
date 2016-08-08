@@ -1427,6 +1427,30 @@ fn f() {
     var foo = ([]u32)(array)[0];
 }
     )SOURCE", 1, ".tmp_source.zig:4:22: error: unable to convert [5]u8 to []u32: size mismatch");
+
+    add_compile_fail_case("non-pure function returns type", R"SOURCE(
+var a: u32 = 0;
+pub fn List(inline T: type) -> type {
+    a += 1;
+    SmallList(T, 8)
+}
+
+pub struct SmallList(inline T: type, inline STATIC_SIZE: usize) {
+    items: []T,
+    length: usize,
+    prealloc_items: [STATIC_SIZE]T,
+}
+
+#attribute("test")
+fn function_with_return_type_type() {
+    var list: List(i32) = undefined;
+    list.length = 10;
+}
+
+    )SOURCE", 3,
+            ".tmp_source.zig:3:5: error: failed to evaluate function at compile time",
+            ".tmp_source.zig:4:5: note: unable to evaluate this expression at compile time",
+            ".tmp_source.zig:3:32: note: required to be compile-time function because of return type 'type'");
 }
 
 //////////////////////////////////////////////////////////////////////////////

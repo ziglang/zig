@@ -113,9 +113,30 @@ static AstNode *first_executing_node(AstNode *node) {
     zig_unreachable();
 }
 
-static void mark_impure_fn(BlockContext *context) {
-    if (context->fn_entry) {
-        context->fn_entry->is_pure = false;
+static void mark_impure_fn(CodeGen *g, BlockContext *context, AstNode *node) {
+    if (!context->fn_entry) return;
+    if (!context->fn_entry->is_pure) return;
+
+    context->fn_entry->is_pure = false;
+    if (context->fn_entry->want_pure == WantPureTrue) {
+        context->fn_entry->proto_node->data.fn_proto.skip = true;
+
+        ErrorMsg *msg = add_node_error(g, context->fn_entry->proto_node,
+            buf_sprintf("failed to evaluate function at compile time"));
+
+        add_error_note(g, msg, node,
+            buf_sprintf("unable to evaluate this expression at compile time"));
+
+        if (context->fn_entry->want_pure_attr_node) {
+            add_error_note(g, msg, context->fn_entry->want_pure_attr_node,
+                buf_sprintf("required to be compile-time function here"));
+        }
+
+        if (context->fn_entry->want_pure_return_type) {
+            add_error_note(g, msg, context->fn_entry->want_pure_return_type,
+                buf_sprintf("required to be compile-time function because of return type '%s'",
+                buf_ptr(&context->fn_entry->type_entry->data.fn.fn_type_id.return_type->name)));
+        }
     }
 }
 
@@ -659,7 +680,7 @@ TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *
 }
 
 // accepts ownership of fn_type_id memory
-TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
+TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id, bool gen_debug_info) {
     auto table_entry = g->fn_type_table.maybe_get(fn_type_id);
     if (table_entry) {
         return table_entry->value;
@@ -704,65 +725,67 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         buf_appendf(&fn_type->name, " -> %s", buf_ptr(&fn_type_id->return_type->name));
     }
 
-    // next, loop over the parameters again and compute debug information
-    // and codegen information
-    bool first_arg_return = !fn_type_id->is_extern && handle_is_ptr(fn_type_id->return_type);
-    // +1 for maybe making the first argument the return value
-    LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
-    // +1 because 0 is the return type and +1 for maybe making first arg ret val
-    LLVMZigDIType **param_di_types = allocate<LLVMZigDIType*>(2 + fn_type_id->param_count);
-    param_di_types[0] = fn_type_id->return_type->di_type;
-    int gen_param_index = 0;
-    TypeTableEntry *gen_return_type;
-    if (!type_has_bits(fn_type_id->return_type)) {
-        gen_return_type = g->builtin_types.entry_void;
-    } else if (first_arg_return) {
-        TypeTableEntry *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
-        gen_param_types[gen_param_index] = gen_type->type_ref;
-        gen_param_index += 1;
-        // after the gen_param_index += 1 because 0 is the return type
-        param_di_types[gen_param_index] = gen_type->di_type;
-        gen_return_type = g->builtin_types.entry_void;
-    } else {
-        gen_return_type = fn_type_id->return_type;
-    }
-    fn_type->data.fn.gen_return_type = gen_return_type;
-
-    fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
-    for (int i = 0; i < fn_type_id->param_count; i += 1) {
-        FnTypeParamInfo *src_param_info = &fn_type->data.fn.fn_type_id.param_info[i];
-        TypeTableEntry *type_entry = src_param_info->type;
-        FnGenParamInfo *gen_param_info = &fn_type->data.fn.gen_param_info[i];
-
-        gen_param_info->src_index = i;
-        gen_param_info->gen_index = -1;
-
-        assert(type_is_complete(type_entry));
-        if (type_has_bits(type_entry)) {
-            TypeTableEntry *gen_type;
-            if (handle_is_ptr(type_entry)) {
-                gen_type = get_pointer_to_type(g, type_entry, true);
-                gen_param_info->is_byval = true;
-            } else {
-                gen_type = type_entry;
-            }
+    if (gen_debug_info) {
+        // next, loop over the parameters again and compute debug information
+        // and codegen information
+        bool first_arg_return = !fn_type_id->is_extern && handle_is_ptr(fn_type_id->return_type);
+        // +1 for maybe making the first argument the return value
+        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
+        // +1 because 0 is the return type and +1 for maybe making first arg ret val
+        LLVMZigDIType **param_di_types = allocate<LLVMZigDIType*>(2 + fn_type_id->param_count);
+        param_di_types[0] = fn_type_id->return_type->di_type;
+        int gen_param_index = 0;
+        TypeTableEntry *gen_return_type;
+        if (!type_has_bits(fn_type_id->return_type)) {
+            gen_return_type = g->builtin_types.entry_void;
+        } else if (first_arg_return) {
+            TypeTableEntry *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
             gen_param_types[gen_param_index] = gen_type->type_ref;
-            gen_param_info->gen_index = gen_param_index;
-            gen_param_info->type = gen_type;
-
             gen_param_index += 1;
-
             // after the gen_param_index += 1 because 0 is the return type
             param_di_types[gen_param_index] = gen_type->di_type;
+            gen_return_type = g->builtin_types.entry_void;
+        } else {
+            gen_return_type = fn_type_id->return_type;
         }
+        fn_type->data.fn.gen_return_type = gen_return_type;
+
+        fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
+        for (int i = 0; i < fn_type_id->param_count; i += 1) {
+            FnTypeParamInfo *src_param_info = &fn_type->data.fn.fn_type_id.param_info[i];
+            TypeTableEntry *type_entry = src_param_info->type;
+            FnGenParamInfo *gen_param_info = &fn_type->data.fn.gen_param_info[i];
+
+            gen_param_info->src_index = i;
+            gen_param_info->gen_index = -1;
+
+            assert(type_is_complete(type_entry));
+            if (type_has_bits(type_entry)) {
+                TypeTableEntry *gen_type;
+                if (handle_is_ptr(type_entry)) {
+                    gen_type = get_pointer_to_type(g, type_entry, true);
+                    gen_param_info->is_byval = true;
+                } else {
+                    gen_type = type_entry;
+                }
+                gen_param_types[gen_param_index] = gen_type->type_ref;
+                gen_param_info->gen_index = gen_param_index;
+                gen_param_info->type = gen_type;
+
+                gen_param_index += 1;
+
+                // after the gen_param_index += 1 because 0 is the return type
+                param_di_types[gen_param_index] = gen_type->di_type;
+            }
+        }
+
+        fn_type->data.fn.gen_param_count = gen_param_index;
+
+        fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
+                gen_param_types, gen_param_index, fn_type_id->is_var_args);
+        fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
+        fn_type->di_type = LLVMZigCreateSubroutineType(g->dbuilder, param_di_types, gen_param_index + 1, 0);
     }
-
-    fn_type->data.fn.gen_param_count = gen_param_index;
-
-    fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
-            gen_param_types, gen_param_index, fn_type_id->is_var_args);
-    fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
-    fn_type->di_type = LLVMZigCreateSubroutineType(g->dbuilder, param_di_types, gen_param_index + 1, 0);
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);
 
@@ -862,8 +885,15 @@ static TypeTableEntry *analyze_type_expr(CodeGen *g, ImportTableEntry *import, B
     return analyze_type_expr_pointer_only(g, import, context, node, false);
 }
 
+static bool fn_wants_full_static_eval(FnTableEntry *fn_table_entry) {
+    assert(fn_table_entry);
+    AstNodeFnProto *fn_proto = &fn_table_entry->proto_node->data.fn_proto;
+    return fn_proto->inline_arg_count == fn_proto->params.length && fn_table_entry->want_pure == WantPureTrue;
+}
+
+// fn_table_entry is populated if and only if there is a function definition for this prototype
 static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        TypeTableEntry *expected_type, AstNode *node, bool is_naked, bool is_cold)
+        TypeTableEntry *expected_type, AstNode *node, bool is_naked, bool is_cold, FnTableEntry *fn_table_entry)
 {
     assert(node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &node->data.fn_proto;
@@ -876,7 +906,6 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
     fn_type_id.is_extern = fn_proto->is_extern || (fn_proto->top_level_decl.visib_mod == VisibModExport);
     fn_type_id.is_naked = is_naked;
     fn_type_id.is_cold = is_cold;
-    fn_type_id.is_inline = fn_proto->is_inline;
     fn_type_id.param_count = fn_proto->params.length;
 
     if (fn_type_id.param_count > fn_type_id_prealloc_param_info_count) {
@@ -902,14 +931,6 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
                 buf_sprintf("return type '%s' not allowed", buf_ptr(&fn_type_id.return_type->name)));
             break;
         case TypeTableEntryIdMetaType:
-            if (!fn_proto->is_inline) {
-                fn_proto->skip = true;
-                add_node_error(g, fn_proto->return_type,
-                    buf_sprintf("function with return type '%s' must be declared inline",
-                        buf_ptr(&fn_type_id.return_type->name)));
-                return g->builtin_types.entry_invalid;
-            }
-            break;
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
@@ -984,7 +1005,33 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
         return g->builtin_types.entry_invalid;
     }
 
-    return get_fn_type(g, &fn_type_id);
+    if (fn_table_entry && fn_type_id.return_type->id == TypeTableEntryIdMetaType) {
+        fn_table_entry->want_pure = WantPureTrue;
+        fn_table_entry->want_pure_return_type = fn_proto->return_type;
+
+        ErrorMsg *err_msg = nullptr;
+        for (int i = 0; i < fn_proto->params.length; i += 1) {
+            AstNode *param_decl_node = fn_proto->params.at(i);
+            assert(param_decl_node->type == NodeTypeParamDecl);
+            if (!param_decl_node->data.param_decl.is_inline) {
+                if (!err_msg) {
+                    err_msg = add_node_error(g, fn_proto->return_type,
+                        buf_sprintf("function with return type '%s' must declare all parameters inline",
+                        buf_ptr(&fn_type_id.return_type->name)));
+                }
+                add_error_note(g, err_msg, param_decl_node,
+                    buf_sprintf("non-inline parameter here"));
+            }
+        }
+        if (err_msg) {
+            fn_proto->skip = true;
+            return g->builtin_types.entry_invalid;
+        }
+    }
+
+
+    bool gen_debug_info = !(fn_table_entry && fn_wants_full_static_eval(fn_table_entry));
+    return get_fn_type(g, &fn_type_id, gen_debug_info);
 }
 
 static Buf *resolve_const_expr_str(CodeGen *g, ImportTableEntry *import, BlockContext *context, AstNode **node) {
@@ -1110,10 +1157,12 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
                     bool enable;
                     bool ok = resolve_const_expr_bool(g, import, import->block_context,
                             &directive_node->data.directive.expr, &enable);
-                    if (!enable || !ok) {
+                    if (!ok || !enable) {
                         fn_table_entry->want_pure = WantPureFalse;
+                    } else if (ok && enable) {
+                        fn_table_entry->want_pure = WantPureTrue;
+                        fn_table_entry->want_pure_attr_node = directive_node->data.directive.expr;
                     }
-                    // TODO cause compile error if enable is true and impure fn
                 }
             } else {
                 add_node_error(g, directive_node,
@@ -1129,21 +1178,24 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
 
 
     TypeTableEntry *fn_type = analyze_fn_proto_type(g, import, containing_context, nullptr, node,
-            is_naked, is_cold);
+            is_naked, is_cold, fn_table_entry);
 
     fn_table_entry->type_entry = fn_type;
     fn_table_entry->is_test = is_test;
-    fn_table_entry->is_noinline = is_noinline;
 
     if (fn_type->id == TypeTableEntryIdInvalid) {
         fn_proto->skip = true;
         return;
     }
 
-    if (fn_proto->is_inline && fn_table_entry->is_noinline) {
+    if (fn_proto->is_inline && is_noinline) {
         add_node_error(g, node, buf_sprintf("function is both inline and noinline"));
         fn_proto->skip = true;
         return;
+    } else if (fn_proto->is_inline) {
+        fn_table_entry->fn_inline = FnInlineAlways;
+    } else if (is_noinline) {
+        fn_table_entry->fn_inline = FnInlineNever;
     }
 
 
@@ -1159,48 +1211,54 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         fn_table_entry->fn_def_node->data.fn_def.block_context = context;
     }
 
-    fn_table_entry->fn_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_type->data.fn.raw_type_ref);
+    if (!fn_wants_full_static_eval(fn_table_entry)) {
+        fn_table_entry->fn_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_type->data.fn.raw_type_ref);
 
-    if (fn_proto->is_inline) {
-        LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMAlwaysInlineAttribute);
-    }
-    if (fn_table_entry->is_noinline) {
-        LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoInlineAttribute);
-    }
-    if (fn_type->data.fn.fn_type_id.is_naked) {
-        LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNakedAttribute);
-    }
+        switch (fn_table_entry->fn_inline) {
+            case FnInlineAlways:
+                LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMAlwaysInlineAttribute);
+                break;
+            case FnInlineNever:
+                LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoInlineAttribute);
+                break;
+            case FnInlineAuto:
+                break;
+        }
+        if (fn_type->data.fn.fn_type_id.is_naked) {
+            LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNakedAttribute);
+        }
 
-    LLVMSetLinkage(fn_table_entry->fn_value, fn_table_entry->internal_linkage ?
-            LLVMInternalLinkage : LLVMExternalLinkage);
+        LLVMSetLinkage(fn_table_entry->fn_value, fn_table_entry->internal_linkage ?
+                LLVMInternalLinkage : LLVMExternalLinkage);
 
-    if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdUnreachable) {
-        LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoReturnAttribute);
-    }
-    LLVMSetFunctionCallConv(fn_table_entry->fn_value, fn_type->data.fn.calling_convention);
-    if (!fn_table_entry->is_extern) {
-        LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoUnwindAttribute);
-    }
-    if (!g->is_release_build && !fn_proto->is_inline) {
-        ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim", "true");
-        ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim-non-leaf", nullptr);
-    }
+        if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdUnreachable) {
+            LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoReturnAttribute);
+        }
+        LLVMSetFunctionCallConv(fn_table_entry->fn_value, fn_type->data.fn.calling_convention);
+        if (!fn_table_entry->is_extern) {
+            LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoUnwindAttribute);
+        }
+        if (!g->is_release_build && !fn_proto->is_inline) {
+            ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim", "true");
+            ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim-non-leaf", nullptr);
+        }
 
-    if (fn_table_entry->fn_def_node) {
-        // Add debug info.
-        unsigned line_number = node->line + 1;
-        unsigned scope_line = line_number;
-        bool is_definition = fn_table_entry->fn_def_node != nullptr;
-        unsigned flags = 0;
-        bool is_optimized = g->is_release_build;
-        LLVMZigDISubprogram *subprogram = LLVMZigCreateFunction(g->dbuilder,
-            containing_context->di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
-            import->di_file, line_number,
-            fn_type->di_type, fn_table_entry->internal_linkage,
-            is_definition, scope_line, flags, is_optimized, nullptr);
+        if (fn_table_entry->fn_def_node) {
+            // Add debug info.
+            unsigned line_number = node->line + 1;
+            unsigned scope_line = line_number;
+            bool is_definition = fn_table_entry->fn_def_node != nullptr;
+            unsigned flags = 0;
+            bool is_optimized = g->is_release_build;
+            LLVMZigDISubprogram *subprogram = LLVMZigCreateFunction(g->dbuilder,
+                containing_context->di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
+                import->di_file, line_number,
+                fn_type->di_type, fn_table_entry->internal_linkage,
+                is_definition, scope_line, flags, is_optimized, nullptr);
 
-        fn_table_entry->fn_def_node->data.fn_def.block_context->di_scope = LLVMZigSubprogramToScope(subprogram);
-        ZigLLVMFnSetSubprogram(fn_table_entry->fn_value, subprogram);
+            fn_table_entry->fn_def_node->data.fn_def.block_context->di_scope = LLVMZigSubprogramToScope(subprogram);
+            ZigLLVMFnSetSubprogram(fn_table_entry->fn_value, subprogram);
+        }
     }
 }
 
@@ -1609,29 +1667,31 @@ static void preview_fn_proto_instance(CodeGen *g, ImportTableEntry *import, AstN
 
 
     } else {
-        g->fn_protos.append(fn_table_entry);
-
-        if (fn_def_node) {
-            g->fn_defs.append(fn_table_entry);
-        }
-
-        bool is_main_fn = !is_generic_instance &&
-            !parent_decl && (import == g->root_import) &&
-            buf_eql_str(proto_name, "main");
-        if (is_main_fn) {
-            g->main_fn = fn_table_entry;
-        }
-
         resolve_function_proto(g, proto_node, fn_table_entry, import, containing_context);
 
-        if (is_main_fn && !g->link_libc) {
-            TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
-            TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
-            if (actual_return_type != err_void) {
-                AstNode *return_type_node = fn_table_entry->proto_node->data.fn_proto.return_type;
-                add_node_error(g, return_type_node,
-                        buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
-                            buf_ptr(&actual_return_type->name)));
+        if (!fn_wants_full_static_eval(fn_table_entry)) {
+            g->fn_protos.append(fn_table_entry);
+
+            if (fn_def_node) {
+                g->fn_defs.append(fn_table_entry);
+            }
+
+            bool is_main_fn = !is_generic_instance &&
+                !parent_decl && (import == g->root_import) &&
+                buf_eql_str(proto_name, "main");
+            if (is_main_fn) {
+                g->main_fn = fn_table_entry;
+            }
+
+            if (is_main_fn && !g->link_libc) {
+                TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
+                TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
+                if (actual_return_type != err_void) {
+                    AstNode *return_type_node = fn_table_entry->proto_node->data.fn_proto.return_type;
+                    add_node_error(g, return_type_node,
+                            buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
+                                buf_ptr(&actual_return_type->name)));
+                }
             }
         }
     }
@@ -3022,7 +3082,7 @@ static TypeTableEntry *analyze_var_ref(CodeGen *g, AstNode *source_node, Variabl
 {
     get_resolved_expr(source_node)->variable = var;
     if (!var_is_pure(var, context)) {
-        mark_impure_fn(context);
+        mark_impure_fn(g, context, source_node);
     }
     if (var->is_const && var->val_node) {
         ConstExprValue *other_const_val = &get_resolved_expr(var->val_node)->const_val;
@@ -3102,7 +3162,7 @@ static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import,
         return g->builtin_types.entry_invalid;
     }
 
-    mark_impure_fn(context);
+    mark_impure_fn(g, context, node);
     add_node_error(g, node, buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
     return g->builtin_types.entry_invalid;
 }
@@ -3943,7 +4003,8 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
 static TypeTableEntry *analyze_fn_proto_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    TypeTableEntry *type_entry = analyze_fn_proto_type(g, import, context, expected_type, node, false, false);
+    TypeTableEntry *type_entry = analyze_fn_proto_type(g, import, context, expected_type, node,
+            false, false, nullptr);
 
     if (type_entry->id == TypeTableEntryIdInvalid) {
         return type_entry;
@@ -4386,7 +4447,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         (wanted_type->data.structure.fields[0].type_entry->data.pointer.is_const ||
          !actual_type->data.structure.fields[0].type_entry->data.pointer.is_const))
     {
-        mark_impure_fn(context);
+        mark_impure_fn(g, context, node);
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpResizeSlice, true);
     }
 
@@ -4395,7 +4456,7 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         actual_type->id == TypeTableEntryIdArray &&
         is_u8(actual_type->data.array.child_type))
     {
-        mark_impure_fn(context);
+        mark_impure_fn(g, context, node);
         uint64_t child_type_size = type_size(g,
                 wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type);
         if (actual_type->data.array.len % child_type_size == 0) {
@@ -5276,11 +5337,11 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
         case BuiltinFnIdErrName:
             return analyze_err_name(g, import, context, node);
         case BuiltinFnIdBreakpoint:
-            mark_impure_fn(context);
+            mark_impure_fn(g, context, node);
             return g->builtin_types.entry_void;
         case BuiltinFnIdReturnAddress:
         case BuiltinFnIdFrameAddress:
-            mark_impure_fn(context);
+            mark_impure_fn(g, context, node);
             return builtin_fn->return_type;
         case BuiltinFnIdEmbedFile:
             return analyze_embed_file(g, import, context, node);
@@ -5388,6 +5449,9 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
     if (ok_invocation && fn_table_entry && fn_table_entry->is_pure && fn_table_entry->want_pure != WantPureFalse) {
         if (fn_table_entry->anal_state == FnAnalStateReady) {
             analyze_fn_body(g, fn_table_entry);
+            if (fn_table_entry->proto_node->data.fn_proto.skip) {
+                return g->builtin_types.entry_invalid;
+            }
         }
         if (all_args_const_expr) {
             if (fn_table_entry->is_pure && fn_table_entry->anal_state == FnAnalStateComplete) {
@@ -5401,7 +5465,10 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
     }
     if (!ok_invocation || !fn_table_entry || !fn_table_entry->is_pure || fn_table_entry->want_pure == WantPureFalse) {
         // calling an impure fn is impure
-        mark_impure_fn(context);
+        mark_impure_fn(g, context, node);
+        if (fn_table_entry && fn_table_entry->want_pure == WantPureTrue) {
+            return g->builtin_types.entry_invalid;
+        }
     }
 
     if (handle_is_ptr(return_type)) {
@@ -6298,7 +6365,7 @@ static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, 
 static TypeTableEntry *analyze_asm_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    mark_impure_fn(context);
+    mark_impure_fn(g, context, node);
 
     node->data.asm_expr.return_count = 0;
     TypeTableEntry *return_type = g->builtin_types.entry_void;

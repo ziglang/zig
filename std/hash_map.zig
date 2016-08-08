@@ -6,8 +6,8 @@ const Allocator = mem.Allocator;
 const want_modification_safety = !@compile_var("is_release");
 const debug_u32 = if (want_modification_safety) u32 else void;
 
-pub inline fn HashMap(inline K: type, inline V: type,
-                      inline hash: fn(key: K)->u32, inline eql: fn(a: K, b: K)->bool)
+pub fn HashMap(inline K: type, inline V: type, inline hash: fn(key: K)->u32,
+    inline eql: fn(a: K, b: K)->bool) -> type
 {
     SmallHashMap(K, V, hash, eql, 8)
 }
@@ -258,7 +258,7 @@ fn global_free(self: &Allocator, old_mem: []u8) {
 
 #attribute("test")
 fn basic_hash_map_test() {
-    var map: SmallHashMap(i32, i32, hash_i32, eql_i32, 4) = undefined;
+    var map: HashMap(i32, i32, hash_i32, eql_i32) = undefined;
     map.init(&global_allocator);
     defer map.deinit();
 

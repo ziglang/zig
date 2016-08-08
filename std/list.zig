@@ -2,7 +2,7 @@ const assert = @import("debug.zig").assert;
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 
-pub inline fn List(inline T: type) -> type {
+pub fn List(inline T: type) -> type {
     SmallList(T, 8)
 }
 
@@ -77,7 +77,7 @@ fn global_free(self: &Allocator, old_mem: []u8) {
 
 #attribute("test")
 fn basic_list_test() {
-    var list: SmallList(i32, 4) = undefined;
+    var list: List(i32) = undefined;
     list.init(&global_allocator);
     defer list.deinit();
 

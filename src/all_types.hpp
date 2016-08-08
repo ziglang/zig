@@ -843,7 +843,6 @@ struct FnTypeId {
     bool is_naked;
     bool is_cold;
     bool is_extern;
-    bool is_inline;
     FnTypeParamInfo prealloc_param_info[fn_type_id_prealloc_param_info_count];
 };
 
@@ -1055,6 +1054,12 @@ enum WantPure {
     WantPureTrue,
 };
 
+enum FnInline {
+    FnInlineAuto,
+    FnInlineAlways,
+    FnInlineNever,
+};
+
 struct FnTableEntry {
     LLVMValueRef fn_value;
     AstNode *proto_node;
@@ -1070,8 +1075,10 @@ struct FnTableEntry {
     bool is_test;
     bool is_pure;
     WantPure want_pure;
+    AstNode *want_pure_attr_node;
+    AstNode *want_pure_return_type;
     bool safety_off;
-    bool is_noinline;
+    FnInline fn_inline;
     BlockContext *parent_block_context;
     FnAnalState anal_state;
 

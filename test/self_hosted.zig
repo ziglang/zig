@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const str = std.str;
 const cstr = std.cstr;
 const other = @import("other.zig");
+const cases_return_type_type = @import("cases/return_type_type.zig");
 
 // normal comment
 /// this is a documentation comment

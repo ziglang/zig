@@ -600,7 +600,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     param_info->is_noalias = qt.isRestrictQualified();
                 }
 
-                return get_fn_type(c->codegen, &fn_type_id);
+                return get_fn_type(c->codegen, &fn_type_id, true);
             }
         case Type::Record:
             {
