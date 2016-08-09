@@ -3141,10 +3141,14 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
     }
 
     bool have_init_expr = false;
+    bool want_zeroes = false;
     if (var_decl->expr) {
         ConstExprValue *const_val = &get_resolved_expr(var_decl->expr)->const_val;
-        if (!const_val->ok || !const_val->undef) {
+        if (!const_val->ok || const_val->special == ConstValSpecialOther) {
             have_init_expr = true;
+        }
+        if (const_val->ok && const_val->special == ConstValSpecialZeroes) {
+            want_zeroes = true;
         }
     }
     if (have_init_expr) {
@@ -3204,7 +3208,8 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
                 }
             }
         }
-        if (!ignore_uninit && want_debug_safety(g, source_node)) {
+        bool want_safe = want_debug_safety(g, source_node);
+        if (!ignore_uninit && (want_safe || want_zeroes)) {
             TypeTableEntry *usize = g->builtin_types.entry_usize;
             uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, variable->type->type_ref);
             uint64_t align_bytes = get_memcpy_align(g, variable->type);
@@ -3212,7 +3217,7 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
             // memset uninitialized memory to 0xa
             set_debug_source_node(g, source_node);
             LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-            LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
+            LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), want_zeroes ? 0x00 : 0xaa, false);
             LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, variable->value_ref, ptr_u8, "");
             LLVMValueRef byte_count = LLVMConstInt(usize->type_ref, size_bytes, false);
             LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(), align_bytes, false);
@@ -3535,6 +3540,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeCharLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
+        case NodeTypeZeroesLiteral:
         case NodeTypeErrorType:
         case NodeTypeTypeLiteral:
         case NodeTypeArrayType:
@@ -3562,8 +3568,14 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val) {
     assert(const_val->ok);
 
-    if (const_val->undef) {
-        return LLVMGetUndef(type_entry->type_ref);
+    switch (const_val->special) {
+        case ConstValSpecialUndef:
+            return LLVMGetUndef(type_entry->type_ref);
+        case ConstValSpecialZeroes:
+            return LLVMConstNull(type_entry->type_ref);
+        case ConstValSpecialOther:
+            break;
+
     }
 
     switch (type_entry->id) {

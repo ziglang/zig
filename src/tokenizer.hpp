@@ -40,6 +40,7 @@ enum TokenId {
     TokenIdKeywordNoAlias,
     TokenIdKeywordSwitch,
     TokenIdKeywordUndefined,
+    TokenIdKeywordZeroes,
     TokenIdKeywordError,
     TokenIdKeywordType,
     TokenIdKeywordInline,

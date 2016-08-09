@@ -4,6 +4,7 @@ const str = std.str;
 const cstr = std.cstr;
 const other = @import("other.zig");
 const cases_return_type_type = @import("cases/return_type_type.zig");
+const test_zeroes = @import("cases/zeroes.zig");
 
 // normal comment
 /// this is a documentation comment

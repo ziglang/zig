@@ -151,7 +151,7 @@ GotoExpression = "goto" Symbol
 
 GroupedExpression = "(" Expression ")"
 
-KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type"
+KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "zeroes" | "error" | "type"
 ```
 
 ## Operator Precedence

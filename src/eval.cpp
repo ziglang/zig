@@ -545,7 +545,7 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
         ConstExprValue *const_val, TypeTableEntry *new_type)
 {
     const_val->depends_on_compile_var = other_val->depends_on_compile_var;
-    const_val->undef = other_val->undef;
+    const_val->special = other_val->special;
 
     assert(other_val != const_val);
     switch (cast_op) {
@@ -572,7 +572,7 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
                     const_val->data.x_ptr.ptr = ptr_val;
                     const_val->data.x_ptr.len = 1;
                     const_val->ok = true;
-                    const_val->undef = other_val->undef;
+                    const_val->special = other_val->special;
                     const_val->depends_on_compile_var = other_val->depends_on_compile_var;
                 } else {
                     zig_panic("TODO");
@@ -608,7 +608,7 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
 
                         const_val->data.x_maybe = ptr_parent;
                         const_val->ok = true;
-                        const_val->undef = other_val->undef;
+                        const_val->special = other_val->special;
                         const_val->depends_on_compile_var = other_val->depends_on_compile_var;
                     } else {
                         zig_panic("TODO");
@@ -1277,6 +1277,7 @@ static bool eval_expr(EvalFn *ef, AstNode *node, ConstExprValue *out) {
         case NodeTypeSliceExpr:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
+        case NodeTypeZeroesLiteral:
         case NodeTypeIfVarExpr:
         case NodeTypeSwitchExpr:
         case NodeTypeSwitchProng:

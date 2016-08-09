@@ -90,6 +90,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
+        case NodeTypeZeroesLiteral:
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
         case NodeTypeLabel:
@@ -1849,6 +1850,7 @@ static void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only)
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
+        case NodeTypeZeroesLiteral:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfBoolExpr:
@@ -3937,7 +3939,19 @@ static TypeTableEntry *analyze_undefined_literal_expr(CodeGen *g, ImportTableEnt
     ConstExprValue *const_val = &expr->const_val;
 
     const_val->ok = true;
-    const_val->undef = true;
+    const_val->special = ConstValSpecialUndef;
+
+    return expected_type ? expected_type : g->builtin_types.entry_undef;
+}
+
+static TypeTableEntry *analyze_zeroes_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    Expr *expr = get_resolved_expr(node);
+    ConstExprValue *const_val = &expr->const_val;
+
+    const_val->ok = true;
+    const_val->special = ConstValSpecialZeroes;
 
     return expected_type ? expected_type : g->builtin_types.entry_undef;
 }
@@ -4252,7 +4266,7 @@ static TypeTableEntry *analyze_if_bool_expr(CodeGen *g, ImportTableEntry *import
     }
 
     ConstExprValue *cond_val = &get_resolved_expr(*cond)->const_val;
-    if (cond_val->undef) {
+    if (cond_val->special == ConstValSpecialUndef) {
         add_node_error(g, first_executing_node(*cond), buf_sprintf("branch on undefined value"));
         return cond_type;
     }
@@ -6504,6 +6518,9 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
         case NodeTypeUndefinedLiteral:
             return_type = analyze_undefined_literal_expr(g, import, context, expected_type, node);
             break;
+        case NodeTypeZeroesLiteral:
+            return_type = analyze_zeroes_literal_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeSymbol:
             return_type = analyze_symbol_expr(g, import, context, expected_type, node, pointer_only);
             break;
@@ -6771,6 +6788,7 @@ static void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *conte
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
+        case NodeTypeZeroesLiteral:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfBoolExpr:
@@ -7029,6 +7047,8 @@ Expr *get_resolved_expr(AstNode *node) {
             return &node->data.null_literal.resolved_expr;
         case NodeTypeUndefinedLiteral:
             return &node->data.undefined_literal.resolved_expr;
+        case NodeTypeZeroesLiteral:
+            return &node->data.zeroes_literal.resolved_expr;
         case NodeTypeGoto:
             return &node->data.goto_expr.resolved_expr;
         case NodeTypeBreak:
@@ -7111,6 +7131,7 @@ static TopLevelDecl *get_as_top_level_decl(AstNode *node) {
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
+        case NodeTypeZeroesLiteral:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:

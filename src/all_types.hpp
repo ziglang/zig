@@ -62,11 +62,18 @@ struct ConstErrValue {
     ConstExprValue *payload;
 };
 
-struct ConstExprValue {
-    bool ok; // true if constant expression evalution worked
-    bool depends_on_compile_var;
-    bool undef;
+enum ConstValSpecial {
+    ConstValSpecialOther,
+    ConstValSpecialUndef,
+    ConstValSpecialZeroes,
+};
 
+struct ConstExprValue {
+    bool ok;
+    bool depends_on_compile_var;
+    ConstValSpecial special;
+
+    // populated if val_type == ConstValTypeOk
     union {
         BigNum x_bignum;
         bool x_bool;
@@ -167,6 +174,7 @@ enum NodeType {
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
     NodeTypeUndefinedLiteral,
+    NodeTypeZeroesLiteral,
     NodeTypeIfBoolExpr,
     NodeTypeIfVarExpr,
     NodeTypeWhileExpr,
@@ -694,6 +702,12 @@ struct AstNodeUndefinedLiteral {
     Expr resolved_expr;
 };
 
+struct AstNodeZeroesLiteral {
+    // populated by semantic analyzer
+    StructValExprCodeGen resolved_struct_val_expr;
+    Expr resolved_expr;
+};
+
 struct AstNodeSymbolExpr {
     Buf *symbol;
 
@@ -791,6 +805,7 @@ struct AstNode {
         AstNodeStructValueField struct_val_field;
         AstNodeNullLiteral null_literal;
         AstNodeUndefinedLiteral undefined_literal;
+        AstNodeZeroesLiteral zeroes_literal;
         AstNodeSymbolExpr symbol_expr;
         AstNodeBoolLiteral bool_literal;
         AstNodeBreakExpr break_expr;
