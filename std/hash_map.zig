@@ -1,4 +1,5 @@
-const assert = @import("debug.zig").assert;
+const debug = @import("debug.zig");
+const assert = debug.assert;
 const math = @import("math.zig");
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
@@ -9,7 +10,7 @@ const debug_u32 = if (want_modification_safety) u32 else void;
 pub fn HashMap(inline K: type, inline V: type, inline hash: fn(key: K)->u32,
     inline eql: fn(a: K, b: K)->bool) -> type
 {
-    SmallHashMap(K, V, hash, eql, 8)
+    SmallHashMap(K, V, hash, eql, @sizeof(usize))
 }
 
 pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)->bool, STATIC_SIZE: usize) {
@@ -63,9 +64,8 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
         hm.allocator = allocator;
         hm.size = 0;
         hm.max_distance_from_start_index = 0;
-        for (hm.entries) |*entry| {
-            entry.used = false;
-        }
+        hm.prealloc_entries = zeroes; // sets used to false for all entries
+        hm.modification_count = zeroes;
     }
 
     pub fn deinit(hm: &Self) {
@@ -162,7 +162,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
 
     fn increment_modification_count(hm: &Self) {
         if (want_modification_safety) {
-            hm.modification_count += 1;
+            hm.modification_count +%= 1;
         }
     }
 
@@ -231,35 +231,10 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
     }
 }
 
-var global_allocator = Allocator {
-    .alloc_fn = global_alloc,
-    .realloc_fn = global_realloc,
-    .free_fn = global_free,
-    .context = null,
-};
-
-var some_mem: [200]u8 = undefined;
-var some_mem_index: usize = 0;
-
-fn global_alloc(self: &Allocator, n: usize) -> %[]u8 {
-    const result = some_mem[some_mem_index ... some_mem_index + n];
-    some_mem_index += n;
-    return result;
-}
-
-fn global_realloc(self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8 {
-    const result = %return global_alloc(self, new_size);
-    @memcpy(result.ptr, old_mem.ptr, old_mem.len);
-    return result;
-}
-
-fn global_free(self: &Allocator, old_mem: []u8) {
-}
-
 #attribute("test")
 fn basic_hash_map_test() {
     var map: HashMap(i32, i32, hash_i32, eql_i32) = undefined;
-    map.init(&global_allocator);
+    map.init(&debug.global_allocator);
     defer map.deinit();
 
     %%map.put(1, 11);

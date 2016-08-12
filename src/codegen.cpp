@@ -1243,6 +1243,11 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
 
     AstNode *struct_expr_node = node->data.field_access_expr.struct_expr;
 
+    *out_type_entry = node->data.field_access_expr.type_struct_field->type_entry;
+    if (!type_has_bits(*out_type_entry)) {
+        return nullptr;
+    }
+
     LLVMValueRef struct_ptr;
     if (struct_expr_node->type == NodeTypeSymbol) {
         VariableTableEntry *var = get_resolved_expr(struct_expr_node)->variable;
@@ -1271,8 +1276,6 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
 
     int gen_field_index = node->data.field_access_expr.type_struct_field->gen_index;
     assert(gen_field_index >= 0);
-
-    *out_type_entry = node->data.field_access_expr.type_struct_field->type_entry;
 
     set_debug_source_node(g, node);
     return LLVMBuildStructGEP(g->builder, struct_ptr, gen_field_index, "");
@@ -1490,7 +1493,14 @@ static LLVMValueRef gen_lvalue(CodeGen *g, AstNode *expr_node, AstNode *node,
             zig_unreachable();
         }
     } else if (node->type == NodeTypeFieldAccessExpr) {
-        target_ref = gen_field_ptr(g, node, out_type_entry);
+        AstNode *struct_expr_node = node->data.field_access_expr.struct_expr;
+        TypeTableEntry *struct_type = get_expr_type(struct_expr_node);
+        if (struct_type->id == TypeTableEntryIdNamespace) {
+            target_ref = gen_field_access_expr(g, node, true);
+            *out_type_entry = get_expr_type(node);
+        } else {
+            target_ref = gen_field_ptr(g, node, out_type_entry);
+        }
     } else if (node->type == NodeTypePrefixOpExpr) {
         assert(node->data.prefix_op_expr.prefix_op == PrefixOpDereference);
         AstNode *target_expr = node->data.prefix_op_expr.primary_expr;

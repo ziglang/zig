@@ -1,22 +1,25 @@
-const assert = @import("debug.zig").assert;
+const debug = @import("debug.zig");
+const assert = debug.assert;
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 
 pub fn List(inline T: type) -> type {
-    SmallList(T, 8)
+    SmallList(T, @sizeof(usize))
 }
 
+// TODO: make sure that setting STATIC_SIZE to 0 codegens to the same code
+// as if this were programmed without STATIC_SIZE at all.
 pub struct SmallList(T: type, STATIC_SIZE: usize) {
     const Self = SmallList(T, STATIC_SIZE);
 
     items: []T,
-    length: usize,
+    len: usize,
     prealloc_items: [STATIC_SIZE]T,
     allocator: &Allocator,
 
     pub fn init(l: &Self, allocator: &Allocator) {
         l.items = l.prealloc_items[0...];
-        l.length = 0;
+        l.len = 0;
         l.allocator = allocator;
     }
 
@@ -27,10 +30,15 @@ pub struct SmallList(T: type, STATIC_SIZE: usize) {
     }
 
     pub fn append(l: &Self, item: T) -> %void {
-        const new_length = l.length + 1;
+        const new_length = l.len + 1;
         %return l.ensure_capacity(new_length);
-        l.items[l.length] = item;
-        l.length = new_length;
+        l.items[l.len] = item;
+        l.len = new_length;
+    }
+
+    pub fn resize(l: &Self, new_len: usize) -> %void {
+        %return l.ensure_capacity(new_len);
+        l.len = new_len;
     }
 
     pub fn ensure_capacity(l: &Self, new_capacity: usize) -> %void {
@@ -50,35 +58,10 @@ pub struct SmallList(T: type, STATIC_SIZE: usize) {
     }
 }
 
-var global_allocator = Allocator {
-    .alloc_fn = global_alloc,
-    .realloc_fn = global_realloc,
-    .free_fn = global_free,
-    .context = null,
-};
-
-var some_mem: [200]u8 = undefined;
-var some_mem_index: usize = 0;
-
-fn global_alloc(self: &Allocator, n: usize) -> %[]u8 {
-    const result = some_mem[some_mem_index ... some_mem_index + n];
-    some_mem_index += n;
-    return result;
-}
-
-fn global_realloc(self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8 {
-    const result = %return global_alloc(self, new_size);
-    @memcpy(result.ptr, old_mem.ptr, old_mem.len);
-    return result;
-}
-
-fn global_free(self: &Allocator, old_mem: []u8) {
-}
-
 #attribute("test")
 fn basic_list_test() {
     var list: List(i32) = undefined;
-    list.init(&global_allocator);
+    list.init(&debug.global_allocator);
     defer list.deinit();
 
     {var i: usize = 0; while (i < 10; i += 1) {

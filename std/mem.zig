@@ -3,6 +3,8 @@ const math = @import("math.zig");
 const os = @import("os.zig");
 const io = @import("io.zig");
 
+pub const Cmp = math.Cmp;
+
 pub error NoMem;
 
 pub type Context = u8;
@@ -40,7 +42,20 @@ pub struct Allocator {
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
-pub fn copy(inline T: type, dest: []T, source: []T) {
+pub fn copy(inline T: type, dest: []T, source: []const T) {
     assert(dest.len >= source.len);
     @memcpy(dest.ptr, source.ptr, @sizeof(T) * source.len);
+}
+
+/// Return < 0, == 0, or > 0 if memory a is less than, equal to, or greater than,
+/// memory b, respectively.
+pub fn cmp(inline T: type, a: []const T, b: []const T) -> Cmp {
+    const n = math.min(usize, a.len, b.len);
+    var i: usize = 0;
+    while (i < n; i += 1) {
+        if (a[i] == b[i]) continue;
+        return if (a[i] > b[i]) Cmp.Greater else if (a[i] < b[i]) Cmp.Less else Cmp.Equal;
+    }
+
+    return if (a.len > b.len) Cmp.Greater else if (a.len < b.len) Cmp.Less else Cmp.Equal;
 }

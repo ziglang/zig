@@ -2688,6 +2688,7 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
             return node->data.field_access_expr.type_struct_field->type_entry;
         } else if (wrapped_in_fn_call) {
             BlockContext *container_block_context = get_container_block_context(bare_struct_type);
+            assert(container_block_context);
             auto entry = container_block_context->decl_table.maybe_get(field_name);
             AstNode *fn_decl_node = entry ? entry->value : nullptr;
             if (fn_decl_node && fn_decl_node->type == NodeTypeFnProto) {

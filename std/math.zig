@@ -1,3 +1,9 @@
+pub enum Cmp {
+    Equal,
+    Greater,
+    Less,
+}
+
 pub fn f64_from_bits(bits: u64) -> f64 {
     *(&f64)(&bits)
 }
