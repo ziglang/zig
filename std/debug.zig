@@ -10,7 +10,7 @@ pub fn printStackTrace() {
     while (true) {
         const fp = maybe_fp ?? break;
         const return_address = *(&const usize)(usize(fp) + @sizeOf(usize));
-        %%io.stderr.print_u64(return_address);
+        %%io.stderr.printInt(usize, return_address);
         %%io.stderr.printf("\n");
         maybe_fp = *(&const ?&const u8)(fp);
     }

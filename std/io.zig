@@ -94,23 +94,13 @@ pub struct OutStream {
         return byte_count;
     }
 
-    pub fn print_u64(os: &OutStream, x: u64) -> %usize {
+    pub fn printInt(os: &OutStream, inline T: type, x: T) -> %usize {
+        // TODO replace max_u64_base10_digits with math.log10(math.pow(2, @sizeOf(T)))
         if (os.index + max_u64_base10_digits >= os.buffer.len) {
             %return os.flush();
         }
-        const amt_printed = bufPrintUnsigned(u64, os.buffer[os.index...], x);
+        const amt_printed = bufPrintInt(T, os.buffer[os.index...], x);
         os.index += amt_printed;
-
-        return amt_printed;
-    }
-
-    pub fn print_i64(os: &OutStream, x: i64) -> %usize {
-        if (os.index + max_u64_base10_digits >= os.buffer.len) {
-            %return os.flush();
-        }
-        const amt_printed = bufPrintSigned(i64, os.buffer[os.index...], x);
-        os.index += amt_printed;
-
         return amt_printed;
     }
 
@@ -234,7 +224,11 @@ fn charToDigit(c: u8, radix: u8) -> %u8 {
     return if (value >= radix) error.InvalidChar else value;
 }
 
-pub fn bufPrintSigned(inline T: type, out_buf: []u8, x: T) -> usize {
+pub fn bufPrintInt(inline T: type, out_buf: []u8, x: T) -> usize {
+    if (T.is_signed) bufPrintSigned(T, out_buf, x) else bufPrintUnsigned(T, out_buf, x)
+}
+
+fn bufPrintSigned(inline T: type, out_buf: []u8, x: T) -> usize {
     const uint = @intType(false, T.bit_count);
     if (x < 0) {
         out_buf[0] = '-';
@@ -244,7 +238,7 @@ pub fn bufPrintSigned(inline T: type, out_buf: []u8, x: T) -> usize {
     }
 }
 
-pub fn bufPrintUnsigned(inline T: type, out_buf: []u8, x: T) -> usize {
+fn bufPrintUnsigned(inline T: type, out_buf: []u8, x: T) -> usize {
     var buf: [max_u64_base10_digits]u8 = undefined;
     var a = x;
     var index: usize = buf.len;

@@ -462,20 +462,20 @@ const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     const array = []u8 {9, 8, 7, 6};
     for (array) |item| {
-        %%io.stdout.print_u64(item);
+        %%io.stdout.printInt(@typeOf(item), item);
         %%io.stdout.printf("\n");
     }
     for (array) |item, index| {
-        %%io.stdout.print_u64(index);
+        %%io.stdout.printInt(@typeOf(index), index);
         %%io.stdout.printf("\n");
     }
     const unknown_size: []u8 = array;
     for (unknown_size) |item| {
-        %%io.stdout.print_u64(item);
+        %%io.stdout.printInt(@typeOf(item), item);
         %%io.stdout.printf("\n");
     }
     for (unknown_size) |item, index| {
-        %%io.stdout.print_u64(index);
+        %%io.stdout.printInt(@typeOf(index), index);
         %%io.stdout.printf("\n");
     }
 }
