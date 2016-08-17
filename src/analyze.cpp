@@ -2686,7 +2686,7 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
         node->data.field_access_expr.type_struct_field = find_struct_type_field(bare_struct_type, field_name);
         if (node->data.field_access_expr.type_struct_field) {
             return node->data.field_access_expr.type_struct_field->type_entry;
-        } else if (wrapped_in_fn_call) {
+        } else if (wrapped_in_fn_call && !is_slice(bare_struct_type)) {
             BlockContext *container_block_context = get_container_block_context(bare_struct_type);
             assert(container_block_context);
             auto entry = container_block_context->decl_table.maybe_get(field_name);

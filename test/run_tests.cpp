@@ -1451,6 +1451,12 @@ fn function_with_return_type_type() {
             ".tmp_source.zig:3:5: error: failed to evaluate function at compile time",
             ".tmp_source.zig:4:5: note: unable to evaluate this expression at compile time",
             ".tmp_source.zig:3:32: note: required to be compile-time function because of return type 'type'");
+
+    add_compile_fail_case("bogus method call on slice", R"SOURCE(
+fn f(m: []const u8) {
+    m.copy(u8, self.list.items[old_len...], m);
+}
+    )SOURCE", 1, ".tmp_source.zig:3:6: error: no member named 'copy' in '[]const u8'");
 }
 
 //////////////////////////////////////////////////////////////////////////////
