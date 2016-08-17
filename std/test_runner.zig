@@ -7,19 +7,19 @@ struct TestFn {
 
 extern var zig_test_fn_list: []TestFn;
 
-pub fn run_tests() -> %void {
-    for (zig_test_fn_list) |test_fn, i| {
+pub fn runTests() -> %void {
+    for (zig_test_fn_list) |testFn, i| {
         // TODO: print var args
         %%io.stderr.write("Test ");
         %%io.stderr.print_u64(i + 1);
         %%io.stderr.write("/");
         %%io.stderr.print_u64(zig_test_fn_list.len);
         %%io.stderr.write(" ");
-        %%io.stderr.write(test_fn.name);
+        %%io.stderr.write(testFn.name);
         %%io.stderr.write("...");
         %%io.stderr.flush();
 
-        test_fn.func();
+        testFn.func();
 
 
         %%io.stderr.write("OK\n");

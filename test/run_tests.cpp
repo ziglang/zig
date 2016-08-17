@@ -202,7 +202,7 @@ static TestCase *add_parseh_case(const char *case_name, const char *source, int 
 
 static void add_compiling_test_cases(void) {
     add_simple_case_libc("hello world with libc", R"SOURCE(
-const c = @c_import(@c_include("stdio.h"));
+const c = @cImport(@cInclude("stdio.h"));
 export fn main(argc: c_int, argv: &&u8) -> c_int {
     c.puts(c"Hello, world!");
     return 0;
@@ -215,12 +215,12 @@ use @import("std").io;
 use @import("foo.zig");
 
 pub fn main(args: [][]u8) -> %void {
-    private_function();
+    privateFunction();
     %%stdout.printf("OK 2\n");
 }
 
-fn private_function() {
-    print_text();
+fn privateFunction() {
+    printText();
 }
         )SOURCE", "OK 1\nOK 2\n");
 
@@ -229,12 +229,12 @@ use @import("std").io;
 
 // purposefully conflicting function with main.zig
 // but it's private so it should be OK
-fn private_function() {
+fn privateFunction() {
     %%stdout.printf("OK 1\n");
 }
 
-pub fn print_text() {
-    private_function();
+pub fn printText() {
+    privateFunction();
 }
         )SOURCE");
     }
@@ -316,7 +316,7 @@ pub fn main(args: [][]u8) -> %void {
 
 
     add_simple_case_libc("number literals", R"SOURCE(
-const c = @c_import(@c_include("stdio.h"));
+const c = @cImport(@cInclude("stdio.h"));
 
 export fn main(argc: c_int, argv: &&u8) -> c_int {
     c.printf(c"\n");
@@ -444,12 +444,12 @@ export fn main(argc: c_int, argv: &&u8) -> c_int {
     add_simple_case("order-independent declarations", R"SOURCE(
 const io = @import("std").io;
 const z = io.stdin_fileno;
-const x : @typeof(y) = 1234;
+const x : @typeOf(y) = 1234;
 const y : u16 = 5678;
 pub fn main(args: [][]u8) -> %void {
     var x_local : i32 = print_ok(x);
 }
-fn print_ok(val: @typeof(x)) -> @typeof(foo) {
+fn print_ok(val: @typeOf(x)) -> @typeOf(foo) {
     %%io.stdout.printf("OK\n");
     return 0;
 }
@@ -482,7 +482,7 @@ pub fn main(args: [][]u8) -> %void {
     )SOURCE", "9\n8\n7\n6\n0\n1\n2\n3\n9\n8\n7\n6\n0\n1\n2\n3\n");
 
     add_simple_case_libc("expose function pointer to C land", R"SOURCE(
-const c = @c_import(@c_include("stdlib.h"));
+const c = @cImport(@cInclude("stdlib.h"));
 
 export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
     const a_int = (&i32)(a ?? unreachable{});
@@ -499,7 +499,7 @@ export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
 export fn main(args: c_int, argv: &&u8) -> c_int {
     var array = []u32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
 
-    c.qsort((&c_void)(&array[0]), c_ulong(array.len), @sizeof(i32), compare_fn);
+    c.qsort((&c_void)(&array[0]), c_ulong(array.len), @sizeOf(i32), compare_fn);
 
     for (array) |item, i| {
         if (item != i) {
@@ -514,7 +514,7 @@ export fn main(args: c_int, argv: &&u8) -> c_int {
 
 
     add_simple_case_libc("casting between float and integer types", R"SOURCE(
-const c = @c_import(@c_include("stdio.h"));
+const c = @cImport(@cInclude("stdio.h"));
 export fn main(argc: c_int, argv: &&u8) -> c_int {
     const small: f32 = 3.25;
     const x: f64 = small;
@@ -654,8 +654,8 @@ fn its_gonna_pass() -> %void { }
 
 
     {
-        TestCase *tc = add_simple_case("@embed_file", R"SOURCE(
-const foo_txt = @embed_file("foo.txt");
+        TestCase *tc = add_simple_case("@embedFile", R"SOURCE(
+const foo_txt = @embedFile("foo.txt");
 const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
@@ -956,8 +956,8 @@ fn f() -> @bogus(foo) {
     )SOURCE", 1, ".tmp_source.zig:2:11: error: invalid builtin function: 'bogus'");
 
     add_compile_fail_case("top level decl dependency loop", R"SOURCE(
-const a : @typeof(b) = 0;
-const b : @typeof(a) = 0;
+const a : @typeOf(b) = 0;
+const b : @typeOf(a) = 0;
     )SOURCE", 1, ".tmp_source.zig:2:1: error: 'a' depends on itself");
 
     add_compile_fail_case("noalias on non pointer param", R"SOURCE(
@@ -1012,8 +1012,8 @@ fn f(s: [10]u8) -> []u8 {
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: array concatenation requires constant expression");
 
-    add_compile_fail_case("c_import with bogus include", R"SOURCE(
-const c = @c_import(@c_include("bogus.h"));
+    add_compile_fail_case("@cImport with bogus include", R"SOURCE(
+const c = @cImport(@cInclude("bogus.h"));
     )SOURCE", 2, ".tmp_source.zig:2:11: error: C import failed",
                  ".h:1:10: note: 'bogus.h' file not found");
 
@@ -1022,12 +1022,12 @@ const x = 3;
 const y = &x;
     )SOURCE", 1, ".tmp_source.zig:3:12: error: unable to get address of type '(integer literal)'");
 
-    add_compile_fail_case("@typeof number literal", R"SOURCE(
+    add_compile_fail_case("@typeOf number literal", R"SOURCE(
 const x = 3;
 struct Foo {
-    index: @typeof(x),
+    index: @typeOf(x),
 }
-    )SOURCE", 1, ".tmp_source.zig:4:20: error: type '(integer literal)' not eligible for @typeof");
+    )SOURCE", 1, ".tmp_source.zig:4:20: error: type '(integer literal)' not eligible for @typeOf");
 
     add_compile_fail_case("integer overflow error", R"SOURCE(
 const x : u8 = 300;
@@ -1050,7 +1050,7 @@ struct Foo {
     }
 }
 
-const member_fn_type = @typeof(Foo.member_a);
+const member_fn_type = @typeOf(Foo.member_a);
 const members = []member_fn_type {
     Foo.member_a,
     Foo.member_b,
@@ -1101,15 +1101,15 @@ fn func() -> bogus {}
 
 
     add_compile_fail_case("bogus compile var", R"SOURCE(
-const x = @compile_var("bogus");
-    )SOURCE", 1, ".tmp_source.zig:2:24: error: unrecognized compile variable: 'bogus'");
+const x = @compileVar("bogus");
+    )SOURCE", 1, ".tmp_source.zig:2:23: error: unrecognized compile variable: 'bogus'");
 
 
-    add_compile_fail_case("@const_eval", R"SOURCE(
+    add_compile_fail_case("@constEval", R"SOURCE(
 fn a(x: i32) {
-    const y = @const_eval(x);
+    const y = @constEval(x);
 }
-    )SOURCE", 1, ".tmp_source.zig:3:27: error: unable to evaluate constant expression");
+    )SOURCE", 1, ".tmp_source.zig:3:26: error: unable to evaluate constant expression");
 
     add_compile_fail_case("non constant expression in array size outside function", R"SOURCE(
 struct Foo {
@@ -1245,8 +1245,8 @@ fn fibbonaci(x: i32) -> i32 {
             ".tmp_source.zig:2:37: note: called from here",
             ".tmp_source.zig:4:40: note: quota exceeded here");
 
-    add_compile_fail_case("@embed_file with bogus file", R"SOURCE(
-const resource = @embed_file("bogus.txt");
+    add_compile_fail_case("@embedFile with bogus file", R"SOURCE(
+const resource = @embedFile("bogus.txt");
     )SOURCE", 1, ".tmp_source.zig:2:18: error: unable to find './bogus.txt'");
 
 
@@ -1555,23 +1555,23 @@ fn div0(a: i32, b: i32) -> i32 {
     add_debug_safety_case("exact division failure", R"SOURCE(
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    const x = div_exact(10, 3);
+    const x = divExact(10, 3);
     if (x == 0) return error.Whatever;
 }
 #static_eval_enable(false)
-fn div_exact(a: i32, b: i32) -> i32 {
-    @div_exact(a, b)
+fn divExact(a: i32, b: i32) -> i32 {
+    @divExact(a, b)
 }
     )SOURCE");
 
     add_debug_safety_case("cast []u8 to bigger slice of wrong size", R"SOURCE(
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
-    const x = widen_slice([]u8{1, 2, 3, 4, 5});
+    const x = widenSlice([]u8{1, 2, 3, 4, 5});
     if (x.len == 0) return error.Whatever;
 }
 #static_eval_enable(false)
-fn widen_slice(slice: []u8) -> []i32 {
+fn widenSlice(slice: []u8) -> []i32 {
     ([]i32)(slice)
 }
     )SOURCE");

@@ -9,7 +9,7 @@ pub const list = @import("list.zig");
 pub const hash_map = @import("hash_map.zig");
 pub const mem = @import("mem.zig");
 pub const debug = @import("debug.zig");
-pub const linux = switch(@compile_var("os")) {
+pub const linux = switch(@compileVar("os")) {
     linux => @import("linux.zig"),
     else => null_import,
 };

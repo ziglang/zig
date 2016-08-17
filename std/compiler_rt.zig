@@ -5,7 +5,7 @@ const si_int = c_int;
 const su_int = c_uint;
 
 const udwords = [2]su_int;
-const low = if (@compile_var("is_big_endian")) 1 else 0;
+const low = if (@compileVar("is_big_endian")) 1 else 0;
 const high = 1 - low;
 
 #debug_safety(false)
@@ -20,8 +20,8 @@ fn du_int_to_udwords(x: du_int) -> udwords {
 
 #debug_safety(false)
 export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
-    const n_uword_bits = @sizeof(su_int) * CHAR_BIT;
-    const n_udword_bits = @sizeof(du_int) * CHAR_BIT;
+    const n_uword_bits = @sizeOf(su_int) * CHAR_BIT;
+    const n_udword_bits = @sizeOf(du_int) * CHAR_BIT;
     var n = du_int_to_udwords(a);
     var d = du_int_to_udwords(b);
     var q: udwords = undefined;
@@ -79,7 +79,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
                 r[high] = n[high] & (d[high] - 1);
                 *rem = *(&du_int)(&r[0]);
             }
-            return n[high] >> @ctz(@typeof(d[high]), d[high]);
+            return n[high] >> @ctz(@typeOf(d[high]), d[high]);
         }
         // K K
         // ---
@@ -114,7 +114,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
                 if (d[low] == 1) {
                     return *(&du_int)(&n[0]);
                 }
-                sr = @ctz(@typeof(d[low]), d[low]);
+                sr = @ctz(@typeOf(d[low]), d[low]);
                 q[high] = n[high] >> sr;
                 q[low] = (n[high] << (n_uword_bits - sr)) | (n[low] >> sr);
                 return *(&du_int)(&q[0]);

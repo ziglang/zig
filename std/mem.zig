@@ -9,34 +9,34 @@ pub error NoMem;
 
 pub type Context = u8;
 pub struct Allocator {
-    alloc_fn: fn (self: &Allocator, n: usize) -> %[]u8,
-    realloc_fn: fn (self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8,
-    free_fn: fn (self: &Allocator, mem: []u8),
+    allocFn: fn (self: &Allocator, n: usize) -> %[]u8,
+    reallocFn: fn (self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8,
+    freeFn: fn (self: &Allocator, mem: []u8),
     context: ?&Context,
 
     /// Aborts the program if an allocation fails.
-    fn checked_alloc(self: &Allocator, inline T: type, n: usize) -> []T {
+    fn checkedAlloc(self: &Allocator, inline T: type, n: usize) -> []T {
         alloc(self, T, n) %% |err| {
             // TODO var args printf
             %%io.stderr.write("allocation failure: ");
-            %%io.stderr.write(@err_name(err));
+            %%io.stderr.write(@errName(err));
             %%io.stderr.printf("\n");
             os.abort()
         }
     }
 
     fn alloc(self: &Allocator, inline T: type, n: usize) -> %[]T {
-        const byte_count = %return math.mul_overflow(usize, @sizeof(T), n);
-        ([]T)(%return self.alloc_fn(self, byte_count))
+        const byte_count = %return math.mulOverflow(usize, @sizeOf(T), n);
+        ([]T)(%return self.allocFn(self, byte_count))
     }
 
     fn realloc(self: &Allocator, inline T: type, old_mem: []T, n: usize) -> %[]T {
-        const byte_count = %return math.mul_overflow(usize, @sizeof(T), n);
-        ([]T)(%return self.realloc_fn(self, ([]u8)(old_mem), byte_count))
+        const byte_count = %return math.mulOverflow(usize, @sizeOf(T), n);
+        ([]T)(%return self.reallocFn(self, ([]u8)(old_mem), byte_count))
     }
 
     fn free(self: &Allocator, inline T: type, mem: []T) {
-        self.free_fn(self, ([]u8)(mem));
+        self.freeFn(self, ([]u8)(mem));
     }
 }
 
@@ -44,7 +44,7 @@ pub struct Allocator {
 /// dest.len must be >= source.len.
 pub fn copy(inline T: type, dest: []T, source: []const T) {
     assert(dest.len >= source.len);
-    @memcpy(dest.ptr, source.ptr, @sizeof(T) * source.len);
+    @memcpy(dest.ptr, source.ptr, @sizeOf(T) * source.len);
 }
 
 /// Return < 0, == 0, or > 0 if memory a is less than, equal to, or greater than,

@@ -17,7 +17,7 @@ struct Connection {
 
     pub fn send(c: Connection, buf: []const u8) -> %usize {
         const send_ret = linux.sendto(c.socket_fd, buf.ptr, buf.len, 0, null, 0);
-        const send_err = linux.get_errno(send_ret);
+        const send_err = linux.getErrno(send_ret);
         switch (send_err) {
             0 => return send_ret,
             errno.EINVAL => unreachable{},
@@ -31,7 +31,7 @@ struct Connection {
 
     pub fn recv(c: Connection, buf: []u8) -> %[]u8 {
         const recv_ret = linux.recvfrom(c.socket_fd, buf.ptr, buf.len, 0, null, null);
-        const recv_err = linux.get_errno(recv_ret);
+        const recv_err = linux.getErrno(recv_ret);
         switch (recv_err) {
             0 => return buf[0...recv_ret],
             errno.EINVAL => unreachable{},
@@ -47,7 +47,7 @@ struct Connection {
     }
 
     pub fn close(c: Connection) -> %void {
-        switch (linux.get_errno(linux.close(c.socket_fd))) {
+        switch (linux.getErrno(linux.close(c.socket_fd))) {
             0 => return,
             errno.EBADF => unreachable{},
             errno.EINTR => return error.SigInterrupt,
@@ -76,7 +76,7 @@ pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
         unreachable{} // TODO
     }
 
-    switch (parse_ip_literal(hostname)) {
+    switch (parseIpLiteral(hostname)) {
         Ok => |addr| {
             out_addrs[0] = addr;
             return out_addrs[0...1];
@@ -87,9 +87,9 @@ pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
     unreachable{} // TODO
 }
 
-pub fn connect_addr(addr: &Address, port: u16) -> %Connection {
+pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
     const socket_ret = linux.socket(addr.family, linux.SOCK_STREAM, linux.PROTO_tcp);
-    const socket_err = linux.get_errno(socket_ret);
+    const socket_err = linux.getErrno(socket_ret);
     if (socket_err > 0) {
         // TODO figure out possible errors from socket()
         return error.Unexpected;
@@ -99,22 +99,22 @@ pub fn connect_addr(addr: &Address, port: u16) -> %Connection {
     const connect_ret = if (addr.family == linux.AF_INET) {
         var os_addr: linux.sockaddr_in = undefined;
         os_addr.family = addr.family;
-        os_addr.port = swap_if_little_endian(u16, port);
+        os_addr.port = swapIfLittleEndian(u16, port);
         @memcpy((&u8)(&os_addr.addr), &addr.addr[0], 4);
-        @memset(&os_addr.zero, 0, @sizeof(@typeof(os_addr.zero)));
-        linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeof(linux.sockaddr_in))
+        @memset(&os_addr.zero, 0, @sizeOf(@typeOf(os_addr.zero)));
+        linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in))
     } else if (addr.family == linux.AF_INET6) {
         var os_addr: linux.sockaddr_in6 = undefined;
         os_addr.family = addr.family;
-        os_addr.port = swap_if_little_endian(u16, port);
+        os_addr.port = swapIfLittleEndian(u16, port);
         os_addr.flowinfo = 0;
         os_addr.scope_id = addr.scope_id;
         @memcpy(&os_addr.addr[0], &addr.addr[0], 16);
-        linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeof(linux.sockaddr_in6))
+        linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in6))
     } else {
         unreachable{}
     };
-    const connect_err = linux.get_errno(connect_ret);
+    const connect_err = linux.getErrno(connect_ret);
     if (connect_err > 0) {
         switch (connect_err) {
             errno.ETIMEDOUT => return error.TimedOut,
@@ -135,23 +135,23 @@ pub fn connect(hostname: []const u8, port: u16) -> %Connection {
     const addrs_slice = %return lookup(hostname, addrs_buf);
     const main_addr = &addrs_slice[0];
 
-    return connect_addr(main_addr, port);
+    return connectAddr(main_addr, port);
 }
 
 pub error InvalidIpLiteral;
 
-pub fn parse_ip_literal(buf: []const u8) -> %Address {
-    switch (parse_ip4(buf)) {
+pub fn parseIpLiteral(buf: []const u8) -> %Address {
+    switch (parseIp4(buf)) {
         Ok => |ip4| {
             var result: Address = undefined;
-            @memcpy(&result.addr[0], (&u8)(&ip4), @sizeof(u32));
+            @memcpy(&result.addr[0], (&u8)(&ip4), @sizeOf(u32));
             result.family = linux.AF_INET;
             result.scope_id = 0;
             return result;
         },
         else => {},
     }
-    switch (parse_ip6(buf)) {
+    switch (parseIp6(buf)) {
         Ok => |addr| {
             return addr;
         },
@@ -161,7 +161,7 @@ pub fn parse_ip_literal(buf: []const u8) -> %Address {
     return error.InvalidIpLiteral;
 }
 
-fn hex_digit(c: u8) -> u8 {
+fn hexDigit(c: u8) -> u8 {
     // TODO use switch with range
     if ('0' <= c && c <= '9') {
         c - '0'
@@ -170,7 +170,7 @@ fn hex_digit(c: u8) -> u8 {
     } else if ('a' <= c && c <= 'z') {
         c - 'a' + 10
     } else {
-        @max_value(u8)
+        @maxValue(u8)
     }
 }
 
@@ -180,7 +180,7 @@ error JunkAtEnd;
 error Incomplete;
 
 #static_eval_enable(false)
-fn parse_ip6(buf: []const u8) -> %Address {
+fn parseIp6(buf: []const u8) -> %Address {
     var result: Address = undefined;
     result.family = linux.AF_INET6;
     result.scope_id = 0;
@@ -194,10 +194,10 @@ fn parse_ip6(buf: []const u8) -> %Address {
         if (scope_id) {
             if (c >= '0' && c <= '9') {
                 const digit = c - '0';
-                if (@mul_with_overflow(u32, result.scope_id, 10, &result.scope_id)) {
+                if (@mulWithOverflow(u32, result.scope_id, 10, &result.scope_id)) {
                     return error.Overflow;
                 }
-                if (@add_with_overflow(u32, result.scope_id, digit, &result.scope_id)) {
+                if (@addWithOverflow(u32, result.scope_id, digit, &result.scope_id)) {
                     return error.Overflow;
                 }
             } else {
@@ -230,14 +230,14 @@ fn parse_ip6(buf: []const u8) -> %Address {
             scope_id = true;
             saw_any_digits = false;
         } else {
-            const digit = hex_digit(c);
-            if (digit == @max_value(u8)) {
+            const digit = hexDigit(c);
+            if (digit == @maxValue(u8)) {
                 return error.InvalidChar;
             }
-            if (@mul_with_overflow(u16, x, 16, &x)) {
+            if (@mulWithOverflow(u16, x, 16, &x)) {
                 return error.Overflow;
             }
-            if (@add_with_overflow(u16, x, digit, &x)) {
+            if (@addWithOverflow(u16, x, digit, &x)) {
                 return error.Overflow;
             }
             saw_any_digits = true;
@@ -276,7 +276,7 @@ fn parse_ip6(buf: []const u8) -> %Address {
     return error.Incomplete;
 }
 
-fn parse_ip4(buf: []const u8) -> %u32 {
+fn parseIp4(buf: []const u8) -> %u32 {
     var result: u32 = undefined;
     const out_ptr = ([]u8)((&result)[0...1]);
 
@@ -298,10 +298,10 @@ fn parse_ip4(buf: []const u8) -> %u32 {
         } else if (c >= '0' && c <= '9') {
             saw_any_digits = true;
             const digit = c - '0';
-            if (@mul_with_overflow(u8, x, 10, &x)) {
+            if (@mulWithOverflow(u8, x, 10, &x)) {
                 return error.Overflow;
             }
-            if (@add_with_overflow(u8, x, digit, &x)) {
+            if (@addWithOverflow(u8, x, digit, &x)) {
                 return error.Overflow;
             }
         } else {
@@ -318,19 +318,19 @@ fn parse_ip4(buf: []const u8) -> %u32 {
 
 
 #attribute("test")
-fn test_parse_ip4() {
-    assert(%%parse_ip4("127.0.0.1") == swap_if_little_endian(u32, 0x7f000001));
-    switch (parse_ip4("256.0.0.1")) { Overflow => {}, else => unreachable {}, }
-    switch (parse_ip4("x.0.0.1")) { InvalidChar => {}, else => unreachable {}, }
-    switch (parse_ip4("127.0.0.1.1")) { JunkAtEnd => {}, else => unreachable {}, }
-    switch (parse_ip4("127.0.0.")) { Incomplete => {}, else => unreachable {}, }
-    switch (parse_ip4("100..0.1")) { InvalidChar => {}, else => unreachable {}, }
+fn testParseIp4() {
+    assert(%%parseIp4("127.0.0.1") == swapIfLittleEndian(u32, 0x7f000001));
+    switch (parseIp4("256.0.0.1")) { Overflow => {}, else => unreachable {}, }
+    switch (parseIp4("x.0.0.1")) { InvalidChar => {}, else => unreachable {}, }
+    switch (parseIp4("127.0.0.1.1")) { JunkAtEnd => {}, else => unreachable {}, }
+    switch (parseIp4("127.0.0.")) { Incomplete => {}, else => unreachable {}, }
+    switch (parseIp4("100..0.1")) { InvalidChar => {}, else => unreachable {}, }
 }
 
 #attribute("test")
-fn test_parse_ip6() {
+fn testParseIp6() {
     {
-        const addr = %%parse_ip6("FF01:0:0:0:0:0:0:FB");
+        const addr = %%parseIp6("FF01:0:0:0:0:0:0:FB");
         assert(addr.addr[0] == 0xff);
         assert(addr.addr[1] == 0x01);
         assert(addr.addr[2] == 0x00);
@@ -338,7 +338,7 @@ fn test_parse_ip6() {
 }
 
 #attribute("test")
-fn test_lookup_simple_ip() {
+fn testLookupSimpleIp() {
     {
         var addrs_buf: [5]Address = undefined;
         const addrs = %%lookup("192.168.1.1", addrs_buf);
@@ -352,16 +352,16 @@ fn test_lookup_simple_ip() {
     }
 }
 
-fn swap_if_little_endian(inline T: type, x: T) -> T {
-    if (@compile_var("is_big_endian")) x else endian_swap(T, x)
+fn swapIfLittleEndian(inline T: type, x: T) -> T {
+    if (@compileVar("is_big_endian")) x else endianSwap(T, x)
 }
 
-fn endian_swap(inline T: type, x: T) -> T {
+fn endianSwap(inline T: type, x: T) -> T {
     const x_slice = ([]u8)((&const x)[0...1]);
     var result: T = undefined;
     const result_slice = ([]u8)((&result)[0...1]);
     for (result_slice) |*b, i| {
-        *b = x_slice[@sizeof(T) - i - 1];
+        *b = x_slice[@sizeOf(T) - i - 1];
     }
     return result;
 }

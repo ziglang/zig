@@ -24,11 +24,11 @@ pub fn cmp(a: &const u8, b: &const u8) -> i32 {
     return a[index] - b[index];
 }
 
-pub fn to_slice_const(str: &const u8) -> []const u8 {
+pub fn toSliceConst(str: &const u8) -> []const u8 {
     return str[0...strlen(str)];
 }
 
-pub fn to_slice(str: &u8) -> []u8 {
+pub fn toSlice(str: &u8) -> []u8 {
     return str[0...strlen(str)];
 }
 
@@ -46,25 +46,25 @@ pub struct CBuf {
     }
 
     /// Must deinitialize with deinit.
-    pub fn init_from_mem(self: &CBuf, allocator: &Allocator, m: []const u8) -> %void {
+    pub fn initFromMem(self: &CBuf, allocator: &Allocator, m: []const u8) -> %void {
         self.init(allocator);
         %return self.resize(m.len);
         mem.copy(u8, self.list.items, m);
     }
 
     /// Must deinitialize with deinit.
-    pub fn init_from_cstr(self: &CBuf, allocator: &Allocator, s: &const u8) -> %void {
-        self.init_from_mem(allocator, s[0...strlen(s)])
+    pub fn initFromCStr(self: &CBuf, allocator: &Allocator, s: &const u8) -> %void {
+        self.initFromMem(allocator, s[0...strlen(s)])
     }
 
     /// Must deinitialize with deinit.
-    pub fn init_from_cbuf(self: &CBuf, cbuf: &const CBuf) -> %void {
-        self.init_from_mem(cbuf.list.allocator, cbuf.list.items[0...cbuf.len()])
+    pub fn initFromCBuf(self: &CBuf, cbuf: &const CBuf) -> %void {
+        self.initFromMem(cbuf.list.allocator, cbuf.list.items[0...cbuf.len()])
     }
 
     /// Must deinitialize with deinit.
-    pub fn init_from_slice(self: &CBuf, other: &const CBuf, start: usize, end: usize) -> %void {
-        self.init_from_mem(other.list.allocator, other.list.items[start...end])
+    pub fn initFromSlice(self: &CBuf, other: &const CBuf, start: usize, end: usize) -> %void {
+        self.initFromMem(other.list.allocator, other.list.items[start...end])
     }
 
     pub fn deinit(self: &CBuf) {
@@ -80,66 +80,66 @@ pub struct CBuf {
         return self.list.len - 1;
     }
 
-    pub fn append_mem(self: &CBuf, m: []const u8) -> %void {
+    pub fn appendMem(self: &CBuf, m: []const u8) -> %void {
         const old_len = self.len();
         %return self.resize(old_len + m.len);
         mem.copy(u8, self.list.items[old_len...], m);
     }
 
-    pub fn append_cstr(self: &CBuf, s: &const u8) -> %void {
-        self.append_mem(s[0...strlen(s)])
+    pub fn appendCStr(self: &CBuf, s: &const u8) -> %void {
+        self.appendMem(s[0...strlen(s)])
     }
 
-    pub fn append_char(self: &CBuf, c: u8) -> %void {
+    pub fn appendChar(self: &CBuf, c: u8) -> %void {
         %return self.resize(self.len() + 1);
         self.list.items[self.len() - 1] = c;
     }
 
-    pub fn eql_mem(self: &const CBuf, m: []const u8) -> bool {
+    pub fn eqlMem(self: &const CBuf, m: []const u8) -> bool {
         if (self.len() != m.len) return false;
         return mem.cmp(u8, self.list.items[0...m.len], m) == mem.Cmp.Equal;
     }
 
-    pub fn eql_cstr(self: &const CBuf, s: &const u8) -> bool {
-        self.eql_mem(s[0...strlen(s)])
+    pub fn eqlCStr(self: &const CBuf, s: &const u8) -> bool {
+        self.eqlMem(s[0...strlen(s)])
     }
 
-    pub fn eql_cbuf(self: &const CBuf, other: &const CBuf) -> bool {
-        self.eql_mem(other.list.items[0...other.len()])
+    pub fn eqlCBuf(self: &const CBuf, other: &const CBuf) -> bool {
+        self.eqlMem(other.list.items[0...other.len()])
     }
 
-    pub fn starts_with_mem(self: &const CBuf, m: []const u8) -> bool {
+    pub fn startsWithMem(self: &const CBuf, m: []const u8) -> bool {
         if (self.len() < m.len) return false;
         return mem.cmp(u8, self.list.items[0...m.len], m) == mem.Cmp.Equal;
     }
 
-    pub fn starts_with_cbuf(self: &const CBuf, other: &const CBuf) -> bool {
-        self.starts_with_mem(other.list.items[0...other.len()])
+    pub fn startsWithCBuf(self: &const CBuf, other: &const CBuf) -> bool {
+        self.startsWithMem(other.list.items[0...other.len()])
     }
 
-    pub fn starts_with_cstr(self: &const CBuf, s: &const u8) -> bool {
-        self.starts_with_mem(s[0...strlen(s)])
+    pub fn startsWithCStr(self: &const CBuf, s: &const u8) -> bool {
+        self.startsWithMem(s[0...strlen(s)])
     }
 }
 
 #attribute("test")
-fn test_simple_cbuf() {
+fn testSimpleCBuf() {
     var buf: CBuf = undefined;
     buf.init(&debug.global_allocator);
     assert(buf.len() == 0);
-    %%buf.append_cstr(c"hello");
-    %%buf.append_char(' ');
-    %%buf.append_mem("world");
-    assert(buf.eql_cstr(c"hello world"));
-    assert(buf.eql_mem("hello world"));
+    %%buf.appendCStr(c"hello");
+    %%buf.appendChar(' ');
+    %%buf.appendMem("world");
+    assert(buf.eqlCStr(c"hello world"));
+    assert(buf.eqlMem("hello world"));
 
     var buf2: CBuf = undefined;
-    %%buf2.init_from_cbuf(&buf);
-    assert(buf.eql_cbuf(&buf2));
+    %%buf2.initFromCBuf(&buf);
+    assert(buf.eqlCBuf(&buf2));
 
-    assert(buf.starts_with_mem("hell"));
-    assert(buf.starts_with_cstr(c"hell"));
+    assert(buf.startsWithMem("hell"));
+    assert(buf.startsWithCStr(c"hell"));
 
     %%buf2.resize(4);
-    assert(buf.starts_with_cbuf(&buf2));
+    assert(buf.startsWithCBuf(&buf2));
 }

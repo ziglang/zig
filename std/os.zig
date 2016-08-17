@@ -5,10 +5,10 @@ pub error SigInterrupt;
 pub error Unexpected;
 
 pub fn get_random_bytes(buf: []u8) -> %void {
-    switch (@compile_var("os")) {
+    switch (@compileVar("os")) {
         linux => {
             const ret = linux.getrandom(buf.ptr, buf.len, 0);
-            const err = linux.get_errno(ret);
+            const err = linux.getErrno(ret);
             if (err > 0) {
                 return switch (err) {
                     errno.EINVAL => unreachable{},

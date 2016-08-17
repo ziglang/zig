@@ -1,4 +1,4 @@
-const arch = switch (@compile_var("arch")) {
+const arch = switch (@compileVar("arch")) {
     x86_64 => @import("linux_x86_64.zig"),
     i386 => @import("linux_i386.zig"),
     else => @compile_err("unsupported arch"),
@@ -221,7 +221,7 @@ pub const AF_VSOCK = PF_VSOCK;
 pub const AF_MAX = PF_MAX;
 
 /// Get the errno from a syscall return value, or 0 for no error.
-pub fn get_errno(r: usize) -> usize {
+pub fn getErrno(r: usize) -> usize {
     const signed_r = *(&isize)(&r);
     if (signed_r > -4096 && signed_r < 0) usize(-signed_r) else 0
 }
@@ -291,22 +291,22 @@ const app_mask = []u8 { 0xff, 0xff, 0xff, 0xfc, 0x7f, 0xff, 0xff, 0xff, };
 
 pub fn raise(sig: i32) -> i32 {
     var set: sigset_t = undefined;
-    block_app_signals(&set);
+    blockAppSignals(&set);
     const tid = i32(arch.syscall0(arch.SYS_gettid));
     const ret = i32(arch.syscall2(arch.SYS_tkill, usize(tid), usize(sig)));
-    restore_signals(&set);
+    restoreSignals(&set);
     return ret;
 }
 
-fn block_all_signals(set: &sigset_t) {
+fn blockAllSignals(set: &sigset_t) {
     arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, usize(&all_mask), usize(set), NSIG/8);
 }
 
-fn block_app_signals(set: &sigset_t) {
+fn blockAppSignals(set: &sigset_t) {
     arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, usize(&app_mask), usize(set), NSIG/8);
 }
 
-fn restore_signals(set: &sigset_t) {
+fn restoreSignals(set: &sigset_t) {
     arch.syscall4(arch.SYS_rt_sigprocmask, SIG_SETMASK, usize(set), 0, NSIG/8);
 }
 
@@ -442,7 +442,7 @@ pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags:
 //     }
 // 
 //     const socket_ret = socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0);
-//     const socket_err = get_errno(socket_ret);
+//     const socket_err = getErrno(socket_ret);
 //     if (socket_err > 0) {
 //         return error.SystemResources;
 //     }
@@ -451,7 +451,7 @@ pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags:
 //     ifr.ifr_name[name.len] = 0;
 //     const ioctl_ret = ioctl(socket_fd, SIOCGIFINDEX, &ifr);
 //     close(socket_fd);
-//     const ioctl_err = get_errno(ioctl_ret);
+//     const ioctl_err = getErrno(ioctl_ret);
 //     if (ioctl_err > 0) {
 //         return error.Io;
 //     }

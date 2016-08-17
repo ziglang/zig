@@ -4642,7 +4642,7 @@ static void define_builtin_fns(CodeGen *g) {
     }
     {
         BuiltinFnEntry *builtin_fn = create_builtin_fn_with_arg_count(g, BuiltinFnIdReturnAddress,
-                "return_address", 0);
+                "returnAddress", 0);
         builtin_fn->return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
 
         LLVMTypeRef fn_type = LLVMFunctionType(builtin_fn->return_type->type_ref,
@@ -4652,7 +4652,7 @@ static void define_builtin_fns(CodeGen *g) {
     }
     {
         BuiltinFnEntry *builtin_fn = create_builtin_fn_with_arg_count(g, BuiltinFnIdFrameAddress,
-                "frame_address", 0);
+                "frameAddress", 0);
         builtin_fn->return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
 
         LLVMTypeRef fn_type = LLVMFunctionType(builtin_fn->return_type->type_ref,
@@ -4708,33 +4708,33 @@ static void define_builtin_fns(CodeGen *g) {
 
         g->memset_fn_val = builtin_fn->fn_val;
     }
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdSizeof, "sizeof", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdAlignof, "alignof", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdMaxValue, "max_value", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdMinValue, "min_value", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdMemberCount, "member_count", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdTypeof, "typeof", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdAddWithOverflow, "add_with_overflow", 4);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdSubWithOverflow, "sub_with_overflow", 4);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdMulWithOverflow, "mul_with_overflow", 4);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdShlWithOverflow, "shl_with_overflow", 4);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdCInclude, "c_include", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdCDefine, "c_define", 2);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdCUndef, "c_undef", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileVar, "compile_var", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdConstEval, "const_eval", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdSizeof, "sizeOf", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdAlignof, "alignOf", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdMaxValue, "maxValue", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdMinValue, "minValue", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdMemberCount, "memberCount", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdTypeof, "typeOf", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdAddWithOverflow, "addWithOverflow", 4);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdSubWithOverflow, "subWithOverflow", 4);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdMulWithOverflow, "mulWithOverflow", 4);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdShlWithOverflow, "shlWithOverflow", 4);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCInclude, "cInclude", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCDefine, "cDefine", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCUndef, "cUndef", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileVar, "compileVar", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdConstEval, "constEval", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCtz, "ctz", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdClz, "clz", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdImport, "import", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdCImport, "c_import", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdErrName, "err_name", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdEmbedFile, "embed_file", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCImport, "cImport", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdErrName, "errName", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdEmbedFile, "embedFile", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCmpExchange, "cmpxchg", 5);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdFence, "fence", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdDivExact, "div_exact", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdDivExact, "divExact", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdTruncate, "truncate", 2);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileErr, "compile_err", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdIntType, "int_type", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileErr, "compileErr", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdIntType, "intType", 2);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

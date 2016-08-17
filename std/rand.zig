@@ -19,15 +19,13 @@ pub const MT19937_64 = MersenneTwister(
 
 /// Use `init` to initialize this state.
 pub struct Rand {
-    const Rng = if (@sizeof(usize) >= 8) MT19937_64 else MT19937_32;
+    const Rng = if (@sizeOf(usize) >= 8) MT19937_64 else MT19937_32;
 
     rng: Rng,
 
     /// Initialize random state with the given seed.
-    pub fn init(seed: usize) -> Rand {
-        var r: Rand = undefined;
-        r.rng = Rng.init(seed);
-        return r;
+    pub fn init(r: &Rand, seed: usize) {
+        r.rng.init(seed);
     }
 
     /// Get an integer with random bits.
@@ -35,24 +33,24 @@ pub struct Rand {
         if (T == usize) {
             return r.rng.get();
         } else {
-            var result: [@sizeof(T)]u8 = undefined;
-            r.fill_bytes(result);
+            var result: [@sizeOf(T)]u8 = undefined;
+            r.fillBytes(result);
             return ([]T)(result)[0];
         }
     }
 
     /// Fill `buf` with randomness.
-    pub fn fill_bytes(r: &Rand, buf: []u8) {
+    pub fn fillBytes(r: &Rand, buf: []u8) {
         var bytes_left = buf.len;
-        while (bytes_left >= @sizeof(usize)) {
+        while (bytes_left >= @sizeOf(usize)) {
             ([]usize)(buf[buf.len - bytes_left...])[0] = r.rng.get();
-            bytes_left -= @sizeof(usize);
+            bytes_left -= @sizeOf(usize);
         }
         if (bytes_left > 0) {
-            var rand_val_array : [@sizeof(usize)]u8 = undefined;
+            var rand_val_array : [@sizeOf(usize)]u8 = undefined;
             ([]usize)(rand_val_array)[0] = r.rng.get();
             while (bytes_left > 0) {
-                buf[buf.len - bytes_left] = rand_val_array[@sizeof(usize) - bytes_left];
+                buf[buf.len - bytes_left] = rand_val_array[@sizeOf(usize) - bytes_left];
                 bytes_left -= 1;
             }
         }
@@ -61,14 +59,14 @@ pub struct Rand {
     /// Get a random unsigned integer with even distribution between `start`
     /// inclusive and `end` exclusive.
     // TODO support signed integers and then rename to "range"
-    pub fn range_unsigned(r: &Rand, inline T: type, start: T, end: T) -> T {
+    pub fn rangeUnsigned(r: &Rand, inline T: type, start: T, end: T) -> T {
         const range = end - start;
-        const leftover = @max_value(T) % range;
-        const upper_bound = @max_value(T) - leftover;
-        var rand_val_array : [@sizeof(T)]u8 = undefined;
+        const leftover = @maxValue(T) % range;
+        const upper_bound = @maxValue(T) - leftover;
+        var rand_val_array : [@sizeOf(T)]u8 = undefined;
 
         while (true) {
-            r.fill_bytes(rand_val_array);
+            r.fillBytes(rand_val_array);
             const rand_val = ([]T)(rand_val_array)[0];
             if (rand_val < upper_bound) {
                 return start + (rand_val % range);
@@ -79,19 +77,19 @@ pub struct Rand {
     /// Get a floating point value in the range 0.0..1.0.
     pub fn float(r: &Rand, inline T: type) -> T {
         // TODO Implement this way instead:
-        // const int = @int_type(false, @sizeof(T) * 8);
+        // const int = @int_type(false, @sizeOf(T) * 8);
         // const mask = ((1 << @float_mantissa_bit_count(T)) - 1);
         // const rand_bits = r.rng.scalar(int) & mask;
         // return @float_compose(T, false, 0, rand_bits) - 1.0
-        const int_type = @int_type(false, @sizeof(T) * 8);
+        const int_type = @intType(false, @sizeOf(T) * 8);
         const precision = if (T == f32) {
             16777216
         } else if (T == f64) {
             9007199254740992
         } else {
-            @compile_err("unknown floating point type" ++ @type_name(T))
+            @compile_err("unknown floating point type" ++ @typeName(T))
         };
-        return T(r.range_unsigned(int_type, 0, precision)) / T(precision);
+        return T(r.rangeUnsigned(int_type, 0, precision)) / T(precision);
     }
 }
 
@@ -110,8 +108,7 @@ struct MersenneTwister(
 
     // TODO improve compile time eval code and then allow this function to be executed at compile time.
     #static_eval_enable(false)
-    pub fn init(seed: int) -> Self {
-        var mt: Self = undefined;
+    pub fn init(mt: &Self, seed: int) {
         mt.index = n;
 
         var prev_value = seed;
@@ -120,8 +117,6 @@ struct MersenneTwister(
             prev_value = int(i) +% f *% (prev_value ^ (prev_value >> (int.bit_count - 2)));
             mt.array[i] = prev_value;
         }};
-
-        return mt;
     }
 
     pub fn get(mt: &Self) -> int {
@@ -161,8 +156,9 @@ struct MersenneTwister(
 }
 
 #attribute("test")
-fn test_float32() {
-    var r = Rand.init(42);
+fn testFloat32() {
+    var r: Rand = undefined;
+    r.init(42);
 
     {var i: usize = 0; while (i < 1000; i += 1) {
         const val = r.float(f32);
@@ -172,16 +168,18 @@ fn test_float32() {
 }
 
 #attribute("test")
-fn test_MT19937_64() {
-    const rng = MT19937_64.init(rand_test.mt64_seed);
+fn testMT19937_64() {
+    var rng: MT19937_64 = undefined;
+    rng.init(rand_test.mt64_seed);
     for (rand_test.mt64_data) |value| {
         assert(value == rng.get());
     }
 }
 
 #attribute("test")
-fn test_MT19937_32() {
-    const rng = MT19937_32.init(rand_test.mt32_seed);
+fn testMT19937_32() {
+    var rng: MT19937_32 = undefined;
+    rng.init(rand_test.mt32_seed);
     for (rand_test.mt32_data) |value| {
         assert(value == rng.get());
     }

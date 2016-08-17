@@ -63,7 +63,7 @@ pub struct OutStream {
     buffer: [buffer_size]u8,
     index: usize,
 
-    pub fn write_byte(os: &OutStream, b: u8) -> %void {
+    pub fn writeByte(os: &OutStream, b: u8) -> %void {
         if (os.buffer.len == os.index) %return os.flush();
         os.buffer[os.index] = b;
         os.index += 1;
@@ -71,7 +71,7 @@ pub struct OutStream {
 
     pub fn write(os: &OutStream, bytes: []const u8) -> %usize {
         var src_bytes_left = bytes.len;
-        var src_index: @typeof(bytes.len) = 0;
+        var src_index: @typeOf(bytes.len) = 0;
         const dest_space_left = os.buffer.len - os.index;
 
         while (src_bytes_left > 0) {
@@ -98,7 +98,7 @@ pub struct OutStream {
         if (os.index + max_u64_base10_digits >= os.buffer.len) {
             %return os.flush();
         }
-        const amt_printed = buf_print_u64(os.buffer[os.index...], x);
+        const amt_printed = bufPrintUnsigned(u64, os.buffer[os.index...], x);
         os.index += amt_printed;
 
         return amt_printed;
@@ -108,7 +108,7 @@ pub struct OutStream {
         if (os.index + max_u64_base10_digits >= os.buffer.len) {
             %return os.flush();
         }
-        const amt_printed = buf_print_i64(os.buffer[os.index...], x);
+        const amt_printed = bufPrintSigned(i64, os.buffer[os.index...], x);
         os.index += amt_printed;
 
         return amt_printed;
@@ -116,7 +116,7 @@ pub struct OutStream {
 
     pub fn flush(os: &OutStream) -> %void {
         const write_ret = linux.write(os.fd, &os.buffer[0], os.index);
-        const write_err = linux.get_errno(write_ret);
+        const write_err = linux.getErrno(write_ret);
         if (write_err > 0) {
             return switch (write_err) {
                 errno.EINVAL => unreachable{},
@@ -135,7 +135,7 @@ pub struct OutStream {
 
     pub fn close(os: &OutStream) -> %void {
         const close_ret = linux.close(os.fd);
-        const close_err = linux.get_errno(close_ret);
+        const close_err = linux.getErrno(close_ret);
         if (close_err > 0) {
             return switch (close_err) {
                 errno.EIO   => error.Io,
@@ -152,7 +152,7 @@ pub struct InStream {
 
     pub fn open(path: []u8) -> %InStream {
         const fd = linux.open(path, linux.O_LARGEFILE|linux.O_RDONLY, 0);
-        const fd_err = linux.get_errno(fd);
+        const fd_err = linux.getErrno(fd);
         if (fd_err > 0) {
             return switch (fd_err) {
                 errno.EFAULT => unreachable{},
@@ -180,7 +180,7 @@ pub struct InStream {
 
     pub fn read(is: &InStream, buf: []u8) -> %usize {
         const amt_read = linux.read(is.fd, &buf[0], buf.len);
-        const read_err = linux.get_errno(amt_read);
+        const read_err = linux.getErrno(amt_read);
         if (read_err > 0) {
             return switch (read_err) {
                 errno.EINVAL => unreachable{},
@@ -196,7 +196,7 @@ pub struct InStream {
 
     pub fn close(is: &InStream) -> %void {
         const close_ret = linux.close(is.fd);
-        const close_err = linux.get_errno(close_ret);
+        const close_err = linux.getErrno(close_ret);
         if (close_err > 0) {
             return switch (close_err) {
                 errno.EIO => error.Io,
@@ -208,20 +208,20 @@ pub struct InStream {
     }
 }
 
-pub fn parse_unsigned(inline T: type, buf: []u8, radix: u8) -> %T {
+pub fn parseUnsigned(inline T: type, buf: []u8, radix: u8) -> %T {
     var x: T = 0;
 
     for (buf) |c| {
-        const digit = %return char_to_digit(c, radix);
-        x = %return math.mul_overflow(T, x, radix);
-        x = %return math.add_overflow(T, x, digit);
+        const digit = %return charToDigit(c, radix);
+        x = %return math.mulOverflow(T, x, radix);
+        x = %return math.addOverflow(T, x, digit);
     }
 
     return x;
 }
 
 pub error InvalidChar;
-fn char_to_digit(c: u8, radix: u8) -> %u8 {
+fn charToDigit(c: u8, radix: u8) -> %u8 {
     const value = if ('0' <= c && c <= '9') {
         c - '0'
     } else if ('A' <= c && c <= 'Z') {
@@ -234,21 +234,17 @@ fn char_to_digit(c: u8, radix: u8) -> %u8 {
     return if (value >= radix) error.InvalidChar else value;
 }
 
-pub fn buf_print_signed(inline T: type, out_buf: []u8, x: T) -> usize {
-    const uint = @int_type(false, T.bit_count);
+pub fn bufPrintSigned(inline T: type, out_buf: []u8, x: T) -> usize {
+    const uint = @intType(false, T.bit_count);
     if (x < 0) {
         out_buf[0] = '-';
-        return 1 + buf_print_unsigned(uint, out_buf[1...], uint(-(x + 1)) + 1);
+        return 1 + bufPrintUnsigned(uint, out_buf[1...], uint(-(x + 1)) + 1);
     } else {
-        return buf_print_unsigned(uint, out_buf, uint(x));
+        return bufPrintUnsigned(uint, out_buf, uint(x));
     }
 }
 
-pub fn buf_print_i64(out_buf: []u8, x: i64) -> usize {
-    buf_print_signed(i64, out_buf, x)
-}
-
-pub fn buf_print_unsigned(inline T: type, out_buf: []u8, x: T) -> usize {
+pub fn bufPrintUnsigned(inline T: type, out_buf: []u8, x: T) -> usize {
     var buf: [max_u64_base10_digits]u8 = undefined;
     var a = x;
     var index: usize = buf.len;
@@ -269,13 +265,9 @@ pub fn buf_print_unsigned(inline T: type, out_buf: []u8, x: T) -> usize {
     return len;
 }
 
-pub fn buf_print_u64(out_buf: []u8, x: u64) -> usize {
-    buf_print_unsigned(u64, out_buf, x)
-}
-
 #attribute("test")
-fn parse_u64_digit_too_big() {
-    parse_unsigned(u64, "123a", 10) %% |err| {
+fn parseU64DigitTooBig() {
+    parseUnsigned(u64, "123a", 10) %% |err| {
         if (err == error.InvalidChar) return;
         unreachable{};
     };

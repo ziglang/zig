@@ -6,11 +6,12 @@ const os = std.os;
 pub fn main(args: [][]u8) -> %void {
     %%io.stdout.printf("Welcome to the Guess Number Game in Zig.\n");
 
-    var seed: [@sizeof(usize)]u8 = undefined;
+    var seed: [@sizeOf(usize)]u8 = undefined;
     %%os.get_random_bytes(seed);
-    var rand = Rand.init(([]usize)(seed)[0]);
+    var rand: Rand = undefined;
+    rand.init(([]usize)(seed)[0]);
 
-    const answer = rand.range_unsigned(u8, 0, 100) + 1;
+    const answer = rand.rangeUnsigned(u8, 0, 100) + 1;
 
     while (true) {
         %%io.stdout.printf("\nGuess a number between 1 and 100: ");
@@ -21,7 +22,7 @@ pub fn main(args: [][]u8) -> %void {
             return err;
         };
 
-        const guess = io.parse_unsigned(u8, line_buf[0...line_len - 1], 10) %% {
+        const guess = io.parseUnsigned(u8, line_buf[0...line_len - 1], 10) %% {
             %%io.stdout.printf("Invalid number.\n");
             continue;
         };

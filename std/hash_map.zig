@@ -4,27 +4,27 @@ const math = @import("math.zig");
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 
-const want_modification_safety = !@compile_var("is_release");
+const want_modification_safety = !@compileVar("is_release");
 const debug_u32 = if (want_modification_safety) u32 else void;
 
 pub fn HashMap(inline K: type, inline V: type, inline hash: fn(key: K)->u32,
     inline eql: fn(a: K, b: K)->bool) -> type
 {
-    SmallHashMap(K, V, hash, eql, @sizeof(usize))
+    SmallHashMap(K, V, hash, eql, @sizeOf(usize))
 }
 
-pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)->bool, STATIC_SIZE: usize) {
+pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b: K)->bool, static_size: usize) {
     entries: []Entry,
     size: usize,
     max_distance_from_start_index: usize,
     allocator: &Allocator,
     // if the hash map is small enough, we use linear search through these
     // entries instead of allocating memory
-    prealloc_entries: [STATIC_SIZE]Entry,
+    prealloc_entries: [static_size]Entry,
     // this is used to detect bugs where a hashtable is edited while an iterator is running.
     modification_count: debug_u32,
 
-    const Self = SmallHashMap(K, V, hash, eql, STATIC_SIZE);
+    const Self = SmallHashMap(K, V, hash, eql, static_size);
 
     pub struct Entry {
         used: bool,
@@ -80,11 +80,11 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
         }
         hm.size = 0;
         hm.max_distance_from_start_index = 0;
-        hm.increment_modification_count();
+        hm.incrementModificationCount();
     }
 
     pub fn put(hm: &Self, key: K, value: V) -> %void {
-        hm.increment_modification_count();
+        hm.incrementModificationCount();
 
         const resize = if (hm.entries.ptr == &hm.prealloc_entries[0]) {
             // preallocated entries table is full
@@ -95,11 +95,11 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
         };
         if (resize) {
             const old_entries = hm.entries;
-            %return hm.init_capacity(hm.entries.len * 2);
+            %return hm.initCapacity(hm.entries.len * 2);
             // dump all of the old elements into the new table
             for (old_entries) |*old_entry| {
                 if (old_entry.used) {
-                    hm.internal_put(old_entry.key, old_entry.value);
+                    hm.internalPut(old_entry.key, old_entry.value);
                 }
             }
             if (old_entries.ptr != &hm.prealloc_entries[0]) {
@@ -107,16 +107,16 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
             }
         }
 
-        hm.internal_put(key, value);
+        hm.internalPut(key, value);
     }
 
     pub fn get(hm: &Self, key: K) -> ?&Entry {
-        return hm.internal_get(key);
+        return hm.internalGet(key);
     }
 
     pub fn remove(hm: &Self, key: K) {
-        hm.increment_modification_count();
-        const start_index = hm.key_to_index(key);
+        hm.incrementModificationCount();
+        const start_index = hm.keyToIndex(key);
         {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index; roll_over += 1) {
             const index = (start_index + roll_over) % hm.entries.len;
             var entry = &hm.entries[index];
@@ -142,7 +142,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
         unreachable{} // key not found
     }
 
-    pub fn entry_iterator(hm: &Self) -> Iterator {
+    pub fn entryIterator(hm: &Self) -> Iterator {
         return Iterator {
             .hm = hm,
             .count = 0,
@@ -151,7 +151,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
         };
     }
 
-    fn init_capacity(hm: &Self, capacity: usize) -> %void {
+    fn initCapacity(hm: &Self, capacity: usize) -> %void {
         hm.entries = %return hm.allocator.alloc(Entry, capacity);
         hm.size = 0;
         hm.max_distance_from_start_index = 0;
@@ -160,16 +160,16 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
         }
     }
 
-    fn increment_modification_count(hm: &Self) {
+    fn incrementModificationCount(hm: &Self) {
         if (want_modification_safety) {
             hm.modification_count +%= 1;
         }
     }
 
-    fn internal_put(hm: &Self, orig_key: K, orig_value: V) {
+    fn internalPut(hm: &Self, orig_key: K, orig_value: V) {
         var key = orig_key;
         var value = orig_value;
-        const start_index = hm.key_to_index(key);
+        const start_index = hm.keyToIndex(key);
         var roll_over: usize = 0;
         var distance_from_start_index: usize = 0;
         while (roll_over < hm.entries.len; {roll_over += 1; distance_from_start_index += 1}) {
@@ -214,8 +214,8 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
         unreachable{} // put into a full map
     }
 
-    fn internal_get(hm: &Self, key: K) -> ?&Entry {
-        const start_index = hm.key_to_index(key);
+    fn internalGet(hm: &Self, key: K) -> ?&Entry {
+        const start_index = hm.keyToIndex(key);
         {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index; roll_over += 1) {
             const index = (start_index + roll_over) % hm.entries.len;
             const entry = &hm.entries[index];
@@ -226,13 +226,13 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
         return null;
     }
 
-    fn key_to_index(hm: &Self, key: K) -> usize {
+    fn keyToIndex(hm: &Self, key: K) -> usize {
         return usize(hash(key)) % hm.entries.len;
     }
 }
 
 #attribute("test")
-fn basic_hash_map_test() {
+fn basicHashMapTest() {
     var map: HashMap(i32, i32, hash_i32, eql_i32) = undefined;
     map.init(&debug.global_allocator);
     defer map.deinit();

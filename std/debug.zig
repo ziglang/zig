@@ -6,10 +6,10 @@ pub fn assert(b: bool) {
 }
 
 pub fn printStackTrace() {
-    var maybe_fp: ?&const u8 = @frame_address();
+    var maybe_fp: ?&const u8 = @frameAddress();
     while (true) {
         const fp = maybe_fp ?? break;
-        const return_address = *(&const usize)(usize(fp) + @sizeof(usize));
+        const return_address = *(&const usize)(usize(fp) + @sizeOf(usize));
         %%io.stderr.print_u64(return_address);
         %%io.stderr.printf("\n");
         maybe_fp = *(&const ?&const u8)(fp);
@@ -17,9 +17,9 @@ pub fn printStackTrace() {
 }
 
 pub var global_allocator = Allocator {
-    .alloc_fn = globalAlloc,
-    .realloc_fn = globalRealloc,
-    .free_fn = globalFree,
+    .allocFn = globalAlloc,
+    .reallocFn = globalRealloc,
+    .freeFn = globalFree,
     .context = null,
 };
 

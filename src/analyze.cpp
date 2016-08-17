@@ -5206,7 +5206,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     case TypeTableEntryIdNamespace:
                     case TypeTableEntryIdGenericFn:
                         add_node_error(g, expr_node,
-                                buf_sprintf("type '%s' not eligible for @typeof", buf_ptr(&type_entry->name)));
+                                buf_sprintf("type '%s' not eligible for @typeOf", buf_ptr(&type_entry->name)));
                         return g->builtin_types.entry_invalid;
                     case TypeTableEntryIdMetaType:
                     case TypeTableEntryIdVoid:

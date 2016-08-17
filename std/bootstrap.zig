@@ -4,7 +4,7 @@ const root = @import("@root");
 const linux = @import("linux.zig");
 const cstr = @import("cstr.zig");
 
-const want_start_symbol = switch(@compile_var("os")) {
+const want_start_symbol = switch(@compileVar("os")) {
     linux => true,
     else => false,
 };
@@ -16,7 +16,7 @@ var argv: &&u8 = undefined;
 #attribute("naked")
 #condition(want_start_symbol)
 export fn _start() -> unreachable {
-    switch (@compile_var("arch")) {
+    switch (@compileVar("arch")) {
         x86_64 => {
             argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> usize));
             argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));
@@ -25,12 +25,12 @@ export fn _start() -> unreachable {
             argc = asm("mov (%%esp), %[argc]": [argc] "=r" (-> usize));
             argv = asm("lea 0x4(%%esp), %[argv]": [argv] "=r" (-> &&u8));
         },
-        else => @compile_err("unsupported arch"),
+        else => @compileErr("unsupported arch"),
     }
-    call_main_and_exit()
+    callMainAndExit()
 }
 
-fn call_main() -> %void {
+fn callMain() -> %void {
     var args: [argc][]u8 = undefined;
     for (args) |arg, i| {
         const ptr = argv[i];
@@ -39,8 +39,8 @@ fn call_main() -> %void {
     return root.main(args);
 }
 
-fn call_main_and_exit() -> unreachable {
-    call_main() %% linux.exit(1);
+fn callMainAndExit() -> unreachable {
+    callMain() %% linux.exit(1);
     linux.exit(0);
 }
 
@@ -48,6 +48,6 @@ fn call_main_and_exit() -> unreachable {
 export fn main(c_argc: i32, c_argv: &&u8) -> i32 {
     argc = usize(c_argc);
     argv = c_argv;
-    call_main() %% return 1;
+    callMain() %% return 1;
     return 0;
 }

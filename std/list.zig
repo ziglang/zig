@@ -4,17 +4,17 @@ const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 
 pub fn List(inline T: type) -> type {
-    SmallList(T, @sizeof(usize))
+    SmallList(T, @sizeOf(usize))
 }
 
-// TODO: make sure that setting STATIC_SIZE to 0 codegens to the same code
-// as if this were programmed without STATIC_SIZE at all.
-pub struct SmallList(T: type, STATIC_SIZE: usize) {
-    const Self = SmallList(T, STATIC_SIZE);
+// TODO: make sure that setting static_size to 0 codegens to the same code
+// as if this were programmed without static_size at all.
+pub struct SmallList(T: type, static_size: usize) {
+    const Self = SmallList(T, static_size);
 
     items: []T,
     len: usize,
-    prealloc_items: [STATIC_SIZE]T,
+    prealloc_items: [static_size]T,
     allocator: &Allocator,
 
     pub fn init(l: &Self, allocator: &Allocator) {
@@ -31,17 +31,17 @@ pub struct SmallList(T: type, STATIC_SIZE: usize) {
 
     pub fn append(l: &Self, item: T) -> %void {
         const new_length = l.len + 1;
-        %return l.ensure_capacity(new_length);
+        %return l.ensureCapacity(new_length);
         l.items[l.len] = item;
         l.len = new_length;
     }
 
     pub fn resize(l: &Self, new_len: usize) -> %void {
-        %return l.ensure_capacity(new_len);
+        %return l.ensureCapacity(new_len);
         l.len = new_len;
     }
 
-    pub fn ensure_capacity(l: &Self, new_capacity: usize) -> %void {
+    pub fn ensureCapacity(l: &Self, new_capacity: usize) -> %void {
         const old_capacity = l.items.len;
         var better_capacity = old_capacity;
         while (better_capacity < new_capacity) {
@@ -59,7 +59,7 @@ pub struct SmallList(T: type, STATIC_SIZE: usize) {
 }
 
 #attribute("test")
-fn basic_list_test() {
+fn basicListTest() {
     var list: List(i32) = undefined;
     list.init(&debug.global_allocator);
     defer list.deinit();
