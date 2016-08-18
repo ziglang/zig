@@ -4,7 +4,7 @@ const errno = @import("errno.zig");
 pub error SigInterrupt;
 pub error Unexpected;
 
-pub fn get_random_bytes(buf: []u8) -> %void {
+pub fn getRandomBytes(buf: []u8) -> %void {
     switch (@compileVar("os")) {
         linux => {
             const ret = linux.getrandom(buf.ptr, buf.len, 0);
@@ -18,14 +18,18 @@ pub fn get_random_bytes(buf: []u8) -> %void {
                 }
             }
         },
-        else => @compile_err("unsupported os"),
+        else => @compileErr("unsupported os"),
     }
 }
 
 #attribute("cold")
 pub fn abort() -> unreachable {
-    linux.raise(linux.SIGABRT);
-    linux.raise(linux.SIGKILL);
-    while (true) {}
+    switch (@compileVar("os")) {
+        linux => {
+            linux.raise(linux.SIGABRT);
+            linux.raise(linux.SIGKILL);
+            while (true) {}
+        },
+        else => @compileErr("unsupported os"),
+    }
 }
-

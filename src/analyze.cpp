@@ -5296,6 +5296,9 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                 } else if (buf_eql_str(var_name, "environ")) {
                     const_val->data.x_enum.tag = g->target_environ_index;
                     return g->builtin_types.entry_environ_enum;
+                } else if (buf_eql_str(var_name, "object_format")) {
+                    const_val->data.x_enum.tag = g->target_oformat_index;
+                    return g->builtin_types.entry_oformat_enum;
                 } else {
                     add_node_error(g, *str_node,
                         buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(var_name)));

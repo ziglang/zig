@@ -62,7 +62,7 @@ const xml_document =
     \\<?xml version="1.0" encoding="UTF-8"?>
     \\<document>
     \\</document>
-    ;
+;
 struct XmlParser {}
 
 // The initials BE (Big Endian) are just another word in Zig identifier names.

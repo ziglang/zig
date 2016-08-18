@@ -137,6 +137,31 @@ static const ZigLLVM_EnvironmentType environ_list[] = {
     ZigLLVM_CoreCLR,
 };
 
+static const ZigLLVM_ObjectFormatType oformat_list[] = {
+    ZigLLVM_UnknownObjectFormat,
+    ZigLLVM_COFF,
+    ZigLLVM_ELF,
+    ZigLLVM_MachO,
+};
+
+int target_oformat_count(void) {
+    return array_length(oformat_list);
+}
+
+const ZigLLVM_ObjectFormatType get_target_oformat(int index) {
+    return oformat_list[index];
+}
+
+const char *get_target_oformat_name(ZigLLVM_ObjectFormatType oformat) {
+    switch (oformat) {
+        case ZigLLVM_UnknownObjectFormat: return "unknown";
+        case ZigLLVM_COFF: return "coff";
+        case ZigLLVM_ELF: return "elf";
+        case ZigLLVM_MachO: return "macho";
+    }
+    zig_unreachable();
+}
+
 int target_arch_count(void) {
     return array_length(arch_list);
 }

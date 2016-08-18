@@ -4579,6 +4579,33 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
         entry->deep_const = true;
+        entry->zero_bits = true; // only allowed at compile time
+        buf_init_from_str(&entry->name, "@ObjectFormat");
+        uint32_t field_count = target_oformat_count();
+        entry->data.enumeration.field_count = field_count;
+        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+        for (uint32_t i = 0; i < field_count; i += 1) {
+            TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
+            ZigLLVM_ObjectFormatType oformat = get_target_oformat(i);
+            type_enum_field->name = buf_create_from_str(get_target_oformat_name(oformat));
+            type_enum_field->value = i;
+            type_enum_field->type_entry = g->builtin_types.entry_void;
+
+            if (oformat == g->zig_target.oformat) {
+                g->target_oformat_index = i;
+            }
+        }
+        entry->data.enumeration.complete = true;
+
+        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
+        entry->data.enumeration.tag_type = tag_type_entry;
+
+        g->builtin_types.entry_oformat_enum = entry;
+    }
+
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
+        entry->deep_const = true;
         buf_init_from_str(&entry->name, "AtomicOrder");
         uint32_t field_count = 6;
         entry->data.enumeration.field_count = field_count;

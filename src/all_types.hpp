@@ -1232,6 +1232,7 @@ struct CodeGen {
         TypeTableEntry *entry_os_enum;
         TypeTableEntry *entry_arch_enum;
         TypeTableEntry *entry_environ_enum;
+        TypeTableEntry *entry_oformat_enum;
         TypeTableEntry *entry_atomic_order_enum;
     } builtin_types;
 
@@ -1256,6 +1257,7 @@ struct CodeGen {
     uint32_t target_os_index;
     uint32_t target_arch_index;
     uint32_t target_environ_index;
+    uint32_t target_oformat_index;
     LLVMTargetMachineRef target_machine;
     LLVMZigDIFile *dummy_di_file;
     bool is_native_target;

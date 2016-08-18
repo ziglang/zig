@@ -1,6 +1,7 @@
 const linux = @import("linux.zig");
 const errno = @import("errno.zig");
 const assert = @import("debug.zig").assert;
+const endian = @import("endian.zig");
 
 pub error SigInterrupt;
 pub error Unexpected;
@@ -99,14 +100,14 @@ pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
     const connect_ret = if (addr.family == linux.AF_INET) {
         var os_addr: linux.sockaddr_in = undefined;
         os_addr.family = addr.family;
-        os_addr.port = swapIfLittleEndian(u16, port);
+        os_addr.port = endian.swapIfLe(u16, port);
         @memcpy((&u8)(&os_addr.addr), &addr.addr[0], 4);
         @memset(&os_addr.zero, 0, @sizeOf(@typeOf(os_addr.zero)));
         linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in))
     } else if (addr.family == linux.AF_INET6) {
         var os_addr: linux.sockaddr_in6 = undefined;
         os_addr.family = addr.family;
-        os_addr.port = swapIfLittleEndian(u16, port);
+        os_addr.port = endian.swapIfLe(u16, port);
         os_addr.flowinfo = 0;
         os_addr.scope_id = addr.scope_id;
         @memcpy(&os_addr.addr[0], &addr.addr[0], 16);
@@ -319,7 +320,7 @@ fn parseIp4(buf: []const u8) -> %u32 {
 
 #attribute("test")
 fn testParseIp4() {
-    assert(%%parseIp4("127.0.0.1") == swapIfLittleEndian(u32, 0x7f000001));
+    assert(%%parseIp4("127.0.0.1") == endian.swapIfLe(u32, 0x7f000001));
     switch (parseIp4("256.0.0.1")) { Overflow => {}, else => unreachable {}, }
     switch (parseIp4("x.0.0.1")) { InvalidChar => {}, else => unreachable {}, }
     switch (parseIp4("127.0.0.1.1")) { JunkAtEnd => {}, else => unreachable {}, }
@@ -350,18 +351,4 @@ fn testLookupSimpleIp() {
         assert(addr.addr[2] == 1);
         assert(addr.addr[3] == 1);
     }
-}
-
-fn swapIfLittleEndian(inline T: type, x: T) -> T {
-    if (@compileVar("is_big_endian")) x else endianSwap(T, x)
-}
-
-fn endianSwap(inline T: type, x: T) -> T {
-    const x_slice = ([]u8)((&const x)[0...1]);
-    var result: T = undefined;
-    const result_slice = ([]u8)((&result)[0...1]);
-    for (result_slice) |*b, i| {
-        *b = x_slice[@sizeOf(T) - i - 1];
-    }
-    return result;
 }

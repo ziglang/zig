@@ -19,8 +19,8 @@ pub const SYS_rt_sigaction = 13;
 pub const SYS_rt_sigprocmask = 14;
 pub const SYS_rt_sigreturn = 15;
 pub const SYS_ioctl = 16;
-pub const SYS_pread64 = 17;
-pub const SYS_pwrite64 = 18;
+pub const SYS_pread = 17;
+pub const SYS_pwrite = 18;
 pub const SYS_readv = 19;
 pub const SYS_writev = 20;
 pub const SYS_access = 21;
@@ -452,4 +452,29 @@ export struct msghdr {
     msg_controllen: socklen_t,
     __pad2: socklen_t,
     msg_flags: i32,
+}
+
+export struct stat {
+    dev: u64,
+    ino: u64,
+    nlink: usize,
+
+    mode: u32,
+    uid: u32,
+    gid: u32,
+    __pad0: u32,
+    rdev: u64,
+    size: i64,
+    blksize: isize,
+    blocks: i64,
+
+    atim: timespec,
+    mtim: timespec,
+    ctim: timespec,
+    __unused: [3]isize,
+}
+
+export struct timespec {
+    tv_sec: isize,
+    tv_nsec: isize,
 }

@@ -76,6 +76,10 @@ pub const O_PATH = arch.O_PATH;
 pub const O_TMPFILE = arch.O_TMPFILE;
 pub const O_NDELAY = arch.O_NDELAY;
 
+pub const SEEK_SET = 0;
+pub const SEEK_CUR = 1;
+pub const SEEK_END = 2;
+
 const SIG_BLOCK   = 0;
 const SIG_UNBLOCK = 1;
 const SIG_SETMASK = 2;
@@ -226,7 +230,9 @@ pub fn getErrno(r: usize) -> usize {
     if (signed_r > -4096 && signed_r < 0) usize(-signed_r) else 0
 }
 
-pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32, offset: usize) -> usize {
+pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32, offset: usize)
+    -> usize
+{
     arch.syscall6(arch.SYS_mmap, usize(address), length, prot, flags, usize(fd), offset)
 }
 
@@ -238,29 +244,49 @@ pub fn read(fd: i32, buf: &u8, count: usize) -> usize {
     arch.syscall3(arch.SYS_read, usize(fd), usize(buf), count)
 }
 
+pub fn pread(fd: i32, buf: &u8, count: usize, offset: usize) -> usize {
+    arch.syscall4(arch.SYS_pread, usize(fd), usize(buf), count, offset)
+}
+
 pub fn write(fd: i32, buf: &const u8, count: usize) -> usize {
     arch.syscall3(arch.SYS_write, usize(fd), usize(buf), count)
 }
 
-pub fn open(path: []u8, flags: usize, perm: usize) -> usize {
-    var buf: [path.len + 1]u8 = undefined;
-    @memcpy(&buf[0], &path[0], path.len);
-    buf[path.len] = 0;
-    arch.syscall3(arch.SYS_open, usize(&buf[0]), flags, perm)
+pub fn pwrite(fd: i32, buf: &const u8, count: usize, offset: usize) -> usize {
+    arch.syscall4(arch.SYS_pwrite, usize(fd), usize(buf), count, offset)
 }
 
-pub fn create(path: []u8, perm: usize) -> usize {
-    var buf: [path.len + 1]u8 = undefined;
-    @memcpy(&buf[0], &path[0], path.len);
-    buf[path.len] = 0;
-    arch.syscall2(arch.SYS_creat, usize(&buf[0]), perm)
+pub fn open_c(path: &const u8, flags: usize, perm: usize) -> usize {
+    arch.syscall3(arch.SYS_open, usize(path), flags, perm)
 }
 
-pub fn openat(dirfd: i32, path: []u8, flags: usize, mode: usize) -> usize {
+pub fn open(path: []const u8, flags: usize, perm: usize) -> usize {
     var buf: [path.len + 1]u8 = undefined;
     @memcpy(&buf[0], &path[0], path.len);
     buf[path.len] = 0;
-    arch.syscall4(arch.SYS_openat, usize(dirfd), usize(&buf[0]), flags, mode)
+    return open_c(buf.ptr, flags, perm);
+}
+
+pub fn create_c(path: &const u8, perm: usize) -> usize {
+    arch.syscall2(arch.SYS_creat, usize(path), perm)
+}
+
+pub fn create(path: []const u8, perm: usize) -> usize {
+    var buf: [path.len + 1]u8 = undefined;
+    @memcpy(&buf[0], &path[0], path.len);
+    buf[path.len] = 0;
+    return create_c(buf.ptr, perm);
+}
+
+pub fn openat_c(dirfd: i32, path: &const u8, flags: usize, mode: usize) -> usize {
+    arch.syscall4(arch.SYS_openat, usize(dirfd), usize(path), flags, mode)
+}
+
+pub fn openat(dirfd: i32, path: []const u8, flags: usize, mode: usize) -> usize {
+    var buf: [path.len + 1]u8 = undefined;
+    @memcpy(&buf[0], &path[0], path.len);
+    buf[path.len] = 0;
+    return openat_c(dirfd, buf.ptr, flags, mode);
 }
 
 pub fn close(fd: i32) -> usize {
@@ -457,3 +483,10 @@ pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags:
 //     }
 //     return ifr.ifr_ifindex;
 // }
+
+pub const stat = arch.stat;
+pub const timespec = arch.timespec;
+
+pub fn fstat(fd: i32, stat_buf: &stat) -> usize {
+    arch.syscall2(arch.SYS_fstat, usize(fd), usize(stat_buf))
+}

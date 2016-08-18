@@ -7,7 +7,7 @@ pub fn main(args: [][]u8) -> %void {
     %%io.stdout.printf("Welcome to the Guess Number Game in Zig.\n");
 
     var seed: [@sizeOf(usize)]u8 = undefined;
-    %%os.get_random_bytes(seed);
+    %%os.getRandomBytes(seed);
     var rand: Rand = undefined;
     rand.init(([]usize)(seed)[0]);
 

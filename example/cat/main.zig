@@ -14,7 +14,8 @@ pub fn main(args: [][]u8) -> %void {
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
-            var is = io.InStream.open(arg) %% |err| {
+            var is: io.InStream = undefined;
+            is.open(arg) %% |err| {
                 %%io.stderr.printf("Unable to open file: ");
                 %%io.stderr.printf(@errName(err));
                 %%io.stderr.printf("\n");

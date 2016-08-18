@@ -52,6 +52,11 @@ const char *get_target_os_name(ZigLLVM_OSType os_type);
 int target_environ_count(void);
 ZigLLVM_EnvironmentType get_target_environ(int index);
 
+
+int target_oformat_count(void);
+const ZigLLVM_ObjectFormatType get_target_oformat(int index);
+const char *get_target_oformat_name(ZigLLVM_ObjectFormatType oformat);
+
 void get_native_target(ZigTarget *target);
 void get_unknown_target(ZigTarget *target);
 

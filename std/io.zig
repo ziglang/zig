@@ -1,6 +1,9 @@
 const linux = @import("linux.zig");
 const errno = @import("errno.zig");
 const math = @import("math.zig");
+const endian = @import("endian.zig");
+const debug = @import("debug.zig");
+const assert = debug.assert;
 
 pub const stdin_fileno = 0;
 pub const stdout_fileno = 1;
@@ -8,6 +11,7 @@ pub const stderr_fileno = 2;
 
 pub var stdin = InStream {
     .fd = stdin_fileno,
+    .offset = 0,
 };
 
 pub var stdout = OutStream {
@@ -33,6 +37,8 @@ pub error Unexpected;
 
 pub error DiskQuota;
 pub error FileTooBig;
+// TODO hide interrupts at this layer by retrying. Users can use the linux specific APIs if they
+// want to handle interrupts.
 pub error SigInterrupt;
 pub error Io;
 pub error NoSpaceLeft;
@@ -48,6 +54,8 @@ pub error NameTooLong;
 pub error NoDevice;
 pub error PathNotFound;
 pub error NoMem;
+pub error Unseekable;
+pub error Eof;
 
 const buffer_size = 4 * 1024;
 const max_u64_base10_digits = 20;
@@ -137,14 +145,18 @@ pub struct OutStream {
     }
 }
 
+// TODO created a BufferedInStream struct and move some of this code there
+// BufferedInStream API goes on top of minimal InStream API.
 pub struct InStream {
     fd: i32,
+    offset: usize,
 
-    pub fn open(path: []u8) -> %InStream {
-        const fd = linux.open(path, linux.O_LARGEFILE|linux.O_RDONLY, 0);
-        const fd_err = linux.getErrno(fd);
-        if (fd_err > 0) {
-            return switch (fd_err) {
+    /// Call close to clean up.
+    pub fn open(is: &InStream, path: []const u8) -> %void {
+        const result = linux.open(path, linux.O_LARGEFILE|linux.O_RDONLY, 0);
+        const err = linux.getErrno(result);
+        if (err > 0) {
+            return switch (err) {
                 errno.EFAULT => unreachable{},
                 errno.EINVAL => unreachable{},
                 errno.EACCES => error.BadPerm,
@@ -164,24 +176,8 @@ pub struct InStream {
                 else => error.Unexpected,
             }
         }
-
-        return InStream { .fd = i32(fd), };
-    }
-
-    pub fn read(is: &InStream, buf: []u8) -> %usize {
-        const amt_read = linux.read(is.fd, &buf[0], buf.len);
-        const read_err = linux.getErrno(amt_read);
-        if (read_err > 0) {
-            return switch (read_err) {
-                errno.EINVAL => unreachable{},
-                errno.EFAULT => unreachable{},
-                errno.EBADF  => error.BadFd,
-                errno.EINTR  => error.SigInterrupt,
-                errno.EIO    => error.Io,
-                else         => error.Unexpected,
-            }
-        }
-        return amt_read;
+        is.fd = i32(result);
+        is.offset = 0;
     }
 
     pub fn close(is: &InStream) -> %void {
@@ -195,6 +191,95 @@ pub struct InStream {
                 else => error.Unexpected,
             }
         }
+    }
+
+    /// Returns the number of bytes read. If the number read is smaller than buf.len, then
+    /// the stream reached End Of File.
+    pub fn read(is: &InStream, buf: []u8) -> %usize {
+        switch (@compileVar("os")) {
+            linux => {
+                while (true) {
+                    const amt_read = linux.pread(is.fd, buf.ptr, buf.len, is.offset);
+                    const read_err = linux.getErrno(amt_read);
+                    if (read_err > 0) {
+                        switch (read_err) {
+                            errno.EINTR  => continue,
+                            errno.EINVAL => unreachable{},
+                            errno.EFAULT => unreachable{},
+                            errno.EBADF  => return error.BadFd,
+                            errno.EIO    => return error.Io,
+                            else         => return error.Unexpected,
+                        }
+                    }
+                    is.offset += amt_read;
+                    return amt_read;
+                }
+            },
+            else => @compileErr("unsupported OS"),
+        }
+    }
+
+    pub fn readNoEof(is: &InStream, buf: []u8) -> %void {
+        const amt_read = %return is.read(buf);
+        if (amt_read < buf.len) return error.Eof;
+    }
+
+    pub fn readByte(is: &InStream) -> %u8 {
+        var result: [1]u8 = undefined;
+        %return is.readNoEof(result);
+        return result[0];
+    }
+
+    pub inline fn readIntLe(is: &InStream, inline T: type) -> %T {
+        is.readInt(false, T)
+    }
+
+    pub inline fn readIntBe(is: &InStream, inline T: type) -> %T {
+        is.readInt(true, T)
+    }
+
+    pub inline fn readInt(is: &InStream, is_be: bool, inline T: type) -> %T {
+        var result: T = undefined;
+        const result_slice = ([]u8)((&result)[0...1]);
+        %return is.readNoEof(result_slice);
+        return endian.swapIf(!is_be, T, result);
+    }
+
+    pub inline fn readVarInt(is: &InStream, is_be: bool, inline T: type, size: usize) -> %T {
+        var result: T = zeroes;
+        const result_slice = ([]u8)((&result)[0...1]);
+        const padding = @sizeOf(T) - size;
+        {var i: usize = 0; while (i < size; i += 1) {
+            const index = if (is_be == @compileVar("is_big_endian")) {
+                padding + i
+            } else {
+                result_slice.len - i - 1 - padding
+            };
+            result_slice[index] = %return is.readByte();
+        }}
+        return result;
+    }
+
+    pub fn seekForward(is: &InStream, amount: usize) -> %void {
+        is.offset += amount;
+    }
+
+    pub fn seekTo(is: &InStream, pos: usize) -> %void {
+        is.offset = pos;
+    }
+
+    pub fn endPos(is: &InStream) -> %usize {
+        var stat: linux.stat = undefined;
+        const err = linux.getErrno(linux.fstat(is.fd, &stat));
+        if (err > 0) {
+            return switch (err) {
+                errno.EBADF => error.BadFd,
+                errno.ENOMEM => error.NoMem,
+                else => error.Unexpected,
+            }
+        }
+
+        return usize(stat.size);
     }
 }
 
@@ -266,4 +351,13 @@ fn parseU64DigitTooBig() {
         unreachable{};
     };
     unreachable{};
+}
+
+pub fn openSelfExe(stream: &InStream) -> %void {
+    switch (@compileVar("os")) {
+        linux => {
+            %return stream.open("/proc/self/exe");
+        },
+        else => @compileErr("unsupported os"),
+    }
 }
