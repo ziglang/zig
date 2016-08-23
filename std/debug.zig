@@ -2,6 +2,7 @@ const Allocator = @import("mem.zig").Allocator;
 const io = @import("io.zig");
 const os = @import("os.zig");
 const elf = @import("elf.zig");
+const DW = @import("dwarf.zig");
 
 pub error MissingDebugInfo;
 pub error InvalidDebugInfo;
@@ -27,6 +28,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
             defer %return st.elf.close();
 
             st.aranges = %return st.elf.findSection(".debug_aranges");
+            st.debug_info = (%return st.elf.findSection(".debug_info")) ?? return error.MissingDebugInfo;
 
             var maybe_fp: ?&const u8 = @frameAddress();
             while (true) {
@@ -34,7 +36,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
                 const return_address = *(&const usize)(usize(fp) + @sizeOf(usize));
 
                 // read .debug_aranges to find out which compile unit the address is in
-                const debug_info_offset = %return debugInfoOffset(&st, return_address);
+                const compile_unit_offset = %return findCompileUnitOffset(&st, return_address);
 
                 %return out_stream.printInt(usize, return_address);
                 %return out_stream.printf("  -> ");
@@ -59,11 +61,28 @@ struct ElfStackTrace {
     self_exe_stream: io.InStream,
     elf: elf.Elf,
     aranges: ?&elf.SectionHeader,
+    debug_info: &elf.SectionHeader,
 }
 
-fn debugInfoOffset(st: &ElfStackTrace, target_address: usize) -> %u64 {
-    // when there is no .debug_aranges section, offset into debug info is 0x0
-    const aranges = st.aranges ?? return 0;
+fn findCompileUnitOffset(st: &ElfStackTrace, target_address: usize) -> %u64 {
+    if (const result ?= %return arangesOffset(st, target_address))
+        return result;
+
+    // iterate over compile units looking for a match with the low pc and high pc
+    %return st.elf.seekToSection(st.debug_info);
+
+    while (true) {
+        const tag_id = %return st.self_exe_stream.readByte();
+        if (tag_id == DW.TAG_compile_unit) {
+
+        } else {
+            
+        }
+    }
+}
+
+fn arangesOffset(st: &ElfStackTrace, target_address: usize) -> %?u64 {
+    const aranges = ?return st.aranges;
 
     %return st.elf.seekToSection(aranges);
 
