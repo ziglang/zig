@@ -11,7 +11,7 @@ pub struct SmallList(inline T: type, inline STATIC_SIZE: usize) {
 }
 
 #attribute("test")
-fn function_with_return_type_type() {
+fn functionWithReturnTypeType() {
     var list: List(i32) = undefined;
     var list2: List(i32) = undefined;
     list.length = 10;

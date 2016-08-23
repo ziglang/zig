@@ -6271,7 +6271,34 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
                 }
             }
         case ReturnKindMaybe:
-            zig_panic("TODO");
+            {
+                TypeTableEntry *expected_maybe_type;
+                if (expected_type) {
+                    expected_maybe_type = get_maybe_type(g, expected_type);
+                } else {
+                    expected_maybe_type = nullptr;
+                }
+                TypeTableEntry *resolved_type = analyze_expression(g, import, context, expected_maybe_type,
+                        node->data.return_expr.expr);
+                if (resolved_type->id == TypeTableEntryIdInvalid) {
+                    return resolved_type;
+                } else if (resolved_type->id == TypeTableEntryIdMaybe) {
+                    TypeTableEntry *return_type = context->fn_entry->type_entry->data.fn.fn_type_id.return_type;
+                    if (return_type->id != TypeTableEntryIdMaybe) {
+                        ErrorMsg *msg = add_node_error(g, node,
+                            buf_sprintf("?return statement in function with return type '%s'",
+                                buf_ptr(&return_type->name)));
+                        AstNode *return_type_node = context->fn_entry->fn_def_node->data.fn_def.fn_proto->data.fn_proto.return_type;
+                        add_error_note(g, msg, return_type_node, buf_sprintf("function return type here"));
+                    }
+
+                    return resolved_type->data.maybe.child_type;
+                } else {
+                    add_node_error(g, node->data.return_expr.expr,
+                        buf_sprintf("expected maybe type, got '%s'", buf_ptr(&resolved_type->name)));
+                    return g->builtin_types.entry_invalid;
+                }
+            }
     }
     zig_unreachable();
 }

@@ -2497,7 +2497,45 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                 }
             }
         case ReturnKindMaybe:
-            zig_panic("TODO");
+            {
+                assert(value_type->id == TypeTableEntryIdMaybe);
+                TypeTableEntry *child_type = value_type->data.maybe.child_type;
+
+                LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeRetReturn");
+                LLVMBasicBlockRef continue_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeRetContinue");
+
+                set_debug_source_node(g, node);
+                LLVMValueRef maybe_val_ptr = LLVMBuildStructGEP(g->builder, value, 1, "");
+                LLVMValueRef is_non_null = LLVMBuildLoad(g->builder, maybe_val_ptr, "");
+
+                LLVMValueRef zero = LLVMConstNull(LLVMInt1Type());
+                LLVMValueRef cond_val = LLVMBuildICmp(g->builder, LLVMIntNE, is_non_null, zero, "");
+                LLVMBuildCondBr(g->builder, cond_val, continue_block, return_block);
+
+                LLVMPositionBuilderAtEnd(g->builder, return_block);
+                TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
+                assert(return_type->id == TypeTableEntryIdMaybe);
+                if (handle_is_ptr(return_type)) {
+                    assert(g->cur_ret_ptr);
+
+                    set_debug_source_node(g, node);
+                    LLVMValueRef maybe_bit_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, 1, "");
+                    LLVMBuildStore(g->builder, zero, maybe_bit_ptr);
+                    LLVMBuildRetVoid(g->builder);
+                } else {
+                    LLVMValueRef ret_zero_value = LLVMConstNull(return_type->type_ref);
+                    gen_return(g, node, ret_zero_value, ReturnKnowledgeKnownNull);
+                }
+
+                LLVMPositionBuilderAtEnd(g->builder, continue_block);
+                if (type_has_bits(child_type)) {
+                    set_debug_source_node(g, node);
+                    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, value, 0, "");
+                    return get_handle_value(g, node, val_ptr, child_type);
+                } else {
+                    return nullptr;
+                }
+            }
     }
     zig_unreachable();
 }
