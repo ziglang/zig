@@ -237,6 +237,7 @@ static bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
@@ -925,6 +926,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdGenericFn:
             fn_proto->skip = true;
@@ -963,6 +965,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
             case TypeTableEntryIdNumLitFloat:
             case TypeTableEntryIdNumLitInt:
             case TypeTableEntryIdUndefLit:
+            case TypeTableEntryIdNullLit:
             case TypeTableEntryIdUnreachable:
             case TypeTableEntryIdNamespace:
             case TypeTableEntryIdGenericFn:
@@ -1912,6 +1915,7 @@ static bool type_has_codegen_value(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdGenericFn:
             return false;
@@ -2163,6 +2167,13 @@ static bool types_match_with_implicit_cast(CodeGen *g, TypeTableEntry *expected_
     if (expected_type->id == TypeTableEntryIdMaybe &&
         types_match_with_implicit_cast(g, expected_type->data.maybe.child_type, actual_type,
             literal_node, reported_err))
+    {
+        return true;
+    }
+
+    // implicit conversion from null literal to maybe type
+    if (expected_type->id == TypeTableEntryIdMaybe &&
+        actual_type->id == TypeTableEntryIdNullLit)
     {
         return true;
     }
@@ -2971,13 +2982,6 @@ static TypeTableEntry *resolve_expr_const_val_as_bool(CodeGen *g, AstNode *node,
     return g->builtin_types.entry_bool;
 }
 
-static TypeTableEntry *resolve_expr_const_val_as_null(CodeGen *g, AstNode *node, TypeTableEntry *type) {
-    Expr *expr = get_resolved_expr(node);
-    expr->const_val.ok = true;
-    expr->const_val.data.x_maybe = nullptr;
-    return type;
-}
-
 static TypeTableEntry *resolve_expr_const_val_as_non_null(CodeGen *g, AstNode *node,
         TypeTableEntry *type, ConstExprValue *other_val)
 {
@@ -3358,6 +3362,7 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdUnion:
@@ -3916,26 +3921,17 @@ static TypeTableEntry *analyze_null_literal_expr(CodeGen *g, ImportTableEntry *i
 {
     assert(node->type == NodeTypeNullLiteral);
 
-    if (!expected_type) {
-        add_node_error(g, node, buf_sprintf("unable to determine null type"));
-        return g->builtin_types.entry_invalid;
-    }
+    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+    const_val->ok = true;
 
-    if (expected_type->id != TypeTableEntryIdMaybe) {
-        add_node_error(g, node,
-                buf_sprintf("expected maybe type, got '%s'", buf_ptr(&expected_type->name)));
-        return g->builtin_types.entry_invalid;
-    }
-
-    node->data.null_literal.resolved_struct_val_expr.type_entry = expected_type;
-    node->data.null_literal.resolved_struct_val_expr.source_node = node;
-
-    return resolve_expr_const_val_as_null(g, node, expected_type);
+    return g->builtin_types.entry_null;
 }
 
 static TypeTableEntry *analyze_undefined_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
+    assert(node->type == NodeTypeUndefinedLiteral);
+
     Expr *expr = get_resolved_expr(node);
     ConstExprValue *const_val = &expr->const_val;
 
@@ -4517,6 +4513,14 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
                 return g->builtin_types.entry_invalid;
             }
         }
+    }
+
+    // explicit cast from null literal to maybe type
+    if (wanted_type->id == TypeTableEntryIdMaybe &&
+        actual_type->id == TypeTableEntryIdNullLit)
+    {
+        get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownNull;
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpNullToMaybe, true);
     }
 
     // explicit cast from child type of error type to error type
@@ -5203,6 +5207,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     case TypeTableEntryIdNumLitFloat:
                     case TypeTableEntryIdNumLitInt:
                     case TypeTableEntryIdUndefLit:
+                    case TypeTableEntryIdNullLit:
                     case TypeTableEntryIdNamespace:
                     case TypeTableEntryIdGenericFn:
                         add_node_error(g, expr_node,
@@ -6252,13 +6257,12 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
                 if (resolved_type->id == TypeTableEntryIdInvalid) {
                     return resolved_type;
                 } else if (resolved_type->id == TypeTableEntryIdErrorUnion) {
-                    TypeTableEntry *return_type = context->fn_entry->type_entry->data.fn.fn_type_id.return_type;
-                    if (return_type->id != TypeTableEntryIdErrorUnion &&
-                        return_type->id != TypeTableEntryIdPureError)
+                    if (expected_return_type->id != TypeTableEntryIdErrorUnion &&
+                        expected_return_type->id != TypeTableEntryIdPureError)
                     {
                         ErrorMsg *msg = add_node_error(g, node,
                             buf_sprintf("%%return statement in function with return type '%s'",
-                                buf_ptr(&return_type->name)));
+                                buf_ptr(&expected_return_type->name)));
                         AstNode *return_type_node = context->fn_entry->fn_def_node->data.fn_def.fn_proto->data.fn_proto.return_type;
                         add_error_note(g, msg, return_type_node, buf_sprintf("function return type here"));
                     }
@@ -6283,11 +6287,10 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
                 if (resolved_type->id == TypeTableEntryIdInvalid) {
                     return resolved_type;
                 } else if (resolved_type->id == TypeTableEntryIdMaybe) {
-                    TypeTableEntry *return_type = context->fn_entry->type_entry->data.fn.fn_type_id.return_type;
-                    if (return_type->id != TypeTableEntryIdMaybe) {
+                    if (expected_return_type->id != TypeTableEntryIdMaybe) {
                         ErrorMsg *msg = add_node_error(g, node,
                             buf_sprintf("?return statement in function with return type '%s'",
-                                buf_ptr(&return_type->name)));
+                                buf_ptr(&expected_return_type->name)));
                         AstNode *return_type_node = context->fn_entry->fn_def_node->data.fn_def.fn_proto->data.fn_proto.return_type;
                         add_error_note(g, msg, return_type_node, buf_sprintf("function return type here"));
                     }
@@ -7227,6 +7230,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdGenericFn:
              zig_unreachable();
@@ -7335,6 +7339,8 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
             return hash_ptr(const_val->data.x_ptr.ptr);
         case TypeTableEntryIdUndefLit:
             return 162837799;
+        case TypeTableEntryIdNullLit:
+            return 844854567;
         case TypeTableEntryIdArray:
             // TODO better hashing algorithm
             return 1166190605;
@@ -7428,6 +7434,7 @@ static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry)
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdVoid:

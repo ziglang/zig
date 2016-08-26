@@ -40,7 +40,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
 
                 %return out_stream.printInt(usize, return_address);
                 %return out_stream.printf("  -> ");
-                %return out_stream.printInt(u64, debug_info_offset);
+                %return out_stream.printInt(u64, compile_unit_offset);
                 %return out_stream.printf("\n");
                 maybe_fp = *(&const ?&const u8)(fp);
             }
@@ -82,7 +82,8 @@ fn findCompileUnitOffset(st: &ElfStackTrace, target_address: usize) -> %u64 {
 }
 
 fn arangesOffset(st: &ElfStackTrace, target_address: usize) -> %?u64 {
-    const aranges = ?return st.aranges;
+    // TODO ability to implicitly cast null to %?T
+    const aranges = st.aranges ?? return (?u64)(null);
 
     %return st.elf.seekToSection(aranges);
 
@@ -129,7 +130,8 @@ fn arangesOffset(st: &ElfStackTrace, target_address: usize) -> %?u64 {
             if (address == 0 && length == 0) break;
 
             if (target_address >= address && target_address < address + length) {
-                return debug_info_offset;
+                // TODO ability to implicitly cast T to %?T
+                return (?u64)(debug_info_offset);
             }
         }
     }

@@ -45,6 +45,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *ty
             zig_panic("TODO");
         case TypeTableEntryIdUndefLit:
             zig_panic("TODO");
+        case TypeTableEntryIdNullLit:
+            zig_panic("TODO");
         case TypeTableEntryIdMaybe:
             zig_panic("TODO");
         case TypeTableEntryIdErrorUnion:
@@ -648,6 +650,10 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
             }
         case CastOpMaybeWrap:
             const_val->data.x_maybe = other_val;
+            const_val->ok = true;
+            break;
+        case CastOpNullToMaybe:
+            const_val->data.x_maybe = nullptr;
             const_val->ok = true;
             break;
         case CastOpErrorWrap:

@@ -394,6 +394,7 @@ enum CastOp {
     CastOpWidenOrShorten,
     CastOpToUnknownSizeArray,
     CastOpMaybeWrap,
+    CastOpNullToMaybe,
     CastOpErrorWrap,
     CastOpPureErrorWrap,
     CastOpPointerReinterpret,
@@ -692,19 +693,16 @@ struct AstNodeContainerInitExpr {
 
 struct AstNodeNullLiteral {
     // populated by semantic analyzer
-    StructValExprCodeGen resolved_struct_val_expr;
     Expr resolved_expr;
 };
 
 struct AstNodeUndefinedLiteral {
     // populated by semantic analyzer
-    StructValExprCodeGen resolved_struct_val_expr;
     Expr resolved_expr;
 };
 
 struct AstNodeZeroesLiteral {
     // populated by semantic analyzer
-    StructValExprCodeGen resolved_struct_val_expr;
     Expr resolved_expr;
 };
 
@@ -989,6 +987,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdNumLitFloat,
     TypeTableEntryIdNumLitInt,
     TypeTableEntryIdUndefLit,
+    TypeTableEntryIdNullLit,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdPureError,
@@ -1228,6 +1227,7 @@ struct CodeGen {
         TypeTableEntry *entry_num_lit_int;
         TypeTableEntry *entry_num_lit_float;
         TypeTableEntry *entry_undef;
+        TypeTableEntry *entry_null;
         TypeTableEntry *entry_pure_error;
         TypeTableEntry *entry_os_enum;
         TypeTableEntry *entry_arch_enum;

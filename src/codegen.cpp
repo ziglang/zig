@@ -875,6 +875,9 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 return cast_expr->tmp_ptr;
             }
+        case CastOpNullToMaybe:
+            // handled by constant expression evaluator
+            zig_unreachable();
         case CastOpErrorWrap:
             {
                 assert(wanted_type->id == TypeTableEntryIdErrorUnion);
@@ -3806,6 +3809,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdGenericFn:
@@ -4310,6 +4314,12 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "(undefined)");
         entry->deep_const = true;
         g->builtin_types.entry_undef = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNullLit);
+        buf_init_from_str(&entry->name, "(null)");
+        entry->deep_const = true;
+        g->builtin_types.entry_null = entry;
     }
 
     for (int int_size_i = 0; int_size_i < array_length(int_sizes_in_bits); int_size_i += 1) {

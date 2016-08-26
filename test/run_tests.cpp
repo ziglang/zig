@@ -1211,7 +1211,7 @@ fn derp(){}
 
     add_compile_fail_case("assign null to non-nullable pointer", R"SOURCE(
 const a: &u8 = null;
-    )SOURCE", 1, ".tmp_source.zig:2:16: error: expected maybe type, got '&u8'");
+    )SOURCE", 1, ".tmp_source.zig:2:16: error: expected type '&u8', got '(null)'");
 
     add_compile_fail_case("indexing an array of size zero", R"SOURCE(
 const array = []u8{};
