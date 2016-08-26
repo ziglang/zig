@@ -404,6 +404,7 @@ enum CastOp {
     CastOpBoolToInt,
     CastOpResizeSlice,
     CastOpIntToEnum,
+    CastOpEnumToInt,
     CastOpBytesToSlice,
 };
 

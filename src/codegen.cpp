@@ -1062,6 +1062,8 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
         case CastOpIntToEnum:
             return gen_widen_or_shorten(g, node, actual_type, wanted_type->data.enumeration.tag_type, expr_val);
+        case CastOpEnumToInt:
+            return gen_widen_or_shorten(g, node, actual_type->data.enumeration.tag_type, wanted_type, expr_val);
     }
     zig_unreachable();
 }

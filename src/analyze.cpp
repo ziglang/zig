@@ -2641,7 +2641,12 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
         codegen->type_entry = fixed_size_array_type;
         codegen->source_node = node;
         if (!const_val->ok) {
-            context->fn_entry->struct_val_expr_alloca_list.append(codegen);
+            if (!context->fn_entry) {
+                add_node_error(g, node,
+                    buf_sprintf("unable to evaluate constant expression"));
+            } else {
+                context->fn_entry->struct_val_expr_alloca_list.append(codegen);
+            }
         }
 
         return fixed_size_array_type;
@@ -4599,6 +4604,14 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
         wanted_type->data.enumeration.gen_field_count == 0)
     {
         return resolve_cast(g, context, node, expr_node, wanted_type, CastOpIntToEnum, false);
+    }
+
+    // explicit cast from enum type with no payload to integer
+    if (wanted_type->id == TypeTableEntryIdInt &&
+        actual_type->id == TypeTableEntryIdEnum &&
+        actual_type->data.enumeration.gen_field_count == 0)
+    {
+        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpEnumToInt, false);
     }
 
     add_node_error(g, node,
