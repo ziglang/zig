@@ -305,8 +305,8 @@ static void end_float_token(Tokenize *t) {
     t->exponent_in_bin_or_dec += specified_exponent;
 
     uint64_t significand = t->cur_tok->data.num_lit.bignum.data.x_uint;
-    uint64_t significand_bits;
-    uint64_t exponent_bits;
+    uint64_t significand_bits = 0;
+    uint64_t exponent_bits = 0;
     if (significand == 0) {
         // 0 is all 0's
         significand_bits = 0;
