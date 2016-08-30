@@ -320,6 +320,7 @@ static void end_float_token(Tokenize *t) {
             t->exponent_in_bin_or_dec += significand_magnitude_in_bin;
             if (!(-1023 <= t->exponent_in_bin_or_dec && t->exponent_in_bin_or_dec < 1023)) {
                 t->cur_tok->data.num_lit.overflow = true;
+                return;
             } else {
                 // this should chop off exactly one 1 bit from the top.
                 significand_bits = ((uint64_t)significand << (52 - significand_magnitude_in_bin)) & 0xfffffffffffffULL;
