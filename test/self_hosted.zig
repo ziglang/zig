@@ -938,9 +938,9 @@ fn makePoint(x: i32, y: i32) -> Point {
 
 #attribute("test")
 fn staticEvalRecursive() {
-    assert(seventh_fib_number == 21);
+    assert(some_data.len == 21);
 }
-const seventh_fib_number = fibbonaci(7);
+var some_data: [usize(fibbonaci(7))]u8 = undefined;
 fn fibbonaci(x: i32) -> i32 {
     if (x <= 1) return 1;
     return fibbonaci(x - 1) + fibbonaci(x - 2);
