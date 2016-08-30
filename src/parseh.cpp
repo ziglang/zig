@@ -1038,6 +1038,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
         if (field_type->id == TypeTableEntryIdInvalid) {
             emit_warning(c, field_decl, "struct %s demoted to typedef - unresolved type\n", buf_ptr(bare_name));
             replace_with_fwd_decl(c, struct_type, full_type_name);
+            free(element_types);
             return struct_type;
         }
 
