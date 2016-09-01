@@ -159,6 +159,7 @@ static void construct_linker_job_linux(LinkJob *lj) {
 
     bool is_lib = g->out_type == OutTypeLib;
     bool shared = !g->is_static && is_lib;
+    Buf *soname = nullptr;
     if (g->is_static) {
         if (g->zig_target.arch.arch == ZigLLVM_arm || g->zig_target.arch.arch == ZigLLVM_armeb ||
             g->zig_target.arch.arch == ZigLLVM_thumb || g->zig_target.arch.arch == ZigLLVM_thumbeb)
@@ -169,6 +170,11 @@ static void construct_linker_job_linux(LinkJob *lj) {
         }
     } else if (shared) {
         lj->args.append("-shared");
+
+        buf_resize(&lj->out_file, 0);
+        buf_appendf(&lj->out_file, "lib%s.so.%d.%d.%d",
+                buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
+        soname = buf_sprintf("lib%s.so.%d", buf_ptr(g->root_out_name), g->version_major);
     }
 
     lj->args.append("-o");
@@ -211,11 +217,7 @@ static void construct_linker_job_linux(LinkJob *lj) {
         lj->args.append(buf_ptr(get_dynamic_linker(g->target_machine)));
     }
 
-    if (g->out_type == OutTypeLib) {
-        buf_resize(&lj->out_file, 0);
-        buf_appendf(&lj->out_file, "lib%s.so.%d.%d.%d",
-                buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
-        Buf *soname = buf_sprintf("lib%s.so.%d", buf_ptr(g->root_out_name), g->version_major);
+    if (shared) {
         lj->args.append("-soname");
         lj->args.append(buf_ptr(soname));
     }
@@ -849,7 +851,9 @@ void codegen_link(CodeGen *g, const char *out_file) {
         fprintf(stderr, "%s\n", buf_ptr(&ld_stderr));
     }
 
-    if (g->out_type == OutTypeLib) {
+    if (g->out_type == OutTypeLib ||
+        g->out_type == OutTypeObj)
+    {
         codegen_generate_h_file(g);
     }
 

@@ -4992,31 +4992,121 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
     do_code_gen(g);
 }
 
-static void to_c_type(CodeGen *g, AstNode *type_node, Buf *out_buf) {
-    zig_panic("TODO this function needs some love");
-    TypeTableEntry *type_entry = get_resolved_expr(type_node)->type_entry;
+static const char *c_int_type_names[] = {
+    [CIntTypeShort] = "short",
+    [CIntTypeUShort] = "unsigned short",
+    [CIntTypeInt] = "int",
+    [CIntTypeUInt] = "unsigned int",
+    [CIntTypeLong] = "long",
+    [CIntTypeULong] = "unsigned long",
+    [CIntTypeLongLong] = "long long",
+    [CIntTypeULongLong] = "unsigned long long",
+};
+
+static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
     assert(type_entry);
 
-    if (type_entry == g->builtin_types.entry_u8) {
-        g->c_stdint_used = true;
-        buf_init_from_str(out_buf, "uint8_t");
-    } else if (type_entry == g->builtin_types.entry_i32) {
-        g->c_stdint_used = true;
-        buf_init_from_str(out_buf, "int32_t");
-    } else if (type_entry == g->builtin_types.entry_isize) {
-        g->c_stdint_used = true;
-        buf_init_from_str(out_buf, "intptr_t");
-    } else if (type_entry == g->builtin_types.entry_f32) {
-        buf_init_from_str(out_buf, "float");
-    } else if (type_entry == g->builtin_types.entry_unreachable) {
-        buf_init_from_str(out_buf, "__attribute__((__noreturn__)) void");
-    } else if (type_entry == g->builtin_types.entry_bool) {
-        buf_init_from_str(out_buf, "unsigned char");
-    } else if (type_entry == g->builtin_types.entry_void) {
-        buf_init_from_str(out_buf, "void");
-    } else {
-        zig_panic("TODO to_c_type");
+    for (int i = 0; i < array_length(c_int_type_names); i += 1) {
+        if (type_entry == g->builtin_types.entry_c_int[i]) {
+            buf_init_from_str(out_buf, c_int_type_names[i]);
+            return;
+        }
     }
+    if (type_entry == g->builtin_types.entry_c_long_double) {
+        buf_init_from_str(out_buf, "long double");
+        return;
+    }
+    if (type_entry == g->builtin_types.entry_c_void) {
+        buf_init_from_str(out_buf, "void");
+        return;
+    }
+    if (type_entry == g->builtin_types.entry_isize) {
+        g->c_want_stdint = true;
+        buf_init_from_str(out_buf, "intptr_t");
+        return;
+    }
+    if (type_entry == g->builtin_types.entry_usize) {
+        g->c_want_stdint = true;
+        buf_init_from_str(out_buf, "uintptr_t");
+        return;
+    }
+
+    switch (type_entry->id) {
+        case TypeTableEntryIdVoid:
+            buf_init_from_str(out_buf, "void");
+            break;
+        case TypeTableEntryIdBool:
+            buf_init_from_str(out_buf, "bool");
+            g->c_want_stdbool = true;
+            break;
+        case TypeTableEntryIdUnreachable:
+            buf_init_from_str(out_buf, "__attribute__((__noreturn__)) void");
+            break;
+        case TypeTableEntryIdFloat:
+            switch (type_entry->data.floating.bit_count) {
+                case 32:
+                    buf_init_from_str(out_buf, "float");
+                    break;
+                case 64:
+                    buf_init_from_str(out_buf, "double");
+                    break;
+                default:
+                    zig_unreachable();
+            }
+            break;
+        case TypeTableEntryIdInt:
+            g->c_want_stdint = true;
+            buf_resize(out_buf, 0);
+            buf_appendf(out_buf, "%sint%d_t",
+                    type_entry->data.integral.is_signed ? "" : "u",
+                    type_entry->data.integral.bit_count);
+            break;
+        case TypeTableEntryIdPointer:
+            {
+                Buf child_buf = BUF_INIT;
+                TypeTableEntry *child_type = type_entry->data.pointer.child_type;
+                get_c_type(g, child_type, &child_buf);
+
+                const char *const_str = type_entry->data.pointer.is_const ? "const " : "";
+                buf_resize(out_buf, 0);
+                buf_appendf(out_buf, "%s*%s", const_str, buf_ptr(&child_buf));
+                break;
+            }
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdTypeDecl:
+            zig_panic("TODO");
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+            zig_unreachable();
+    }
+}
+
+static void get_c_type_node(CodeGen *g, AstNode *type_node, Buf *out_buf) {
+    assert(type_node->type != NodeTypeSymbol || !type_node->data.symbol_expr.override_type_entry);
+
+    Expr *expr = get_resolved_expr(type_node);
+    assert(expr->type_entry);
+    assert(expr->type_entry->id == TypeTableEntryIdMetaType);
+
+    ConstExprValue *const_val = &expr->const_val;
+    assert(const_val->ok);
+
+    TypeTableEntry *type_entry = const_val->data.x_type;
+
+    return get_c_type(g, type_entry, out_buf);
 }
 
 void codegen_generate_h_file(CodeGen *g) {
@@ -5045,7 +5135,7 @@ void codegen_generate_h_file(CodeGen *g) {
             continue;
 
         Buf return_type_c = BUF_INIT;
-        to_c_type(g, fn_proto->return_type, &return_type_c);
+        get_c_type_node(g, fn_proto->return_type, &return_type_c);
 
         buf_appendf(&h_buf, "%s %s %s(",
                 buf_ptr(export_macro),
@@ -5057,7 +5147,7 @@ void codegen_generate_h_file(CodeGen *g) {
             for (int param_i = 0; param_i < fn_proto->params.length; param_i += 1) {
                 AstNode *param_decl_node = fn_proto->params.at(param_i);
                 AstNode *param_type = param_decl_node->data.param_decl.type;
-                to_c_type(g, param_type, &param_type_c);
+                get_c_type_node(g, param_type, &param_type_c);
                 buf_appendf(&h_buf, "%s %s",
                         buf_ptr(&param_type_c),
                         buf_ptr(param_decl_node->data.param_decl.name));
@@ -5080,7 +5170,9 @@ void codegen_generate_h_file(CodeGen *g) {
     fprintf(out_h, "#ifndef %s\n", buf_ptr(ifdef_dance_name));
     fprintf(out_h, "#define %s\n\n", buf_ptr(ifdef_dance_name));
 
-    if (g->c_stdint_used)
+    if (g->c_want_stdbool)
+        fprintf(out_h, "#include <stdbool.h>\n");
+    if (g->c_want_stdint)
         fprintf(out_h, "#include <stdint.h>\n");
 
     fprintf(out_h, "\n");

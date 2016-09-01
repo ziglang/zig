@@ -1288,7 +1288,8 @@ struct CodeGen {
     LLVMValueRef cur_ret_ptr;
     ZigList<LLVMBasicBlockRef> break_block_stack;
     ZigList<LLVMBasicBlockRef> continue_block_stack;
-    bool c_stdint_used;
+    bool c_want_stdint;
+    bool c_want_stdbool;
     AstNode *root_export_decl;
     int version_major;
     int version_minor;
