@@ -170,7 +170,7 @@ pub struct Elf {
         const ph_byte_count = u64(ph_entry_size) * u64(ph_entry_count);
         const end_ph = %return math.addOverflow(u64, elf.program_header_offset, ph_byte_count);
 
-        const stream_end = %return elf.in_stream.endPos();
+        const stream_end = %return elf.in_stream.getEndPos();
         if (stream_end < end_sh || stream_end < end_ph) {
             return error.InvalidFormat;
         }

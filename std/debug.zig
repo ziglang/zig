@@ -119,7 +119,7 @@ fn arangesOffset(st: &ElfStackTrace, target_address: usize) -> %?u64 {
         unit_index += 1;
 
         const align = segment_size + 2 * address_size;
-        const padding = st.self_exe_stream.offset % align;
+        const padding = (%return st.self_exe_stream.getPos()) % align;
         %return st.self_exe_stream.seekForward(padding);
         unit_index += padding;
 

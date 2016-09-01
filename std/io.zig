@@ -11,7 +11,6 @@ pub const stderr_fileno = 2;
 
 pub var stdin = InStream {
     .fd = stdin_fileno,
-    .offset = 0,
 };
 
 pub var stdout = OutStream {
@@ -37,9 +36,6 @@ pub error Unexpected;
 
 pub error DiskQuota;
 pub error FileTooBig;
-// TODO hide interrupts at this layer by retrying. Users can use the linux specific APIs if they
-// want to handle interrupts.
-pub error SigInterrupt;
 pub error Io;
 pub error NoSpaceLeft;
 pub error BadPerm;
@@ -113,34 +109,42 @@ pub struct OutStream {
     }
 
     pub fn flush(os: &OutStream) -> %void {
-        const write_ret = linux.write(os.fd, &os.buffer[0], os.index);
-        const write_err = linux.getErrno(write_ret);
-        if (write_err > 0) {
-            return switch (write_err) {
-                errno.EINVAL => unreachable{},
-                errno.EDQUOT => error.DiskQuota,
-                errno.EFBIG  => error.FileTooBig,
-                errno.EINTR  => error.SigInterrupt,
-                errno.EIO    => error.Io,
-                errno.ENOSPC => error.NoSpaceLeft,
-                errno.EPERM  => error.BadPerm,
-                errno.EPIPE  => error.PipeFail,
-                else         => error.Unexpected,
+        while (true) {
+            const write_ret = linux.write(os.fd, &os.buffer[0], os.index);
+            const write_err = linux.getErrno(write_ret);
+            if (write_err > 0) {
+                return switch (write_err) {
+                    errno.EINTR  => continue,
+
+                    errno.EINVAL => unreachable{},
+                    errno.EDQUOT => error.DiskQuota,
+                    errno.EFBIG  => error.FileTooBig,
+                    errno.EIO    => error.Io,
+                    errno.ENOSPC => error.NoSpaceLeft,
+                    errno.EPERM  => error.BadPerm,
+                    errno.EPIPE  => error.PipeFail,
+                    else         => error.Unexpected,
+                }
             }
+            os.index = 0;
+            return;
         }
-        os.index = 0;
     }
 
     pub fn close(os: &OutStream) -> %void {
-        const close_ret = linux.close(os.fd);
-        const close_err = linux.getErrno(close_ret);
-        if (close_err > 0) {
-            return switch (close_err) {
-                errno.EIO   => error.Io,
-                errno.EBADF => error.BadFd,
-                errno.EINTR => error.SigInterrupt,
-                else        => error.Unexpected,
+        while (true) {
+            const close_ret = linux.close(os.fd);
+            const close_err = linux.getErrno(close_ret);
+            if (close_err > 0) {
+                return switch (close_err) {
+                    errno.EINTR => continue,
+
+                    errno.EIO   => error.Io,
+                    errno.EBADF => error.BadFd,
+                    else        => error.Unexpected,
+                }
             }
+            return;
         }
     }
 }
@@ -149,47 +153,62 @@ pub struct OutStream {
 // BufferedInStream API goes on top of minimal InStream API.
 pub struct InStream {
     fd: i32,
-    offset: usize,
 
     /// Call close to clean up.
     pub fn open(is: &InStream, path: []const u8) -> %void {
-        const result = linux.open(path, linux.O_LARGEFILE|linux.O_RDONLY, 0);
-        const err = linux.getErrno(result);
-        if (err > 0) {
-            return switch (err) {
-                errno.EFAULT => unreachable{},
-                errno.EINVAL => unreachable{},
-                errno.EACCES => error.BadPerm,
-                errno.EFBIG, errno.EOVERFLOW => error.FileTooBig,
-                errno.EINTR => error.SigInterrupt,
-                errno.EISDIR => error.IsDir,
-                errno.ELOOP => error.SymLinkLoop,
-                errno.EMFILE => error.ProcessFdQuotaExceeded,
-                errno.ENAMETOOLONG => error.NameTooLong,
-                errno.ENFILE => error.SystemFdQuotaExceeded,
-                errno.ENODEV => error.NoDevice,
-                errno.ENOENT => error.PathNotFound,
-                errno.ENOMEM => error.NoMem,
-                errno.ENOSPC => error.NoSpaceLeft,
-                errno.ENOTDIR => error.NotDir,
-                errno.EPERM => error.BadPerm,
-                else => error.Unexpected,
-            }
+        switch (@compileVar("os")) {
+            linux => {
+                while (true) {
+                    const result = linux.open(path, linux.O_LARGEFILE|linux.O_RDONLY, 0);
+                    const err = linux.getErrno(result);
+                    if (err > 0) {
+                        return switch (err) {
+                            errno.EINTR => continue,
+
+                            errno.EFAULT => unreachable{},
+                            errno.EINVAL => unreachable{},
+                            errno.EACCES => error.BadPerm,
+                            errno.EFBIG, errno.EOVERFLOW => error.FileTooBig,
+                            errno.EISDIR => error.IsDir,
+                            errno.ELOOP => error.SymLinkLoop,
+                            errno.EMFILE => error.ProcessFdQuotaExceeded,
+                            errno.ENAMETOOLONG => error.NameTooLong,
+                            errno.ENFILE => error.SystemFdQuotaExceeded,
+                            errno.ENODEV => error.NoDevice,
+                            errno.ENOENT => error.PathNotFound,
+                            errno.ENOMEM => error.NoMem,
+                            errno.ENOSPC => error.NoSpaceLeft,
+                            errno.ENOTDIR => error.NotDir,
+                            errno.EPERM => error.BadPerm,
+                            else => error.Unexpected,
+                        }
+                    }
+                    is.fd = i32(result);
+                    return;
+                }
+            },
+            else => @compileErr("unsupported OS"),
         }
-        is.fd = i32(result);
-        is.offset = 0;
     }
 
     pub fn close(is: &InStream) -> %void {
-        const close_ret = linux.close(is.fd);
-        const close_err = linux.getErrno(close_ret);
-        if (close_err > 0) {
-            return switch (close_err) {
-                errno.EIO => error.Io,
-                errno.EBADF => error.BadFd,
-                errno.EINTR => error.SigInterrupt,
-                else => error.Unexpected,
-            }
+        switch (@compileVar("os")) {
+            linux => {
+                while (true) {
+                    const close_ret = linux.close(is.fd);
+                    const close_err = linux.getErrno(close_ret);
+                    if (close_err > 0) {
+                        return switch (close_err) {
+                            errno.EINTR => continue,
+
+                            errno.EIO => error.Io,
+                            errno.EBADF => error.BadFd,
+                            else => error.Unexpected,
+                        }
+                    }
+                }
+            },
+            else => @compileErr("unsupported OS"),
         }
     }
 
@@ -198,12 +217,14 @@ pub struct InStream {
     pub fn read(is: &InStream, buf: []u8) -> %usize {
         switch (@compileVar("os")) {
             linux => {
-                while (true) {
-                    const amt_read = linux.pread(is.fd, buf.ptr, buf.len, is.offset);
+                var index: usize = 0;
+                while (index < buf.len) {
+                    const amt_read = linux.read(is.fd, &buf[index], buf.len - index);
                     const read_err = linux.getErrno(amt_read);
                     if (read_err > 0) {
                         switch (read_err) {
                             errno.EINTR  => continue,
+
                             errno.EINVAL => unreachable{},
                             errno.EFAULT => unreachable{},
                             errno.EBADF  => return error.BadFd,
@@ -211,9 +232,10 @@ pub struct InStream {
                             else         => return error.Unexpected,
                         }
                     }
-                    is.offset += amt_read;
-                    return amt_read;
+                    if (amt_read == 0) return index;
+                    index += amt_read;
                 }
+                return index;
             },
             else => @compileErr("unsupported OS"),
         }
@@ -261,14 +283,67 @@ pub struct InStream {
     }
 
     pub fn seekForward(is: &InStream, amount: usize) -> %void {
-        is.offset += amount;
+        switch (@compileVar("os")) {
+            linux => {
+                const result = linux.lseek(is.fd, amount, linux.SEEK_CUR);
+                const err = linux.getErrno(result);
+                if (err > 0) {
+                    return switch (err) {
+                        errno.EBADF => error.BadFd,
+                        errno.EINVAL => error.Unseekable,
+                        errno.EOVERFLOW => error.Unseekable,
+                        errno.ESPIPE => error.Unseekable,
+                        errno.ENXIO => error.Unseekable,
+                        else => error.Unexpected,
+                    };
+                }
+            },
+            else => @compileErr("unsupported OS"),
+        }
     }
 
     pub fn seekTo(is: &InStream, pos: usize) -> %void {
-        is.offset = pos;
+        switch (@compileVar("os")) {
+            linux => {
+                const result = linux.lseek(is.fd, pos, linux.SEEK_SET);
+                const err = linux.getErrno(result);
+                if (err > 0) {
+                    return switch (err) {
+                        errno.EBADF => error.BadFd,
+                        errno.EINVAL => error.Unseekable,
+                        errno.EOVERFLOW => error.Unseekable,
+                        errno.ESPIPE => error.Unseekable,
+                        errno.ENXIO => error.Unseekable,
+                        else => error.Unexpected,
+                    };
+                }
+            },
+            else => @compileErr("unsupported OS"),
+        }
     }
 
-    pub fn endPos(is: &InStream) -> %usize {
+    pub fn getPos(is: &InStream) -> %usize {
+        switch (@compileVar("os")) {
+            linux => {
+                const result = linux.lseek(is.fd, 0, linux.SEEK_CUR);
+                const err = linux.getErrno(result);
+                if (err > 0) {
+                    return switch (err) {
+                        errno.EBADF => error.BadFd,
+                        errno.EINVAL => error.Unseekable,
+                        errno.EOVERFLOW => error.Unseekable,
+                        errno.ESPIPE => error.Unseekable,
+                        errno.ENXIO => error.Unseekable,
+                        else => error.Unexpected,
+                    };
+                }
+                return result;
+            },
+            else => @compileErr("unsupported OS"),
+        }
+    }
+
+    pub fn getEndPos(is: &InStream) -> %usize {
         var stat: linux.stat = undefined;
         const err = linux.getErrno(linux.fstat(is.fd, &stat));
         if (err > 0) {
