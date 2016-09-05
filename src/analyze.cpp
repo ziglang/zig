@@ -3757,6 +3757,7 @@ static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, Impor
     VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
     variable_entry->type = type_entry;
     variable_entry->block_context = context;
+    variable_entry->import = import;
 
     if (name) {
         buf_init_from_buf(&variable_entry->name, name);
@@ -6025,7 +6026,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
 
 
     int *field_use_counts = nullptr;
-    HashMap<int, AstNode *, int_hash, int_eq> err_use_nodes;
+    HashMap<int, AstNode *, int_hash, int_eq> err_use_nodes = {};
     if (expr_type->id == TypeTableEntryIdEnum) {
         field_use_counts = allocate<int>(expr_type->data.enumeration.field_count);
     } else if (expr_type->id == TypeTableEntryIdErrorUnion) {

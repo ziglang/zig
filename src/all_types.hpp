@@ -1336,6 +1336,7 @@ struct VariableTableEntry {
     BlockContext *block_context;
     LLVMValueRef param_value_ref;
     bool force_depends_on_compile_var;
+    ImportTableEntry *import;
 };
 
 struct ErrorTableEntry {

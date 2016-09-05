@@ -408,25 +408,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     case BuiltinType::ObjCId:
                     case BuiltinType::ObjCClass:
                     case BuiltinType::ObjCSel:
-                    case BuiltinType::OCLImage1d:
-                    case BuiltinType::OCLImage1dArray:
-                    case BuiltinType::OCLImage1dBuffer:
-                    case BuiltinType::OCLImage2d:
-                    case BuiltinType::OCLImage2dArray:
-                    case BuiltinType::OCLImage2dArrayDepth:
-                    case BuiltinType::OCLImage2dDepth:
-                    case BuiltinType::OCLImage2dMSAA:
-                    case BuiltinType::OCLImage2dArrayMSAA:
-                    case BuiltinType::OCLImage2dMSAADepth:
-                    case BuiltinType::OCLImage2dArrayMSAADepth:
-                    case BuiltinType::OCLClkEvent:
-                    case BuiltinType::OCLQueue:
-                    case BuiltinType::OCLNDRange:
-                    case BuiltinType::OCLReserveID:
                     case BuiltinType::OMPArraySection:
-                    case BuiltinType::OCLImage3d:
-                    case BuiltinType::OCLSampler:
-                    case BuiltinType::OCLEvent:
                     case BuiltinType::Dependent:
                     case BuiltinType::Overload:
                     case BuiltinType::BoundMember:
@@ -434,6 +416,50 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     case BuiltinType::UnknownAny:
                     case BuiltinType::BuiltinFn:
                     case BuiltinType::ARCUnbridgedCast:
+
+                    case BuiltinType::OCLImage1dRO:
+                    case BuiltinType::OCLImage1dArrayRO:
+                    case BuiltinType::OCLImage1dBufferRO:
+                    case BuiltinType::OCLImage2dRO:
+                    case BuiltinType::OCLImage2dArrayRO:
+                    case BuiltinType::OCLImage2dDepthRO:
+                    case BuiltinType::OCLImage2dArrayDepthRO:
+                    case BuiltinType::OCLImage2dMSAARO:
+                    case BuiltinType::OCLImage2dArrayMSAARO:
+                    case BuiltinType::OCLImage2dMSAADepthRO:
+                    case BuiltinType::OCLImage2dArrayMSAADepthRO:
+                    case BuiltinType::OCLImage3dRO:
+                    case BuiltinType::OCLImage1dWO:
+                    case BuiltinType::OCLImage1dArrayWO:
+                    case BuiltinType::OCLImage1dBufferWO:
+                    case BuiltinType::OCLImage2dWO:
+                    case BuiltinType::OCLImage2dArrayWO:
+                    case BuiltinType::OCLImage2dDepthWO:
+                    case BuiltinType::OCLImage2dArrayDepthWO:
+                    case BuiltinType::OCLImage2dMSAAWO:
+                    case BuiltinType::OCLImage2dArrayMSAAWO:
+                    case BuiltinType::OCLImage2dMSAADepthWO:
+                    case BuiltinType::OCLImage2dArrayMSAADepthWO:
+                    case BuiltinType::OCLImage3dWO:
+                    case BuiltinType::OCLImage1dRW:
+                    case BuiltinType::OCLImage1dArrayRW:
+                    case BuiltinType::OCLImage1dBufferRW:
+                    case BuiltinType::OCLImage2dRW:
+                    case BuiltinType::OCLImage2dArrayRW:
+                    case BuiltinType::OCLImage2dDepthRW:
+                    case BuiltinType::OCLImage2dArrayDepthRW:
+                    case BuiltinType::OCLImage2dMSAARW:
+                    case BuiltinType::OCLImage2dArrayMSAARW:
+                    case BuiltinType::OCLImage2dMSAADepthRW:
+                    case BuiltinType::OCLImage2dArrayMSAADepthRW:
+                    case BuiltinType::OCLImage3dRW:
+                    case BuiltinType::Float128:
+                    case BuiltinType::OCLSampler:
+                    case BuiltinType::OCLEvent:
+                    case BuiltinType::OCLClkEvent:
+                    case BuiltinType::OCLQueue:
+                    case BuiltinType::OCLNDRange:
+                    case BuiltinType::OCLReserveID:
                         emit_warning(c, decl, "missed a builtin type");
                         return c->codegen->builtin_types.entry_invalid;
                 }
@@ -554,8 +580,17 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     case CC_SpirFunction: // default for OpenCL functions on SPIR target
                         emit_warning(c, decl, "function type has SPIR function calling convention");
                         return c->codegen->builtin_types.entry_invalid;
-                    case CC_SpirKernel:    // inferred for OpenCL kernels on SPIR target
-                        emit_warning(c, decl, "function type has SPIR kernel calling convention");
+                    case CC_OpenCLKernel:
+                        emit_warning(c, decl, "function type has OpenCLKernel calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
+                    case CC_Swift:
+                        emit_warning(c, decl, "function type has Swift calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
+                    case CC_PreserveMost:
+                        emit_warning(c, decl, "function type has PreserveMost calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
+                    case CC_PreserveAll:
+                        emit_warning(c, decl, "function type has PreserveAll calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                 }
 
@@ -1170,7 +1205,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
             emit_warning(c, var_decl, "ignoring variable '%s' - unable to evaluate initializer\n", buf_ptr(name));
             return;
         }
-        AstNode *init_node;
+        AstNode *init_node = nullptr;
         switch (ap_value->getKind()) {
             case APValue::Int:
                 {

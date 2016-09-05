@@ -52,10 +52,6 @@ void LLVMZigInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R) {
     initializeLowerIntrinsicsPass(*unwrap(R));
 }
 
-void LLVMZigInitializeUnreachableBlockElimPass(LLVMPassRegistryRef R) {
-    initializeUnreachableBlockElimPass(*unwrap(R));
-}
-
 char *LLVMZigGetHostCPUName(void) {
     std::string str = sys::getHostCPUName();
     return strdup(str.c_str());
@@ -405,6 +401,22 @@ LLVMZigDILocalVariable *LLVMZigCreateAutoVariable(LLVMZigDIBuilder *dbuilder,
     return reinterpret_cast<LLVMZigDILocalVariable*>(result);
 }
 
+LLVMZigDIGlobalVariable *LLVMZigCreateGlobalVariable(LLVMZigDIBuilder *dbuilder,
+    LLVMZigDIScope *scope, const char *name, const char *linkage_name, LLVMZigDIFile *file,
+    unsigned line_no, LLVMZigDIType *di_type, bool is_local_to_unit, LLVMValueRef constant_val)
+{
+    DIGlobalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createGlobalVariable(
+        reinterpret_cast<DIScope*>(scope),
+        name,
+        linkage_name,
+        reinterpret_cast<DIFile*>(file),
+        line_no,
+        reinterpret_cast<DIType*>(di_type),
+        is_local_to_unit,
+        reinterpret_cast<llvm::Constant *>(constant_val));
+    return reinterpret_cast<LLVMZigDIGlobalVariable*>(result);
+}
+
 LLVMZigDILocalVariable *LLVMZigCreateParameterVariable(LLVMZigDIBuilder *dbuilder,
         LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
         LLVMZigDIType *type, bool always_preserve, unsigned flags, unsigned arg_no)
@@ -452,10 +464,10 @@ LLVMZigDICompileUnit *LLVMZigCreateCompileUnit(LLVMZigDIBuilder *dibuilder,
         uint64_t dwo_id, bool emit_debug_info)
 {
     DICompileUnit *result = reinterpret_cast<DIBuilder*>(dibuilder)->createCompileUnit(
-            lang, file, dir, producer, is_optimized, flags, runtime_version, split_name,
-            DIBuilder::FullDebug, dwo_id, emit_debug_info);
+            lang, file, dir, producer, is_optimized, flags, runtime_version, split_name);
     return reinterpret_cast<LLVMZigDICompileUnit*>(result);
 }
+
 
 LLVMZigDIFile *LLVMZigCreateFile(LLVMZigDIBuilder *dibuilder, const char *filename, const char *directory) {
     DIFile *result = reinterpret_cast<DIBuilder*>(dibuilder)->createFile(filename, directory);
@@ -603,6 +615,10 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
             return "v8_1a";
         case ZigLLVM_ARMSubArch_v8:
             return "v8";
+        case ZigLLVM_ARMSubArch_v8m_baseline:
+            return "v8m_baseline";
+        case ZigLLVM_ARMSubArch_v8m_mainline:
+            return "v8m_mainline";
         case ZigLLVM_ARMSubArch_v7:
             return "v7";
         case ZigLLVM_ARMSubArch_v7em:
@@ -648,13 +664,13 @@ unsigned ZigLLVMGetPrefTypeAlignment(LLVMTargetDataRef TD, LLVMTypeRef Ty) {
 
 static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
     switch (Ordering) {
-        case LLVMAtomicOrderingNotAtomic: return NotAtomic;
-        case LLVMAtomicOrderingUnordered: return Unordered;
-        case LLVMAtomicOrderingMonotonic: return Monotonic;
-        case LLVMAtomicOrderingAcquire: return Acquire;
-        case LLVMAtomicOrderingRelease: return Release;
-        case LLVMAtomicOrderingAcquireRelease: return AcquireRelease;
-        case LLVMAtomicOrderingSequentiallyConsistent: return SequentiallyConsistent;
+        case LLVMAtomicOrderingNotAtomic: return AtomicOrdering::NotAtomic;
+        case LLVMAtomicOrderingUnordered: return AtomicOrdering::Unordered;
+        case LLVMAtomicOrderingMonotonic: return AtomicOrdering::Monotonic;
+        case LLVMAtomicOrderingAcquire: return AtomicOrdering::Acquire;
+        case LLVMAtomicOrderingRelease: return AtomicOrdering::Release;
+        case LLVMAtomicOrderingAcquireRelease: return AtomicOrdering::AcquireRelease;
+        case LLVMAtomicOrderingSequentiallyConsistent: return AtomicOrdering::SequentiallyConsistent;
     }
     abort();
 }

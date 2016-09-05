@@ -2757,7 +2757,7 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *implicit_return_type) {
     assert(block_node->type == NodeTypeBlock);
 
-    LLVMValueRef return_value;
+    LLVMValueRef return_value = nullptr;
     for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
         return_value = gen_expr(g, statement_node);
@@ -3301,7 +3301,7 @@ static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
         }
     }
 
-    LLVMValueRef init_val;
+    LLVMValueRef init_val = nullptr;
     TypeTableEntry *init_val_type;
     return gen_var_decl_raw(g, node, &node->data.variable_declaration, false, &init_val, &init_val_type, false);
 }
@@ -3954,6 +3954,19 @@ static void build_label_blocks(CodeGen *g, FnTableEntry *fn) {
     LLVMPositionBuilderAtEnd(g->builder, entry_block);
 }
 
+static void gen_global_var(CodeGen *g, VariableTableEntry *var, LLVMValueRef init_val,
+    TypeTableEntry *type_entry)
+{
+    assert(var->is_const);
+    assert(var->import);
+    assert(type_entry);
+    bool is_local_to_unit = true;
+    LLVMZigCreateGlobalVariable(g->dbuilder,
+        var->block_context->di_scope, buf_ptr(&var->name),
+        buf_ptr(&var->name), var->import->di_file, var->decl_node->line + 1,
+        type_entry->di_type, is_local_to_unit, init_val);
+}
+
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
@@ -3967,10 +3980,29 @@ static void do_code_gen(CodeGen *g) {
     for (int i = 0; i < g->global_vars.length; i += 1) {
         VariableTableEntry *var = g->global_vars.at(i);
 
-        if (var->type->id == TypeTableEntryIdNumLitFloat ||
-            var->type->id == TypeTableEntryIdNumLitInt ||
-            !type_has_bits(var->type))
-        {
+        if (var->type->id == TypeTableEntryIdNumLitFloat) {
+            // Generate debug info for it but that's it.
+            ConstExprValue *const_val = &get_resolved_expr(var->val_node)->const_val;
+            assert(const_val->ok);
+            TypeTableEntry *var_type = g->builtin_types.entry_f64;
+            LLVMValueRef init_val = LLVMConstReal(var_type->type_ref, const_val->data.x_bignum.data.x_float);
+            gen_global_var(g, var, init_val, var_type);
+            continue;
+        }
+
+        if (var->type->id == TypeTableEntryIdNumLitInt) {
+            // Generate debug info for it but that's it.
+            ConstExprValue *const_val = &get_resolved_expr(var->val_node)->const_val;
+            assert(const_val->ok);
+            TypeTableEntry *var_type = const_val->data.x_bignum.is_negative ?
+                g->builtin_types.entry_isize : g->builtin_types.entry_usize;
+            LLVMValueRef init_val = LLVMConstInt(var_type->type_ref,
+                bignum_to_twos_complement(&const_val->data.x_bignum), false);
+            gen_global_var(g, var, init_val, var_type);
+            continue;
+        }
+
+        if (!type_has_bits(var->type)) {
             continue;
         }
 
@@ -3980,6 +4012,8 @@ static void do_code_gen(CodeGen *g) {
         LLVMValueRef global_value;
         if (var->decl_node->data.variable_declaration.is_extern) {
             global_value = LLVMAddGlobal(g->module, var->type->type_ref, buf_ptr(&var->name));
+
+            // TODO debug info for the extern variable
 
             LLVMSetLinkage(global_value, LLVMExternalLinkage);
         } else {
@@ -3999,6 +4033,11 @@ static void do_code_gen(CodeGen *g) {
             LLVMSetInitializer(global_value, init_val);
             LLVMSetLinkage(global_value, LLVMInternalLinkage);
             LLVMSetUnnamedAddr(global_value, true);
+
+            // TODO debug info for function pointers
+            if (var->is_const && var->type->id != TypeTableEntryIdFn) {
+                gen_global_var(g, var, init_val, var->type);
+            }
         }
 
         LLVMSetGlobalConstant(global_value, var->is_const);
@@ -4847,7 +4886,7 @@ static void init(CodeGen *g, Buf *source_path) {
     g->target_machine = LLVMCreateTargetMachine(target_ref, buf_ptr(&g->triple_str),
             target_specific_cpu_args, target_specific_features, opt_level, reloc_mode, LLVMCodeModelDefault);
 
-    g->target_data_ref = LLVMGetTargetMachineData(g->target_machine);
+    g->target_data_ref = LLVMCreateTargetDataLayout(g->target_machine);
 
     char *layout_str = LLVMCopyStringRepOfTargetData(g->target_data_ref);
     LLVMSetDataLayout(g->module, layout_str);

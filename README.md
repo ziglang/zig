@@ -70,8 +70,8 @@ compromises backward compatibility.
 ### Dependencies
 
  * cmake >= 2.8.5
- * LLVM == 3.8.0
- * libclang == 3.8.0
+ * LLVM == 3.9.x
+ * libclang == 3.9.x
 
 ### Debug / Development Build
 

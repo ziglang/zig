@@ -7,7 +7,7 @@
 # LLVM_LIBRARIES
 # LLVM_LIBDIRS
 
-find_program(LLVM_CONFIG_EXE NAMES llvm-config llvm-config-3.8)
+find_program(LLVM_CONFIG_EXE NAMES llvm-config llvm-config-3.9)
 
 execute_process(
     COMMAND ${LLVM_CONFIG_EXE} --libs
