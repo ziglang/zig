@@ -19,7 +19,7 @@ pub struct Allocator {
         alloc(self, T, n) %% |err| {
             // TODO var args printf
             %%io.stderr.write("allocation failure: ");
-            %%io.stderr.write(@errName(err));
+            %%io.stderr.write(@errorName(err));
             %%io.stderr.printf("\n");
             os.abort()
         }

@@ -766,8 +766,8 @@ error AnError;
 error ALongerErrorName;
 #attribute("test")
 fn errorNameString() {
-    assert(str.eql(@errName(error.AnError), "AnError"));
-    assert(str.eql(@errName(error.ALongerErrorName), "ALongerErrorName"));
+    assert(str.eql(@errorName(error.AnError), "AnError"));
+    assert(str.eql(@errorName(error.ALongerErrorName), "ALongerErrorName"));
 }
 
 

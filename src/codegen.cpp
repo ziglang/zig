@@ -4843,7 +4843,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdClz, "clz", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdImport, "import", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCImport, "cImport", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdErrName, "errName", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdErrName, "errorName", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdEmbedFile, "embedFile", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCmpExchange, "cmpxchg", 5);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdFence, "fence", 1);

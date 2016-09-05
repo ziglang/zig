@@ -19,7 +19,7 @@ pub fn main(args: [][]u8) -> %void {
 
         const line_len = io.stdin.read(line_buf) %% |err| {
             %%io.stdout.printf("Unable to read from stdin: ");
-            %%io.stdout.printf(@errName(err));
+            %%io.stdout.printf(@errorName(err));
             %%io.stdout.printf("\n");
             return err;
         };
