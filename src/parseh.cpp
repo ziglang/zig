@@ -1205,7 +1205,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
             emit_warning(c, var_decl, "ignoring variable '%s' - unable to evaluate initializer\n", buf_ptr(name));
             return;
         }
-        AstNode *init_node;
+        AstNode *init_node = nullptr;
         switch (ap_value->getKind()) {
             case APValue::Int:
                 {

@@ -6026,7 +6026,7 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
 
 
     int *field_use_counts = nullptr;
-    HashMap<int, AstNode *, int_hash, int_eq> err_use_nodes;
+    HashMap<int, AstNode *, int_hash, int_eq> err_use_nodes = {};
     if (expr_type->id == TypeTableEntryIdEnum) {
         field_use_counts = allocate<int>(expr_type->data.enumeration.field_count);
     } else if (expr_type->id == TypeTableEntryIdErrorUnion) {

@@ -2757,7 +2757,7 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *implicit_return_type) {
     assert(block_node->type == NodeTypeBlock);
 
-    LLVMValueRef return_value;
+    LLVMValueRef return_value = nullptr;
     for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
         return_value = gen_expr(g, statement_node);
@@ -3301,7 +3301,7 @@ static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
         }
     }
 
-    LLVMValueRef init_val;
+    LLVMValueRef init_val = nullptr;
     TypeTableEntry *init_val_type;
     return gen_var_decl_raw(g, node, &node->data.variable_declaration, false, &init_val, &init_val_type, false);
 }
