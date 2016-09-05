@@ -3757,6 +3757,7 @@ static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, Impor
     VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
     variable_entry->type = type_entry;
     variable_entry->block_context = context;
+    variable_entry->import = import;
 
     if (name) {
         buf_init_from_buf(&variable_entry->name, name);

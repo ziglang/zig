@@ -23,6 +23,7 @@ struct LLVMZigDILexicalBlock;
 struct LLVMZigDISubprogram;
 struct LLVMZigDISubroutineType;
 struct LLVMZigDILocalVariable;
+struct LLVMZigDIGlobalVariable;
 struct LLVMZigDILocation;
 struct LLVMZigDIEnumerator;
 struct LLVMZigInsertionPoint;
@@ -124,6 +125,10 @@ LLVMZigDIScope *LLVMZigTypeToScope(LLVMZigDIType *type);
 LLVMZigDILocalVariable *LLVMZigCreateAutoVariable(LLVMZigDIBuilder *dbuilder,
         LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
         LLVMZigDIType *type, bool always_preserve, unsigned flags);
+
+LLVMZigDIGlobalVariable *LLVMZigCreateGlobalVariable(LLVMZigDIBuilder *dbuilder,
+    LLVMZigDIScope *scope, const char *name, const char *linkage_name, LLVMZigDIFile *file,
+    unsigned line_no, LLVMZigDIType *di_type, bool is_local_to_unit, LLVMValueRef constant_val);
 
 LLVMZigDILocalVariable *LLVMZigCreateParameterVariable(LLVMZigDIBuilder *dbuilder,
         LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,

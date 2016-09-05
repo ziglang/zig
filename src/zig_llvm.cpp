@@ -401,6 +401,22 @@ LLVMZigDILocalVariable *LLVMZigCreateAutoVariable(LLVMZigDIBuilder *dbuilder,
     return reinterpret_cast<LLVMZigDILocalVariable*>(result);
 }
 
+LLVMZigDIGlobalVariable *LLVMZigCreateGlobalVariable(LLVMZigDIBuilder *dbuilder,
+    LLVMZigDIScope *scope, const char *name, const char *linkage_name, LLVMZigDIFile *file,
+    unsigned line_no, LLVMZigDIType *di_type, bool is_local_to_unit, LLVMValueRef constant_val)
+{
+    DIGlobalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createGlobalVariable(
+        reinterpret_cast<DIScope*>(scope),
+        name,
+        linkage_name,
+        reinterpret_cast<DIFile*>(file),
+        line_no,
+        reinterpret_cast<DIType*>(di_type),
+        is_local_to_unit,
+        reinterpret_cast<llvm::Constant *>(constant_val));
+    return reinterpret_cast<LLVMZigDIGlobalVariable*>(result);
+}
+
 LLVMZigDILocalVariable *LLVMZigCreateParameterVariable(LLVMZigDIBuilder *dbuilder,
         LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
         LLVMZigDIType *type, bool always_preserve, unsigned flags, unsigned arg_no)
