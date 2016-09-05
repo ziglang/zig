@@ -4849,7 +4849,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdFence, "fence", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdDivExact, "divExact", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdTruncate, "truncate", 2);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileErr, "compileErr", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdIntType, "intType", 2);
 }
 

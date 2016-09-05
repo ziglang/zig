@@ -18,7 +18,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
                 }
             }
         },
-        else => @compileErr("unsupported os"),
+        else => @compileError("unsupported os"),
     }
 }
 
@@ -30,6 +30,6 @@ pub fn abort() -> unreachable {
             linux.raise(linux.SIGKILL);
             while (true) {}
         },
-        else => @compileErr("unsupported os"),
+        else => @compileError("unsupported os"),
     }
 }

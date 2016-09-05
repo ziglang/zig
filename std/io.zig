@@ -187,7 +187,7 @@ pub struct InStream {
                     return;
                 }
             },
-            else => @compileErr("unsupported OS"),
+            else => @compileError("unsupported OS"),
         }
     }
 
@@ -208,7 +208,7 @@ pub struct InStream {
                     }
                 }
             },
-            else => @compileErr("unsupported OS"),
+            else => @compileError("unsupported OS"),
         }
     }
 
@@ -237,7 +237,7 @@ pub struct InStream {
                 }
                 return index;
             },
-            else => @compileErr("unsupported OS"),
+            else => @compileError("unsupported OS"),
         }
     }
 
@@ -298,7 +298,7 @@ pub struct InStream {
                     };
                 }
             },
-            else => @compileErr("unsupported OS"),
+            else => @compileError("unsupported OS"),
         }
     }
 
@@ -318,7 +318,7 @@ pub struct InStream {
                     };
                 }
             },
-            else => @compileErr("unsupported OS"),
+            else => @compileError("unsupported OS"),
         }
     }
 
@@ -339,7 +339,7 @@ pub struct InStream {
                 }
                 return result;
             },
-            else => @compileErr("unsupported OS"),
+            else => @compileError("unsupported OS"),
         }
     }
 
@@ -433,6 +433,6 @@ pub fn openSelfExe(stream: &InStream) -> %void {
         linux => {
             %return stream.open("/proc/self/exe");
         },
-        else => @compileErr("unsupported os"),
+        else => @compileError("unsupported os"),
     }
 }

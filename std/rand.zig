@@ -87,7 +87,7 @@ pub struct Rand {
         } else if (T == f64) {
             9007199254740992
         } else {
-            @compileErr("unknown floating point type" ++ @typeName(T))
+            @compileError("unknown floating point type" ++ @typeName(T))
         };
         return T(r.rangeUnsigned(int_type, 0, precision)) / T(precision);
     }
