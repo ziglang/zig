@@ -69,7 +69,19 @@ compromises backward compatibility.
 
 ### Dependencies
 
+#### Build Dependencies
+
+These compile tools must be available on your system and are used to build
+the Zig compiler itself:
+
+ * gcc >= 5.0.0 or clang >= 3.6.0
  * cmake >= 2.8.5
+
+#### Runtime Dependencies
+
+These libraries must be installed on your system, with the development files
+available. The Zig compiler dynamically links against them.
+
  * LLVM == 3.9.x
  * libclang == 3.9.x
 
