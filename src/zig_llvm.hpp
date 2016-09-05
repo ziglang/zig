@@ -29,7 +29,6 @@ struct LLVMZigInsertionPoint;
 
 void LLVMZigInitializeLoopStrengthReducePass(LLVMPassRegistryRef R);
 void LLVMZigInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R);
-void LLVMZigInitializeUnreachableBlockElimPass(LLVMPassRegistryRef R);
 
 char *LLVMZigGetHostCPUName(void);
 char *LLVMZigGetNativeFeatures(void);
@@ -170,50 +169,53 @@ unsigned ZigLLVMGetPrefTypeAlignment(LLVMTargetDataRef TD, LLVMTypeRef Ty);
 enum ZigLLVM_ArchType {
   ZigLLVM_UnknownArch,
 
-  ZigLLVM_arm,        // ARM (little endian): arm, armv.*, xscale
-  ZigLLVM_armeb,      // ARM (big endian): armeb
-  ZigLLVM_aarch64,    // AArch64 (little endian): aarch64
-  ZigLLVM_aarch64_be, // AArch64 (big endian): aarch64_be
-  ZigLLVM_avr,        // AVR: Atmel AVR microcontroller
-  ZigLLVM_bpfel,      // eBPF or extended BPF or 64-bit BPF (little endian)
-  ZigLLVM_bpfeb,      // eBPF or extended BPF or 64-bit BPF (big endian)
-  ZigLLVM_hexagon,    // Hexagon: hexagon
-  ZigLLVM_mips,       // MIPS: mips, mipsallegrex
-  ZigLLVM_mipsel,     // MIPSEL: mipsel, mipsallegrexel
-  ZigLLVM_mips64,     // MIPS64: mips64
-  ZigLLVM_mips64el,   // MIPS64EL: mips64el
-  ZigLLVM_msp430,     // MSP430: msp430
-  ZigLLVM_ppc,        // PPC: powerpc
-  ZigLLVM_ppc64,      // PPC64: powerpc64, ppu
-  ZigLLVM_ppc64le,    // PPC64LE: powerpc64le
-  ZigLLVM_r600,       // R600: AMD GPUs HD2XXX - HD6XXX
-  ZigLLVM_amdgcn,     // AMDGCN: AMD GCN GPUs
-  ZigLLVM_sparc,      // Sparc: sparc
-  ZigLLVM_sparcv9,    // Sparcv9: Sparcv9
-  ZigLLVM_sparcel,    // Sparc: (endianness = little). NB: 'Sparcle' is a CPU variant
-  ZigLLVM_systemz,    // SystemZ: s390x
-  ZigLLVM_tce,        // TCE (http://tce.cs.tut.fi/): tce
-  ZigLLVM_thumb,      // Thumb (little endian): thumb, thumbv.*
-  ZigLLVM_thumbeb,    // Thumb (big endian): thumbeb
-  ZigLLVM_x86,        // X86: i[3-9]86
-  ZigLLVM_x86_64,     // X86-64: amd64, x86_64
-  ZigLLVM_xcore,      // XCore: xcore
-  ZigLLVM_nvptx,      // NVPTX: 32-bit
-  ZigLLVM_nvptx64,    // NVPTX: 64-bit
-  ZigLLVM_le32,       // le32: generic little-endian 32-bit CPU (PNaCl)
-  ZigLLVM_le64,       // le64: generic little-endian 64-bit CPU (PNaCl)
-  ZigLLVM_amdil,      // AMDIL
-  ZigLLVM_amdil64,    // AMDIL with 64-bit pointers
-  ZigLLVM_hsail,      // AMD HSAIL
-  ZigLLVM_hsail64,    // AMD HSAIL with 64-bit pointers
-  ZigLLVM_spir,       // SPIR: standard portable IR for OpenCL 32-bit version
-  ZigLLVM_spir64,     // SPIR: standard portable IR for OpenCL 64-bit version
-  ZigLLVM_kalimba,    // Kalimba: generic kalimba
-  ZigLLVM_shave,      // SHAVE: Movidius vector VLIW processors
-  ZigLLVM_wasm32,     // WebAssembly with 32-bit pointers
-  ZigLLVM_wasm64,     // WebAssembly with 64-bit pointers
+  ZigLLVM_arm,            // ARM (little endian): arm, armv.*, xscale
+  ZigLLVM_armeb,          // ARM (big endian): armeb
+  ZigLLVM_aarch64,        // AArch64 (little endian): aarch64
+  ZigLLVM_aarch64_be,     // AArch64 (big endian): aarch64_be
+  ZigLLVM_avr,            // AVR: Atmel AVR microcontroller
+  ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
+  ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
+  ZigLLVM_hexagon,        // Hexagon: hexagon
+  ZigLLVM_mips,           // MIPS: mips, mipsallegrex
+  ZigLLVM_mipsel,         // MIPSEL: mipsel, mipsallegrexel
+  ZigLLVM_mips64,         // MIPS64: mips64
+  ZigLLVM_mips64el,       // MIPS64EL: mips64el
+  ZigLLVM_msp430,         // MSP430: msp430
+  ZigLLVM_ppc,            // PPC: powerpc
+  ZigLLVM_ppc64,          // PPC64: powerpc64, ppu
+  ZigLLVM_ppc64le,        // PPC64LE: powerpc64le
+  ZigLLVM_r600,           // R600: AMD GPUs HD2XXX - HD6XXX
+  ZigLLVM_amdgcn,         // AMDGCN: AMD GCN GPUs
+  ZigLLVM_sparc,          // Sparc: sparc
+  ZigLLVM_sparcv9,        // Sparcv9: Sparcv9
+  ZigLLVM_sparcel,        // Sparc: (endianness = little). NB: 'Sparcle' is a CPU variant
+  ZigLLVM_systemz,        // SystemZ: s390x
+  ZigLLVM_tce,            // TCE (http://tce.cs.tut.fi/): tce
+  ZigLLVM_thumb,          // Thumb (little endian): thumb, thumbv.*
+  ZigLLVM_thumbeb,        // Thumb (big endian): thumbeb
+  ZigLLVM_x86,            // X86: i[3-9]86
+  ZigLLVM_x86_64,         // X86-64: amd64, x86_64
+  ZigLLVM_xcore,          // XCore: xcore
+  ZigLLVM_nvptx,          // NVPTX: 32-bit
+  ZigLLVM_nvptx64,        // NVPTX: 64-bit
+  ZigLLVM_le32,           // le32: generic little-endian 32-bit CPU (PNaCl)
+  ZigLLVM_le64,           // le64: generic little-endian 64-bit CPU (PNaCl)
+  ZigLLVM_amdil,          // AMDIL
+  ZigLLVM_amdil64,        // AMDIL with 64-bit pointers
+  ZigLLVM_hsail,          // AMD HSAIL
+  ZigLLVM_hsail64,        // AMD HSAIL with 64-bit pointers
+  ZigLLVM_spir,           // SPIR: standard portable IR for OpenCL 32-bit version
+  ZigLLVM_spir64,         // SPIR: standard portable IR for OpenCL 64-bit version
+  ZigLLVM_kalimba,        // Kalimba: generic kalimba
+  ZigLLVM_shave,          // SHAVE: Movidius vector VLIW processors
+  ZigLLVM_lanai,          // Lanai: Lanai 32-bit
+  ZigLLVM_wasm32,         // WebAssembly with 32-bit pointers
+  ZigLLVM_wasm64,         // WebAssembly with 64-bit pointers
+  ZigLLVM_renderscript32, // 32-bit RenderScript
+  ZigLLVM_renderscript64, // 64-bit RenderScript
 
-  ZigLLVM_LastArchType = ZigLLVM_wasm64
+  ZigLLVM_LastArchType = ZigLLVM_renderscript64
 };
 
 enum ZigLLVM_SubArchType {
@@ -222,6 +224,8 @@ enum ZigLLVM_SubArchType {
   ZigLLVM_ARMSubArch_v8_2a,
   ZigLLVM_ARMSubArch_v8_1a,
   ZigLLVM_ARMSubArch_v8,
+  ZigLLVM_ARMSubArch_v8m_baseline,
+  ZigLLVM_ARMSubArch_v8m_mainline,
   ZigLLVM_ARMSubArch_v7,
   ZigLLVM_ARMSubArch_v7em,
   ZigLLVM_ARMSubArch_v7m,
@@ -254,8 +258,10 @@ enum ZigLLVM_VendorType {
   ZigLLVM_NVIDIA,
   ZigLLVM_CSR,
   ZigLLVM_Myriad,
+  ZigLLVM_AMD,
+  ZigLLVM_Mesa,
 
-  ZigLLVM_LastVendorType = ZigLLVM_Myriad
+  ZigLLVM_LastVendorType = ZigLLVM_Mesa
 };
 enum ZigLLVM_OSType {
   ZigLLVM_UnknownOS,
@@ -287,13 +293,15 @@ enum ZigLLVM_OSType {
   ZigLLVM_ELFIAMCU,
   ZigLLVM_TvOS,       // Apple tvOS
   ZigLLVM_WatchOS,    // Apple watchOS
+  ZigLLVM_Mesa3D,
 
-  ZigLLVM_LastOSType = ZigLLVM_WatchOS
+  ZigLLVM_LastOSType = ZigLLVM_Mesa3D
 };
 enum ZigLLVM_EnvironmentType {
   ZigLLVM_UnknownEnvironment,
 
   ZigLLVM_GNU,
+  ZigLLVM_GNUABI64,
   ZigLLVM_GNUEABI,
   ZigLLVM_GNUEABIHF,
   ZigLLVM_GNUX32,
@@ -301,12 +309,16 @@ enum ZigLLVM_EnvironmentType {
   ZigLLVM_EABI,
   ZigLLVM_EABIHF,
   ZigLLVM_Android,
+  ZigLLVM_Musl,
+  ZigLLVM_MuslEABI,
+  ZigLLVM_MuslEABIHF,
 
   ZigLLVM_MSVC,
   ZigLLVM_Itanium,
   ZigLLVM_Cygnus,
   ZigLLVM_AMDOpenCL,
   ZigLLVM_CoreCLR,
+
   ZigLLVM_LastEnvironmentType = ZigLLVM_CoreCLR
 };
 enum ZigLLVM_ObjectFormatType {

@@ -4847,7 +4847,7 @@ static void init(CodeGen *g, Buf *source_path) {
     g->target_machine = LLVMCreateTargetMachine(target_ref, buf_ptr(&g->triple_str),
             target_specific_cpu_args, target_specific_features, opt_level, reloc_mode, LLVMCodeModelDefault);
 
-    g->target_data_ref = LLVMGetTargetMachineData(g->target_machine);
+    g->target_data_ref = LLVMCreateTargetDataLayout(g->target_machine);
 
     char *layout_str = LLVMCopyStringRepOfTargetData(g->target_data_ref);
     LLVMSetDataLayout(g->module, layout_str);
