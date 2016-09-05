@@ -140,4 +140,4 @@ To fix this, you have 2 options:
 
  * IRC chat: `#zig` on Freenode.
  * Reddit: [/r/zig](https://www.reddit.com/r/zig)
- * Email list: [zig@googlegroups.com](https://groups.google.com/forum/#!forum/ziglang)
+ * Email list: [ziglang@googlegroups.com](https://groups.google.com/forum/#!forum/ziglang)
