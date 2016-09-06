@@ -2560,7 +2560,7 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
     LLVMBasicBlockRef then_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Then");
     LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "Else");
 
-    LLVMBasicBlockRef endif_block;
+    LLVMBasicBlockRef endif_block = nullptr;
     bool then_endif_reachable = then_type->id != TypeTableEntryIdUnreachable;
     bool else_endif_reachable = else_type->id != TypeTableEntryIdUnreachable;
     if (then_endif_reachable || else_endif_reachable) {
