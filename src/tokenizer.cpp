@@ -379,7 +379,7 @@ static uint32_t get_digit_value(uint8_t c) {
     return UINT32_MAX;
 }
 
-void handle_string_escape(Tokenize *t, uint8_t c) {
+static void handle_string_escape(Tokenize *t, uint8_t c) {
     if (t->cur_tok->id == TokenIdCharLiteral) {
         t->cur_tok->data.char_lit.c = c;
         t->state = TokenizeStateCharLiteralEnd;
