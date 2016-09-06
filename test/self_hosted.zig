@@ -7,6 +7,7 @@ const test_return_type_type = @import("cases/return_type_type.zig");
 const test_zeroes = @import("cases/zeroes.zig");
 const test_sizeof_and_typeof = @import("cases/sizeof_and_typeof.zig");
 const test_maybe_return = @import("cases/maybe_return.zig");
+const test_max_value_type = @import("cases/max_value_type.zig");
 
 // normal comment
 /// this is a documentation comment

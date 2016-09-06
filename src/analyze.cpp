@@ -4326,10 +4326,13 @@ static TypeTableEntry *analyze_min_max_value(CodeGen *g, ImportTableEntry *impor
 
     if (type_entry->id == TypeTableEntryIdInvalid) {
         return g->builtin_types.entry_invalid;
-    } else if (type_entry->id == TypeTableEntryIdInt ||
-            type_entry->id == TypeTableEntryIdFloat ||
-            type_entry->id == TypeTableEntryIdBool)
-    {
+    } else if (type_entry->id == TypeTableEntryIdInt) {
+        eval_min_max_value(g, type_entry, &get_resolved_expr(node)->const_val, is_max);
+        return g->builtin_types.entry_num_lit_int;
+    } else if (type_entry->id == TypeTableEntryIdFloat) {
+        eval_min_max_value(g, type_entry, &get_resolved_expr(node)->const_val, is_max);
+        return g->builtin_types.entry_num_lit_float;
+    } else if (type_entry->id == TypeTableEntryIdBool) {
         eval_min_max_value(g, type_entry, &get_resolved_expr(node)->const_val, is_max);
         return type_entry;
     } else {
