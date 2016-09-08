@@ -194,6 +194,7 @@ enum NodeType {
     NodeTypeArrayType,
     NodeTypeErrorType,
     NodeTypeTypeLiteral,
+    NodeTypeVarLiteral,
 };
 
 struct AstNodeRoot {
@@ -218,6 +219,7 @@ struct AstNodeFnProto {
     Expr resolved_expr;
     // computed from params field
     int inline_arg_count;
+    int inline_or_var_type_arg_count;
     // if this is a generic function implementation, this points to the generic node
     AstNode *generic_proto_node;
 };
@@ -754,6 +756,11 @@ struct AstNodeTypeLiteral {
     Expr resolved_expr;
 };
 
+struct AstNodeVarLiteral {
+    // populated by semantic analyzer
+    Expr resolved_expr;
+};
+
 struct AstNode {
     enum NodeType type;
     int line;
@@ -812,6 +819,7 @@ struct AstNode {
         AstNodeArrayType array_type;
         AstNodeErrorType error_type;
         AstNodeTypeLiteral type_literal;
+        AstNodeVarLiteral var_literal;
     } data;
 };
 
@@ -836,6 +844,7 @@ struct FnTypeParamInfo {
 struct GenericParamValue {
     TypeTableEntry *type;
     AstNode *node;
+    int impl_index;
 };
 
 struct GenericFnTypeId {
@@ -976,6 +985,7 @@ struct TypeTableEntryTypeDecl {
 
 enum TypeTableEntryId {
     TypeTableEntryIdInvalid,
+    TypeTableEntryIdVar,
     TypeTableEntryIdMetaType,
     TypeTableEntryIdVoid,
     TypeTableEntryIdBool,
@@ -1229,6 +1239,7 @@ struct CodeGen {
         TypeTableEntry *entry_num_lit_float;
         TypeTableEntry *entry_undef;
         TypeTableEntry *entry_null;
+        TypeTableEntry *entry_var;
         TypeTableEntry *entry_pure_error;
         TypeTableEntry *entry_os_enum;
         TypeTableEntry *entry_arch_enum;
@@ -1337,6 +1348,7 @@ struct VariableTableEntry {
     LLVMValueRef param_value_ref;
     bool force_depends_on_compile_var;
     ImportTableEntry *import;
+    bool shadowable;
 };
 
 struct ErrorTableEntry {

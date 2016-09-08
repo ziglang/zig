@@ -213,6 +213,8 @@ static const char *node_type_str(NodeType node_type) {
             return "ErrorType";
         case NodeTypeTypeLiteral:
             return "TypeLiteral";
+        case NodeTypeVarLiteral:
+            return "VarLiteral";
     }
     zig_unreachable();
 }
@@ -671,6 +673,9 @@ static void render_node(AstRender *ar, AstNode *node) {
             break;
         case NodeTypeTypeLiteral:
             fprintf(ar->f, "type");
+            break;
+        case NodeTypeVarLiteral:
+            fprintf(ar->f, "var");
             break;
     }
 }

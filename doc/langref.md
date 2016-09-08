@@ -45,7 +45,7 @@ Label = Symbol ":"
 
 Expression = BlockExpression | NonBlockExpression
 
-TypeExpr = PrefixOpExpression
+TypeExpr = PrefixOpExpression | "var"
 
 NonBlockExpression = ReturnExpression | AssignmentExpression
 

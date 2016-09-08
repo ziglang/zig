@@ -3,11 +3,13 @@ const assert = std.debug.assert;
 const str = std.str;
 const cstr = std.cstr;
 const other = @import("other.zig");
+// TODO '_' identifier for unused variable bindings
 const test_return_type_type = @import("cases/return_type_type.zig");
 const test_zeroes = @import("cases/zeroes.zig");
 const test_sizeof_and_typeof = @import("cases/sizeof_and_typeof.zig");
 const test_maybe_return = @import("cases/maybe_return.zig");
 const test_max_value_type = @import("cases/max_value_type.zig");
+const test_var_params = @import("cases/var_params.zig");
 
 // normal comment
 /// this is a documentation comment

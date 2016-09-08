@@ -73,11 +73,7 @@ fn findCompileUnitOffset(st: &ElfStackTrace, target_address: usize) -> %u64 {
 
     while (true) {
         const tag_id = %return st.self_exe_stream.readByte();
-        if (tag_id == DW.TAG_compile_unit) {
-
-        } else {
-            
-        }
+        // TODO iterate until we find the relevant compile unit
     }
 }
 

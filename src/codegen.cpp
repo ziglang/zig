@@ -3597,6 +3597,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeErrorType:
         case NodeTypeTypeLiteral:
         case NodeTypeArrayType:
+        case NodeTypeVarLiteral:
             // caught by constant expression eval codegen
             zig_unreachable();
         case NodeTypeRoot:
@@ -3815,6 +3816,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdVar:
             zig_unreachable();
 
     }
@@ -4361,6 +4363,12 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "(null)");
         entry->deep_const = true;
         g->builtin_types.entry_null = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVar);
+        buf_init_from_str(&entry->name, "(var)");
+        entry->deep_const = true;
+        g->builtin_types.entry_var = entry;
     }
 
     for (int int_size_i = 0; int_size_i < array_length(int_sizes_in_bits); int_size_i += 1) {
@@ -5129,6 +5137,7 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdVar:
             zig_unreachable();
     }
 }

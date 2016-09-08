@@ -267,6 +267,20 @@ static void ast_parse_directives(ParseContext *pc, int *token_index,
 }
 
 /*
+TypeExpr = PrefixOpExpression | "var"
+*/
+static AstNode *ast_parse_type_expr(ParseContext *pc, int *token_index, bool mandatory) {
+    Token *token = &pc->tokens->at(*token_index);
+    if (token->id == TokenIdKeywordVar) {
+        AstNode *node = ast_create_node(pc, NodeTypeVarLiteral, token);
+        *token_index += 1;
+        return node;
+    } else {
+        return ast_parse_prefix_op_expr(pc, token_index, mandatory);
+    }
+}
+
+/*
 ParamDecl = option("noalias" | "inline") option("Symbol" ":") TypeExpr | "..."
 */
 static AstNode *ast_parse_param_decl(ParseContext *pc, int *token_index) {
@@ -299,7 +313,7 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, int *token_index) {
         }
     }
 
-    node->data.param_decl.type = ast_parse_prefix_op_expr(pc, token_index, true);
+    node->data.param_decl.type = ast_parse_type_expr(pc, token_index, true);
 
     normalize_parent_ptrs(node);
     return node;
@@ -414,7 +428,7 @@ static AstNode *ast_parse_array_type_expr(ParseContext *pc, int *token_index, bo
         node->data.array_type.is_const = true;
     }
 
-    node->data.array_type.child_type = ast_parse_prefix_op_expr(pc, token_index, true);
+    node->data.array_type.child_type = ast_parse_type_expr(pc, token_index, true);
 
     normalize_parent_ptrs(node);
     return node;
@@ -460,7 +474,7 @@ static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNod
     if (token->id == TokenIdSymbol) {
         asm_output->variable_name = token_buf(token);
     } else if (token->id == TokenIdArrow) {
-        asm_output->return_type = ast_parse_prefix_op_expr(pc, token_index, true);
+        asm_output->return_type = ast_parse_type_expr(pc, token_index, true);
     } else {
         ast_invalid_token_error(pc, token);
     }
@@ -1354,7 +1368,7 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool manda
             node->data.if_var_expr.var_decl.expr = ast_parse_expression(pc, token_index, true);
         } else if (eq_or_colon->id == TokenIdColon) {
             *token_index += 1;
-            node->data.if_var_expr.var_decl.type = ast_parse_prefix_op_expr(pc, token_index, true);
+            node->data.if_var_expr.var_decl.type = ast_parse_type_expr(pc, token_index, true);
 
             ast_eat_token(pc, token_index, TokenIdMaybeAssign);
             node->data.if_var_expr.var_decl.expr = ast_parse_expression(pc, token_index, true);
@@ -1504,7 +1518,7 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token
         normalize_parent_ptrs(node);
         return node;
     } else if (eq_or_colon->id == TokenIdColon) {
-        node->data.variable_declaration.type = ast_parse_prefix_op_expr(pc, token_index, true);
+        node->data.variable_declaration.type = ast_parse_type_expr(pc, token_index, true);
         Token *eq_token = &pc->tokens->at(*token_index);
         if (eq_token->id == TokenIdEq) {
             *token_index += 1;
@@ -2038,7 +2052,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
     Token *next_token = &pc->tokens->at(*token_index);
     if (next_token->id == TokenIdArrow) {
         *token_index += 1;
-        node->data.fn_proto.return_type = ast_parse_prefix_op_expr(pc, token_index, false);
+        node->data.fn_proto.return_type = ast_parse_type_expr(pc, token_index, false);
     } else {
         node->data.fn_proto.return_type = ast_create_void_type_node(pc, next_token);
     }
@@ -2315,7 +2329,7 @@ static AstNode *ast_parse_type_decl(ParseContext *pc, int *token_index,
 
     AstNode *node = ast_create_node(pc, NodeTypeTypeDecl, first_token);
     node->data.type_decl.symbol = token_buf(name_tok);
-    node->data.type_decl.child_type = ast_parse_prefix_op_expr(pc, token_index, true);
+    node->data.type_decl.child_type = ast_parse_type_expr(pc, token_index, true);
 
     ast_eat_token(pc, token_index, TokenIdSemicolon);
 
@@ -2628,6 +2642,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeTypeLiteral:
             // none
             break;
+        case NodeTypeVarLiteral:
+            // none
+            break;
     }
 }
 
@@ -2905,6 +2922,9 @@ AstNode *ast_clone_subtree_special(AstNode *old_node, uint32_t *next_node_index,
             // none
             break;
         case NodeTypeTypeLiteral:
+            // none
+            break;
+        case NodeTypeVarLiteral:
             // none
             break;
     }
