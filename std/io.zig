@@ -191,6 +191,8 @@ pub struct InStream {
         }
     }
 
+    /// Upon success, the stream is in an uninitialized state. To continue using it,
+    /// you must use the open() function.
     pub fn close(is: &InStream) -> %void {
         switch (@compileVar("os")) {
             linux => {
@@ -206,6 +208,7 @@ pub struct InStream {
                             else => error.Unexpected,
                         }
                     }
+                    return;
                 }
             },
             else => @compileError("unsupported OS"),
