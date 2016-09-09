@@ -808,11 +808,11 @@ static void add_alias(Context *c, const char *new_name, const char *target_name)
 
 static void replace_with_fwd_decl(Context *c, TypeTableEntry *struct_type, Buf *full_type_name) {
     unsigned line = c->source_node ? c->source_node->line : 0;
-    LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugForwardDeclType(c->codegen->dbuilder,
-        LLVMZigTag_DW_structure_type(), buf_ptr(full_type_name), 
-        LLVMZigFileToScope(c->import->di_file), c->import->di_file, line);
+    ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugForwardDeclType(c->codegen->dbuilder,
+        ZigLLVMTag_DW_structure_type(), buf_ptr(full_type_name), 
+        ZigLLVMFileToScope(c->import->di_file), c->import->di_file, line);
 
-    LLVMZigReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);
+    ZigLLVMReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);
     struct_type->di_type = replacement_di_type;
 }
 
@@ -872,7 +872,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
 
         enum_type->data.enumeration.field_count = field_count;
         enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
-        LLVMZigDIEnumerator **di_enumerators = allocate<LLVMZigDIEnumerator*>(field_count);
+        ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
 
         uint32_t i = 0;
         for (auto it = enum_def->enumerator_begin(),
@@ -894,7 +894,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
             type_enum_field->type_entry = c->codegen->builtin_types.entry_void;
             type_enum_field->value = i;
 
-            di_enumerators[i] = LLVMZigCreateDebugEnumerator(c->codegen->dbuilder, buf_ptr(type_enum_field->name), i);
+            di_enumerators[i] = ZigLLVMCreateDebugEnumerator(c->codegen->dbuilder, buf_ptr(type_enum_field->name), i);
 
 
             // in C each enum value is in the global namespace. so we put them there too.
@@ -913,14 +913,14 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
         unsigned line = c->source_node ? (c->source_node->line + 1) : 0;
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, enum_type->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, enum_type->type_ref);
-        LLVMZigDIType *tag_di_type = LLVMZigCreateDebugEnumerationType(c->codegen->dbuilder,
-                LLVMZigFileToScope(c->import->di_file), buf_ptr(bare_name),
+        ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(c->codegen->dbuilder,
+                ZigLLVMFileToScope(c->import->di_file), buf_ptr(bare_name),
                 c->import->di_file, line,
                 debug_size_in_bits,
                 debug_align_in_bits,
                 di_enumerators, field_count, tag_type_entry->di_type, "");
 
-        LLVMZigReplaceTemporary(c->codegen->dbuilder, enum_type->di_type, tag_di_type);
+        ZigLLVMReplaceTemporary(c->codegen->dbuilder, enum_type->di_type, tag_di_type);
         enum_type->di_type = tag_di_type;
 
         return enum_type;
@@ -1053,7 +1053,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
     struct_type->data.structure.src_field_count = field_count;
     struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
     LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
-    LLVMZigDIType **di_element_types = allocate<LLVMZigDIType*>(field_count);
+    ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(field_count);
 
     // next, populate element_types as its needed for LLVMStructSetBody which is needed for LLVMOffsetOfElement
     uint32_t i = 0;
@@ -1094,8 +1094,8 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, field_type->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, field_type->type_ref);
         uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(c->codegen->target_data_ref, struct_type->type_ref, i);
-        di_element_types[i] = LLVMZigCreateDebugMemberType(c->codegen->dbuilder,
-                LLVMZigTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
+        di_element_types[i] = ZigLLVMCreateDebugMemberType(c->codegen->dbuilder,
+                ZigLLVMTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
                 c->import->di_file, line + 1,
                 debug_size_in_bits,
                 debug_align_in_bits,
@@ -1112,15 +1112,15 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
 
     uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, struct_type->type_ref);
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, struct_type->type_ref);
-    LLVMZigDIType *replacement_di_type = LLVMZigCreateDebugStructType(c->codegen->dbuilder,
-            LLVMZigFileToScope(c->import->di_file),
+    ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(c->codegen->dbuilder,
+            ZigLLVMFileToScope(c->import->di_file),
             buf_ptr(full_type_name), c->import->di_file, line + 1,
             debug_size_in_bits,
             debug_align_in_bits,
             0,
             nullptr, di_element_types, field_count, 0, nullptr, "");
 
-    LLVMZigReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);
+    ZigLLVMReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);
     struct_type->di_type = replacement_di_type;
 
     return struct_type;

@@ -14,29 +14,29 @@
 #include <llvm-c/Initialization.h>
 #include <llvm-c/TargetMachine.h>
 
-struct LLVMZigDIType;
-struct LLVMZigDIBuilder;
-struct LLVMZigDICompileUnit;
-struct LLVMZigDIScope;
-struct LLVMZigDIFile;
-struct LLVMZigDILexicalBlock;
-struct LLVMZigDISubprogram;
-struct LLVMZigDISubroutineType;
-struct LLVMZigDILocalVariable;
-struct LLVMZigDIGlobalVariable;
-struct LLVMZigDILocation;
-struct LLVMZigDIEnumerator;
-struct LLVMZigInsertionPoint;
+struct ZigLLVMDIType;
+struct ZigLLVMDIBuilder;
+struct ZigLLVMDICompileUnit;
+struct ZigLLVMDIScope;
+struct ZigLLVMDIFile;
+struct ZigLLVMDILexicalBlock;
+struct ZigLLVMDISubprogram;
+struct ZigLLVMDISubroutineType;
+struct ZigLLVMDILocalVariable;
+struct ZigLLVMDIGlobalVariable;
+struct ZigLLVMDILocation;
+struct ZigLLVMDIEnumerator;
+struct ZigLLVMInsertionPoint;
 
-void LLVMZigInitializeLoopStrengthReducePass(LLVMPassRegistryRef R);
-void LLVMZigInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R);
+void ZigLLVMInitializeLoopStrengthReducePass(LLVMPassRegistryRef R);
+void ZigLLVMInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R);
 
-char *LLVMZigGetHostCPUName(void);
-char *LLVMZigGetNativeFeatures(void);
+char *ZigLLVMGetHostCPUName(void);
+char *ZigLLVMGetNativeFeatures(void);
 
-void LLVMZigOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref);
+void ZigLLVMOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref);
 
-LLVMValueRef LLVMZigBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
+LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, unsigned CC, const char *Name);
 
 LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
@@ -51,118 +51,118 @@ LLVMValueRef ZigLLVMBuildExactUDiv(LLVMBuilderRef B, LLVMValueRef LHS,
         LLVMValueRef RHS, const char *Name);
 
 // 0 is return value, 1 is first arg
-void LLVMZigAddNonNullAttr(LLVMValueRef fn, unsigned i);
+void ZigLLVMAddNonNullAttr(LLVMValueRef fn, unsigned i);
 
-LLVMZigDIType *LLVMZigCreateDebugPointerType(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *pointee_type,
+ZigLLVMDIType *ZigLLVMCreateDebugPointerType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIType *pointee_type,
         uint64_t size_in_bits, uint64_t align_in_bits, const char *name);
 
-LLVMZigDIType *LLVMZigCreateDebugBasicType(LLVMZigDIBuilder *dibuilder, const char *name,
+ZigLLVMDIType *ZigLLVMCreateDebugBasicType(ZigLLVMDIBuilder *dibuilder, const char *name,
         uint64_t size_in_bits, uint64_t align_in_bits, unsigned encoding);
 
-LLVMZigDIType *LLVMZigCreateDebugArrayType(LLVMZigDIBuilder *dibuilder,
-        uint64_t size_in_bits, uint64_t align_in_bits, LLVMZigDIType *elem_type,
+ZigLLVMDIType *ZigLLVMCreateDebugArrayType(ZigLLVMDIBuilder *dibuilder,
+        uint64_t size_in_bits, uint64_t align_in_bits, ZigLLVMDIType *elem_type,
         int elem_count);
 
-LLVMZigDIEnumerator *LLVMZigCreateDebugEnumerator(LLVMZigDIBuilder *dibuilder, const char *name, int64_t val);
+ZigLLVMDIEnumerator *ZigLLVMCreateDebugEnumerator(ZigLLVMDIBuilder *dibuilder, const char *name, int64_t val);
 
-LLVMZigDIType *LLVMZigCreateDebugEnumerationType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
-        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
-        uint64_t align_in_bits, LLVMZigDIEnumerator **enumerator_array, int enumerator_array_len,
-        LLVMZigDIType *underlying_type, const char *unique_id);
+ZigLLVMDIType *ZigLLVMCreateDebugEnumerationType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
+        const char *name, ZigLLVMDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, ZigLLVMDIEnumerator **enumerator_array, int enumerator_array_len,
+        ZigLLVMDIType *underlying_type, const char *unique_id);
 
-LLVMZigDIType *LLVMZigCreateDebugStructType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
-        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
-        uint64_t align_in_bits, unsigned flags, LLVMZigDIType *derived_from, 
-        LLVMZigDIType **types_array, int types_array_len, unsigned run_time_lang, LLVMZigDIType *vtable_holder,
+ZigLLVMDIType *ZigLLVMCreateDebugStructType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
+        const char *name, ZigLLVMDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, unsigned flags, ZigLLVMDIType *derived_from, 
+        ZigLLVMDIType **types_array, int types_array_len, unsigned run_time_lang, ZigLLVMDIType *vtable_holder,
         const char *unique_id);
 
-LLVMZigDIType *LLVMZigCreateDebugUnionType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
-        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
-        uint64_t align_in_bits, unsigned flags, LLVMZigDIType **types_array, int types_array_len,
+ZigLLVMDIType *ZigLLVMCreateDebugUnionType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
+        const char *name, ZigLLVMDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, unsigned flags, ZigLLVMDIType **types_array, int types_array_len,
         unsigned run_time_lang, const char *unique_id);
 
-LLVMZigDIType *LLVMZigCreateDebugMemberType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
-        const char *name, LLVMZigDIFile *file, unsigned line, uint64_t size_in_bits,
-        uint64_t align_in_bits, uint64_t offset_in_bits, unsigned flags, LLVMZigDIType *type);
+ZigLLVMDIType *ZigLLVMCreateDebugMemberType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
+        const char *name, ZigLLVMDIFile *file, unsigned line, uint64_t size_in_bits,
+        uint64_t align_in_bits, uint64_t offset_in_bits, unsigned flags, ZigLLVMDIType *type);
 
-LLVMZigDIType *LLVMZigCreateReplaceableCompositeType(LLVMZigDIBuilder *dibuilder, unsigned tag,
-        const char *name, LLVMZigDIScope *scope, LLVMZigDIFile *file, unsigned line);
+ZigLLVMDIType *ZigLLVMCreateReplaceableCompositeType(ZigLLVMDIBuilder *dibuilder, unsigned tag,
+        const char *name, ZigLLVMDIScope *scope, ZigLLVMDIFile *file, unsigned line);
 
-LLVMZigDIType *LLVMZigCreateDebugForwardDeclType(LLVMZigDIBuilder *dibuilder, unsigned tag,
-        const char *name, LLVMZigDIScope *scope, LLVMZigDIFile *file, unsigned line);
+ZigLLVMDIType *ZigLLVMCreateDebugForwardDeclType(ZigLLVMDIBuilder *dibuilder, unsigned tag,
+        const char *name, ZigLLVMDIScope *scope, ZigLLVMDIFile *file, unsigned line);
 
-void LLVMZigReplaceTemporary(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
-        LLVMZigDIType *replacement);
+void ZigLLVMReplaceTemporary(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIType *type,
+        ZigLLVMDIType *replacement);
 
-void LLVMZigReplaceDebugArrays(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
-        LLVMZigDIType **types_array, int types_array_len);
+void ZigLLVMReplaceDebugArrays(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIType *type,
+        ZigLLVMDIType **types_array, int types_array_len);
 
-LLVMZigDIType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
-        LLVMZigDIType **types_array, int types_array_len, unsigned flags);
+ZigLLVMDIType *ZigLLVMCreateSubroutineType(ZigLLVMDIBuilder *dibuilder_wrapped,
+        ZigLLVMDIType **types_array, int types_array_len, unsigned flags);
 
-unsigned LLVMZigEncoding_DW_ATE_unsigned(void);
-unsigned LLVMZigEncoding_DW_ATE_signed(void);
-unsigned LLVMZigEncoding_DW_ATE_float(void);
-unsigned LLVMZigEncoding_DW_ATE_boolean(void);
-unsigned LLVMZigEncoding_DW_ATE_unsigned_char(void);
-unsigned LLVMZigEncoding_DW_ATE_signed_char(void);
-unsigned LLVMZigLang_DW_LANG_C99(void);
-unsigned LLVMZigTag_DW_variable(void);
-unsigned LLVMZigTag_DW_structure_type(void);
+unsigned ZigLLVMEncoding_DW_ATE_unsigned(void);
+unsigned ZigLLVMEncoding_DW_ATE_signed(void);
+unsigned ZigLLVMEncoding_DW_ATE_float(void);
+unsigned ZigLLVMEncoding_DW_ATE_boolean(void);
+unsigned ZigLLVMEncoding_DW_ATE_unsigned_char(void);
+unsigned ZigLLVMEncoding_DW_ATE_signed_char(void);
+unsigned ZigLLVMLang_DW_LANG_C99(void);
+unsigned ZigLLVMTag_DW_variable(void);
+unsigned ZigLLVMTag_DW_structure_type(void);
 
-LLVMZigDIBuilder *LLVMZigCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
+ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
 void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module);
 
-void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, LLVMZigDIScope *scope);
+void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, ZigLLVMDIScope *scope);
 void ZigLLVMClearCurrentDebugLocation(LLVMBuilderRef builder);
 
-LLVMZigDIScope *LLVMZigLexicalBlockToScope(LLVMZigDILexicalBlock *lexical_block);
-LLVMZigDIScope *LLVMZigCompileUnitToScope(LLVMZigDICompileUnit *compile_unit);
-LLVMZigDIScope *LLVMZigFileToScope(LLVMZigDIFile *difile);
-LLVMZigDIScope *LLVMZigSubprogramToScope(LLVMZigDISubprogram *subprogram);
-LLVMZigDIScope *LLVMZigTypeToScope(LLVMZigDIType *type);
+ZigLLVMDIScope *ZigLLVMLexicalBlockToScope(ZigLLVMDILexicalBlock *lexical_block);
+ZigLLVMDIScope *ZigLLVMCompileUnitToScope(ZigLLVMDICompileUnit *compile_unit);
+ZigLLVMDIScope *ZigLLVMFileToScope(ZigLLVMDIFile *difile);
+ZigLLVMDIScope *ZigLLVMSubprogramToScope(ZigLLVMDISubprogram *subprogram);
+ZigLLVMDIScope *ZigLLVMTypeToScope(ZigLLVMDIType *type);
 
-LLVMZigDILocalVariable *LLVMZigCreateAutoVariable(LLVMZigDIBuilder *dbuilder,
-        LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
-        LLVMZigDIType *type, bool always_preserve, unsigned flags);
+ZigLLVMDILocalVariable *ZigLLVMCreateAutoVariable(ZigLLVMDIBuilder *dbuilder,
+        ZigLLVMDIScope *scope, const char *name, ZigLLVMDIFile *file, unsigned line_no,
+        ZigLLVMDIType *type, bool always_preserve, unsigned flags);
 
-LLVMZigDIGlobalVariable *LLVMZigCreateGlobalVariable(LLVMZigDIBuilder *dbuilder,
-    LLVMZigDIScope *scope, const char *name, const char *linkage_name, LLVMZigDIFile *file,
-    unsigned line_no, LLVMZigDIType *di_type, bool is_local_to_unit, LLVMValueRef constant_val);
+ZigLLVMDIGlobalVariable *ZigLLVMCreateGlobalVariable(ZigLLVMDIBuilder *dbuilder,
+    ZigLLVMDIScope *scope, const char *name, const char *linkage_name, ZigLLVMDIFile *file,
+    unsigned line_no, ZigLLVMDIType *di_type, bool is_local_to_unit, LLVMValueRef constant_val);
 
-LLVMZigDILocalVariable *LLVMZigCreateParameterVariable(LLVMZigDIBuilder *dbuilder,
-        LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
-        LLVMZigDIType *type, bool always_preserve, unsigned flags, unsigned arg_no);
+ZigLLVMDILocalVariable *ZigLLVMCreateParameterVariable(ZigLLVMDIBuilder *dbuilder,
+        ZigLLVMDIScope *scope, const char *name, ZigLLVMDIFile *file, unsigned line_no,
+        ZigLLVMDIType *type, bool always_preserve, unsigned flags, unsigned arg_no);
 
-LLVMZigDILexicalBlock *LLVMZigCreateLexicalBlock(LLVMZigDIBuilder *dbuilder, LLVMZigDIScope *scope,
-        LLVMZigDIFile *file, unsigned line, unsigned col);
+ZigLLVMDILexicalBlock *ZigLLVMCreateLexicalBlock(ZigLLVMDIBuilder *dbuilder, ZigLLVMDIScope *scope,
+        ZigLLVMDIFile *file, unsigned line, unsigned col);
 
-LLVMZigDICompileUnit *LLVMZigCreateCompileUnit(LLVMZigDIBuilder *dibuilder,
+ZigLLVMDICompileUnit *ZigLLVMCreateCompileUnit(ZigLLVMDIBuilder *dibuilder,
         unsigned lang, const char *file, const char *dir, const char *producer,
         bool is_optimized, const char *flags, unsigned runtime_version, const char *split_name,
         uint64_t dwo_id, bool emit_debug_info);
 
-LLVMZigDIFile *LLVMZigCreateFile(LLVMZigDIBuilder *dibuilder, const char *filename, const char *directory);
+ZigLLVMDIFile *ZigLLVMCreateFile(ZigLLVMDIBuilder *dibuilder, const char *filename, const char *directory);
 
-LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
-        const char *name, const char *linkage_name, LLVMZigDIFile *file, unsigned lineno,
-        LLVMZigDIType *fn_di_type, bool is_local_to_unit, bool is_definition, unsigned scope_line,
-        unsigned flags, bool is_optimized, LLVMZigDISubprogram *decl_subprogram);
+ZigLLVMDISubprogram *ZigLLVMCreateFunction(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
+        const char *name, const char *linkage_name, ZigLLVMDIFile *file, unsigned lineno,
+        ZigLLVMDIType *fn_di_type, bool is_local_to_unit, bool is_definition, unsigned scope_line,
+        unsigned flags, bool is_optimized, ZigLLVMDISubprogram *decl_subprogram);
 
-void ZigLLVMFnSetSubprogram(LLVMValueRef fn, LLVMZigDISubprogram *subprogram);
+void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram);
 
-void LLVMZigDIBuilderFinalize(LLVMZigDIBuilder *dibuilder);
+void ZigLLVMDIBuilderFinalize(ZigLLVMDIBuilder *dibuilder);
 
-LLVMZigInsertionPoint *LLVMZigSaveInsertPoint(LLVMBuilderRef builder);
-void LLVMZigRestoreInsertPoint(LLVMBuilderRef builder, LLVMZigInsertionPoint *point);
+ZigLLVMInsertionPoint *ZigLLVMSaveInsertPoint(LLVMBuilderRef builder);
+void ZigLLVMRestoreInsertPoint(LLVMBuilderRef builder, ZigLLVMInsertionPoint *point);
 
-LLVMValueRef LLVMZigInsertDeclareAtEnd(LLVMZigDIBuilder *dibuilder, LLVMValueRef storage,
-        LLVMZigDILocalVariable *var_info, LLVMZigDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref);
-LLVMValueRef LLVMZigInsertDeclare(LLVMZigDIBuilder *dibuilder, LLVMValueRef storage,
-        LLVMZigDILocalVariable *var_info, LLVMZigDILocation *debug_loc, LLVMValueRef insert_before_instr);
-LLVMZigDILocation *LLVMZigGetDebugLoc(unsigned line, unsigned col, LLVMZigDIScope *scope);
+LLVMValueRef ZigLLVMInsertDeclareAtEnd(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,
+        ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref);
+LLVMValueRef ZigLLVMInsertDeclare(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,
+        ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc, LLVMValueRef insert_before_instr);
+ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigned col, ZigLLVMDIScope *scope);
 
-void LLVMZigSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
+void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
 
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn, const char *attr_name, const char *attr_value);
 

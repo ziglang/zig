@@ -1015,7 +1015,7 @@ struct TypeTableEntry {
     Buf name;
 
     LLVMTypeRef type_ref;
-    LLVMZigDIType *di_type;
+    ZigLLVMDIType *di_type;
 
     bool zero_bits;
     bool deep_const;
@@ -1055,7 +1055,7 @@ struct ImportTableEntry {
     AstNode *root;
     Buf *path; // relative to root_package->root_src_dir
     PackageTableEntry *package;
-    LLVMZigDIFile *di_file;
+    ZigLLVMDIFile *di_file;
     Buf *source_code;
     ZigList<int> *line_offsets;
     BlockContext *block_context;
@@ -1190,8 +1190,8 @@ struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
     LLVMBuilderRef builder;
-    LLVMZigDIBuilder *dbuilder;
-    LLVMZigDICompileUnit *compile_unit;
+    ZigLLVMDIBuilder *dbuilder;
+    ZigLLVMDICompileUnit *compile_unit;
 
     ZigList<Buf *> link_libs; // non-libc link libs
 
@@ -1271,7 +1271,7 @@ struct CodeGen {
     uint32_t target_environ_index;
     uint32_t target_oformat_index;
     LLVMTargetMachineRef target_machine;
-    LLVMZigDIFile *dummy_di_file;
+    ZigLLVMDIFile *dummy_di_file;
     bool is_native_target;
     PackageTableEntry *root_package;
     PackageTableEntry *std_package;
@@ -1341,7 +1341,7 @@ struct VariableTableEntry {
     AstNode *decl_node;
     // which node contains the ConstExprValue for this variable's value
     AstNode *val_node;
-    LLVMZigDILocalVariable *di_loc_var;
+    ZigLLVMDILocalVariable *di_loc_var;
     int src_arg_index;
     int gen_arg_index;
     BlockContext *block_context;
@@ -1383,7 +1383,7 @@ struct BlockContext {
     // it would pertain to
     AstNode *parent_loop_node;
 
-    LLVMZigDIScope *di_scope;
+    ZigLLVMDIScope *di_scope;
     Buf *c_import_buf;
 
     // if this is true, then this code will not be generated

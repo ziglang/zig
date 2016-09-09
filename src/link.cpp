@@ -763,7 +763,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
             fprintf(stderr, "---------------\n");
         }
 
-        LLVMZigOptimizeModule(g->target_machine, g->module);
+        ZigLLVMOptimizeModule(g->target_machine, g->module);
 
         if (g->verbose) {
             LLVMDumpModule(g->module);

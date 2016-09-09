@@ -44,20 +44,20 @@
 
 using namespace llvm;
 
-void LLVMZigInitializeLoopStrengthReducePass(LLVMPassRegistryRef R) {
+void ZigLLVMInitializeLoopStrengthReducePass(LLVMPassRegistryRef R) {
     initializeLoopStrengthReducePass(*unwrap(R));
 }
 
-void LLVMZigInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R) {
+void ZigLLVMInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R) {
     initializeLowerIntrinsicsPass(*unwrap(R));
 }
 
-char *LLVMZigGetHostCPUName(void) {
+char *ZigLLVMGetHostCPUName(void) {
     std::string str = sys::getHostCPUName();
     return strdup(str.c_str());
 }
 
-char *LLVMZigGetNativeFeatures(void) {
+char *ZigLLVMGetNativeFeatures(void) {
     SubtargetFeatures features;
 
     StringMap<bool> host_features;
@@ -74,7 +74,7 @@ static void addAddDiscriminatorsPass(const PassManagerBuilder &Builder, legacy::
 }
 
 
-void LLVMZigOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref) {
+void ZigLLVMOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref) {
     TargetMachine* target_machine = reinterpret_cast<TargetMachine*>(targ_machine_ref);
     Module* module = unwrap(module_ref);
     TargetLibraryInfoImpl tlii(Triple(module->getTargetTriple()));
@@ -129,7 +129,7 @@ void LLVMZigOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef 
     MPM->run(*module);
 }
 
-LLVMValueRef LLVMZigBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
+LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, unsigned CC, const char *Name)
 {
     CallInst *call_inst = CallInst::Create(unwrap(Fn), makeArrayRef(unwrap(Args), NumArgs), Name);
@@ -137,7 +137,7 @@ LLVMValueRef LLVMZigBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *A
     return wrap(unwrap(B)->Insert(call_inst));
 }
 
-void LLVMZigAddNonNullAttr(LLVMValueRef fn, unsigned i)
+void ZigLLVMAddNonNullAttr(LLVMValueRef fn, unsigned i)
 {
     assert( isa<Function>(unwrap(fn)) );
 
@@ -146,31 +146,31 @@ void LLVMZigAddNonNullAttr(LLVMValueRef fn, unsigned i)
     unwrapped_function->addAttribute(i, Attribute::NonNull);
 }
 
-void ZigLLVMFnSetSubprogram(LLVMValueRef fn, LLVMZigDISubprogram *subprogram) {
+void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
     assert( isa<Function>(unwrap(fn)) );
     Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(fn));
     unwrapped_function->setSubprogram(reinterpret_cast<DISubprogram*>(subprogram));
 }
 
 
-LLVMZigDIType *LLVMZigCreateDebugPointerType(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *pointee_type,
+ZigLLVMDIType *ZigLLVMCreateDebugPointerType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIType *pointee_type,
         uint64_t size_in_bits, uint64_t align_in_bits, const char *name)
 {
     DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createPointerType(
             reinterpret_cast<DIType*>(pointee_type), size_in_bits, align_in_bits, name);
-    return reinterpret_cast<LLVMZigDIType*>(di_type);
+    return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
-LLVMZigDIType *LLVMZigCreateDebugBasicType(LLVMZigDIBuilder *dibuilder, const char *name,
+ZigLLVMDIType *ZigLLVMCreateDebugBasicType(ZigLLVMDIBuilder *dibuilder, const char *name,
         uint64_t size_in_bits, uint64_t align_in_bits, unsigned encoding)
 {
     DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createBasicType(
             name, size_in_bits, align_in_bits, encoding);
-    return reinterpret_cast<LLVMZigDIType*>(di_type);
+    return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
-LLVMZigDIType *LLVMZigCreateDebugArrayType(LLVMZigDIBuilder *dibuilder, uint64_t size_in_bits,
-        uint64_t align_in_bits, LLVMZigDIType *elem_type, int elem_count)
+ZigLLVMDIType *ZigLLVMCreateDebugArrayType(ZigLLVMDIBuilder *dibuilder, uint64_t size_in_bits,
+        uint64_t align_in_bits, ZigLLVMDIType *elem_type, int elem_count)
 {
     SmallVector<Metadata *, 1> subrange;
     subrange.push_back(reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateSubrange(0, elem_count));
@@ -178,18 +178,18 @@ LLVMZigDIType *LLVMZigCreateDebugArrayType(LLVMZigDIBuilder *dibuilder, uint64_t
             size_in_bits, align_in_bits,
             reinterpret_cast<DIType*>(elem_type),
             reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(subrange));
-    return reinterpret_cast<LLVMZigDIType*>(di_type);
+    return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
-LLVMZigDIEnumerator *LLVMZigCreateDebugEnumerator(LLVMZigDIBuilder *dibuilder, const char *name, int64_t val) {
+ZigLLVMDIEnumerator *ZigLLVMCreateDebugEnumerator(ZigLLVMDIBuilder *dibuilder, const char *name, int64_t val) {
     DIEnumerator *di_enumerator = reinterpret_cast<DIBuilder*>(dibuilder)->createEnumerator(name, val);
-    return reinterpret_cast<LLVMZigDIEnumerator*>(di_enumerator);
+    return reinterpret_cast<ZigLLVMDIEnumerator*>(di_enumerator);
 }
 
-LLVMZigDIType *LLVMZigCreateDebugEnumerationType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
-        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
-        uint64_t align_in_bits, LLVMZigDIEnumerator **enumerator_array, int enumerator_array_len,
-        LLVMZigDIType *underlying_type, const char *unique_id)
+ZigLLVMDIType *ZigLLVMCreateDebugEnumerationType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
+        const char *name, ZigLLVMDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, ZigLLVMDIEnumerator **enumerator_array, int enumerator_array_len,
+        ZigLLVMDIType *underlying_type, const char *unique_id)
 {
     SmallVector<Metadata *, 8> fields;
     for (int i = 0; i < enumerator_array_len; i += 1) {
@@ -204,12 +204,12 @@ LLVMZigDIType *LLVMZigCreateDebugEnumerationType(LLVMZigDIBuilder *dibuilder, LL
             reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(fields),
             reinterpret_cast<DIType*>(underlying_type),
             unique_id);
-    return reinterpret_cast<LLVMZigDIType*>(di_type);
+    return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
-LLVMZigDIType *LLVMZigCreateDebugMemberType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
-        const char *name, LLVMZigDIFile *file, unsigned line, uint64_t size_in_bits,
-        uint64_t align_in_bits, uint64_t offset_in_bits, unsigned flags, LLVMZigDIType *type)
+ZigLLVMDIType *ZigLLVMCreateDebugMemberType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
+        const char *name, ZigLLVMDIFile *file, unsigned line, uint64_t size_in_bits,
+        uint64_t align_in_bits, uint64_t offset_in_bits, unsigned flags, ZigLLVMDIType *type)
 {
     DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createMemberType(
             reinterpret_cast<DIScope*>(scope),
@@ -217,12 +217,12 @@ LLVMZigDIType *LLVMZigCreateDebugMemberType(LLVMZigDIBuilder *dibuilder, LLVMZig
             reinterpret_cast<DIFile*>(file),
             line, size_in_bits, align_in_bits, offset_in_bits, flags,
             reinterpret_cast<DIType*>(type));
-    return reinterpret_cast<LLVMZigDIType*>(di_type);
+    return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
-LLVMZigDIType *LLVMZigCreateDebugUnionType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
-        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
-        uint64_t align_in_bits, unsigned flags, LLVMZigDIType **types_array, int types_array_len,
+ZigLLVMDIType *ZigLLVMCreateDebugUnionType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
+        const char *name, ZigLLVMDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, unsigned flags, ZigLLVMDIType **types_array, int types_array_len,
         unsigned run_time_lang, const char *unique_id)
 {
     SmallVector<Metadata *, 8> fields;
@@ -237,13 +237,13 @@ LLVMZigDIType *LLVMZigCreateDebugUnionType(LLVMZigDIBuilder *dibuilder, LLVMZigD
             line_number, size_in_bits, align_in_bits, flags,
             reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(fields),
             run_time_lang, unique_id);
-    return reinterpret_cast<LLVMZigDIType*>(di_type);
+    return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
-LLVMZigDIType *LLVMZigCreateDebugStructType(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
-        const char *name, LLVMZigDIFile *file, unsigned line_number, uint64_t size_in_bits,
-        uint64_t align_in_bits, unsigned flags, LLVMZigDIType *derived_from, 
-        LLVMZigDIType **types_array, int types_array_len, unsigned run_time_lang, LLVMZigDIType *vtable_holder,
+ZigLLVMDIType *ZigLLVMCreateDebugStructType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
+        const char *name, ZigLLVMDIFile *file, unsigned line_number, uint64_t size_in_bits,
+        uint64_t align_in_bits, unsigned flags, ZigLLVMDIType *derived_from, 
+        ZigLLVMDIType **types_array, int types_array_len, unsigned run_time_lang, ZigLLVMDIType *vtable_holder,
         const char *unique_id)
 {
     SmallVector<Metadata *, 8> fields;
@@ -261,41 +261,41 @@ LLVMZigDIType *LLVMZigCreateDebugStructType(LLVMZigDIBuilder *dibuilder, LLVMZig
             run_time_lang,
             reinterpret_cast<DIType*>(vtable_holder),
             unique_id);
-    return reinterpret_cast<LLVMZigDIType*>(di_type);
+    return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
-LLVMZigDIType *LLVMZigCreateReplaceableCompositeType(LLVMZigDIBuilder *dibuilder, unsigned tag,
-        const char *name, LLVMZigDIScope *scope, LLVMZigDIFile *file, unsigned line)
+ZigLLVMDIType *ZigLLVMCreateReplaceableCompositeType(ZigLLVMDIBuilder *dibuilder, unsigned tag,
+        const char *name, ZigLLVMDIScope *scope, ZigLLVMDIFile *file, unsigned line)
 {
     DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createReplaceableCompositeType(
             tag, name,
             reinterpret_cast<DIScope*>(scope),
             reinterpret_cast<DIFile*>(file),
             line);
-    return reinterpret_cast<LLVMZigDIType*>(di_type);
+    return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
-LLVMZigDIType *LLVMZigCreateDebugForwardDeclType(LLVMZigDIBuilder *dibuilder, unsigned tag,
-        const char *name, LLVMZigDIScope *scope, LLVMZigDIFile *file, unsigned line)
+ZigLLVMDIType *ZigLLVMCreateDebugForwardDeclType(ZigLLVMDIBuilder *dibuilder, unsigned tag,
+        const char *name, ZigLLVMDIScope *scope, ZigLLVMDIFile *file, unsigned line)
 {
     DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createForwardDecl(
             tag, name,
             reinterpret_cast<DIScope*>(scope),
             reinterpret_cast<DIFile*>(file),
             line);
-    return reinterpret_cast<LLVMZigDIType*>(di_type);
+    return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
-void LLVMZigReplaceTemporary(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
-        LLVMZigDIType *replacement)
+void ZigLLVMReplaceTemporary(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIType *type,
+        ZigLLVMDIType *replacement)
 {
     reinterpret_cast<DIBuilder*>(dibuilder)->replaceTemporary(
             TempDIType(reinterpret_cast<DIType*>(type)),
             reinterpret_cast<DIType*>(replacement));
 }
 
-void LLVMZigReplaceDebugArrays(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
-        LLVMZigDIType **types_array, int types_array_len)
+void ZigLLVMReplaceDebugArrays(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIType *type,
+        ZigLLVMDIType **types_array, int types_array_len)
 {
     SmallVector<Metadata *, 8> fields;
     for (int i = 0; i < types_array_len; i += 1) {
@@ -308,8 +308,8 @@ void LLVMZigReplaceDebugArrays(LLVMZigDIBuilder *dibuilder, LLVMZigDIType *type,
             reinterpret_cast<DIBuilder*>(dibuilder)->getOrCreateArray(fields));
 }
 
-LLVMZigDIType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
-        LLVMZigDIType **types_array, int types_array_len, unsigned flags)
+ZigLLVMDIType *ZigLLVMCreateSubroutineType(ZigLLVMDIBuilder *dibuilder_wrapped,
+        ZigLLVMDIType **types_array, int types_array_len, unsigned flags)
 {
     SmallVector<Metadata *, 8> types;
     for (int i = 0; i < types_array_len; i += 1) {
@@ -321,51 +321,51 @@ LLVMZigDIType *LLVMZigCreateSubroutineType(LLVMZigDIBuilder *dibuilder_wrapped,
             dibuilder->getOrCreateTypeArray(types),
             flags);
     DIType *ditype = subroutine_type;
-    return reinterpret_cast<LLVMZigDIType*>(ditype);
+    return reinterpret_cast<ZigLLVMDIType*>(ditype);
 }
 
-unsigned LLVMZigEncoding_DW_ATE_unsigned(void) {
+unsigned ZigLLVMEncoding_DW_ATE_unsigned(void) {
     return dwarf::DW_ATE_unsigned;
 }
 
-unsigned LLVMZigEncoding_DW_ATE_signed(void) {
+unsigned ZigLLVMEncoding_DW_ATE_signed(void) {
     return dwarf::DW_ATE_signed;
 }
 
-unsigned LLVMZigEncoding_DW_ATE_float(void) {
+unsigned ZigLLVMEncoding_DW_ATE_float(void) {
     return dwarf::DW_ATE_float;
 }
 
-unsigned LLVMZigEncoding_DW_ATE_boolean(void) {
+unsigned ZigLLVMEncoding_DW_ATE_boolean(void) {
     return dwarf::DW_ATE_boolean;
 }
 
-unsigned LLVMZigEncoding_DW_ATE_unsigned_char(void) {
+unsigned ZigLLVMEncoding_DW_ATE_unsigned_char(void) {
     return dwarf::DW_ATE_unsigned_char;
 }
 
-unsigned LLVMZigEncoding_DW_ATE_signed_char(void) {
+unsigned ZigLLVMEncoding_DW_ATE_signed_char(void) {
     return dwarf::DW_ATE_signed_char;
 }
 
-unsigned LLVMZigLang_DW_LANG_C99(void) {
+unsigned ZigLLVMLang_DW_LANG_C99(void) {
     return dwarf::DW_LANG_C99;
 }
 
-unsigned LLVMZigTag_DW_variable(void) {
+unsigned ZigLLVMTag_DW_variable(void) {
     return dwarf::DW_TAG_variable;
 }
 
-unsigned LLVMZigTag_DW_structure_type(void) {
+unsigned ZigLLVMTag_DW_structure_type(void) {
     return dwarf::DW_TAG_structure_type;
 }
 
-LLVMZigDIBuilder *LLVMZigCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved) {
+ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved) {
     DIBuilder *di_builder = new DIBuilder(*unwrap(module), allow_unresolved);
-    return reinterpret_cast<LLVMZigDIBuilder *>(di_builder);
+    return reinterpret_cast<ZigLLVMDIBuilder *>(di_builder);
 }
 
-void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, LLVMZigDIScope *scope) {
+void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, ZigLLVMDIScope *scope) {
     unwrap(builder)->SetCurrentDebugLocation(DebugLoc::get(
                 line, column, reinterpret_cast<DIScope*>(scope)));
 }
@@ -375,20 +375,20 @@ void ZigLLVMClearCurrentDebugLocation(LLVMBuilderRef builder) {
 }
 
 
-LLVMZigDILexicalBlock *LLVMZigCreateLexicalBlock(LLVMZigDIBuilder *dbuilder, LLVMZigDIScope *scope,
-        LLVMZigDIFile *file, unsigned line, unsigned col)
+ZigLLVMDILexicalBlock *ZigLLVMCreateLexicalBlock(ZigLLVMDIBuilder *dbuilder, ZigLLVMDIScope *scope,
+        ZigLLVMDIFile *file, unsigned line, unsigned col)
 {
     DILexicalBlock *result = reinterpret_cast<DIBuilder*>(dbuilder)->createLexicalBlock(
             reinterpret_cast<DIScope*>(scope),
             reinterpret_cast<DIFile*>(file),
             line,
             col);
-    return reinterpret_cast<LLVMZigDILexicalBlock*>(result);
+    return reinterpret_cast<ZigLLVMDILexicalBlock*>(result);
 }
 
-LLVMZigDILocalVariable *LLVMZigCreateAutoVariable(LLVMZigDIBuilder *dbuilder,
-        LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
-        LLVMZigDIType *type, bool always_preserve, unsigned flags)
+ZigLLVMDILocalVariable *ZigLLVMCreateAutoVariable(ZigLLVMDIBuilder *dbuilder,
+        ZigLLVMDIScope *scope, const char *name, ZigLLVMDIFile *file, unsigned line_no,
+        ZigLLVMDIType *type, bool always_preserve, unsigned flags)
 {
     DILocalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createAutoVariable(
             reinterpret_cast<DIScope*>(scope),
@@ -398,12 +398,12 @@ LLVMZigDILocalVariable *LLVMZigCreateAutoVariable(LLVMZigDIBuilder *dbuilder,
             reinterpret_cast<DIType*>(type),
             always_preserve,
             flags);
-    return reinterpret_cast<LLVMZigDILocalVariable*>(result);
+    return reinterpret_cast<ZigLLVMDILocalVariable*>(result);
 }
 
-LLVMZigDIGlobalVariable *LLVMZigCreateGlobalVariable(LLVMZigDIBuilder *dbuilder,
-    LLVMZigDIScope *scope, const char *name, const char *linkage_name, LLVMZigDIFile *file,
-    unsigned line_no, LLVMZigDIType *di_type, bool is_local_to_unit, LLVMValueRef constant_val)
+ZigLLVMDIGlobalVariable *ZigLLVMCreateGlobalVariable(ZigLLVMDIBuilder *dbuilder,
+    ZigLLVMDIScope *scope, const char *name, const char *linkage_name, ZigLLVMDIFile *file,
+    unsigned line_no, ZigLLVMDIType *di_type, bool is_local_to_unit, LLVMValueRef constant_val)
 {
     DIGlobalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createGlobalVariable(
         reinterpret_cast<DIScope*>(scope),
@@ -414,12 +414,12 @@ LLVMZigDIGlobalVariable *LLVMZigCreateGlobalVariable(LLVMZigDIBuilder *dbuilder,
         reinterpret_cast<DIType*>(di_type),
         is_local_to_unit,
         reinterpret_cast<llvm::Constant *>(constant_val));
-    return reinterpret_cast<LLVMZigDIGlobalVariable*>(result);
+    return reinterpret_cast<ZigLLVMDIGlobalVariable*>(result);
 }
 
-LLVMZigDILocalVariable *LLVMZigCreateParameterVariable(LLVMZigDIBuilder *dbuilder,
-        LLVMZigDIScope *scope, const char *name, LLVMZigDIFile *file, unsigned line_no,
-        LLVMZigDIType *type, bool always_preserve, unsigned flags, unsigned arg_no)
+ZigLLVMDILocalVariable *ZigLLVMCreateParameterVariable(ZigLLVMDIBuilder *dbuilder,
+        ZigLLVMDIScope *scope, const char *name, ZigLLVMDIFile *file, unsigned line_no,
+        ZigLLVMDIType *type, bool always_preserve, unsigned flags, unsigned arg_no)
 {
     DILocalVariable *result = reinterpret_cast<DIBuilder*>(dbuilder)->createParameterVariable(
             reinterpret_cast<DIScope*>(scope),
@@ -430,54 +430,54 @@ LLVMZigDILocalVariable *LLVMZigCreateParameterVariable(LLVMZigDIBuilder *dbuilde
             reinterpret_cast<DIType*>(type),
             always_preserve,
             flags);
-    return reinterpret_cast<LLVMZigDILocalVariable*>(result);
+    return reinterpret_cast<ZigLLVMDILocalVariable*>(result);
 }
 
-LLVMZigDIScope *LLVMZigLexicalBlockToScope(LLVMZigDILexicalBlock *lexical_block) {
+ZigLLVMDIScope *ZigLLVMLexicalBlockToScope(ZigLLVMDILexicalBlock *lexical_block) {
     DIScope *scope = reinterpret_cast<DILexicalBlock*>(lexical_block);
-    return reinterpret_cast<LLVMZigDIScope*>(scope);
+    return reinterpret_cast<ZigLLVMDIScope*>(scope);
 }
 
-LLVMZigDIScope *LLVMZigCompileUnitToScope(LLVMZigDICompileUnit *compile_unit) {
+ZigLLVMDIScope *ZigLLVMCompileUnitToScope(ZigLLVMDICompileUnit *compile_unit) {
     DIScope *scope = reinterpret_cast<DICompileUnit*>(compile_unit);
-    return reinterpret_cast<LLVMZigDIScope*>(scope);
+    return reinterpret_cast<ZigLLVMDIScope*>(scope);
 }
 
-LLVMZigDIScope *LLVMZigFileToScope(LLVMZigDIFile *difile) {
+ZigLLVMDIScope *ZigLLVMFileToScope(ZigLLVMDIFile *difile) {
     DIScope *scope = reinterpret_cast<DIFile*>(difile);
-    return reinterpret_cast<LLVMZigDIScope*>(scope);
+    return reinterpret_cast<ZigLLVMDIScope*>(scope);
 }
 
-LLVMZigDIScope *LLVMZigSubprogramToScope(LLVMZigDISubprogram *subprogram) {
+ZigLLVMDIScope *ZigLLVMSubprogramToScope(ZigLLVMDISubprogram *subprogram) {
     DIScope *scope = reinterpret_cast<DISubprogram*>(subprogram);
-    return reinterpret_cast<LLVMZigDIScope*>(scope);
+    return reinterpret_cast<ZigLLVMDIScope*>(scope);
 }
 
-LLVMZigDIScope *LLVMZigTypeToScope(LLVMZigDIType *type) {
+ZigLLVMDIScope *ZigLLVMTypeToScope(ZigLLVMDIType *type) {
     DIScope *scope = reinterpret_cast<DIType*>(type);
-    return reinterpret_cast<LLVMZigDIScope*>(scope);
+    return reinterpret_cast<ZigLLVMDIScope*>(scope);
 }
 
-LLVMZigDICompileUnit *LLVMZigCreateCompileUnit(LLVMZigDIBuilder *dibuilder,
+ZigLLVMDICompileUnit *ZigLLVMCreateCompileUnit(ZigLLVMDIBuilder *dibuilder,
         unsigned lang, const char *file, const char *dir, const char *producer,
         bool is_optimized, const char *flags, unsigned runtime_version, const char *split_name,
         uint64_t dwo_id, bool emit_debug_info)
 {
     DICompileUnit *result = reinterpret_cast<DIBuilder*>(dibuilder)->createCompileUnit(
             lang, file, dir, producer, is_optimized, flags, runtime_version, split_name);
-    return reinterpret_cast<LLVMZigDICompileUnit*>(result);
+    return reinterpret_cast<ZigLLVMDICompileUnit*>(result);
 }
 
 
-LLVMZigDIFile *LLVMZigCreateFile(LLVMZigDIBuilder *dibuilder, const char *filename, const char *directory) {
+ZigLLVMDIFile *ZigLLVMCreateFile(ZigLLVMDIBuilder *dibuilder, const char *filename, const char *directory) {
     DIFile *result = reinterpret_cast<DIBuilder*>(dibuilder)->createFile(filename, directory);
-    return reinterpret_cast<LLVMZigDIFile*>(result);
+    return reinterpret_cast<ZigLLVMDIFile*>(result);
 }
 
-LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigDIScope *scope,
-        const char *name, const char *linkage_name, LLVMZigDIFile *file, unsigned lineno,
-        LLVMZigDIType *fn_di_type, bool is_local_to_unit, bool is_definition, unsigned scope_line,
-        unsigned flags, bool is_optimized, LLVMZigDISubprogram *decl_subprogram)
+ZigLLVMDISubprogram *ZigLLVMCreateFunction(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
+        const char *name, const char *linkage_name, ZigLLVMDIFile *file, unsigned lineno,
+        ZigLLVMDIType *fn_di_type, bool is_local_to_unit, bool is_definition, unsigned scope_line,
+        unsigned flags, bool is_optimized, ZigLLVMDISubprogram *decl_subprogram)
 {
     DISubroutineType *di_sub_type = static_cast<DISubroutineType*>(reinterpret_cast<DIType*>(fn_di_type));
     DISubprogram *result = reinterpret_cast<DIBuilder*>(dibuilder)->createFunction(
@@ -489,26 +489,26 @@ LLVMZigDISubprogram *LLVMZigCreateFunction(LLVMZigDIBuilder *dibuilder, LLVMZigD
             is_local_to_unit, is_definition, scope_line, flags, is_optimized,
             nullptr,
             reinterpret_cast<DISubprogram *>(decl_subprogram));
-    return reinterpret_cast<LLVMZigDISubprogram*>(result);
+    return reinterpret_cast<ZigLLVMDISubprogram*>(result);
 }
 
-void LLVMZigDIBuilderFinalize(LLVMZigDIBuilder *dibuilder) {
+void ZigLLVMDIBuilderFinalize(ZigLLVMDIBuilder *dibuilder) {
     reinterpret_cast<DIBuilder*>(dibuilder)->finalize();
 }
 
-LLVMZigInsertionPoint *LLVMZigSaveInsertPoint(LLVMBuilderRef builder_wrapped) {
+ZigLLVMInsertionPoint *ZigLLVMSaveInsertPoint(LLVMBuilderRef builder_wrapped) {
     IRBuilderBase::InsertPoint *ip = new IRBuilderBase::InsertPoint();
     *ip = unwrap(builder_wrapped)->saveIP();
-    return reinterpret_cast<LLVMZigInsertionPoint*>(ip);
+    return reinterpret_cast<ZigLLVMInsertionPoint*>(ip);
 }
 
-void LLVMZigRestoreInsertPoint(LLVMBuilderRef builder, LLVMZigInsertionPoint *ip_wrapped) {
+void ZigLLVMRestoreInsertPoint(LLVMBuilderRef builder, ZigLLVMInsertionPoint *ip_wrapped) {
     IRBuilderBase::InsertPoint *ip = reinterpret_cast<IRBuilderBase::InsertPoint*>(ip_wrapped);
     unwrap(builder)->restoreIP(*ip);
 }
 
-LLVMValueRef LLVMZigInsertDeclareAtEnd(LLVMZigDIBuilder *dibuilder, LLVMValueRef storage,
-        LLVMZigDILocalVariable *var_info, LLVMZigDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref)
+LLVMValueRef ZigLLVMInsertDeclareAtEnd(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,
+        ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref)
 {
     Instruction *result = reinterpret_cast<DIBuilder*>(dibuilder)->insertDeclare(
             unwrap(storage),
@@ -519,8 +519,8 @@ LLVMValueRef LLVMZigInsertDeclareAtEnd(LLVMZigDIBuilder *dibuilder, LLVMValueRef
     return wrap(result);
 }
 
-LLVMValueRef LLVMZigInsertDeclare(LLVMZigDIBuilder *dibuilder, LLVMValueRef storage,
-        LLVMZigDILocalVariable *var_info, LLVMZigDILocation *debug_loc, LLVMValueRef insert_before_instr)
+LLVMValueRef ZigLLVMInsertDeclare(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,
+        ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc, LLVMValueRef insert_before_instr)
 {
     Instruction *result = reinterpret_cast<DIBuilder*>(dibuilder)->insertDeclare(
             unwrap(storage),
@@ -531,12 +531,12 @@ LLVMValueRef LLVMZigInsertDeclare(LLVMZigDIBuilder *dibuilder, LLVMValueRef stor
     return wrap(result);
 }
 
-LLVMZigDILocation *LLVMZigGetDebugLoc(unsigned line, unsigned col, LLVMZigDIScope *scope) {
+ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigned col, ZigLLVMDIScope *scope) {
     DebugLoc debug_loc = DebugLoc::get(line, col, reinterpret_cast<DIScope*>(scope), nullptr);
-    return reinterpret_cast<LLVMZigDILocation*>(debug_loc.get());
+    return reinterpret_cast<ZigLLVMDILocation*>(debug_loc.get());
 }
 
-void LLVMZigSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
+void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
     if (on_state) {
         FastMathFlags fmf;
         fmf.setUnsafeAlgebra();
