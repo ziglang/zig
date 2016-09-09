@@ -398,10 +398,10 @@ false otherwise.
 
 ```
 Function                                                             Operation
-@add_with_overflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a + b
-@sub_with_overflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a - b
-@mul_with_overflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a * b
-@shl_with_overflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a << b
+@addWithOverflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a + b
+@subWithOverflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a - b
+@mulWithOverflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a * b
+@shlWithOverflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a << b
 ```
 
 ### @memset(dest, c: u8, byte_count: usize)
@@ -437,7 +437,7 @@ debuggers to break there.
 
 This function is only valid within function scope.
 
-### @return_address()
+### @returnAddress()
 
 This function returns a pointer to the return address of the current stack
 frame.
@@ -447,7 +447,7 @@ all platforms.
 
 This function is only valid within function scope.
 
-### @frame_address()
+### @frameAddress()
 
 This function returns the base pointer of the current stack frame.
 
@@ -457,21 +457,21 @@ aggressive optimizations.
 
 This function is only valid within function scope.
 
-### @max_value(inline T: type) -> (number literal)
+### @maxValue(inline T: type) -> (number literal)
 
 This function returns the maximum integer value of the integer type T.
 
 The result is a compile time constant. For some types such as `c_long`, the
 result is marked as depending on a compile variable.
 
-### @min_value(inline T: type) -> (number literal)
+### @minValue(inline T: type) -> (number literal)
 
 This function returns the minimum integer value of the integer type T.
 
 The result is a compile time constant. For some types such as `c_long`, the
 result is marked as depending on a compile variable.
 
-### @member_count(inline T: type) -> (number literal)
+### @memberCount(inline T: type) -> (number literal)
 
 This function returns the number of enum values in an enum type.
 
@@ -487,7 +487,7 @@ such as "std".
 
 This function is only valid at top level scope.
 
-### @c_import(expression) -> (namespace)
+### @cImport(expression) -> (namespace)
 
 This function parses C code and imports the functions, types, variables, and
 compatible macro definitions into the result namespace.
@@ -498,25 +498,25 @@ appending to a temporary buffer which is then parsed as C code.
 
 This function is only valid at top level scope.
 
-### @c_include(inline path: []u8)
+### @cInclude(inline path: []u8)
 
 This function can only occur inside `@c_import`.
 
 This appends `#include <$path>\n` to the `c_import` temporary buffer.
 
-### @c_define(inline name: []u8, value)
+### @cDefine(inline name: []u8, value)
 
 This function can only occur inside `@c_import`.
 
 This appends `#define $name $value` to the `c_import` temporary buffer.
 
-### @c_undef(inline name: []u8)
+### @cUndef(inline name: []u8)
 
 This function can only occur inside `@c_import`.
 
 This appends `#undef $name` to the `c_import` temporary buffer.
 
-### @compile_var(inline name: []u8) -> (varying type)
+### @compileVar(inline name: []u8) -> (varying type)
 
 This function returns a compile-time variable. There are built in compile
 variables:
@@ -533,7 +533,7 @@ Build scripts can set additional compile variables of any name and type.
 The result of this function is a compile time constant that is marked as
 depending on a compile variable.
 
-### @const_eval(expression) -> @typeof(expression)
+### @constEval(expression) -> @typeof(expression)
 
 This function wraps an expression and generates a compile error if the
 expression is not known at compile time.
@@ -550,7 +550,7 @@ type T.
 This function counts the number of leading zeroes in x which is an integer
 type T.
 
-### @err_name(err: error) -> []u8
+### @errorName(err: error) -> []u8
 
 This function returns the string representation of an error. If an error
 declaration is:
@@ -564,7 +564,7 @@ Then the string representation is "OutOfMem".
 If there are no calls to `@err_name` in an entire application, then no error
 name table will be generated.
 
-### @embed_file(inline path: []u8) -> [X]u8
+### @embedFile(inline path: []u8) -> [X]u8
 
 This function returns a compile time constant fixed-size array with length
 equal to the byte count of the file given by `path`. The contents of the array
@@ -578,7 +578,7 @@ This function performs an atomic compare exchange operation.
 
 The `fence` function is used to introduce happens-before edges between operations.
 
-### @div_exact(a: T, b: T) -> T
+### @divExact(a: T, b: T) -> T
 
 This function performs integer division `a / b` and returns the result.
 
@@ -608,13 +608,13 @@ const b: u8 = @truncate(u8, a);
 // b is now 0xcd
 ```
 
-### @compile_err(inline msg: []u8)
+### @compileError(inline msg: []u8)
 
 This function, when semantically analyzed, causes a compile error with the message `msg`.
 
 There are several ways that code avoids being semantically checked, such as using `if`
 or `switch` with compile time constants, and inline functions.
 
-### @int_type(inline is_signed: bool, inline bit_count: u8) -> type
+### @intType(inline is_signed: bool, inline bit_count: u8) -> type
 
 This function returns an integer type with the given signness and bit count.
