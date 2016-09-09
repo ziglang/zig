@@ -988,6 +988,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdVar:
             fn_proto->skip = true;
             add_node_error(g, fn_proto->return_type,
                 buf_sprintf("return type '%s' not allowed", buf_ptr(&fn_type_id.return_type->name)));
@@ -1009,8 +1010,6 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
         case TypeTableEntryIdFn:
         case TypeTableEntryIdTypeDecl:
             break;
-        case TypeTableEntryIdVar:
-            zig_panic("TODO var return type");
     }
 
 

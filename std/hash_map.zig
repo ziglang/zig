@@ -180,8 +180,8 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
                 if (entry.distance_from_start_index < distance_from_start_index) {
                     // robin hood to the rescue
                     const tmp = *entry;
-                    hm.max_distance_from_start_index = math.max(usize,
-                        hm.max_distance_from_start_index, distance_from_start_index);
+                    hm.max_distance_from_start_index = math.max(hm.max_distance_from_start_index,
+                        distance_from_start_index);
                     *entry = Entry {
                         .used = true,
                         .distance_from_start_index = distance_from_start_index,
@@ -201,8 +201,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
                 hm.size += 1;
             }
 
-            hm.max_distance_from_start_index = math.max(usize, distance_from_start_index,
-                hm.max_distance_from_start_index);
+            hm.max_distance_from_start_index = math.max(distance_from_start_index, hm.max_distance_from_start_index);
             *entry = Entry {
                 .used = true,
                 .distance_from_start_index = distance_from_start_index,

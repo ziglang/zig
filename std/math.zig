@@ -4,11 +4,11 @@ pub enum Cmp {
     Less,
 }
 
-pub fn min(inline T: type, x: T, y: T) -> T {
+pub fn min(x: var, y: var) -> @typeOf(x + y) {
     if (x < y) x else y
 }
 
-pub fn max(inline T: type, x: T, y: T) -> T {
+pub fn max(x: var, y: var) -> @typeOf(x + y) {
     if (x > y) x else y
 }
 
@@ -24,4 +24,8 @@ pub fn addOverflow(inline T: type, a: T, b: T) -> %T {
 pub fn subOverflow(inline T: type, a: T, b: T) -> %T {
     var answer: T = undefined;
     if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer
+}
+pub fn shlOverflow(inline T: type, a: T, b: T) -> %T {
+    var answer: T = undefined;
+    if (@shlWithOverflow(T, a, b, &answer)) error.Overflow else answer
 }

@@ -79,7 +79,7 @@ pub struct OutStream {
         const dest_space_left = os.buffer.len - os.index;
 
         while (src_bytes_left > 0) {
-            const copy_amt = math.min(usize, dest_space_left, src_bytes_left);
+            const copy_amt = math.min(dest_space_left, src_bytes_left);
             @memcpy(&os.buffer[os.index], &bytes[src_index], copy_amt);
             os.index += copy_amt;
             if (os.index == os.buffer.len) {

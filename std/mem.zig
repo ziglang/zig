@@ -50,7 +50,7 @@ pub fn copy(inline T: type, dest: []T, source: []const T) {
 /// Return < 0, == 0, or > 0 if memory a is less than, equal to, or greater than,
 /// memory b, respectively.
 pub fn cmp(inline T: type, a: []const T, b: []const T) -> Cmp {
-    const n = math.min(usize, a.len, b.len);
+    const n = math.min(a.len, b.len);
     var i: usize = 0;
     while (i < n; i += 1) {
         if (a[i] == b[i]) continue;
