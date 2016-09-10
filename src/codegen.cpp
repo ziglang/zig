@@ -5116,7 +5116,7 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
 
                 const char *const_str = type_entry->data.pointer.is_const ? "const " : "";
                 buf_resize(out_buf, 0);
-                buf_appendf(out_buf, "%s*%s", const_str, buf_ptr(&child_buf));
+                buf_appendf(out_buf, "%s%s *", const_str, buf_ptr(&child_buf));
                 break;
             }
         case TypeTableEntryIdArray:
