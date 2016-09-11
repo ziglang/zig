@@ -2907,8 +2907,13 @@ static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, 
     return return_type;
 }
 
+enum LValPurpose {
+    LValPurposeAssign,
+    LValPurposeAddressOf,
+};
+
 static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        AstNode *node)
+        AstNode *node, LValPurpose purpose)
 {
     TypeTableEntry *array_type = analyze_expression(g, import, context, nullptr,
             node->data.array_access_expr.array_ref_expr);
@@ -2923,11 +2928,20 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
         }
         return_type = array_type->data.array.child_type;
     } else if (array_type->id == TypeTableEntryIdPointer) {
+        if (array_type->data.pointer.is_const && purpose == LValPurposeAssign) {
+            add_node_error(g, node, buf_sprintf("cannot assign to constant"));
+            return g->builtin_types.entry_invalid;
+        }
         return_type = array_type->data.pointer.child_type;
     } else if (array_type->id == TypeTableEntryIdStruct &&
                array_type->data.structure.is_slice)
     {
-        return_type = array_type->data.structure.fields[0].type_entry->data.pointer.child_type;
+        TypeTableEntry *pointer_type = array_type->data.structure.fields[0].type_entry;
+        if (pointer_type->data.pointer.is_const && purpose == LValPurposeAssign) {
+            add_node_error(g, node, buf_sprintf("cannot assign to constant"));
+            return g->builtin_types.entry_invalid;
+        }
+        return_type = pointer_type->data.pointer.child_type;
     } else {
         add_node_error(g, node,
                 buf_sprintf("array access of non-array type '%s'", buf_ptr(&array_type->name)));
@@ -3254,11 +3268,6 @@ static bool is_op_allowed(TypeTableEntry *type, BinOpType op) {
     zig_unreachable();
 }
 
-enum LValPurpose {
-    LValPurposeAssign,
-    LValPurposeAddressOf,
-};
-
 static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, BlockContext *block_context,
         AstNode *lhs_node, LValPurpose purpose, bool is_ptr_const)
 {
@@ -3288,7 +3297,7 @@ static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, Bloc
             }
         }
     } else if (lhs_node->type == NodeTypeArrayAccessExpr) {
-        expected_rhs_type = analyze_array_access_expr(g, import, block_context, lhs_node);
+        expected_rhs_type = analyze_array_access_expr(g, import, block_context, lhs_node, purpose);
     } else if (lhs_node->type == NodeTypeFieldAccessExpr) {
         expected_rhs_type = analyze_field_access_expr(g, import, block_context, nullptr, lhs_node);
     } else if (lhs_node->type == NodeTypePrefixOpExpr &&
@@ -6599,7 +6608,7 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
 
         case NodeTypeArrayAccessExpr:
             // for reading array access; assignment handled elsewhere
-            return_type = analyze_array_access_expr(g, import, context, node);
+            return_type = analyze_array_access_expr(g, import, context, node, LValPurposeAddressOf);
             break;
         case NodeTypeSliceExpr:
             return_type = analyze_slice_expr(g, import, context, node);

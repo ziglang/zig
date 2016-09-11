@@ -1467,6 +1467,20 @@ fn f(foo: &const Foo) {
     foo.method(1, 2);
 }
     )SOURCE", 1, ".tmp_source.zig:7:15: error: expected 1 arguments, got 2");
+
+    add_compile_fail_case("assign through constant pointer", R"SOURCE(
+fn f() {
+  var cstr = c"Hat";
+  cstr[0] = 'W';
+}
+    )SOURCE", 1, ".tmp_source.zig:4:7: error: cannot assign to constant");
+
+    add_compile_fail_case("assign through constant slice", R"SOURCE(
+pub fn f() {
+  var cstr: []const u8 = "Hat";
+  cstr[0] = 'W';
+}
+    )SOURCE", 1, ".tmp_source.zig:4:7: error: cannot assign to constant");
 }
 
 //////////////////////////////////////////////////////////////////////////////
