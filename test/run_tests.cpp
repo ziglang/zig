@@ -1457,6 +1457,16 @@ fn f(m: []const u8) {
     m.copy(u8, self.list.items[old_len...], m);
 }
     )SOURCE", 1, ".tmp_source.zig:3:6: error: no member named 'copy' in '[]const u8'");
+
+    add_compile_fail_case("wrong number of arguments for method fn call", R"SOURCE(
+struct Foo {
+    fn method(self: &const Foo, a: i32) {}
+}
+fn f(foo: &const Foo) {
+
+    foo.method(1, 2);
+}
+    )SOURCE", 1, ".tmp_source.zig:7:15: error: expected 1 arguments, got 2");
 }
 
 //////////////////////////////////////////////////////////////////////////////

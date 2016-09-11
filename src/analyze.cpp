@@ -1250,7 +1250,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         if (!fn_table_entry->is_extern) {
             LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoUnwindAttribute);
         }
-        if (!g->is_release_build && !fn_proto->is_inline) {
+        if (!g->is_release_build && fn_table_entry->fn_inline != FnInlineAlways) {
             ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim", "true");
             ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim-non-leaf", nullptr);
         }
@@ -5453,19 +5453,20 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
     int src_param_count = fn_type->data.fn.fn_type_id.param_count +
         (generic_proto_node ? generic_proto_node->data.fn_proto.inline_arg_count : 0);
     int call_param_count = node->data.fn_call_expr.params.length;
+    int expect_arg_count = src_param_count - struct_node_1_or_0;
 
     bool ok_invocation = true;
 
     if (fn_type->data.fn.fn_type_id.is_var_args) {
-        if (call_param_count < src_param_count - struct_node_1_or_0) {
+        if (call_param_count < expect_arg_count) {
             ok_invocation = false;
             add_node_error(g, node,
                 buf_sprintf("expected at least %d arguments, got %d", src_param_count, call_param_count));
         }
-    } else if (src_param_count - struct_node_1_or_0 != call_param_count) {
+    } else if (expect_arg_count != call_param_count) {
         ok_invocation = false;
         add_node_error(g, node,
-                buf_sprintf("expected %d arguments, got %d", src_param_count, call_param_count));
+                buf_sprintf("expected %d arguments, got %d", expect_arg_count, call_param_count));
     }
 
     bool all_args_const_expr = true;
@@ -5567,7 +5568,7 @@ static TypeTableEntry *analyze_fn_call_with_inline_args(CodeGen *g, ImportTableE
 
     if (src_param_count != call_param_count + struct_node_1_or_0) {
         add_node_error(g, call_node,
-            buf_sprintf("expected %d arguments, got %d", src_param_count, call_param_count));
+            buf_sprintf("expected %d arguments, got %d", src_param_count - struct_node_1_or_0, call_param_count));
         return g->builtin_types.entry_invalid;
     }
 
@@ -6821,13 +6822,18 @@ static void count_inline_and_var_args(AstNode *proto_node) {
     *inline_arg_count = 0;
     *inline_or_var_type_arg_count = 0;
 
+    // TODO run these nodes through the type analysis system rather than looking for
+    // specialized ast nodes. this would get fooled by `{var}` instead of `var` which
+    // is supposed to be equivalent
     for (int i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
         assert(param_node->type == NodeTypeParamDecl);
-        bool is_inline = param_node->data.param_decl.is_inline;
-        *inline_arg_count += is_inline ? 1 : 0;
-        *inline_or_var_type_arg_count += (is_inline ||
-                param_node->data.param_decl.type->type == NodeTypeVarLiteral) ? 1 : 0;
+        if (param_node->data.param_decl.is_inline) {
+            *inline_arg_count += 1;
+            *inline_or_var_type_arg_count += 1;
+        } else if (param_node->data.param_decl.type->type == NodeTypeVarLiteral) {
+            *inline_or_var_type_arg_count += 1;
+        }
     }
 }
 
