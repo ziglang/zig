@@ -388,9 +388,21 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "-mmacosx-version-min and -mios-version-min options not allowed together\n");
                 return EXIT_FAILURE;
             }
+
+            if((g->zig_target.os == ZigLLVM_Darwin ||
+                    g->zig_target.os == ZigLLVM_MacOSX ||
+                    g->zig_target.os == ZigLLVM_IOS) &&
+                (!mmacosx_version_min &&
+                    !mios_version_min &&
+                    !g->mmacosx_version_min &&
+                    !g->mios_version_min) && target) {
+                zig_panic("unable to determine -mmacosx-version-min or -mios-version-min");
+            }
+
             if (mmacosx_version_min) {
                 codegen_set_mmacosx_version_min(g, buf_create_from_str(mmacosx_version_min));
             }
+
             if (mios_version_min) {
                 codegen_set_mios_version_min(g, buf_create_from_str(mios_version_min));
             }
