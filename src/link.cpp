@@ -643,6 +643,12 @@ static void construct_linker_job_darwin(LinkJob *lj) {
 
     lj->args.append((const char *)buf_ptr(&lj->out_file_o));
 
+    if (g->is_test_build) {
+        const char *test_runner_name = g->link_libc ? "test_runner_libc" : "test_runner_nolibc";
+        Buf *test_runner_o_path = build_o(g, test_runner_name);
+        lj->args.append(buf_ptr(test_runner_o_path));
+    }
+
     for (int i = 0; i < g->link_libs.length; i += 1) {
         Buf *link_lib = g->link_libs.at(i);
         Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
@@ -766,7 +772,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
         ZigLLVMOptimizeModule(g->target_machine, g->module);
 
         if (g->verbose) {
-            LLVMDumpModule(g->module);
+            //LLVMDumpModule(g->module);
         }
     }
     if (g->verbose) {
