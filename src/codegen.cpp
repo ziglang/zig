@@ -497,6 +497,20 @@ static LLVMValueRef gen_truncate(CodeGen *g, AstNode *node) {
     return LLVMBuildTrunc(g->builder, src_val, dest_type->type_ref, "");
 }
 
+static LLVMValueRef gen_unreachable(CodeGen *g, AstNode *node) {
+    assert(node->type == NodeTypeFnCallExpr);
+
+    set_debug_source_node(g, node);
+
+    if (want_debug_safety(g, node) || g->is_test_build) {
+        gen_debug_safety_crash(g);
+    } else {
+        LLVMBuildUnreachable(g->builder);
+    }
+
+    return nullptr;
+}
+
 static LLVMValueRef gen_shl_with_overflow(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
@@ -689,6 +703,8 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
             return gen_div_exact(g, node);
         case BuiltinFnIdTruncate:
             return gen_truncate(g, node);
+        case BuiltinFnIdUnreachable:
+            return gen_unreachable(g, node);
     }
     zig_unreachable();
 }
@@ -2949,15 +2965,6 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
         }
 
         return tmp_struct_ptr;
-    } else if (type_entry->id == TypeTableEntryIdUnreachable) {
-        assert(node->data.container_init_expr.entries.length == 0);
-        set_debug_source_node(g, node);
-        if (want_debug_safety(g, node) || g->is_test_build) {
-            gen_debug_safety_crash(g);
-        } else {
-            LLVMBuildUnreachable(g->builder);
-        }
-        return nullptr;
     } else if (type_entry->id == TypeTableEntryIdVoid) {
         assert(node->data.container_init_expr.entries.length == 0);
         return nullptr;
@@ -4859,6 +4866,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdTruncate, "truncate", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdIntType, "intType", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdUnreachable, "unreachable", 0);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

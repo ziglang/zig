@@ -1174,6 +1174,7 @@ enum BuiltinFnId {
     BuiltinFnIdDivExact,
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
+    BuiltinFnIdUnreachable,
 };
 
 struct BuiltinFnEntry {

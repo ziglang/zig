@@ -116,7 +116,7 @@ pub struct OutStream {
                 return switch (write_err) {
                     errno.EINTR  => continue,
 
-                    errno.EINVAL => unreachable{},
+                    errno.EINVAL => @unreachable(),
                     errno.EDQUOT => error.DiskQuota,
                     errno.EFBIG  => error.FileTooBig,
                     errno.EIO    => error.Io,
@@ -165,8 +165,8 @@ pub struct InStream {
                         return switch (err) {
                             errno.EINTR => continue,
 
-                            errno.EFAULT => unreachable{},
-                            errno.EINVAL => unreachable{},
+                            errno.EFAULT => @unreachable(),
+                            errno.EINVAL => @unreachable(),
                             errno.EACCES => error.BadPerm,
                             errno.EFBIG, errno.EOVERFLOW => error.FileTooBig,
                             errno.EISDIR => error.IsDir,
@@ -228,8 +228,8 @@ pub struct InStream {
                         switch (read_err) {
                             errno.EINTR  => continue,
 
-                            errno.EINVAL => unreachable{},
-                            errno.EFAULT => unreachable{},
+                            errno.EINVAL => @unreachable(),
+                            errno.EFAULT => @unreachable(),
                             errno.EBADF  => return error.BadFd,
                             errno.EIO    => return error.Io,
                             else         => return error.Unexpected,
@@ -426,9 +426,9 @@ fn bufPrintUnsigned(inline T: type, out_buf: []u8, x: T) -> usize {
 fn parseU64DigitTooBig() {
     parseUnsigned(u64, "123a", 10) %% |err| {
         if (err == error.InvalidChar) return;
-        unreachable{};
+        @unreachable();
     };
-    unreachable{};
+    @unreachable();
 }
 
 pub fn openSelfExe(stream: &InStream) -> %void {

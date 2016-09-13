@@ -21,8 +21,8 @@ struct Connection {
         const send_err = linux.getErrno(send_ret);
         switch (send_err) {
             0 => return send_ret,
-            errno.EINVAL => unreachable{},
-            errno.EFAULT => unreachable{},
+            errno.EINVAL => @unreachable(),
+            errno.EFAULT => @unreachable(),
             errno.ECONNRESET => return error.ConnectionReset,
             errno.EINTR => return error.SigInterrupt,
             // TODO there are more possible errors
@@ -35,8 +35,8 @@ struct Connection {
         const recv_err = linux.getErrno(recv_ret);
         switch (recv_err) {
             0 => return buf[0...recv_ret],
-            errno.EINVAL => unreachable{},
-            errno.EFAULT => unreachable{},
+            errno.EINVAL => @unreachable(),
+            errno.EFAULT => @unreachable(),
             errno.ENOTSOCK => return error.NotSocket,
             errno.EINTR => return error.SigInterrupt,
             errno.ENOMEM => return error.NoMem,
@@ -50,7 +50,7 @@ struct Connection {
     pub fn close(c: Connection) -> %void {
         switch (linux.getErrno(linux.close(c.socket_fd))) {
             0 => return,
-            errno.EBADF => unreachable{},
+            errno.EBADF => @unreachable(),
             errno.EINTR => return error.SigInterrupt,
             errno.EIO => return error.Io,
             else => return error.Unexpected,
@@ -74,7 +74,7 @@ pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
 //		if (family != AF_INET)
 //			buf[cnt++] = (struct address){ .family = AF_INET6, .addr = { [15] = 1 } };
 //
-        unreachable{} // TODO
+        @unreachable() // TODO
     }
 
     switch (parseIpLiteral(hostname)) {
@@ -85,7 +85,7 @@ pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
         else => {},
     };
 
-    unreachable{} // TODO
+    @unreachable() // TODO
 }
 
 pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
@@ -113,7 +113,7 @@ pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
         @memcpy(&os_addr.addr[0], &addr.addr[0], 16);
         linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in6))
     } else {
-        unreachable{}
+        @unreachable()
     };
     const connect_err = linux.getErrno(connect_ret);
     if (connect_err > 0) {
@@ -321,11 +321,11 @@ fn parseIp4(buf: []const u8) -> %u32 {
 #attribute("test")
 fn testParseIp4() {
     assert(%%parseIp4("127.0.0.1") == endian.swapIfLe(u32, 0x7f000001));
-    switch (parseIp4("256.0.0.1")) { Overflow => {}, else => unreachable {}, }
-    switch (parseIp4("x.0.0.1")) { InvalidChar => {}, else => unreachable {}, }
-    switch (parseIp4("127.0.0.1.1")) { JunkAtEnd => {}, else => unreachable {}, }
-    switch (parseIp4("127.0.0.")) { Incomplete => {}, else => unreachable {}, }
-    switch (parseIp4("100..0.1")) { InvalidChar => {}, else => unreachable {}, }
+    switch (parseIp4("256.0.0.1")) { Overflow => {}, else => @unreachable(), }
+    switch (parseIp4("x.0.0.1")) { InvalidChar => {}, else => @unreachable(), }
+    switch (parseIp4("127.0.0.1.1")) { JunkAtEnd => {}, else => @unreachable(), }
+    switch (parseIp4("127.0.0.")) { Incomplete => {}, else => @unreachable(), }
+    switch (parseIp4("100..0.1")) { InvalidChar => {}, else => @unreachable(), }
 }
 
 #attribute("test")

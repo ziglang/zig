@@ -2677,13 +2677,6 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
         } else {
             return resolve_expr_const_val_as_void(g, node);
         }
-    } else if (container_type->id == TypeTableEntryIdUnreachable) {
-        if (container_init_expr->entries.length != 0) {
-            add_node_error(g, node, buf_sprintf("unreachable expression expects no arguments"));
-            return g->builtin_types.entry_invalid;
-        } else {
-            return container_type;
-        }
     } else {
         add_node_error(g, node,
             buf_sprintf("type '%s' does not support %s initialization syntax",
@@ -5435,6 +5428,8 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             return analyze_compile_err(g, import, context, node);
         case BuiltinFnIdIntType:
             return analyze_int_type(g, import, context, node);
+        case BuiltinFnIdUnreachable:
+            return g->builtin_types.entry_unreachable;
     }
     zig_unreachable();
 }

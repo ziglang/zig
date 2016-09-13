@@ -266,5 +266,5 @@ fn test_one_udivmoddi4(a: du_int, b: du_int, expected_q: du_int, expected_r: du_
 }
 
 fn assert(b: bool) {
-    if (!b) unreachable{};
+    if (!b) @unreachable();
 }

@@ -25,20 +25,20 @@ fn ifStatements() {
 }
 fn shouldBeEqual(a: i32, b: i32) {
     if (a != b) {
-        unreachable{};
+        @unreachable();
     } else {
         return;
     }
 }
 fn firstEqlThird(a: i32, b: i32, c: i32) {
     if (a == b) {
-        unreachable{};
+        @unreachable();
     } else if (b == c) {
-        unreachable{};
+        @unreachable();
     } else if (a == c) {
         return;
     } else {
-        unreachable{};
+        @unreachable();
     }
 }
 
@@ -58,7 +58,7 @@ fn localVariables() {
 }
 fn testLocVars(b: i32) {
     const a: i32 = 1;
-    if (a + b != 3) unreachable{};
+    if (a + b != 3) @unreachable();
 }
 
 #attribute("test")
@@ -145,7 +145,7 @@ fn shortCircuit() {
 
 #static_eval_enable(false)
 fn assertRuntime(b: bool) {
-    if (!b) unreachable{}
+    if (!b) @unreachable()
 }
 
 #attribute("test")
@@ -328,10 +328,10 @@ fn maybeType() {
         if (y) {
             // OK
         } else {
-            unreachable{};
+            @unreachable();
         }
     } else {
-        unreachable{};
+        @unreachable();
     }
 
     const next_x : ?i32 = null;
@@ -342,7 +342,7 @@ fn maybeType() {
 
     const final_x : ?i32 = 13;
 
-    const num = final_x ?? unreachable{};
+    const num = final_x ?? @unreachable();
 
     assert(num == 13);
 }
@@ -360,7 +360,7 @@ fn enumType() {
     const expected_foo_size = switch (@compileVar("arch")) {
         i386 => 20,
         x86_64 => 24,
-        else => unreachable{},
+        else => @unreachable(),
     };
     assert(@sizeOf(EnumTypeFoo) == expected_foo_size);
     assert(@sizeOf(EnumTypeBar) == 1);
@@ -437,7 +437,7 @@ error AnError;
 error AnError;
 error SecondError;
 fn shouldBeNotEqual(a: error, b: error) {
-    if (a == b) unreachable{}
+    if (a == b) @unreachable()
 }
 
 
@@ -454,13 +454,13 @@ fn constantEnumWithPayload() {
 fn shouldBeEmpty(x: AnEnumWithPayload) {
     switch (x) {
         Empty => {},
-        else => unreachable{},
+        else => @unreachable(),
     }
 }
 
 fn shouldBeNotEmpty(x: AnEnumWithPayload) {
     switch (x) {
-        Empty => unreachable{},
+        Empty => @unreachable(),
         else => {},
     }
 }
@@ -482,7 +482,7 @@ fn continueInForLoop() {
         }
         break;
     }
-    if (sum != 6) unreachable{}
+    if (sum != 6) @unreachable()
 }
 
 
@@ -514,9 +514,9 @@ enum Fruit {
 #static_eval_enable(false)
 fn nonConstSwitchOnEnum(fruit: Fruit) {
     switch (fruit) {
-        Apple => unreachable{},
+        Apple => @unreachable(),
         Orange => {},
-        Banana => unreachable{},
+        Banana => @unreachable(),
     }
 }
 
@@ -532,7 +532,7 @@ fn nonConstSwitch(foo: SwitchStatmentFoo) {
         C => 3,
         D => 4,
     };
-    if (val != 3) unreachable{};
+    if (val != 3) @unreachable();
 }
 enum SwitchStatmentFoo {
     A,
@@ -557,10 +557,10 @@ enum SwitchProngWithVarEnum {
 fn switchProngWithVarFn(a: SwitchProngWithVarEnum) {
     switch(a) {
         One => |x| {
-            if (x != 13) unreachable{};
+            if (x != 13) @unreachable();
         },
         Two => |x| {
-            if (x != 13.0) unreachable{};
+            if (x != 13.0) @unreachable();
         },
         Meh => |x| {
             const v: void = x;
@@ -601,7 +601,7 @@ fn implicitCastFnUnreachableReturn() {
 fn wantsFnWithVoid(f: fn()) { }
 
 fn fnWithUnreachable() -> unreachable {
-    unreachable {}
+    @unreachable()
 }
 
 
@@ -644,13 +644,13 @@ fn slicing() {
 
     var slice = array[5...10];
 
-    if (slice.len != 5) unreachable{};
+    if (slice.len != 5) @unreachable();
 
     const ptr = &slice[0];
-    if (ptr[0] != 1234) unreachable{};
+    if (ptr[0] != 1234) @unreachable();
 
     var slice_rest = array[10...];
-    if (slice_rest.len != 10) unreachable{};
+    if (slice_rest.len != 10) @unreachable();
 }
 
 
@@ -662,7 +662,7 @@ fn memcpyAndMemsetIntrinsics() {
     @memset(&foo[0], 'A', foo.len);
     @memcpy(&bar[0], &foo[0], bar.len);
 
-    if (bar[11] != 'A') unreachable{};
+    if (bar[11] != 'A') @unreachable();
 }
 
 
@@ -807,7 +807,7 @@ exit:
     if (it_worked) {
         return;
     }
-    unreachable{};
+    @unreachable();
 entry:
     defer it_worked = true;
     if (b) goto exit;
@@ -1221,7 +1221,7 @@ fn test3_1(f: Test3Foo) {
             assert(pt.x == 3);
             assert(pt.y == 4);
         },
-        else => unreachable{},
+        else => @unreachable(),
     }
 }
 #static_eval_enable(false)
@@ -1230,7 +1230,7 @@ fn test3_2(f: Test3Foo) {
         Two => |x| {
             assert(x == 13);
         },
-        else => unreachable{},
+        else => @unreachable(),
     }
 }
 

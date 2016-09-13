@@ -491,13 +491,6 @@ static bool eval_container_init_expr(EvalFn *ef, AstNode *node, ConstExprValue *
         }
     } else if (container_type->id == TypeTableEntryIdVoid) {
         return false;
-    } else if (container_type->id == TypeTableEntryIdUnreachable) {
-        ef->root->abort = true;
-        ErrorMsg *msg = add_node_error(ef->root->codegen, ef->root->fn->fn_def_node,
-                buf_sprintf("function evaluation reached unreachable expression"));
-        add_error_note(ef->root->codegen, msg, ef->root->call_node, buf_sprintf("called from here"));
-        add_error_note(ef->root->codegen, msg, node, buf_sprintf("unreachable expression here"));
-        return true;
     } else if (container_type->id == TypeTableEntryIdStruct &&
                container_type->data.structure.is_slice &&
                kind == ContainerInitKindArray)
@@ -791,6 +784,15 @@ static bool eval_div_exact(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
     return false;
 }
 
+static bool eval_unreachable(EvalFn *ef, AstNode *node, ConstExprValue *out_val) {
+    ef->root->abort = true;
+    ErrorMsg *msg = add_node_error(ef->root->codegen, ef->root->fn->fn_def_node,
+            buf_sprintf("function evaluation reached unreachable expression"));
+    add_error_note(ef->root->codegen, msg, ef->root->call_node, buf_sprintf("called from here"));
+    add_error_note(ef->root->codegen, msg, node, buf_sprintf("unreachable expression here"));
+    return true;
+}
+
 static bool eval_fn_with_overflow(EvalFn *ef, AstNode *node, ConstExprValue *out_val,
     bool (*bignum_fn)(BigNum *dest, BigNum *op1, BigNum *op2))
 {
@@ -851,6 +853,8 @@ static bool eval_fn_call_builtin(EvalFn *ef, AstNode *node, ConstExprValue *out_
             return false;
         case BuiltinFnIdDivExact:
             return eval_div_exact(ef, node, out_val);
+        case BuiltinFnIdUnreachable:
+            return eval_unreachable(ef, node, out_val);
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdSizeof:

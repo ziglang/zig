@@ -9,7 +9,7 @@ pub error InvalidDebugInfo;
 pub error UnsupportedDebugInfo;
 
 pub fn assert(b: bool) {
-    if (!b) unreachable{}
+    if (!b) @unreachable()
 }
 
 pub fn printStackTrace() -> %void {

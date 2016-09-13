@@ -485,8 +485,8 @@ pub fn main(args: [][]u8) -> %void {
 const c = @cImport(@cInclude("stdlib.h"));
 
 export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
-    const a_int = (&i32)(a ?? unreachable{});
-    const b_int = (&i32)(b ?? unreachable{});
+    const a_int = (&i32)(a ?? @unreachable());
+    const b_int = (&i32)(b ?? @unreachable());
     if (*a_int < *b_int) {
         -1
     } else if (*a_int > *b_int) {

@@ -11,8 +11,8 @@ pub fn getRandomBytes(buf: []u8) -> %void {
             const err = linux.getErrno(ret);
             if (err > 0) {
                 return switch (err) {
-                    errno.EINVAL => unreachable{},
-                    errno.EFAULT => unreachable{},
+                    errno.EINVAL => @unreachable(),
+                    errno.EFAULT => @unreachable(),
                     errno.EINTR  => error.SigInterrupt,
                     else         => error.Unexpected,
                 }
