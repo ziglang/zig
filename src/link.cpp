@@ -772,7 +772,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
         ZigLLVMOptimizeModule(g->target_machine, g->module);
 
         if (g->verbose) {
-            //LLVMDumpModule(g->module);
+            LLVMDumpModule(g->module);
         }
     }
     if (g->verbose) {
