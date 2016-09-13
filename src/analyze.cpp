@@ -489,7 +489,7 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
         return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
-        entry->type_ref = LLVMArrayType(child_type->type_ref, array_size);
+        entry->type_ref = child_type->type_ref ? LLVMArrayType(child_type->type_ref, array_size) : nullptr;
         entry->zero_bits = (array_size == 0) || child_type->zero_bits;
         entry->deep_const = child_type->deep_const;
 
