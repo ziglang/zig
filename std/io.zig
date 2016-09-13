@@ -1,4 +1,9 @@
-const linux = @import("linux.zig");
+const system = switch(@compileVar("os")) {
+    linux => @import("linux.zig"),
+    darwin => @import("darwin.zig"),
+    else => @compileError("Unsupported OS"),
+};
+
 const errno = @import("errno.zig");
 const math = @import("math.zig");
 const endian = @import("endian.zig");
@@ -110,12 +115,11 @@ pub struct OutStream {
 
     pub fn flush(os: &OutStream) -> %void {
         while (true) {
-            const write_ret = linux.write(os.fd, &os.buffer[0], os.index);
-            const write_err = linux.getErrno(write_ret);
+            const write_ret = system.write(os.fd, &os.buffer[0], os.index);
+            const write_err = system.getErrno(write_ret);
             if (write_err > 0) {
                 return switch (write_err) {
                     errno.EINTR  => continue,
-
                     errno.EINVAL => unreachable{},
                     errno.EDQUOT => error.DiskQuota,
                     errno.EFBIG  => error.FileTooBig,
@@ -133,8 +137,8 @@ pub struct OutStream {
 
     pub fn close(os: &OutStream) -> %void {
         while (true) {
-            const close_ret = linux.close(os.fd);
-            const close_err = linux.getErrno(close_ret);
+            const close_ret = system.close(os.fd);
+            const close_err = system.getErrno(close_ret);
             if (close_err > 0) {
                 return switch (close_err) {
                     errno.EINTR => continue,
@@ -157,10 +161,10 @@ pub struct InStream {
     /// Call close to clean up.
     pub fn open(is: &InStream, path: []const u8) -> %void {
         switch (@compileVar("os")) {
-            linux => {
+            linux, darwin => {
                 while (true) {
-                    const result = linux.open(path, linux.O_LARGEFILE|linux.O_RDONLY, 0);
-                    const err = linux.getErrno(result);
+                    const result = system.open(path, system.O_LARGEFILE|system.O_RDONLY, 0);
+                    const err = system.getErrno(result);
                     if (err > 0) {
                         return switch (err) {
                             errno.EINTR => continue,
@@ -189,16 +193,17 @@ pub struct InStream {
             },
             else => @compileError("unsupported OS"),
         }
+
     }
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
     pub fn close(is: &InStream) -> %void {
         switch (@compileVar("os")) {
-            linux => {
+            linux, darwin => {
                 while (true) {
-                    const close_ret = linux.close(is.fd);
-                    const close_err = linux.getErrno(close_ret);
+                    const close_ret = system.close(is.fd);
+                    const close_err = system.getErrno(close_ret);
                     if (close_err > 0) {
                         return switch (close_err) {
                             errno.EINTR => continue,
@@ -219,11 +224,11 @@ pub struct InStream {
     /// the stream reached End Of File.
     pub fn read(is: &InStream, buf: []u8) -> %usize {
         switch (@compileVar("os")) {
-            linux => {
+            linux, darwin => {
                 var index: usize = 0;
                 while (index < buf.len) {
-                    const amt_read = linux.read(is.fd, &buf[index], buf.len - index);
-                    const read_err = linux.getErrno(amt_read);
+                    const amt_read = system.read(is.fd, &buf[index], buf.len - index);
+                    const read_err = system.getErrno(amt_read);
                     if (read_err > 0) {
                         switch (read_err) {
                             errno.EINTR  => continue,
@@ -287,9 +292,9 @@ pub struct InStream {
 
     pub fn seekForward(is: &InStream, amount: usize) -> %void {
         switch (@compileVar("os")) {
-            linux => {
-                const result = linux.lseek(is.fd, amount, linux.SEEK_CUR);
-                const err = linux.getErrno(result);
+            linux, darwin => {
+                const result = system.lseek(is.fd, amount, system.SEEK_CUR);
+                const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
                         errno.EBADF => error.BadFd,
@@ -307,9 +312,9 @@ pub struct InStream {
 
     pub fn seekTo(is: &InStream, pos: usize) -> %void {
         switch (@compileVar("os")) {
-            linux => {
-                const result = linux.lseek(is.fd, pos, linux.SEEK_SET);
-                const err = linux.getErrno(result);
+            linux, darwin => {
+                const result = system.lseek(is.fd, pos, system.SEEK_SET);
+                const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
                         errno.EBADF => error.BadFd,
@@ -327,9 +332,9 @@ pub struct InStream {
 
     pub fn getPos(is: &InStream) -> %usize {
         switch (@compileVar("os")) {
-            linux => {
-                const result = linux.lseek(is.fd, 0, linux.SEEK_CUR);
-                const err = linux.getErrno(result);
+            linux, darwin => {
+                const result = system.lseek(is.fd, 0, system.SEEK_CUR);
+                const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
                         errno.EBADF => error.BadFd,
@@ -347,8 +352,8 @@ pub struct InStream {
     }
 
     pub fn getEndPos(is: &InStream) -> %usize {
-        var stat: linux.stat = undefined;
-        const err = linux.getErrno(linux.fstat(is.fd, &stat));
+        var stat: system.stat = undefined;
+        const err = system.getErrno(system.fstat(is.fd, &stat));
         if (err > 0) {
             return switch (err) {
                 errno.EBADF => error.BadFd,
@@ -433,7 +438,7 @@ fn parseU64DigitTooBig() {
 
 pub fn openSelfExe(stream: &InStream) -> %void {
     switch (@compileVar("os")) {
-        linux => {
+        linux,darwin => {
             %return stream.open("/proc/self/exe");
         },
         else => @compileError("unsupported os"),

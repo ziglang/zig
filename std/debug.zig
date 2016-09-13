@@ -49,7 +49,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
             out_stream.write("(stack trace unavailable for COFF object format)\n");
         },
         macho => {
-            out_stream.write("(stack trace unavailable for Mach-O object format)\n");
+            %return out_stream.write("(stack trace unavailable for Mach-O object format)\n");
         },
         unknown => {
             out_stream.write("(stack trace unavailable for unknown object format)\n");
