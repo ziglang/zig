@@ -1,33 +1,38 @@
-const linux = @import("linux.zig");
+const system = switch(@compileVar("os")) {
+    linux => @import("linux.zig"),
+    darwin => @import("darwin.zig"),
+    else => @compileError("Unsupported OS"),
+};
 const errno = @import("errno.zig");
 
-pub error SigInterrupt;
 pub error Unexpected;
 
 pub fn getRandomBytes(buf: []u8) -> %void {
-    switch (@compileVar("os")) {
-        linux => {
-            const ret = linux.getrandom(buf.ptr, buf.len, 0);
-            const err = linux.getErrno(ret);
-            if (err > 0) {
-                return switch (err) {
-                    errno.EINVAL => @unreachable(),
-                    errno.EFAULT => @unreachable(),
-                    errno.EINTR  => error.SigInterrupt,
-                    else         => error.Unexpected,
-                }
+    while (true) {
+        const ret = switch (@compileVar("os")) {
+            linux => system.getrandom(buf.ptr, buf.len, 0),
+            darwin => system.getrandom(buf.ptr, buf.len),
+            else => @compileError("unsupported os"),
+        };
+        const err = system.getErrno(ret);
+        if (err > 0) {
+            return switch (err) {
+                errno.EINVAL => @unreachable(),
+                errno.EFAULT => @unreachable(),
+                errno.EINTR  => continue,
+                else         => error.Unexpected,
             }
-        },
-        else => @compileError("unsupported os"),
+        }
+        return;
     }
 }
 
 #attribute("cold")
 pub fn abort() -> unreachable {
     switch (@compileVar("os")) {
-        linux => {
-            linux.raise(linux.SIGABRT);
-            linux.raise(linux.SIGKILL);
+        linux, darwin => {
+            system.raise(system.SIGABRT);
+            system.raise(system.SIGKILL);
             while (true) {}
         },
         else => @compileError("unsupported os"),

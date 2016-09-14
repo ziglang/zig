@@ -388,9 +388,11 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "-mmacosx-version-min and -mios-version-min options not allowed together\n");
                 return EXIT_FAILURE;
             }
+
             if (mmacosx_version_min) {
                 codegen_set_mmacosx_version_min(g, buf_create_from_str(mmacosx_version_min));
             }
+
             if (mios_version_min) {
                 codegen_set_mios_version_min(g, buf_create_from_str(mios_version_min));
             }
