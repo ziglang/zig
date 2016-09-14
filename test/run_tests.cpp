@@ -18,6 +18,11 @@ struct TestSourceFile {
     const char *source_code;
 };
 
+enum AllowWarnings {
+    AllowWarningsNo,
+    AllowWarningsYes,
+};
+
 struct TestCase {
     const char *case_name;
     const char *output;
@@ -29,6 +34,7 @@ struct TestCase {
     bool is_self_hosted;
     bool is_release_mode;
     bool is_debug_safety;
+    AllowWarnings allow_warnings;
 };
 
 static ZigList<TestCase*> test_cases = {0};
@@ -173,13 +179,16 @@ static void add_debug_safety_case(const char *case_name, const char *source) {
     }
 }
 
-static TestCase *add_parseh_case(const char *case_name, const char *source, int count, ...) {
+static TestCase *add_parseh_case(const char *case_name, AllowWarnings allow_warnings,
+    const char *source, int count, ...)
+{
     va_list ap;
     va_start(ap, count);
 
     TestCase *test_case = allocate<TestCase>(1);
     test_case->case_name = case_name;
     test_case->is_parseh = true;
+    test_case->allow_warnings = allow_warnings;
 
     test_case->source_files.resize(1);
     test_case->source_files.at(0).relative_path = tmp_h_path;
@@ -1635,7 +1644,7 @@ fn unsigned_cast(x: i32) -> u32 {
 //////////////////////////////////////////////////////////////////////////////
 
 static void add_parseh_test_cases(void) {
-    add_parseh_case("simple data types", R"SOURCE(
+    add_parseh_case("simple data types", AllowWarningsYes, R"SOURCE(
 #include <stdint.h>
 int foo(char a, unsigned char b, signed char c);
 int foo(char a, unsigned char b, signed char c); // test a duplicate prototype
@@ -1646,11 +1655,11 @@ void baz(int8_t a, int16_t b, int32_t c, int64_t d);
             "pub extern fn bar(a: u8, b: u16, c: u32, d: u64);",
             "pub extern fn baz(a: i8, b: i16, c: i32, d: i64);");
 
-    add_parseh_case("noreturn attribute", R"SOURCE(
+    add_parseh_case("noreturn attribute", AllowWarningsNo, R"SOURCE(
 void foo(void) __attribute__((noreturn));
     )SOURCE", 1, R"OUTPUT(pub extern fn foo() -> unreachable;)OUTPUT");
 
-    add_parseh_case("enums", R"SOURCE(
+    add_parseh_case("enums", AllowWarningsNo, R"SOURCE(
 enum Foo {
     FooA,
     FooB,
@@ -1665,11 +1674,11 @@ pub const FooB = enum_Foo.B;
 pub const Foo1 = enum_Foo.@"1";)",
             R"(pub const Foo = enum_Foo;)");
 
-    add_parseh_case("restrict -> noalias", R"SOURCE(
+    add_parseh_case("restrict -> noalias", AllowWarningsNo, R"SOURCE(
 void foo(void *restrict bar, void *restrict);
     )SOURCE", 1, R"OUTPUT(pub extern fn foo(noalias bar: ?&c_void, noalias arg1: ?&c_void);)OUTPUT");
 
-    add_parseh_case("simple struct", R"SOURCE(
+    add_parseh_case("simple struct", AllowWarningsNo, R"SOURCE(
 struct Foo {
     int x;
     char *y;
@@ -1680,7 +1689,7 @@ struct Foo {
     y: ?&u8,
 })OUTPUT", R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
-    add_parseh_case("qualified struct and enum", R"SOURCE(
+    add_parseh_case("qualified struct and enum", AllowWarningsNo, R"SOURCE(
 struct Foo {
     int x;
     int y;
@@ -1703,12 +1712,13 @@ pub const BarB = enum_Bar.B;)OUTPUT",
     R"OUTPUT(pub const Foo = struct_Foo;
 pub const Bar = enum_Bar;)OUTPUT");
 
-    add_parseh_case("constant size array", R"SOURCE(
+    add_parseh_case("constant size array", AllowWarningsNo, R"SOURCE(
 void func(int array[20]);
     )SOURCE", 1, "pub extern fn func(array: ?&c_int);");
 
 
-    add_parseh_case("self referential struct with function pointer", R"SOURCE(
+    add_parseh_case("self referential struct with function pointer",
+        AllowWarningsNo, R"SOURCE(
 struct Foo {
     void (*derp)(struct Foo *foo);
 };
@@ -1717,7 +1727,7 @@ struct Foo {
 })OUTPUT", R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
 
-    add_parseh_case("struct prototype used in func", R"SOURCE(
+    add_parseh_case("struct prototype used in func", AllowWarningsNo, R"SOURCE(
 struct Foo;
 struct Foo *some_func(struct Foo *foo, int x);
     )SOURCE", 2, R"OUTPUT(pub type struct_Foo = u8;
@@ -1725,17 +1735,19 @@ pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;)OUTPUT",
         R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
 
-    add_parseh_case("#define a char literal", R"SOURCE(
+    add_parseh_case("#define a char literal", AllowWarningsNo, R"SOURCE(
 #define A_CHAR  'a'
     )SOURCE", 1, R"OUTPUT(pub const A_CHAR = 'a';)OUTPUT");
 
 
-    add_parseh_case("#define an unsigned integer literal", R"SOURCE(
+    add_parseh_case("#define an unsigned integer literal", AllowWarningsNo,
+        R"SOURCE(
 #define CHANNEL_COUNT 24
     )SOURCE", 1, R"OUTPUT(pub const CHANNEL_COUNT = 24;)OUTPUT");
 
 
-    add_parseh_case("#define referencing another #define", R"SOURCE(
+    add_parseh_case("#define referencing another #define", AllowWarningsNo,
+        R"SOURCE(
 #define THING2 THING1
 #define THING1 1234
     )SOURCE", 2,
@@ -1743,7 +1755,7 @@ pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;)OUTPUT",
             "pub const THING2 = THING1;");
 
 
-    add_parseh_case("variables", R"SOURCE(
+    add_parseh_case("variables", AllowWarningsNo, R"SOURCE(
 extern int extern_var;
 static const int int_var = 13;
     )SOURCE", 2,
@@ -1751,7 +1763,7 @@ static const int int_var = 13;
             "pub const int_var: c_int = 13;");
 
 
-    add_parseh_case("circular struct definitions", R"SOURCE(
+    add_parseh_case("circular struct definitions", AllowWarningsNo, R"SOURCE(
 struct Bar;
 
 struct Foo {
@@ -1770,14 +1782,15 @@ struct Bar {
 })SOURCE");
 
 
-    add_parseh_case("typedef void", R"SOURCE(
+    add_parseh_case("typedef void", AllowWarningsNo, R"SOURCE(
 typedef void Foo;
 Foo fun(Foo *a);
     )SOURCE", 2,
             "pub const Foo = c_void;",
             "pub extern fn fun(a: ?&c_void);");
 
-    add_parseh_case("generate inline func for #define global extern fn", R"SOURCE(
+    add_parseh_case("generate inline func for #define global extern fn", AllowWarningsNo,
+        R"SOURCE(
 extern void (*fn_ptr)(void);
 #define foo fn_ptr
     )SOURCE", 2,
@@ -1787,19 +1800,19 @@ extern void (*fn_ptr)(void);
 })SOURCE");
 
 
-    add_parseh_case("#define string", R"SOURCE(
+    add_parseh_case("#define string", AllowWarningsNo, R"SOURCE(
 #define  foo  "a string"
     )SOURCE", 1, "pub const foo = c\"a string\";");
 
-    add_parseh_case("__cdecl doesn't mess up function pointers", R"SOURCE(
+    add_parseh_case("__cdecl doesn't mess up function pointers", AllowWarningsNo, R"SOURCE(
 void foo(void (__cdecl *fn_ptr)(void));
     )SOURCE", 1, "pub extern fn foo(fn_ptr: ?extern fn());");
 
-    add_parseh_case("comment after integer literal", R"SOURCE(
+    add_parseh_case("comment after integer literal", AllowWarningsNo, R"SOURCE(
 #define SDL_INIT_VIDEO 0x00000020  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     )SOURCE", 1, "pub const SDL_INIT_VIDEO = 32;");
 
-    add_parseh_case("zig keywords in C code", R"SOURCE(
+    add_parseh_case("zig keywords in C code", AllowWarningsNo, R"SOURCE(
 struct type {
     int defer;
 };
@@ -1807,7 +1820,7 @@ struct type {
     @"defer": c_int,
 })", R"(pub const @"type" = struct_type;)");
 
-    add_parseh_case("macro defines string literal with octal", R"SOURCE(
+    add_parseh_case("macro defines string literal with octal", AllowWarningsNo, R"SOURCE(
 #define FOO "aoeu\023 derp"
 #define FOO2 "aoeu\0234 derp"
 #define FOO_CHAR '\077'
@@ -1925,10 +1938,14 @@ static void run_test(TestCase *test_case) {
 
     if (test_case->is_parseh) {
         if (buf_len(&zig_stderr) > 0) {
-            printf("\n!!!!! parseh emitted warnings:\n");
+            printf("\nparseh emitted warnings:\n");
+            printf("------------------------------\n");
             print_compiler_invocation(test_case);
             printf("%s\n", buf_ptr(&zig_stderr));
-//            exit(1);
+            printf("------------------------------\n");
+            if (test_case->allow_warnings == AllowWarningsNo) {
+                exit(1);
+            }
         }
 
         for (int i = 0; i < test_case->compile_errors.length; i += 1) {

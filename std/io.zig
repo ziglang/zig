@@ -9,6 +9,7 @@ const math = @import("math.zig");
 const endian = @import("endian.zig");
 const debug = @import("debug.zig");
 const assert = debug.assert;
+const os = @import("os.zig");
 
 pub const stdin_fileno = 0;
 pub const stdout_fileno = 1;
@@ -72,23 +73,23 @@ pub struct OutStream {
     buffer: [buffer_size]u8,
     index: usize,
 
-    pub fn writeByte(os: &OutStream, b: u8) -> %void {
-        if (os.buffer.len == os.index) %return os.flush();
-        os.buffer[os.index] = b;
-        os.index += 1;
+    pub fn writeByte(self: &OutStream, b: u8) -> %void {
+        if (self.buffer.len == self.index) %return self.flush();
+        self.buffer[self.index] = b;
+        self.index += 1;
     }
 
-    pub fn write(os: &OutStream, bytes: []const u8) -> %usize {
+    pub fn write(self: &OutStream, bytes: []const u8) -> %usize {
         var src_bytes_left = bytes.len;
         var src_index: @typeOf(bytes.len) = 0;
-        const dest_space_left = os.buffer.len - os.index;
+        const dest_space_left = self.buffer.len - self.index;
 
         while (src_bytes_left > 0) {
             const copy_amt = math.min(dest_space_left, src_bytes_left);
-            @memcpy(&os.buffer[os.index], &bytes[src_index], copy_amt);
-            os.index += copy_amt;
-            if (os.index == os.buffer.len) {
-                %return os.flush();
+            @memcpy(&self.buffer[self.index], &bytes[src_index], copy_amt);
+            self.index += copy_amt;
+            if (self.index == self.buffer.len) {
+                %return self.flush();
             }
             src_bytes_left -= copy_amt;
         }
@@ -97,25 +98,25 @@ pub struct OutStream {
 
     /// Prints a byte buffer, flushes the buffer, then returns the number of
     /// bytes printed. The "f" is for "flush".
-    pub fn printf(os: &OutStream, str: []const u8) -> %usize {
-        const byte_count = %return os.write(str);
-        %return os.flush();
+    pub fn printf(self: &OutStream, str: []const u8) -> %usize {
+        const byte_count = %return self.write(str);
+        %return self.flush();
         return byte_count;
     }
 
-    pub fn printInt(os: &OutStream, inline T: type, x: T) -> %usize {
+    pub fn printInt(self: &OutStream, inline T: type, x: T) -> %usize {
         // TODO replace max_u64_base10_digits with math.log10(math.pow(2, @sizeOf(T)))
-        if (os.index + max_u64_base10_digits >= os.buffer.len) {
-            %return os.flush();
+        if (self.index + max_u64_base10_digits >= self.buffer.len) {
+            %return self.flush();
         }
-        const amt_printed = bufPrintInt(T, os.buffer[os.index...], x);
-        os.index += amt_printed;
+        const amt_printed = bufPrintInt(T, self.buffer[self.index...], x);
+        self.index += amt_printed;
         return amt_printed;
     }
 
-    pub fn flush(os: &OutStream) -> %void {
+    pub fn flush(self: &OutStream) -> %void {
         while (true) {
-            const write_ret = system.write(os.fd, &os.buffer[0], os.index);
+            const write_ret = system.write(self.fd, &self.buffer[0], self.index);
             const write_err = system.getErrno(write_ret);
             if (write_err > 0) {
                 return switch (write_err) {
@@ -130,14 +131,14 @@ pub struct OutStream {
                     else         => error.Unexpected,
                 }
             }
-            os.index = 0;
+            self.index = 0;
             return;
         }
     }
 
-    pub fn close(os: &OutStream) -> %void {
+    pub fn close(self: &OutStream) -> %void {
         while (true) {
-            const close_ret = system.close(os.fd);
+            const close_ret = system.close(self.fd);
             const close_err = system.getErrno(close_ret);
             if (close_err > 0) {
                 return switch (close_err) {
@@ -438,8 +439,12 @@ fn parseU64DigitTooBig() {
 
 pub fn openSelfExe(stream: &InStream) -> %void {
     switch (@compileVar("os")) {
-        linux,darwin => {
+        linux => {
             %return stream.open("/proc/self/exe");
+        },
+        darwin => {
+            %%stderr.printf("TODO: openSelfExe on Darwin\n");
+            os.abort();
         },
         else => @compileError("unsupported os"),
     }

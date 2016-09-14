@@ -43,13 +43,6 @@ static void init_darwin_native(CodeGen *g) {
     } else if (ios_target) {
         g->mios_version_min = buf_create_from_str(ios_target);
     }
-
-    // we should check for the command line option to throw an error if not specified
-    //
-
-    /* else {
-        zig_panic("unable to determine -mmacosx-version-min or -mios-version-min");
-    } */
 }
 
 static PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_path) {

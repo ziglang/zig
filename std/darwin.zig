@@ -101,6 +101,9 @@ pub fn getrandom(buf: &u8, count: usize) -> usize {
 }
 
 pub fn raise(sig: i32) -> i32 {
+    // TODO investigate whether we need to block signals before calling kill
+    // like we do in the linux version of raise
+
     //var set: sigset_t = undefined;
     //blockAppSignals(&set);
     const pid = i32(arch.syscall0(arch.SYS_getpid));
