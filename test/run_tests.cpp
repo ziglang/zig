@@ -9,6 +9,7 @@
 #include "buffer.hpp"
 #include "os.hpp"
 #include "error.hpp"
+#include "config.h"
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -1831,11 +1832,15 @@ struct type {
 }
 
 static void run_self_hosted_test(bool is_release_mode) {
+    Buf self_hosted_tests_file = BUF_INIT;
+    os_path_join(buf_create_from_str(ZIG_TEST_DIR),
+        buf_create_from_str("self_hosted.zig"), &self_hosted_tests_file);
+
     Buf zig_stderr = BUF_INIT;
     Buf zig_stdout = BUF_INIT;
     ZigList<const char *> args = {0};
     args.append("test");
-    args.append("../test/self_hosted.zig");
+    args.append(buf_ptr(&self_hosted_tests_file));
     if (is_release_mode) {
         args.append("--release");
     }
