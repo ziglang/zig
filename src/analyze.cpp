@@ -558,100 +558,125 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
 
+        // If the child type is []const T then we need to make sure the type ref
+        // and debug info is the same as if the child type were []T.
+        if (is_slice(child_type)) {
+            TypeTableEntry *ptr_type = child_type->data.structure.fields[0].type_entry;
+            assert(ptr_type->id == TypeTableEntryIdPointer);
+            if (ptr_type->data.pointer.is_const) {
+                TypeTableEntry *non_const_child_type = get_slice_type(g,
+                    ptr_type->data.pointer.child_type, false);
+                TypeTableEntry *var_peer = get_slice_type(g, non_const_child_type, false);
+
+                entry->type_ref = var_peer->type_ref;
+                entry->di_type = var_peer->di_type;
+            }
+        }
+
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "[]%s", buf_ptr(&child_type->name));
-        entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&entry->name));
 
-        ZigLLVMDIScope *compile_unit_scope = ZigLLVMCompileUnitToScope(g->compile_unit);
-        ZigLLVMDIFile *di_file = nullptr;
-        unsigned line = 0;
-        entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
-            ZigLLVMTag_DW_structure_type(), buf_ptr(&entry->name),
-            compile_unit_scope, di_file, line);
-
+        slice_type_common_init(g, child_type, is_const, entry);
         if (child_type->zero_bits) {
-            LLVMTypeRef element_types[] = {
-                g->builtin_types.entry_usize->type_ref,
-            };
-            LLVMStructSetBody(entry->type_ref, element_types, 1, false);
-
-            slice_type_common_init(g, child_type, is_const, entry);
-
             entry->data.structure.gen_field_count = 1;
             entry->data.structure.fields[0].gen_index = -1;
             entry->data.structure.fields[1].gen_index = 0;
+        }
 
-            TypeTableEntry *usize_type = g->builtin_types.entry_usize;
-            uint64_t len_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, usize_type->type_ref);
-            uint64_t len_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, usize_type->type_ref);
-            uint64_t len_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 0);
+        if (!entry->type_ref) {
+            entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&entry->name));
 
-            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
+            ZigLLVMDIScope *compile_unit_scope = ZigLLVMCompileUnitToScope(g->compile_unit);
+            ZigLLVMDIFile *di_file = nullptr;
+            unsigned line = 0;
+            entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
+                ZigLLVMTag_DW_structure_type(), buf_ptr(&entry->name),
+                compile_unit_scope, di_file, line);
 
-            ZigLLVMDIType *di_element_types[] = {
-                ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(entry->di_type),
-                        "len", di_file, line,
-                        len_debug_size_in_bits,
-                        len_debug_align_in_bits,
-                        len_offset_in_bits,
-                        0, usize_type->di_type),
-            };
-            ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
-                    compile_unit_scope,
-                    buf_ptr(&entry->name),
-                    di_file, line, debug_size_in_bits, debug_align_in_bits, 0,
-                    nullptr, di_element_types, 1, 0, nullptr, "");
+            if (child_type->zero_bits) {
+                LLVMTypeRef element_types[] = {
+                    g->builtin_types.entry_usize->type_ref,
+                };
+                LLVMStructSetBody(entry->type_ref, element_types, 1, false);
 
-            ZigLLVMReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
-            entry->di_type = replacement_di_type;
-        } else {
-            TypeTableEntry *pointer_type = get_pointer_to_type(g, child_type, is_const);
+                slice_type_common_init(g, child_type, is_const, entry);
 
-            unsigned element_count = 2;
-            LLVMTypeRef element_types[] = {
-                pointer_type->type_ref,
-                g->builtin_types.entry_usize->type_ref,
-            };
-            LLVMStructSetBody(entry->type_ref, element_types, element_count, false);
+                entry->data.structure.gen_field_count = 1;
+                entry->data.structure.fields[0].gen_index = -1;
+                entry->data.structure.fields[1].gen_index = 0;
 
-            slice_type_common_init(g, child_type, is_const, entry);
+                TypeTableEntry *usize_type = g->builtin_types.entry_usize;
+                uint64_t len_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, usize_type->type_ref);
+                uint64_t len_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, usize_type->type_ref);
+                uint64_t len_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 0);
+
+                uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
+                uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
+
+                ZigLLVMDIType *di_element_types[] = {
+                    ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(entry->di_type),
+                            "len", di_file, line,
+                            len_debug_size_in_bits,
+                            len_debug_align_in_bits,
+                            len_offset_in_bits,
+                            0, usize_type->di_type),
+                };
+                ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
+                        compile_unit_scope,
+                        buf_ptr(&entry->name),
+                        di_file, line, debug_size_in_bits, debug_align_in_bits, 0,
+                        nullptr, di_element_types, 1, 0, nullptr, "");
+
+                ZigLLVMReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
+                entry->di_type = replacement_di_type;
+            } else {
+                TypeTableEntry *pointer_type = get_pointer_to_type(g, child_type, is_const);
+
+                unsigned element_count = 2;
+                LLVMTypeRef element_types[] = {
+                    pointer_type->type_ref,
+                    g->builtin_types.entry_usize->type_ref,
+                };
+                LLVMStructSetBody(entry->type_ref, element_types, element_count, false);
+
+                slice_type_common_init(g, child_type, is_const, entry);
 
 
-            uint64_t ptr_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, pointer_type->type_ref);
-            uint64_t ptr_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, pointer_type->type_ref);
-            uint64_t ptr_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 0);
+                uint64_t ptr_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, pointer_type->type_ref);
+                uint64_t ptr_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, pointer_type->type_ref);
+                uint64_t ptr_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 0);
 
-            TypeTableEntry *usize_type = g->builtin_types.entry_usize;
-            uint64_t len_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, usize_type->type_ref);
-            uint64_t len_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, usize_type->type_ref);
-            uint64_t len_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 1);
+                TypeTableEntry *usize_type = g->builtin_types.entry_usize;
+                uint64_t len_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, usize_type->type_ref);
+                uint64_t len_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, usize_type->type_ref);
+                uint64_t len_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, 1);
 
-            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
+                uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
+                uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
 
-            ZigLLVMDIType *di_element_types[] = {
-                ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(entry->di_type),
-                        "ptr", di_file, line,
-                        ptr_debug_size_in_bits,
-                        ptr_debug_align_in_bits,
-                        ptr_offset_in_bits,
-                        0, pointer_type->di_type),
-                ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(entry->di_type),
-                        "len", di_file, line,
-                        len_debug_size_in_bits,
-                        len_debug_align_in_bits,
-                        len_offset_in_bits,
-                        0, usize_type->di_type),
-            };
-            ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
-                    compile_unit_scope,
-                    buf_ptr(&entry->name),
-                    di_file, line, debug_size_in_bits, debug_align_in_bits, 0,
-                    nullptr, di_element_types, 2, 0, nullptr, "");
+                ZigLLVMDIType *di_element_types[] = {
+                    ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(entry->di_type),
+                            "ptr", di_file, line,
+                            ptr_debug_size_in_bits,
+                            ptr_debug_align_in_bits,
+                            ptr_offset_in_bits,
+                            0, pointer_type->di_type),
+                    ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(entry->di_type),
+                            "len", di_file, line,
+                            len_debug_size_in_bits,
+                            len_debug_align_in_bits,
+                            len_offset_in_bits,
+                            0, usize_type->di_type),
+                };
+                ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
+                        compile_unit_scope,
+                        buf_ptr(&entry->name),
+                        di_file, line, debug_size_in_bits, debug_align_in_bits, 0,
+                        nullptr, di_element_types, 2, 0, nullptr, "");
 
-            ZigLLVMReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
-            entry->di_type = replacement_di_type;
+                ZigLLVMReplaceTemporary(g->dbuilder, entry->di_type, replacement_di_type);
+                entry->di_type = replacement_di_type;
+            }
         }
 
 
@@ -1695,6 +1720,7 @@ static void preview_fn_proto_instance(CodeGen *g, ImportTableEntry *import, AstN
 
             bool is_main_fn = !is_generic_instance &&
                 !parent_decl && (import == g->root_import) &&
+                !proto_node->data.fn_proto.skip &&
                 buf_eql_str(proto_name, "main");
             if (is_main_fn) {
                 g->main_fn = fn_table_entry;

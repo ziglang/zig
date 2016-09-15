@@ -1491,6 +1491,10 @@ pub fn f() {
   cstr[0] = 'W';
 }
     )SOURCE", 1, ".tmp_source.zig:4:7: error: cannot assign to constant");
+
+    add_compile_fail_case("main function with bogus args type", R"SOURCE(
+pub fn main(args: [][]bogus) -> %void {}
+    )SOURCE", 1, ".tmp_source.zig:2:23: error: use of undeclared identifier 'bogus'");
 }
 
 //////////////////////////////////////////////////////////////////////////////
