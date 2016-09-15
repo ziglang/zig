@@ -111,7 +111,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     return g;
 }
 
-void codegen_set_clang_argv(CodeGen *g, const char **args, int len) {
+void codegen_set_clang_argv(CodeGen *g, const char **args, size_t len) {
     g->clang_argv = args;
     g->clang_argv_len = len;
 }
@@ -166,6 +166,7 @@ void codegen_set_libc_include_dir(CodeGen *g, Buf *libc_include_dir) {
 
 void codegen_set_zig_std_dir(CodeGen *g, Buf *zig_std_dir) {
     g->zig_std_dir = zig_std_dir;
+
     g->std_package->root_src_dir = *zig_std_dir;
 }
 
@@ -261,7 +262,7 @@ enum AddSubMul {
     AddSubMulMul = 2,
 };
 
-static int bits_index(int size_in_bits) {
+static size_t bits_index(size_t size_in_bits) {
     switch (size_in_bits) {
         case 8:
             return 0;
@@ -281,7 +282,7 @@ static LLVMValueRef get_arithmetic_overflow_fn(CodeGen *g, TypeTableEntry *type_
 {
     assert(type_entry->id == TypeTableEntryIdInt);
     const char *signed_str = type_entry->data.integral.is_signed ? signed_name : unsigned_name;
-    Buf *llvm_name = buf_sprintf("llvm.%s.with.overflow.i%d", signed_str, type_entry->data.integral.bit_count);
+    Buf *llvm_name = buf_sprintf("llvm.%s.with.overflow.i%zu", signed_str, type_entry->data.integral.bit_count);
 
     LLVMTypeRef return_elem_types[] = {
         type_entry->type_ref,
@@ -301,9 +302,9 @@ static LLVMValueRef get_arithmetic_overflow_fn(CodeGen *g, TypeTableEntry *type_
 static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, AddSubMul add_sub_mul) {
     assert(type_entry->id == TypeTableEntryIdInt);
     // [0-signed,1-unsigned][0-add,1-sub,2-mul][0-8,1-16,2-32,3-64]
-    int index0 = type_entry->data.integral.is_signed ? 0 : 1;
-    int index1 = add_sub_mul;
-    int index2 = bits_index(type_entry->data.integral.bit_count);
+    size_t index0 = type_entry->data.integral.is_signed ? 0 : 1;
+    size_t index1 = add_sub_mul;
+    size_t index2 = bits_index(type_entry->data.integral.bit_count);
     LLVMValueRef *fn = &g->int_overflow_fns[index0][index1][index2];
     if (*fn) {
         return *fn;
@@ -325,12 +326,12 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, 
 
 static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, BuiltinFnId fn_id) {
     // [0-ctz,1-clz][0-8,1-16,2-32,3-64]
-    int index0 = (fn_id == BuiltinFnIdCtz) ? 0 : 1;
-    int index1 = bits_index(int_type->data.integral.bit_count);
+    size_t index0 = (fn_id == BuiltinFnIdCtz) ? 0 : 1;
+    size_t index1 = bits_index(int_type->data.integral.bit_count);
     LLVMValueRef *fn = &g->int_builtin_fns[index0][index1];
     if (!*fn) {
         const char *fn_name = (fn_id == BuiltinFnIdCtz) ? "cttz" : "ctlz";
-        Buf *llvm_name = buf_sprintf("llvm.%s.i%d", fn_name, int_type->data.integral.bit_count);
+        Buf *llvm_name = buf_sprintf("llvm.%s.i%zu", fn_name, int_type->data.integral.bit_count);
         LLVMTypeRef param_types[] = {
             int_type->type_ref,
             LLVMInt1Type(),
@@ -516,7 +517,7 @@ static LLVMValueRef gen_unreachable(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_shl_with_overflow(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
-    int fn_call_param_count = node->data.fn_call_expr.params.length;
+    size_t fn_call_param_count = node->data.fn_call_expr.params.length;
     assert(fn_call_param_count == 4);
 
     TypeTableEntry *int_type = get_type_for_type_node(node->data.fn_call_expr.params.at(0));
@@ -561,7 +562,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdCtz:
         case BuiltinFnIdClz:
             {
-                int fn_call_param_count = node->data.fn_call_expr.params.length;
+                size_t fn_call_param_count = node->data.fn_call_expr.params.length;
                 assert(fn_call_param_count == 2);
                 TypeTableEntry *int_type = get_type_for_type_node(node->data.fn_call_expr.params.at(0));
                 assert(int_type->id == TypeTableEntryIdInt);
@@ -578,7 +579,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdSubWithOverflow:
         case BuiltinFnIdMulWithOverflow:
             {
-                int fn_call_param_count = node->data.fn_call_expr.params.length;
+                size_t fn_call_param_count = node->data.fn_call_expr.params.length;
                 assert(fn_call_param_count == 4);
 
                 TypeTableEntry *int_type = get_type_for_type_node(node->data.fn_call_expr.params.at(0));
@@ -615,7 +616,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
             return gen_shl_with_overflow(g, node);
         case BuiltinFnIdMemcpy:
             {
-                int fn_call_param_count = node->data.fn_call_expr.params.length;
+                size_t fn_call_param_count = node->data.fn_call_expr.params.length;
                 assert(fn_call_param_count == 3);
 
                 AstNode *dest_node = node->data.fn_call_expr.params.at(0);
@@ -646,7 +647,7 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
             }
         case BuiltinFnIdMemset:
             {
-                int fn_call_param_count = node->data.fn_call_expr.params.length;
+                size_t fn_call_param_count = node->data.fn_call_expr.params.length;
                 assert(fn_call_param_count == 3);
 
                 AstNode *dest_node = node->data.fn_call_expr.params.at(0);
@@ -949,14 +950,14 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 set_debug_source_node(g, node);
 
-                int ptr_index = wanted_type->data.structure.fields[0].gen_index;
-                if (ptr_index >= 0) {
+                size_t ptr_index = wanted_type->data.structure.fields[0].gen_index;
+                if (ptr_index != SIZE_MAX) {
                     LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, ptr_index, "");
                     LLVMValueRef expr_bitcast = LLVMBuildBitCast(g->builder, expr_val, pointer_type->type_ref, "");
                     LLVMBuildStore(g->builder, expr_bitcast, ptr_ptr);
                 }
 
-                int len_index = wanted_type->data.structure.fields[1].gen_index;
+                size_t len_index = wanted_type->data.structure.fields[1].gen_index;
                 LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, len_index, "");
                 LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                         actual_type->data.array.len, false);
@@ -979,10 +980,10 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 set_debug_source_node(g, node);
 
-                int actual_ptr_index = actual_type->data.structure.fields[0].gen_index;
-                int actual_len_index = actual_type->data.structure.fields[1].gen_index;
-                int wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
-                int wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
+                size_t actual_ptr_index = actual_type->data.structure.fields[0].gen_index;
+                size_t actual_len_index = actual_type->data.structure.fields[1].gen_index;
+                size_t wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
+                size_t wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
 
                 LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, expr_val, actual_ptr_index, "");
                 LLVMValueRef src_ptr = LLVMBuildLoad(g->builder, src_ptr_ptr, "");
@@ -1040,12 +1041,12 @@ static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
 
                 set_debug_source_node(g, node);
 
-                int wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
+                size_t wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
                 LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, wanted_ptr_index, "");
                 LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, expr_val, wanted_pointer_type->type_ref, "");
                 LLVMBuildStore(g->builder, src_ptr_casted, dest_ptr_ptr);
 
-                int wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
+                size_t wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
                 LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, wanted_len_index, "");
                 LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                         actual_type->data.array.len / type_size(g, wanted_child_type), false);
@@ -1125,15 +1126,15 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
 
     bool ret_has_bits = type_has_bits(src_return_type);
 
-    int fn_call_param_count = node->data.fn_call_expr.params.length;
+    size_t fn_call_param_count = node->data.fn_call_expr.params.length;
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type);
-    int actual_param_count = fn_call_param_count + (struct_type ? 1 : 0) + (first_arg_ret ? 1 : 0);
+    size_t actual_param_count = fn_call_param_count + (struct_type ? 1 : 0) + (first_arg_ret ? 1 : 0);
     bool is_var_args = fn_type->data.fn.fn_type_id.is_var_args;
 
     // don't really include void values
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
 
-    int gen_param_index = 0;
+    size_t gen_param_index = 0;
     if (first_arg_ret) {
         gen_param_values[gen_param_index] = node->data.fn_call_expr.tmp_ptr;
         gen_param_index += 1;
@@ -1144,8 +1145,8 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         gen_param_index += 1;
     }
 
-    for (int call_i = 0; call_i < fn_call_param_count; call_i += 1) {
-        int proto_i = call_i + (struct_type ? 1 : 0);
+    for (size_t call_i = 0; call_i < fn_call_param_count; call_i += 1) {
+        size_t proto_i = call_i + (struct_type ? 1 : 0);
         if (generic_proto_node &&
             generic_proto_node->data.fn_proto.params.at(proto_i)->data.param_decl.is_inline)
         {
@@ -1231,16 +1232,16 @@ static LLVMValueRef gen_array_elem_ptr(CodeGen *g, AstNode *source_node, LLVMVal
 
         if (want_debug_safety(g, source_node)) {
             set_debug_source_node(g, source_node);
-            int len_index = array_type->data.structure.fields[1].gen_index;
-            assert(len_index >= 0);
+            size_t len_index = array_type->data.structure.fields[1].gen_index;
+            assert(len_index != SIZE_MAX);
             LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, len_index, "");
             LLVMValueRef len = LLVMBuildLoad(g->builder, len_ptr, "");
             add_bounds_check(g, source_node, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, len);
         }
 
         set_debug_source_node(g, source_node);
-        int ptr_index = array_type->data.structure.fields[0].gen_index;
-        assert(ptr_index >= 0);
+        size_t ptr_index = array_type->data.structure.fields[0].gen_index;
+        assert(ptr_index != SIZE_MAX);
         LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, ptr_index, "");
         LLVMValueRef ptr = LLVMBuildLoad(g->builder, ptr_ptr, "");
         return LLVMBuildInBoundsGEP(g->builder, ptr, &subscript_value, 1, "");
@@ -1297,8 +1298,8 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
     assert(LLVMGetTypeKind(LLVMTypeOf(struct_ptr)) == LLVMPointerTypeKind);
     assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(struct_ptr))) == LLVMStructTypeKind);
 
-    int gen_field_index = node->data.field_access_expr.type_struct_field->gen_index;
-    assert(gen_field_index >= 0);
+    size_t gen_field_index = node->data.field_access_expr.type_struct_field->gen_index;
+    assert(gen_field_index != SIZE_MAX);
 
     set_debug_source_node(g, node);
     return LLVMBuildStructGEP(g->builder, struct_ptr, gen_field_index, "");
@@ -1368,10 +1369,10 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
         assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
 
-        int ptr_index = array_type->data.structure.fields[0].gen_index;
-        assert(ptr_index >= 0);
-        int len_index = array_type->data.structure.fields[1].gen_index;
-        assert(len_index >= 0);
+        size_t ptr_index = array_type->data.structure.fields[0].gen_index;
+        assert(ptr_index != SIZE_MAX);
+        size_t len_index = array_type->data.structure.fields[1].gen_index;
+        assert(len_index != SIZE_MAX);
 
         LLVMValueRef prev_end = nullptr;
         if (!node->data.slice_expr.end || want_debug_safety(g, node)) {
@@ -2395,8 +2396,8 @@ static void gen_defers_for_block(CodeGen *g, BlockContext *inner_block, BlockCon
     }
 }
 
-static int get_conditional_defer_count(BlockContext *inner_block, BlockContext *outer_block) {
-    int result = 0;
+static size_t get_conditional_defer_count(BlockContext *inner_block, BlockContext *outer_block) {
+    size_t result = 0;
     while (inner_block != outer_block) {
         if (inner_block->node->type == NodeTypeDefer &&
            (inner_block->node->data.defer.kind == ReturnKindError ||
@@ -2776,7 +2777,7 @@ static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *i
     assert(block_node->type == NodeTypeBlock);
 
     LLVMValueRef return_value = nullptr;
-    for (int i = 0; i < block_node->data.block.statements.length; i += 1) {
+    for (size_t i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
         return_value = gen_expr(g, statement_node);
     }
@@ -2796,23 +2797,23 @@ static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *i
     }
 }
 
-static int find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok) {
+static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok) {
     const char *ptr = buf_ptr(node->data.asm_expr.asm_template) + tok->start + 2;
-    int len = tok->end - tok->start - 2;
-    int result = 0;
-    for (int i = 0; i < node->data.asm_expr.output_list.length; i += 1, result += 1) {
+    size_t len = tok->end - tok->start - 2;
+    size_t result = 0;
+    for (size_t i = 0; i < node->data.asm_expr.output_list.length; i += 1, result += 1) {
         AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
         if (buf_eql_mem(asm_output->asm_symbolic_name, ptr, len)) {
             return result;
         }
     }
-    for (int i = 0; i < node->data.asm_expr.input_list.length; i += 1, result += 1) {
+    for (size_t i = 0; i < node->data.asm_expr.input_list.length; i += 1, result += 1) {
         AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
         if (buf_eql_mem(asm_input->asm_symbolic_name, ptr, len)) {
             return result;
         }
     }
-    return -1;
+    return SIZE_MAX;
 }
 
 static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
@@ -2825,11 +2826,11 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
     Buf llvm_template = BUF_INIT;
     buf_resize(&llvm_template, 0);
 
-    for (int token_i = 0; token_i < asm_expr->token_list.length; token_i += 1) {
+    for (size_t token_i = 0; token_i < asm_expr->token_list.length; token_i += 1) {
         AsmToken *asm_token = &asm_expr->token_list.at(token_i);
         switch (asm_token->id) {
             case AsmTokenIdTemplate:
-                for (int offset = asm_token->start; offset < asm_token->end; offset += 1) {
+                for (size_t offset = asm_token->start; offset < asm_token->end; offset += 1) {
                     uint8_t c = *((uint8_t*)(buf_ptr(src_template) + offset));
                     if (c == '$') {
                         buf_append_str(&llvm_template, "$$");
@@ -2842,9 +2843,9 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
                 buf_append_char(&llvm_template, '%');
                 break;
             case AsmTokenIdVar:
-                int index = find_asm_index(g, node, asm_token);
-                assert(index >= 0);
-                buf_appendf(&llvm_template, "$%d", index);
+                size_t index = find_asm_index(g, node, asm_token);
+                assert(index < SIZE_MAX);
+                buf_appendf(&llvm_template, "$%zu", index);
                 break;
         }
     }
@@ -2854,17 +2855,17 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
 
     assert(asm_expr->return_count == 0 || asm_expr->return_count == 1);
 
-    int total_constraint_count = asm_expr->output_list.length +
+    size_t total_constraint_count = asm_expr->output_list.length +
                                  asm_expr->input_list.length +
                                  asm_expr->clobber_list.length;
-    int input_and_output_count = asm_expr->output_list.length +
+    size_t input_and_output_count = asm_expr->output_list.length +
                                  asm_expr->input_list.length -
                                  asm_expr->return_count;
-    int total_index = 0;
-    int param_index = 0;
+    size_t total_index = 0;
+    size_t param_index = 0;
     LLVMTypeRef *param_types = allocate<LLVMTypeRef>(input_and_output_count);
     LLVMValueRef *param_values = allocate<LLVMValueRef>(input_and_output_count);
-    for (int i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
+    for (size_t i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
         AsmOutput *asm_output = asm_expr->output_list.at(i);
         bool is_return = (asm_output->return_type != nullptr);
         assert(*buf_ptr(asm_output->constraint) == '=');
@@ -2885,7 +2886,7 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
             param_index += 1;
         }
     }
-    for (int i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1, param_index += 1) {
+    for (size_t i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1, param_index += 1) {
         AsmInput *asm_input = asm_expr->input_list.at(i);
         buf_append_buf(&constraint_buf, asm_input->constraint);
         if (total_index + 1 < total_constraint_count) {
@@ -2896,7 +2897,7 @@ static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
         param_types[param_index] = expr_type->type_ref;
         param_values[param_index] = gen_expr(g, asm_input->expr);
     }
-    for (int i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
+    for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
         Buf *clobber_buf = asm_expr->clobber_list.at(i);
         buf_appendf(&constraint_buf, "~{%s}", buf_ptr(clobber_buf));
         if (total_index + 1 < total_constraint_count) {
@@ -2927,7 +2928,7 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
 
 
     if (node->data.container_init_expr.enum_type) {
-        int param_count = node->data.container_init_expr.entries.length;
+        size_t param_count = node->data.container_init_expr.entries.length;
         AstNode *arg1_node;
         if (param_count == 1) {
             arg1_node = node->data.container_init_expr.entries.at(0);
@@ -2943,13 +2944,13 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
     if (type_entry->id == TypeTableEntryIdStruct) {
         assert(node->data.container_init_expr.kind == ContainerInitKindStruct);
 
-        int src_field_count = type_entry->data.structure.src_field_count;
+        size_t src_field_count = type_entry->data.structure.src_field_count;
         assert(src_field_count == node->data.container_init_expr.entries.length);
 
         StructValExprCodeGen *struct_val_expr_node = &node->data.container_init_expr.resolved_struct_val_expr;
         LLVMValueRef tmp_struct_ptr = struct_val_expr_node->ptr;
 
-        for (int i = 0; i < src_field_count; i += 1) {
+        for (size_t i = 0; i < src_field_count; i += 1) {
             AstNode *field_node = node->data.container_init_expr.entries.at(i);
             assert(field_node->type == NodeTypeStructValueField);
             TypeStructField *type_struct_field = field_node->data.struct_val_field.type_struct_field;
@@ -2974,12 +2975,12 @@ static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
         StructValExprCodeGen *struct_val_expr_node = &node->data.container_init_expr.resolved_struct_val_expr;
         LLVMValueRef tmp_array_ptr = struct_val_expr_node->ptr;
 
-        int field_count = type_entry->data.array.len;
+        size_t field_count = type_entry->data.array.len;
         assert(field_count == node->data.container_init_expr.entries.length);
 
         TypeTableEntry *child_type = type_entry->data.array.child_type;
 
-        for (int i = 0; i < field_count; i += 1) {
+        for (size_t i = 0; i < field_count; i += 1) {
             AstNode *field_node = node->data.container_init_expr.entries.at(i);
             LLVMValueRef elem_val = gen_expr(g, field_node);
 
@@ -3126,8 +3127,8 @@ static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
         TypeTableEntry *child_ptr_type = array_type->data.structure.fields[0].type_entry;
         assert(child_ptr_type->id == TypeTableEntryIdPointer);
         child_type = child_ptr_type->data.pointer.child_type;
-        int len_index = array_type->data.structure.fields[1].gen_index;
-        assert(len_index >= 0);
+        size_t len_index = array_type->data.structure.fields[1].gen_index;
+        assert(len_index != SIZE_MAX);
         LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, array_val, len_index, "");
         len_val = LLVMBuildLoad(g->builder, len_field_ptr, "");
     } else {
@@ -3249,10 +3250,10 @@ static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVa
                         LLVMValueRef ptr_val = LLVMBuildArrayAlloca(g->builder, child_type->type_ref,
                                 size_val, "");
 
-                        int ptr_index = var_type->data.structure.fields[0].gen_index;
-                        assert(ptr_index >= 0);
-                        int len_index = var_type->data.structure.fields[1].gen_index;
-                        assert(len_index >= 0);
+                        size_t ptr_index = var_type->data.structure.fields[0].gen_index;
+                        assert(ptr_index != SIZE_MAX);
+                        size_t len_index = var_type->data.structure.fields[1].gen_index;
+                        assert(len_index != SIZE_MAX);
 
                         // store the freshly allocated pointer in the unknown size array struct
                         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder,
@@ -3328,7 +3329,7 @@ static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeSwitchExpr);
 
-    if (node->data.switch_expr.const_chosen_prong_index >= 0) {
+    if (node->data.switch_expr.const_chosen_prong_index != SIZE_MAX) {
         AstNode *prong_node = node->data.switch_expr.prongs.at(node->data.switch_expr.const_chosen_prong_index);
         assert(prong_node->type == NodeTypeSwitchProng);
         AstNode *prong_expr = prong_node->data.switch_prong.expr;
@@ -3362,7 +3363,7 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
     LLVMBasicBlockRef end_block = end_unreachable ?
         nullptr : LLVMAppendBasicBlock(g->cur_fn->fn_value, "SwitchEnd");
     LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SwitchElse");
-    int prong_count = node->data.switch_expr.prongs.length;
+    size_t prong_count = node->data.switch_expr.prongs.length;
 
     set_debug_source_node(g, node);
     LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, target_value, else_block, prong_count);
@@ -3371,7 +3372,7 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
     ZigList<LLVMBasicBlockRef> incoming_blocks = {0};
 
     AstNode *else_prong = nullptr;
-    for (int prong_i = 0; prong_i < prong_count; prong_i += 1) {
+    for (size_t prong_i = 0; prong_i < prong_count; prong_i += 1) {
         AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
         VariableTableEntry *prong_var = prong_node->data.switch_prong.var;
 
@@ -3382,10 +3383,10 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
             prong_block = else_block;
         } else {
             prong_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SwitchProng");
-            int prong_item_count = prong_node->data.switch_prong.items.length;
+            size_t prong_item_count = prong_node->data.switch_prong.items.length;
             bool make_item_blocks = prong_var && prong_item_count > 1;
 
-            for (int item_i = 0; item_i < prong_item_count; item_i += 1) {
+            for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
                 AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
 
                 assert(item_node->type != NodeTypeSwitchRange);
@@ -3699,7 +3700,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
                 LLVMValueRef *fields = allocate<LLVMValueRef>(type_entry->data.structure.gen_field_count);
                 for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
                     TypeStructField *type_struct_field = &type_entry->data.structure.fields[i];
-                    if (type_struct_field->gen_index == -1) {
+                    if (type_struct_field->gen_index == SIZE_MAX) {
                         continue;
                     }
                     fields[type_struct_field->gen_index] = gen_const_val(g, type_struct_field->type_entry,
@@ -3767,13 +3768,13 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdPointer:
             {
                 TypeTableEntry *child_type = type_entry->data.pointer.child_type;
-                int len = const_val->data.x_ptr.len;
+                size_t len = const_val->data.x_ptr.len;
                 LLVMValueRef target_val;
                 if (len == 1) {
                     target_val = gen_const_val(g, child_type, const_val->data.x_ptr.ptr[0]);
                 } else if (len > 1) {
                     LLVMValueRef *values = allocate<LLVMValueRef>(len);
-                    for (int i = 0; i < len; i += 1) {
+                    for (size_t i = 0; i < len; i += 1) {
                         values[i] = gen_const_val(g, child_type, const_val->data.x_ptr.ptr[i]);
                     }
                     target_val = LLVMConstArray(child_type->type_ref, values, len);
@@ -3833,7 +3834,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
 }
 
 static void gen_const_globals(CodeGen *g) {
-    for (int i = 0; i < g->global_const_list.length; i += 1) {
+    for (size_t i = 0; i < g->global_const_list.length; i += 1) {
         AstNode *expr_node = g->global_const_list.at(i);
         Expr *expr = get_resolved_expr(expr_node);
         ConstExprValue *const_val = &expr->const_val;
@@ -3927,7 +3928,7 @@ static void generate_error_name_table(CodeGen *g) {
 
     LLVMValueRef *values = allocate<LLVMValueRef>(g->error_decls.length);
     values[0] = LLVMGetUndef(str_type->type_ref);
-    for (int i = 1; i < g->error_decls.length; i += 1) {
+    for (size_t i = 1; i < g->error_decls.length; i += 1) {
         AstNode *error_decl_node = g->error_decls.at(i);
         assert(error_decl_node->type == NodeTypeErrorValueDecl);
         Buf *name = error_decl_node->data.error_value_decl.name;
@@ -3957,7 +3958,7 @@ static void generate_error_name_table(CodeGen *g) {
 
 static void build_label_blocks(CodeGen *g, FnTableEntry *fn) {
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn->fn_value, "entry");
-    for (int i = 0; i < fn->all_labels.length; i += 1) {
+    for (size_t i = 0; i < fn->all_labels.length; i += 1) {
         LabelTableEntry *label = fn->all_labels.at(i);
         Buf *name = label->decl_node->data.label.name;
         label->basic_block = LLVMAppendBasicBlock(fn->fn_value, buf_ptr(name));
@@ -3988,7 +3989,7 @@ static void do_code_gen(CodeGen *g) {
     generate_error_name_table(g);
 
     // Generate module level variables
-    for (int i = 0; i < g->global_vars.length; i += 1) {
+    for (size_t i = 0; i < g->global_vars.length; i += 1) {
         VariableTableEntry *var = g->global_vars.at(i);
 
         if (var->type->id == TypeTableEntryIdNumLitFloat) {
@@ -4063,7 +4064,7 @@ static void do_code_gen(CodeGen *g) {
     }
 
     // Generate function prototypes
-    for (int fn_proto_i = 0; fn_proto_i < g->fn_protos.length; fn_proto_i += 1) {
+    for (size_t fn_proto_i = 0; fn_proto_i < g->fn_protos.length; fn_proto_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_protos.at(fn_proto_i);
         if (should_skip_fn_codegen(g, fn_table_entry)) {
             // huge time saver
@@ -4097,15 +4098,15 @@ static void do_code_gen(CodeGen *g) {
 
 
         // set parameter attributes
-        for (int param_decl_i = 0; param_decl_i < fn_proto->params.length; param_decl_i += 1) {
+        for (size_t param_decl_i = 0; param_decl_i < fn_proto->params.length; param_decl_i += 1) {
             AstNode *param_node = fn_proto->params.at(param_decl_i);
             assert(param_node->type == NodeTypeParamDecl);
 
             FnGenParamInfo *info = &fn_type->data.fn.gen_param_info[param_decl_i];
-            int gen_index = info->gen_index;
+            size_t gen_index = info->gen_index;
             bool is_byval = info->is_byval;
 
-            if (gen_index < 0) {
+            if (gen_index == SIZE_MAX) {
                 continue;
             }
 
@@ -4169,7 +4170,7 @@ static void do_code_gen(CodeGen *g) {
     }
 
     // Generate function definitions.
-    for (int fn_i = 0; fn_i < g->fn_defs.length; fn_i += 1) {
+    for (size_t fn_i = 0; fn_i < g->fn_defs.length; fn_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_defs.at(fn_i);
         if (should_skip_fn_codegen(g, fn_table_entry)) {
             // huge time saver
@@ -4194,7 +4195,7 @@ static void do_code_gen(CodeGen *g) {
 
 
         // Set up debug info for blocks
-        for (int bc_i = 0; bc_i < fn_table_entry->all_block_contexts.length; bc_i += 1) {
+        for (size_t bc_i = 0; bc_i < fn_table_entry->all_block_contexts.length; bc_i += 1) {
             BlockContext *block_context = fn_table_entry->all_block_contexts.at(bc_i);
 
             if (!block_context->di_scope) {
@@ -4212,7 +4213,7 @@ static void do_code_gen(CodeGen *g) {
         clear_debug_source_node(g);
 
         // allocate structs which are the result of casts
-        for (int cea_i = 0; cea_i < fn_table_entry->cast_alloca_list.length; cea_i += 1) {
+        for (size_t cea_i = 0; cea_i < fn_table_entry->cast_alloca_list.length; cea_i += 1) {
             AstNode *fn_call_node = fn_table_entry->cast_alloca_list.at(cea_i);
             Expr *expr = &fn_call_node->data.fn_call_expr.resolved_expr;
             fn_call_node->data.fn_call_expr.tmp_ptr = LLVMBuildAlloca(g->builder,
@@ -4220,14 +4221,14 @@ static void do_code_gen(CodeGen *g) {
         }
 
         // allocate structs which are struct value expressions
-        for (int alloca_i = 0; alloca_i < fn_table_entry->struct_val_expr_alloca_list.length; alloca_i += 1) {
+        for (size_t alloca_i = 0; alloca_i < fn_table_entry->struct_val_expr_alloca_list.length; alloca_i += 1) {
             StructValExprCodeGen *struct_val_expr_node = fn_table_entry->struct_val_expr_alloca_list.at(alloca_i);
             struct_val_expr_node->ptr = LLVMBuildAlloca(g->builder,
                     struct_val_expr_node->type_entry->type_ref, "");
         }
 
         // create debug variable declarations for variables and allocate all local variables
-        for (int var_i = 0; var_i < fn_table_entry->variable_list.length; var_i += 1) {
+        for (size_t var_i = 0; var_i < fn_table_entry->variable_list.length; var_i += 1) {
             VariableTableEntry *var = fn_table_entry->variable_list.at(var_i);
 
             if (!type_has_bits(var->type)) {
@@ -4235,7 +4236,7 @@ static void do_code_gen(CodeGen *g) {
             }
 
             if (var->block_context->node->type == NodeTypeFnDef) {
-                assert(var->gen_arg_index >= 0);
+                assert(var->gen_arg_index != SIZE_MAX);
                 TypeTableEntry *gen_type;
                 if (handle_is_ptr(var->type)) {
                     gen_type = fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index].type;
@@ -4264,13 +4265,13 @@ static void do_code_gen(CodeGen *g) {
         }
 
         // create debug variable declarations for parameters
-        for (int param_i = 0; param_i < fn_proto->params.length; param_i += 1) {
+        for (size_t param_i = 0; param_i < fn_proto->params.length; param_i += 1) {
             AstNode *param_decl = fn_proto->params.at(param_i);
             assert(param_decl->type == NodeTypeParamDecl);
 
             FnGenParamInfo *info = &fn_table_entry->type_entry->data.fn.gen_param_info[param_i];
 
-            if (info->gen_index < 0) {
+            if (info->gen_index == SIZE_MAX) {
                 continue;
             }
 
@@ -4306,7 +4307,7 @@ static void do_code_gen(CodeGen *g) {
 #endif
 }
 
-static const int int_sizes_in_bits[] = {
+static const size_t int_sizes_in_bits[] = {
     8,
     16,
     32,
@@ -4380,9 +4381,9 @@ static void define_builtin_types(CodeGen *g) {
         g->builtin_types.entry_var = entry;
     }
 
-    for (int int_size_i = 0; int_size_i < array_length(int_sizes_in_bits); int_size_i += 1) {
-        int size_in_bits = int_sizes_in_bits[int_size_i];
-        for (int is_sign_i = 0; is_sign_i < array_length(is_signed_list); is_sign_i += 1) {
+    for (size_t int_size_i = 0; int_size_i < array_length(int_sizes_in_bits); int_size_i += 1) {
+        size_t size_in_bits = int_sizes_in_bits[int_size_i];
+        for (size_t is_sign_i = 0; is_sign_i < array_length(is_signed_list); is_sign_i += 1) {
             bool is_signed = is_signed_list[is_sign_i];
 
             TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -4391,7 +4392,7 @@ static void define_builtin_types(CodeGen *g) {
 
             const char u_or_i = is_signed ? 'i' : 'u';
             buf_resize(&entry->name, 0);
-            buf_appendf(&entry->name, "%c%d", u_or_i, size_in_bits);
+            buf_appendf(&entry->name, "%c%zu", u_or_i, size_in_bits);
 
             unsigned dwarf_tag;
             if (is_signed) {
@@ -4420,7 +4421,7 @@ static void define_builtin_types(CodeGen *g) {
         }
     }
 
-    for (int i = 0; i < array_length(c_int_type_infos); i += 1) {
+    for (size_t i = 0; i < array_length(c_int_type_infos); i += 1) {
         const CIntTypeInfo *info = &c_int_type_infos[i];
         uint64_t size_in_bits = get_c_type_size_in_bits(&g->zig_target, info->id);
         bool is_signed = info->is_signed;
@@ -4459,7 +4460,7 @@ static void define_builtin_types(CodeGen *g) {
         g->primitive_type_table.put(&entry->name, entry);
     }
 
-    for (int sign_i = 0; sign_i < array_length(is_signed_list); sign_i += 1) {
+    for (size_t sign_i = 0; sign_i < array_length(is_signed_list); sign_i += 1) {
         bool is_signed = is_signed_list[sign_i];
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
@@ -4754,7 +4755,7 @@ static BuiltinFnEntry *create_builtin_fn(CodeGen *g, BuiltinFnId id, const char 
     return builtin_fn;
 }
 
-static BuiltinFnEntry *create_builtin_fn_with_arg_count(CodeGen *g, BuiltinFnId id, const char *name, int count) {
+static BuiltinFnEntry *create_builtin_fn_with_arg_count(CodeGen *g, BuiltinFnId id, const char *name, size_t count) {
     BuiltinFnEntry *builtin_fn = create_builtin_fn(g, id, name);
     builtin_fn->param_count = count;
     builtin_fn->param_types = allocate<TypeTableEntry *>(count);
@@ -4958,7 +4959,7 @@ void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source
     }
 
     if (errors.length > 0) {
-        for (int i = 0; i < errors.length; i += 1) {
+        for (size_t i = 0; i < errors.length; i += 1) {
             ErrorMsg *err_msg = errors.at(i);
             print_err_msg(err_msg, g->err_color);
         }
@@ -5034,7 +5035,7 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
             fprintf(stderr, "OK\n");
         }
     } else {
-        for (int i = 0; i < g->errors.length; i += 1) {
+        for (size_t i = 0; i < g->errors.length; i += 1) {
             ErrorMsg *err = g->errors.at(i);
             print_err_msg(err, g->err_color);
         }
@@ -5063,7 +5064,7 @@ static const char *c_int_type_names[] = {
 static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
     assert(type_entry);
 
-    for (int i = 0; i < array_length(c_int_type_names); i += 1) {
+    for (size_t i = 0; i < array_length(c_int_type_names); i += 1) {
         if (type_entry == g->builtin_types.entry_c_int[i]) {
             buf_init_from_str(out_buf, c_int_type_names[i]);
             return;
@@ -5114,7 +5115,7 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
         case TypeTableEntryIdInt:
             g->c_want_stdint = true;
             buf_resize(out_buf, 0);
-            buf_appendf(out_buf, "%sint%d_t",
+            buf_appendf(out_buf, "%sint%zu_t",
                     type_entry->data.integral.is_signed ? "" : "u",
                     type_entry->data.integral.bit_count);
             break;
@@ -5183,7 +5184,7 @@ void codegen_generate_h_file(CodeGen *g) {
 
     Buf h_buf = BUF_INIT;
     buf_resize(&h_buf, 0);
-    for (int fn_def_i = 0; fn_def_i < g->fn_defs.length; fn_def_i += 1) {
+    for (size_t fn_def_i = 0; fn_def_i < g->fn_defs.length; fn_def_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_defs.at(fn_def_i);
         AstNode *proto_node = fn_table_entry->proto_node;
         assert(proto_node->type == NodeTypeFnProto);
@@ -5202,7 +5203,7 @@ void codegen_generate_h_file(CodeGen *g) {
 
         Buf param_type_c = BUF_INIT;
         if (fn_proto->params.length) {
-            for (int param_i = 0; param_i < fn_proto->params.length; param_i += 1) {
+            for (size_t param_i = 0; param_i < fn_proto->params.length; param_i += 1) {
                 AstNode *param_decl_node = fn_proto->params.at(param_i);
                 AstNode *param_type = param_decl_node->data.param_decl.type;
                 get_c_type_node(g, param_type, &param_type_c);

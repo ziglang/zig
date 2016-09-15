@@ -18,7 +18,6 @@
 
 struct AstNode;
 struct ImportTableEntry;
-struct AsmToken;
 struct FnTableEntry;
 struct BlockContext;
 struct TypeTableEntry;
@@ -218,8 +217,8 @@ struct AstNodeFnProto {
     bool skip;
     Expr resolved_expr;
     // computed from params field
-    int inline_arg_count;
-    int inline_or_var_type_arg_count;
+    size_t inline_arg_count;
+    size_t inline_or_var_type_arg_count;
     // if this is a generic function implementation, this points to the generic node
     AstNode *generic_proto_node;
 };
@@ -282,7 +281,7 @@ struct AstNodeDefer {
 
     // populated by semantic analyzer:
     Expr resolved_expr;
-    int index_in_block;
+    size_t index_in_block;
     LLVMBasicBlockRef basic_block;
     BlockContext *child_block;
 };
@@ -547,7 +546,7 @@ struct AstNodeSwitchExpr {
 
     // populated by semantic analyzer
     Expr resolved_expr;
-    int const_chosen_prong_index;
+    size_t const_chosen_prong_index;
 };
 
 struct AstNodeSwitchProng {
@@ -599,8 +598,20 @@ struct AsmInput {
 };
 
 struct SrcPos {
-    int line;
-    int column;
+    size_t line;
+    size_t column;
+};
+
+enum AsmTokenId {
+    AsmTokenIdTemplate,
+    AsmTokenIdPercent,
+    AsmTokenIdVar,
+};
+
+struct AsmToken {
+    enum AsmTokenId id;
+    size_t start;
+    size_t end;
 };
 
 struct AstNodeAsmExpr {
@@ -612,7 +623,7 @@ struct AstNodeAsmExpr {
     ZigList<Buf*> clobber_list;
 
     // populated by semantic analyzer
-    int return_count;
+    size_t return_count;
     Expr resolved_expr;
 };
 
@@ -763,8 +774,8 @@ struct AstNodeVarLiteral {
 
 struct AstNode {
     enum NodeType type;
-    int line;
-    int column;
+    size_t line;
+    size_t column;
     uint32_t create_index; // for determinism purposes
     ImportTableEntry *owner;
     AstNode **parent_field; // for AST rewriting
@@ -823,18 +834,6 @@ struct AstNode {
     } data;
 };
 
-enum AsmTokenId {
-    AsmTokenIdTemplate,
-    AsmTokenIdPercent,
-    AsmTokenIdVar,
-};
-
-struct AsmToken {
-    enum AsmTokenId id;
-    int start;
-    int end;
-};
-
 // this struct is allocated with allocate_nonzero
 struct FnTypeParamInfo {
     bool is_noalias;
@@ -844,24 +843,24 @@ struct FnTypeParamInfo {
 struct GenericParamValue {
     TypeTableEntry *type;
     AstNode *node;
-    int impl_index;
+    size_t impl_index;
 };
 
 struct GenericFnTypeId {
     AstNode *decl_node; // the generic fn or container decl node
     GenericParamValue *generic_params;
-    int generic_param_count;
+    size_t generic_param_count;
 };
 
 uint32_t generic_fn_type_id_hash(GenericFnTypeId *id);
 bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b);
 
 
-static const int fn_type_id_prealloc_param_info_count = 4;
+static const size_t fn_type_id_prealloc_param_info_count = 4;
 struct FnTypeId {
     TypeTableEntry *return_type;
     FnTypeParamInfo *param_info;
-    int param_count;
+    size_t param_count;
     bool is_var_args;
     bool is_naked;
     bool is_cold;
@@ -878,12 +877,12 @@ struct TypeTableEntryPointer {
 };
 
 struct TypeTableEntryInt {
-    int bit_count;
+    size_t bit_count;
     bool is_signed;
 };
 
 struct TypeTableEntryFloat {
-    int bit_count;
+    size_t bit_count;
 };
 
 struct TypeTableEntryArray {
@@ -894,8 +893,8 @@ struct TypeTableEntryArray {
 struct TypeStructField {
     Buf *name;
     TypeTableEntry *type_entry;
-    int src_index;
-    int gen_index;
+    size_t src_index;
+    size_t gen_index;
 };
 struct TypeTableEntryStruct {
     AstNode *decl_node;
@@ -958,8 +957,8 @@ struct TypeTableEntryUnion {
 };
 
 struct FnGenParamInfo {
-    int src_index;
-    int gen_index;
+    size_t src_index;
+    size_t gen_index;
     bool is_byval;
     TypeTableEntry *type;
 };
@@ -967,7 +966,7 @@ struct FnGenParamInfo {
 struct TypeTableEntryFn {
     FnTypeId fn_type_id;
     TypeTableEntry *gen_return_type;
-    int gen_param_count;
+    size_t gen_param_count;
     FnGenParamInfo *gen_param_info;
 
     LLVMTypeRef raw_type_ref;
@@ -1057,7 +1056,7 @@ struct ImportTableEntry {
     PackageTableEntry *package;
     ZigLLVMDIFile *di_file;
     Buf *source_code;
-    ZigList<int> *line_offsets;
+    ZigList<size_t> *line_offsets;
     BlockContext *block_context;
     AstNode *c_import_node;
     bool any_imports_failed;
@@ -1127,8 +1126,8 @@ struct EvalFnRoot {
     CodeGen *codegen;
     FnTableEntry *fn;
     AstNode *call_node;
-    int branch_quota;
-    int branches_used;
+    size_t branch_quota;
+    size_t branches_used;
     AstNode *exceeded_quota_node;
     bool abort;
 };
@@ -1180,7 +1179,7 @@ enum BuiltinFnId {
 struct BuiltinFnEntry {
     BuiltinFnId id;
     Buf name;
-    int param_count;
+    size_t param_count;
     TypeTableEntry *return_type;
     TypeTableEntry **param_types;
     uint32_t ref_count;
@@ -1207,11 +1206,11 @@ struct CodeGen {
     HashMap<GenericFnTypeId *, AstNode *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
 
     ZigList<ImportTableEntry *> import_queue;
-    int import_queue_index;
+    size_t import_queue_index;
     ZigList<AstNode *> resolve_queue;
-    int resolve_queue_index;
+    size_t resolve_queue_index;
     ZigList<AstNode *> use_queue;
-    int use_queue_index;
+    size_t use_queue_index;
 
     uint32_t next_unresolved_index;
 
@@ -1305,9 +1304,9 @@ struct CodeGen {
     bool c_want_stdint;
     bool c_want_stdbool;
     AstNode *root_export_decl;
-    int version_major;
-    int version_minor;
-    int version_patch;
+    size_t version_major;
+    size_t version_minor;
+    size_t version_patch;
     bool verbose;
     ErrColor err_color;
     ImportTableEntry *root_import;
@@ -1323,7 +1322,7 @@ struct CodeGen {
     LLVMValueRef int_builtin_fns[2][4]; // [0-ctz,1-clz][0-8,1-16,2-32,3-64]
 
     const char **clang_argv;
-    int clang_argv_len;
+    size_t clang_argv_len;
     ZigList<const char *> lib_dirs;
 
     uint32_t test_fn_count;
@@ -1345,8 +1344,8 @@ struct VariableTableEntry {
     // which node contains the ConstExprValue for this variable's value
     AstNode *val_node;
     ZigLLVMDILocalVariable *di_loc_var;
-    int src_arg_index;
-    int gen_arg_index;
+    size_t src_arg_index;
+    size_t gen_arg_index;
     BlockContext *block_context;
     LLVMValueRef param_value_ref;
     bool force_depends_on_compile_var;

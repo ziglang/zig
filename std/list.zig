@@ -42,15 +42,14 @@ pub struct SmallList(T: type, static_size: usize) {
     }
 
     pub fn ensureCapacity(l: &Self, new_capacity: usize) -> %void {
-        const old_capacity = l.items.len;
-        var better_capacity = old_capacity;
+        var better_capacity = l.items.len;
         while (better_capacity < new_capacity) {
             better_capacity *= 2;
         }
-        if (better_capacity != old_capacity) {
+        if (better_capacity != l.items.len) {
             if (l.items.ptr == &l.prealloc_items[0]) {
                 l.items = %return l.allocator.alloc(T, better_capacity);
-                mem.copy(T, l.items, l.prealloc_items[0...old_capacity]);
+                mem.copy(T, l.items, l.prealloc_items[0...l.len]);
             } else {
                 l.items = %return l.allocator.realloc(T, l.items, better_capacity);
             }

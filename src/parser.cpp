@@ -28,7 +28,7 @@ struct ParseContext {
 
 __attribute__ ((format (printf, 4, 5)))
 __attribute__ ((noreturn))
-static void ast_asm_error(ParseContext *pc, AstNode *node, int offset, const char *format, ...) {
+static void ast_asm_error(ParseContext *pc, AstNode *node, size_t offset, const char *format, ...) {
     assert(node->type == NodeTypeAsmExpr);
 
 
@@ -109,7 +109,7 @@ static void parse_asm_template(ParseContext *pc, AstNode *node) {
 
     enum State state = StateStart;
 
-    for (int i = 0; i < buf_len(asm_template); i += 1) {
+    for (size_t i = 0; i < buf_len(asm_template); i += 1) {
         uint8_t c = *((uint8_t*)buf_ptr(asm_template) + i);
         switch (state) {
             case StateStart:
@@ -205,16 +205,16 @@ static void ast_invalid_token_error(ParseContext *pc, Token *token) {
     ast_error(pc, token, "invalid token: '%s'", buf_ptr(&token_value));
 }
 
-static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool mandatory);
-static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandatory);
-static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool mandatory);
-static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool mandatory);
-static AstNode *ast_parse_unwrap_expr(ParseContext *pc, int *token_index, bool mandatory);
-static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, bool mandatory);
-static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory,
+static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool mandatory);
+static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mandatory);
+static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool mandatory);
+static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool mandatory);
+static AstNode *ast_parse_unwrap_expr(ParseContext *pc, size_t *token_index, bool mandatory);
+static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory);
+static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool mandatory,
         ZigList<AstNode*> *directives, VisibMod visib_mod);
-static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index);
-static AstNode *ast_parse_grouped_expr(ParseContext *pc, int *token_index, bool mandatory);
+static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index);
+static AstNode *ast_parse_grouped_expr(ParseContext *pc, size_t *token_index, bool mandatory);
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
     if (token->id == token_id) {
@@ -226,7 +226,7 @@ static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
     ast_error(pc, token, "expected token '%s', found '%s'", token_name(token_id), token_name(token->id));
 }
 
-static Token *ast_eat_token(ParseContext *pc, int *token_index, TokenId token_id) {
+static Token *ast_eat_token(ParseContext *pc, size_t *token_index, TokenId token_id) {
     Token *token = &pc->tokens->at(*token_index);
     ast_expect_token(pc, token, token_id);
     *token_index += 1;
@@ -236,7 +236,7 @@ static Token *ast_eat_token(ParseContext *pc, int *token_index, TokenId token_id
 /*
 Directive = "#" "Symbol" "(" Expression ")"
 */
-static AstNode *ast_parse_directive(ParseContext *pc, int *token_index) {
+static AstNode *ast_parse_directive(ParseContext *pc, size_t *token_index) {
     Token *number_sign = ast_eat_token(pc, token_index, TokenIdNumberSign);
 
     AstNode *node = ast_create_node(pc, NodeTypeDirective, number_sign);
@@ -251,7 +251,7 @@ static AstNode *ast_parse_directive(ParseContext *pc, int *token_index) {
     return node;
 }
 
-static void ast_parse_directives(ParseContext *pc, int *token_index,
+static void ast_parse_directives(ParseContext *pc, size_t *token_index,
         ZigList<AstNode *> *directives)
 {
     for (;;) {
@@ -269,7 +269,7 @@ static void ast_parse_directives(ParseContext *pc, int *token_index,
 /*
 TypeExpr = PrefixOpExpression | "var"
 */
-static AstNode *ast_parse_type_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_type_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
     if (token->id == TokenIdKeywordVar) {
         AstNode *node = ast_create_node(pc, NodeTypeVarLiteral, token);
@@ -283,7 +283,7 @@ static AstNode *ast_parse_type_expr(ParseContext *pc, int *token_index, bool man
 /*
 ParamDecl = option("noalias" | "inline") option("Symbol" ":") TypeExpr | "..."
 */
-static AstNode *ast_parse_param_decl(ParseContext *pc, int *token_index) {
+static AstNode *ast_parse_param_decl(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
 
     if (token->id == TokenIdEllipsis) {
@@ -320,7 +320,7 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, int *token_index) {
 }
 
 
-static void ast_parse_param_decl_list(ParseContext *pc, int *token_index,
+static void ast_parse_param_decl_list(ParseContext *pc, size_t *token_index,
         ZigList<AstNode *> *params, bool *is_var_args)
 {
     *is_var_args = false;
@@ -356,7 +356,7 @@ static void ast_parse_param_decl_list(ParseContext *pc, int *token_index,
     zig_unreachable();
 }
 
-static void ast_parse_fn_call_param_list(ParseContext *pc, int *token_index, ZigList<AstNode*> *params) {
+static void ast_parse_fn_call_param_list(ParseContext *pc, size_t *token_index, ZigList<AstNode*> *params) {
     Token *token = &pc->tokens->at(*token_index);
     if (token->id == TokenIdRParen) {
         *token_index += 1;
@@ -381,7 +381,7 @@ static void ast_parse_fn_call_param_list(ParseContext *pc, int *token_index, Zig
 /*
 GroupedExpression : token(LParen) Expression token(RParen)
 */
-static AstNode *ast_parse_grouped_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_grouped_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *l_paren = &pc->tokens->at(*token_index);
     if (l_paren->id != TokenIdLParen) {
         if (mandatory) {
@@ -405,7 +405,7 @@ static AstNode *ast_parse_grouped_expr(ParseContext *pc, int *token_index, bool 
 /*
 ArrayType : "[" option(Expression) "]" option("const") PrefixOpExpression
 */
-static AstNode *ast_parse_array_type_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_array_type_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *l_bracket = &pc->tokens->at(*token_index);
     if (l_bracket->id != TokenIdLBracket) {
         if (mandatory) {
@@ -437,7 +437,7 @@ static AstNode *ast_parse_array_type_expr(ParseContext *pc, int *token_index, bo
 /*
 AsmInputItem : token(LBracket) token(Symbol) token(RBracket) token(String) token(LParen) Expression token(RParen)
 */
-static void ast_parse_asm_input_item(ParseContext *pc, int *token_index, AstNode *node) {
+static void ast_parse_asm_input_item(ParseContext *pc, size_t *token_index, AstNode *node) {
     ast_eat_token(pc, token_index, TokenIdLBracket);
     Token *alias = ast_eat_token(pc, token_index, TokenIdSymbol);
     ast_eat_token(pc, token_index, TokenIdRBracket);
@@ -458,7 +458,7 @@ static void ast_parse_asm_input_item(ParseContext *pc, int *token_index, AstNode
 /*
 AsmOutputItem : "[" "Symbol" "]" "String" "(" ("Symbol" | "->" PrefixOpExpression) ")"
 */
-static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNode *node) {
+static void ast_parse_asm_output_item(ParseContext *pc, size_t *token_index, AstNode *node) {
     ast_eat_token(pc, token_index, TokenIdLBracket);
     Token *alias = ast_eat_token(pc, token_index, TokenIdSymbol);
     ast_eat_token(pc, token_index, TokenIdRBracket);
@@ -489,7 +489,7 @@ static void ast_parse_asm_output_item(ParseContext *pc, int *token_index, AstNod
 /*
 AsmClobbers: token(Colon) list(token(String), token(Comma))
 */
-static void ast_parse_asm_clobbers(ParseContext *pc, int *token_index, AstNode *node) {
+static void ast_parse_asm_clobbers(ParseContext *pc, size_t *token_index, AstNode *node) {
     Token *colon_tok = &pc->tokens->at(*token_index);
 
     if (colon_tok->id != TokenIdColon)
@@ -519,7 +519,7 @@ static void ast_parse_asm_clobbers(ParseContext *pc, int *token_index, AstNode *
 /*
 AsmInput : token(Colon) list(AsmInputItem, token(Comma)) option(AsmClobbers)
 */
-static void ast_parse_asm_input(ParseContext *pc, int *token_index, AstNode *node) {
+static void ast_parse_asm_input(ParseContext *pc, size_t *token_index, AstNode *node) {
     Token *colon_tok = &pc->tokens->at(*token_index);
 
     if (colon_tok->id != TokenIdColon)
@@ -546,7 +546,7 @@ static void ast_parse_asm_input(ParseContext *pc, int *token_index, AstNode *nod
 /*
 AsmOutput : token(Colon) list(AsmOutputItem, token(Comma)) option(AsmInput)
 */
-static void ast_parse_asm_output(ParseContext *pc, int *token_index, AstNode *node) {
+static void ast_parse_asm_output(ParseContext *pc, size_t *token_index, AstNode *node) {
     Token *colon_tok = &pc->tokens->at(*token_index);
 
     if (colon_tok->id != TokenIdColon)
@@ -579,7 +579,7 @@ static void ast_parse_asm_output(ParseContext *pc, int *token_index, AstNode *no
 /*
 AsmExpression : token(Asm) option(token(Volatile)) token(LParen) token(String) option(AsmOutput) token(RParen)
 */
-static AstNode *ast_parse_asm_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_asm_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *asm_token = &pc->tokens->at(*token_index);
 
     if (asm_token->id != TokenIdKeywordAsm) {
@@ -622,7 +622,7 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, int *token_index, bool mand
 PrimaryExpression = "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." "Symbol")
 KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "zeroes" | "error" | "type"
 */
-static AstNode *ast_parse_primary_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
     if (token->id == TokenIdNumberLiteral) {
@@ -752,7 +752,7 @@ CurlySuffixExpression : PrefixOpExpression option(ContainerInitExpression)
 ContainerInitExpression : token(LBrace) ContainerInitBody token(RBrace)
 ContainerInitBody : list(StructLiteralField, token(Comma)) | list(Expression, token(Comma))
 */
-static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *prefix_op_expr = ast_parse_prefix_op_expr(pc, token_index, mandatory);
     if (!prefix_op_expr) {
         return nullptr;
@@ -843,7 +843,7 @@ SliceExpression : token(LBracket) Expression token(Ellipsis) option(Expression) 
 FieldAccessExpression : token(Dot) token(Symbol)
 StructLiteralField : token(Dot) token(Symbol) token(Eq) Expression
 */
-static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *primary_expr = ast_parse_primary_expr(pc, token_index, mandatory);
     if (!primary_expr) {
         return nullptr;
@@ -936,7 +936,7 @@ static PrefixOp tok_to_prefix_op(Token *token) {
 PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
 PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%" | "??" | "-%"
 */
-static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
     PrefixOp prefix_op = tok_to_prefix_op(token);
     if (prefix_op == PrefixOpInvalid) {
@@ -1005,7 +1005,7 @@ static BinOpType tok_to_mult_op(Token *token) {
 /*
 MultiplyOperator = "*" | "/" | "%" | "**" | "*%"
 */
-static BinOpType ast_parse_mult_op(ParseContext *pc, int *token_index, bool mandatory) {
+static BinOpType ast_parse_mult_op(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
     BinOpType result = tok_to_mult_op(token);
     if (result == BinOpTypeInvalid) {
@@ -1022,7 +1022,7 @@ static BinOpType ast_parse_mult_op(ParseContext *pc, int *token_index, bool mand
 /*
 MultiplyExpression : CurlySuffixExpression MultiplyOperator MultiplyExpression | CurlySuffixExpression
 */
-static AstNode *ast_parse_mult_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_mult_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_curly_suffix_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
@@ -1059,7 +1059,7 @@ static BinOpType tok_to_add_op(Token *token) {
 /*
 AdditionOperator = "+" | "-" | "++" | "+%" | "-%"
 */
-static BinOpType ast_parse_add_op(ParseContext *pc, int *token_index, bool mandatory) {
+static BinOpType ast_parse_add_op(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
     BinOpType result = tok_to_add_op(token);
     if (result == BinOpTypeInvalid) {
@@ -1076,7 +1076,7 @@ static BinOpType ast_parse_add_op(ParseContext *pc, int *token_index, bool manda
 /*
 AdditionExpression : MultiplyExpression AdditionOperator AdditionExpression | MultiplyExpression
 */
-static AstNode *ast_parse_add_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_add_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_mult_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
@@ -1111,7 +1111,7 @@ static BinOpType tok_to_bit_shift_op(Token *token) {
 /*
 BitShiftOperator = "<<" | ">>" | "<<%"
 */
-static BinOpType ast_parse_bit_shift_op(ParseContext *pc, int *token_index, bool mandatory) {
+static BinOpType ast_parse_bit_shift_op(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
     BinOpType result = tok_to_bit_shift_op(token);
     if (result == BinOpTypeInvalid) {
@@ -1128,7 +1128,7 @@ static BinOpType ast_parse_bit_shift_op(ParseContext *pc, int *token_index, bool
 /*
 BitShiftExpression : AdditionExpression BitShiftOperator BitShiftExpression | AdditionExpression
 */
-static AstNode *ast_parse_bit_shift_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_bit_shift_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_add_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
@@ -1155,7 +1155,7 @@ static AstNode *ast_parse_bit_shift_expr(ParseContext *pc, int *token_index, boo
 /*
 BinaryAndExpression : BitShiftExpression token(Ampersand) BinaryAndExpression | BitShiftExpression
 */
-static AstNode *ast_parse_bin_and_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_bin_and_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_bit_shift_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
@@ -1181,7 +1181,7 @@ static AstNode *ast_parse_bin_and_expr(ParseContext *pc, int *token_index, bool 
 /*
 BinaryXorExpression : BinaryAndExpression token(BinXor) BinaryXorExpression | BinaryAndExpression
 */
-static AstNode *ast_parse_bin_xor_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_bin_xor_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_bin_and_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
@@ -1207,7 +1207,7 @@ static AstNode *ast_parse_bin_xor_expr(ParseContext *pc, int *token_index, bool 
 /*
 BinaryOrExpression : BinaryXorExpression token(BinOr) BinaryOrExpression | BinaryXorExpression
 */
-static AstNode *ast_parse_bin_or_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_bin_or_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_bin_xor_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
@@ -1242,7 +1242,7 @@ static BinOpType tok_to_cmp_op(Token *token) {
     }
 }
 
-static BinOpType ast_parse_comparison_operator(ParseContext *pc, int *token_index, bool mandatory) {
+static BinOpType ast_parse_comparison_operator(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
     BinOpType result = tok_to_cmp_op(token);
     if (result == BinOpTypeInvalid) {
@@ -1259,7 +1259,7 @@ static BinOpType ast_parse_comparison_operator(ParseContext *pc, int *token_inde
 /*
 ComparisonExpression : BinaryOrExpression ComparisonOperator BinaryOrExpression | BinaryOrExpression
 */
-static AstNode *ast_parse_comparison_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_comparison_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_bin_or_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
@@ -1283,7 +1283,7 @@ static AstNode *ast_parse_comparison_expr(ParseContext *pc, int *token_index, bo
 /*
 BoolAndExpression : ComparisonExpression token(BoolAnd) BoolAndExpression | ComparisonExpression
  */
-static AstNode *ast_parse_bool_and_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_bool_and_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_comparison_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
@@ -1309,7 +1309,7 @@ static AstNode *ast_parse_bool_and_expr(ParseContext *pc, int *token_index, bool
 /*
 Else : token(Else) Expression
 */
-static AstNode *ast_parse_else(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_else(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *else_token = &pc->tokens->at(*token_index);
 
     if (else_token->id != TokenIdKeywordElse) {
@@ -1329,7 +1329,7 @@ IfExpression : IfVarExpression | IfBoolExpression
 IfBoolExpression : token(If) token(LParen) Expression token(RParen) Expression option(Else)
 IfVarExpression = "if" "(" ("const" | "var") option("*") "Symbol" option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
 */
-static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *if_tok = &pc->tokens->at(*token_index);
     if (if_tok->id != TokenIdKeywordIf) {
         if (mandatory) {
@@ -1396,7 +1396,7 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, int *token_index, bool manda
 /*
 ReturnExpression : option("%" | "?") "return" option(Expression)
 */
-static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index) {
+static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
 
     NodeType node_type;
@@ -1439,7 +1439,7 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, int *token_index) {
 /*
 Defer = option("%" | "?") "defer" option(Expression)
 */
-static AstNode *ast_parse_defer_expr(ParseContext *pc, int *token_index) {
+static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
 
     NodeType node_type;
@@ -1482,7 +1482,7 @@ static AstNode *ast_parse_defer_expr(ParseContext *pc, int *token_index) {
 /*
 VariableDeclaration : ("var" | "const") "Symbol" ("=" Expression | ":" PrefixOpExpression option("=" Expression))
 */
-static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token_index, bool mandatory,
+static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *token_index, bool mandatory,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
 {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -1536,7 +1536,7 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, int *token
 /*
 BoolOrExpression : BoolAndExpression token(BoolOr) BoolOrExpression | BoolAndExpression
 */
-static AstNode *ast_parse_bool_or_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_bool_or_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_bool_and_expr(pc, token_index, mandatory);
     if (!operand_1)
         return nullptr;
@@ -1562,7 +1562,7 @@ static AstNode *ast_parse_bool_or_expr(ParseContext *pc, int *token_index, bool 
 /*
 WhileExpression = "while" "(" Expression option(";" Expression) ")" Expression
 */
-static AstNode *ast_parse_while_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_while_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
     if (token->id != TokenIdKeywordWhile) {
@@ -1598,7 +1598,7 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, int *token_index, bool ma
     return node;
 }
 
-static AstNode *ast_parse_symbol(ParseContext *pc, int *token_index) {
+static AstNode *ast_parse_symbol(ParseContext *pc, size_t *token_index) {
     Token *token = ast_eat_token(pc, token_index, TokenIdSymbol);
     AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
     node->data.symbol_expr.symbol = token_buf(token);
@@ -1608,7 +1608,7 @@ static AstNode *ast_parse_symbol(ParseContext *pc, int *token_index) {
 /*
 ForExpression = "for" "(" Expression ")" option("|" option("*") "Symbol" option("," "Symbol") "|") Expression
 */
-static AstNode *ast_parse_for_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_for_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
     if (token->id != TokenIdKeywordFor) {
@@ -1659,7 +1659,7 @@ SwitchExpression : "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" "Symbol" "|") Expression ","
 SwitchItem : Expression | (Expression "..." Expression)
 */
-static AstNode *ast_parse_switch_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
     if (token->id != TokenIdKeywordSwitch) {
@@ -1736,7 +1736,7 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, int *token_index, bool m
 /*
 BlockExpression : IfExpression | Block | WhileExpression | ForExpression | SwitchExpression
 */
-static AstNode *ast_parse_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
     AstNode *if_expr = ast_parse_if_expr(pc, token_index, false);
@@ -1791,7 +1791,7 @@ static BinOpType tok_to_ass_op(Token *token) {
 /*
 AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||=" | "*%=" | "+%=" | "-%=" | "<<%="
 */
-static BinOpType ast_parse_ass_op(ParseContext *pc, int *token_index, bool mandatory) {
+static BinOpType ast_parse_ass_op(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
     BinOpType result = tok_to_ass_op(token);
     if (result == BinOpTypeInvalid) {
@@ -1810,7 +1810,7 @@ UnwrapExpression : BoolOrExpression (UnwrapMaybe | UnwrapError) | BoolOrExpressi
 UnwrapMaybe : "??" BoolOrExpression
 UnwrapError : "%%" option("|" "Symbol" "|") BoolOrExpression
 */
-static AstNode *ast_parse_unwrap_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_unwrap_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *lhs = ast_parse_bool_or_expr(pc, token_index, mandatory);
     if (!lhs)
         return nullptr;
@@ -1853,7 +1853,7 @@ static AstNode *ast_parse_unwrap_expr(ParseContext *pc, int *token_index, bool m
 /*
 AssignmentExpression : UnwrapExpression AssignmentOperator UnwrapExpression | UnwrapExpression
 */
-static AstNode *ast_parse_ass_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_ass_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *lhs = ast_parse_unwrap_expr(pc, token_index, mandatory);
     if (!lhs)
         return nullptr;
@@ -1877,7 +1877,7 @@ static AstNode *ast_parse_ass_expr(ParseContext *pc, int *token_index, bool mand
 /*
 NonBlockExpression : ReturnExpression | AssignmentExpression
 */
-static AstNode *ast_parse_non_block_expr(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_non_block_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
     AstNode *return_expr = ast_parse_return_expr(pc, token_index);
@@ -1897,7 +1897,7 @@ static AstNode *ast_parse_non_block_expr(ParseContext *pc, int *token_index, boo
 /*
 Expression : BlockExpression | NonBlockExpression
 */
-static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
     AstNode *block_expr = ast_parse_block_expr(pc, token_index, false);
@@ -1917,7 +1917,7 @@ static AstNode *ast_parse_expression(ParseContext *pc, int *token_index, bool ma
 /*
 Label: token(Symbol) token(Colon)
 */
-static AstNode *ast_parse_label(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_label(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *symbol_token = &pc->tokens->at(*token_index);
     if (symbol_token->id != TokenIdSymbol) {
         if (mandatory) {
@@ -1956,7 +1956,7 @@ static AstNode *ast_create_void_expr(ParseContext *pc, Token *token) {
 Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
 Statement = Label | VariableDeclaration ";" | Defer ";" | NonBlockExpression ";" | BlockExpression
 */
-static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandatory) {
+static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *last_token = &pc->tokens->at(*token_index);
 
     if (last_token->id != TokenIdLBrace) {
@@ -2021,7 +2021,7 @@ static AstNode *ast_parse_block(ParseContext *pc, int *token_index, bool mandato
 /*
 FnProto = "fn" option("Symbol") ParamDeclList option("->" TypeExpr)
 */
-static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mandatory,
+static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool mandatory,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
 {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2064,7 +2064,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, int *token_index, bool mand
 /*
 FnDef = option("inline" | "extern") FnProto Block
 */
-static AstNode *ast_parse_fn_def(ParseContext *pc, int *token_index, bool mandatory,
+static AstNode *ast_parse_fn_def(ParseContext *pc, size_t *token_index, bool mandatory,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
 {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2111,7 +2111,7 @@ static AstNode *ast_parse_fn_def(ParseContext *pc, int *token_index, bool mandat
 /*
 ExternDecl = "extern" (FnProto | VariableDeclaration) ";"
 */
-static AstNode *ast_parse_extern_decl(ParseContext *pc, int *token_index, bool mandatory,
+static AstNode *ast_parse_extern_decl(ParseContext *pc, size_t *token_index, bool mandatory,
         ZigList<AstNode *> *directives, VisibMod visib_mod)
 {
     Token *extern_kw = &pc->tokens->at(*token_index);
@@ -2151,7 +2151,7 @@ static AstNode *ast_parse_extern_decl(ParseContext *pc, int *token_index, bool m
 /*
 UseDecl = "use" Expression ";"
 */
-static AstNode *ast_parse_use(ParseContext *pc, int *token_index,
+static AstNode *ast_parse_use(ParseContext *pc, size_t *token_index,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
 {
     Token *use_kw = &pc->tokens->at(*token_index);
@@ -2175,7 +2175,7 @@ ContainerDecl = ("struct" | "enum" | "union") "Symbol" option(ParamDeclList) "{"
 StructMember = many(Directive) option(VisibleMod) (StructField | FnDef | GlobalVarDecl | ContainerDecl)
 StructField : "Symbol" option(":" Expression) ",")
 */
-static AstNode *ast_parse_container_decl(ParseContext *pc, int *token_index,
+static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
 {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2289,7 +2289,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, int *token_index,
 /*
 ErrorValueDecl : "error" "Symbol" ";"
 */
-static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index,
+static AstNode *ast_parse_error_value_decl(ParseContext *pc, size_t *token_index,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
 {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2314,7 +2314,7 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, int *token_index,
 /*
 TypeDecl = "type" "Symbol" "=" TypeExpr ";"
 */
-static AstNode *ast_parse_type_decl(ParseContext *pc, int *token_index,
+static AstNode *ast_parse_type_decl(ParseContext *pc, size_t *token_index,
         ZigList<AstNode*> *directives, VisibMod visib_mod)
 {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2343,7 +2343,7 @@ static AstNode *ast_parse_type_decl(ParseContext *pc, int *token_index,
 /*
 TopLevelDecl = many(Directive) option(VisibleMod) (FnDef | ExternDecl | Import | ContainerDecl | GlobalVarDecl | ErrorValueDecl | CImportDecl | TypeDecl)
 */
-static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigList<AstNode *> *top_level_decls) {
+static void ast_parse_top_level_decls(ParseContext *pc, size_t *token_index, ZigList<AstNode *> *top_level_decls) {
     for (;;) {
         Token *directive_token = &pc->tokens->at(*token_index);
         ZigList<AstNode *> *directives = allocate<ZigList<AstNode*>>(1);
@@ -2417,7 +2417,7 @@ static void ast_parse_top_level_decls(ParseContext *pc, int *token_index, ZigLis
 /*
 Root : many(TopLevelDecl) token(EOF)
  */
-static AstNode *ast_parse_root(ParseContext *pc, int *token_index) {
+static AstNode *ast_parse_root(ParseContext *pc, size_t *token_index) {
     AstNode *node = ast_create_node(pc, NodeTypeRoot, &pc->tokens->at(*token_index));
 
     ast_parse_top_level_decls(pc, token_index, &node->data.root.top_level_decls);
@@ -2441,7 +2441,7 @@ AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
     pc.buf = buf;
     pc.tokens = tokens;
     pc.next_node_index = next_node_index;
-    int token_index = 0;
+    size_t token_index = 0;
     pc.root = ast_parse_root(&pc, &token_index);
     return pc.root;
 }
@@ -2454,7 +2454,7 @@ static void visit_field(AstNode **node, void (*visit)(AstNode **, void *context)
 
 static void visit_node_list(ZigList<AstNode *> *list, void (*visit)(AstNode **, void *context), void *context) {
     if (list) {
-        for (int i = 0; i < list->length; i += 1) {
+        for (size_t i = 0; i < list->length; i += 1) {
             visit(&list->at(i), context);
         }
     }
@@ -2607,11 +2607,11 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             // none
             break;
         case NodeTypeAsmExpr:
-            for (int i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
+            for (size_t i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
                 AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
                 visit_field(&asm_input->expr, visit, context);
             }
-            for (int i = 0; i < node->data.asm_expr.output_list.length; i += 1) {
+            for (size_t i = 0; i < node->data.asm_expr.output_list.length; i += 1) {
                 AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
                 visit_field(&asm_output->return_type, visit, context);
             }
@@ -2659,7 +2659,7 @@ void normalize_parent_ptrs(AstNode *node) {
 static void clone_subtree_list(ZigList<AstNode *> *dest, ZigList<AstNode *> *src, uint32_t *next_node_index) {
     memset(dest, 0, sizeof(ZigList<AstNode *>));
     dest->resize(src->length);
-    for (int i = 0; i < src->length; i += 1) {
+    for (size_t i = 0; i < src->length; i += 1) {
         dest->at(i) = ast_clone_subtree(src->at(i), next_node_index);
         dest->at(i)->parent_field = &dest->at(i);
     }
@@ -2670,7 +2670,7 @@ static void clone_subtree_list_omit_inline_params(ZigList<AstNode *> *dest, ZigL
 {
     memset(dest, 0, sizeof(ZigList<AstNode *>));
     dest->ensure_capacity(src->length);
-    for (int i = 0; i < src->length; i += 1) {
+    for (size_t i = 0; i < src->length; i += 1) {
         AstNode *src_node = src->at(i);
         assert(src_node->type == NodeTypeParamDecl);
         if (src_node->data.param_decl.is_inline) {
@@ -2712,7 +2712,7 @@ static void clone_subtree_tld(TopLevelDecl *dest, TopLevelDecl *src, uint32_t *n
 
 AstNode *ast_clone_subtree_special(AstNode *old_node, uint32_t *next_node_index, enum AstCloneSpecial special) {
     AstNode *new_node = allocate_nonzero<AstNode>(1);
-    memcpy(new_node, old_node, sizeof(AstNode));
+    safe_memcpy(new_node, old_node, 1);
     new_node->create_index = *next_node_index;
     *next_node_index += 1;
     new_node->parent_field = nullptr;

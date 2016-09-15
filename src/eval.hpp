@@ -10,7 +10,7 @@
 
 #include "all_types.hpp"
 
-bool eval_fn(CodeGen *g, AstNode *node, FnTableEntry *fn, ConstExprValue *out_val, int branch_quota,
+bool eval_fn(CodeGen *g, AstNode *node, FnTableEntry *fn, ConstExprValue *out_val, size_t branch_quota,
         AstNode *struct_node);
 
 bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *type_entry);

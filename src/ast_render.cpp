@@ -292,7 +292,7 @@ static bool is_printable(uint8_t c) {
 
 static void string_literal_escape(Buf *source, Buf *dest) {
     buf_resize(dest, 0);
-    for (int i = 0; i < buf_len(source); i += 1) {
+    for (size_t i = 0; i < buf_len(source); i += 1) {
         uint8_t c = *((uint8_t*)buf_ptr(source) + i);
         if (is_printable(c)) {
             buf_append_char(dest, c);
@@ -330,7 +330,7 @@ static bool is_valid_bare_symbol(Buf *symbol) {
     if (!is_alpha_under(first_char)) {
         return false;
     }
-    for (int i = 1; i < buf_len(symbol); i += 1) {
+    for (size_t i = 1; i < buf_len(symbol); i += 1) {
         uint8_t c = *((uint8_t*)buf_ptr(symbol) + i);
         if (!is_alpha_under(c) && !is_digit(c)) {
             return false;
@@ -358,7 +358,7 @@ static void render_node(AstRender *ar, AstNode *node) {
 
     switch (node->type) {
         case NodeTypeRoot:
-            for (int i = 0; i < node->data.root.top_level_decls.length; i += 1) {
+            for (size_t i = 0; i < node->data.root.top_level_decls.length; i += 1) {
                 AstNode *child = node->data.root.top_level_decls.at(i);
                 print_indent(ar);
                 render_node(ar, child);
@@ -417,7 +417,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                 ZigList<AstNode *> *directives =
                     node->data.fn_def.fn_proto->data.fn_proto.top_level_decl.directives;
                 if (directives) {
-                    for (int i = 0; i < directives->length; i += 1) {
+                    for (size_t i = 0; i < directives->length; i += 1) {
                         render_node(ar, directives->at(i));
                     }
                 }
@@ -433,7 +433,7 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeBlock:
             fprintf(ar->f, "{\n");
             ar->indent += ar->indent_size;
-            for (int i = 0; i < node->data.block.statements.length; i += 1) {
+            for (size_t i = 0; i < node->data.block.statements.length; i += 1) {
                 AstNode *statement = node->data.block.statements.at(i);
                 print_indent(ar);
                 render_node(ar, statement);
@@ -561,7 +561,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                 fprintf(ar->f, ")");
             }
             fprintf(ar->f, "(");
-            for (int i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
+            for (size_t i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
                 AstNode *param = node->data.fn_call_expr.params.at(i);
                 if (i != 0) {
                     fprintf(ar->f, ", ");
@@ -628,7 +628,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                 const char *container_str = container_string(node->data.struct_decl.kind);
                 fprintf(ar->f, "%s%s %s {\n", pub_str, container_str, struct_name);
                 ar->indent += ar->indent_size;
-                for (int field_i = 0; field_i < node->data.struct_decl.fields.length; field_i += 1) {
+                for (size_t field_i = 0; field_i < node->data.struct_decl.fields.length; field_i += 1) {
                     AstNode *field_node = node->data.struct_decl.fields.at(field_i);
                     assert(field_node->type == NodeTypeStructField);
                     print_indent(ar);

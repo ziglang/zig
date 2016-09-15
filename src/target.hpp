@@ -38,22 +38,22 @@ enum CIntType {
     CIntTypeCount,
 };
 
-int target_arch_count(void);
+size_t target_arch_count(void);
 const ArchType *get_target_arch(int index);
 void get_arch_name(char *out_str, const ArchType *arch);
 
-int target_vendor_count(void);
+size_t target_vendor_count(void);
 ZigLLVM_VendorType get_target_vendor(int index);
 
-int target_os_count(void);
+size_t target_os_count(void);
 ZigLLVM_OSType get_target_os(int index);
 const char *get_target_os_name(ZigLLVM_OSType os_type);
 
-int target_environ_count(void);
+size_t target_environ_count(void);
 ZigLLVM_EnvironmentType get_target_environ(int index);
 
 
-int target_oformat_count(void);
+size_t target_oformat_count(void);
 const ZigLLVM_ObjectFormatType get_target_oformat(int index);
 const char *get_target_oformat_name(ZigLLVM_ObjectFormatType oformat);
 

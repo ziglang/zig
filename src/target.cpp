@@ -156,7 +156,7 @@ static const ZigLLVM_ObjectFormatType oformat_list[] = {
     ZigLLVM_MachO,
 };
 
-int target_oformat_count(void) {
+size_t target_oformat_count(void) {
     return array_length(oformat_list);
 }
 
@@ -174,7 +174,7 @@ const char *get_target_oformat_name(ZigLLVM_ObjectFormatType oformat) {
     zig_unreachable();
 }
 
-int target_arch_count(void) {
+size_t target_arch_count(void) {
     return array_length(arch_list);
 }
 
@@ -182,7 +182,7 @@ const ArchType *get_target_arch(int index) {
     return &arch_list[index];
 }
 
-int target_vendor_count(void) {
+size_t target_vendor_count(void) {
     return array_length(vendor_list);
 }
 
@@ -190,7 +190,7 @@ ZigLLVM_VendorType get_target_vendor(int index) {
     return vendor_list[index];
 }
 
-int target_os_count(void) {
+size_t target_os_count(void) {
     return array_length(os_list);
 }
 ZigLLVM_OSType get_target_os(int index) {
@@ -201,7 +201,7 @@ const char *get_target_os_name(ZigLLVM_OSType os_type) {
     return (os_type == ZigLLVM_UnknownOS) ? "freestanding" : ZigLLVMGetOSTypeName(os_type);
 }
 
-int target_environ_count(void) {
+size_t target_environ_count(void) {
     return array_length(environ_list);
 }
 ZigLLVM_EnvironmentType get_target_environ(int index) {
@@ -237,7 +237,7 @@ void get_arch_name(char *out_str, const ArchType *arch) {
 }
 
 int parse_target_arch(const char *str, ArchType *out_arch) {
-    for (int i = 0; i < array_length(arch_list); i += 1) {
+    for (size_t i = 0; i < array_length(arch_list); i += 1) {
         const ArchType *arch = &arch_list[i];
         char arch_name[50];
         get_arch_name_raw(arch_name, arch->arch, arch->sub_arch);
@@ -250,7 +250,7 @@ int parse_target_arch(const char *str, ArchType *out_arch) {
 }
 
 int parse_target_os(const char *str, ZigLLVM_OSType *out_os) {
-    for (int i = 0; i < array_length(os_list); i += 1) {
+    for (size_t i = 0; i < array_length(os_list); i += 1) {
         ZigLLVM_OSType os = os_list[i];
         const char *os_name = get_target_os_name(os);
         if (strcmp(os_name, str) == 0) {
@@ -262,7 +262,7 @@ int parse_target_os(const char *str, ZigLLVM_OSType *out_os) {
 }
 
 int parse_target_environ(const char *str, ZigLLVM_EnvironmentType *out_environ) {
-    for (int i = 0; i < array_length(environ_list); i += 1) {
+    for (size_t i = 0; i < array_length(environ_list); i += 1) {
         ZigLLVM_EnvironmentType env_type = environ_list[i];
         const char *environ_name = ZigLLVMGetEnvironmentTypeName(env_type);
         if (strcmp(environ_name, str) == 0) {

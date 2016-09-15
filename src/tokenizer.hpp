@@ -131,10 +131,10 @@ struct TokenCharLit {
 
 struct Token {
     TokenId id;
-    int start_pos;
-    int end_pos;
-    int start_line;
-    int start_column;
+    size_t start_pos;
+    size_t end_pos;
+    size_t start_line;
+    size_t start_column;
 
     union {
         // TokenIdNumberLiteral
@@ -150,12 +150,12 @@ struct Token {
 
 struct Tokenization {
     ZigList<Token> *tokens;
-    ZigList<int> *line_offsets;
+    ZigList<size_t> *line_offsets;
 
     // if an error occurred
     Buf *err;
-    int err_line;
-    int err_column;
+    size_t err_line;
+    size_t err_column;
 };
 
 void tokenize(Buf *buf, Tokenization *out_tokenization);

@@ -93,7 +93,7 @@ static TestCase *add_simple_case_libc(const char *case_name, const char *source,
     return tc;
 }
 
-static TestCase *add_compile_fail_case(const char *case_name, const char *source, int count, ...) {
+static TestCase *add_compile_fail_case(const char *case_name, const char *source, size_t count, ...) {
     va_list ap;
     va_start(ap, count);
 
@@ -103,7 +103,7 @@ static TestCase *add_compile_fail_case(const char *case_name, const char *source
     test_case->source_files.at(0).relative_path = tmp_source_path;
     test_case->source_files.at(0).source_code = source;
 
-    for (int i = 0; i < count; i += 1) {
+    for (size_t i = 0; i < count; i += 1) {
         const char *arg = va_arg(ap, const char *);
         test_case->compile_errors.append(arg);
     }
@@ -181,7 +181,7 @@ static void add_debug_safety_case(const char *case_name, const char *source) {
 }
 
 static TestCase *add_parseh_case(const char *case_name, AllowWarnings allow_warnings,
-    const char *source, int count, ...)
+    const char *source, size_t count, ...)
 {
     va_list ap;
     va_start(ap, count);
@@ -195,7 +195,7 @@ static TestCase *add_parseh_case(const char *case_name, AllowWarnings allow_warn
     test_case->source_files.at(0).relative_path = tmp_h_path;
     test_case->source_files.at(0).source_code = source;
 
-    for (int i = 0; i < count; i += 1) {
+    for (size_t i = 0; i < count; i += 1) {
         const char *arg = va_arg(ap, const char *);
         test_case->compile_errors.append(arg);
     }
@@ -1854,7 +1854,7 @@ static void run_self_hosted_test(bool is_release_mode) {
     if (term.how != TerminationIdClean || term.code != 0) {
         printf("\nSelf-hosted tests failed:\n");
         printf("./zig");
-        for (int i = 0; i < args.length; i += 1) {
+        for (size_t i = 0; i < args.length; i += 1) {
             printf(" %s", args.at(i));
         }
         printf("\n%s\n", buf_ptr(&zig_stderr));
@@ -1881,7 +1881,7 @@ static void add_self_hosted_tests(void) {
 
 static void print_compiler_invocation(TestCase *test_case) {
     printf("%s", zig_exe);
-    for (int i = 0; i < test_case->compiler_args.length; i += 1) {
+    for (size_t i = 0; i < test_case->compiler_args.length; i += 1) {
         printf(" %s", test_case->compiler_args.at(i));
     }
     printf("\n");
@@ -1889,7 +1889,7 @@ static void print_compiler_invocation(TestCase *test_case) {
 
 static void print_exe_invocation(TestCase *test_case) {
     printf("%s", tmp_exe_path);
-    for (int i = 0; i < test_case->program_args.length; i += 1) {
+    for (size_t i = 0; i < test_case->program_args.length; i += 1) {
         printf(" %s", test_case->program_args.at(i));
     }
     printf("\n");
@@ -1900,7 +1900,7 @@ static void run_test(TestCase *test_case) {
         return run_self_hosted_test(test_case->is_release_mode);
     }
 
-    for (int i = 0; i < test_case->source_files.length; i += 1) {
+    for (size_t i = 0; i < test_case->source_files.length; i += 1) {
         TestSourceFile *test_source = &test_case->source_files.at(i);
         os_write_file(
                 buf_create_from_str(test_source->relative_path),
@@ -1917,7 +1917,7 @@ static void run_test(TestCase *test_case) {
 
     if (!test_case->is_parseh && test_case->compile_errors.length) {
         if (term.how != TerminationIdClean || term.code != 0) {
-            for (int i = 0; i < test_case->compile_errors.length; i += 1) {
+            for (size_t i = 0; i < test_case->compile_errors.length; i += 1) {
                 const char *err_text = test_case->compile_errors.at(i);
                 if (!strstr(buf_ptr(&zig_stderr), err_text)) {
                     printf("\n");
@@ -1957,7 +1957,7 @@ static void run_test(TestCase *test_case) {
             }
         }
 
-        for (int i = 0; i < test_case->compile_errors.length; i += 1) {
+        for (size_t i = 0; i < test_case->compile_errors.length; i += 1) {
             const char *output = test_case->compile_errors.at(i);
 
             if (!strstr(buf_ptr(&zig_stdout), output)) {
@@ -2015,7 +2015,7 @@ static void run_test(TestCase *test_case) {
         }
     }
 
-    for (int i = 0; i < test_case->source_files.length; i += 1) {
+    for (size_t i = 0; i < test_case->source_files.length; i += 1) {
         TestSourceFile *test_source = &test_case->source_files.at(i);
         remove(test_source->relative_path);
     }
@@ -2023,21 +2023,23 @@ static void run_test(TestCase *test_case) {
 
 static void run_all_tests(bool reverse) {
     if (reverse) {
-        for (int i = test_cases.length - 1; i >= 0; i -= 1) {
+        for (size_t i = test_cases.length;;) {
             TestCase *test_case = test_cases.at(i);
-            printf("Test %d/%d %s...", i + 1, test_cases.length, test_case->case_name);
+            printf("Test %zu/%zu %s...", i + 1, test_cases.length, test_case->case_name);
             run_test(test_case);
             printf("OK\n");
+            if (i == 0) break;
+            i -= 1;
         }
     } else {
-        for (int i = 0; i < test_cases.length; i += 1) {
+        for (size_t i = 0; i < test_cases.length; i += 1) {
             TestCase *test_case = test_cases.at(i);
-            printf("Test %d/%d %s...", i + 1, test_cases.length, test_case->case_name);
+            printf("Test %zu/%zu %s...", i + 1, test_cases.length, test_case->case_name);
             run_test(test_case);
             printf("OK\n");
         }
     }
-    printf("%d tests passed.\n", test_cases.length);
+    printf("%zu tests passed.\n", test_cases.length);
 }
 
 static void cleanup(void) {

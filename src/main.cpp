@@ -64,8 +64,8 @@ static int print_target_list(FILE *f) {
     get_native_target(&native);
 
     fprintf(f, "Architectures:\n");
-    int arch_count = target_arch_count();
-    for (int arch_i = 0; arch_i < arch_count; arch_i += 1) {
+    size_t arch_count = target_arch_count();
+    for (size_t arch_i = 0; arch_i < arch_count; arch_i += 1) {
         const ArchType *arch = get_target_arch(arch_i);
         char arch_name[50];
         get_arch_name(arch_name, arch);
@@ -75,16 +75,16 @@ static int print_target_list(FILE *f) {
     }
 
     fprintf(f, "\nOperating Systems:\n");
-    int os_count = target_os_count();
-    for (int i = 0; i < os_count; i += 1) {
+    size_t os_count = target_os_count();
+    for (size_t i = 0; i < os_count; i += 1) {
         ZigLLVM_OSType os_type = get_target_os(i);
         const char *native_str = (native.os == os_type) ? " (native)" : "";
         fprintf(f, "  %s%s\n", get_target_os_name(os_type), native_str);
     }
 
     fprintf(f, "\nEnvironments:\n");
-    int environ_count = target_environ_count();
-    for (int i = 0; i < environ_count; i += 1) {
+    size_t environ_count = target_environ_count();
+    for (size_t i = 0; i < environ_count; i += 1) {
         ZigLLVM_EnvironmentType environ_type = get_target_environ(i);
         const char *native_str = (native.env_type == environ_type) ? " (native)" : "";
         fprintf(f, "  %s%s\n", ZigLLVMGetEnvironmentTypeName(environ_type), native_str);
@@ -375,13 +375,13 @@ int main(int argc, char **argv) {
             codegen_set_verbose(g, verbose);
             codegen_set_errmsg_color(g, color);
 
-            for (int i = 0; i < lib_dirs.length; i += 1) {
+            for (size_t i = 0; i < lib_dirs.length; i += 1) {
                 codegen_add_lib_dir(g, lib_dirs.at(i));
             }
-            for (int i = 0; i < link_libs.length; i += 1) {
+            for (size_t i = 0; i < link_libs.length; i += 1) {
                 codegen_add_link_lib(g, link_libs.at(i));
             }
-            for (int i = 0; i < frameworks.length; i += 1) {
+            for (size_t i = 0; i < frameworks.length; i += 1) {
                 codegen_add_framework(g, frameworks.at(i));
             }
 

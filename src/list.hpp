@@ -23,13 +23,13 @@ struct ZigList {
     }
     // remember that the pointer to this item is invalid after you
     // modify the length of the list
-    const T & at(int index) const {
-        assert(index >= 0);
+    const T & at(size_t index) const {
+        assert(index != SIZE_MAX);
         assert(index < length);
         return items[index];
     }
-    T & at(int index) {
-        assert(index >= 0);
+    T & at(size_t index) {
+        assert(index != SIZE_MAX);
         assert(index < length);
         return items[index];
     }
@@ -52,8 +52,8 @@ struct ZigList {
         return items[length - 1];
     }
 
-    void resize(int new_length) {
-        assert(new_length >= 0);
+    void resize(size_t new_length) {
+        assert(new_length != SIZE_MAX);
         ensure_capacity(new_length);
         length = new_length;
     }
@@ -62,19 +62,22 @@ struct ZigList {
         length = 0;
     }
 
-    void ensure_capacity(int new_capacity) {
-        int better_capacity = max(capacity, 16);
-        while (better_capacity < new_capacity)
-            better_capacity = better_capacity * 2;
-        if (better_capacity != capacity) {
-            items = reallocate_nonzero(items, better_capacity);
-            capacity = better_capacity;
-        }
+    void ensure_capacity(size_t new_capacity) {
+        if (capacity >= new_capacity)
+            return;
+
+        size_t better_capacity = capacity;
+        do {
+            better_capacity = better_capacity * 1.4 + 8;
+        } while (better_capacity < new_capacity);
+
+        items = reallocate_nonzero(items, capacity, better_capacity);
+        capacity = better_capacity;
     }
 
-    T * items;
-    int length;
-    int capacity;
+    T *items;
+    size_t length;
+    size_t capacity;
 };
 
 #endif

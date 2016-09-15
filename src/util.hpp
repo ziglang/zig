@@ -45,15 +45,35 @@ __attribute__((malloc)) static inline T *allocate(size_t count) {
 }
 
 template<typename T>
-static inline T *reallocate_nonzero(T * old, size_t new_count) {
+static inline void safe_memcpy(T *dest, const T *src, size_t count) {
+#ifdef NDEBUG
+    memcpy(dest, src, count * sizeof(T));
+#else
+    // manually assign every elment to trigger compile error for non-copyable structs
+    for (size_t i = 0; i < count; i += 1) {
+        dest[i] = src[i];
+    }
+#endif
+}
+
+template<typename T>
+static inline T *reallocate_nonzero(T *old, size_t old_count, size_t new_count) {
+#ifdef NDEBUG
     T *ptr = reinterpret_cast<T*>(realloc(old, new_count * sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");
     return ptr;
+#else
+    // manually assign every element to trigger compile error for non-copyable structs
+    T *ptr = allocate_nonzero<T>(new_count);
+    safe_memcpy(ptr, old, old_count);
+    free(old);
+    return ptr;
+#endif
 }
 
-template <typename T, long n>
-constexpr long array_length(const T (&)[n]) {
+template <typename T, size_t n>
+constexpr size_t array_length(const T (&)[n]) {
     return n;
 }
 

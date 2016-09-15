@@ -141,7 +141,7 @@ static const struct ZigKeyword zig_keywords[] = {
 };
 
 bool is_zig_keyword(Buf *buf) {
-    for (int i = 0; i < array_length(zig_keywords); i += 1) {
+    for (size_t i = 0; i < array_length(zig_keywords); i += 1) {
         if (buf_eql_str(buf, zig_keywords[i].text)) {
             return true;
         }
@@ -209,7 +209,7 @@ enum TokenizeState {
 
 struct Tokenize {
     Buf *buf;
-    int pos;
+    size_t pos;
     TokenizeState state;
     ZigList<Token> *tokens;
     int line;
@@ -329,7 +329,7 @@ static void end_float_token(Tokenize *t) {
         }
     }
     uint64_t double_bits = (exponent_bits << 52) | significand_bits;
-    memcpy(&t->cur_tok->data.num_lit.bignum.data.x_float, &double_bits, sizeof(double));
+    safe_memcpy(&t->cur_tok->data.num_lit.bignum.data.x_float, (double *)&double_bits, 1);
 }
 
 static void end_token(Tokenize *t) {
@@ -397,7 +397,7 @@ void tokenize(Buf *buf, Tokenization *out) {
     t.tokens = out->tokens = allocate<ZigList<Token>>(1);
     t.buf = buf;
 
-    out->line_offsets = allocate<ZigList<int>>(1);
+    out->line_offsets = allocate<ZigList<size_t>>(1);
 
     out->line_offsets->append(0);
     for (t.pos = 0; t.pos < buf_len(t.buf); t.pos += 1) {
@@ -1545,10 +1545,10 @@ const char * token_name(TokenId id) {
 }
 
 void print_tokens(Buf *buf, ZigList<Token> *tokens) {
-    for (int i = 0; i < tokens->length; i += 1) {
+    for (size_t i = 0; i < tokens->length; i += 1) {
         Token *token = &tokens->at(i);
         fprintf(stderr, "%s ", token_name(token->id));
-        if (token->start_pos >= 0) {
+        if (token->start_pos != SIZE_MAX) {
             fwrite(buf_ptr(buf) + token->start_pos, 1, token->end_pos - token->start_pos, stderr);
         }
         fprintf(stderr, "\n");

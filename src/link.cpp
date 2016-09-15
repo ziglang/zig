@@ -172,9 +172,9 @@ static void construct_linker_job_linux(LinkJob *lj) {
         lj->args.append("-shared");
 
         buf_resize(&lj->out_file, 0);
-        buf_appendf(&lj->out_file, "lib%s.so.%d.%d.%d",
+        buf_appendf(&lj->out_file, "lib%s.so.%zu.%zu.%zu",
                 buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
-        soname = buf_sprintf("lib%s.so.%d", buf_ptr(g->root_out_name), g->version_major);
+        soname = buf_sprintf("lib%s.so.%zu", buf_ptr(g->root_out_name), g->version_major);
     }
 
     lj->args.append("-o");
@@ -195,7 +195,7 @@ static void construct_linker_job_linux(LinkJob *lj) {
         lj->args.append(get_libc_static_file(g, crtbegino));
     }
 
-    for (int i = 0; i < g->lib_dirs.length; i += 1) {
+    for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
         const char *lib_dir = g->lib_dirs.at(i);
         lj->args.append("-L");
         lj->args.append(lib_dir);
@@ -239,7 +239,7 @@ static void construct_linker_job_linux(LinkJob *lj) {
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
-    for (int i = 0; i < g->link_libs.length; i += 1) {
+    for (size_t i = 0; i < g->link_libs.length; i += 1) {
         Buf *link_lib = g->link_libs.at(i);
         Buf *arg;
         if (buf_starts_with_str(link_lib, "/") || buf_ends_with_str(link_lib, ".a") ||
@@ -350,7 +350,7 @@ static void construct_linker_job_mingw(LinkJob *lj) {
         lj->args.append(get_libc_static_file(g, "crtbegin.o"));
     }
 
-    for (int i = 0; i < g->lib_dirs.length; i += 1) {
+    for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
         const char *lib_dir = g->lib_dirs.at(i);
         lj->args.append("-L");
         lj->args.append(lib_dir);
@@ -381,7 +381,7 @@ static void construct_linker_job_mingw(LinkJob *lj) {
     }
 
 
-    for (int i = 0; i < g->link_libs.length; i += 1) {
+    for (size_t i = 0; i < g->link_libs.length; i += 1) {
         Buf *link_lib = g->link_libs.at(i);
         Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
         lj->args.append(buf_ptr(arg));
@@ -635,7 +635,7 @@ static void construct_linker_job_darwin(LinkJob *lj) {
         }
     }
 
-    for (int i = 0; i < g->lib_dirs.length; i += 1) {
+    for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
         const char *lib_dir = g->lib_dirs.at(i);
         lj->args.append("-L");
         lj->args.append(lib_dir);
@@ -649,7 +649,7 @@ static void construct_linker_job_darwin(LinkJob *lj) {
         lj->args.append(buf_ptr(test_runner_o_path));
     }
 
-    for (int i = 0; i < g->link_libs.length; i += 1) {
+    for (size_t i = 0; i < g->link_libs.length; i += 1) {
         Buf *link_lib = g->link_libs.at(i);
         Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
         lj->args.append(buf_ptr(arg));
@@ -671,7 +671,7 @@ static void construct_linker_job_darwin(LinkJob *lj) {
         zig_panic("TODO");
     }
 
-    for (int i = 0; i < g->darwin_frameworks.length; i += 1) {
+    for (size_t i = 0; i < g->darwin_frameworks.length; i += 1) {
         lj->args.append("-framework");
         lj->args.append(buf_ptr(g->darwin_frameworks.at(i)));
     }
@@ -829,7 +829,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
 
     if (g->verbose) {
         fprintf(stderr, "%s", buf_ptr(g->linker_path));
-        for (int i = 0; i < lj.args.length; i += 1) {
+        for (size_t i = 0; i < lj.args.length; i += 1) {
             fprintf(stderr, " %s", lj.args.at(i));
         }
         fprintf(stderr, "\n");
@@ -853,7 +853,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
             fprintf(stderr, "linker failed\n");
         }
         fprintf(stderr, "%s ", buf_ptr(g->linker_path));
-        for (int i = 0; i < lj.args.length; i += 1) {
+        for (size_t i = 0; i < lj.args.length; i += 1) {
             fprintf(stderr, "%s ", lj.args.at(i));
         }
         fprintf(stderr, "\n%s\n", buf_ptr(&ld_stderr));

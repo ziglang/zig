@@ -16,7 +16,7 @@
 
 CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target);
 
-void codegen_set_clang_argv(CodeGen *codegen, const char **args, int len);
+void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_is_release(CodeGen *codegen, bool is_release);
 void codegen_set_is_test(CodeGen *codegen, bool is_test);
 void codegen_set_check_unused(CodeGen *codegen, bool check_unused);

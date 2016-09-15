@@ -41,7 +41,7 @@ void buf_appendf(Buf *buf, const char *format, ...) {
 
     size_t required_size = len1 + 1;
 
-    int orig_len = buf_len(buf);
+    size_t orig_len = buf_len(buf);
 
     buf_resize(buf, orig_len + len1);
 
@@ -62,7 +62,7 @@ uint32_t buf_hash(Buf *buf) {
     assert(buf->list.length);
     // FNV 32-bit hash
     uint32_t h = 2166136261;
-    for (int i = 0; i < buf_len(buf); i += 1) {
+    for (size_t i = 0; i < buf_len(buf); i += 1) {
         h = h ^ ((uint8_t)buf->list.at(i));
         h = h * 16777619;
     }

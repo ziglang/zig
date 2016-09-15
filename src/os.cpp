@@ -73,7 +73,7 @@ static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args,
         const char **argv = allocate<const char *>(args.length + 2);
         argv[0] = exe;
         argv[args.length + 1] = nullptr;
-        for (int i = 0; i < args.length; i += 1) {
+        for (size_t i = 0; i < args.length; i += 1) {
             argv[i + 1] = args.at(i);
         }
         execvp(exe, const_cast<char * const *>(argv));
@@ -114,20 +114,25 @@ void os_path_dirname(Buf *full_path, Buf *out_dirname) {
 }
 
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
-    int last_index = buf_len(full_path) - 1;
-    if (last_index >= 0 && buf_ptr(full_path)[last_index] == '/') {
-        last_index -= 1;
-    }
-    for (int i = last_index; i >= 0; i -= 1) {
-        uint8_t c = buf_ptr(full_path)[i];
-        if (c == '/') {
-            if (out_dirname) {
-                buf_init_from_mem(out_dirname, buf_ptr(full_path), i);
+    size_t len = buf_len(full_path);
+    if (len != 0) {
+        size_t last_index = len - 1;
+        if (buf_ptr(full_path)[last_index] == '/') {
+            last_index -= 1;
+        }
+        for (size_t i = last_index;;) {
+            uint8_t c = buf_ptr(full_path)[i];
+            if (c == '/') {
+                if (out_dirname) {
+                    buf_init_from_mem(out_dirname, buf_ptr(full_path), i);
+                }
+                if (out_basename) {
+                    buf_init_from_mem(out_basename, buf_ptr(full_path) + i + 1, buf_len(full_path) - (i + 1));
+                }
+                return;
             }
-            if (out_basename) {
-                buf_init_from_mem(out_basename, buf_ptr(full_path) + i + 1, buf_len(full_path) - (i + 1));
-            }
-            return;
+            if (i == 0) break;
+            i -= 1;
         }
     }
     if (out_dirname) buf_init_from_mem(out_dirname, ".", 1);
@@ -246,7 +251,7 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
         const char **argv = allocate<const char *>(args.length + 2);
         argv[0] = exe;
         argv[args.length + 1] = nullptr;
-        for (int i = 0; i < args.length; i += 1) {
+        for (size_t i = 0; i < args.length; i += 1) {
             argv[i + 1] = args.at(i);
         }
         execvp(exe, const_cast<char * const *>(argv));
@@ -297,11 +302,11 @@ static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
     buf_append_str(&command_line, exe);
     buf_append_char(&command_line, '\"');
 
-    for (int arg_i = 0; arg_i < args.length; arg_i += 1) {
+    for (size_t arg_i = 0; arg_i < args.length; arg_i += 1) {
         buf_append_str(&command_line, " \"");
         const char *arg = args.at(arg_i);
-        int arg_len = strlen(arg);
-        for (int c_i = 0; c_i < arg_len; c_i += 1) {
+        size_t arg_len = strlen(arg);
+        for (size_t c_i = 0; c_i < arg_len; c_i += 1) {
             if (arg[c_i] == '\"') {
                 zig_panic("TODO");
             }
@@ -376,7 +381,7 @@ static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
     CloseHandle(g_hChildStd_ERR_Wr);
     CloseHandle(g_hChildStd_OUT_Wr);
 
-    static const int BUF_SIZE = 4 * 1024;
+    static const size_t BUF_SIZE = 4 * 1024;
     {
         DWORD dwRead;
         char chBuf[BUF_SIZE];
@@ -540,7 +545,7 @@ static int os_buf_to_tmp_file_windows(Buf *contents, Buf *suffix, Buf *out_tmp_p
 
     const char base64[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
     assert(array_length(base64) == 64 + 1);
-    for (int i = 0; i < 8; i += 1) {
+    for (size_t i = 0; i < 8; i += 1) {
         buf_append_char(out_tmp_path, base64[rand() % 64]);
     }
 

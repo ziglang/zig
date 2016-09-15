@@ -75,7 +75,7 @@ static bool eval_block(EvalFn *ef, AstNode *node, ConstExprValue *out) {
     my_scope->block_context = node->block_context;
     ef->scope_stack.append(my_scope);
 
-    for (int i = 0; i < node->data.block.statements.length; i += 1) {
+    for (size_t i = 0; i < node->data.block.statements.length; i += 1) {
         AstNode *child = node->data.block.statements.at(i);
         memset(out, 0, sizeof(ConstExprValue));
         if (eval_expr(ef, child, out)) return true;
@@ -413,10 +413,10 @@ static bool eval_bin_op_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val)
 }
 
 static EvalVar *find_var(EvalFn *ef, Buf *name) {
-    int scope_index = ef->scope_stack.length - 1;
-    while (scope_index >= 0) {
+    size_t scope_index = ef->scope_stack.length - 1;
+    while (scope_index != SIZE_MAX) {
         EvalScope *scope = ef->scope_stack.at(scope_index);
-        for (int var_i = 0; var_i < scope->vars.length; var_i += 1) {
+        for (size_t var_i = 0; var_i < scope->vars.length; var_i += 1) {
             EvalVar *var = &scope->vars.at(var_i);
             if (buf_eql_buf(var->name, name)) {
                 return var;
@@ -466,18 +466,18 @@ static bool eval_container_init_expr(EvalFn *ef, AstNode *node, ConstExprValue *
         !container_type->data.structure.is_slice &&
         kind == ContainerInitKindStruct)
     {
-        int expr_field_count = container_init_expr->entries.length;
-        int actual_field_count = container_type->data.structure.src_field_count;
+        size_t expr_field_count = container_init_expr->entries.length;
+        size_t actual_field_count = container_type->data.structure.src_field_count;
         assert(expr_field_count == actual_field_count);
 
         out_val->data.x_struct.fields = allocate<ConstExprValue*>(actual_field_count);
 
-        for (int i = 0; i < expr_field_count; i += 1) {
+        for (size_t i = 0; i < expr_field_count; i += 1) {
             AstNode *val_field_node = container_init_expr->entries.at(i);
             assert(val_field_node->type == NodeTypeStructValueField);
 
             TypeStructField *type_field = val_field_node->data.struct_val_field.type_struct_field;
-            int field_index = type_field->src_index;
+            size_t field_index = type_field->src_index;
 
             ConstExprValue src_field_val = {0};
             if (eval_expr(ef, val_field_node->data.struct_val_field.expr, &src_field_val)) return true;
@@ -496,12 +496,12 @@ static bool eval_container_init_expr(EvalFn *ef, AstNode *node, ConstExprValue *
                kind == ContainerInitKindArray)
     {
 
-        int elem_count = container_init_expr->entries.length;
+        size_t elem_count = container_init_expr->entries.length;
 
         out_val->ok = true;
         out_val->data.x_array.fields = allocate<ConstExprValue*>(elem_count);
 
-        for (int i = 0; i < elem_count; i += 1) {
+        for (size_t i = 0; i < elem_count; i += 1) {
             AstNode *elem_node = container_init_expr->entries.at(i);
 
             ConstExprValue *elem_val = allocate<ConstExprValue>(1);
@@ -698,7 +698,7 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
 static bool int_type_depends_on_compile_var(CodeGen *g, TypeTableEntry *int_type) {
     assert(int_type->id == TypeTableEntryIdInt);
 
-    for (int i = 0; i < CIntTypeCount; i += 1) {
+    for (size_t i = 0; i < CIntTypeCount; i += 1) {
         if (int_type == g->builtin_types.entry_c_int[i]) {
             return true;
         }
@@ -918,9 +918,9 @@ static bool eval_fn_call_expr(EvalFn *ef, AstNode *node, ConstExprValue *out_val
         fn_table_entry = fn_val.data.x_fn;
     }
 
-    int param_count = node->data.fn_call_expr.params.length;
+    size_t param_count = node->data.fn_call_expr.params.length;
     ConstExprValue *args = allocate<ConstExprValue>(param_count);
-    for (int call_i = 0; call_i < param_count; call_i += 1) {
+    for (size_t call_i = 0; call_i < param_count; call_i += 1) {
         AstNode *param_expr_node = node->data.fn_call_expr.params.at(call_i);
         ConstExprValue *param_val = &args[call_i];
         if (eval_expr(ef, param_expr_node, param_val)) return true;
@@ -1340,8 +1340,8 @@ static bool eval_fn_args(EvalFnRoot *efr, FnTableEntry *fn, ConstExprValue *args
     root_scope->block_context = fn->fn_def_node->data.fn_def.body->block_context;
     ef.scope_stack.append(root_scope);
 
-    int param_count = acting_proto_node->data.fn_proto.params.length;
-    for (int proto_i = 0; proto_i < param_count; proto_i += 1) {
+    size_t param_count = acting_proto_node->data.fn_proto.params.length;
+    for (size_t proto_i = 0; proto_i < param_count; proto_i += 1) {
         AstNode *decl_param_node = acting_proto_node->data.fn_proto.params.at(proto_i);
         assert(decl_param_node->type == NodeTypeParamDecl);
 
@@ -1358,7 +1358,7 @@ static bool eval_fn_args(EvalFnRoot *efr, FnTableEntry *fn, ConstExprValue *args
 }
 
 bool eval_fn(CodeGen *g, AstNode *node, FnTableEntry *fn, ConstExprValue *out_val,
-        int branch_quota, AstNode *struct_node)
+        size_t branch_quota, AstNode *struct_node)
 {
     assert(node->type == NodeTypeFnCallExpr);
 
@@ -1375,17 +1375,17 @@ bool eval_fn(CodeGen *g, AstNode *node, FnTableEntry *fn, ConstExprValue *out_va
         acting_proto_node = fn->proto_node;
     }
 
-    int call_param_count = node->data.fn_call_expr.params.length;
-    int proto_param_count = acting_proto_node->data.fn_proto.params.length;
+    size_t call_param_count = node->data.fn_call_expr.params.length;
+    size_t proto_param_count = acting_proto_node->data.fn_proto.params.length;
     ConstExprValue *args = allocate<ConstExprValue>(proto_param_count);
-    int next_arg_index = 0;
+    size_t next_arg_index = 0;
     if (struct_node) {
         ConstExprValue *struct_val = &get_resolved_expr(struct_node)->const_val;
         assert(struct_val->ok);
         args[next_arg_index] = *struct_val;
         next_arg_index += 1;
     }
-    for (int call_index = 0; call_index < call_param_count; call_index += 1) {
+    for (size_t call_index = 0; call_index < call_param_count; call_index += 1) {
         AstNode *call_param_node = node->data.fn_call_expr.params.at(call_index);
         ConstExprValue *src_const_val = &get_resolved_expr(call_param_node)->const_val;
         assert(src_const_val->ok);
@@ -1396,7 +1396,7 @@ bool eval_fn(CodeGen *g, AstNode *node, FnTableEntry *fn, ConstExprValue *out_va
 
     if (efr.exceeded_quota_node) {
         ErrorMsg *msg = add_node_error(g, fn->fn_def_node,
-                buf_sprintf("function evaluation exceeded %d branches", efr.branch_quota));
+                buf_sprintf("function evaluation exceeded %zu branches", efr.branch_quota));
 
         add_error_note(g, msg, efr.call_node, buf_sprintf("called from here"));
         add_error_note(g, msg, efr.exceeded_quota_node, buf_sprintf("quota exceeded here"));

@@ -43,7 +43,7 @@ void bignum_init_signed(BigNum *dest, int64_t x) {
 }
 
 void bignum_init_bignum(BigNum *dest, BigNum *src) {
-    memcpy(dest, src, sizeof(BigNum));
+    safe_memcpy(dest, src, 1);
 }
 
 bool bignum_fits_in_bits(BigNum *bn, int bit_count, bool is_signed) {

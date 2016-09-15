@@ -244,10 +244,10 @@ static AstNode *create_fn_proto_node(Context *c, Buf *name, TypeTableEntry *fn_t
     node->data.fn_proto.name = name;
     node->data.fn_proto.return_type = make_type_node(c, fn_type->data.fn.fn_type_id.return_type);
 
-    for (int i = 0; i < fn_type->data.fn.fn_type_id.param_count; i += 1) {
+    for (size_t i = 0; i < fn_type->data.fn.fn_type_id.param_count; i += 1) {
         FnTypeParamInfo *info = &fn_type->data.fn.fn_type_id.param_info[i];
         char arg_name[20];
-        sprintf(arg_name, "arg_%d", i);
+        sprintf(arg_name, "arg_%zu", i);
         node->data.fn_proto.params.append(create_param_decl_node(c, arg_name,
                     make_type_node(c, info->type), info->is_noalias));
     }
@@ -272,7 +272,7 @@ static AstNode *create_inline_fn_node(Context *c, Buf *fn_name, Buf *var_name, T
 
     AstNode *fn_call_node = create_node(c, NodeTypeFnCallExpr);
     fn_call_node->data.fn_call_expr.fn_ref_expr = unwrap_node;
-    for (int i = 0; i < fn_type->data.fn.fn_type_id.param_count; i += 1) {
+    for (size_t i = 0; i < fn_type->data.fn.fn_type_id.param_count; i += 1) {
         AstNode *decl_node = node->data.fn_def.fn_proto->data.fn_proto.params.at(i);
         Buf *param_name = decl_node->data.param_decl.name;
         fn_call_node->data.fn_call_expr.params.append(create_symbol_node(c, buf_ptr(param_name)));
@@ -621,7 +621,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     fn_type_id.param_info = &fn_type_id.prealloc_param_info[0];
                 }
 
-                for (int i = 0; i < fn_type_id.param_count; i += 1) {
+                for (size_t i = 0; i < fn_type_id.param_count; i += 1) {
                     QualType qt = fn_proto_ty->getParamType(i);
                     TypeTableEntry *param_type = resolve_qual_type(c, qt, decl);
 
@@ -748,16 +748,16 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     assert(!fn_type->data.fn.fn_type_id.is_naked);
 
-    int arg_count = fn_type->data.fn.fn_type_id.param_count;
+    size_t arg_count = fn_type->data.fn.fn_type_id.param_count;
     Buf name_buf = BUF_INIT;
-    for (int i = 0; i < arg_count; i += 1) {
+    for (size_t i = 0; i < arg_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type->data.fn.fn_type_id.param_info[i];
         AstNode *type_node = make_type_node(c, param_info->type);
         const ParmVarDecl *param = fn_decl->getParamDecl(i);
         const char *name = decl_name(param);
         if (strlen(name) == 0) {
             buf_resize(&name_buf, 0);
-            buf_appendf(&name_buf, "arg%d", i);
+            buf_appendf(&name_buf, "arg%zu", i);
             name = buf_ptr(&name_buf);
         }
 
@@ -1316,7 +1316,7 @@ static bool name_exists_and_const(Context *c, Buf *name) {
 }
 
 static void render_aliases(Context *c) {
-    for (int i = 0; i < c->aliases.length; i += 1) {
+    for (size_t i = 0; i < c->aliases.length; i += 1) {
         AstNode *alias_node = c->aliases.at(i);
         assert(alias_node->type == NodeTypeVariableDeclaration);
         Buf *name = alias_node->data.variable_declaration.symbol;
@@ -1347,7 +1347,7 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
     }
 
     bool negate = false;
-    for (int i = 0; i < ctok->tokens.length; i += 1) {
+    for (size_t i = 0; i < ctok->tokens.length; i += 1) {
         bool is_first = (i == 0);
         bool is_last = (i == ctok->tokens.length - 1);
         CTok *tok = &ctok->tokens.at(i);
@@ -1403,7 +1403,7 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
 }
 
 static void process_symbol_macros(Context *c) {
-    for (int i = 0; i < c->macro_symbols.length; i += 1) {
+    for (size_t i = 0; i < c->macro_symbols.length; i += 1) {
         MacroSymbol ms = c->macro_symbols.at(i);
         if (name_exists_and_const(c, ms.value)) {
             AstNode *var_node = create_var_decl_node(c, buf_ptr(ms.name),
@@ -1524,7 +1524,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(codegen->libc_include_dir));
 
-    for (int i = 0; i < codegen->clang_argv_len; i += 1) {
+    for (size_t i = 0; i < codegen->clang_argv_len; i += 1) {
         clang_argv.append(codegen->clang_argv[i]);
     }
 

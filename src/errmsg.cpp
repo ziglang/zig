@@ -16,36 +16,36 @@ enum ErrType {
 
 static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) {
     const char *path = buf_ptr(err->path);
-    int line = err->line_start + 1;
-    int col = err->column_start + 1;
+    size_t line = err->line_start + 1;
+    size_t col = err->column_start + 1;
     const char *text = buf_ptr(err->msg);
 
 
     if (color == ErrColorOn || (color == ErrColorAuto && os_stderr_tty())) {
         if (err_type == ErrTypeError) {
-            fprintf(stderr, WHITE "%s:%d:%d: " RED "error:" WHITE " %s" RESET "\n", path, line, col, text);
+            fprintf(stderr, WHITE "%s:%zu:%zu: " RED "error:" WHITE " %s" RESET "\n", path, line, col, text);
         } else if (err_type == ErrTypeNote) {
-            fprintf(stderr, WHITE "%s:%d:%d: " CYAN "note:" WHITE " %s" RESET "\n", path, line, col, text);
+            fprintf(stderr, WHITE "%s:%zu:%zu: " CYAN "note:" WHITE " %s" RESET "\n", path, line, col, text);
         } else {
             zig_unreachable();
         }
 
         fprintf(stderr, "%s\n", buf_ptr(&err->line_buf));
-        for (int i = 0; i < err->column_start; i += 1) {
+        for (size_t i = 0; i < err->column_start; i += 1) {
             fprintf(stderr, " ");
         }
         fprintf(stderr, GREEN "^" RESET "\n");
     } else {
         if (err_type == ErrTypeError) {
-            fprintf(stderr, "%s:%d:%d: error: %s\n", path, line, col, text);
+            fprintf(stderr, "%s:%zu:%zu: error: %s\n", path, line, col, text);
         } else if (err_type == ErrTypeNote) {
-            fprintf(stderr, " %s:%d:%d: note: %s\n", path, line, col, text);
+            fprintf(stderr, " %s:%zu:%zu: note: %s\n", path, line, col, text);
         } else {
             zig_unreachable();
         }
     }
 
-    for (int i = 0; i < err->notes.length; i += 1) {
+    for (size_t i = 0; i < err->notes.length; i += 1) {
         ErrorMsg *note = err->notes.at(i);
         print_err_msg_type(note, color, ErrTypeNote);
     }
@@ -59,7 +59,7 @@ void err_msg_add_note(ErrorMsg *parent, ErrorMsg *note) {
     parent->notes.append(note);
 }
 
-ErrorMsg *err_msg_create_with_offset(Buf *path, int line, int column, int offset,
+ErrorMsg *err_msg_create_with_offset(Buf *path, size_t line, size_t column, size_t offset,
         const char *source, Buf *msg)
 {
     ErrorMsg *err_msg = allocate<ErrorMsg>(1);
@@ -68,7 +68,7 @@ ErrorMsg *err_msg_create_with_offset(Buf *path, int line, int column, int offset
     err_msg->column_start = column;
     err_msg->msg = msg;
 
-    int line_start_offset = offset;
+    size_t line_start_offset = offset;
     for (;;) {
         if (line_start_offset == 0) {
             break;
@@ -79,7 +79,7 @@ ErrorMsg *err_msg_create_with_offset(Buf *path, int line, int column, int offset
         line_start_offset -= 1;
     }
 
-    int line_end_offset = offset;
+    size_t line_end_offset = offset;
     while (source[line_end_offset] && source[line_end_offset] != '\n') {
         line_end_offset += 1;
     }
@@ -89,8 +89,8 @@ ErrorMsg *err_msg_create_with_offset(Buf *path, int line, int column, int offset
     return err_msg;
 }
 
-ErrorMsg *err_msg_create_with_line(Buf *path, int line, int column,
-        Buf *source, ZigList<int> *line_offsets, Buf *msg)
+ErrorMsg *err_msg_create_with_line(Buf *path, size_t line, size_t column,
+        Buf *source, ZigList<size_t> *line_offsets, Buf *msg)
 {
     ErrorMsg *err_msg = allocate<ErrorMsg>(1);
     err_msg->path = path;
@@ -98,13 +98,10 @@ ErrorMsg *err_msg_create_with_line(Buf *path, int line, int column,
     err_msg->column_start = column;
     err_msg->msg = msg;
 
-    int line_start_offset = line_offsets->at(line);
-    int end_line = line + 1;
-    int line_end_offset = (end_line >= line_offsets->length) ? buf_len(source) : line_offsets->at(line + 1);
-    int len = line_end_offset - line_start_offset - 1;
-    if (len < 0) {
-        len = 0;
-    }
+    size_t line_start_offset = line_offsets->at(line);
+    size_t end_line = line + 1;
+    size_t line_end_offset = (end_line >= line_offsets->length) ? buf_len(source) : line_offsets->at(line + 1);
+    size_t len = (line_end_offset + 1 > line_start_offset) ? (line_end_offset - line_start_offset - 1) : 0;
 
     buf_init_from_mem(&err_msg->line_buf, buf_ptr(source) + line_start_offset, len);
 
