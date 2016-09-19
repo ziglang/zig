@@ -193,6 +193,10 @@ void codegen_add_link_lib(CodeGen *g, const char *lib) {
     }
 }
 
+void codegen_add_framework(CodeGen *g, const char *framework) {
+    g->darwin_frameworks.append(buf_create_from_str(framework));
+}
+
 void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole) {
     g->windows_subsystem_windows = mwindows;
     g->windows_subsystem_console = mconsole;

@@ -53,6 +53,7 @@ static int usage(const char *arg0) {
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -mmacosx-version-min [ver]   (darwin only) set Mac OS X deployment target\n"
         "  -mios-version-min [ver]      (darwin only) set iOS deployment target\n"
+        "  -framework [name]            (darwin only) link against framework\n"
         "  --check-unused               perform semantic analysis on unused declarations\n"
     , arg0);
     return EXIT_FAILURE;
@@ -125,6 +126,7 @@ int main(int argc, char **argv) {
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> lib_dirs = {0};
     ZigList<const char *> link_libs = {0};
+    ZigList<const char *> frameworks = {0};
     int err;
     const char *target_arch = nullptr;
     const char *target_os = nullptr;
@@ -226,6 +228,8 @@ int main(int argc, char **argv) {
                     mmacosx_version_min = argv[i];
                 } else if (strcmp(arg, "-mios-version-min") == 0) {
                     mios_version_min = argv[i];
+                } else if (strcmp(arg, "-framework") == 0) {
+                    frameworks.append(argv[i]);
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return usage(arg0);
@@ -376,6 +380,9 @@ int main(int argc, char **argv) {
             }
             for (int i = 0; i < link_libs.length; i += 1) {
                 codegen_add_link_lib(g, link_libs.at(i));
+            }
+            for (int i = 0; i < frameworks.length; i += 1) {
+                codegen_add_framework(g, frameworks.at(i));
             }
 
             codegen_set_windows_subsystem(g, mwindows, mconsole);

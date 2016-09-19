@@ -1195,6 +1195,8 @@ struct CodeGen {
     ZigLLVMDICompileUnit *compile_unit;
 
     ZigList<Buf *> link_libs; // non-libc link libs
+    // add -framework [name] args to linker
+    ZigList<Buf *> darwin_frameworks;
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
