@@ -1386,7 +1386,7 @@ fn f() {
 }
     )SOURCE", 1, ".tmp_source.zig:4:19: error: type 'i8' has same or fewer bits than destination type 'i8'");
 
-    add_compile_fail_case("truncate same bit count", R"SOURCE(
+    add_compile_fail_case("%return in function with non error return type", R"SOURCE(
 fn f() {
     %return something();
 }
