@@ -35,6 +35,7 @@ pub struct Allocator {
         ([]T)(%return self.reallocFn(self, ([]u8)(old_mem), byte_count))
     }
 
+    // TODO mem: []var and get rid of 2nd param
     fn free(self: &Allocator, inline T: type, mem: []T) {
         self.freeFn(self, ([]u8)(mem));
     }

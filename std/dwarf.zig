@@ -127,8 +127,6 @@ pub const FORM_ref4 = 0x13;
 pub const FORM_ref8 = 0x14;
 pub const FORM_ref_udata = 0x15;
 pub const FORM_indirect = 0x16;
-
-// DWARF 4.
 pub const FORM_sec_offset = 0x17;
 pub const FORM_exprloc = 0x18;
 pub const FORM_flag_present = 0x19;

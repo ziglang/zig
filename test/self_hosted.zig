@@ -11,6 +11,7 @@ const test_maybe_return = @import("cases/maybe_return.zig");
 const test_max_value_type = @import("cases/max_value_type.zig");
 const test_var_params = @import("cases/var_params.zig");
 const test_const_slice_child = @import("cases/const_slice_child.zig");
+const test_switch_prong_implicit_cast = @import("cases/switch_prong_implicit_cast.zig");
 
 // normal comment
 /// this is a documentation comment

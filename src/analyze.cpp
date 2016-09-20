@@ -2540,8 +2540,8 @@ static const char *err_container_init_syntax_name(ContainerInitKind kind) {
     zig_unreachable();
 }
 
-static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        AstNode *node)
+static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry *import,
+    BlockContext *context, AstNode *node)
 {
     assert(node->type == NodeTypeContainerInitExpr);
 
@@ -6279,13 +6279,15 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
         BlockContext *child_context = prong_node->data.switch_prong.block_context;
         child_context->codegen_excluded = expr_val->ok && (*const_chosen_prong_index != prong_i);
 
-        peer_nodes[prong_i] = prong_node->data.switch_prong.expr;
         if (child_context->codegen_excluded) {
             peer_types[prong_i] = g->builtin_types.entry_unreachable;
         } else {
             peer_types[prong_i] = analyze_expression(g, import, child_context, expected_type,
                     prong_node->data.switch_prong.expr);
         }
+        // This must go after the analyze_expression for
+        // prong_node->data.switch_prong.expr because of AST rewriting.
+        peer_nodes[prong_i] = prong_node->data.switch_prong.expr;
     }
 
     if (expr_type->id == TypeTableEntryIdEnum && !else_prong) {
