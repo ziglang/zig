@@ -6977,6 +6977,7 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
     Expr *expr = get_resolved_expr(use_target_node);
 
     if (expr->type_entry->id == TypeTableEntryIdInvalid) {
+        tld->import->any_imports_failed = true;
         return;
     }
 
