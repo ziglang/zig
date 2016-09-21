@@ -31,6 +31,14 @@ static const char *get_libc_static_file(CodeGen *g, const char *file) {
     return buf_ptr(out_buf);
 }
 
+static const char *get_o_file_extension(CodeGen *g) {
+    if (g->zig_target.env_type == ZigLLVM_MSVC) {
+        return ".obj";
+    } else {
+        return ".o";
+    }
+}
+
 static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     Buf *source_basename = buf_sprintf("%s.zig", oname);
     Buf *std_dir_path = parent_gen->zig_std_dir;
@@ -62,18 +70,11 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     }
 
     codegen_add_root_code(child_gen, std_dir_path, source_basename, &source_code);
-    Buf *o_out = buf_sprintf("%s.o", oname);
+    const char *o_ext = get_o_file_extension(child_gen);
+    Buf *o_out = buf_sprintf("%s%s", oname, o_ext);
     codegen_link(child_gen, buf_ptr(o_out));
 
     return o_out;
-}
-
-static const char *get_o_file_extension(CodeGen *g) {
-    if (g->zig_target.env_type == ZigLLVM_MSVC) {
-        return ".obj";
-    } else {
-        return ".o";
-    }
 }
 
 static const char *get_exe_file_extension(CodeGen *g) {
@@ -786,16 +787,21 @@ void codegen_link(CodeGen *g, const char *out_file) {
         fprintf(stderr, "-------\n");
     }
 
-    if (buf_len(&lj.out_file) == 0) {
+    bool override_out_file = (buf_len(&lj.out_file) != 0);
+    if (!override_out_file) {
         assert(g->root_out_name);
-        buf_init_from_buf(&lj.out_file, g->root_out_name);
-        buf_append_str(&lj.out_file, get_exe_file_extension(g));
-    }
 
+        buf_init_from_buf(&lj.out_file, g->root_out_name);
+        if (g->out_type == OutTypeExe) {
+            buf_append_str(&lj.out_file, get_exe_file_extension(g));
+        }
+    }
     buf_init_from_buf(&lj.out_file_o, &lj.out_file);
 
-    const char *o_ext = get_o_file_extension(g);
-    buf_append_str(&lj.out_file_o, o_ext);
+    if (g->out_type != OutTypeObj || !override_out_file) {
+        const char *o_ext = get_o_file_extension(g);
+        buf_append_str(&lj.out_file_o, o_ext);
+    }
 
     char *err_msg = nullptr;
     if (LLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(&lj.out_file_o),

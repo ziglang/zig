@@ -196,7 +196,7 @@ fn parseFormValue(in_stream: &io.InStream, form_id: u64, is_64: bool) -> %FormVa
             const child_form_id = %return readULeb128(in_stream);
             parseFormValue(in_stream, child_form_id, is_64)
         },
-        else => return error.InvalidDebugInfo,
+        else => error.InvalidDebugInfo,
     }
 }
 
