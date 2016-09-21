@@ -63,6 +63,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->generic_table.init(16);
     g->is_release_build = false;
     g->is_test_build = false;
+    g->want_h_file = true;
 
     // the error.Ok value
     g->error_decls.append(nullptr);

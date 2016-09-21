@@ -1256,6 +1256,7 @@ struct CodeGen {
     bool is_big_endian;
     bool is_static;
     bool strip_debug_symbols;
+    bool want_h_file;
     bool have_exported_main;
     bool link_libc;
     Buf *libc_lib_dir;

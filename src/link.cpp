@@ -38,6 +38,7 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
     CodeGen *child_gen = codegen_create(std_dir_path, child_target);
     child_gen->link_libc = parent_gen->link_libc;
+    child_gen->want_h_file = false;
 
     codegen_set_is_release(child_gen, parent_gen->is_release_build);
 
@@ -793,10 +794,8 @@ void codegen_link(CodeGen *g, const char *out_file) {
 
     buf_init_from_buf(&lj.out_file_o, &lj.out_file);
 
-    if (g->out_type != OutTypeObj) {
-        const char *o_ext = get_o_file_extension(g);
-        buf_append_str(&lj.out_file_o, o_ext);
-    }
+    const char *o_ext = get_o_file_extension(g);
+    buf_append_str(&lj.out_file_o, o_ext);
 
     char *err_msg = nullptr;
     if (LLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(&lj.out_file_o),
@@ -806,6 +805,9 @@ void codegen_link(CodeGen *g, const char *out_file) {
     }
 
     if (g->out_type == OutTypeObj) {
+        if (g->want_h_file) {
+            codegen_generate_h_file(g);
+        }
         if (g->verbose) {
             fprintf(stderr, "OK\n");
         }
