@@ -263,6 +263,7 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
     } else {
         // parent
         close(stdin_pipe[0]);
+        close(stdin_pipe[1]);
         close(stdout_pipe[1]);
         close(stderr_pipe[1]);
 
@@ -270,8 +271,13 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
         waitpid(pid, &status, 0);
         populate_termination(term, status);
 
-        os_fetch_file(fdopen(stdout_pipe[0], "rb"), out_stdout);
-        os_fetch_file(fdopen(stderr_pipe[0], "rb"), out_stderr);
+        FILE *stdout_f = fdopen(stdout_pipe[0], "rb");
+        FILE *stderr_f = fdopen(stderr_pipe[0], "rb");
+        os_fetch_file(stdout_f, out_stdout);
+        os_fetch_file(stderr_f, out_stderr);
+
+        fclose(stdout_f);
+        fclose(stderr_f);
 
         return 0;
     }
