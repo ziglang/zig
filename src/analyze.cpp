@@ -4164,6 +4164,12 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
     child_context->parent_loop_node = node;
 
     AstNode *elem_var_node = node->data.for_expr.elem_node;
+    if (!elem_var_node) {
+        add_node_error(g, node->data.for_expr.body,
+            buf_sprintf("for loop expression missing element parameter"));
+        return g->builtin_types.entry_invalid;
+    }
+
     elem_var_node->block_context = child_context;
     Buf *elem_var_name = elem_var_node->data.symbol_expr.symbol;
     node->data.for_expr.elem_var = add_local_var(g, elem_var_node, import, child_context, elem_var_name,
@@ -4180,8 +4186,7 @@ static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, Bl
                 g->builtin_types.entry_usize, true, nullptr);
     }
 
-    AstNode *for_body_node = node->data.for_expr.body;
-    analyze_expression(g, import, child_context, g->builtin_types.entry_void, for_body_node);
+    analyze_expression(g, import, child_context, g->builtin_types.entry_void, node->data.for_expr.body);
 
 
     return g->builtin_types.entry_void;

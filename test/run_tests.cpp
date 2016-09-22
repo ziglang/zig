@@ -1495,6 +1495,12 @@ pub fn f() {
     add_compile_fail_case("main function with bogus args type", R"SOURCE(
 pub fn main(args: [][]bogus) -> %void {}
     )SOURCE", 1, ".tmp_source.zig:2:23: error: use of undeclared identifier 'bogus'");
+
+    add_compile_fail_case("main function with bogus args type", R"SOURCE(
+fn foo(blah: []u8) {
+    for (blah) { }
+}
+    )SOURCE", 1, ".tmp_source.zig:3:16: error: for loop expression missing element parameter");
 }
 
 //////////////////////////////////////////////////////////////////////////////
