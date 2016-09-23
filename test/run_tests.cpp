@@ -1501,6 +1501,39 @@ fn foo(blah: []u8) {
     for (blah) { }
 }
     )SOURCE", 1, ".tmp_source.zig:3:16: error: for loop expression missing element parameter");
+
+    add_compile_fail_case("misspelled type with pointer only reference", R"SOURCE(
+const JasonHM = u8;
+const JasonList = &JsonNode;
+
+enum JsonOA {
+    JSONArray: JsonList,
+    JSONObject: JasonHM,
+}
+
+enum JsonType {
+    JSONNull: void,
+    JSONInteger: isize,
+    JSONDouble: f64,
+    JSONBool: bool,
+    JSONString: []u8,
+    JSONArray,
+    JSONObject,
+}
+
+pub struct JsonNode {
+    kind: JsonType,
+    jobject: ?JsonOA,
+}
+
+fn foo() {
+    var jll: JasonList = undefined;
+    jll.init(&debug.global_allocator);
+    var jd = JsonNode {.kind = JsonType.JSONArray , .jobject = JsonOA.JSONArray {jll} };
+}
+    )SOURCE", 2,
+        ".tmp_source.zig:6:16: error: use of undeclared identifier 'JsonList'",
+        ".tmp_source.zig:27:8: error: no function named 'init' in 'JsonNode'");
 }
 
 //////////////////////////////////////////////////////////////////////////////

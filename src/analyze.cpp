@@ -2468,6 +2468,10 @@ static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *imp
     assert(field_access_node->type == NodeTypeFieldAccessExpr);
 
     TypeEnumField *type_enum_field = get_enum_field(enum_type, field_name);
+    if (type_enum_field->type_entry->id == TypeTableEntryIdInvalid) {
+        return g->builtin_types.entry_invalid;
+    }
+
     field_access_node->data.field_access_expr.type_enum_field = type_enum_field;
 
     if (type_enum_field) {
