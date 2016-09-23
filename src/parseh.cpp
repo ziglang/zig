@@ -870,7 +870,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
         enum_type->data.enumeration.complete = true;
         enum_type->data.enumeration.tag_type = tag_type_entry;
 
-        enum_type->data.enumeration.field_count = field_count;
+        enum_type->data.enumeration.src_field_count = field_count;
         enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
         ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
 
@@ -977,7 +977,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
             enum_node->data.struct_decl.top_level_decl.visib_mod = VisibModExport;
             enum_node->data.struct_decl.type_entry = enum_type;
 
-            for (uint32_t i = 0; i < enum_type->data.enumeration.field_count; i += 1) {
+            for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
                 TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
                 AstNode *type_node = make_type_node(c, type_enum_field->type_entry);
                 AstNode *field_node = create_struct_field_node(c, buf_ptr(type_enum_field->name), type_node);

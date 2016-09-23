@@ -683,7 +683,7 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
             {
                 uint64_t value = other_val->data.x_bignum.data.x_uint;
                 assert(new_type->id == TypeTableEntryIdEnum);
-                assert(value < new_type->data.enumeration.field_count);
+                assert(value < new_type->data.enumeration.src_field_count);
                 const_val->data.x_enum.tag = value;
                 const_val->data.x_enum.payload = NULL;
                 const_val->ok = true;

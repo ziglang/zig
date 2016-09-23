@@ -924,7 +924,7 @@ struct TypeTableEntryError {
 
 struct TypeTableEntryEnum {
     AstNode *decl_node;
-    uint32_t field_count;
+    uint32_t src_field_count;
     uint32_t gen_field_count;
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid

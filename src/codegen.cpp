@@ -4605,7 +4605,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "@OS");
         uint32_t field_count = target_os_count();
-        entry->data.enumeration.field_count = field_count;
+        entry->data.enumeration.src_field_count = field_count;
         entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
         for (uint32_t i = 0; i < field_count; i += 1) {
             TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
@@ -4631,7 +4631,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "@Arch");
         uint32_t field_count = target_arch_count();
-        entry->data.enumeration.field_count = field_count;
+        entry->data.enumeration.src_field_count = field_count;
         entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
         for (uint32_t i = 0; i < field_count; i += 1) {
             TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
@@ -4663,7 +4663,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "@Environ");
         uint32_t field_count = target_environ_count();
-        entry->data.enumeration.field_count = field_count;
+        entry->data.enumeration.src_field_count = field_count;
         entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
         for (uint32_t i = 0; i < field_count; i += 1) {
             TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
@@ -4690,7 +4690,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "@ObjectFormat");
         uint32_t field_count = target_oformat_count();
-        entry->data.enumeration.field_count = field_count;
+        entry->data.enumeration.src_field_count = field_count;
         entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
         for (uint32_t i = 0; i < field_count; i += 1) {
             TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
@@ -4716,7 +4716,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->deep_const = true;
         buf_init_from_str(&entry->name, "AtomicOrder");
         uint32_t field_count = 6;
-        entry->data.enumeration.field_count = field_count;
+        entry->data.enumeration.src_field_count = field_count;
         entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
         entry->data.enumeration.fields[0].name = buf_create_from_str("Unordered");
         entry->data.enumeration.fields[0].value = AtomicOrderUnordered;
