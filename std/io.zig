@@ -10,6 +10,7 @@ const endian = @import("endian.zig");
 const debug = @import("debug.zig");
 const assert = debug.assert;
 const os = @import("os.zig");
+const mem = @import("mem.zig");
 
 pub const stdin_fileno = 0;
 pub const stdout_fileno = 1;
@@ -261,34 +262,28 @@ pub struct InStream {
         return result[0];
     }
 
-    pub inline fn readIntLe(is: &InStream, inline T: type) -> %T {
+    pub fn readIntLe(is: &InStream, inline T: type) -> %T {
         is.readInt(false, T)
     }
 
-    pub inline fn readIntBe(is: &InStream, inline T: type) -> %T {
+    pub fn readIntBe(is: &InStream, inline T: type) -> %T {
         is.readInt(true, T)
     }
 
-    pub inline fn readInt(is: &InStream, is_be: bool, inline T: type) -> %T {
+    pub fn readInt(is: &InStream, is_be: bool, inline T: type) -> %T {
         var result: T = undefined;
         const result_slice = ([]u8)((&result)[0...1]);
         %return is.readNoEof(result_slice);
         return endian.swapIf(!is_be, T, result);
     }
 
-    pub inline fn readVarInt(is: &InStream, is_be: bool, inline T: type, size: usize) -> %T {
-        var result: T = zeroes;
-        const result_slice = ([]u8)((&result)[0...1]);
-        const padding = @sizeOf(T) - size;
-        {var i: usize = 0; while (i < size; i += 1) {
-            const index = if (is_be == @compileVar("is_big_endian")) {
-                padding + i
-            } else {
-                result_slice.len - i - 1 - padding
-            };
-            result_slice[index] = %return is.readByte();
-        }}
-        return result;
+    pub fn readVarInt(is: &InStream, is_be: bool, inline T: type, size: usize) -> %T {
+        assert(size <= @sizeOf(T));
+        assert(size <= 8);
+        var input_buf: [8]u8 = undefined;
+        const input_slice = input_buf[0...size];
+        %return is.readNoEof(input_slice);
+        return mem.sliceAsInt(input_slice, is_be, T);
     }
 
     pub fn seekForward(is: &InStream, amount: usize) -> %void {

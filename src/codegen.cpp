@@ -729,7 +729,6 @@ static LLVMValueRef gen_enum_value_expr(CodeGen *g, AstNode *node, TypeTableEntr
         LLVMValueRef new_union_val = gen_expr(g, arg_node);
         if (arg_node) {
             arg_node_type = get_expr_type(arg_node);
-            new_union_val = gen_expr(g, arg_node);
         } else {
             arg_node_type = g->builtin_types.entry_void;
         }
@@ -3460,6 +3459,7 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
                             zig_unreachable();
                         }
                         if (make_item_blocks) {
+                            set_debug_source_node(g, var_node);
                             LLVMBuildBr(g->builder, prong_block);
                         }
                     } else {

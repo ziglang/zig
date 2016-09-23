@@ -38,33 +38,37 @@ pub struct CBuf {
     list: List(u8),
 
     /// Must deinitialize with deinit.
-    pub fn init(self: &CBuf, allocator: &Allocator) {
-        self.list.init(allocator);
-        // This resize is guaranteed to not have an error because we use a list
-        // with preallocated memory of at least 1 byte.
-        %%self.resize(0);
+    pub fn initEmpty(allocator: &Allocator) -> %CBuf {
+        const self = CBuf {
+            .list = List(u8).init(allocator),
+        };
+        %return self.resize(0);
+        return self;
     }
 
     /// Must deinitialize with deinit.
-    pub fn initFromMem(self: &CBuf, allocator: &Allocator, m: []const u8) -> %void {
-        self.init(allocator);
+    pub fn initFromMem(allocator: &Allocator, m: []const u8) -> %CBuf {
+        const self = CBuf {
+            .list = List(u8).init(allocator),
+        };
         %return self.resize(m.len);
         mem.copy(u8, self.list.items, m);
+        return self;
     }
 
     /// Must deinitialize with deinit.
-    pub fn initFromCStr(self: &CBuf, allocator: &Allocator, s: &const u8) -> %void {
-        self.initFromMem(allocator, s[0...strlen(s)])
+    pub fn initFromCStr(allocator: &Allocator, s: &const u8) -> %CBuf {
+        return CBuf.initFromMem(allocator, s[0...strlen(s)]);
     }
 
     /// Must deinitialize with deinit.
-    pub fn initFromCBuf(self: &CBuf, cbuf: &const CBuf) -> %void {
-        self.initFromMem(cbuf.list.allocator, cbuf.list.items[0...cbuf.len()])
+    pub fn initFromCBuf(cbuf: &const CBuf) -> %CBuf {
+        return CBuf.initFromMem(cbuf.list.allocator, cbuf.list.items[0...cbuf.len()]);
     }
 
     /// Must deinitialize with deinit.
-    pub fn initFromSlice(self: &CBuf, other: &const CBuf, start: usize, end: usize) -> %void {
-        self.initFromMem(other.list.allocator, other.list.items[start...end])
+    pub fn initFromSlice(other: &const CBuf, start: usize, end: usize) -> %CBuf {
+        return CBuf.initFromMem(other.list.allocator, other.list.items[start...end]);
     }
 
     pub fn deinit(self: &CBuf) {
@@ -124,8 +128,7 @@ pub struct CBuf {
 
 #attribute("test")
 fn testSimpleCBuf() {
-    var buf: CBuf = undefined;
-    buf.init(&debug.global_allocator);
+    var buf = %%CBuf.initEmpty(&debug.global_allocator);
     assert(buf.len() == 0);
     %%buf.appendCStr(c"hello");
     %%buf.appendChar(' ');
@@ -133,8 +136,7 @@ fn testSimpleCBuf() {
     assert(buf.eqlCStr(c"hello world"));
     assert(buf.eqlMem("hello world"));
 
-    var buf2: CBuf = undefined;
-    %%buf2.initFromCBuf(&buf);
+    var buf2 = %%CBuf.initFromCBuf(&buf);
     assert(buf.eqlCBuf(&buf2));
 
     assert(buf.startsWithMem("hell"));

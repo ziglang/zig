@@ -60,3 +60,33 @@ pub fn cmp(inline T: type, a: []const T, b: []const T) -> Cmp {
 
     return if (a.len > b.len) Cmp.Greater else if (a.len < b.len) Cmp.Less else Cmp.Equal;
 }
+
+pub fn sliceAsInt(buf: []u8, is_be: bool, inline T: type) -> T {
+    var result: T = zeroes;
+    const result_slice = ([]u8)((&result)[0...1]);
+    const padding = @sizeOf(T) - buf.len;
+
+    if (is_be == @compileVar("is_big_endian")) {
+        copy(u8, result_slice, buf);
+    } else {
+        for (buf) |b, i| {
+            const index = result_slice.len - i - 1 - padding;
+            result_slice[index] = b;
+        }
+    }
+    return result;
+}
+
+#attribute("test")
+fn testSliceAsInt() {
+    {
+        const buf = []u8{0x00, 0x00, 0x12, 0x34};
+        const answer = sliceAsInt(buf[0...], true, u64);
+        assert(answer == 0x00001234);
+    }
+    {
+        const buf = []u8{0x12, 0x34, 0x00, 0x00};
+        const answer = sliceAsInt(buf[0...], false, u64);
+        assert(answer == 0x00003412);
+    }
+}

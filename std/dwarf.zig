@@ -617,3 +617,6 @@ pub const CFA_MIPS_advance_loc8 = 0x1d;
 pub const CFA_GNU_window_save = 0x2d;
 pub const CFA_GNU_args_size = 0x2e;
 pub const CFA_GNU_negative_offset_extended = 0x2f;
+
+pub const CHILDREN_no = 0x00;
+pub const CHILDREN_yes = 0x01;
