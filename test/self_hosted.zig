@@ -14,6 +14,7 @@ const test_const_slice_child = @import("cases/const_slice_child.zig");
 const test_switch_prong_implicit_cast = @import("cases/switch_prong_implicit_cast.zig");
 const test_switch_prong_err_enum = @import("cases/switch_prong_err_enum.zig");
 const test_enum_with_members = @import("cases/enum_with_members.zig");
+const test_struct_contains_slice_of_itself = @import("cases/struct_contains_slice_of_itself.zig");
 
 // normal comment
 /// this is a documentation comment

@@ -1589,6 +1589,9 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
 
         TypeTableEntry *field_type = type_struct_field->type_entry;
 
+        assert(field_type->type_ref);
+        assert(struct_type->type_ref);
+        assert(struct_type->data.structure.complete);
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_type->type_ref);
         uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref,
@@ -4065,7 +4068,8 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
 {
     AstNode *size_node = node->data.array_type.size;
 
-    TypeTableEntry *child_type = analyze_type_expr(g, import, context, node->data.array_type.child_type);
+    TypeTableEntry *child_type = analyze_type_expr_pointer_only(g, import, context,
+            node->data.array_type.child_type, true);
 
     if (child_type->id == TypeTableEntryIdUnreachable) {
         add_node_error(g, node, buf_create_from_str("array of unreachable not allowed"));
@@ -4075,6 +4079,7 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
     }
 
     if (size_node) {
+        child_type = analyze_type_expr(g, import, context, node->data.array_type.child_type);
         TypeTableEntry *size_type = analyze_expression(g, import, context,
                 g->builtin_types.entry_usize, size_node);
         if (size_type->id == TypeTableEntryIdInvalid) {
@@ -4101,8 +4106,8 @@ static TypeTableEntry *analyze_array_type(CodeGen *g, ImportTableEntry *import, 
             return g->builtin_types.entry_invalid;
         }
     } else {
-        return resolve_expr_const_val_as_type(g, node,
-                get_slice_type(g, child_type, node->data.array_type.is_const), false);
+        TypeTableEntry *slice_type = get_slice_type(g, child_type, node->data.array_type.is_const);
+        return resolve_expr_const_val_as_type(g, node, slice_type, false);
     }
 }
 
