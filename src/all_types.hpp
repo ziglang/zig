@@ -452,7 +452,6 @@ struct AstNodeFieldAccessExpr {
     TypeEnumField *type_enum_field;
     Expr resolved_expr;
     StructValExprCodeGen resolved_struct_val_expr; // for enum values
-    bool is_fn_call;
     TypeTableEntry *bare_container_type;
     bool is_member_fn;
     AstNode *container_init_expr_node;

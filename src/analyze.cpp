@@ -2798,11 +2798,11 @@ static void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
     }
 }
 
-static TypeTableEntry *analyze_container_member_access_inner(CodeGen *g, bool wrapped_in_fn_call,
+static TypeTableEntry *analyze_container_member_access_inner(CodeGen *g,
     TypeTableEntry *bare_struct_type, Buf *field_name, AstNode *node, TypeTableEntry *struct_type)
 {
     assert(node->type == NodeTypeFieldAccessExpr);
-    if (wrapped_in_fn_call && !is_slice(bare_struct_type)) {
+    if (!is_slice(bare_struct_type)) {
         BlockContext *container_block_context = get_container_block_context(bare_struct_type);
         assert(container_block_context);
         auto entry = container_block_context->decl_table.maybe_get(field_name);
@@ -2821,19 +2821,14 @@ static TypeTableEntry *analyze_container_member_access_inner(CodeGen *g, bool wr
             } else {
                 return resolve_expr_const_val_as_fn(g, node, fn_entry, false);
             }
-        } else {
-            add_node_error(g, node, buf_sprintf("no function named '%s' in '%s'",
-                buf_ptr(field_name), buf_ptr(&bare_struct_type->name)));
-            return g->builtin_types.entry_invalid;
         }
-    } else {
-        add_node_error(g, node,
-            buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name), buf_ptr(&struct_type->name)));
-        return g->builtin_types.entry_invalid;
     }
+    add_node_error(g, node,
+        buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name), buf_ptr(&bare_struct_type->name)));
+    return g->builtin_types.entry_invalid;
 }
 
-static TypeTableEntry *analyze_container_member_access(CodeGen *g, bool wrapped_in_fn_call,
+static TypeTableEntry *analyze_container_member_access(CodeGen *g,
         Buf *field_name, AstNode *node, TypeTableEntry *struct_type)
 {
     TypeTableEntry *bare_type = container_ref_type(struct_type);
@@ -2848,7 +2843,7 @@ static TypeTableEntry *analyze_container_member_access(CodeGen *g, bool wrapped_
         if (node->data.field_access_expr.type_struct_field) {
             return node->data.field_access_expr.type_struct_field->type_entry;
         } else {
-            return analyze_container_member_access_inner(g, wrapped_in_fn_call, bare_type, field_name,
+            return analyze_container_member_access_inner(g, bare_type, field_name,
                 node, struct_type);
         }
     } else if (bare_type->id == TypeTableEntryIdEnum) {
@@ -2856,7 +2851,7 @@ static TypeTableEntry *analyze_container_member_access(CodeGen *g, bool wrapped_
         if (node->data.field_access_expr.type_enum_field) {
             return node->data.field_access_expr.type_enum_field->type_entry;
         } else {
-            return analyze_container_member_access_inner(g, wrapped_in_fn_call, bare_type, field_name,
+            return analyze_container_member_access_inner(g, bare_type, field_name,
                 node, struct_type);
         }
     } else if (bare_type->id == TypeTableEntryIdUnion) {
@@ -2875,12 +2870,10 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
     TypeTableEntry *struct_type = analyze_expression(g, import, context, nullptr, *struct_expr_node);
     Buf *field_name = node->data.field_access_expr.field_name;
 
-    bool wrapped_in_fn_call = node->data.field_access_expr.is_fn_call;
-
     if (struct_type->id == TypeTableEntryIdInvalid) {
         return struct_type;
     } else if (is_container_ref(struct_type)) {
-        return analyze_container_member_access(g, wrapped_in_fn_call, field_name, node, struct_type);
+        return analyze_container_member_access(g, field_name, node, struct_type);
     } else if (struct_type->id == TypeTableEntryIdArray) {
         if (buf_eql_str(field_name, "len")) {
             return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
@@ -2949,8 +2942,6 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
                         buf_ptr(&child_type->name), buf_ptr(field_name)));
                 return g->builtin_types.entry_invalid;
             }
-        } else if (wrapped_in_fn_call) { // this branch should go last, before the error in the else case
-            return resolve_expr_const_val_as_type(g, node, child_type, false);
         } else {
             add_node_error(g, node,
                 buf_sprintf("type '%s' does not support field access", buf_ptr(&struct_type->name)));
@@ -5581,6 +5572,19 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
     zig_unreachable();
 }
 
+static TypeTableEntry *bad_method_call(CodeGen *g, AstNode *node, TypeTableEntry *container_type,
+        TypeTableEntry *expected_param_type, FnTableEntry *fn_table_entry)
+{
+    ErrorMsg *msg = add_node_error(g, node,
+        buf_sprintf("function called as method of '%s', but first parameter is of type '%s'",
+            buf_ptr(&container_type->name),
+            buf_ptr(&expected_param_type->name)));
+    if (fn_table_entry) {
+        add_error_note(g, msg, fn_table_entry->proto_node, buf_sprintf("function declared here"));
+    }
+    return g->builtin_types.entry_invalid;
+}
+
 // Before calling this function, set node->data.fn_call_expr.fn_table_entry if the function is known
 // at compile time. Otherwise this is a function pointer call.
 static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -5623,9 +5627,22 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
     bool all_args_const_expr = true;
 
     if (struct_node) {
-        ConstExprValue *struct_const_val = &get_resolved_expr(struct_node)->const_val;
+        Expr *struct_expr = get_resolved_expr(struct_node);
+        ConstExprValue *struct_const_val = &struct_expr->const_val;
         if (!struct_const_val->ok) {
             all_args_const_expr = false;
+        }
+
+        FnTypeParamInfo *param_info = &fn_type->data.fn.fn_type_id.param_info[0];
+        TypeTableEntry *expected_param_type = param_info->type;
+        TypeTableEntry *container_bare_type = container_ref_type(struct_expr->type_entry);
+        if (is_container_ref(expected_param_type)) {
+            TypeTableEntry *param_bare_type = container_ref_type(expected_param_type);
+            if (param_bare_type != container_bare_type) {
+                return bad_method_call(g, node, container_bare_type, expected_param_type, fn_table_entry);
+            }
+        } else {
+            return bad_method_call(g, node, container_bare_type, expected_param_type, fn_table_entry);
         }
     }
 
@@ -5923,10 +5940,6 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
 
     if (node->data.fn_call_expr.is_builtin) {
         return analyze_builtin_fn_call_expr(g, import, context, expected_type, node);
-    }
-
-    if (fn_ref_expr->type == NodeTypeFieldAccessExpr) {
-        fn_ref_expr->data.field_access_expr.is_fn_call = true;
     }
 
     TypeTableEntry *invoke_type_entry = analyze_expression(g, import, context, nullptr, fn_ref_expr);

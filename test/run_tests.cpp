@@ -1533,7 +1533,56 @@ fn foo() {
 }
     )SOURCE", 2,
         ".tmp_source.zig:6:16: error: use of undeclared identifier 'JsonList'",
-        ".tmp_source.zig:27:8: error: no function named 'init' in 'JsonNode'");
+        ".tmp_source.zig:27:8: error: no member named 'init' in 'JsonNode'");
+
+    add_compile_fail_case("method call with first arg type primitive", R"SOURCE(
+struct Foo {
+    x: i32,
+
+    fn init(x: i32) -> Foo {
+        Foo {
+            .x = x,
+        }
+    }
+}
+
+fn f() {
+    const derp = Foo.init(3);
+
+    derp.init();
+}
+    )SOURCE", 2,
+        ".tmp_source.zig:15:14: error: function called as method of 'Foo', but first parameter is of type 'i32'",
+        ".tmp_source.zig:5:5: note: function declared here");
+
+    add_compile_fail_case("method call with first arg type wrong container", R"SOURCE(
+pub struct List {
+    len: usize,
+    allocator: &Allocator,
+
+    pub fn init(allocator: &Allocator) -> List {
+        List {
+            .len = 0,
+            .allocator = allocator,
+        }
+    }
+}
+
+pub var global_allocator = Allocator {
+    .field = 1234,
+};
+
+pub struct Allocator {
+    field: i32,
+}
+
+fn foo() {
+    var x = List.init(&global_allocator);
+    x.init();
+}
+    )SOURCE", 2,
+        ".tmp_source.zig:24:11: error: function called as method of 'List', but first parameter is of type '&Allocator'",
+        ".tmp_source.zig:6:9: note: function declared here");
 }
 
 //////////////////////////////////////////////////////////////////////////////
