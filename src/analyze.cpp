@@ -6037,12 +6037,10 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                         *expr_node);
                 if (expr_type->id == TypeTableEntryIdInvalid) {
                     return expr_type;
-                } else if (expr_type->id == TypeTableEntryIdInt ||
-                           expr_type->id == TypeTableEntryIdNumLitInt)
-                {
+                } else if (expr_type->id == TypeTableEntryIdInt) {
                     return expr_type;
                 } else {
-                    add_node_error(g, *expr_node, buf_sprintf("invalid binary not type: '%s'",
+                    add_node_error(g, node, buf_sprintf("unable to perform binary not operation on type '%s'",
                             buf_ptr(&expr_type->name)));
                     return g->builtin_types.entry_invalid;
                 }

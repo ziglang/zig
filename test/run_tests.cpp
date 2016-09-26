@@ -1583,6 +1583,13 @@ fn foo() {
     )SOURCE", 2,
         ".tmp_source.zig:24:11: error: function called as method of 'List', but first parameter is of type '&Allocator'",
         ".tmp_source.zig:6:9: note: function declared here");
+
+    add_compile_fail_case("binary not on number literal", R"SOURCE(
+const TINY_QUANTUM_SHIFT = 4;
+const TINY_QUANTUM_SIZE = 1 << TINY_QUANTUM_SHIFT;
+var block_aligned_stuff: usize = (4 + TINY_QUANTUM_SIZE) & ~(TINY_QUANTUM_SIZE - 1);
+    )SOURCE", 1, ".tmp_source.zig:4:60: error: unable to perform binary not operation on type '(integer literal)'");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
