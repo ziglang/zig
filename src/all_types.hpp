@@ -142,7 +142,7 @@ struct TopLevelDecl {
 struct TypeEnumField {
     Buf *name;
     TypeTableEntry *type_entry;
-    uint32_t value; // TODO is this used?
+    uint32_t value;
 };
 
 enum NodeType {
@@ -453,7 +453,7 @@ struct AstNodeFieldAccessExpr {
     Expr resolved_expr;
     StructValExprCodeGen resolved_struct_val_expr; // for enum values
     bool is_fn_call;
-    TypeTableEntry *bare_struct_type;
+    TypeTableEntry *bare_container_type;
     bool is_member_fn;
     AstNode *container_init_expr_node;
 };

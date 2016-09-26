@@ -2718,7 +2718,87 @@ static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry 
     }
 }
 
-static TypeTableEntry *analyze_member_access(CodeGen *g, bool wrapped_in_fn_call,
+static bool is_container(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
+            return true;
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdTypeDecl:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdGenericFn:
+            return false;
+    }
+    zig_unreachable();
+}
+
+static bool is_container_ref(TypeTableEntry *type_entry) {
+    return (type_entry->id == TypeTableEntryIdPointer) ?
+        is_container(type_entry->data.pointer.child_type) : is_container(type_entry);
+}
+
+static TypeTableEntry *container_ref_type(TypeTableEntry *type_entry) {
+    assert(is_container_ref(type_entry));
+    return (type_entry->id == TypeTableEntryIdPointer) ?
+        type_entry->data.pointer.child_type : type_entry;
+}
+
+static void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdStruct:
+            resolve_struct_type(g, type_entry->data.structure.decl_node->owner, type_entry);
+            break;
+        case TypeTableEntryIdEnum:
+            resolve_enum_type(g, type_entry->data.enumeration.decl_node->owner, type_entry);
+            break;
+        case TypeTableEntryIdUnion:
+            resolve_union_type(g, type_entry->data.unionation.decl_node->owner, type_entry);
+            break;
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdTypeDecl:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+    }
+}
+
+static TypeTableEntry *analyze_container_member_access_inner(CodeGen *g, bool wrapped_in_fn_call,
     TypeTableEntry *bare_struct_type, Buf *field_name, AstNode *node, TypeTableEntry *struct_type)
 {
     assert(node->type == NodeTypeFieldAccessExpr);
@@ -2753,6 +2833,39 @@ static TypeTableEntry *analyze_member_access(CodeGen *g, bool wrapped_in_fn_call
     }
 }
 
+static TypeTableEntry *analyze_container_member_access(CodeGen *g, bool wrapped_in_fn_call,
+        Buf *field_name, AstNode *node, TypeTableEntry *struct_type)
+{
+    TypeTableEntry *bare_type = container_ref_type(struct_type);
+    if (!type_is_complete(bare_type)) {
+        resolve_container_type(g, bare_type);
+    }
+
+    node->data.field_access_expr.bare_container_type = bare_type;
+
+    if (bare_type->id == TypeTableEntryIdStruct) {
+        node->data.field_access_expr.type_struct_field = find_struct_type_field(bare_type, field_name);
+        if (node->data.field_access_expr.type_struct_field) {
+            return node->data.field_access_expr.type_struct_field->type_entry;
+        } else {
+            return analyze_container_member_access_inner(g, wrapped_in_fn_call, bare_type, field_name,
+                node, struct_type);
+        }
+    } else if (bare_type->id == TypeTableEntryIdEnum) {
+        node->data.field_access_expr.type_enum_field = find_enum_type_field(bare_type, field_name);
+        if (node->data.field_access_expr.type_enum_field) {
+            return node->data.field_access_expr.type_enum_field->type_entry;
+        } else {
+            return analyze_container_member_access_inner(g, wrapped_in_fn_call, bare_type, field_name,
+                node, struct_type);
+        }
+    } else if (bare_type->id == TypeTableEntryIdUnion) {
+        zig_panic("TODO");
+    } else {
+        zig_unreachable();
+    }
+}
+
 static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -2766,43 +2879,8 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
 
     if (struct_type->id == TypeTableEntryIdInvalid) {
         return struct_type;
-    } else if (struct_type->id == TypeTableEntryIdStruct || (struct_type->id == TypeTableEntryIdPointer &&
-         struct_type->data.pointer.child_type->id == TypeTableEntryIdStruct))
-    {
-        TypeTableEntry *bare_struct_type = (struct_type->id == TypeTableEntryIdStruct) ?
-            struct_type : struct_type->data.pointer.child_type;
-
-        if (!bare_struct_type->data.structure.complete) {
-            resolve_struct_type(g, bare_struct_type->data.structure.decl_node->owner, bare_struct_type);
-        }
-
-        node->data.field_access_expr.bare_struct_type = bare_struct_type;
-        node->data.field_access_expr.type_struct_field = find_struct_type_field(bare_struct_type, field_name);
-        if (node->data.field_access_expr.type_struct_field) {
-            return node->data.field_access_expr.type_struct_field->type_entry;
-        } else {
-            return analyze_member_access(g, wrapped_in_fn_call, bare_struct_type, field_name,
-                node, struct_type);
-        }
-    } else if (struct_type->id == TypeTableEntryIdEnum || (struct_type->id == TypeTableEntryIdPointer &&
-        struct_type->data.pointer.child_type->id == TypeTableEntryIdEnum))
-    {
-        TypeTableEntry *bare_struct_type = (struct_type->id == TypeTableEntryIdEnum) ?
-            struct_type : struct_type->data.pointer.child_type;
-
-        if (!bare_struct_type->data.enumeration.complete) {
-            resolve_struct_type(g, bare_struct_type->data.enumeration.decl_node->owner, bare_struct_type);
-        }
-
-        node->data.field_access_expr.bare_struct_type = bare_struct_type;
-        node->data.field_access_expr.type_enum_field = find_enum_type_field(bare_struct_type, field_name);
-
-        if (node->data.field_access_expr.type_enum_field) {
-            return node->data.field_access_expr.type_enum_field->type_entry;
-        } else {
-            return analyze_member_access(g, wrapped_in_fn_call, bare_struct_type, field_name,
-                node, struct_type);
-        }
+    } else if (is_container_ref(struct_type)) {
+        return analyze_container_member_access(g, wrapped_in_fn_call, field_name, node, struct_type);
     } else if (struct_type->id == TypeTableEntryIdArray) {
         if (buf_eql_str(field_name, "len")) {
             return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
