@@ -106,8 +106,6 @@ struct MersenneTwister(
     array: [n]int,
     index: usize,
 
-    // TODO improve compile time eval code and then allow this function to be executed at compile time.
-    #static_eval_enable(false)
     pub fn init(mt: &Self, seed: int) {
         mt.index = n;
 
