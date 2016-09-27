@@ -2,7 +2,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const str = std.str;
 const cstr = std.cstr;
-const other = @import("other.zig");
 // TODO '_' identifier for unused variable bindings
 const test_return_type_type = @import("cases/return_type_type.zig");
 const test_zeroes = @import("cases/zeroes.zig");
@@ -1243,21 +1242,6 @@ fn test3_2(f: Test3Foo) {
 
 
 #attribute("test")
-fn pubEnum() {
-    pubEnumTest(other.APubEnum.Two);
-}
-fn pubEnumTest(foo: other.APubEnum) {
-    assert(foo == other.APubEnum.Two);
-}
-
-
-#attribute("test")
-fn castWithImportedSymbol() {
-    assert(other.size_t(42) == 42);
-}
-
-
-#attribute("test")
 fn whileWithContinueExpr() {
     var sum: i32 = 0;
     {var i: i32 = 0; while (i < 10; i += 1) {
@@ -1635,20 +1619,6 @@ fn useGenericParamInGenericParam() {
 fn aGenericFn(inline T: type, inline a: T, b: T) -> T {
     return a + b;
 }
-
-
-#attribute("test")
-fn namespaceDependsOnCompileVar() {
-    if (some_namespace.a_bool) {
-        assert(some_namespace.a_bool);
-    } else {
-        assert(!some_namespace.a_bool);
-    }
-}
-const some_namespace = switch(@compileVar("os")) {
-    linux => @import("a.zig"),
-    else => @import("b.zig"),
-};
 
 
 #attribute("test")
