@@ -6,22 +6,22 @@ const assert = debug.assert;
 
 const strlen = len;
 
-// TODO fix https://github.com/andrewrk/zig/issues/140
-// and then make this able to run at compile time
-#static_eval_enable(false)
 pub fn len(ptr: &const u8) -> usize {
     var count: usize = 0;
     while (ptr[count] != 0; count += 1) {}
     return count;
 }
 
-// TODO fix https://github.com/andrewrk/zig/issues/140
-// and then make this able to run at compile time
-#static_eval_enable(false)
-pub fn cmp(a: &const u8, b: &const u8) -> i32 {
+pub fn cmp(a: &const u8, b: &const u8) -> i8 {
     var index: usize = 0;
     while (a[index] == b[index] && a[index] != 0; index += 1) {}
-    return a[index] - b[index];
+    return if (a[index] > b[index]) {
+        1
+    } else if (a[index] < b[index]) {
+        -1
+    } else {
+        0
+    };
 }
 
 pub fn toSliceConst(str: &const u8) -> []const u8 {
@@ -144,4 +144,14 @@ fn testSimpleCBuf() {
 
     %%buf2.resize(4);
     assert(buf.startsWithCBuf(&buf2));
+}
+
+#attribute("test")
+fn testCompileTimeStrCmp() {
+    assert(@constEval(cmp(c"aoeu", c"aoez") == -1));
+}
+
+#attribute("test")
+fn testCompileTimeStrLen() {
+    assert(@constEval(len(c"123456789") == 9));
 }

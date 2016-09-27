@@ -1111,33 +1111,6 @@ struct FnTableEntry {
     ZigList<AstNode *> goto_list;
 };
 
-struct EvalVar {
-    Buf *name;
-    ConstExprValue value;
-};
-
-struct EvalScope {
-    BlockContext *block_context;
-    ZigList<EvalVar> vars;
-};
-
-struct EvalFnRoot {
-    CodeGen *codegen;
-    FnTableEntry *fn;
-    AstNode *call_node;
-    size_t branch_quota;
-    size_t branches_used;
-    AstNode *exceeded_quota_node;
-    bool abort;
-};
-
-struct EvalFn {
-    EvalFnRoot *root;
-    FnTableEntry *fn;
-    ConstExprValue *return_expr;
-    ZigList<EvalScope*> scope_stack;
-};
-
 enum BuiltinFnId {
     BuiltinFnIdInvalid,
     BuiltinFnIdMemcpy,
