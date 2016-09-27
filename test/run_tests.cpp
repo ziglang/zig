@@ -884,10 +884,17 @@ var a : i32 = 1;
 var a : i32 = 2;
     )SOURCE", 1, ".tmp_source.zig:3:1: error: redeclaration of variable 'a'");
 
-    add_compile_fail_case("byvalue struct on exported functions", R"SOURCE(
+    add_compile_fail_case("byvalue struct parameter in exported function", R"SOURCE(
 struct A { x : i32, }
 export fn f(a : A) {}
-    )SOURCE", 1, ".tmp_source.zig:3:13: error: byvalue struct parameters not yet supported on extern functions");
+    )SOURCE", 1, ".tmp_source.zig:3:13: error: byvalue types not yet supported on extern function parameters");
+
+    add_compile_fail_case("byvalue struct return value in exported function", R"SOURCE(
+struct A { x: i32, }
+export fn f() -> A {
+    A {.x = 1234 }
+}
+    )SOURCE", 1, ".tmp_source.zig:3:18: error: byvalue types not yet supported on extern function return values");
 
     add_compile_fail_case("duplicate field in struct value expression", R"SOURCE(
 struct A {

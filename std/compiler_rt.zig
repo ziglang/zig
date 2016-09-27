@@ -210,18 +210,6 @@ export fn __umoddi3(a: du_int, b: du_int) -> du_int {
     return r;
 }
 
-struct AeabiUlDivModResult {
-    quot: u64,
-    rem: u64,
-}
-#debug_safety(false)
-export fn __aeabi_uldivmod(numerator: u64, denominator: u64) -> AeabiUlDivModResult{
-    var result: AeabiUlDivModResult = undefined;
-    result.quot = __udivmoddi4(numerator, denominator, &result.rem);
-    return result;
-}
-
-
 #attribute("test")
 fn test_umoddi3() {
     test_one_umoddi3(0, 1, 0);

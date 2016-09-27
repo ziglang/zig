@@ -6903,9 +6903,9 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
             add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
         }
 
-        if (fn_type->data.fn.fn_type_id.is_extern && type->id == TypeTableEntryIdStruct) {
+        if (fn_type->data.fn.fn_type_id.is_extern && handle_is_ptr(type)) {
             add_node_error(g, param_decl_node,
-                buf_sprintf("byvalue struct parameters not yet supported on extern functions"));
+                buf_sprintf("byvalue types not yet supported on extern function parameters"));
         }
 
         if (buf_len(param_decl->name) == 0) {
@@ -6927,6 +6927,12 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
 
     TypeTableEntry *expected_type = fn_type->data.fn.fn_type_id.return_type;
+
+    if (fn_type->data.fn.fn_type_id.is_extern && handle_is_ptr(expected_type)) {
+        add_node_error(g, fn_proto_node->data.fn_proto.return_type,
+            buf_sprintf("byvalue types not yet supported on extern function return values"));
+    }
+
     TypeTableEntry *block_return_type = analyze_expression(g, import, context, expected_type, node->data.fn_def.body);
 
     node->data.fn_def.implicit_return_type = block_return_type;
