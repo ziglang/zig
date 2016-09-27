@@ -101,7 +101,7 @@ struct MersenneTwister(
     t: int, c: int,
     l: int, f: int)
 {
-    const Self = MersenneTwister(int, n, m, r, a, u, d, s, b, t, c, l, f);
+    const Self = this;
 
     array: [n]int,
     index: usize,

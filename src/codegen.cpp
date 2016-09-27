@@ -3605,6 +3605,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
         case NodeTypeZeroesLiteral:
+        case NodeTypeThisLiteral:
         case NodeTypeErrorType:
         case NodeTypeTypeLiteral:
         case NodeTypeArrayType:
@@ -3826,6 +3827,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdVar:
             zig_unreachable();
@@ -4348,6 +4350,13 @@ static void define_builtin_types(CodeGen *g) {
         entry->zero_bits = true;
         entry->deep_const = true;
         g->builtin_types.entry_namespace = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBlock);
+        buf_init_from_str(&entry->name, "(block)");
+        entry->zero_bits = true;
+        entry->deep_const = true;
+        g->builtin_types.entry_block = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumLitFloat);
@@ -5145,6 +5154,7 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:

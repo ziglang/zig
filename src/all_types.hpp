@@ -85,6 +85,7 @@ struct ConstExprValue {
         ConstArrayValue x_array;
         ConstPtrValue x_ptr;
         ImportTableEntry *x_import;
+        BlockContext *x_block;
     } data;
 };
 
@@ -174,6 +175,7 @@ enum NodeType {
     NodeTypeNullLiteral,
     NodeTypeUndefinedLiteral,
     NodeTypeZeroesLiteral,
+    NodeTypeThisLiteral,
     NodeTypeIfBoolExpr,
     NodeTypeIfVarExpr,
     NodeTypeWhileExpr,
@@ -719,6 +721,11 @@ struct AstNodeZeroesLiteral {
     Expr resolved_expr;
 };
 
+struct AstNodeThisLiteral {
+    // populated by semantic analyzer
+    Expr resolved_expr;
+};
+
 struct AstNodeSymbolExpr {
     Buf *symbol;
 
@@ -822,6 +829,7 @@ struct AstNode {
         AstNodeNullLiteral null_literal;
         AstNodeUndefinedLiteral undefined_literal;
         AstNodeZeroesLiteral zeroes_literal;
+        AstNodeThisLiteral this_literal;
         AstNodeSymbolExpr symbol_expr;
         AstNodeBoolLiteral bool_literal;
         AstNodeBreakExpr break_expr;
@@ -1005,6 +1013,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdFn,
     TypeTableEntryIdTypeDecl,
     TypeTableEntryIdNamespace,
+    TypeTableEntryIdBlock,
     TypeTableEntryIdGenericFn,
 };
 
@@ -1102,7 +1111,6 @@ struct FnTableEntry {
     AstNode *want_pure_return_type;
     bool safety_off;
     FnInline fn_inline;
-    BlockContext *parent_block_context;
     FnAnalState anal_state;
 
     ZigList<AstNode *> cast_alloca_list;
@@ -1209,6 +1217,7 @@ struct CodeGen {
         TypeTableEntry *entry_type;
         TypeTableEntry *entry_invalid;
         TypeTableEntry *entry_namespace;
+        TypeTableEntry *entry_block;
         TypeTableEntry *entry_num_lit_int;
         TypeTableEntry *entry_num_lit_float;
         TypeTableEntry *entry_undef;
@@ -1340,7 +1349,6 @@ struct LabelTableEntry {
 };
 
 struct BlockContext {
-    // One of: NodeTypeFnDef, NodeTypeBlock, NodeTypeRoot, NodeTypeDefer, NodeTypeVariableDeclaration
     AstNode *node;
 
     // any variables that are introduced by this scope

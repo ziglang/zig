@@ -24,7 +24,7 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
     // this is used to detect bugs where a hashtable is edited while an iterator is running.
     modification_count: debug_u32,
 
-    const Self = SmallHashMap(K, V, hash, eql, static_size);
+    const Self = this;
 
     pub struct Entry {
         used: bool,

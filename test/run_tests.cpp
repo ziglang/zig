@@ -1597,6 +1597,22 @@ const TINY_QUANTUM_SIZE = 1 << TINY_QUANTUM_SHIFT;
 var block_aligned_stuff: usize = (4 + TINY_QUANTUM_SIZE) & ~(TINY_QUANTUM_SIZE - 1);
     )SOURCE", 1, ".tmp_source.zig:4:60: error: unable to perform binary not operation on type '(integer literal)'");
 
+    {
+        TestCase *tc = add_compile_fail_case("multiple files with private function error", R"SOURCE(
+const foo = @import("foo.zig");
+
+fn callPrivFunction() {
+    foo.privateFunction();
+}
+        )SOURCE", 2, 
+            ".tmp_source.zig:5:8: error: 'privateFunction' is private",
+            "foo.zig:2:1: note: declared here");
+
+        add_source_file(tc, "foo.zig", R"SOURCE(
+fn privateFunction() { }
+        )SOURCE");
+    }
+
 }
 
 //////////////////////////////////////////////////////////////////////////////

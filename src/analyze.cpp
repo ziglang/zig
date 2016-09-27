@@ -91,6 +91,7 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
         case NodeTypeZeroesLiteral:
+        case NodeTypeThisLiteral:
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
         case NodeTypeLabel:
@@ -246,6 +247,7 @@ static bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdFn:
         case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
             return true;
     }
@@ -962,6 +964,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
             case TypeTableEntryIdNullLit:
             case TypeTableEntryIdUnreachable:
             case TypeTableEntryIdNamespace:
+            case TypeTableEntryIdBlock:
             case TypeTableEntryIdGenericFn:
                 fn_proto->skip = true;
                 add_node_error(g, child->data.param_decl.type,
@@ -1012,6 +1015,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdVar:
             fn_proto->skip = true;
@@ -1896,6 +1900,7 @@ static void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only)
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
         case NodeTypeZeroesLiteral:
+        case NodeTypeThisLiteral:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfBoolExpr:
@@ -1960,6 +1965,7 @@ static bool type_has_codegen_value(TypeTableEntry *type_entry) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
             return false;
 
@@ -2745,6 +2751,7 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdFn:
         case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
             return false;
     }
@@ -2791,6 +2798,7 @@ static void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdFn:
         case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
@@ -2965,7 +2973,7 @@ static TypeTableEntry *analyze_field_access_expr(CodeGen *g, ImportTableEntry *i
         }
         if (decl_node) {
             TopLevelDecl *tld = get_as_top_level_decl(decl_node);
-            if (tld->visib_mod == VisibModPrivate) {
+            if (tld->visib_mod == VisibModPrivate && decl_node->owner != import) {
                 ErrorMsg *msg = add_node_error(g, node,
                     buf_sprintf("'%s' is private", buf_ptr(field_name)));
                 add_error_note(g, msg, decl_node, buf_sprintf("declared here"));
@@ -3091,6 +3099,16 @@ static TypeTableEntry *resolve_expr_const_val_as_type(CodeGen *g, AstNode *node,
     expr->const_val.data.x_type = type;
     expr->const_val.depends_on_compile_var = depends_on_compile_var;
     return g->builtin_types.entry_type;
+}
+
+static TypeTableEntry *resolve_expr_const_val_as_block(CodeGen *g, AstNode *node, BlockContext *block_context,
+        bool depends_on_compile_var)
+{
+    Expr *expr = get_resolved_expr(node);
+    expr->const_val.ok = true;
+    expr->const_val.data.x_block = block_context;
+    expr->const_val.depends_on_compile_var = depends_on_compile_var;
+    return g->builtin_types.entry_block;
 }
 
 static TypeTableEntry *resolve_expr_const_val_as_other_expr(CodeGen *g, AstNode *node, AstNode *other,
@@ -3219,6 +3237,13 @@ static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, As
     bignum_init_unsigned(&expr->const_val.data.x_bignum, x);
 
     return g->builtin_types.entry_num_lit_int;
+}
+
+static TypeTableEntry *resolve_expr_const_val_as_import(CodeGen *g, AstNode *node, ImportTableEntry *import) {
+    Expr *expr = get_resolved_expr(node);
+    expr->const_val.ok = true;
+    expr->const_val.data.x_import = import;
+    return g->builtin_types.entry_namespace;
 }
 
 static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
@@ -3497,6 +3522,7 @@ static TypeTableEntry *analyze_bool_bin_op_expr(CodeGen *g, ImportTableEntry *im
         case TypeTableEntryIdFn:
         case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
             if (!is_equality_cmp) {
                 add_node_error(g, node,
@@ -4120,6 +4146,25 @@ static TypeTableEntry *analyze_zeroes_literal_expr(CodeGen *g, ImportTableEntry 
     return expected_type ? expected_type : g->builtin_types.entry_undef;
 }
 
+static TypeTableEntry *analyze_this_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        TypeTableEntry *expected_type, AstNode *node)
+{
+    if (!context->parent) {
+        return resolve_expr_const_val_as_import(g, node, import);
+    }
+    if (context->fn_entry && (!context->parent->fn_entry ||
+        (context->parent->parent && !context->parent->parent->fn_entry)))
+    {
+        return resolve_expr_const_val_as_fn(g, node, context->fn_entry, false);
+    }
+    if (context->node->type == NodeTypeContainerDecl) {
+        return resolve_expr_const_val_as_type(g, node, context->node->data.struct_decl.type_entry, false);
+    }
+    if (context->node->type == NodeTypeBlock) {
+        return resolve_expr_const_val_as_block(g, node, context, false);
+    }
+    zig_unreachable();
+}
 
 static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry *import,
         BlockContext *block_context, TypeTableEntry *expected_type, AstNode *node)
@@ -4793,13 +4838,6 @@ static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, B
     return g->builtin_types.entry_invalid;
 }
 
-static TypeTableEntry *resolve_expr_const_val_as_import(CodeGen *g, AstNode *node, ImportTableEntry *import) {
-    Expr *expr = get_resolved_expr(node);
-    expr->const_val.ok = true;
-    expr->const_val.data.x_import = import;
-    return g->builtin_types.entry_namespace;
-}
-
 static TypeTableEntry *analyze_import(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         AstNode *node)
 {
@@ -5394,6 +5432,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     case TypeTableEntryIdUndefLit:
                     case TypeTableEntryIdNullLit:
                     case TypeTableEntryIdNamespace:
+                    case TypeTableEntryIdBlock:
                     case TypeTableEntryIdGenericFn:
                     case TypeTableEntryIdVar:
                         add_node_error(g, expr_node,
@@ -6796,6 +6835,9 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
         case NodeTypeZeroesLiteral:
             return_type = analyze_zeroes_literal_expr(g, import, context, expected_type, node);
             break;
+        case NodeTypeThisLiteral:
+            return_type = analyze_this_literal_expr(g, import, context, expected_type, node);
+            break;
         case NodeTypeSymbol:
             return_type = analyze_symbol_expr(g, import, context, expected_type, node, pointer_only);
             break;
@@ -7085,6 +7127,7 @@ static void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *conte
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
         case NodeTypeZeroesLiteral:
+        case NodeTypeThisLiteral:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfBoolExpr:
@@ -7347,6 +7390,8 @@ Expr *get_resolved_expr(AstNode *node) {
             return &node->data.undefined_literal.resolved_expr;
         case NodeTypeZeroesLiteral:
             return &node->data.zeroes_literal.resolved_expr;
+        case NodeTypeThisLiteral:
+            return &node->data.this_literal.resolved_expr;
         case NodeTypeGoto:
             return &node->data.goto_expr.resolved_expr;
         case NodeTypeBreak:
@@ -7432,6 +7477,7 @@ static TopLevelDecl *get_as_top_level_decl(AstNode *node) {
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
         case NodeTypeZeroesLiteral:
+        case NodeTypeThisLiteral:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:
@@ -7499,6 +7545,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdVar:
              zig_unreachable();
@@ -7640,6 +7687,8 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
             return hash_ptr(const_val->data.x_type);
         case TypeTableEntryIdNamespace:
             return hash_ptr(const_val->data.x_import);
+        case TypeTableEntryIdBlock:
+            return hash_ptr(const_val->data.x_block);
         case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
@@ -7715,6 +7764,7 @@ static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry)
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdVar:
             zig_unreachable();

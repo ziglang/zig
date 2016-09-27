@@ -620,7 +620,7 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, size_t *token_index, bool m
 
 /*
 PrimaryExpression = "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." "Symbol")
-KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "zeroes" | "error" | "type"
+KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "zeroes" | "error" | "type" | "this"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -670,6 +670,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         return node;
     } else if (token->id == TokenIdKeywordZeroes) {
         AstNode *node = ast_create_node(pc, NodeTypeZeroesLiteral, token);
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordThis) {
+        AstNode *node = ast_create_node(pc, NodeTypeThisLiteral, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordType) {
@@ -2560,6 +2564,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeZeroesLiteral:
             // none
             break;
+        case NodeTypeThisLiteral:
+            // none
+            break;
         case NodeTypeIfBoolExpr:
             visit_field(&node->data.if_bool_expr.condition, visit, context);
             visit_field(&node->data.if_bool_expr.then_block, visit, context);
@@ -2838,6 +2845,9 @@ AstNode *ast_clone_subtree_special(AstNode *old_node, uint32_t *next_node_index,
             // none
             break;
         case NodeTypeZeroesLiteral:
+            // none
+            break;
+        case NodeTypeThisLiteral:
             // none
             break;
         case NodeTypeIfBoolExpr:

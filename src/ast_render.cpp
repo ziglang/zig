@@ -173,6 +173,8 @@ static const char *node_type_str(NodeType node_type) {
             return "UndefinedLiteral";
         case NodeTypeZeroesLiteral:
             return "ZeroesLiteral";
+        case NodeTypeThisLiteral:
+            return "ThisLiteral";
         case NodeTypeIfBoolExpr:
             return "IfBoolExpr";
         case NodeTypeIfVarExpr:
@@ -596,6 +598,8 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeUndefinedLiteral:
             zig_panic("TODO");
         case NodeTypeZeroesLiteral:
+            zig_panic("TODO");
+        case NodeTypeThisLiteral:
             zig_panic("TODO");
         case NodeTypeIfBoolExpr:
             zig_panic("TODO");

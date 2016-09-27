@@ -4,7 +4,7 @@ const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 
 pub struct List(T: type) {
-    const Self = List(T);
+    const Self = this;
 
     items: []T,
     len: usize,
