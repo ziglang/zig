@@ -356,7 +356,7 @@ static bool want_debug_safety_recursive(CodeGen *g, BlockContext *context) {
     if (context->safety_set_node || !context->parent) {
         return !context->safety_off;
     }
-    context->safety_off = want_debug_safety_recursive(g, context->parent);
+    context->safety_off = !want_debug_safety_recursive(g, context->parent);
     context->safety_set_node = context->parent->safety_set_node;
     return !context->safety_off;
 }
