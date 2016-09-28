@@ -7,8 +7,9 @@ enum FormValue {
 
 error Whatever;
 
-#static_eval_enable(false)
 fn foo(id: u64) -> %FormValue {
+    @setFnStaticEval(this, false);
+
     switch (id) {
         2 => FormValue.Two { true },
         1 => FormValue.One,
@@ -16,8 +17,9 @@ fn foo(id: u64) -> %FormValue {
     }
 }
 
-#attribute("test")
 fn switchProngImplicitCast() {
+    @setFnTest(this, true);
+
     const result = switch (%%foo(2)) {
         One => false,
         Two => |x| x,

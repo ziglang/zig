@@ -13,9 +13,9 @@ const want_main_symbol = !want_start_symbol;
 var argc: usize = undefined;
 var argv: &&u8 = undefined;
 
-#attribute("naked")
-#condition(want_start_symbol)
-export fn _start() -> unreachable {
+export nakedcc fn _start() -> unreachable {
+    @setFnVisible(this, want_start_symbol);
+
     switch (@compileVar("arch")) {
         x86_64 => {
             argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> usize));
@@ -44,8 +44,9 @@ fn callMainAndExit() -> unreachable {
     linux.exit(0);
 }
 
-#condition(want_main_symbol)
 export fn main(c_argc: i32, c_argv: &&u8) -> i32 {
+    @setFnVisible(this, want_main_symbol);
+
     argc = usize(c_argc);
     argv = c_argv;
     callMain() %% return 1;

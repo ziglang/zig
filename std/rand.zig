@@ -153,8 +153,9 @@ struct MersenneTwister(
     }
 }
 
-#attribute("test")
 fn testFloat32() {
+    @setFnTest(this, true);
+
     var r: Rand = undefined;
     r.init(42);
 
@@ -165,8 +166,9 @@ fn testFloat32() {
     }}
 }
 
-#attribute("test")
 fn testMT19937_64() {
+    @setFnTest(this, true);
+
     var rng: MT19937_64 = undefined;
     rng.init(rand_test.mt64_seed);
     for (rand_test.mt64_data) |value| {
@@ -174,8 +176,9 @@ fn testMT19937_64() {
     }
 }
 
-#attribute("test")
 fn testMT19937_32() {
+    @setFnTest(this, true);
+
     var rng: MT19937_32 = undefined;
     rng.init(rand_test.mt32_seed);
     for (rand_test.mt32_data) |value| {

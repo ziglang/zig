@@ -963,6 +963,12 @@ static bool eval_fn_call_builtin(EvalFn *ef, AstNode *node, ConstExprValue *out_
         case BuiltinFnIdCompileErr:
         case BuiltinFnIdIntType:
             zig_unreachable();
+        case BuiltinFnIdSetFnTest:
+        case BuiltinFnIdSetFnVisible:
+        case BuiltinFnIdSetFnStaticEval:
+        case BuiltinFnIdSetFnNoInline:
+        case BuiltinFnIdSetDebugSafety:
+            return false;
     }
 
     return false;
@@ -1398,7 +1404,6 @@ static bool eval_expr(EvalFn *ef, AstNode *node, ConstExprValue *out) {
         case NodeTypeUse:
         case NodeTypeAsmExpr:
         case NodeTypeParamDecl:
-        case NodeTypeDirective:
         case NodeTypeTypeDecl:
             zig_unreachable();
     }

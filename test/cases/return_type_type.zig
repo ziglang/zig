@@ -10,8 +10,9 @@ pub struct SmallList(inline T: type, inline STATIC_SIZE: usize) {
     prealloc_items: [STATIC_SIZE]T,
 }
 
-#attribute("test")
 fn functionWithReturnTypeType() {
+    @setFnTest(this, true);
+
     var list: List(i32) = undefined;
     var list2: List(i32) = undefined;
     list.length = 10;

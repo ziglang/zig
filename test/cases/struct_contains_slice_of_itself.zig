@@ -5,8 +5,9 @@ struct Node {
     children: []Node,
 }
 
-#attribute("test")
 fn structContainsSliceOfItself() {
+    @setFnTest(this, true);
+
     var nodes = []Node {
         Node {
             .payload = 1,

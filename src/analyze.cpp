@@ -75,7 +75,6 @@ static AstNode *first_executing_node(AstNode *node) {
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeBlock:
-        case NodeTypeDirective:
         case NodeTypeReturnExpr:
         case NodeTypeDefer:
         case NodeTypeVariableDeclaration:
@@ -1123,6 +1122,28 @@ static bool resolve_const_expr_bool(CodeGen *g, ImportTableEntry *import, BlockC
     return true;
 }
 
+static FnTableEntry *resolve_const_expr_fn(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        AstNode **node)
+{
+    TypeTableEntry *resolved_type = analyze_expression(g, import, context, nullptr, *node);
+
+    if (resolved_type->id == TypeTableEntryIdInvalid) {
+        return nullptr;
+    } else if (resolved_type->id == TypeTableEntryIdFn) {
+        ConstExprValue *const_val = &get_resolved_expr(*node)->const_val;
+
+        if (!const_val->ok) {
+            add_node_error(g, *node, buf_sprintf("unable to evaluate constant expression"));
+            return nullptr;
+        }
+
+        return const_val->data.x_fn;
+    } else {
+        add_node_error(g, *node, buf_sprintf("expected function, got '%s'", buf_ptr(&resolved_type->name)));
+        return nullptr;
+    }
+}
+
 static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_table_entry,
         ImportTableEntry *import, BlockContext *containing_context)
 {
@@ -1133,85 +1154,6 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
         return;
     }
 
-    bool is_cold = false;
-    bool is_naked = false;
-    bool is_test = false;
-    bool is_noinline = false;
-
-    if (fn_proto->top_level_decl.directives) {
-        for (size_t i = 0; i < fn_proto->top_level_decl.directives->length; i += 1) {
-            AstNode *directive_node = fn_proto->top_level_decl.directives->at(i);
-            Buf *name = directive_node->data.directive.name;
-
-            if (buf_eql_str(name, "attribute")) {
-                if (fn_table_entry->fn_def_node) {
-                    Buf *attr_name = resolve_const_expr_str(g, import, import->block_context,
-                            &directive_node->data.directive.expr);
-                    if (attr_name) {
-                        if (buf_eql_str(attr_name, "naked")) {
-                            is_naked = true;
-                        } else if (buf_eql_str(attr_name, "noinline")) {
-                            is_noinline = true;
-                        } else if (buf_eql_str(attr_name, "cold")) {
-                            is_cold = true;
-                        } else if (buf_eql_str(attr_name, "test")) {
-                            is_test = true;
-                            g->test_fn_count += 1;
-                        } else {
-                            add_node_error(g, directive_node,
-                                    buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
-                        }
-                    }
-                } else {
-                    add_node_error(g, directive_node,
-                            buf_sprintf("invalid function attribute: '%s'", buf_ptr(name)));
-                }
-            } else if (buf_eql_str(name, "debug_safety")) {
-                if (!fn_table_entry->fn_def_node) {
-                    add_node_error(g, directive_node,
-                        buf_sprintf("#debug_safety valid only on function definitions"));
-                } else {
-                    bool enable;
-                    bool ok = resolve_const_expr_bool(g, import, import->block_context,
-                            &directive_node->data.directive.expr, &enable);
-                    if (ok && !enable) {
-                        fn_table_entry->safety_off = true;
-                    }
-                }
-            } else if (buf_eql_str(name, "condition")) {
-                if (fn_proto->top_level_decl.visib_mod == VisibModExport) {
-                    bool include;
-                    bool ok = resolve_const_expr_bool(g, import, import->block_context,
-                            &directive_node->data.directive.expr, &include);
-                    if (ok && !include) {
-                        fn_proto->top_level_decl.visib_mod = VisibModPub;
-                    }
-                } else {
-                    add_node_error(g, directive_node,
-                        buf_sprintf("#condition valid only on exported symbols"));
-                }
-            } else if (buf_eql_str(name, "static_eval_enable")) {
-                if (!fn_table_entry->fn_def_node) {
-                    add_node_error(g, directive_node,
-                        buf_sprintf("#static_val_enable valid only on function definitions"));
-                } else {
-                    bool enable;
-                    bool ok = resolve_const_expr_bool(g, import, import->block_context,
-                            &directive_node->data.directive.expr, &enable);
-                    if (!ok || !enable) {
-                        fn_table_entry->want_pure = WantPureFalse;
-                    } else if (ok && enable) {
-                        fn_table_entry->want_pure = WantPureTrue;
-                        fn_table_entry->want_pure_attr_node = directive_node->data.directive.expr;
-                    }
-                }
-            } else {
-                add_node_error(g, directive_node,
-                        buf_sprintf("invalid directive: '%s'", buf_ptr(name)));
-            }
-        }
-    }
-
     bool is_internal = (fn_proto->top_level_decl.visib_mod != VisibModExport);
     bool is_c_compat = !is_internal || fn_proto->is_extern;
     fn_table_entry->internal_linkage = !is_c_compat;
@@ -1219,24 +1161,17 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
 
 
     TypeTableEntry *fn_type = analyze_fn_proto_type(g, import, containing_context, nullptr, node,
-            is_naked, is_cold, fn_table_entry);
+            fn_proto->is_nakedcc, fn_proto->is_coldcc, fn_table_entry);
 
     fn_table_entry->type_entry = fn_type;
-    fn_table_entry->is_test = is_test;
 
     if (fn_type->id == TypeTableEntryIdInvalid) {
         fn_proto->skip = true;
         return;
     }
 
-    if (fn_proto->is_inline && is_noinline) {
-        add_node_error(g, node, buf_sprintf("function is both inline and noinline"));
-        fn_proto->skip = true;
-        return;
-    } else if (fn_proto->is_inline) {
+    if (fn_proto->is_inline) {
         fn_table_entry->fn_inline = FnInlineAlways;
-    } else if (is_noinline) {
-        fn_table_entry->fn_inline = FnInlineNever;
     }
 
 
@@ -1881,7 +1816,6 @@ static void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only)
             zig_panic("TODO resolve_top_level_decl NodeTypeUse");
             break;
         case NodeTypeFnDef:
-        case NodeTypeDirective:
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
@@ -2406,13 +2340,11 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
         context->parent_loop_node = parent->parent_loop_node;
         context->c_import_buf = parent->c_import_buf;
         context->codegen_excluded = parent->codegen_excluded;
-        context->safety_off = parent->safety_off;
     }
 
     if (node && node->type == NodeTypeFnDef) {
         AstNode *fn_proto_node = node->data.fn_def.fn_proto;
         context->fn_entry = fn_proto_node->data.fn_proto.fn_table_entry;
-        context->safety_off = context->fn_entry->safety_off;
     } else if (parent) {
         context->fn_entry = parent->fn_entry;
     }
@@ -5246,6 +5178,203 @@ static TypeTableEntry *analyze_int_type(CodeGen *g, ImportTableEntry *import,
 
 }
 
+static TypeTableEntry *analyze_set_fn_test(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    AstNode **fn_node = &node->data.fn_call_expr.params.at(0);
+    AstNode **value_node = &node->data.fn_call_expr.params.at(1);
+
+    FnTableEntry *fn_entry = resolve_const_expr_fn(g, import, context, fn_node);
+    if (!fn_entry) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    bool ok = resolve_const_expr_bool(g, import, context, value_node, &fn_entry->is_test);
+    if (!ok) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (fn_entry->fn_test_set_node) {
+        ErrorMsg *msg = add_node_error(g, node, buf_sprintf("function test attribute set twice"));
+        add_error_note(g, msg, fn_entry->fn_test_set_node, buf_sprintf("first set here"));
+        return g->builtin_types.entry_invalid;
+    }
+    fn_entry->fn_test_set_node = node;
+
+    g->test_fn_count += 1;
+    return g->builtin_types.entry_void;
+}
+
+static TypeTableEntry *analyze_set_fn_no_inline(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    AstNode **fn_node = &node->data.fn_call_expr.params.at(0);
+    AstNode **value_node = &node->data.fn_call_expr.params.at(1);
+
+    FnTableEntry *fn_entry = resolve_const_expr_fn(g, import, context, fn_node);
+    if (!fn_entry) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    bool is_noinline;
+    bool ok = resolve_const_expr_bool(g, import, context, value_node, &is_noinline);
+    if (!ok) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (fn_entry->fn_no_inline_set_node) {
+        ErrorMsg *msg = add_node_error(g, node, buf_sprintf("function no inline attribute set twice"));
+        add_error_note(g, msg, fn_entry->fn_no_inline_set_node, buf_sprintf("first set here"));
+        return g->builtin_types.entry_invalid;
+    }
+    fn_entry->fn_no_inline_set_node = node;
+
+    if (fn_entry->fn_inline == FnInlineAlways) {
+        add_node_error(g, node, buf_sprintf("function is both inline and noinline"));
+        fn_entry->proto_node->data.fn_proto.skip = true;
+        return g->builtin_types.entry_invalid;
+    } else if (is_noinline) {
+        fn_entry->fn_inline = FnInlineNever;
+    }
+
+    return g->builtin_types.entry_void;
+}
+
+static TypeTableEntry *analyze_set_fn_static_eval(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    AstNode **fn_node = &node->data.fn_call_expr.params.at(0);
+    AstNode **value_node = &node->data.fn_call_expr.params.at(1);
+
+    FnTableEntry *fn_entry = resolve_const_expr_fn(g, import, context, fn_node);
+    if (!fn_entry) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    bool want_static_eval;
+    bool ok = resolve_const_expr_bool(g, import, context, value_node, &want_static_eval);
+    if (!ok) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (fn_entry->fn_static_eval_set_node) {
+        ErrorMsg *msg = add_node_error(g, node, buf_sprintf("function static eval attribute set twice"));
+        add_error_note(g, msg, fn_entry->fn_static_eval_set_node, buf_sprintf("first set here"));
+        return g->builtin_types.entry_invalid;
+    }
+    fn_entry->fn_static_eval_set_node = node;
+
+    if (want_static_eval && !context->fn_entry->is_pure) {
+        add_node_error(g, node, buf_sprintf("attribute appears too late within function"));
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (want_static_eval) {
+        fn_entry->want_pure = WantPureTrue;
+        fn_entry->want_pure_attr_node = node;
+    } else {
+        fn_entry->want_pure = WantPureFalse;
+        fn_entry->is_pure = false;
+    }
+
+    return g->builtin_types.entry_void;
+}
+
+static TypeTableEntry *analyze_set_fn_visible(CodeGen *g, ImportTableEntry *import,
+        BlockContext *context, AstNode *node)
+{
+    AstNode **fn_node = &node->data.fn_call_expr.params.at(0);
+    AstNode **value_node = &node->data.fn_call_expr.params.at(1);
+
+    FnTableEntry *fn_entry = resolve_const_expr_fn(g, import, context, fn_node);
+    if (!fn_entry) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    bool want_export;
+    bool ok = resolve_const_expr_bool(g, import, context, value_node, &want_export);
+    if (!ok) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (fn_entry->fn_export_set_node) {
+        ErrorMsg *msg = add_node_error(g, node, buf_sprintf("function visibility set twice"));
+        add_error_note(g, msg, fn_entry->fn_export_set_node, buf_sprintf("first set here"));
+        return g->builtin_types.entry_invalid;
+    }
+    fn_entry->fn_export_set_node = node;
+
+    AstNodeFnProto *fn_proto = &fn_entry->proto_node->data.fn_proto;
+    if (fn_proto->top_level_decl.visib_mod != VisibModExport) {
+        ErrorMsg *msg = add_node_error(g, node,
+            buf_sprintf("function must be marked export to set function visibility"));
+        add_error_note(g, msg, fn_entry->proto_node, buf_sprintf("function declared here"));
+        return g->builtin_types.entry_void;
+    }
+    if (!want_export) {
+        fn_proto->top_level_decl.visib_mod = VisibModPub;
+    }
+
+    return g->builtin_types.entry_void;
+}
+
+static TypeTableEntry *analyze_set_debug_safety(CodeGen *g, ImportTableEntry *import,
+        BlockContext *parent_context, AstNode *node)
+{
+    AstNode **target_node = &node->data.fn_call_expr.params.at(0);
+    AstNode **value_node = &node->data.fn_call_expr.params.at(1);
+
+    TypeTableEntry *target_type = analyze_expression(g, import, parent_context, nullptr, *target_node);
+    BlockContext *target_context;
+    ConstExprValue *const_val = &get_resolved_expr(*target_node)->const_val;
+    if (target_type->id == TypeTableEntryIdInvalid) {
+        return g->builtin_types.entry_invalid;
+    }
+    if (!const_val->ok) {
+        add_node_error(g, *target_node, buf_sprintf("unable to evaluate constant expression"));
+        return g->builtin_types.entry_invalid;
+    }
+    if (target_type->id == TypeTableEntryIdBlock) {
+        target_context = const_val->data.x_block;
+    } else if (target_type->id == TypeTableEntryIdFn) {
+        target_context = const_val->data.x_fn->fn_def_node->data.fn_def.block_context;
+    } else if (target_type->id == TypeTableEntryIdMetaType) {
+        TypeTableEntry *type_arg = const_val->data.x_type;
+        if (type_arg->id == TypeTableEntryIdStruct) {
+            target_context = type_arg->data.structure.block_context;
+        } else if (type_arg->id == TypeTableEntryIdEnum) {
+            target_context = type_arg->data.enumeration.block_context;
+        } else if (type_arg->id == TypeTableEntryIdUnion) {
+            target_context = type_arg->data.unionation.block_context;
+        } else {
+            add_node_error(g, *target_node,
+                buf_sprintf("expected scope reference, got type '%s'", buf_ptr(&type_arg->name)));
+            return g->builtin_types.entry_invalid;
+        }
+    } else {
+        add_node_error(g, *target_node,
+            buf_sprintf("expected scope reference, got type '%s'", buf_ptr(&target_type->name)));
+        return g->builtin_types.entry_invalid;
+    }
+
+    bool want_debug_safety;
+    bool ok = resolve_const_expr_bool(g, import, parent_context, value_node, &want_debug_safety);
+    if (!ok) {
+        return g->builtin_types.entry_invalid;
+    }
+
+    if (target_context->safety_set_node) {
+        ErrorMsg *msg = add_node_error(g, node, buf_sprintf("debug safety for scope set twice"));
+        add_error_note(g, msg, target_context->safety_set_node, buf_sprintf("first set here"));
+        return g->builtin_types.entry_invalid;
+    }
+    target_context->safety_set_node = node;
+
+    target_context->safety_off = !want_debug_safety;
+
+    return g->builtin_types.entry_void;
+}
+
 static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -5607,6 +5736,16 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
             return analyze_int_type(g, import, context, node);
         case BuiltinFnIdUnreachable:
             return g->builtin_types.entry_unreachable;
+        case BuiltinFnIdSetFnTest:
+            return analyze_set_fn_test(g, import, context, node);
+        case BuiltinFnIdSetFnNoInline:
+            return analyze_set_fn_no_inline(g, import, context, node);
+        case BuiltinFnIdSetFnStaticEval:
+            return analyze_set_fn_static_eval(g, import, context, node);
+        case BuiltinFnIdSetFnVisible:
+            return analyze_set_fn_visible(g, import, context, node);
+        case BuiltinFnIdSetDebugSafety:
+            return analyze_set_debug_safety(g, import, context, node);
     }
     zig_unreachable();
 }
@@ -6876,7 +7015,6 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
             break;
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
-        case NodeTypeDirective:
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeRoot:
@@ -7109,7 +7247,6 @@ static void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *conte
             // error value declarations do not depend on other top level decls
             preview_error_value_decl(g, node);
             break;
-        case NodeTypeDirective:
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
@@ -7418,7 +7555,6 @@ Expr *get_resolved_expr(AstNode *node) {
         case NodeTypeFnDef:
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
-        case NodeTypeDirective:
         case NodeTypeUse:
         case NodeTypeContainerDecl:
         case NodeTypeStructField:
@@ -7469,7 +7605,6 @@ static TopLevelDecl *get_as_top_level_decl(AstNode *node) {
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeBlock:
-        case NodeTypeDirective:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
         case NodeTypeSymbol:

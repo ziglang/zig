@@ -141,8 +141,6 @@ static const char *node_type_str(NodeType node_type) {
             return "ArrayAccessExpr";
         case NodeTypeSliceExpr:
             return "SliceExpr";
-        case NodeTypeDirective:
-            return "Directive";
         case NodeTypeReturnExpr:
             return "ReturnExpr";
         case NodeTypeDefer:
@@ -416,13 +414,6 @@ static void render_node(AstRender *ar, AstNode *node) {
             }
         case NodeTypeFnDef:
             {
-                ZigList<AstNode *> *directives =
-                    node->data.fn_def.fn_proto->data.fn_proto.top_level_decl.directives;
-                if (directives) {
-                    for (size_t i = 0; i < directives->length; i += 1) {
-                        render_node(ar, directives->at(i));
-                    }
-                }
                 render_node(ar, node->data.fn_def.fn_proto);
                 fprintf(ar->f, " ");
                 render_node(ar, node->data.fn_def.body);
@@ -444,11 +435,6 @@ static void render_node(AstRender *ar, AstNode *node) {
             ar->indent -= ar->indent_size;
             print_indent(ar);
             fprintf(ar->f, "}");
-            break;
-        case NodeTypeDirective:
-            fprintf(ar->f, "#%s(",  buf_ptr(node->data.directive.name));
-            render_node(ar, node->data.directive.expr);
-            fprintf(ar->f, ")\n");
             break;
         case NodeTypeReturnExpr:
             {

@@ -352,8 +352,20 @@ static LLVMValueRef get_handle_value(CodeGen *g, AstNode *source_node, LLVMValue
     }
 }
 
+static bool want_debug_safety_recursive(CodeGen *g, BlockContext *context) {
+    if (context->safety_set_node || !context->parent) {
+        return !context->safety_off;
+    }
+    context->safety_off = want_debug_safety_recursive(g, context->parent);
+    context->safety_set_node = context->parent->safety_set_node;
+    return !context->safety_off;
+}
+
 static bool want_debug_safety(CodeGen *g, AstNode *node) {
-    return !g->is_release_build && !node->block_context->safety_off;
+    if (g->is_release_build) {
+        return false;
+    }
+    return want_debug_safety_recursive(g, node->block_context);
 }
 
 static void gen_debug_safety_crash(CodeGen *g) {
@@ -709,6 +721,13 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
             return gen_truncate(g, node);
         case BuiltinFnIdUnreachable:
             return gen_unreachable(g, node);
+        case BuiltinFnIdSetFnTest:
+        case BuiltinFnIdSetFnVisible:
+        case BuiltinFnIdSetFnStaticEval:
+        case BuiltinFnIdSetFnNoInline:
+        case BuiltinFnIdSetDebugSafety:
+            // do nothing
+            return nullptr;
     }
     zig_unreachable();
 }
@@ -3617,7 +3636,6 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeFnDef:
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
-        case NodeTypeDirective:
         case NodeTypeUse:
         case NodeTypeContainerDecl:
         case NodeTypeStructField:
@@ -4880,6 +4898,11 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdIntType, "intType", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdUnreachable, "unreachable", 0);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnTest, "setFnTest", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnVisible, "setFnVisible", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnStaticEval, "setFnStaticEval", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnNoInline, "setFnNoInline", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
 }
 
 static void init(CodeGen *g, Buf *source_path) {

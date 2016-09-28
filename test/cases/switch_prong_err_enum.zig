@@ -14,16 +14,18 @@ enum FormValue {
     Other: bool,
 }
 
-#static_eval_enable(false)
 fn doThing(form_id: u64) -> %FormValue {
+    @setFnStaticEval(this, false);
+
     return switch (form_id) {
         17 => FormValue.Address { %return readOnce() },
         else => error.InvalidDebugInfo,
     }
 }
 
-#attribute("test")
 fn switchProngReturnsErrorEnum() {
+    @setFnTest(this, true);
+
     %%doThing(17);
     assert(read_count == 1);
 }

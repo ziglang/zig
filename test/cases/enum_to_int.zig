@@ -8,17 +8,24 @@ enum Number {
     Four,
 }
 
-#attribute("test")
 fn enumToInt() {
-    shouldEqual(Number.Zero, 0);
-    shouldEqual(Number.One, 1);
-    shouldEqual(Number.Two, 2);
-    shouldEqual(Number.Three, 3);
-    shouldEqual(Number.Four, 4);
+    @setFnTest(this, true);
+
+    shouldEqual(false, Number.Zero, 0);
+    shouldEqual(false, Number.One, 1);
+    shouldEqual(false, Number.Two, 2);
+    shouldEqual(false, Number.Three, 3);
+    shouldEqual(false, Number.Four, 4);
+
+    shouldEqual(true, Number.Zero, 0);
+    shouldEqual(true, Number.One, 1);
+    shouldEqual(true, Number.Two, 2);
+    shouldEqual(true, Number.Three, 3);
+    shouldEqual(true, Number.Four, 4);
 }
 
-// TODO add test with this disabled
-#static_eval_enable(false)
-fn shouldEqual(n: Number, expected: usize) {
+fn shouldEqual(inline static_eval: bool, n: Number, expected: usize) {
+    @setFnStaticEval(this, static_eval);
+
     assert(usize(n) == expected);
 }

@@ -124,7 +124,6 @@ static AstNode *create_typed_var_decl_node(Context *c, bool is_const, const char
     node->data.variable_declaration.is_const = is_const;
     node->data.variable_declaration.top_level_decl.visib_mod = c->visib_mod;
     node->data.variable_declaration.expr = init_node;
-    node->data.variable_declaration.top_level_decl.directives = nullptr;
     node->data.variable_declaration.type = type_node;
     normalize_parent_ptrs(node);
     return node;

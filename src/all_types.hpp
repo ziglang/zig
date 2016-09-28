@@ -129,7 +129,6 @@ enum TldResolution {
 struct TopLevelDecl {
     // populated by parser
     Buf *name;
-    ZigList<AstNode *> *directives;
     VisibMod visib_mod;
 
     // populated by semantic analyzer
@@ -153,7 +152,6 @@ enum NodeType {
     NodeTypeFnDecl,
     NodeTypeParamDecl,
     NodeTypeBlock,
-    NodeTypeDirective,
     NodeTypeReturnExpr,
     NodeTypeDefer,
     NodeTypeVariableDeclaration,
@@ -210,6 +208,8 @@ struct AstNodeFnProto {
     bool is_var_args;
     bool is_extern;
     bool is_inline;
+    bool is_coldcc;
+    bool is_nakedcc;
 
     // populated by semantic analyzer:
 
@@ -457,11 +457,6 @@ struct AstNodeFieldAccessExpr {
     TypeTableEntry *bare_container_type;
     bool is_member_fn;
     AstNode *container_init_expr_node;
-};
-
-struct AstNodeDirective {
-    Buf *name;
-    AstNode *expr;
 };
 
 enum PrefixOp {
@@ -802,7 +797,6 @@ struct AstNode {
         AstNodeErrorValueDecl error_value_decl;
         AstNodeBinOpExpr bin_op_expr;
         AstNodeUnwrapErrorExpr unwrap_err_expr;
-        AstNodeDirective directive;
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodeFnCallExpr fn_call_expr;
         AstNodeArrayAccessExpr array_access_expr;
@@ -1109,9 +1103,13 @@ struct FnTableEntry {
     WantPure want_pure;
     AstNode *want_pure_attr_node;
     AstNode *want_pure_return_type;
-    bool safety_off;
     FnInline fn_inline;
     FnAnalState anal_state;
+
+    AstNode *fn_no_inline_set_node;
+    AstNode *fn_export_set_node;
+    AstNode *fn_test_set_node;
+    AstNode *fn_static_eval_set_node;
 
     ZigList<AstNode *> cast_alloca_list;
     ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
@@ -1154,6 +1152,11 @@ enum BuiltinFnId {
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
     BuiltinFnIdUnreachable,
+    BuiltinFnIdSetFnTest,
+    BuiltinFnIdSetFnVisible,
+    BuiltinFnIdSetFnStaticEval,
+    BuiltinFnIdSetFnNoInline,
+    BuiltinFnIdSetDebugSafety,
 };
 
 struct BuiltinFnEntry {
@@ -1373,6 +1376,7 @@ struct BlockContext {
     bool codegen_excluded;
 
     bool safety_off;
+    AstNode *safety_set_node;
 };
 
 enum AtomicOrder {

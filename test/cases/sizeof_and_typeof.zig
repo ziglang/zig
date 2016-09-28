@@ -1,7 +1,8 @@
 const assert = @import("std").debug.assert;
 
-#attribute("test")
 fn sizeofAndTypeOf() {
+    @setFnTest(this, true);
+
     const y: @typeOf(x) = 120;
     assert(@sizeOf(@typeOf(y)) == 2);
 }

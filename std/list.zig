@@ -49,8 +49,9 @@ pub struct List(T: type) {
     }
 }
 
-#attribute("test")
 fn basicListTest() {
+    @setFnTest(this, true);
+
     var list = List(i32).init(&debug.global_allocator);
     defer list.deinit();
 

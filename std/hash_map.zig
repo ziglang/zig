@@ -230,8 +230,9 @@ pub struct SmallHashMap(K: type, V: type, hash: fn(key: K)->u32, eql: fn(a: K, b
     }
 }
 
-#attribute("test")
 fn basicHashMapTest() {
+    @setFnTest(this, true);
+
     var map: HashMap(i32, i32, hash_i32, eql_i32) = undefined;
     map.init(&debug.global_allocator);
     defer map.deinit();

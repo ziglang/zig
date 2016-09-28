@@ -109,6 +109,7 @@ struct ZigKeyword {
 static const struct ZigKeyword zig_keywords[] = {
     {"asm", TokenIdKeywordAsm},
     {"break", TokenIdKeywordBreak},
+    {"coldcc", TokenIdKeywordColdCC},
     {"const", TokenIdKeywordConst},
     {"continue", TokenIdKeywordContinue},
     {"defer", TokenIdKeywordDefer},
@@ -123,6 +124,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"goto", TokenIdKeywordGoto},
     {"if", TokenIdKeywordIf},
     {"inline", TokenIdKeywordInline},
+    {"nakedcc", TokenIdKeywordNakedCC},
     {"noalias", TokenIdKeywordNoAlias},
     {"null", TokenIdKeywordNull},
     {"pub", TokenIdKeywordPub},
@@ -1476,6 +1478,8 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordType: return "type";
         case TokenIdKeywordInline: return "inline";
         case TokenIdKeywordDefer: return "defer";
+        case TokenIdKeywordColdCC: return "coldcc";
+        case TokenIdKeywordNakedCC: return "nakedcc";
         case TokenIdLParen: return "(";
         case TokenIdRParen: return ")";
         case TokenIdComma: return ",";

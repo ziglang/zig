@@ -279,8 +279,9 @@ pub fn bar_function() {
         )SOURCE");
 
         add_source_file(tc, "other.zig", R"SOURCE(
-#static_eval_enable(false)
 pub fn foo_function() -> bool {
+    @setFnStaticEval(this, false);
+
     // this one conflicts with the one from foo
     return true;
 }
@@ -685,14 +686,6 @@ static void add_compile_failure_test_cases(void) {
 fn a() {}
 fn a() {}
     )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of 'a'");
-
-    add_compile_fail_case("bad directive", R"SOURCE(
-#bogus1("")
-extern fn b();
-#bogus2("")
-fn a() {}
-    )SOURCE", 2, ".tmp_source.zig:2:1: error: invalid directive: 'bogus1'",
-                 ".tmp_source.zig:4:1: error: invalid directive: 'bogus2'");
 
     add_compile_fail_case("unreachable with return", R"SOURCE(
 fn a() -> unreachable {return;}
@@ -1280,8 +1273,11 @@ struct Foo {
     x: i32,
 }
 const a = get_it();
-#static_eval_enable(false)
-fn get_it() -> Foo { Foo {.x = 13} }
+fn get_it() -> Foo {
+    @setFnStaticEval(this, false);
+    Foo {.x = 13}
+}
+
     )SOURCE", 1, ".tmp_source.zig:5:17: error: unable to evaluate constant expression");
 
     add_compile_fail_case("undeclared identifier error should mark fn as impure", R"SOURCE(
@@ -1316,8 +1312,11 @@ fn foo() {
         else => 3,
     };
 }
-#static_eval_enable(false)
-fn bar() -> i32 { 2 }
+fn bar() -> i32 {
+    @setFnStaticEval(this, false);
+    2
+}
+
     )SOURCE", 1, ".tmp_source.zig:3:15: error: unable to infer expression type");
 
     add_compile_fail_case("atomic orderings of cmpxchg", R"SOURCE(
@@ -1458,7 +1457,6 @@ pub struct SmallList(inline T: type, inline STATIC_SIZE: usize) {
     prealloc_items: [STATIC_SIZE]T,
 }
 
-#attribute("test")
 fn function_with_return_type_type() {
     var list: List(i32) = undefined;
     list.length = 10;
@@ -1623,12 +1621,15 @@ pub fn main(args: [][]u8) -> %void {
     const a = []i32{1, 2, 3, 4};
     baz(bar(a));
 }
-#static_eval_enable(false)
 fn bar(a: []i32) -> i32 {
+    @setFnStaticEval(this, false);
+
     a[4]
 }
-#static_eval_enable(false)
-fn baz(a: i32) {}
+fn baz(a: i32) {
+    @setFnStaticEval(this, false);
+}
+
     )SOURCE");
 
     add_debug_safety_case("integer addition overflow", R"SOURCE(
@@ -1637,8 +1638,9 @@ pub fn main(args: [][]u8) -> %void {
     const x = add(65530, 10);
     if (x == 0) return error.Whatever;
 }
-#static_eval_enable(false)
 fn add(a: u16, b: u16) -> u16 {
+    @setFnStaticEval(this, false);
+
     a + b
 }
     )SOURCE");
@@ -1649,8 +1651,9 @@ pub fn main(args: [][]u8) -> %void {
     const x = sub(10, 20);
     if (x == 0) return error.Whatever;
 }
-#static_eval_enable(false)
 fn sub(a: u16, b: u16) -> u16 {
+    @setFnStaticEval(this, false);
+
     a - b
 }
     )SOURCE");
@@ -1661,8 +1664,9 @@ pub fn main(args: [][]u8) -> %void {
     const x = mul(300, 6000);
     if (x == 0) return error.Whatever;
 }
-#static_eval_enable(false)
 fn mul(a: u16, b: u16) -> u16 {
+    @setFnStaticEval(this, false);
+
     a * b
 }
     )SOURCE");
@@ -1673,8 +1677,9 @@ pub fn main(args: [][]u8) -> %void {
     const x = neg(-32768);
     if (x == 0) return error.Whatever;
 }
-#static_eval_enable(false)
 fn neg(a: i16) -> i16 {
+    @setFnStaticEval(this, false);
+
     -a
 }
     )SOURCE");
@@ -1685,8 +1690,9 @@ pub fn main(args: [][]u8) -> %void {
     const x = shl(-16385, 1);
     if (x == 0) return error.Whatever;
 }
-#static_eval_enable(false)
 fn shl(a: i16, b: i16) -> i16 {
+    @setFnStaticEval(this, false);
+
     a << b
 }
     )SOURCE");
@@ -1697,8 +1703,9 @@ pub fn main(args: [][]u8) -> %void {
     const x = shl(0b0010111111111111, 3);
     if (x == 0) return error.Whatever;
 }
-#static_eval_enable(false)
 fn shl(a: u16, b: u16) -> u16 {
+    @setFnStaticEval(this, false);
+
     a << b
 }
     )SOURCE");
@@ -1708,8 +1715,9 @@ error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = div0(999, 0);
 }
-#static_eval_enable(false)
 fn div0(a: i32, b: i32) -> i32 {
+    @setFnStaticEval(this, false);
+
     a / b
 }
     )SOURCE");
@@ -1720,8 +1728,9 @@ pub fn main(args: [][]u8) -> %void {
     const x = divExact(10, 3);
     if (x == 0) return error.Whatever;
 }
-#static_eval_enable(false)
 fn divExact(a: i32, b: i32) -> i32 {
+    @setFnStaticEval(this, false);
+
     @divExact(a, b)
 }
     )SOURCE");
@@ -1732,8 +1741,9 @@ pub fn main(args: [][]u8) -> %void {
     const x = widenSlice([]u8{1, 2, 3, 4, 5});
     if (x.len == 0) return error.Whatever;
 }
-#static_eval_enable(false)
 fn widenSlice(slice: []u8) -> []i32 {
+    @setFnStaticEval(this, false);
+
     ([]i32)(slice)
 }
     )SOURCE");
@@ -1744,8 +1754,9 @@ pub fn main(args: [][]u8) -> %void {
     const x = shorten_cast(200);
     if (x == 0) return error.Whatever;
 }
-#static_eval_enable(false)
 fn shorten_cast(x: i32) -> i8 {
+    @setFnStaticEval(this, false);
+
     i8(x)
 }
     )SOURCE");
@@ -1756,8 +1767,9 @@ pub fn main(args: [][]u8) -> %void {
     const x = unsigned_cast(-10);
     if (x == 0) return error.Whatever;
 }
-#static_eval_enable(false)
 fn unsigned_cast(x: i32) -> u32 {
+    @setFnStaticEval(this, false);
+
     u32(x)
 }
     )SOURCE");

@@ -77,8 +77,8 @@ pub fn sliceAsInt(buf: []u8, is_be: bool, inline T: type) -> T {
     return result;
 }
 
-#attribute("test")
 fn testSliceAsInt() {
+    @setFnTest(this, true);
     {
         const buf = []u8{0x00, 0x00, 0x12, 0x34};
         const answer = sliceAsInt(buf[0...], true, u64);

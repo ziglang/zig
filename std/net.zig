@@ -180,8 +180,9 @@ error Overflow;
 error JunkAtEnd;
 error Incomplete;
 
-#static_eval_enable(false)
 fn parseIp6(buf: []const u8) -> %Address {
+    @setFnStaticEval(this, false);
+
     var result: Address = undefined;
     result.family = linux.AF_INET6;
     result.scope_id = 0;
@@ -318,8 +319,9 @@ fn parseIp4(buf: []const u8) -> %u32 {
 }
 
 
-#attribute("test")
 fn testParseIp4() {
+    @setFnTest(this, true);
+
     assert(%%parseIp4("127.0.0.1") == endian.swapIfLe(u32, 0x7f000001));
     switch (parseIp4("256.0.0.1")) { Overflow => {}, else => @unreachable(), }
     switch (parseIp4("x.0.0.1")) { InvalidChar => {}, else => @unreachable(), }
@@ -328,8 +330,9 @@ fn testParseIp4() {
     switch (parseIp4("100..0.1")) { InvalidChar => {}, else => @unreachable(), }
 }
 
-#attribute("test")
 fn testParseIp6() {
+    @setFnTest(this, true);
+
     {
         const addr = %%parseIp6("FF01:0:0:0:0:0:0:FB");
         assert(addr.addr[0] == 0xff);
@@ -338,8 +341,9 @@ fn testParseIp6() {
     }
 }
 
-#attribute("test")
 fn testLookupSimpleIp() {
+    @setFnTest(this, true);
+
     {
         var addrs_buf: [5]Address = undefined;
         const addrs = %%lookup("192.168.1.1", addrs_buf);

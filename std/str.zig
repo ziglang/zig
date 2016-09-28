@@ -12,8 +12,9 @@ pub fn sliceEql(inline T: type, a: []const T, b: []const T) -> bool {
     return true;
 }
 
-#attribute("test")
-fn stringEquality() {
+fn testStringEquality() {
+    @setFnTest(this, true);
+
     assert(eql("abcd", "abcd"));
     assert(!eql("abcdef", "abZdef"));
     assert(!eql("abcdefg", "abcdef"));

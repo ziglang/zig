@@ -8,18 +8,19 @@ const udwords = [2]su_int;
 const low = if (@compileVar("is_big_endian")) 1 else 0;
 const high = 1 - low;
 
-#debug_safety(false)
 export fn __udivdi3(a: du_int, b: du_int) -> du_int {
+    @setDebugSafety(this, false);
     return __udivmoddi4(a, b, null);
 }
 
-#debug_safety(false)
 fn du_int_to_udwords(x: du_int) -> udwords {
+    @setDebugSafety(this, false);
     return *(&udwords)(&x);
 }
 
-#debug_safety(false)
 export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
+    @setDebugSafety(this, false);
+
     const n_uword_bits = @sizeOf(su_int) * CHAR_BIT;
     const n_udword_bits = @sizeOf(du_int) * CHAR_BIT;
     var n = du_int_to_udwords(a);
@@ -203,15 +204,17 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
     return *(&du_int)(&q[0]);
 }
 
-#debug_safety(false)
 export fn __umoddi3(a: du_int, b: du_int) -> du_int {
+    @setDebugSafety(this, false);
+
     var r: du_int = undefined;
     __udivmoddi4(a, b, &r);
     return r;
 }
 
-#attribute("test")
 fn test_umoddi3() {
+    @setFnTest(this, true);
+
     test_one_umoddi3(0, 1, 0);
     test_one_umoddi3(2, 1, 0);
     test_one_umoddi3(0x8000000000000000, 1, 0x0);
@@ -224,8 +227,9 @@ fn test_one_umoddi3(a: du_int, b: du_int, expected_r: du_int) {
     assert(r == expected_r);
 }
 
-#attribute("test")
 fn test_udivmoddi4() {
+    @setFnTest(this, true);
+
     const cases = [][4]du_int {
         []du_int{0x0000000000000000, 0x0000000000000001, 0x0000000000000000, 0x0000000000000000},
         []du_int{0x0000000080000000, 0x0000000100000001, 0x0000000000000000, 0x0000000080000000},

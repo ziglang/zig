@@ -27,8 +27,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
     }
 }
 
-#attribute("cold")
-pub fn abort() -> unreachable {
+pub coldcc fn abort() -> unreachable {
     switch (@compileVar("os")) {
         linux, darwin => {
             system.raise(system.SIGABRT);

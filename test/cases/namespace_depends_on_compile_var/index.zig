@@ -1,7 +1,8 @@
 const assert = @import("std").debug.assert;
 
-#attribute("test")
 fn namespaceDependsOnCompileVar() {
+    @setFnTest(this, true);
+
     if (some_namespace.a_bool) {
         assert(some_namespace.a_bool);
     } else {

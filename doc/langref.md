@@ -3,9 +3,11 @@
 ## Grammar
 
 ```
-Root = many(TopLevelDecl) "EOF"
+Root = many(TopLevelItem) "EOF"
 
-TopLevelDecl = many(Directive) option(VisibleMod) (FnDef | ExternDecl | ContainerDecl | GlobalVarDecl | ErrorValueDecl | TypeDecl | UseDecl)
+TopLevelItem = ErrorValueDecl | Block | TopLevelDecl
+
+TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | ContainerDecl | GlobalVarDecl | TypeDecl | UseDecl)
 
 TypeDecl = "type" Symbol "=" TypeExpr ";"
 
@@ -17,7 +19,7 @@ VariableDeclaration = ("var" | "const") Symbol option(":" TypeExpr) "=" Expressi
 
 ContainerDecl = ("struct" | "enum" | "union") Symbol option(ParamDeclList) "{" many(StructMember) "}"
 
-StructMember = many(Directive) option(VisibleMod) (StructField | FnDef | GlobalVarDecl | ContainerDecl)
+StructMember = (StructField | FnDef | GlobalVarDecl | ContainerDecl)
 
 StructField = Symbol option(":" Expression) ",")
 
@@ -25,9 +27,7 @@ UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" (FnProto | VariableDeclaration) ";"
 
-FnProto = "fn" option(Symbol) ParamDeclList option("->" TypeExpr)
-
-Directive = "#" Symbol "(" Expression ")"
+FnProto = option("coldcc" | "nakedcc") "fn" option(Symbol) ParamDeclList option("->" TypeExpr)
 
 VisibleMod = "pub" | "export"
 

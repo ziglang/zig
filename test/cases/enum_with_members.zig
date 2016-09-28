@@ -15,8 +15,9 @@ enum ET {
     }
 }
 
-#attribute("test")
 fn enumWithMembers() {
+    @setFnTest(this, true);
+
     const a = ET.SINT { -42 };
     const b = ET.UINT { 42 };
     var buf: [20]u8 = undefined;

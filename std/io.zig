@@ -423,8 +423,9 @@ fn bufPrintUnsigned(inline T: type, out_buf: []u8, x: T) -> usize {
     return len;
 }
 
-#attribute("test")
 fn parseU64DigitTooBig() {
+    @setFnTest(this, true);
+
     parseUnsigned(u64, "123a", 10) %% |err| {
         if (err == error.InvalidChar) return;
         @unreachable();

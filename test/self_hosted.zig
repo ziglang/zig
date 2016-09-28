@@ -19,12 +19,15 @@ const test_this = @import("cases/this.zig");
 // normal comment
 /// this is a documentation comment
 /// doc comment line 2
-#attribute("test")
-fn emptyFunctionWithComments() {}
+fn emptyFunctionWithComments() {
+    @setFnTest(this, true);
+}
 
 
-#attribute("test")
+
 fn ifStatements() {
+    @setFnTest(this, true);
+
     shouldBeEqual(1, 1);
     firstEqlThird(2, 1, 2);
 }
@@ -48,8 +51,9 @@ fn firstEqlThird(a: i32, b: i32, c: i32) {
 }
 
 
-#attribute("test")
 fn params() {
+    @setFnTest(this, true);
+
     assert(testParamsAdd(22, 11) == 33);
 }
 fn testParamsAdd(a: i32, b: i32) -> i32 {
@@ -57,8 +61,9 @@ fn testParamsAdd(a: i32, b: i32) -> i32 {
 }
 
 
-#attribute("test")
 fn localVariables() {
+    @setFnTest(this, true);
+
     testLocVars(2);
 }
 fn testLocVars(b: i32) {
@@ -66,14 +71,16 @@ fn testLocVars(b: i32) {
     if (a + b != 3) @unreachable();
 }
 
-#attribute("test")
 fn boolLiterals() {
+    @setFnTest(this, true);
+
     assert(true);
     assert(!false);
 }
 
-#attribute("test")
 fn voidParameters() {
+    @setFnTest(this, true);
+
     voidFun(1, void{}, 2, {});
 }
 fn voidFun(a : i32, b : void, c : i32, d : void) {
@@ -83,8 +90,9 @@ fn voidFun(a : i32, b : void, c : i32, d : void) {
     return vv;
 }
 
-#attribute("test")
 fn mutableLocalVariables() {
+    @setFnTest(this, true);
+
     var zero : i32 = 0;
     assert(zero == 0);
 
@@ -95,8 +103,9 @@ fn mutableLocalVariables() {
     assert(i == 3);
 }
 
-#attribute("test")
 fn arrays() {
+    @setFnTest(this, true);
+
     var array : [5]u32 = undefined;
 
     var i : u32 = 0;
@@ -120,8 +129,9 @@ fn getArrayLen(a: []u32) -> usize {
     a.len
 }
 
-#attribute("test")
 fn shortCircuit() {
+    @setFnTest(this, true);
+
     var hit_1 = false;
     var hit_2 = false;
     var hit_3 = false;
@@ -148,13 +158,15 @@ fn shortCircuit() {
     assert(hit_4);
 }
 
-#static_eval_enable(false)
 fn assertRuntime(b: bool) {
+    @setFnStaticEval(this, false);
+
     if (!b) @unreachable()
 }
 
-#attribute("test")
 fn modifyOperators() {
+    @setFnTest(this, true);
+
     var i : i32 = 0;
     i += 5;  assert(i == 5);
     i -= 2;  assert(i == 3);
@@ -171,8 +183,9 @@ fn modifyOperators() {
 }
 
 
-#attribute("test")
 fn separateBlockScopes() {
+    @setFnTest(this, true);
+
     {
         const no_conflict : i32 = 5;
         assert(no_conflict == 5);
@@ -186,8 +199,9 @@ fn separateBlockScopes() {
 }
 
 
-#attribute("test")
 fn voidStructFields() {
+    @setFnTest(this, true);
+
     const foo = VoidStructFieldsFoo {
         .a = void{},
         .b = 1,
@@ -204,8 +218,9 @@ struct VoidStructFieldsFoo {
 
 
 
-#attribute("test")
 pub fn structs() {
+    @setFnTest(this, true);
+
     var foo : StructFoo = undefined;
     @memset(&foo, 0, @sizeOf(StructFoo));
     foo.a += 1;
@@ -234,8 +249,9 @@ struct Val {
     x: i32,
 }
 
-#attribute("test")
 fn structPointToSelf() {
+    @setFnTest(this, true);
+
     var root : Node = undefined;
     root.val.x = 1;
 
@@ -248,8 +264,9 @@ fn structPointToSelf() {
     assert(node.next.next.next.val.x == 1);
 }
 
-#attribute("test")
 fn structByvalAssign() {
+    @setFnTest(this, true);
+
     var foo1 : StructFoo = undefined;
     var foo2 : StructFoo = undefined;
 
@@ -269,16 +286,18 @@ fn structInitializer() {
 const g1 : i32 = 1233 + 1;
 var g2 : i32 = 0;
 
-#attribute("test")
 fn globalVariables() {
+    @setFnTest(this, true);
+
     assert(g2 == 0);
     g2 = g1;
     assert(g2 == 1234);
 }
 
 
-#attribute("test")
 fn whileLoop() {
+    @setFnTest(this, true);
+
     var i : i32 = 0;
     while (i < 4) {
         i += 1;
@@ -295,8 +314,9 @@ fn whileLoop2() -> i32 {
     }
 }
 
-#attribute("test")
 fn voidArrays() {
+    @setFnTest(this, true);
+
     var array: [4]void = undefined;
     array[0] = void{};
     array[1] = array[2];
@@ -305,8 +325,9 @@ fn voidArrays() {
 }
 
 
-#attribute("test")
 fn threeExprInARow() {
+    @setFnTest(this, true);
+
     assertFalse(false || false || false);
     assertFalse(true && true && false);
     assertFalse(1 | 2 | 4 != 7);
@@ -325,8 +346,9 @@ fn assertFalse(b: bool) {
 }
 
 
-#attribute("test")
 fn maybeType() {
+    @setFnTest(this, true);
+
     const x : ?bool = true;
 
     if (const y ?= x) {
@@ -353,8 +375,9 @@ fn maybeType() {
 }
 
 
-#attribute("test")
 fn enumType() {
+    @setFnTest(this, true);
+
     const foo1 = EnumTypeFoo.One {13};
     const foo2 = EnumTypeFoo.Two {EnumType { .x = 1234, .y = 5678, }};
     const bar = EnumTypeBar.B;
@@ -387,8 +410,9 @@ enum EnumTypeBar {
 }
 
 
-#attribute("test")
 fn arrayLiteral() {
+    @setFnTest(this, true);
+
     const hex_mult = []u16{4096, 256, 16, 1};
 
     assert(hex_mult.len == 4);
@@ -396,8 +420,9 @@ fn arrayLiteral() {
 }
 
 
-#attribute("test")
 fn constNumberLiteral() {
+    @setFnTest(this, true);
+
     const one = 1;
     const eleven = ten + one;
 
@@ -406,8 +431,9 @@ fn constNumberLiteral() {
 const ten = 10;
 
 
-#attribute("test")
 fn errorValues() {
+    @setFnTest(this, true);
+
     const a = i32(error.err1);
     const b = i32(error.err2);
     assert(a != b);
@@ -417,8 +443,9 @@ error err2;
 
 
 
-#attribute("test")
 fn fnCallOfStructField() {
+    @setFnTest(this, true);
+
     assert(callStructField(Foo {.ptr = aFunc,}) == 13);
 }
 
@@ -434,8 +461,9 @@ fn callStructField(foo: Foo) -> i32 {
 
 
 
-#attribute("test")
 fn redefinitionOfErrorValuesAllowed() {
+    @setFnTest(this, true);
+
     shouldBeNotEqual(error.AnError, error.SecondError);
 }
 error AnError;
@@ -448,8 +476,9 @@ fn shouldBeNotEqual(a: error, b: error) {
 
 
 
-#attribute("test")
 fn constantEnumWithPayload() {
+    @setFnTest(this, true);
+
     var empty = AnEnumWithPayload.Empty;
     var full = AnEnumWithPayload.Full {13};
     shouldBeEmpty(empty);
@@ -476,8 +505,9 @@ enum AnEnumWithPayload {
 }
 
 
-#attribute("test")
 fn continueInForLoop() {
+    @setFnTest(this, true);
+
     const array = []i32 {1, 2, 3, 4, 5};
     var sum : i32 = 0;
     for (array) |x| {
@@ -491,8 +521,9 @@ fn continueInForLoop() {
 }
 
 
-#attribute("test")
 fn castBoolToInt() {
+    @setFnTest(this, true);
+
     const t = true;
     const f = false;
     assert(i32(t) == i32(1));
@@ -506,8 +537,9 @@ fn nonConstCastBoolToInt(t: bool, f: bool) {
 }
 
 
-#attribute("test")
 fn switchOnEnum() {
+    @setFnTest(this, true);
+
     const fruit = Fruit.Orange;
     nonConstSwitchOnEnum(fruit);
 }
@@ -516,8 +548,9 @@ enum Fruit {
     Orange,
     Banana,
 }
-#static_eval_enable(false)
 fn nonConstSwitchOnEnum(fruit: Fruit) {
+    @setFnStaticEval(this, false);
+
     switch (fruit) {
         Apple => @unreachable(),
         Orange => {},
@@ -525,12 +558,14 @@ fn nonConstSwitchOnEnum(fruit: Fruit) {
     }
 }
 
-#attribute("test")
 fn switchStatement() {
+    @setFnTest(this, true);
+
     nonConstSwitch(SwitchStatmentFoo.C);
 }
-#static_eval_enable(false)
 fn nonConstSwitch(foo: SwitchStatmentFoo) {
+    @setFnStaticEval(this, false);
+
     const val: i32 = switch (foo) {
         A => 1,
         B => 2,
@@ -547,8 +582,9 @@ enum SwitchStatmentFoo {
 }
 
 
-#attribute("test")
 fn switchProngWithVar() {
+    @setFnTest(this, true);
+
     switchProngWithVarFn(SwitchProngWithVarEnum.One {13});
     switchProngWithVarFn(SwitchProngWithVarEnum.Two {13.0});
     switchProngWithVarFn(SwitchProngWithVarEnum.Meh);
@@ -558,8 +594,9 @@ enum SwitchProngWithVarEnum {
     Two: f32,
     Meh,
 }
-#static_eval_enable(false)
 fn switchProngWithVarFn(a: SwitchProngWithVarEnum) {
+    @setFnStaticEval(this, false);
+
     switch(a) {
         One => |x| {
             if (x != 13) @unreachable();
@@ -574,13 +611,15 @@ fn switchProngWithVarFn(a: SwitchProngWithVarEnum) {
 }
 
 
-#attribute("test")
 fn errReturnInAssignment() {
+    @setFnTest(this, true);
+
     %%doErrReturnInAssignment();
 }
 
-#static_eval_enable(false)
 fn doErrReturnInAssignment() -> %void {
+    @setFnStaticEval(this, false);
+
     var x : i32 = undefined;
     x = %return makeANonErr();
 }
@@ -591,15 +630,17 @@ fn makeANonErr() -> %i32 {
 
 
 
-#attribute("test")
 fn rhsMaybeUnwrapReturn() {
+    @setFnTest(this, true);
+
     const x = ?true;
     const y = x ?? return;
 }
 
 
-#attribute("test")
 fn implicitCastFnUnreachableReturn() {
+    @setFnTest(this, true);
+
     wantsFnWithVoid(fnWithUnreachable);
 }
 
@@ -610,15 +651,17 @@ fn fnWithUnreachable() -> unreachable {
 }
 
 
-#attribute("test")
 fn explicitCastMaybePointers() {
+    @setFnTest(this, true);
+
     const a: ?&i32 = undefined;
     const b: ?&f32 = (?&f32)(a);
 }
 
 
-#attribute("test")
 fn constExprEvalOnSingleExprBlocks() {
+    @setFnTest(this, true);
+
     assert(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
 }
 
@@ -635,14 +678,16 @@ fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) -> i32 {
 }
 
 
-#attribute("test")
 fn builtinConstEval() {
+    @setFnTest(this, true);
+
     const x : i32 = @constEval(1 + 2 + 3);
     assert(x == @constEval(6));
 }
 
-#attribute("test")
 fn slicing() {
+    @setFnTest(this, true);
+
     var array : [20]i32 = undefined;
 
     array[5] = 1234;
@@ -659,8 +704,9 @@ fn slicing() {
 }
 
 
-#attribute("test")
 fn memcpyAndMemsetIntrinsics() {
+    @setFnTest(this, true);
+
     var foo : [20]u8 = undefined;
     var bar : [20]u8 = undefined;
 
@@ -671,31 +717,36 @@ fn memcpyAndMemsetIntrinsics() {
 }
 
 
-#attribute("test")
-fn arrayDotLenConstExpr() { }
+fn arrayDotLenConstExpr() {
+    @setFnTest(this, true);
+}
+
 struct ArrayDotLenConstExpr {
     y: [@constEval(some_array.len)]u8,
 }
 const some_array = []u8 {0, 1, 2, 3};
 
 
-#attribute("test")
 fn countLeadingZeroes() {
+    @setFnTest(this, true);
+
     assert(@clz(u8, 0b00001010) == 4);
     assert(@clz(u8, 0b10001010) == 0);
     assert(@clz(u8, 0b00000000) == 8);
 }
 
-#attribute("test")
 fn countTrailingZeroes() {
+    @setFnTest(this, true);
+
     assert(@ctz(u8, 0b10100000) == 5);
     assert(@ctz(u8, 0b10001010) == 1);
     assert(@ctz(u8, 0b00000000) == 8);
 }
 
 
-#attribute("test")
 fn multilineString() {
+    @setFnTest(this, true);
+
     const s1 =
         \\one
         \\two)
@@ -705,8 +756,9 @@ fn multilineString() {
     assert(str.eql(s1, s2));
 }
 
-#attribute("test")
 fn multilineCString() {
+    @setFnTest(this, true);
+
     const s1 =
         c\\one
         c\\two)
@@ -718,8 +770,9 @@ fn multilineCString() {
 
 
 
-#attribute("test")
 fn simpleGenericFn() {
+    @setFnTest(this, true);
+
     assert(max(i32, 3, -1) == 3);
     assert(max(f32, 0.123, 0.456) == 0.456);
     assert(add(2, 3) == 5);
@@ -734,8 +787,9 @@ fn add(inline a: i32, b: i32) -> i32 {
 }
 
 
-#attribute("test")
 fn constantEqualFunctionPointers() {
+    @setFnTest(this, true);
+
     const alias = emptyFn;
     assert(@constEval(emptyFn == alias));
 }
@@ -743,44 +797,50 @@ fn constantEqualFunctionPointers() {
 fn emptyFn() {}
 
 
-#attribute("test")
 fn genericMallocFree() {
+    @setFnTest(this, true);
+
     const a = %%memAlloc(u8, 10);
     memFree(u8, a);
 }
 const some_mem : [100]u8 = undefined;
-#static_eval_enable(false)
 fn memAlloc(inline T: type, n: usize) -> %[]T {
+    @setFnStaticEval(this, false);
+
     return (&T)(&some_mem[0])[0...n];
 }
 fn memFree(inline T: type, mem: []T) { }
 
 
-#attribute("test")
 fn callFnWithEmptyString() {
+    @setFnTest(this, true);
+
     acceptsString("");
 }
 
 fn acceptsString(foo: []u8) { }
 
 
-#attribute("test")
 fn hexEscape() {
+    @setFnTest(this, true);
+
     assert(str.eql("\x68\x65\x6c\x6c\x6f", "hello"));
 }
 
 
 error AnError;
 error ALongerErrorName;
-#attribute("test")
 fn errorNameString() {
+    @setFnTest(this, true);
+
     assert(str.eql(@errorName(error.AnError), "AnError"));
     assert(str.eql(@errorName(error.ALongerErrorName), "ALongerErrorName"));
 }
 
 
-#attribute("test")
 fn gotoAndLabels() {
+    @setFnTest(this, true);
+
     gotoLoop();
     assert(goto_counter == 10);
 }
@@ -799,12 +859,14 @@ var goto_counter: i32 = 0;
 
 
 
-#attribute("test")
 fn gotoLeaveDeferScope() {
+    @setFnTest(this, true);
+
     testGotoLeaveDeferScope(true);
 }
-#static_eval_enable(false)
 fn testGotoLeaveDeferScope(b: bool) {
+    @setFnStaticEval(this, false);
+
     var it_worked = false;
 
     goto entry;
@@ -819,8 +881,9 @@ entry:
 }
 
 
-#attribute("test")
 fn castUndefined() {
+    @setFnTest(this, true);
+
     const array: [100]u8 = undefined;
     const slice = ([]u8)(array);
     testCastUndefined(slice);
@@ -828,8 +891,9 @@ fn castUndefined() {
 fn testCastUndefined(x: []u8) {}
 
 
-#attribute("test")
 fn castSmallUnsignedToLargerSigned() {
+    @setFnTest(this, true);
+
     assert(castSmallUnsignedToLargerSigned1(200) == i16(200));
     assert(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
 }
@@ -837,8 +901,9 @@ fn castSmallUnsignedToLargerSigned1(x: u8) -> i16 { x }
 fn castSmallUnsignedToLargerSigned2(x: u16) -> i64 { x }
 
 
-#attribute("test")
 fn implicitCastAfterUnreachable() {
+    @setFnTest(this, true);
+
     assert(outer() == 1234);
 }
 fn inner() -> i32 { 1234 }
@@ -847,8 +912,9 @@ fn outer() -> i64 {
 }
 
 
-#attribute("test")
 fn elseIfExpression() {
+    @setFnTest(this, true);
+
     assert(elseIfExpressionF(1) == 1);
 }
 fn elseIfExpressionF(c: u8) -> u8 {
@@ -861,8 +927,9 @@ fn elseIfExpressionF(c: u8) -> u8 {
     }
 }
 
-#attribute("test")
 fn errBinaryOperator() {
+    @setFnTest(this, true);
+
     const a = errBinaryOperatorG(true) %% 3;
     const b = errBinaryOperatorG(false) %% 3;
     assert(a == 3);
@@ -877,16 +944,18 @@ fn errBinaryOperatorG(x: bool) -> %isize {
     }
 }
 
-#attribute("test")
 fn unwrapSimpleValueFromError() {
+    @setFnTest(this, true);
+
     const i = %%unwrapSimpleValueFromErrorDo();
     assert(i == 13);
 }
 fn unwrapSimpleValueFromErrorDo() -> %isize { 13 }
 
 
-#attribute("test")
 fn storeMemberFunctionInVariable() {
+    @setFnTest(this, true);
+
     const instance = MemberFnTestFoo { .x = 1234, };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
@@ -897,15 +966,17 @@ struct MemberFnTestFoo {
     fn member(foo: MemberFnTestFoo) -> i32 { foo.x }
 }
 
-#attribute("test")
 fn callMemberFunctionDirectly() {
+    @setFnTest(this, true);
+
     const instance = MemberFnTestFoo { .x = 1234, };
     const result = MemberFnTestFoo.member(instance);
     assert(result == 1234);
 }
 
-#attribute("test")
 fn memberFunctions() {
+    @setFnTest(this, true);
+
     const r = MemberFnRand {.seed = 1234};
     assert(r.getSeed() == 1234);
 }
@@ -916,16 +987,18 @@ struct MemberFnRand {
     }
 }
 
-#attribute("test")
 fn staticFunctionEvaluation() {
+    @setFnTest(this, true);
+
     assert(statically_added_number == 3);
 }
 const statically_added_number = staticAdd(1, 2);
 fn staticAdd(a: i32, b: i32) -> i32 { a + b }
 
 
-#attribute("test")
 fn staticallyInitalizedList() {
+    @setFnTest(this, true);
+
     assert(static_point_list[0].x == 1);
     assert(static_point_list[0].y == 2);
     assert(static_point_list[1].x == 3);
@@ -944,8 +1017,9 @@ fn makePoint(x: i32, y: i32) -> Point {
 }
 
 
-#attribute("test")
 fn staticEvalRecursive() {
+    @setFnTest(this, true);
+
     assert(some_data.len == 21);
 }
 var some_data: [usize(fibbonaci(7))]u8 = undefined;
@@ -954,8 +1028,9 @@ fn fibbonaci(x: i32) -> i32 {
     return fibbonaci(x - 1) + fibbonaci(x - 2);
 }
 
-#attribute("test")
 fn staticEvalWhile() {
+    @setFnTest(this, true);
+
     assert(static_eval_while_number == 1);
 }
 const static_eval_while_number = staticWhileLoop1();
@@ -968,8 +1043,9 @@ fn staticWhileLoop2() -> i32 {
     }
 }
 
-#attribute("test")
 fn staticEvalListInit() {
+    @setFnTest(this, true);
+
     assert(static_vec3.data[2] == 1.0);
 }
 const static_vec3 = vec3(0.0, 0.0, 1.0);
@@ -983,8 +1059,9 @@ pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
 }
 
 
-#attribute("test")
 fn genericFnWithImplicitCast() {
+    @setFnTest(this, true);
+
     assert(getFirstByte(u8, []u8 {13}) == 13);
     assert(getFirstByte(u16, []u16 {0, 13}) == 0);
 }
@@ -993,8 +1070,9 @@ fn getFirstByte(inline T: type, mem: []T) -> u8 {
     getByte((&u8)(&mem[0]))
 }
 
-#attribute("test")
 fn continueAndBreak() {
+    @setFnTest(this, true);
+
     runContinueAndBreakTest();
     assert(continue_and_break_counter == 8);
 }
@@ -1013,8 +1091,9 @@ fn runContinueAndBreakTest() {
 }
 
 
-#attribute("test")
 fn pointerDereferencing() {
+    @setFnTest(this, true);
+
     var x = i32(3);
     const y = &x;
 
@@ -1024,16 +1103,18 @@ fn pointerDereferencing() {
     assert(*y == 4);
 }
 
-#attribute("test")
 fn constantExpressions() {
+    @setFnTest(this, true);
+
     var array : [array_size]u8 = undefined;
     assert(@sizeOf(@typeOf(array)) == 20);
 }
 const array_size : u8 = 20;
 
 
-#attribute("test")
 fn minValueAndMaxValue() {
+    @setFnTest(this, true);
+
     assert(@maxValue(u8) == 255);
     assert(@maxValue(u16) == 65535);
     assert(@maxValue(u32) == 4294967295);
@@ -1055,8 +1136,9 @@ fn minValueAndMaxValue() {
     assert(@minValue(i64) == -9223372036854775808);
 }
 
-#attribute("test")
 fn overflowIntrinsics() {
+    @setFnTest(this, true);
+
     var result: u8 = undefined;
     assert(@addWithOverflow(u8, 250, 100, &result));
     assert(!@addWithOverflow(u8, 100, 150, &result));
@@ -1064,8 +1146,9 @@ fn overflowIntrinsics() {
 }
 
 
-#attribute("test")
 fn nestedArrays() {
+    @setFnTest(this, true);
+
     const array_of_strings = [][]u8 {"hello", "this", "is", "my", "thing"};
     for (array_of_strings) |s, i| {
         if (i == 0) assert(str.eql(s, "hello"));
@@ -1076,21 +1159,24 @@ fn nestedArrays() {
     }
 }
 
-#attribute("test")
 fn intToPtrCast() {
+    @setFnTest(this, true);
+
     const x = isize(13);
     const y = (&u8)(x);
     const z = usize(y);
     assert(z == 13);
 }
 
-#attribute("test")
 fn stringConcatenation() {
+    @setFnTest(this, true);
+
     assert(str.eql("OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
-#attribute("test")
 fn constantStructWithNegation() {
+    @setFnTest(this, true);
+
     assert(vertices[0].x == -0.6);
 }
 struct Vertex {
@@ -1107,8 +1193,9 @@ const vertices = []Vertex {
 };
 
 
-#attribute("test")
 fn returnWithImplicitCastFromWhileLoop() {
+    @setFnTest(this, true);
+
     %%returnWithImplicitCastFromWhileLoopTest();
 }
 fn returnWithImplicitCastFromWhileLoopTest() -> %void {
@@ -1117,8 +1204,9 @@ fn returnWithImplicitCastFromWhileLoopTest() -> %void {
     }
 }
 
-#attribute("test")
 fn returnStructByvalFromFunction() {
+    @setFnTest(this, true);
+
     const bar = makeBar(1234, 5678);
     assert(bar.y == 5678);
 }
@@ -1133,8 +1221,9 @@ fn makeBar(x: i32, y: i32) -> Bar {
     }
 }
 
-#attribute("test")
 fn functionPointers() {
+    @setFnTest(this, true);
+
     const fns = []@typeOf(fn1) { fn1, fn2, fn3, fn4, };
     for (fns) |f, i| {
         assert(f() == u32(i) + 5);
@@ -1147,8 +1236,9 @@ fn fn4() -> u32 {8}
 
 
 
-#attribute("test")
 fn staticallyInitalizedStruct() {
+    @setFnTest(this, true);
+
     st_init_str_foo.x += 1;
     assert(st_init_str_foo.x == 14);
 }
@@ -1158,8 +1248,9 @@ struct StInitStrFoo {
 }
 var st_init_str_foo = StInitStrFoo { .x = 13, .y = true, };
 
-#attribute("test")
 fn staticallyInitializedArrayLiteral() {
+    @setFnTest(this, true);
+
     const y : [4]u8 = st_init_arr_lit_x;
     assert(y[3] == 4);
 }
@@ -1167,8 +1258,9 @@ const st_init_arr_lit_x = []u8{1,2,3,4};
 
 
 
-#attribute("test")
 fn pointerToVoidReturnType() {
+    @setFnTest(this, true);
+
     %%testPointerToVoidReturnType();
 }
 fn testPointerToVoidReturnType() -> %void {
@@ -1181,8 +1273,9 @@ fn testPointerToVoidReturnType2() -> &void {
 }
 
 
-#attribute("test")
 fn callResultOfIfElseExpression() {
+    @setFnTest(this, true);
+
     assert(str.eql(f2(true), "a"));
     assert(str.eql(f2(false), "b"));
 }
@@ -1193,8 +1286,9 @@ fn fA() -> []u8 { "a" }
 fn fB() -> []u8 { "b" }
 
 
-#attribute("test")
 fn constExpressionEvalHandlingOfVariables() {
+    @setFnTest(this, true);
+
     var x = true;
     while (x) {
         x = false;
@@ -1203,8 +1297,9 @@ fn constExpressionEvalHandlingOfVariables() {
 
 
 
-#attribute("test")
 fn constantEnumInitializationWithDifferingSizes() {
+    @setFnTest(this, true);
+
     test3_1(test3_foo);
     test3_2(test3_bar);
 }
@@ -1219,8 +1314,9 @@ struct Test3Point {
 }
 const test3_foo = Test3Foo.Three{Test3Point {.x = 3, .y = 4}};
 const test3_bar = Test3Foo.Two{13};
-#static_eval_enable(false)
 fn test3_1(f: Test3Foo) {
+    @setFnStaticEval(this, false);
+
     switch (f) {
         Three => |pt| {
             assert(pt.x == 3);
@@ -1229,8 +1325,9 @@ fn test3_1(f: Test3Foo) {
         else => @unreachable(),
     }
 }
-#static_eval_enable(false)
 fn test3_2(f: Test3Foo) {
+    @setFnStaticEval(this, false);
+
     switch (f) {
         Two => |x| {
             assert(x == 13);
@@ -1241,8 +1338,9 @@ fn test3_2(f: Test3Foo) {
 
 
 
-#attribute("test")
 fn whileWithContinueExpr() {
+    @setFnTest(this, true);
+
     var sum: i32 = 0;
     {var i: i32 = 0; while (i < 10; i += 1) {
         if (i == 5) continue;
@@ -1252,38 +1350,47 @@ fn whileWithContinueExpr() {
 }
 
 
-#attribute("test")
 fn forLoopWithPointerElemVar() {
+    @setFnTest(this, true);
+
     const source = "abcdefg";
     var target: [source.len]u8 = undefined;
     @memcpy(&target[0], &source[0], source.len);
     mangleString(target);
     assert(str.eql(target, "bcdefgh"));
 }
-#static_eval_enable(false)
 fn mangleString(s: []u8) {
+    @setFnStaticEval(this, false);
+
     for (s) |*c| {
         *c += 1;
     }
 }
 
-#attribute("test")
 fn emptyStructMethodCall() {
+    @setFnTest(this, true);
+
     const es = EmptyStruct{};
     assert(es.method() == 1234);
 }
 struct EmptyStruct {
-    #static_eval_enable(false)
-    fn method(es: EmptyStruct) -> i32 { 1234 }
+    fn method(es: EmptyStruct) -> i32 {
+        @setFnStaticEval(this, false);
+        1234
+    }
+
 }
 
 
-#attribute("test")
-fn @"weird function name"() { }
+fn @"weird function name"() {
+    @setFnTest(this, true);
+}
 
 
-#attribute("test")
+
 fn returnEmptyStructFromFn() {
+    @setFnTest(this, true);
+
     testReturnEmptyStructFromFn();
     testReturnEmptyStructFromFnNoeval();
 }
@@ -1291,13 +1398,15 @@ struct EmptyStruct2 {}
 fn testReturnEmptyStructFromFn() -> EmptyStruct2 {
     EmptyStruct2 {}
 }
-#static_eval_enable(false)
 fn testReturnEmptyStructFromFnNoeval() -> EmptyStruct2 {
+    @setFnStaticEval(this, false);
+
     EmptyStruct2 {}
 }
 
-#attribute("test")
 fn passSliceOfEmptyStructToFn() {
+    @setFnTest(this, true);
+
     assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{ EmptyStruct2{} }) == 1);
 }
 fn testPassSliceOfEmptyStructToFn(slice: []EmptyStruct2) -> usize {
@@ -1305,8 +1414,9 @@ fn testPassSliceOfEmptyStructToFn(slice: []EmptyStruct2) -> usize {
 }
 
 
-#attribute("test")
 fn pointerComparison() {
+    @setFnTest(this, true);
+
     const a = ([]u8)("a");
     const b = &a;
     assert(ptrEql(b, b));
@@ -1315,15 +1425,17 @@ fn ptrEql(a: &[]u8, b: &[]u8) -> bool {
     a == b
 }
 
-#attribute("test")
 fn characterLiterals() {
+    @setFnTest(this, true);
+
     assert('\'' == single_quote);
 }
 const single_quote = '\'';
 
 
-#attribute("test")
 fn switchWithMultipleExpressions() {
+    @setFnTest(this, true);
+
     const x: i32 = switch (returnsFive()) {
         1, 2, 3 => 1,
         4, 5, 6 => 2,
@@ -1331,12 +1443,16 @@ fn switchWithMultipleExpressions() {
     };
     assert(x == 2);
 }
-#static_eval_enable(false)
-fn returnsFive() -> i32 { 5 }
+fn returnsFive() -> i32 {
+    @setFnStaticEval(this, false);
+    5
+}
 
 
-#attribute("test")
+
 fn switchOnErrorUnion() {
+    @setFnTest(this, true);
+
     const x = switch (returnsTen()) {
         Ok => |val| val + 1,
         ItBroke, NoMem => 1,
@@ -1347,20 +1463,28 @@ fn switchOnErrorUnion() {
 error ItBroke;
 error NoMem;
 error CrappedOut;
-#static_eval_enable(false)
-fn returnsTen() -> %i32 { 10 }
+fn returnsTen() -> %i32 {
+    @setFnStaticEval(this, false);
+    10
+}
 
 
-#attribute("test")
+
 fn boolCmp() {
+    @setFnTest(this, true);
+
     assert(testBoolCmp(true, false) == false);
 }
-#static_eval_enable(false)
-fn testBoolCmp(a: bool, b: bool) -> bool { a == b }
+fn testBoolCmp(a: bool, b: bool) -> bool {
+    @setFnStaticEval(this, false);
+    a == b
+}
 
 
-#attribute("test")
+
 fn takeAddressOfParameter() {
+    @setFnTest(this, true);
+
     testTakeAddressOfParameter(12.34);
     testTakeAddressOfParameterNoeval(12.34);
 }
@@ -1368,20 +1492,23 @@ fn testTakeAddressOfParameter(f: f32) {
     const f_ptr = &f;
     assert(*f_ptr == 12.34);
 }
-#static_eval_enable(false)
 fn testTakeAddressOfParameterNoeval(f: f32) {
+    @setFnStaticEval(this, false);
+
     const f_ptr = &f;
     assert(*f_ptr == 12.34);
 }
 
 
-#attribute("test")
 fn arrayMultOperator() {
+    @setFnTest(this, true);
+
     assert(str.eql("ab" ** 5, "ababababab"));
 }
 
-#attribute("test")
 fn stringEscapes() {
+    @setFnTest(this, true);
+
     assert(str.eql("\"", "\x22"));
     assert(str.eql("\'", "\x27"));
     assert(str.eql("\n", "\x0a"));
@@ -1391,12 +1518,14 @@ fn stringEscapes() {
     assert(str.eql("\u1234\u0069", "\xe1\x88\xb4\x69"));
 }
 
-#attribute("test")
 fn ifVarMaybePointer() {
+    @setFnTest(this, true);
+
     assert(shouldBeAPlus1(Particle {.a = 14, .b = 1, .c = 1, .d = 1}) == 15);
 }
-#static_eval_enable(false)
 fn shouldBeAPlus1(p: Particle) -> u64 {
+    @setFnStaticEval(this, false);
+
     var maybe_particle: ?Particle = p;
     if (const *particle ?= maybe_particle) {
         particle.a += 1;
@@ -1413,8 +1542,9 @@ struct Particle {
     d: u64,
 }
 
-#attribute("test")
 fn assignToIfVarPtr() {
+    @setFnTest(this, true);
+
     var maybe_bool: ?bool = true;
 
     if (const *b ?= maybe_bool) {
@@ -1424,22 +1554,25 @@ fn assignToIfVarPtr() {
     assert(??maybe_bool == false);
 }
 
-#attribute("test")
 fn cmpxchg() {
+    @setFnTest(this, true);
+
     var x: i32 = 1234;
     while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
     assert(x == 5678);
 }
 
-#attribute("test")
 fn fence() {
+    @setFnTest(this, true);
+
     var x: i32 = 1234;
     @fence(AtomicOrder.SeqCst);
     x = 5678;
 }
 
-#attribute("test")
 fn unsignedWrapping() {
+    @setFnTest(this, true);
+
     testUnsignedWrappingEval(@maxValue(u32));
     testUnsignedWrappingNoeval(@maxValue(u32));
 }
@@ -1449,16 +1582,18 @@ fn testUnsignedWrappingEval(x: u32) {
     const orig = zero -% 1;
     assert(orig == @maxValue(u32));
 }
-#static_eval_enable(false)
 fn testUnsignedWrappingNoeval(x: u32) {
+    @setFnStaticEval(this, false);
+
     const zero = x +% 1;
     assert(zero == 0);
     const orig = zero -% 1;
     assert(orig == @maxValue(u32));
 }
 
-#attribute("test")
 fn signedWrapping() {
+    @setFnTest(this, true);
+
     testSignedWrappingEval(@maxValue(i32));
     testSignedWrappingNoeval(@maxValue(i32));
 }
@@ -1468,16 +1603,18 @@ fn testSignedWrappingEval(x: i32) {
     const max_val = min_val -% 1;
     assert(max_val == @maxValue(i32));
 }
-#static_eval_enable(false)
 fn testSignedWrappingNoeval(x: i32) {
+    @setFnStaticEval(this, false);
+
     const min_val = x +% 1;
     assert(min_val == @minValue(i32));
     const max_val = min_val -% 1;
     assert(max_val == @maxValue(i32));
 }
 
-#attribute("test")
 fn negationWrapping() {
+    @setFnTest(this, true);
+
     testNegationWrappingEval(@minValue(i16));
     testNegationWrappingNoeval(@minValue(i16));
 }
@@ -1486,15 +1623,17 @@ fn testNegationWrappingEval(x: i16) {
     const neg = -%x;
     assert(neg == -32768);
 }
-#static_eval_enable(false)
 fn testNegationWrappingNoeval(x: i16) {
+    @setFnStaticEval(this, false);
+
     assert(x == -32768);
     const neg = -%x;
     assert(neg == -32768);
 }
 
-#attribute("test")
 fn shlWrapping() {
+    @setFnTest(this, true);
+
     testShlWrappingEval(@maxValue(u16));
     testShlWrappingNoeval(@maxValue(u16));
 }
@@ -1502,22 +1641,25 @@ fn testShlWrappingEval(x: u16) {
     const shifted = x <<% 1;
     assert(shifted == 65534);
 }
-#static_eval_enable(false)
 fn testShlWrappingNoeval(x: u16) {
+    @setFnStaticEval(this, false);
+
     const shifted = x <<% 1;
     assert(shifted == 65534);
 }
 
-#attribute("test")
 fn shlWithOverflow() {
+    @setFnTest(this, true);
+
     var result: u16 = undefined;
     assert(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
     assert(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
     assert(result == 0b1011111111111100);
 }
 
-#attribute("test")
 fn cStringConcatenation() {
+    @setFnTest(this, true);
+
     const a = c"OK" ++ c" IT " ++ c"WORKED";
     const b = c"OK IT WORKED";
 
@@ -1530,8 +1672,9 @@ fn cStringConcatenation() {
     assert(b[len] == 0);
 }
 
-#attribute("test")
 fn genericStruct() {
+    @setFnTest(this, true);
+
     var a1 = GenNode(i32) {.value = 13, .next = null,};
     var b1 = GenNode(bool) {.value = true, .next = null,};
     assert(a1.value == 13);
@@ -1544,8 +1687,9 @@ struct GenNode(T: type) {
     fn getVal(n: &const GenNode(T)) -> T { n.value }
 }
 
-#attribute("test")
 fn castSliceToU8Slice() {
+    @setFnTest(this, true);
+
     assert(@sizeOf(i32) == 4);
     var big_thing_array = []i32{1, 2, 3, 4};
     const big_thing_slice: []i32 = big_thing_array;
@@ -1565,26 +1709,31 @@ fn castSliceToU8Slice() {
     assert(bytes[11] == @maxValue(u8));
 }
 
-#attribute("test")
 fn floatDivision() {
+    @setFnTest(this, true);
+
     assert(fdiv32(12.0, 3.0) == 4.0);
 }
-#static_eval_enable(false)
 fn fdiv32(a: f32, b: f32) -> f32 {
+    @setFnStaticEval(this, false);
+
     a / b
 }
 
-#attribute("test")
 fn exactDivision() {
+    @setFnTest(this, true);
+
     assert(divExact(55, 11) == 5);
 }
-#static_eval_enable(false)
 fn divExact(a: u32, b: u32) -> u32 {
+    @setFnStaticEval(this, false);
+
     @divExact(a, b)
 }
 
-#attribute("test")
 fn nullLiteralOutsideFunction() {
+    @setFnTest(this, true);
+
     const is_null = if (const _ ?= here_is_a_null_literal.context) false else true;
     assert(is_null);
 }
@@ -1595,25 +1744,29 @@ const here_is_a_null_literal = SillyStruct {
     .context = null,
 };
 
-#attribute("test")
 fn truncate() {
+    @setFnTest(this, true);
+
     assert(testTruncate(0x10fd) == 0xfd);
 }
-#static_eval_enable(false)
 fn testTruncate(x: u32) -> u8 {
+    @setFnStaticEval(this, false);
+
     @truncate(u8, x)
 }
 
-#attribute("test")
 fn constDeclsInStruct() {
+    @setFnTest(this, true);
+
     assert(GenericDataThing(3).count_plus_one == 4);
 }
 struct GenericDataThing(count: isize) {
     const count_plus_one = count + 1;
 }
 
-#attribute("test")
 fn useGenericParamInGenericParam() {
+    @setFnTest(this, true);
+
     assert(aGenericFn(i32, 3, 4) == 7);
 }
 fn aGenericFn(inline T: type, inline a: T, b: T) -> T {
@@ -1621,14 +1774,16 @@ fn aGenericFn(inline T: type, inline a: T, b: T) -> T {
 }
 
 
-#attribute("test")
 fn unsigned64BitDivision() {
+    @setFnTest(this, true);
+
     const result = div(1152921504606846976, 34359738365);
     assert(result.quotient == 33554432);
     assert(result.remainder == 100663296);
 }
-#static_eval_enable(false)
 fn div(a: u64, b: u64) -> DivResult {
+    @setFnStaticEval(this, false);
+
     DivResult {
         .quotient = a / b,
         .remainder = a % b,
@@ -1639,8 +1794,9 @@ struct DivResult {
     remainder: u64,
 }
 
-#attribute("test")
 fn intTypeBuiltin() {
+    @setFnTest(this, true);
+
     assert(@intType(true, 8) == i8);
     assert(@intType(true, 16) == i16);
     assert(@intType(true, 32) == i32);
@@ -1670,16 +1826,18 @@ fn intTypeBuiltin() {
 
 }
 
-#attribute("test")
 fn intToEnum() {
+    @setFnTest(this, true);
+
     testIntToEnumEval(3);
     testIntToEnumNoeval(3);
 }
 fn testIntToEnumEval(x: i32) {
     assert(IntToEnumNumber(x) == IntToEnumNumber.Three);
 }
-#static_eval_enable(false)
 fn testIntToEnumNoeval(x: i32) {
+    @setFnStaticEval(this, false);
+
     assert(IntToEnumNumber(x) == IntToEnumNumber.Three);
 }
 enum IntToEnumNumber {

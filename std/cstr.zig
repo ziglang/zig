@@ -126,8 +126,9 @@ pub struct CBuf {
     }
 }
 
-#attribute("test")
 fn testSimpleCBuf() {
+    @setFnTest(this, true);
+
     var buf = %%CBuf.initEmpty(&debug.global_allocator);
     assert(buf.len() == 0);
     %%buf.appendCStr(c"hello");
@@ -146,12 +147,14 @@ fn testSimpleCBuf() {
     assert(buf.startsWithCBuf(&buf2));
 }
 
-#attribute("test")
 fn testCompileTimeStrCmp() {
+    @setFnTest(this, true);
+
     assert(@constEval(cmp(c"aoeu", c"aoez") == -1));
 }
 
-#attribute("test")
 fn testCompileTimeStrLen() {
+    @setFnTest(this, true);
+
     assert(@constEval(len(c"123456789") == 9));
 }
