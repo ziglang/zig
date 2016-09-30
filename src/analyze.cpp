@@ -6,14 +6,15 @@
  */
 
 #include "analyze.hpp"
-#include "parser.hpp"
+#include "ast_render.hpp"
+#include "config.h"
 #include "error.hpp"
-#include "zig_llvm.hpp"
+#include "eval.hpp"
+#include "ir.hpp"
 #include "os.hpp"
 #include "parseh.hpp"
-#include "config.h"
-#include "ast_render.hpp"
-#include "eval.hpp"
+#include "parser.hpp"
+#include "zig_llvm.hpp"
 
 static TypeTableEntry *analyze_expression(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node);
@@ -6880,22 +6881,6 @@ static TypeTableEntry *analyze_goto_pass1(CodeGen *g, ImportTableEntry *import, 
     return g->builtin_types.entry_unreachable;
 }
 
-static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *node) {
-    assert(node->type == NodeTypeGoto);
-    Buf *label_name = node->data.goto_expr.name;
-    BlockContext *context = node->block_context;
-    assert(context);
-    LabelTableEntry *label = find_label(g, context, label_name);
-
-    if (!label) {
-        add_node_error(g, node, buf_sprintf("no label in scope named '%s'", buf_ptr(label_name)));
-        return;
-    }
-
-    label->used = true;
-    node->data.goto_expr.label_entry = label;
-}
-
 static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, TypeTableEntry *expected_type, AstNode *node, bool pointer_only)
 {
@@ -7113,24 +7098,15 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
             buf_sprintf("byvalue types not yet supported on extern function return values"));
     }
 
-    TypeTableEntry *block_return_type = analyze_expression(g, import, context, expected_type, node->data.fn_def.body);
+    IrBasicBlock *entry_basic_block = ir_gen(g, node, expected_type);
+    if (!entry_basic_block) {
+        fn_proto_node->data.fn_proto.skip = true;
+        fn_table_entry->anal_state = FnAnalStateSkipped;
+        return;
+    }
+    TypeTableEntry *block_return_type = ir_analyze(g, node, entry_basic_block, expected_type);
 
     node->data.fn_def.implicit_return_type = block_return_type;
-
-    for (size_t i = 0; i < fn_table_entry->goto_list.length; i += 1) {
-        AstNode *goto_node = fn_table_entry->goto_list.at(i);
-        assert(goto_node->type == NodeTypeGoto);
-        analyze_goto_pass2(g, import, goto_node);
-    }
-
-    for (size_t i = 0; i < fn_table_entry->all_labels.length; i += 1) {
-        LabelTableEntry *label = fn_table_entry->all_labels.at(i);
-        if (!label->used) {
-            add_node_error(g, label->decl_node,
-                    buf_sprintf("label '%s' defined but not used",
-                        buf_ptr(label->decl_node->data.label.name)));
-        }
-    }
 
     fn_table_entry->anal_state = FnAnalStateComplete;
 }
