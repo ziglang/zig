@@ -28,6 +28,14 @@ struct BuiltinFnEntry;
 struct TypeStructField;
 struct CodeGen;
 struct ConstExprValue;
+struct IrInstruction;
+struct IrBasicBlock;
+
+struct IrExecutable {
+    IrBasicBlock **basic_block_list;
+    size_t basic_block_count;
+    size_t next_debug_id;
+};
 
 enum OutType {
     OutTypeUnknown,
@@ -1105,6 +1113,7 @@ struct FnTableEntry {
     AstNode *want_pure_return_type;
     FnInline fn_inline;
     FnAnalState anal_state;
+    IrExecutable ir_executable;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_export_set_node;
@@ -1317,6 +1326,8 @@ struct CodeGen {
     ZigList<AstNode *> error_decls;
     bool generate_error_name_table;
     LLVMValueRef err_name_table;
+
+    IrInstruction *invalid_instruction;
 };
 
 struct VariableTableEntry {
@@ -1386,6 +1397,146 @@ enum AtomicOrder {
     AtomicOrderRelease,
     AtomicOrderAcqRel,
     AtomicOrderSeqCst,
+};
+
+// A basic block contains no branching. Branches send control flow
+// to another basic block.
+// Phi instructions must be first in a basic block.
+// The last instruction in a basic block must be an expression of type unreachable.
+struct IrBasicBlock {
+    IrInstruction *first;
+    IrInstruction *last;
+};
+
+enum IrInstructionId {
+    IrInstructionIdInvalid,
+    IrInstructionIdCondBr,
+    IrInstructionIdSwitchBr,
+    IrInstructionIdPhi,
+    IrInstructionIdBinOp,
+    IrInstructionIdLoadVar,
+    IrInstructionIdStoreVar,
+    IrInstructionIdCall,
+    IrInstructionIdBuiltinCall,
+    IrInstructionIdConst,
+    IrInstructionIdReturn,
+};
+
+struct IrInstruction {
+    IrInstruction *prev;
+    IrInstruction *next;
+
+    IrInstructionId id;
+    AstNode *source_node;
+    ConstExprValue static_value;
+    TypeTableEntry *type_entry;
+    size_t debug_id;
+    LLVMValueRef llvm_value;
+};
+
+struct IrInstructionCondBr {
+    IrInstruction base;
+
+    // If the condition is null, then this is an unconditional branch.
+    IrInstruction *cond;
+    IrBasicBlock *dest;
+};
+
+struct IrInstructionSwitchBrCase {
+    IrInstruction *value;
+    IrBasicBlock *block;
+};
+
+struct IrInstructionSwitchBr {
+    IrInstruction base;
+
+    IrInstruction *target_value;
+    IrBasicBlock *else_block;
+    size_t case_count;
+    IrInstructionSwitchBrCase *cases;
+};
+
+struct IrInstructionPhi {
+    IrInstruction base;
+
+    size_t incoming_block_count;
+    IrBasicBlock **incoming_blocks;
+    IrInstruction **incoming_values;
+};
+
+enum IrBinOp {
+    IrBinOpInvalid,
+    IrBinOpBoolOr,
+    IrBinOpBoolAnd,
+    IrBinOpCmpEq,
+    IrBinOpCmpNotEq,
+    IrBinOpCmpLessThan,
+    IrBinOpCmpGreaterThan,
+    IrBinOpCmpLessOrEq,
+    IrBinOpCmpGreaterOrEq,
+    IrBinOpBinOr,
+    IrBinOpBinXor,
+    IrBinOpBinAnd,
+    IrBinOpBitShiftLeft,
+    IrBinOpBitShiftLeftWrap,
+    IrBinOpBitShiftRight,
+    IrBinOpAdd,
+    IrBinOpAddWrap,
+    IrBinOpSub,
+    IrBinOpSubWrap,
+    IrBinOpMult,
+    IrBinOpMultWrap,
+    IrBinOpDiv,
+    IrBinOpMod,
+    IrBinOpArrayCat,
+    IrBinOpArrayMult,
+};
+
+struct IrInstructionBinOp {
+    IrInstruction base;
+
+    IrInstruction *op1;
+    IrBinOp op_id;
+    IrInstruction *op2;
+};
+
+struct IrInstructionLoadVar {
+    IrInstruction base;
+
+    VariableTableEntry *var;
+};
+
+struct IrInstructionStoreVar {
+    IrInstruction base;
+
+    IrInstruction *value;
+    VariableTableEntry *var;
+};
+
+struct IrInstructionCall {
+    IrInstruction base;
+
+    IrInstruction *fn;
+    size_t arg_count;
+    IrInstruction **args;
+};
+
+struct IrInstructionBuiltinCall {
+    IrInstruction base;
+
+    BuiltinFnId fn_id;
+    size_t arg_count;
+    IrInstruction **args;
+};
+
+struct IrInstructionConst {
+    IrInstruction base;
+};
+
+struct IrInstructionReturn {
+    IrInstruction base;
+
+    IrInstruction *value;
 };
 
 

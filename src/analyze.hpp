@@ -43,4 +43,6 @@ uint64_t get_memcpy_align(CodeGen *g, TypeTableEntry *type_entry);
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
         Buf *abs_full_path, Buf *src_dirname, Buf *src_basename, Buf *source_code);
 
+AstNode *first_executing_node(AstNode *node);
+
 #endif

@@ -5,18 +5,18 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#include "codegen.hpp"
-#include "hash_map.hpp"
-#include "zig_llvm.hpp"
-#include "os.hpp"
-#include "config.h"
-#include "error.hpp"
 #include "analyze.hpp"
-#include "errmsg.hpp"
-#include "parseh.hpp"
 #include "ast_render.hpp"
-#include "target.hpp"
+#include "codegen.hpp"
+#include "config.h"
+#include "errmsg.hpp"
+#include "error.hpp"
+#include "hash_map.hpp"
 #include "link.hpp"
+#include "os.hpp"
+#include "parseh.hpp"
+#include "target.hpp"
+#include "zig_llvm.hpp"
 
 #include <stdio.h>
 #include <errno.h>
@@ -64,6 +64,8 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->is_release_build = false;
     g->is_test_build = false;
     g->want_h_file = true;
+
+    g->invalid_instruction = allocate<IrInstruction>(1);
 
     // the error.Ok value
     g->error_decls.append(nullptr);
@@ -235,6 +237,7 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType b
 static LLVMValueRef gen_unwrap_maybe(CodeGen *g, AstNode *node, LLVMValueRef maybe_struct_ref);
 static LLVMValueRef gen_div(CodeGen *g, AstNode *source_node, LLVMValueRef val1, LLVMValueRef val2,
         TypeTableEntry *type_entry, bool exact);
+static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val);
 
 static TypeTableEntry *get_type_for_type_node(AstNode *node) {
     Expr *expr = get_resolved_expr(node);
@@ -247,6 +250,10 @@ static TypeTableEntry *get_type_for_type_node(AstNode *node) {
 static void set_debug_source_node(CodeGen *g, AstNode *node) {
     assert(node->block_context);
     ZigLLVMSetCurrentDebugLocation(g->builder, node->line + 1, node->column + 1, node->block_context->di_scope);
+}
+
+static void ir_set_debug(CodeGen *g, IrInstruction *instruction) {
+    set_debug_source_node(g, instruction->source_node);
 }
 
 static void clear_debug_source_node(CodeGen *g) {
@@ -2792,6 +2799,47 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
     return nullptr;
 }
 
+static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
+    ir_set_debug(g, &return_instruction->base);
+    LLVMBuildRet(g->builder, return_instruction->value->llvm_value);
+    return nullptr;
+}
+
+static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {
+    switch (instruction->id) {
+        case IrInstructionIdInvalid:
+            zig_unreachable();
+        case IrInstructionIdConst:
+            return gen_const_val(g, instruction->type_entry, &instruction->static_value);
+        case IrInstructionIdReturn:
+            return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
+        case IrInstructionIdCondBr:
+        case IrInstructionIdSwitchBr:
+        case IrInstructionIdPhi:
+        case IrInstructionIdBinOp:
+        case IrInstructionIdLoadVar:
+        case IrInstructionIdStoreVar:
+        case IrInstructionIdCall:
+        case IrInstructionIdBuiltinCall:
+            zig_panic("TODO render more IR instructions to LLVM");
+    }
+    zig_unreachable();
+}
+
+static void ir_render(CodeGen *g, FnTableEntry *fn_entry) {
+    assert(fn_entry);
+    IrExecutable *executable = &fn_entry->ir_executable;
+    assert(executable->basic_block_count > 0);
+    for (size_t i = 0; i < executable->basic_block_count; i += 1) {
+        IrBasicBlock *current_block = executable->basic_block_list[i];
+        for (IrInstruction *instruction = current_block->first; instruction != nullptr;
+                instruction = instruction->next)
+        {
+            instruction->llvm_value = ir_render_instruction(g, executable, instruction);
+        }
+    }
+}
+
 static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *implicit_return_type) {
     assert(block_node->type == NodeTypeBlock);
 
@@ -3836,6 +3884,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
                     return LLVMConstStruct(fields, 2, false);
                 }
             }
+        case TypeTableEntryIdVoid:
+            return nullptr;
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdUnreachable:
@@ -3843,7 +3893,6 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
-        case TypeTableEntryIdVoid:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
@@ -4199,7 +4248,6 @@ static void do_code_gen(CodeGen *g) {
         }
 
         ImportTableEntry *import = fn_table_entry->import_entry;
-        AstNode *fn_def_node = fn_table_entry->fn_def_node;
         LLVMValueRef fn = fn_table_entry->fn_value;
         g->cur_fn = fn_table_entry;
         if (handle_is_ptr(fn_table_entry->type_entry->data.fn.fn_type_id.return_type)) {
@@ -4307,9 +4355,7 @@ static void do_code_gen(CodeGen *g) {
             gen_var_debug_decl(g, variable);
         }
 
-
-        TypeTableEntry *implicit_return_type = fn_def_node->data.fn_def.implicit_return_type;
-        gen_block(g, fn_def_node->data.fn_def.body, implicit_return_type);
+        ir_render(g, fn_table_entry);
 
     }
     assert(!g->errors.length);
@@ -4967,7 +5013,6 @@ static void init(CodeGen *g, Buf *source_path) {
 
     define_builtin_types(g);
     define_builtin_fns(g);
-
 }
 
 void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code) {
@@ -5078,6 +5123,7 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
     if (g->verbose) {
         fprintf(stderr, "\nCode Generation:\n");
         fprintf(stderr, "------------------\n");
+
     }
 
     do_code_gen(g);

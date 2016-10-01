@@ -11,6 +11,7 @@
 #include "error.hpp"
 #include "eval.hpp"
 #include "ir.hpp"
+#include "ir_print.hpp"
 #include "os.hpp"
 #include "parseh.hpp"
 #include "parser.hpp"
@@ -54,7 +55,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
 static void resolve_use_decl(CodeGen *g, AstNode *node);
 static void preview_use_decl(CodeGen *g, AstNode *node);
 
-static AstNode *first_executing_node(AstNode *node) {
+AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
         case NodeTypeFnCallExpr:
             return first_executing_node(node->data.fn_call_expr.fn_ref_expr);
@@ -2378,18 +2379,6 @@ static VariableTableEntry *find_variable(CodeGen *g, BlockContext *orig_context,
         context = context->parent;
     }
 
-    return nullptr;
-}
-
-static LabelTableEntry *find_label(CodeGen *g, BlockContext *orig_context, Buf *name) {
-    BlockContext *context = orig_context;
-    while (context && context->fn_entry) {
-        auto entry = context->label_table.maybe_get(name);
-        if (entry) {
-            return entry->value;
-        }
-        context = context->parent;
-    }
     return nullptr;
 }
 
@@ -7098,14 +7087,19 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
             buf_sprintf("byvalue types not yet supported on extern function return values"));
     }
 
-    IrBasicBlock *entry_basic_block = ir_gen(g, node, expected_type);
-    if (!entry_basic_block) {
+    IrInstruction *result = ir_gen_fn(g, fn_table_entry);
+    if (result == g->invalid_instruction) {
         fn_proto_node->data.fn_proto.skip = true;
         fn_table_entry->anal_state = FnAnalStateSkipped;
         return;
     }
-    TypeTableEntry *block_return_type = ir_analyze(g, node, entry_basic_block, expected_type);
+    if (g->verbose) {
+        fprintf(stderr, "fn %s {\n", buf_ptr(&fn_table_entry->symbol_name));
+        ir_print(stderr, &fn_table_entry->ir_executable, 4);
+        fprintf(stderr, "}\n");
+    }
 
+    TypeTableEntry *block_return_type = ir_analyze(g, &fn_table_entry->ir_executable, expected_type);
     node->data.fn_def.implicit_return_type = block_return_type;
 
     fn_table_entry->anal_state = FnAnalStateComplete;
