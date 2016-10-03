@@ -1420,6 +1420,7 @@ enum IrInstructionId {
     IrInstructionIdBuiltinCall,
     IrInstructionIdConst,
     IrInstructionIdReturn,
+    IrInstructionIdCast,
 };
 
 struct IrInstruction {
@@ -1539,5 +1540,12 @@ struct IrInstructionReturn {
     IrInstruction *value;
 };
 
+struct IrInstructionCast {
+    IrInstruction base;
+
+    IrInstruction *value;
+    IrInstruction *dest_type;
+    bool is_implicit;
+};
 
 #endif

@@ -65,8 +65,6 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->is_test_build = false;
     g->want_h_file = true;
 
-    g->invalid_instruction = allocate<IrInstruction>(1);
-
     // the error.Ok value
     g->error_decls.append(nullptr);
 
@@ -252,10 +250,6 @@ static void set_debug_source_node(CodeGen *g, AstNode *node) {
     ZigLLVMSetCurrentDebugLocation(g->builder, node->line + 1, node->column + 1, node->block_context->di_scope);
 }
 
-static void ir_set_debug(CodeGen *g, IrInstruction *instruction) {
-    set_debug_source_node(g, instruction->source_node);
-}
-
 static void clear_debug_source_node(CodeGen *g) {
     ZigLLVMClearCurrentDebugLocation(g->builder);
 }
@@ -373,6 +367,10 @@ static bool want_debug_safety(CodeGen *g, AstNode *node) {
         return false;
     }
     return want_debug_safety_recursive(g, node->block_context);
+}
+
+static bool ir_want_debug_safety(CodeGen *g, IrInstruction *instruction) {
+    return want_debug_safety(g, instruction->source_node);
 }
 
 static void gen_debug_safety_crash(CodeGen *g) {
@@ -2800,12 +2798,104 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
 }
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
-    ir_set_debug(g, &return_instruction->base);
     LLVMBuildRet(g->builder, return_instruction->value->llvm_value);
     return nullptr;
 }
 
+static LLVMValueRef ir_render_load_var(CodeGen *g, IrExecutable *executable,
+        IrInstructionLoadVar *load_var_instruction)
+{
+    VariableTableEntry *var = load_var_instruction->var;
+    if (!type_has_bits(var->type))
+        return nullptr;
+
+    assert(var->value_ref);
+    return get_handle_value(g, load_var_instruction->base.source_node, var->value_ref, var->type);
+}
+
+static LLVMValueRef ir_render_bin_op_bool(CodeGen *g, IrExecutable *executable,
+        IrInstructionBinOp *bin_op_instruction)
+{
+    IrBinOp op_id = bin_op_instruction->op_id;
+    LLVMValueRef op1 = bin_op_instruction->op1->llvm_value;
+    LLVMValueRef op2 = bin_op_instruction->op2->llvm_value;
+    if (op_id == IrBinOpBoolOr) {
+        return LLVMBuildOr(g->builder, op1, op2, "");
+    } else if (op_id == IrBinOpBoolAnd) {
+        return LLVMBuildAnd(g->builder, op1, op2, "");
+    } else {
+        zig_unreachable();
+    }
+}
+
+static LLVMValueRef ir_render_bin_op_add(CodeGen *g, IrExecutable *executable,
+        IrInstructionBinOp *bin_op_instruction)
+{
+    IrBinOp op_id = bin_op_instruction->op_id;
+    IrInstruction *op1 = bin_op_instruction->op1;
+    IrInstruction *op2 = bin_op_instruction->op2;
+
+    assert(op1->type_entry == op2->type_entry);
+
+    if (op1->type_entry->id == TypeTableEntryIdFloat) {
+        return LLVMBuildFAdd(g->builder, op1->llvm_value, op2->llvm_value, "");
+    } else if (op1->type_entry->id == TypeTableEntryIdInt) {
+        bool is_wrapping = (op_id == IrBinOpAddWrap);
+        if (is_wrapping) {
+            return LLVMBuildAdd(g->builder, op1->llvm_value, op2->llvm_value, "");
+        } else if (ir_want_debug_safety(g, &bin_op_instruction->base)) {
+            return gen_overflow_op(g, op1->type_entry, AddSubMulAdd, op1->llvm_value, op2->llvm_value);
+        } else if (op1->type_entry->data.integral.is_signed) {
+            return LLVMBuildNSWAdd(g->builder, op1->llvm_value, op2->llvm_value, "");
+        } else {
+            return LLVMBuildNUWAdd(g->builder, op1->llvm_value, op2->llvm_value, "");
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
+        IrInstructionBinOp *bin_op_instruction)
+{
+    IrBinOp op_id = bin_op_instruction->op_id;
+    switch (op_id) {
+        case IrBinOpInvalid:
+        case IrBinOpArrayCat:
+        case IrBinOpArrayMult:
+            zig_unreachable();
+        case IrBinOpBoolOr:
+        case IrBinOpBoolAnd:
+            return ir_render_bin_op_bool(g, executable, bin_op_instruction);
+        case IrBinOpCmpEq:
+        case IrBinOpCmpNotEq:
+        case IrBinOpCmpLessThan:
+        case IrBinOpCmpGreaterThan:
+        case IrBinOpCmpLessOrEq:
+        case IrBinOpCmpGreaterOrEq:
+            zig_panic("TODO bin op cmp");
+        case IrBinOpAdd:
+        case IrBinOpAddWrap:
+            return ir_render_bin_op_add(g, executable, bin_op_instruction);
+        case IrBinOpBinOr:
+        case IrBinOpBinXor:
+        case IrBinOpBinAnd:
+        case IrBinOpBitShiftLeft:
+        case IrBinOpBitShiftLeftWrap:
+        case IrBinOpBitShiftRight:
+        case IrBinOpSub:
+        case IrBinOpSubWrap:
+        case IrBinOpMult:
+        case IrBinOpMultWrap:
+        case IrBinOpDiv:
+        case IrBinOpMod:
+            zig_panic("TODO render more bin ops to LLVM");
+    }
+    zig_unreachable();
+}
+
 static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {
+    set_debug_source_node(g, instruction->source_node);
     switch (instruction->id) {
         case IrInstructionIdInvalid:
             zig_unreachable();
@@ -2813,14 +2903,17 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return gen_const_val(g, instruction->type_entry, &instruction->static_value);
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
+        case IrInstructionIdLoadVar:
+            return ir_render_load_var(g, executable, (IrInstructionLoadVar *)instruction);
+        case IrInstructionIdBinOp:
+            return ir_render_bin_op(g, executable, (IrInstructionBinOp *)instruction);
         case IrInstructionIdCondBr:
         case IrInstructionIdSwitchBr:
         case IrInstructionIdPhi:
-        case IrInstructionIdBinOp:
-        case IrInstructionIdLoadVar:
         case IrInstructionIdStoreVar:
         case IrInstructionIdCall:
         case IrInstructionIdBuiltinCall:
+        case IrInstructionIdCast:
             zig_panic("TODO render more IR instructions to LLVM");
     }
     zig_unreachable();
@@ -5013,6 +5106,9 @@ static void init(CodeGen *g, Buf *source_path) {
 
     define_builtin_types(g);
     define_builtin_fns(g);
+
+    g->invalid_instruction = allocate<IrInstruction>(1);
+    g->invalid_instruction->type_entry = g->builtin_types.entry_invalid;
 }
 
 void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code) {

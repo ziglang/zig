@@ -42,10 +42,8 @@ static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, As
         TypeTableEntry *expected_type, uint64_t x, bool depends_on_compile_var);
 static TypeTableEntry *resolve_expr_const_val_as_bool(CodeGen *g, AstNode *node, bool value,
         bool depends_on_compile_var);
-static AstNode *find_decl(BlockContext *context, Buf *name);
 static TypeTableEntry *analyze_decl_ref(CodeGen *g, AstNode *source_node, AstNode *decl_node,
         bool pointer_only, BlockContext *block_context, bool depends_on_compile_var);
-static TopLevelDecl *get_as_top_level_decl(AstNode *node);
 static VariableTableEntry *analyze_variable_declaration_raw(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, AstNode *source_node,
         AstNodeVariableDeclaration *variable_declaration,
@@ -1757,7 +1755,7 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
     node->data.error_value_decl.top_level_decl.resolution = TldResolutionOk;
 }
 
-static void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only) {
+void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only) {
     TopLevelDecl *tld = get_as_top_level_decl(node);
     if (tld->resolution != TldResolutionUnresolved) {
         return;
@@ -1978,7 +1976,7 @@ static bool num_lit_fits_in_other_type(CodeGen *g, AstNode *literal_node, TypeTa
     return false;
 }
 
-static bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
+bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
     if (expected_type == actual_type)
         return true;
 
@@ -2302,7 +2300,7 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, ImportTableEntry *
     return g->builtin_types.entry_invalid;
 }
 
-static TypeTableEntry *resolve_peer_type_compatibility(CodeGen *g, ImportTableEntry *import,
+TypeTableEntry *resolve_peer_type_compatibility(CodeGen *g, ImportTableEntry *import,
         BlockContext *block_context, AstNode *parent_source_node,
         AstNode **child_nodes, TypeTableEntry **child_types, size_t child_count)
 {
@@ -2358,7 +2356,7 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     return context;
 }
 
-static AstNode *find_decl(BlockContext *context, Buf *name) {
+AstNode *find_decl(BlockContext *context, Buf *name) {
     while (context) {
         auto entry = context->decl_table.maybe_get(name);
         if (entry) {
@@ -2369,7 +2367,7 @@ static AstNode *find_decl(BlockContext *context, Buf *name) {
     return nullptr;
 }
 
-static VariableTableEntry *find_variable(CodeGen *g, BlockContext *orig_context, Buf *name) {
+VariableTableEntry *find_variable(CodeGen *g, BlockContext *orig_context, Buf *name) {
     BlockContext *context = orig_context;
     while (context) {
         auto entry = context->var_table.maybe_get(name);
@@ -3248,10 +3246,6 @@ static TypeTableEntry *analyze_decl_ref(CodeGen *g, AstNode *source_node, AstNod
 static TypeTableEntry *analyze_symbol_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node, bool pointer_only)
 {
-    if (node->data.symbol_expr.override_type_entry) {
-        return resolve_expr_const_val_as_type(g, node, node->data.symbol_expr.override_type_entry, false);
-    }
-
     Buf *variable_name = node->data.symbol_expr.symbol;
 
     auto primitive_table_entry = g->primitive_type_table.maybe_get(variable_name);
@@ -4091,11 +4085,6 @@ static TypeTableEntry *analyze_this_literal_expr(CodeGen *g, ImportTableEntry *i
 static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry *import,
         BlockContext *block_context, TypeTableEntry *expected_type, AstNode *node)
 {
-    if (node->data.number_literal.overflow) {
-        add_node_error(g, node, buf_sprintf("number literal too large to be represented in any type"));
-        return g->builtin_types.entry_invalid;
-    }
-
     return resolve_expr_const_val_as_bignum(g, node, expected_type, node->data.number_literal.bignum, false);
 }
 
@@ -7536,7 +7525,7 @@ Expr *get_resolved_expr(AstNode *node) {
     zig_unreachable();
 }
 
-static TopLevelDecl *get_as_top_level_decl(AstNode *node) {
+TopLevelDecl *get_as_top_level_decl(AstNode *node) {
     switch (node->type) {
         case NodeTypeVariableDeclaration:
             return &node->data.variable_declaration.top_level_decl;

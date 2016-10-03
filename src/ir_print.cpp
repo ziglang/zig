@@ -25,12 +25,24 @@ static void ir_print_return(IrPrint *irp, IrInstructionReturn *return_instructio
 
 static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) {
     ir_print_prefix(irp, &const_instruction->base);
-    switch (const_instruction->base.type_entry->id) {
+    TypeTableEntry *type_entry = const_instruction->base.type_entry;
+    fprintf(irp->f, "%s ", buf_ptr(&type_entry->name));
+    switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
             zig_unreachable();
         case TypeTableEntryIdVoid:
-            fprintf(irp->f, "void\n");
+            fprintf(irp->f, "%s\n", "void");
             break;
+        case TypeTableEntryIdNumLitFloat:
+            fprintf(irp->f, "%f\n", const_instruction->base.static_value.data.x_bignum.data.x_float);
+            break;
+        case TypeTableEntryIdNumLitInt:
+            {
+                BigNum *bignum = &const_instruction->base.static_value.data.x_bignum;
+                const char *negative_str = bignum->is_negative ? "-" : "";
+                fprintf(irp->f, "%s%llu\n", negative_str, bignum->data.x_uint);
+                break;
+            }
         case TypeTableEntryIdVar:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdBool:
@@ -40,8 +52,6 @@ static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) 
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
-        case TypeTableEntryIdNumLitFloat:
-        case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
@@ -58,6 +68,104 @@ static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) 
     }
 }
 
+
+static const char *ir_bin_op_id_str(IrBinOp op_id) {
+    switch (op_id) {
+        case IrBinOpInvalid:
+            zig_unreachable();
+        case IrBinOpBoolOr:
+            return "BoolOr";
+        case IrBinOpBoolAnd:
+            return "BoolAnd";
+        case IrBinOpCmpEq:
+            return "==";
+        case IrBinOpCmpNotEq:
+            return "!=";
+        case IrBinOpCmpLessThan:
+            return "<";
+        case IrBinOpCmpGreaterThan:
+            return ">";
+        case IrBinOpCmpLessOrEq:
+            return "<=";
+        case IrBinOpCmpGreaterOrEq:
+            return ">=";
+        case IrBinOpBinOr:
+            return "|";
+        case IrBinOpBinXor:
+            return "^";
+        case IrBinOpBinAnd:
+            return "&";
+        case IrBinOpBitShiftLeft:
+            return "<<";
+        case IrBinOpBitShiftLeftWrap:
+            return "<<%";
+        case IrBinOpBitShiftRight:
+            return ">>";
+        case IrBinOpAdd:
+            return "+";
+        case IrBinOpAddWrap:
+            return "+%";
+        case IrBinOpSub:
+            return "-";
+        case IrBinOpSubWrap:
+            return "-%";
+        case IrBinOpMult:
+            return "*";
+        case IrBinOpMultWrap:
+            return "*%";
+        case IrBinOpDiv:
+            return "/";
+        case IrBinOpMod:
+            return "%";
+        case IrBinOpArrayCat:
+            return "++";
+        case IrBinOpArrayMult:
+            return "**";
+    }
+    zig_unreachable();
+}
+
+static void ir_print_bin_op(IrPrint *irp, IrInstructionBinOp *bin_op_instruction) {
+    ir_print_prefix(irp, &bin_op_instruction->base);
+    fprintf(irp->f, "#%zu %s #%zu\n",
+            bin_op_instruction->op1->debug_id,
+            ir_bin_op_id_str(bin_op_instruction->op_id),
+            bin_op_instruction->op2->debug_id);
+}
+
+static void ir_print_load_var(IrPrint *irp, IrInstructionLoadVar *load_var_instruction) {
+    ir_print_prefix(irp, &load_var_instruction->base);
+    fprintf(irp->f, "%s\n",
+            buf_ptr(&load_var_instruction->var->name));
+}
+
+static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
+    switch (instruction->id) {
+        case IrInstructionIdInvalid:
+            zig_unreachable();
+        case IrInstructionIdReturn:
+            ir_print_return(irp, (IrInstructionReturn *)instruction);
+            break;
+        case IrInstructionIdConst:
+            ir_print_const(irp, (IrInstructionConst *)instruction);
+            break;
+        case IrInstructionIdBinOp:
+            ir_print_bin_op(irp, (IrInstructionBinOp *)instruction);
+            break;
+        case IrInstructionIdLoadVar:
+            ir_print_load_var(irp, (IrInstructionLoadVar *)instruction);
+            break;
+        case IrInstructionIdCondBr:
+        case IrInstructionIdSwitchBr:
+        case IrInstructionIdPhi:
+        case IrInstructionIdStoreVar:
+        case IrInstructionIdCall:
+        case IrInstructionIdBuiltinCall:
+        case IrInstructionIdCast:
+            zig_panic("TODO print more IR instructions");
+    }
+}
+
 void ir_print(FILE *f, IrExecutable *executable, int indent_size) {
     IrPrint ir_print = {};
     IrPrint *irp = &ir_print;
@@ -70,25 +178,7 @@ void ir_print(FILE *f, IrExecutable *executable, int indent_size) {
         for (IrInstruction *instruction = current_block->first; instruction != nullptr;
                 instruction = instruction->next)
         {
-            switch (instruction->id) {
-                case IrInstructionIdInvalid:
-                    zig_unreachable();
-                case IrInstructionIdReturn:
-                    ir_print_return(irp, (IrInstructionReturn *)instruction);
-                    break;
-                case IrInstructionIdConst:
-                    ir_print_const(irp, (IrInstructionConst *)instruction);
-                    break;
-                case IrInstructionIdCondBr:
-                case IrInstructionIdSwitchBr:
-                case IrInstructionIdPhi:
-                case IrInstructionIdBinOp:
-                case IrInstructionIdLoadVar:
-                case IrInstructionIdStoreVar:
-                case IrInstructionIdCall:
-                case IrInstructionIdBuiltinCall:
-                    zig_panic("TODO print more IR instructions");
-            }
+            ir_print_instruction(irp, instruction);
         }
     }
 }
