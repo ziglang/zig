@@ -2008,6 +2008,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         *token_index += 1;
     } else if (mandatory) {
         ast_expect_token(pc, first_token, TokenIdKeywordFn);
+        zig_unreachable();
     } else {
         return nullptr;
     }
