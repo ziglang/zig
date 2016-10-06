@@ -2921,13 +2921,12 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
 
 static void ir_render(CodeGen *g, FnTableEntry *fn_entry) {
     assert(fn_entry);
-    IrExecutable *executable = &fn_entry->ir_executable;
-    assert(executable->basic_block_count > 0);
-    for (size_t i = 0; i < executable->basic_block_count; i += 1) {
-        IrBasicBlock *current_block = executable->basic_block_list[i];
-        for (IrInstruction *instruction = current_block->first; instruction != nullptr;
-                instruction = instruction->next)
-        {
+    IrExecutable *executable = &fn_entry->analyzed_executable;
+    assert(executable->basic_block_list.length > 0);
+    for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
+        IrBasicBlock *current_block = executable->basic_block_list.at(block_i);
+        for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
+            IrInstruction *instruction = current_block->instruction_list.at(instr_i);
             instruction->llvm_value = ir_render_instruction(g, executable, instruction);
         }
     }

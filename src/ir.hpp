@@ -13,6 +13,7 @@
 IrInstruction *ir_gen(CodeGen *g, AstNode *node, BlockContext *scope, IrExecutable *ir_executable);
 IrInstruction *ir_gen_fn(CodeGen *g, FnTableEntry *fn_entry);
 
-TypeTableEntry *ir_analyze(CodeGen *g, IrExecutable *executable, TypeTableEntry *expected_type);
+TypeTableEntry *ir_analyze(CodeGen *g, IrExecutable *old_executable, IrExecutable *new_executable,
+        TypeTableEntry *expected_type);
 
 #endif

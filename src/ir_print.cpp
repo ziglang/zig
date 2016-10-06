@@ -173,11 +173,10 @@ void ir_print(FILE *f, IrExecutable *executable, int indent_size) {
     irp->indent = indent_size;
     irp->indent_size = indent_size;
 
-    for (size_t i = 0; i < executable->basic_block_count; i += 1) {
-        IrBasicBlock *current_block = executable->basic_block_list[i];
-        for (IrInstruction *instruction = current_block->first; instruction != nullptr;
-                instruction = instruction->next)
-        {
+    for (size_t bb_i = 0; bb_i < executable->basic_block_list.length; bb_i += 1) {
+        IrBasicBlock *current_block = executable->basic_block_list.at(bb_i);
+        for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
+            IrInstruction *instruction = current_block->instruction_list.at(instr_i);
             ir_print_instruction(irp, instruction);
         }
     }

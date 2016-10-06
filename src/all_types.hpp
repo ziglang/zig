@@ -32,8 +32,8 @@ struct IrInstruction;
 struct IrBasicBlock;
 
 struct IrExecutable {
-    IrBasicBlock **basic_block_list;
-    size_t basic_block_count;
+    ZigList<IrBasicBlock *> basic_block_list;
+    size_t var_slot_count;
     size_t next_debug_id;
 };
 
@@ -1114,6 +1114,7 @@ struct FnTableEntry {
     FnInline fn_inline;
     FnAnalState anal_state;
     IrExecutable ir_executable;
+    IrExecutable analyzed_executable;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_export_set_node;
@@ -1347,6 +1348,7 @@ struct VariableTableEntry {
     bool force_depends_on_compile_var;
     ImportTableEntry *import;
     bool shadowable;
+    size_t slot_index;
 };
 
 struct ErrorTableEntry {
@@ -1404,8 +1406,8 @@ enum AtomicOrder {
 // Phi instructions must be first in a basic block.
 // The last instruction in a basic block must be an expression of type unreachable.
 struct IrBasicBlock {
-    IrInstruction *first;
-    IrInstruction *last;
+    ZigList<IrInstruction *> instruction_list;
+    IrBasicBlock *other;
 };
 
 enum IrInstructionId {
@@ -1424,23 +1426,23 @@ enum IrInstructionId {
 };
 
 struct IrInstruction {
-    IrInstruction *prev;
-    IrInstruction *next;
-
     IrInstructionId id;
     AstNode *source_node;
     ConstExprValue static_value;
     TypeTableEntry *type_entry;
     size_t debug_id;
     LLVMValueRef llvm_value;
+    // if ref_count is zero, instruction can be omitted in codegen
+    size_t ref_count;
+    IrInstruction *other;
 };
 
 struct IrInstructionCondBr {
     IrInstruction base;
 
-    // If the condition is null, then this is an unconditional branch.
-    IrInstruction *cond;
-    IrBasicBlock *dest;
+    // If cond_inst_index == SIZE_MAX, then this is an unconditional branch.
+    size_t cond_inst_index;
+    size_t dest_basic_block_index;
 };
 
 struct IrInstructionSwitchBrCase {
