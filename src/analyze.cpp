@@ -25,8 +25,6 @@ static VariableTableEntry *analyze_variable_declaration(CodeGen *g, ImportTableE
         BlockContext *context, TypeTableEntry *expected_type, AstNode *node);
 static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type);
 static TypeTableEntry *unwrapped_node_type(AstNode *node);
-static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        AstNode *node);
 static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
         BlockContext *context, AstNode *node, Buf *err_name);
 static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -115,7 +113,7 @@ AstNode *first_executing_node(AstNode *node) {
     zig_unreachable();
 }
 
-static void mark_impure_fn(CodeGen *g, BlockContext *context, AstNode *node) {
+void mark_impure_fn(CodeGen *g, BlockContext *context, AstNode *node) {
     if (!context->fn_entry) return;
     if (!context->fn_entry->is_pure) return;
 
@@ -259,11 +257,6 @@ uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry) {
     } else {
         return 0;
     }
-}
-
-static bool is_u8(TypeTableEntry *type) {
-    return type->id == TypeTableEntryIdInt &&
-        !type->data.integral.is_signed && type->data.integral.bit_count == 8;
 }
 
 static bool is_slice(TypeTableEntry *type) {
@@ -4466,30 +4459,7 @@ static TypeTableEntry *analyze_min_max_value(CodeGen *g, ImportTableEntry *impor
     }
 }
 
-static TypeTableEntry *resolve_cast(CodeGen *g, BlockContext *context, AstNode *node,
-        AstNode *expr_node, TypeTableEntry *wanted_type, CastOp op, bool need_alloca)
-{
-    node->data.fn_call_expr.cast_op = op;
-
-    ConstExprValue *other_val = &get_resolved_expr(expr_node)->const_val;
-    TypeTableEntry *other_type = get_resolved_expr(expr_node)->type_entry;
-    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-    if (other_val->ok) {
-        eval_const_expr_implicit_cast(node->data.fn_call_expr.cast_op, other_val, other_type,
-                const_val, wanted_type);
-    }
-
-    if (need_alloca) {
-        if (context->fn_entry) {
-            context->fn_entry->cast_alloca_list.append(node);
-        } else {
-            assert(get_resolved_expr(node)->const_val.ok);
-        }
-    }
-    return wanted_type;
-}
-
-static bool type_is_codegen_pointer(TypeTableEntry *type) {
+bool type_is_codegen_pointer(TypeTableEntry *type) {
     if (type->id == TypeTableEntryIdPointer) return true;
     if (type->id == TypeTableEntryIdFn) return true;
     if (type->id == TypeTableEntryIdMaybe) {
@@ -4497,256 +4467,6 @@ static bool type_is_codegen_pointer(TypeTableEntry *type) {
         if (type->data.maybe.child_type->id == TypeTableEntryIdFn) return true;
     }
     return false;
-}
-
-static TypeTableEntry *analyze_cast_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        AstNode *node)
-{
-    assert(node->type == NodeTypeFnCallExpr);
-
-    AstNode *fn_ref_expr = node->data.fn_call_expr.fn_ref_expr;
-    size_t actual_param_count = node->data.fn_call_expr.params.length;
-
-    if (actual_param_count != 1) {
-        add_node_error(g, fn_ref_expr, buf_sprintf("cast expression expects exactly one parameter"));
-        return g->builtin_types.entry_invalid;
-    }
-
-    AstNode *expr_node = node->data.fn_call_expr.params.at(0);
-    TypeTableEntry *wanted_type = resolve_type(g, fn_ref_expr);
-    TypeTableEntry *actual_type = analyze_expression(g, import, context, nullptr, expr_node);
-    TypeTableEntry *wanted_type_canon = get_underlying_type(wanted_type);
-    TypeTableEntry *actual_type_canon = get_underlying_type(actual_type);
-
-    if (wanted_type_canon->id == TypeTableEntryIdInvalid ||
-        actual_type_canon->id == TypeTableEntryIdInvalid)
-    {
-        return g->builtin_types.entry_invalid;
-    }
-
-    // explicit match or non-const to const
-    if (types_match_const_cast_only(wanted_type, actual_type)) {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpNoop, false);
-    }
-
-    // explicit cast from bool to int
-    if (wanted_type_canon->id == TypeTableEntryIdInt &&
-        actual_type_canon->id == TypeTableEntryIdBool)
-    {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpBoolToInt, false);
-    }
-
-    // explicit cast from pointer to isize or usize
-    if ((wanted_type_canon == g->builtin_types.entry_isize || wanted_type_canon == g->builtin_types.entry_usize) &&
-        type_is_codegen_pointer(actual_type_canon))
-    {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPtrToInt, false);
-    }
-
-
-    // explicit cast from isize or usize to pointer
-    if (wanted_type_canon->id == TypeTableEntryIdPointer &&
-        (actual_type_canon == g->builtin_types.entry_isize || actual_type_canon == g->builtin_types.entry_usize))
-    {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpIntToPtr, false);
-    }
-
-    // explicit widening or shortening cast
-    if ((wanted_type_canon->id == TypeTableEntryIdInt &&
-        actual_type_canon->id == TypeTableEntryIdInt) ||
-        (wanted_type_canon->id == TypeTableEntryIdFloat &&
-        actual_type_canon->id == TypeTableEntryIdFloat))
-    {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpWidenOrShorten, false);
-    }
-
-    // explicit cast from int to float
-    if (wanted_type_canon->id == TypeTableEntryIdFloat &&
-        actual_type_canon->id == TypeTableEntryIdInt)
-    {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpIntToFloat, false);
-    }
-
-    // explicit cast from float to int
-    if (wanted_type_canon->id == TypeTableEntryIdInt &&
-        actual_type_canon->id == TypeTableEntryIdFloat)
-    {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpFloatToInt, false);
-    }
-
-    // explicit cast from array to slice
-    if (is_slice(wanted_type) &&
-        actual_type->id == TypeTableEntryIdArray &&
-        types_match_const_cast_only(
-            wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type,
-            actual_type->data.array.child_type))
-    {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpToUnknownSizeArray, true);
-    }
-
-    // explicit cast from []T to []u8 or []u8 to []T
-    if (is_slice(wanted_type) && is_slice(actual_type) &&
-        (is_u8(wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type) ||
-        is_u8(actual_type->data.structure.fields[0].type_entry->data.pointer.child_type)) &&
-        (wanted_type->data.structure.fields[0].type_entry->data.pointer.is_const ||
-         !actual_type->data.structure.fields[0].type_entry->data.pointer.is_const))
-    {
-        mark_impure_fn(g, context, node);
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpResizeSlice, true);
-    }
-
-    // explicit cast from [N]u8 to []T
-    if (is_slice(wanted_type) &&
-        actual_type->id == TypeTableEntryIdArray &&
-        is_u8(actual_type->data.array.child_type))
-    {
-        mark_impure_fn(g, context, node);
-        uint64_t child_type_size = type_size(g,
-                wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type);
-        if (actual_type->data.array.len % child_type_size == 0) {
-            return resolve_cast(g, context, node, expr_node, wanted_type, CastOpBytesToSlice, true);
-        } else {
-            add_node_error(g, node,
-                    buf_sprintf("unable to convert %s to %s: size mismatch",
-                        buf_ptr(&actual_type->name), buf_ptr(&wanted_type->name)));
-            return g->builtin_types.entry_invalid;
-        }
-    }
-
-    // explicit cast from pointer to another pointer
-    if ((actual_type->id == TypeTableEntryIdPointer || actual_type->id == TypeTableEntryIdFn) &&
-        (wanted_type->id == TypeTableEntryIdPointer || wanted_type->id == TypeTableEntryIdFn))
-    {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPointerReinterpret, false);
-    }
-
-    // explicit cast from maybe pointer to another maybe pointer
-    if (actual_type->id == TypeTableEntryIdMaybe &&
-        (actual_type->data.maybe.child_type->id == TypeTableEntryIdPointer ||
-            actual_type->data.maybe.child_type->id == TypeTableEntryIdFn) &&
-        wanted_type->id == TypeTableEntryIdMaybe &&
-        (wanted_type->data.maybe.child_type->id == TypeTableEntryIdPointer ||
-            wanted_type->data.maybe.child_type->id == TypeTableEntryIdFn))
-    {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPointerReinterpret, false);
-    }
-
-    // explicit cast from child type of maybe type to maybe type
-    if (wanted_type->id == TypeTableEntryIdMaybe) {
-        if (types_match_const_cast_only(wanted_type->data.maybe.child_type, actual_type)) {
-            get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownNonNull;
-            return resolve_cast(g, context, node, expr_node, wanted_type, CastOpMaybeWrap, true);
-        } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
-                   actual_type->id == TypeTableEntryIdNumLitFloat)
-        {
-            if (num_lit_fits_in_other_type(g, expr_node, wanted_type->data.maybe.child_type)) {
-                get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownNonNull;
-                return resolve_cast(g, context, node, expr_node, wanted_type, CastOpMaybeWrap, true);
-            } else {
-                return g->builtin_types.entry_invalid;
-            }
-        }
-    }
-
-    // explicit cast from null literal to maybe type
-    if (wanted_type->id == TypeTableEntryIdMaybe &&
-        actual_type->id == TypeTableEntryIdNullLit)
-    {
-        get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownNull;
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpNullToMaybe, true);
-    }
-
-    // explicit cast from child type of error type to error type
-    if (wanted_type->id == TypeTableEntryIdErrorUnion) {
-        if (types_match_const_cast_only(wanted_type->data.error.child_type, actual_type)) {
-            get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownNonError;
-            return resolve_cast(g, context, node, expr_node, wanted_type, CastOpErrorWrap, true);
-        } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
-                   actual_type->id == TypeTableEntryIdNumLitFloat)
-        {
-            if (num_lit_fits_in_other_type(g, expr_node, wanted_type->data.error.child_type)) {
-                get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownNonError;
-                return resolve_cast(g, context, node, expr_node, wanted_type, CastOpErrorWrap, true);
-            } else {
-                return g->builtin_types.entry_invalid;
-            }
-        }
-    }
-
-    // explicit cast from pure error to error union type
-    if (wanted_type->id == TypeTableEntryIdErrorUnion &&
-        actual_type->id == TypeTableEntryIdPureError)
-    {
-        get_resolved_expr(node)->return_knowledge = ReturnKnowledgeKnownError;
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpPureErrorWrap, false);
-    }
-
-    // explicit cast from number literal to another type
-    if (actual_type->id == TypeTableEntryIdNumLitFloat ||
-        actual_type->id == TypeTableEntryIdNumLitInt)
-    {
-        if (num_lit_fits_in_other_type(g, expr_node, wanted_type_canon)) {
-            CastOp op;
-            if ((actual_type->id == TypeTableEntryIdNumLitFloat &&
-                 wanted_type_canon->id == TypeTableEntryIdFloat) ||
-                (actual_type->id == TypeTableEntryIdNumLitInt &&
-                 wanted_type_canon->id == TypeTableEntryIdInt))
-            {
-                op = CastOpNoop;
-            } else if (wanted_type_canon->id == TypeTableEntryIdInt) {
-                op = CastOpFloatToInt;
-            } else if (wanted_type_canon->id == TypeTableEntryIdFloat) {
-                op = CastOpIntToFloat;
-            } else {
-                zig_unreachable();
-            }
-            return resolve_cast(g, context, node, expr_node, wanted_type, op, false);
-        } else {
-            return g->builtin_types.entry_invalid;
-        }
-    }
-
-    // explicit cast from %void to integer type which can fit it
-    bool actual_type_is_void_err = actual_type->id == TypeTableEntryIdErrorUnion &&
-        !type_has_bits(actual_type->data.error.child_type);
-    bool actual_type_is_pure_err = actual_type->id == TypeTableEntryIdPureError;
-    if ((actual_type_is_void_err || actual_type_is_pure_err) &&
-        wanted_type->id == TypeTableEntryIdInt)
-    {
-        BigNum bn;
-        bignum_init_unsigned(&bn, g->error_decls.length);
-        if (bignum_fits_in_bits(&bn, wanted_type->data.integral.bit_count,
-                    wanted_type->data.integral.is_signed))
-        {
-            return resolve_cast(g, context, node, expr_node, wanted_type, CastOpErrToInt, false);
-        } else {
-            add_node_error(g, node,
-                    buf_sprintf("too many error values to fit in '%s'", buf_ptr(&wanted_type->name)));
-            return g->builtin_types.entry_invalid;
-        }
-    }
-
-    // explicit cast from integer to enum type with no payload
-    if (actual_type->id == TypeTableEntryIdInt &&
-        wanted_type->id == TypeTableEntryIdEnum &&
-        wanted_type->data.enumeration.gen_field_count == 0)
-    {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpIntToEnum, false);
-    }
-
-    // explicit cast from enum type with no payload to integer
-    if (wanted_type->id == TypeTableEntryIdInt &&
-        actual_type->id == TypeTableEntryIdEnum &&
-        actual_type->data.enumeration.gen_field_count == 0)
-    {
-        return resolve_cast(g, context, node, expr_node, wanted_type, CastOpEnumToInt, false);
-    }
-
-    add_node_error(g, node,
-        buf_sprintf("invalid cast from type '%s' to '%s'",
-            buf_ptr(&actual_type->name),
-            buf_ptr(&wanted_type->name)));
-    return g->builtin_types.entry_invalid;
 }
 
 static TypeTableEntry *analyze_import(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -5866,13 +5586,14 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
         }
     }
 
-    if (handle_is_ptr(return_type)) {
-        if (context->fn_entry) {
-            context->fn_entry->cast_alloca_list.append(node);
-        } else if (!result_val->ok) {
-            add_node_error(g, node, buf_sprintf("unable to evaluate constant expression"));
-        }
-    }
+    // TODO
+    //if (handle_is_ptr(return_type)) {
+    //    if (context->fn_entry) {
+    //        context->fn_entry->cast_alloca_list.append(node);
+    //    } else if (!result_val->ok) {
+    //        add_node_error(g, node, buf_sprintf("unable to evaluate constant expression"));
+    //    }
+    //}
 
     return return_type;
 }
@@ -6110,7 +5831,7 @@ static TypeTableEntry *analyze_fn_call_expr(CodeGen *g, ImportTableEntry *import
 
     if (const_val->ok) {
         if (invoke_type_entry->id == TypeTableEntryIdMetaType) {
-            return analyze_cast_expr(g, import, context, node);
+            zig_unreachable();
         } else if (invoke_type_entry->id == TypeTableEntryIdFn) {
             AstNode *struct_node;
             if (fn_ref_expr->type == NodeTypeFieldAccessExpr &&

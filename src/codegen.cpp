@@ -344,11 +344,10 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, Bui
     return *fn;
 }
 
-static LLVMValueRef get_handle_value(CodeGen *g, AstNode *source_node, LLVMValueRef ptr, TypeTableEntry *type) {
+static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, TypeTableEntry *type) {
     if (handle_is_ptr(type)) {
         return ptr;
     } else {
-        set_debug_source_node(g, source_node);
         return LLVMBuildLoad(g->builder, ptr, "");
     }
 }
@@ -378,7 +377,7 @@ static void gen_debug_safety_crash(CodeGen *g) {
     LLVMBuildUnreachable(g->builder);
 }
 
-static void add_bounds_check(CodeGen *g, AstNode *source_node, LLVMValueRef target_val,
+static void add_bounds_check(CodeGen *g, LLVMValueRef target_val,
         LLVMIntPredicate lower_pred, LLVMValueRef lower_value,
         LLVMIntPredicate upper_pred, LLVMValueRef upper_value)
 {
@@ -390,8 +389,6 @@ static void add_bounds_check(CodeGen *g, AstNode *source_node, LLVMValueRef targ
         lower_pred = upper_pred;
         upper_value = nullptr;
     }
-
-    set_debug_source_node(g, source_node);
 
     LLVMBasicBlockRef bounds_check_fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoundsCheckFail");
     LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoundsCheckOk");
@@ -425,12 +422,11 @@ static LLVMValueRef gen_err_name(CodeGen *g, AstNode *node) {
 
     AstNode *err_val_node = node->data.fn_call_expr.params.at(0);
     LLVMValueRef err_val = gen_expr(g, err_val_node);
-    set_debug_source_node(g, node);
 
     if (want_debug_safety(g, node)) {
         LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(err_val));
         LLVMValueRef end_val = LLVMConstInt(LLVMTypeOf(err_val), g->error_decls.length, false);
-        add_bounds_check(g, node, err_val, LLVMIntNE, zero, LLVMIntULT, end_val);
+        add_bounds_check(g, err_val, LLVMIntNE, zero, LLVMIntULT, end_val);
     }
 
     LLVMValueRef indices[] = {
@@ -514,14 +510,11 @@ static LLVMValueRef gen_truncate(CodeGen *g, AstNode *node) {
 
     LLVMValueRef src_val = gen_expr(g, src_node);
 
-    set_debug_source_node(g, node);
     return LLVMBuildTrunc(g->builder, src_val, dest_type->type_ref, "");
 }
 
 static LLVMValueRef gen_unreachable(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
-
-    set_debug_source_node(g, node);
 
     if (want_debug_safety(g, node) || g->is_test_build) {
         gen_debug_safety_crash(g);
@@ -545,7 +538,6 @@ static LLVMValueRef gen_shl_with_overflow(CodeGen *g, AstNode *node) {
     LLVMValueRef val2 = gen_expr(g, node->data.fn_call_expr.params.at(2));
     LLVMValueRef ptr_result = gen_expr(g, node->data.fn_call_expr.params.at(3));
 
-    set_debug_source_node(g, node);
     LLVMValueRef result = LLVMBuildShl(g->builder, val1, val2, "");
     LLVMValueRef orig_val;
     if (int_type->data.integral.is_signed) {
@@ -590,7 +582,6 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
                     operand,
                     LLVMConstNull(LLVMInt1Type()),
                 };
-                set_debug_source_node(g, node);
                 return LLVMBuildCall(g->builder, fn_val, params, 2, "");
             }
         case BuiltinFnIdAddWithOverflow:
@@ -622,7 +613,6 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
                     op2,
                 };
 
-                set_debug_source_node(g, node);
                 LLVMValueRef result_struct = LLVMBuildCall(g->builder, fn_val, params, 2, "");
                 LLVMValueRef result = LLVMBuildExtractValue(g->builder, result_struct, 0, "");
                 LLVMValueRef overflow_bit = LLVMBuildExtractValue(g->builder, result_struct, 1, "");
@@ -646,7 +636,6 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
 
                 LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
 
-                set_debug_source_node(g, node);
                 LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
                 LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr, ptr_u8, "");
 
@@ -677,7 +666,6 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
 
                 LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
 
-                set_debug_source_node(g, node);
                 LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
 
                 uint64_t align_in_bytes = get_memcpy_align(g, dest_type->data.pointer.child_type);
@@ -707,13 +695,11 @@ static LLVMValueRef gen_builtin_fn_call_expr(CodeGen *g, AstNode *node) {
         case BuiltinFnIdErrName:
             return gen_err_name(g, node);
         case BuiltinFnIdBreakpoint:
-            set_debug_source_node(g, node);
             return LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
         case BuiltinFnIdFrameAddress:
         case BuiltinFnIdReturnAddress:
             {
                 LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->type_ref);
-                set_debug_source_node(g, node);
                 return LLVMBuildCall(g->builder, builtin_fn->fn_val, &zero, 1, "");
             }
         case BuiltinFnIdCmpExchange:
@@ -760,7 +746,6 @@ static LLVMValueRef gen_enum_value_expr(CodeGen *g, AstNode *node, TypeTableEntr
         LLVMValueRef tmp_struct_ptr = node->data.field_access_expr.resolved_struct_val_expr.ptr;
 
         // populate the new tag value
-        set_debug_source_node(g, node);
         LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 0, "");
         LLVMBuildStore(g->builder, tag_value, tag_field_ptr);
 
@@ -804,7 +789,6 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeT
         !wanted_type->data.integral.is_signed && actual_type->data.integral.is_signed &&
         want_debug_safety(g, source_node))
     {
-        set_debug_source_node(g, source_node);
         LLVMValueRef zero = LLVMConstNull(actual_type->type_ref);
         LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntSGE, expr_val, zero, "");
 
@@ -822,14 +806,11 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeT
         return expr_val;
     } else if (actual_bits < wanted_bits) {
         if (actual_type->id == TypeTableEntryIdFloat) {
-            set_debug_source_node(g, source_node);
             return LLVMBuildFPExt(g->builder, expr_val, wanted_type->type_ref, "");
         } else if (actual_type->id == TypeTableEntryIdInt) {
             if (actual_type->data.integral.is_signed) {
-                set_debug_source_node(g, source_node);
                 return LLVMBuildSExt(g->builder, expr_val, wanted_type->type_ref, "");
             } else {
-                set_debug_source_node(g, source_node);
                 return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
             }
         } else {
@@ -837,10 +818,8 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeT
         }
     } else if (actual_bits > wanted_bits) {
         if (actual_type->id == TypeTableEntryIdFloat) {
-            set_debug_source_node(g, source_node);
             return LLVMBuildFPTrunc(g->builder, expr_val, wanted_type->type_ref, "");
         } else if (actual_type->id == TypeTableEntryIdInt) {
-            set_debug_source_node(g, source_node);
             LLVMValueRef trunc_val = LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
             if (!want_debug_safety(g, source_node)) {
                 return trunc_val;
@@ -869,256 +848,11 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeT
     }
 }
 
-static LLVMValueRef gen_cast_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeFnCallExpr);
-
-    AstNode *expr_node = node->data.fn_call_expr.params.at(0);
-
-    LLVMValueRef expr_val = gen_expr(g, expr_node);
-
-    TypeTableEntry *actual_type = get_expr_type(expr_node);
-    TypeTableEntry *wanted_type = get_expr_type(node);
-
-    AstNodeFnCallExpr *cast_expr = &node->data.fn_call_expr;
-
-    switch (cast_expr->cast_op) {
-        case CastOpNoCast:
-            zig_unreachable();
-        case CastOpNoop:
-            return expr_val;
-        case CastOpErrToInt:
-            assert(actual_type->id == TypeTableEntryIdErrorUnion);
-            if (!type_has_bits(actual_type->data.error.child_type)) {
-                return gen_widen_or_shorten(g, node, g->err_tag_type, wanted_type, expr_val);
-            } else {
-                zig_panic("TODO");
-            }
-        case CastOpMaybeWrap:
-            {
-                assert(cast_expr->tmp_ptr);
-                assert(wanted_type->id == TypeTableEntryIdMaybe);
-                assert(actual_type);
-
-                TypeTableEntry *child_type = wanted_type->data.maybe.child_type;
-
-                if (child_type->id == TypeTableEntryIdPointer ||
-                    child_type->id == TypeTableEntryIdFn)
-                {
-                    return expr_val;
-                } else {
-                    set_debug_source_node(g, node);
-                    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 0, "");
-                    gen_assign_raw(g, node, BinOpTypeAssign,
-                            val_ptr, expr_val, child_type, actual_type);
-
-                    set_debug_source_node(g, node);
-                    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 1, "");
-                    LLVMBuildStore(g->builder, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr);
-                }
-
-                return cast_expr->tmp_ptr;
-            }
-        case CastOpNullToMaybe:
-            // handled by constant expression evaluator
-            zig_unreachable();
-        case CastOpErrorWrap:
-            {
-                assert(wanted_type->id == TypeTableEntryIdErrorUnion);
-                TypeTableEntry *child_type = wanted_type->data.error.child_type;
-                LLVMValueRef ok_err_val = LLVMConstNull(g->err_tag_type->type_ref);
-
-                if (!type_has_bits(child_type)) {
-                    return ok_err_val;
-                } else {
-                    assert(cast_expr->tmp_ptr);
-                    assert(wanted_type->id == TypeTableEntryIdErrorUnion);
-                    assert(actual_type);
-
-                    set_debug_source_node(g, node);
-                    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 0, "");
-                    LLVMBuildStore(g->builder, ok_err_val, err_tag_ptr);
-
-                    LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, 1, "");
-                    gen_assign_raw(g, node, BinOpTypeAssign,
-                            payload_ptr, expr_val, child_type, actual_type);
-
-                    return cast_expr->tmp_ptr;
-                }
-            }
-        case CastOpPureErrorWrap:
-            assert(wanted_type->id == TypeTableEntryIdErrorUnion);
-
-            if (!type_has_bits(wanted_type->data.error.child_type)) {
-                return expr_val;
-            } else {
-                zig_panic("TODO");
-            }
-        case CastOpPtrToInt:
-            set_debug_source_node(g, node);
-            return LLVMBuildPtrToInt(g->builder, expr_val, wanted_type->type_ref, "");
-        case CastOpIntToPtr:
-            set_debug_source_node(g, node);
-            return LLVMBuildIntToPtr(g->builder, expr_val, wanted_type->type_ref, "");
-        case CastOpPointerReinterpret:
-            set_debug_source_node(g, node);
-            return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");
-        case CastOpWidenOrShorten:
-            return gen_widen_or_shorten(g, node, actual_type, wanted_type, expr_val);
-        case CastOpToUnknownSizeArray:
-            {
-                assert(cast_expr->tmp_ptr);
-                assert(wanted_type->id == TypeTableEntryIdStruct);
-                assert(wanted_type->data.structure.is_slice);
-
-                TypeTableEntry *pointer_type = wanted_type->data.structure.fields[0].type_entry;
-
-                set_debug_source_node(g, node);
-
-                size_t ptr_index = wanted_type->data.structure.fields[0].gen_index;
-                if (ptr_index != SIZE_MAX) {
-                    LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, ptr_index, "");
-                    LLVMValueRef expr_bitcast = LLVMBuildBitCast(g->builder, expr_val, pointer_type->type_ref, "");
-                    LLVMBuildStore(g->builder, expr_bitcast, ptr_ptr);
-                }
-
-                size_t len_index = wanted_type->data.structure.fields[1].gen_index;
-                LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, len_index, "");
-                LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
-                        actual_type->data.array.len, false);
-                LLVMBuildStore(g->builder, len_val, len_ptr);
-
-                return cast_expr->tmp_ptr;
-            }
-        case CastOpResizeSlice:
-            {
-                assert(cast_expr->tmp_ptr);
-                assert(wanted_type->id == TypeTableEntryIdStruct);
-                assert(wanted_type->data.structure.is_slice);
-                assert(actual_type->id == TypeTableEntryIdStruct);
-                assert(actual_type->data.structure.is_slice);
-
-                TypeTableEntry *actual_pointer_type = actual_type->data.structure.fields[0].type_entry;
-                TypeTableEntry *actual_child_type = actual_pointer_type->data.pointer.child_type;
-                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
-                TypeTableEntry *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
-
-                set_debug_source_node(g, node);
-
-                size_t actual_ptr_index = actual_type->data.structure.fields[0].gen_index;
-                size_t actual_len_index = actual_type->data.structure.fields[1].gen_index;
-                size_t wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
-                size_t wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
-
-                LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, expr_val, actual_ptr_index, "");
-                LLVMValueRef src_ptr = LLVMBuildLoad(g->builder, src_ptr_ptr, "");
-                LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr,
-                        wanted_type->data.structure.fields[0].type_entry->type_ref, "");
-                LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr,
-                        wanted_ptr_index, "");
-                LLVMBuildStore(g->builder, src_ptr_casted, dest_ptr_ptr);
-
-                LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, expr_val, actual_len_index, "");
-                LLVMValueRef src_len = LLVMBuildLoad(g->builder, src_len_ptr, "");
-                uint64_t src_size = type_size(g, actual_child_type);
-                uint64_t dest_size = type_size(g, wanted_child_type);
-
-                LLVMValueRef new_len;
-                if (dest_size == 1) {
-                    LLVMValueRef src_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, src_size, false);
-                    new_len = LLVMBuildMul(g->builder, src_len, src_size_val, "");
-                } else if (src_size == 1) {
-                    LLVMValueRef dest_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, dest_size, false);
-                    if (want_debug_safety(g, node)) {
-                        LLVMValueRef remainder_val = LLVMBuildURem(g->builder, src_len, dest_size_val, "");
-                        LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_usize->type_ref);
-                        LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
-                        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SliceWidenOk");
-                        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SliceWidenFail");
-                        LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
-
-                        LLVMPositionBuilderAtEnd(g->builder, fail_block);
-                        gen_debug_safety_crash(g);
-
-                        LLVMPositionBuilderAtEnd(g->builder, ok_block);
-                    }
-                    new_len = ZigLLVMBuildExactUDiv(g->builder, src_len, dest_size_val, "");
-                } else {
-                    zig_unreachable();
-                }
-
-                LLVMValueRef dest_len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr,
-                        wanted_len_index, "");
-                LLVMBuildStore(g->builder, new_len, dest_len_ptr);
-
-
-                return cast_expr->tmp_ptr;
-            }
-        case CastOpBytesToSlice:
-            {
-                assert(cast_expr->tmp_ptr);
-                assert(wanted_type->id == TypeTableEntryIdStruct);
-                assert(wanted_type->data.structure.is_slice);
-                assert(actual_type->id == TypeTableEntryIdArray);
-
-                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
-                TypeTableEntry *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
-
-                set_debug_source_node(g, node);
-
-                size_t wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
-                LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, wanted_ptr_index, "");
-                LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, expr_val, wanted_pointer_type->type_ref, "");
-                LLVMBuildStore(g->builder, src_ptr_casted, dest_ptr_ptr);
-
-                size_t wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
-                LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_expr->tmp_ptr, wanted_len_index, "");
-                LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
-                        actual_type->data.array.len / type_size(g, wanted_child_type), false);
-                LLVMBuildStore(g->builder, len_val, len_ptr);
-
-                return cast_expr->tmp_ptr;
-            }
-        case CastOpIntToFloat:
-            assert(actual_type->id == TypeTableEntryIdInt);
-            if (actual_type->data.integral.is_signed) {
-                set_debug_source_node(g, node);
-                return LLVMBuildSIToFP(g->builder, expr_val, wanted_type->type_ref, "");
-            } else {
-                set_debug_source_node(g, node);
-                return LLVMBuildUIToFP(g->builder, expr_val, wanted_type->type_ref, "");
-            }
-        case CastOpFloatToInt:
-            assert(wanted_type->id == TypeTableEntryIdInt);
-            if (wanted_type->data.integral.is_signed) {
-                set_debug_source_node(g, node);
-                return LLVMBuildFPToSI(g->builder, expr_val, wanted_type->type_ref, "");
-            } else {
-                set_debug_source_node(g, node);
-                return LLVMBuildFPToUI(g->builder, expr_val, wanted_type->type_ref, "");
-            }
-
-        case CastOpBoolToInt:
-            assert(wanted_type->id == TypeTableEntryIdInt);
-            assert(actual_type->id == TypeTableEntryIdBool);
-            set_debug_source_node(g, node);
-            return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
-
-        case CastOpIntToEnum:
-            return gen_widen_or_shorten(g, node, actual_type, wanted_type->data.enumeration.tag_type, expr_val);
-        case CastOpEnumToInt:
-            return gen_widen_or_shorten(g, node, actual_type->data.enumeration.tag_type, wanted_type, expr_val);
-    }
-    zig_unreachable();
-}
-
-
 static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
     if (node->data.fn_call_expr.is_builtin) {
         return gen_builtin_fn_call_expr(g, node);
-    } else if (node->data.fn_call_expr.cast_op != CastOpNoCast) {
-        return gen_cast_expr(g, node);
     }
 
     FnTableEntry *fn_table_entry = node->data.fn_call_expr.fn_entry;
@@ -1186,7 +920,6 @@ static LLVMValueRef gen_fn_call_expr(CodeGen *g, AstNode *node) {
         }
     }
 
-    set_debug_source_node(g, node);
     LLVMValueRef result = ZigLLVMBuildCall(g->builder, fn_val,
             gen_param_values, gen_param_index, fn_type->data.fn.calling_convention, "");
 
@@ -1209,7 +942,6 @@ static LLVMValueRef gen_array_base_ptr(CodeGen *g, AstNode *node) {
         array_ptr = gen_field_access_expr(g, node, true);
         if (type_entry->id == TypeTableEntryIdPointer) {
             // we have a double pointer so we must dereference it once
-            set_debug_source_node(g, node);
             array_ptr = LLVMBuildLoad(g->builder, array_ptr, "");
         }
     } else {
@@ -1234,20 +966,18 @@ static LLVMValueRef gen_array_elem_ptr(CodeGen *g, AstNode *source_node, LLVMVal
         if (want_debug_safety(g, source_node)) {
             LLVMValueRef end = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                     array_type->data.array.len, false);
-            add_bounds_check(g, source_node, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, end);
+            add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, end);
         }
         LLVMValueRef indices[] = {
             LLVMConstNull(g->builtin_types.entry_usize->type_ref),
             subscript_value
         };
-        set_debug_source_node(g, source_node);
         return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
     } else if (array_type->id == TypeTableEntryIdPointer) {
         assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
         LLVMValueRef indices[] = {
             subscript_value
         };
-        set_debug_source_node(g, source_node);
         return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 1, "");
     } else if (array_type->id == TypeTableEntryIdStruct) {
         assert(array_type->data.structure.is_slice);
@@ -1255,15 +985,13 @@ static LLVMValueRef gen_array_elem_ptr(CodeGen *g, AstNode *source_node, LLVMVal
         assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
 
         if (want_debug_safety(g, source_node)) {
-            set_debug_source_node(g, source_node);
             size_t len_index = array_type->data.structure.fields[1].gen_index;
             assert(len_index != SIZE_MAX);
             LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, len_index, "");
             LLVMValueRef len = LLVMBuildLoad(g->builder, len_ptr, "");
-            add_bounds_check(g, source_node, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, len);
+            add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, len);
         }
 
-        set_debug_source_node(g, source_node);
         size_t ptr_index = array_type->data.structure.fields[0].gen_index;
         assert(ptr_index != SIZE_MAX);
         LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, ptr_index, "");
@@ -1302,7 +1030,6 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
         assert(var);
 
         if (var->type->id == TypeTableEntryIdPointer) {
-            set_debug_source_node(g, node);
             struct_ptr = LLVMBuildLoad(g->builder, var->value_ref, "");
         } else {
             struct_ptr = var->value_ref;
@@ -1312,7 +1039,6 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
         TypeTableEntry *field_type = get_expr_type(struct_expr_node);
         if (field_type->id == TypeTableEntryIdPointer) {
             // we have a double pointer so we must dereference it once
-            set_debug_source_node(g, node);
             struct_ptr = LLVMBuildLoad(g->builder, struct_ptr, "");
         }
     } else {
@@ -1325,7 +1051,6 @@ static LLVMValueRef gen_field_ptr(CodeGen *g, AstNode *node, TypeTableEntry **ou
     size_t gen_field_index = node->data.field_access_expr.type_struct_field->gen_index;
     assert(gen_field_index != SIZE_MAX);
 
-    set_debug_source_node(g, node);
     return LLVMBuildStructGEP(g->builder, struct_ptr, gen_field_index, "");
 }
 
@@ -1348,15 +1073,14 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
         }
 
         if (want_debug_safety(g, node)) {
-            add_bounds_check(g, node, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
+            add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
             if (node->data.slice_expr.end) {
                 LLVMValueRef array_end = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
                         array_type->data.array.len, false);
-                add_bounds_check(g, node, end_val, LLVMIntEQ, nullptr, LLVMIntULE, array_end);
+                add_bounds_check(g, end_val, LLVMIntEQ, nullptr, LLVMIntULE, array_end);
             }
         }
 
-        set_debug_source_node(g, node);
         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 0, "");
         LLVMValueRef indices[] = {
             LLVMConstNull(g->builtin_types.entry_usize->type_ref),
@@ -1375,10 +1099,9 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
         LLVMValueRef end_val = gen_expr(g, node->data.slice_expr.end);
 
         if (want_debug_safety(g, node)) {
-            add_bounds_check(g, node, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
+            add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
         }
 
-        set_debug_source_node(g, node);
         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 0, "");
         LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, &start_val, 1, "");
         LLVMBuildStore(g->builder, slice_start_ptr, ptr_field_ptr);
@@ -1400,7 +1123,6 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
 
         LLVMValueRef prev_end = nullptr;
         if (!node->data.slice_expr.end || want_debug_safety(g, node)) {
-            set_debug_source_node(g, node);
             LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, len_index, "");
             prev_end = LLVMBuildLoad(g->builder, src_len_ptr, "");
         }
@@ -1415,13 +1137,12 @@ static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
 
         if (want_debug_safety(g, node)) {
             assert(prev_end);
-            add_bounds_check(g, node, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
+            add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
             if (node->data.slice_expr.end) {
-                add_bounds_check(g, node, end_val, LLVMIntEQ, nullptr, LLVMIntULE, prev_end);
+                add_bounds_check(g, end_val, LLVMIntEQ, nullptr, LLVMIntULE, prev_end);
             }
         }
 
-        set_debug_source_node(g, node);
         LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, ptr_index, "");
         LLVMValueRef src_ptr = LLVMBuildLoad(g->builder, src_ptr_ptr, "");
         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, ptr_index, "");
@@ -1461,7 +1182,6 @@ static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node, bool is_lva
     if (is_lvalue || !ptr || handle_is_ptr(child_type)) {
         return ptr;
     } else {
-        set_debug_source_node(g, node);
         return LLVMBuildLoad(g->builder, ptr, "");
     }
 }
@@ -1471,7 +1191,7 @@ static LLVMValueRef gen_variable(CodeGen *g, AstNode *source_node, VariableTable
         return nullptr;
     } else {
         assert(variable->value_ref);
-        return get_handle_value(g, source_node, variable->value_ref, variable->type);
+        return get_handle_value(g, variable->value_ref, variable->type);
     }
 }
 
@@ -1494,7 +1214,6 @@ static LLVMValueRef gen_field_access_expr(CodeGen *g, AstNode *node, bool is_lva
         if (is_lvalue || handle_is_ptr(type_entry)) {
             return ptr;
         } else {
-            set_debug_source_node(g, node);
             return LLVMBuildLoad(g->builder, ptr, "");
         }
     } else if (struct_type->id == TypeTableEntryIdMetaType) {
@@ -1631,7 +1350,6 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
         case PrefixOpNegationWrap:
             {
                 LLVMValueRef expr = gen_expr(g, expr_node);
-                set_debug_source_node(g, node);
                 if (expr_type->id == TypeTableEntryIdFloat) {
                     return LLVMBuildFNeg(g->builder, expr, "");
                 } else if (expr_type->id == TypeTableEntryIdInt) {
@@ -1653,13 +1371,11 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
             {
                 LLVMValueRef expr = gen_expr(g, expr_node);
                 LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(expr));
-                set_debug_source_node(g, node);
                 return LLVMBuildICmp(g->builder, LLVMIntEQ, expr, zero, "");
             }
         case PrefixOpBinNot:
             {
                 LLVMValueRef expr = gen_expr(g, expr_node);
-                set_debug_source_node(g, node);
                 return LLVMBuildNot(g->builder, expr, "");
             }
         case PrefixOpAddressOf:
@@ -1677,7 +1393,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
                     return nullptr;
                 } else {
                     TypeTableEntry *child_type = expr_type->data.pointer.child_type;
-                    return get_handle_value(g, node, expr, child_type);
+                    return get_handle_value(g, expr, child_type);
                 }
             }
         case PrefixOpMaybe:
@@ -1698,13 +1414,11 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
                 if (want_debug_safety(g, node)) {
                     LLVMValueRef err_val;
                     if (type_has_bits(child_type)) {
-                        set_debug_source_node(g, node);
                         LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 0, "");
                         err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
                     } else {
                         err_val = expr_val;
                     }
-                    set_debug_source_node(g, node);
                     LLVMValueRef zero = LLVMConstNull(g->err_tag_type->type_ref);
                     LLVMValueRef cond_val = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, zero, "");
                     LLVMBasicBlockRef err_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "UnwrapErrError");
@@ -1719,7 +1433,7 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
 
                 if (type_has_bits(child_type)) {
                     LLVMValueRef child_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 1, "");
-                    return get_handle_value(g, expr_node, child_val_ptr, child_type);
+                    return get_handle_value(g, child_val_ptr, child_type);
                 } else {
                     return nullptr;
                 }
@@ -1733,7 +1447,6 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
                 TypeTableEntry *child_type = expr_type->data.maybe.child_type;
 
                 if (want_debug_safety(g, node)) {
-                    set_debug_source_node(g, node);
                     LLVMValueRef cond_val;
                     if (child_type->id == TypeTableEntryIdPointer ||
                         child_type->id == TypeTableEntryIdFn)
@@ -1761,9 +1474,8 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
                 {
                     return expr_val;
                 } else {
-                    set_debug_source_node(g, node);
                     LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, expr_val, 0, "");
-                    return get_handle_value(g, node, maybe_field_ptr, child_type);
+                    return get_handle_value(g, maybe_field_ptr, child_type);
                 }
             }
     }
@@ -1773,7 +1485,6 @@ static LLVMValueRef gen_prefix_op_expr(CodeGen *g, AstNode *node) {
 static LLVMValueRef gen_div(CodeGen *g, AstNode *source_node, LLVMValueRef val1, LLVMValueRef val2,
         TypeTableEntry *type_entry, bool exact)
 {
-    set_debug_source_node(g, source_node);
 
     if (want_debug_safety(g, source_node)) {
         LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
@@ -1846,22 +1557,18 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
     switch (bin_op) {
         case BinOpTypeBinOr:
         case BinOpTypeAssignBitOr:
-            set_debug_source_node(g, source_node);
             return LLVMBuildOr(g->builder, val1, val2, "");
         case BinOpTypeBinXor:
         case BinOpTypeAssignBitXor:
-            set_debug_source_node(g, source_node);
             return LLVMBuildXor(g->builder, val1, val2, "");
         case BinOpTypeBinAnd:
         case BinOpTypeAssignBitAnd:
-            set_debug_source_node(g, source_node);
             return LLVMBuildAnd(g->builder, val1, val2, "");
         case BinOpTypeBitShiftLeft:
         case BinOpTypeBitShiftLeftWrap:
         case BinOpTypeAssignBitShiftLeft:
         case BinOpTypeAssignBitShiftLeftWrap:
             {
-                set_debug_source_node(g, source_node);
                 assert(op1_type->id == TypeTableEntryIdInt);
                 bool is_wrapping = (bin_op == BinOpTypeBitShiftLeftWrap) ||
                     (bin_op == BinOpTypeAssignBitShiftLeftWrap);
@@ -1880,7 +1587,6 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
             assert(op1_type->id == TypeTableEntryIdInt);
             assert(op2_type->id == TypeTableEntryIdInt);
 
-            set_debug_source_node(g, source_node);
             if (op1_type->data.integral.is_signed) {
                 return LLVMBuildAShr(g->builder, val1, val2, "");
             } else {
@@ -1890,7 +1596,6 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
         case BinOpTypeAddWrap:
         case BinOpTypeAssignPlus:
         case BinOpTypeAssignPlusWrap:
-            set_debug_source_node(g, source_node);
             if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFAdd(g->builder, val1, val2, "");
             } else if (op1_type->id == TypeTableEntryIdInt) {
@@ -1911,7 +1616,6 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
         case BinOpTypeSubWrap:
         case BinOpTypeAssignMinus:
         case BinOpTypeAssignMinusWrap:
-            set_debug_source_node(g, source_node);
             if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFSub(g->builder, val1, val2, "");
             } else if (op1_type->id == TypeTableEntryIdInt) {
@@ -1932,7 +1636,6 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
         case BinOpTypeMultWrap:
         case BinOpTypeAssignTimes:
         case BinOpTypeAssignTimesWrap:
-            set_debug_source_node(g, source_node);
             if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFMul(g->builder, val1, val2, "");
             } else if (op1_type->id == TypeTableEntryIdInt) {
@@ -1954,7 +1657,6 @@ static LLVMValueRef gen_arithmetic_bin_op(CodeGen *g, AstNode *source_node,
             return gen_div(g, source_node, val1, val2, op1_type, false);
         case BinOpTypeMod:
         case BinOpTypeAssignMod:
-            set_debug_source_node(g, source_node);
             if (op1_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFRem(g->builder, val1, val2, "");
             } else {
@@ -2044,7 +1746,6 @@ static LLVMValueRef gen_cmp_expr(CodeGen *g, AstNode *node) {
     TypeTableEntry *op2_type = get_expr_type(node->data.bin_op_expr.op2);
     assert(op1_type == op2_type);
 
-    set_debug_source_node(g, node);
     if (op1_type->id == TypeTableEntryIdFloat) {
         LLVMRealPredicate pred = cmp_op_to_real_predicate(node->data.bin_op_expr.bin_op);
         return LLVMBuildFCmp(g->builder, pred, val1, val2, "");
@@ -2081,18 +1782,15 @@ static LLVMValueRef gen_bool_and_expr(CodeGen *g, AstNode *node) {
     // block for when val1 == false (don't even evaluate the second part)
     LLVMBasicBlockRef false_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolAndFalse");
 
-    set_debug_source_node(g, node);
     LLVMBuildCondBr(g->builder, val1, true_block, false_block);
 
     LLVMPositionBuilderAtEnd(g->builder, true_block);
     LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
     LLVMBasicBlockRef post_val2_block = LLVMGetInsertBlock(g->builder);
 
-    set_debug_source_node(g, node);
     LLVMBuildBr(g->builder, false_block);
 
     LLVMPositionBuilderAtEnd(g->builder, false_block);
-    set_debug_source_node(g, node);
     LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMInt1Type(), "");
     LLVMValueRef incoming_values[2] = {val1, val2};
     LLVMBasicBlockRef incoming_blocks[2] = {post_val1_block, post_val2_block};
@@ -2112,7 +1810,6 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     // block for when val1 == true (don't even evaluate the second part)
     LLVMBasicBlockRef true_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolOrTrue");
 
-    set_debug_source_node(g, expr_node);
     LLVMBuildCondBr(g->builder, val1, true_block, false_block);
 
     LLVMPositionBuilderAtEnd(g->builder, false_block);
@@ -2120,11 +1817,9 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
 
     LLVMBasicBlockRef post_val2_block = LLVMGetInsertBlock(g->builder);
 
-    set_debug_source_node(g, expr_node);
     LLVMBuildBr(g->builder, true_block);
 
     LLVMPositionBuilderAtEnd(g->builder, true_block);
-    set_debug_source_node(g, expr_node);
     LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMInt1Type(), "");
     LLVMValueRef incoming_values[2] = {val1, val2};
     LLVMBasicBlockRef incoming_blocks[2] = {post_val1_block, post_val2_block};
@@ -2133,14 +1828,13 @@ static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
     return phi;
 }
 
-static LLVMValueRef gen_struct_memcpy(CodeGen *g, AstNode *source_node, LLVMValueRef src, LLVMValueRef dest,
+static LLVMValueRef gen_struct_memcpy(CodeGen *g, LLVMValueRef src, LLVMValueRef dest,
         TypeTableEntry *type_entry)
 {
     assert(handle_is_ptr(type_entry));
 
     LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
 
-    set_debug_source_node(g, source_node);
     LLVMValueRef src_ptr = LLVMBuildBitCast(g->builder, src, ptr_u8, "");
     LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, dest, ptr_u8, "");
 
@@ -2172,18 +1866,16 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node, BinOpType b
         assert(op1_type == op2_type);
         assert(bin_op == BinOpTypeAssign);
 
-        return gen_struct_memcpy(g, source_node, value, target_ref, op1_type);
+        return gen_struct_memcpy(g, value, target_ref, op1_type);
     }
 
     if (bin_op != BinOpTypeAssign) {
         assert(source_node->type == NodeTypeBinOpExpr);
-        set_debug_source_node(g, source_node->data.bin_op_expr.op1);
         LLVMValueRef left_value = LLVMBuildLoad(g->builder, target_ref, "");
 
         value = gen_arithmetic_bin_op(g, source_node, left_value, value, op1_type, op2_type, bin_op);
     }
 
-    set_debug_source_node(g, source_node);
     LLVMBuildStore(g->builder, value, target_ref);
     return nullptr;
 }
@@ -2214,9 +1906,8 @@ static LLVMValueRef gen_unwrap_maybe(CodeGen *g, AstNode *node, LLVMValueRef may
     {
         return maybe_struct_ref;
     } else {
-        set_debug_source_node(g, node);
         LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_struct_ref, 0, "");
-        return get_handle_value(g, node, maybe_field_ptr, child_type);
+        return get_handle_value(g, maybe_field_ptr, child_type);
     }
 }
 
@@ -2240,7 +1931,6 @@ static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
         cond_value = LLVMBuildICmp(g->builder, LLVMIntNE, maybe_struct_ref,
                 LLVMConstNull(child_type->type_ref), "");
     } else {
-        set_debug_source_node(g, node);
         LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_struct_ref, 1, "");
         cond_value = LLVMBuildLoad(g->builder, maybe_field_ptr, "");
     }
@@ -2255,21 +1945,18 @@ static LLVMValueRef gen_unwrap_maybe_expr(CodeGen *g, AstNode *node) {
 
     LLVMPositionBuilderAtEnd(g->builder, non_null_block);
     LLVMValueRef non_null_result = gen_unwrap_maybe(g, op1_node, maybe_struct_ref);
-    set_debug_source_node(g, node);
     LLVMBuildBr(g->builder, end_block);
     LLVMBasicBlockRef post_non_null_result_block = LLVMGetInsertBlock(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, null_block);
     LLVMValueRef null_result = gen_expr(g, op2_node);
     if (null_reachable) {
-        set_debug_source_node(g, node);
         LLVMBuildBr(g->builder, end_block);
     }
     LLVMBasicBlockRef post_null_result_block = LLVMGetInsertBlock(g->builder);
 
     LLVMPositionBuilderAtEnd(g->builder, end_block);
     if (null_reachable) {
-        set_debug_source_node(g, node);
         LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(non_null_result), "");
         LLVMValueRef incoming_values[2] = {non_null_result, null_result};
         LLVMBasicBlockRef incoming_blocks[2] = {post_non_null_result_block, post_null_result_block};
@@ -2351,7 +2038,6 @@ static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
     assert(expr_type->id == TypeTableEntryIdErrorUnion);
     TypeTableEntry *child_type = expr_type->data.error.child_type;
     LLVMValueRef err_val;
-    set_debug_source_node(g, node);
     if (handle_is_ptr(expr_type)) {
         LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 0, "");
         err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
@@ -2377,7 +2063,6 @@ static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
         LLVMBuildStore(g->builder, err_val, var->value_ref);
     }
     LLVMValueRef err_result = gen_expr(g, op2);
-    set_debug_source_node(g, node);
     if (have_end_block) {
         LLVMBuildBr(g->builder, end_block);
     } else if (err_reachable) {
@@ -2389,7 +2074,7 @@ static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
         return nullptr;
     }
     LLVMValueRef child_val_ptr = LLVMBuildStructGEP(g->builder, expr_val, 1, "");
-    LLVMValueRef child_val = get_handle_value(g, node, child_val_ptr, child_type);
+    LLVMValueRef child_val = get_handle_value(g, child_val_ptr, child_type);
 
     if (!have_end_block) {
         return child_val;
@@ -2452,17 +2137,14 @@ static LLVMValueRef gen_return(CodeGen *g, AstNode *source_node, LLVMValueRef va
     bool is_extern = g->cur_fn->type_entry->data.fn.fn_type_id.is_extern;
     if (handle_is_ptr(return_type)) {
         if (is_extern) {
-            set_debug_source_node(g, source_node);
             LLVMValueRef by_val_value = LLVMBuildLoad(g->builder, value, "");
             LLVMBuildRet(g->builder, by_val_value);
         } else {
             assert(g->cur_ret_ptr);
             gen_assign_raw(g, source_node, BinOpTypeAssign, g->cur_ret_ptr, value, return_type, return_type);
-            set_debug_source_node(g, source_node);
             LLVMBuildRetVoid(g->builder);
         }
     } else {
-        set_debug_source_node(g, source_node);
         LLVMBuildRet(g->builder, value);
     }
     return nullptr;
@@ -2504,7 +2186,6 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                 LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ErrRetReturn");
                 LLVMBasicBlockRef continue_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ErrRetContinue");
 
-                set_debug_source_node(g, node);
                 LLVMValueRef err_val;
                 if (type_has_bits(child_type)) {
                     LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, value, 0, "");
@@ -2524,7 +2205,6 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                     if (type_has_bits(return_type->data.error.child_type)) {
                         assert(g->cur_ret_ptr);
 
-                        set_debug_source_node(g, node);
                         LLVMValueRef tag_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, 0, "");
                         LLVMBuildStore(g->builder, err_val, tag_ptr);
                         LLVMBuildRetVoid(g->builder);
@@ -2537,9 +2217,8 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
 
                 LLVMPositionBuilderAtEnd(g->builder, continue_block);
                 if (type_has_bits(child_type)) {
-                    set_debug_source_node(g, node);
                     LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, value, 1, "");
-                    return get_handle_value(g, node, val_ptr, child_type);
+                    return get_handle_value(g, val_ptr, child_type);
                 } else {
                     return nullptr;
                 }
@@ -2552,7 +2231,6 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                 LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeRetReturn");
                 LLVMBasicBlockRef continue_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeRetContinue");
 
-                set_debug_source_node(g, node);
                 LLVMValueRef maybe_val_ptr = LLVMBuildStructGEP(g->builder, value, 1, "");
                 LLVMValueRef is_non_null = LLVMBuildLoad(g->builder, maybe_val_ptr, "");
 
@@ -2566,7 +2244,6 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
                 if (handle_is_ptr(return_type)) {
                     assert(g->cur_ret_ptr);
 
-                    set_debug_source_node(g, node);
                     LLVMValueRef maybe_bit_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, 1, "");
                     LLVMBuildStore(g->builder, zero, maybe_bit_ptr);
                     LLVMBuildRetVoid(g->builder);
@@ -2577,9 +2254,8 @@ static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
 
                 LLVMPositionBuilderAtEnd(g->builder, continue_block);
                 if (type_has_bits(child_type)) {
-                    set_debug_source_node(g, node);
                     LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, value, 0, "");
-                    return get_handle_value(g, node, val_ptr, child_type);
+                    return get_handle_value(g, val_ptr, child_type);
                 } else {
                     return nullptr;
                 }
@@ -2610,7 +2286,6 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
         endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "EndIf");
     }
 
-    set_debug_source_node(g, source_node);
     LLVMBuildCondBr(g->builder, cond_value, then_block, else_block);
 
     LLVMPositionBuilderAtEnd(g->builder, then_block);
@@ -2632,7 +2307,6 @@ static LLVMValueRef gen_if_bool_expr_raw(CodeGen *g, AstNode *source_node, LLVMV
     if (then_endif_reachable || else_endif_reachable) {
         LLVMPositionBuilderAtEnd(g->builder, endif_block);
         if (use_then_value && use_else_value) {
-            set_debug_source_node(g, source_node);
             LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(then_expr_result), "");
             LLVMValueRef incoming_values[2] = {then_expr_result, else_expr_result};
             LLVMBasicBlockRef incoming_blocks[2] = {after_then_block, after_else_block};
@@ -2697,7 +2371,7 @@ static LLVMValueRef gen_if_var_then_block(CodeGen *g, AstNode *node, VariableTab
             payload_val = init_val;
         } else {
             LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, init_val, 0, "");
-            payload_val = get_handle_value(g, node, payload_ptr, child_type);
+            payload_val = get_handle_value(g, payload_ptr, child_type);
         }
         gen_assign_raw(g, node, BinOpTypeAssign, variable->value_ref, payload_val,
                 variable->type, child_type);
@@ -2736,10 +2410,8 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
 
     LLVMValueRef cond_value;
     if (maybe_is_ptr) {
-        set_debug_source_node(g, node);
         cond_value = LLVMBuildICmp(g->builder, LLVMIntNE, init_val, LLVMConstNull(child_type->type_ref), "");
     } else {
-        set_debug_source_node(g, node);
         LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, init_val, 1, "");
         cond_value = LLVMBuildLoad(g->builder, maybe_field_ptr, "");
     }
@@ -2760,7 +2432,6 @@ static LLVMValueRef gen_if_var_expr(CodeGen *g, AstNode *node) {
         endif_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeEndIf");
     }
 
-    set_debug_source_node(g, node);
     LLVMBuildCondBr(g->builder, cond_value, then_block, else_block);
 
     LLVMPositionBuilderAtEnd(g->builder, then_block);
@@ -2810,7 +2481,7 @@ static LLVMValueRef ir_render_load_var(CodeGen *g, IrExecutable *executable,
         return nullptr;
 
     assert(var->value_ref);
-    return get_handle_value(g, load_var_instruction->base.source_node, var->value_ref, var->type);
+    return get_handle_value(g, var->value_ref, var->type);
 }
 
 static LLVMValueRef ir_render_bin_op_bool(CodeGen *g, IrExecutable *executable,
@@ -2894,6 +2565,233 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
     zig_unreachable();
 }
 
+static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
+        IrInstructionCast *cast_instruction)
+{
+    TypeTableEntry *actual_type = cast_instruction->value->type_entry;
+    TypeTableEntry *wanted_type = cast_instruction->base.type_entry;
+    LLVMValueRef expr_val = cast_instruction->value->llvm_value;
+    assert(expr_val);
+
+    switch (cast_instruction->cast_op) {
+        case CastOpNoCast:
+            zig_unreachable();
+        case CastOpNoop:
+            return expr_val;
+        case CastOpErrToInt:
+            assert(actual_type->id == TypeTableEntryIdErrorUnion);
+            if (!type_has_bits(actual_type->data.error.child_type)) {
+                return gen_widen_or_shorten(g, cast_instruction->base.source_node,
+                        g->err_tag_type, wanted_type, expr_val);
+            } else {
+                zig_panic("TODO");
+            }
+        case CastOpMaybeWrap:
+            {
+                assert(cast_instruction->tmp_ptr);
+                assert(wanted_type->id == TypeTableEntryIdMaybe);
+                assert(actual_type);
+
+                TypeTableEntry *child_type = wanted_type->data.maybe.child_type;
+
+                if (child_type->id == TypeTableEntryIdPointer ||
+                    child_type->id == TypeTableEntryIdFn)
+                {
+                    return expr_val;
+                } else {
+                    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, 0, "");
+                    gen_assign_raw(g, cast_instruction->base.source_node, BinOpTypeAssign,
+                            val_ptr, expr_val, child_type, actual_type);
+
+                    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, 1, "");
+                    LLVMBuildStore(g->builder, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr);
+                }
+
+                return cast_instruction->tmp_ptr;
+            }
+        case CastOpNullToMaybe:
+            // handled by constant expression evaluator
+            zig_unreachable();
+        case CastOpErrorWrap:
+            {
+                assert(wanted_type->id == TypeTableEntryIdErrorUnion);
+                TypeTableEntry *child_type = wanted_type->data.error.child_type;
+                LLVMValueRef ok_err_val = LLVMConstNull(g->err_tag_type->type_ref);
+
+                if (!type_has_bits(child_type)) {
+                    return ok_err_val;
+                } else {
+                    assert(cast_instruction->tmp_ptr);
+                    assert(wanted_type->id == TypeTableEntryIdErrorUnion);
+                    assert(actual_type);
+
+                    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, 0, "");
+                    LLVMBuildStore(g->builder, ok_err_val, err_tag_ptr);
+
+                    LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, 1, "");
+                    gen_assign_raw(g, cast_instruction->base.source_node, BinOpTypeAssign,
+                            payload_ptr, expr_val, child_type, actual_type);
+
+                    return cast_instruction->tmp_ptr;
+                }
+            }
+        case CastOpPureErrorWrap:
+            assert(wanted_type->id == TypeTableEntryIdErrorUnion);
+
+            if (!type_has_bits(wanted_type->data.error.child_type)) {
+                return expr_val;
+            } else {
+                zig_panic("TODO");
+            }
+        case CastOpPtrToInt:
+            return LLVMBuildPtrToInt(g->builder, expr_val, wanted_type->type_ref, "");
+        case CastOpIntToPtr:
+            return LLVMBuildIntToPtr(g->builder, expr_val, wanted_type->type_ref, "");
+        case CastOpPointerReinterpret:
+            return LLVMBuildBitCast(g->builder, expr_val, wanted_type->type_ref, "");
+        case CastOpWidenOrShorten:
+            return gen_widen_or_shorten(g, cast_instruction->base.source_node, actual_type, wanted_type, expr_val);
+        case CastOpToUnknownSizeArray:
+            {
+                assert(cast_instruction->tmp_ptr);
+                assert(wanted_type->id == TypeTableEntryIdStruct);
+                assert(wanted_type->data.structure.is_slice);
+
+                TypeTableEntry *pointer_type = wanted_type->data.structure.fields[0].type_entry;
+
+
+                size_t ptr_index = wanted_type->data.structure.fields[0].gen_index;
+                if (ptr_index != SIZE_MAX) {
+                    LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, ptr_index, "");
+                    LLVMValueRef expr_bitcast = LLVMBuildBitCast(g->builder, expr_val, pointer_type->type_ref, "");
+                    LLVMBuildStore(g->builder, expr_bitcast, ptr_ptr);
+                }
+
+                size_t len_index = wanted_type->data.structure.fields[1].gen_index;
+                LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, len_index, "");
+                LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+                        actual_type->data.array.len, false);
+                LLVMBuildStore(g->builder, len_val, len_ptr);
+
+                return cast_instruction->tmp_ptr;
+            }
+        case CastOpResizeSlice:
+            {
+                assert(cast_instruction->tmp_ptr);
+                assert(wanted_type->id == TypeTableEntryIdStruct);
+                assert(wanted_type->data.structure.is_slice);
+                assert(actual_type->id == TypeTableEntryIdStruct);
+                assert(actual_type->data.structure.is_slice);
+
+                TypeTableEntry *actual_pointer_type = actual_type->data.structure.fields[0].type_entry;
+                TypeTableEntry *actual_child_type = actual_pointer_type->data.pointer.child_type;
+                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
+                TypeTableEntry *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
+
+
+                size_t actual_ptr_index = actual_type->data.structure.fields[0].gen_index;
+                size_t actual_len_index = actual_type->data.structure.fields[1].gen_index;
+                size_t wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
+                size_t wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
+
+                LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, expr_val, actual_ptr_index, "");
+                LLVMValueRef src_ptr = LLVMBuildLoad(g->builder, src_ptr_ptr, "");
+                LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr,
+                        wanted_type->data.structure.fields[0].type_entry->type_ref, "");
+                LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
+                        wanted_ptr_index, "");
+                LLVMBuildStore(g->builder, src_ptr_casted, dest_ptr_ptr);
+
+                LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, expr_val, actual_len_index, "");
+                LLVMValueRef src_len = LLVMBuildLoad(g->builder, src_len_ptr, "");
+                uint64_t src_size = type_size(g, actual_child_type);
+                uint64_t dest_size = type_size(g, wanted_child_type);
+
+                LLVMValueRef new_len;
+                if (dest_size == 1) {
+                    LLVMValueRef src_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, src_size, false);
+                    new_len = LLVMBuildMul(g->builder, src_len, src_size_val, "");
+                } else if (src_size == 1) {
+                    LLVMValueRef dest_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, dest_size, false);
+                    if (ir_want_debug_safety(g, &cast_instruction->base)) {
+                        LLVMValueRef remainder_val = LLVMBuildURem(g->builder, src_len, dest_size_val, "");
+                        LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_usize->type_ref);
+                        LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
+                        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SliceWidenOk");
+                        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SliceWidenFail");
+                        LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+                        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+                        gen_debug_safety_crash(g);
+
+                        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+                    }
+                    new_len = ZigLLVMBuildExactUDiv(g->builder, src_len, dest_size_val, "");
+                } else {
+                    zig_unreachable();
+                }
+
+                LLVMValueRef dest_len_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr,
+                        wanted_len_index, "");
+                LLVMBuildStore(g->builder, new_len, dest_len_ptr);
+
+
+                return cast_instruction->tmp_ptr;
+            }
+        case CastOpBytesToSlice:
+            {
+                assert(cast_instruction->tmp_ptr);
+                assert(wanted_type->id == TypeTableEntryIdStruct);
+                assert(wanted_type->data.structure.is_slice);
+                assert(actual_type->id == TypeTableEntryIdArray);
+
+                TypeTableEntry *wanted_pointer_type = wanted_type->data.structure.fields[0].type_entry;
+                TypeTableEntry *wanted_child_type = wanted_pointer_type->data.pointer.child_type;
+
+
+                size_t wanted_ptr_index = wanted_type->data.structure.fields[0].gen_index;
+                LLVMValueRef dest_ptr_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, wanted_ptr_index, "");
+                LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, expr_val, wanted_pointer_type->type_ref, "");
+                LLVMBuildStore(g->builder, src_ptr_casted, dest_ptr_ptr);
+
+                size_t wanted_len_index = wanted_type->data.structure.fields[1].gen_index;
+                LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, wanted_len_index, "");
+                LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+                        actual_type->data.array.len / type_size(g, wanted_child_type), false);
+                LLVMBuildStore(g->builder, len_val, len_ptr);
+
+                return cast_instruction->tmp_ptr;
+            }
+        case CastOpIntToFloat:
+            assert(actual_type->id == TypeTableEntryIdInt);
+            if (actual_type->data.integral.is_signed) {
+                return LLVMBuildSIToFP(g->builder, expr_val, wanted_type->type_ref, "");
+            } else {
+                return LLVMBuildUIToFP(g->builder, expr_val, wanted_type->type_ref, "");
+            }
+        case CastOpFloatToInt:
+            assert(wanted_type->id == TypeTableEntryIdInt);
+            if (wanted_type->data.integral.is_signed) {
+                return LLVMBuildFPToSI(g->builder, expr_val, wanted_type->type_ref, "");
+            } else {
+                return LLVMBuildFPToUI(g->builder, expr_val, wanted_type->type_ref, "");
+            }
+
+        case CastOpBoolToInt:
+            assert(wanted_type->id == TypeTableEntryIdInt);
+            assert(actual_type->id == TypeTableEntryIdBool);
+            return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
+
+        case CastOpIntToEnum:
+            return gen_widen_or_shorten(g, cast_instruction->base.source_node,
+                    actual_type, wanted_type->data.enumeration.tag_type, expr_val);
+        case CastOpEnumToInt:
+            return gen_widen_or_shorten(g, cast_instruction->base.source_node,
+                    actual_type->data.enumeration.tag_type, wanted_type, expr_val);
+    }
+    zig_unreachable();
+}
+
 static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {
     set_debug_source_node(g, instruction->source_node);
     switch (instruction->id) {
@@ -2907,13 +2805,14 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_load_var(g, executable, (IrInstructionLoadVar *)instruction);
         case IrInstructionIdBinOp:
             return ir_render_bin_op(g, executable, (IrInstructionBinOp *)instruction);
+        case IrInstructionIdCast:
+            return ir_render_cast(g, executable, (IrInstructionCast *)instruction);
         case IrInstructionIdCondBr:
         case IrInstructionIdSwitchBr:
         case IrInstructionIdPhi:
         case IrInstructionIdStoreVar:
         case IrInstructionIdCall:
         case IrInstructionIdBuiltinCall:
-        case IrInstructionIdCast:
             zig_panic("TODO render more IR instructions to LLVM");
     }
     zig_unreachable();
@@ -3592,7 +3491,7 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
                                     1, "");
                             LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr,
                                     LLVMPointerType(enum_field->type_entry->type_ref, 0), "");
-                            LLVMValueRef handle_val = get_handle_value(g, var_node, bitcasted_union_field_ptr,
+                            LLVMValueRef handle_val = get_handle_value(g, bitcasted_union_field_ptr,
                                     enum_field->type_entry);
 
                             gen_assign_raw(g, var_node, BinOpTypeAssign,
@@ -3602,8 +3501,7 @@ static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
                                 // variable is the payload
                                 LLVMValueRef err_payload_ptr = LLVMBuildStructGEP(g->builder,
                                         target_value_handle, 1, "");
-                                LLVMValueRef handle_val = get_handle_value(g, var_node,
-                                        err_payload_ptr, prong_var->type);
+                                LLVMValueRef handle_val = get_handle_value(g, err_payload_ptr, prong_var->type);
                                 gen_assign_raw(g, var_node, BinOpTypeAssign,
                                         prong_var->value_ref, handle_val, prong_var->type, prong_var->type);
                             } else {
@@ -4375,10 +4273,8 @@ static void do_code_gen(CodeGen *g) {
 
         // allocate structs which are the result of casts
         for (size_t cea_i = 0; cea_i < fn_table_entry->cast_alloca_list.length; cea_i += 1) {
-            AstNode *fn_call_node = fn_table_entry->cast_alloca_list.at(cea_i);
-            Expr *expr = &fn_call_node->data.fn_call_expr.resolved_expr;
-            fn_call_node->data.fn_call_expr.tmp_ptr = LLVMBuildAlloca(g->builder,
-                    expr->type_entry->type_ref, "");
+            IrInstructionCast *cast_instruction = fn_table_entry->cast_alloca_list.at(cea_i);
+            cast_instruction->tmp_ptr = LLVMBuildAlloca(g->builder, cast_instruction->base.type_entry->type_ref, "");
         }
 
         // allocate structs which are struct value expressions

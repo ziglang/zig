@@ -29,6 +29,7 @@ struct TypeStructField;
 struct CodeGen;
 struct ConstExprValue;
 struct IrInstruction;
+struct IrInstructionCast;
 struct IrBasicBlock;
 
 struct IrExecutable {
@@ -1121,7 +1122,7 @@ struct FnTableEntry {
     AstNode *fn_test_set_node;
     AstNode *fn_static_eval_set_node;
 
-    ZigList<AstNode *> cast_alloca_list;
+    ZigList<IrInstructionCast *> cast_alloca_list;
     ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
     ZigList<VariableTableEntry *> variable_list;
     ZigList<AstNode *> goto_list;
@@ -1435,6 +1436,7 @@ struct IrInstruction {
     // if ref_count is zero, instruction can be omitted in codegen
     size_t ref_count;
     IrInstruction *other;
+    ReturnKnowledge return_knowledge;
 };
 
 struct IrInstructionCondBr {
@@ -1547,7 +1549,8 @@ struct IrInstructionCast {
 
     IrInstruction *value;
     IrInstruction *dest_type;
-    bool is_implicit;
+    CastOp cast_op;
+    LLVMValueRef tmp_ptr;
 };
 
 #endif

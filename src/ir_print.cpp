@@ -20,7 +20,7 @@ static void ir_print_prefix(IrPrint *irp, IrInstruction *instruction) {
 static void ir_print_return(IrPrint *irp, IrInstructionReturn *return_instruction) {
     ir_print_prefix(irp, &return_instruction->base);
     assert(return_instruction->value);
-    fprintf(irp->f, "return #%zu;\n", return_instruction->value->debug_id);
+    fprintf(irp->f, "return #%zu\n", return_instruction->value->debug_id);
 }
 
 static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) {
@@ -43,8 +43,10 @@ static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) 
                 fprintf(irp->f, "%s%llu\n", negative_str, bignum->data.x_uint);
                 break;
             }
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdMetaType:
+            fprintf(irp->f, "%s\n", buf_ptr(&const_instruction->base.static_value.data.x_type->name));
+            break;
+        case TypeTableEntryIdVar:
         case TypeTableEntryIdBool:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdInt:
@@ -139,6 +141,25 @@ static void ir_print_load_var(IrPrint *irp, IrInstructionLoadVar *load_var_instr
             buf_ptr(&load_var_instruction->var->name));
 }
 
+static void ir_print_cast(IrPrint *irp, IrInstructionCast *cast_instruction) {
+    ir_print_prefix(irp, &cast_instruction->base);
+    fprintf(irp->f, "cast #%zu to #%zu\n",
+            cast_instruction->value->debug_id,
+            cast_instruction->dest_type->debug_id);
+}
+
+static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
+    ir_print_prefix(irp, &call_instruction->base);
+    fprintf(irp->f, "#%zu(", call_instruction->fn->debug_id);
+    for (size_t i = 0; i < call_instruction->arg_count; i += 1) {
+        IrInstruction *arg = call_instruction->args[i];
+        if (i != 0)
+            fprintf(irp->f, ", ");
+        fprintf(irp->f, "#%zu", arg->debug_id);
+    }
+    fprintf(irp->f, ")\n");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -155,13 +176,17 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdLoadVar:
             ir_print_load_var(irp, (IrInstructionLoadVar *)instruction);
             break;
+        case IrInstructionIdCast:
+            ir_print_cast(irp, (IrInstructionCast *)instruction);
+            break;
+        case IrInstructionIdCall:
+            ir_print_call(irp, (IrInstructionCall *)instruction);
+            break;
         case IrInstructionIdCondBr:
         case IrInstructionIdSwitchBr:
         case IrInstructionIdPhi:
         case IrInstructionIdStoreVar:
-        case IrInstructionIdCall:
         case IrInstructionIdBuiltinCall:
-        case IrInstructionIdCast:
             zig_panic("TODO print more IR instructions");
     }
 }
