@@ -2808,11 +2808,13 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCast:
             return ir_render_cast(g, executable, (IrInstructionCast *)instruction);
         case IrInstructionIdCondBr:
+        case IrInstructionIdBr:
         case IrInstructionIdSwitchBr:
         case IrInstructionIdPhi:
         case IrInstructionIdStoreVar:
         case IrInstructionIdCall:
         case IrInstructionIdBuiltinCall:
+        case IrInstructionIdUnOp:
             zig_panic("TODO render more IR instructions to LLVM");
     }
     zig_unreachable();

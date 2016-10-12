@@ -1409,13 +1409,17 @@ enum AtomicOrder {
 struct IrBasicBlock {
     ZigList<IrInstruction *> instruction_list;
     IrBasicBlock *other;
+    const char *name_hint;
+    size_t debug_id;
 };
 
 enum IrInstructionId {
     IrInstructionIdInvalid,
+    IrInstructionIdBr,
     IrInstructionIdCondBr,
     IrInstructionIdSwitchBr,
     IrInstructionIdPhi,
+    IrInstructionIdUnOp,
     IrInstructionIdBinOp,
     IrInstructionIdLoadVar,
     IrInstructionIdStoreVar,
@@ -1442,9 +1446,15 @@ struct IrInstruction {
 struct IrInstructionCondBr {
     IrInstruction base;
 
-    // If cond_inst_index == SIZE_MAX, then this is an unconditional branch.
-    size_t cond_inst_index;
-    size_t dest_basic_block_index;
+    IrInstruction *condition;
+    IrBasicBlock *then_block;
+    IrBasicBlock *else_block;
+};
+
+struct IrInstructionBr {
+    IrInstruction base;
+
+    IrBasicBlock *dest_block;
 };
 
 struct IrInstructionSwitchBrCase {
@@ -1464,9 +1474,33 @@ struct IrInstructionSwitchBr {
 struct IrInstructionPhi {
     IrInstruction base;
 
-    size_t incoming_block_count;
+    size_t incoming_count;
     IrBasicBlock **incoming_blocks;
     IrInstruction **incoming_values;
+};
+
+enum IrUnOp {
+    IrUnOpInvalid,
+    IrUnOpBoolNot,
+    IrUnOpBinNot,
+    IrUnOpNegation,
+    IrUnOpNegationWrap,
+    IrUnOpAddressOf,
+    IrUnOpConstAddressOf,
+    IrUnOpDereference,
+    IrUnOpError,
+    IrUnOpMaybe,
+    IrUnOpUnwrapError,
+    IrUnOpUnwrapMaybe,
+    IrUnOpErrorReturn,
+    IrUnOpMaybeReturn,
+};
+
+struct IrInstructionUnOp {
+    IrInstruction base;
+
+    IrUnOp op_id;
+    IrInstruction *value;
 };
 
 enum IrBinOp {
@@ -1529,8 +1563,7 @@ struct IrInstructionCall {
 struct IrInstructionBuiltinCall {
     IrInstruction base;
 
-    BuiltinFnId fn_id;
-    size_t arg_count;
+    BuiltinFnEntry *fn;
     IrInstruction **args;
 };
 
