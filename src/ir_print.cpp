@@ -1,3 +1,4 @@
+#include "ir.hpp"
 #include "ir_print.hpp"
 
 struct IrPrint {
@@ -14,49 +15,46 @@ static void ir_print_indent(IrPrint *irp) {
 
 static void ir_print_prefix(IrPrint *irp, IrInstruction *instruction) {
     ir_print_indent(irp);
-    fprintf(irp->f, "#%-3zu| ", instruction->debug_id);
+    const char *type_name = instruction->type_entry ? buf_ptr(&instruction->type_entry->name) : "(unknown)";
+    const char *ref_count = ir_has_side_effects(instruction) ?
+        "-" : buf_ptr(buf_sprintf("%zu", instruction->ref_count));
+    fprintf(irp->f, "#%-3zu| %-12s| %-2s| ", instruction->debug_id, type_name, ref_count);
 }
 
-static void ir_print_return(IrPrint *irp, IrInstructionReturn *return_instruction) {
-    ir_print_prefix(irp, &return_instruction->base);
-    assert(return_instruction->value);
-    fprintf(irp->f, "return #%zu\n", return_instruction->value->debug_id);
-}
-
-static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) {
-    ir_print_prefix(irp, &const_instruction->base);
-    TypeTableEntry *type_entry = const_instruction->base.type_entry;
-    fprintf(irp->f, "%s ", buf_ptr(&type_entry->name));
+static void ir_print_const_instruction(IrPrint *irp, IrInstruction *instruction) {
+    TypeTableEntry *type_entry = instruction->type_entry;
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
             zig_unreachable();
         case TypeTableEntryIdVoid:
-            fprintf(irp->f, "%s\n", "void");
+            fprintf(irp->f, "{}");
             break;
         case TypeTableEntryIdNumLitFloat:
-            fprintf(irp->f, "%f\n", const_instruction->base.static_value.data.x_bignum.data.x_float);
+            fprintf(irp->f, "%f", instruction->static_value.data.x_bignum.data.x_float);
             break;
         case TypeTableEntryIdNumLitInt:
             {
-                BigNum *bignum = &const_instruction->base.static_value.data.x_bignum;
+                BigNum *bignum = &instruction->static_value.data.x_bignum;
                 const char *negative_str = bignum->is_negative ? "-" : "";
-                fprintf(irp->f, "%s%llu\n", negative_str, bignum->data.x_uint);
+                fprintf(irp->f, "%s%llu", negative_str, bignum->data.x_uint);
                 break;
             }
         case TypeTableEntryIdMetaType:
-            fprintf(irp->f, "%s\n", buf_ptr(&const_instruction->base.static_value.data.x_type->name));
+            fprintf(irp->f, "%s", buf_ptr(&instruction->static_value.data.x_type->name));
             break;
         case TypeTableEntryIdInt:
             {
-                BigNum *bignum = &const_instruction->base.static_value.data.x_bignum;
+                BigNum *bignum = &instruction->static_value.data.x_bignum;
                 assert(bignum->kind == BigNumKindInt);
                 const char *negative_str = bignum->is_negative ? "-" : "";
-                fprintf(irp->f, "%s%llu\n", negative_str, bignum->data.x_uint);
+                fprintf(irp->f, "%s%llu", negative_str, bignum->data.x_uint);
             }
+            break;
+        case TypeTableEntryIdUnreachable:
+            fprintf(irp->f, "@unreachable()");
             break;
         case TypeTableEntryIdVar:
         case TypeTableEntryIdBool:
-        case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdArray:
@@ -77,6 +75,27 @@ static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) 
     }
 }
 
+static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction) {
+    if (instruction->static_value.ok) {
+        ir_print_const_instruction(irp, instruction);
+    } else {
+        fprintf(irp->f, "#%zu", instruction->debug_id);
+    }
+}
+
+static void ir_print_other_block(IrPrint *irp, IrBasicBlock *bb) {
+    fprintf(irp->f, "$%s_%zu", bb->name_hint, bb->debug_id);
+}
+
+static void ir_print_return(IrPrint *irp, IrInstructionReturn *return_instruction) {
+    assert(return_instruction->value);
+    fprintf(irp->f, "return ");
+    ir_print_other_instruction(irp, return_instruction->value);
+}
+
+static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) {
+    ir_print_const_instruction(irp, &const_instruction->base);
+}
 
 static const char *ir_bin_op_id_str(IrBinOp op_id) {
     switch (op_id) {
@@ -169,87 +188,108 @@ static const char *ir_un_op_id_str(IrUnOp op_id) {
 }
 
 static void ir_print_un_op(IrPrint *irp, IrInstructionUnOp *un_op_instruction) {
-    ir_print_prefix(irp, &un_op_instruction->base);
-    fprintf(irp->f, "%s #%zu\n",
-            ir_un_op_id_str(un_op_instruction->op_id),
-            un_op_instruction->value->debug_id);
+    fprintf(irp->f, "%s ", ir_un_op_id_str(un_op_instruction->op_id));
+    ir_print_other_instruction(irp, un_op_instruction->value);
 }
 
 static void ir_print_bin_op(IrPrint *irp, IrInstructionBinOp *bin_op_instruction) {
-    ir_print_prefix(irp, &bin_op_instruction->base);
-    fprintf(irp->f, "#%zu %s #%zu\n",
-            bin_op_instruction->op1->debug_id,
-            ir_bin_op_id_str(bin_op_instruction->op_id),
-            bin_op_instruction->op2->debug_id);
+    ir_print_other_instruction(irp, bin_op_instruction->op1);
+    fprintf(irp->f, " %s ", ir_bin_op_id_str(bin_op_instruction->op_id));
+    ir_print_other_instruction(irp, bin_op_instruction->op2);
 }
 
 static void ir_print_load_var(IrPrint *irp, IrInstructionLoadVar *load_var_instruction) {
-    ir_print_prefix(irp, &load_var_instruction->base);
-    fprintf(irp->f, "%s\n",
-            buf_ptr(&load_var_instruction->var->name));
+    fprintf(irp->f, "%s", buf_ptr(&load_var_instruction->var->name));
 }
 
 static void ir_print_cast(IrPrint *irp, IrInstructionCast *cast_instruction) {
-    ir_print_prefix(irp, &cast_instruction->base);
-    fprintf(irp->f, "cast #%zu to #%zu\n",
-            cast_instruction->value->debug_id,
-            cast_instruction->dest_type->debug_id);
+    fprintf(irp->f, "cast ");
+    ir_print_other_instruction(irp, cast_instruction->value);
+    fprintf(irp->f, " to ");
+    ir_print_other_instruction(irp, cast_instruction->dest_type);
 }
 
 static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
-    ir_print_prefix(irp, &call_instruction->base);
-    fprintf(irp->f, "#%zu(", call_instruction->fn->debug_id);
+    ir_print_other_instruction(irp, call_instruction->fn);
+    fprintf(irp->f, "(");
     for (size_t i = 0; i < call_instruction->arg_count; i += 1) {
         IrInstruction *arg = call_instruction->args[i];
         if (i != 0)
             fprintf(irp->f, ", ");
-        fprintf(irp->f, "#%zu", arg->debug_id);
+        ir_print_other_instruction(irp, arg);
     }
-    fprintf(irp->f, ")\n");
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_builtin_call(IrPrint *irp, IrInstructionBuiltinCall *call_instruction) {
-    ir_print_prefix(irp, &call_instruction->base);
     fprintf(irp->f, "@%s(", buf_ptr(&call_instruction->fn->name));
     for (size_t i = 0; i < call_instruction->fn->param_count; i += 1) {
         IrInstruction *arg = call_instruction->args[i];
         if (i != 0)
             fprintf(irp->f, ", ");
-        fprintf(irp->f, "#%zu", arg->debug_id);
+        ir_print_other_instruction(irp, arg);
     }
-    fprintf(irp->f, ")\n");
+    fprintf(irp->f, ")");
 }
 
 
 static void ir_print_cond_br(IrPrint *irp, IrInstructionCondBr *cond_br_instruction) {
-    ir_print_prefix(irp, &cond_br_instruction->base);
-    fprintf(irp->f, "if #%zu then $%s_%zu else $%s_%zu\n",
-            cond_br_instruction->condition->debug_id,
-            cond_br_instruction->then_block->name_hint, cond_br_instruction->then_block->debug_id,
-            cond_br_instruction->else_block->name_hint, cond_br_instruction->else_block->debug_id);
+    fprintf(irp->f, "if (");
+    ir_print_other_instruction(irp, cond_br_instruction->condition);
+    fprintf(irp->f, ") ");
+    ir_print_other_block(irp, cond_br_instruction->then_block);
+    fprintf(irp->f, " else ");
+    ir_print_other_block(irp, cond_br_instruction->else_block);
 }
 
 static void ir_print_br(IrPrint *irp, IrInstructionBr *br_instruction) {
-    ir_print_prefix(irp, &br_instruction->base);
-    fprintf(irp->f, "goto $%s_%zu\n",
-            br_instruction->dest_block->name_hint, br_instruction->dest_block->debug_id);
+    fprintf(irp->f, "goto ");
+    ir_print_other_block(irp, br_instruction->dest_block);
 }
 
 static void ir_print_phi(IrPrint *irp, IrInstructionPhi *phi_instruction) {
-    ir_print_prefix(irp, &phi_instruction->base);
     for (size_t i = 0; i < phi_instruction->incoming_count; i += 1) {
         IrBasicBlock *incoming_block = phi_instruction->incoming_blocks[i];
         IrInstruction *incoming_value = phi_instruction->incoming_values[i];
         if (i != 0)
             fprintf(irp->f, " ");
-        fprintf(irp->f, "$%s_%zu:#%zu",
-                incoming_block->name_hint, incoming_block->debug_id,
-                incoming_value->debug_id);
+        ir_print_other_block(irp, incoming_block);
+        fprintf(irp->f, ":");
+        ir_print_other_instruction(irp, incoming_value);
     }
-    fprintf(irp->f, "\n");
+}
+
+static void ir_print_container_init_list(IrPrint *irp, IrInstructionContainerInitList *instruction) {
+    ir_print_other_instruction(irp, instruction->container_type);
+    fprintf(irp->f, "{");
+    for (size_t i = 0; i < instruction->item_count; i += 1) {
+        IrInstruction *item = instruction->items[i];
+        if (i != 0)
+            fprintf(irp->f, ", ");
+        ir_print_other_instruction(irp, item);
+    }
+    fprintf(irp->f, "}");
+}
+
+static void ir_print_container_init_fields(IrPrint *irp, IrInstructionContainerInitFields *instruction) {
+    ir_print_other_instruction(irp, instruction->container_type);
+    fprintf(irp->f, "{");
+    for (size_t i = 0; i < instruction->field_count; i += 1) {
+        Buf *name = instruction->field_names[i];
+        IrInstruction *field_value = instruction->field_values[i];
+        const char *comma = (i == 0) ? "" : ", ";
+        fprintf(irp->f, "%s.%s = ", comma, buf_ptr(name));
+        ir_print_other_instruction(irp, field_value);
+    }
+    fprintf(irp->f, "}");
+}
+
+static void ir_print_unreachable(IrPrint *irp, IrInstructionUnreachable *instruction) {
+    fprintf(irp->f, "unreachable");
 }
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
+    ir_print_prefix(irp, instruction);
     switch (instruction->id) {
         case IrInstructionIdInvalid:
             zig_unreachable();
@@ -286,10 +326,20 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdPhi:
             ir_print_phi(irp, (IrInstructionPhi *)instruction);
             break;
+        case IrInstructionIdContainerInitList:
+            ir_print_container_init_list(irp, (IrInstructionContainerInitList *)instruction);
+            break;
+        case IrInstructionIdContainerInitFields:
+            ir_print_container_init_fields(irp, (IrInstructionContainerInitFields *)instruction);
+            break;
+        case IrInstructionIdUnreachable:
+            ir_print_unreachable(irp, (IrInstructionUnreachable *)instruction);
+            break;
         case IrInstructionIdSwitchBr:
         case IrInstructionIdStoreVar:
             zig_panic("TODO print more IR instructions");
     }
+    fprintf(irp->f, "\n");
 }
 
 void ir_print(FILE *f, IrExecutable *executable, int indent_size) {

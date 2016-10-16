@@ -1912,14 +1912,11 @@ static AstNode *ast_parse_label(ParseContext *pc, size_t *token_index, bool mand
     return node;
 }
 
-//static AstNode *ast_create_void_expr(ParseContext *pc, Token *token) {
-//    AstNode *node = ast_create_node(pc, NodeTypeContainerInitExpr, token);
-//    node->data.container_init_expr.type = ast_create_node(pc, NodeTypeSymbol, token);
-//    node->data.container_init_expr.kind = ContainerInitKindArray;
-//    node->data.container_init_expr.type->data.symbol_expr.symbol = pc->void_buf;
-//    normalize_parent_ptrs(node);
-//    return node;
-//}
+static AstNode *ast_create_void_expr(ParseContext *pc, Token *token) {
+    AstNode *node = ast_create_node(pc, NodeTypeBlock, token);
+    normalize_parent_ptrs(node);
+    return node;
+}
 
 /*
 Block : token(LBrace) list(option(Statement), token(Semicolon)) token(RBrace)
@@ -1961,12 +1958,13 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
                 semicolon_expected = !statement_node;
                 if (!statement_node) {
                     statement_node = ast_parse_non_block_expr(pc, token_index, false);
+                    if (!statement_node) {
+                        statement_node = ast_create_void_expr(pc, last_token);
+                    }
                 }
             }
         }
-        if (statement_node) {
-            node->data.block.statements.append(statement_node);
-        }
+        node->data.block.statements.append(statement_node);
 
         last_token = &pc->tokens->at(*token_index);
         if (last_token->id == TokenIdRBrace) {

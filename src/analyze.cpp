@@ -29,7 +29,6 @@ static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *
         BlockContext *context, AstNode *node, Buf *err_name);
 static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node);
-static TypeTableEntry *resolve_expr_const_val_as_void(CodeGen *g, AstNode *node);
 static TypeTableEntry *resolve_expr_const_val_as_fn(CodeGen *g, AstNode *node, FnTableEntry *fn,
         bool depends_on_compile_var);
 static TypeTableEntry *resolve_expr_const_val_as_generic_fn(CodeGen *g, AstNode *node,
@@ -2386,187 +2385,6 @@ static TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *
     return nullptr;
 }
 
-static const char *err_container_init_syntax_name(ContainerInitKind kind) {
-    switch (kind) {
-        case ContainerInitKindStruct:
-            return "struct";
-        case ContainerInitKindArray:
-            return "array";
-    }
-    zig_unreachable();
-}
-
-static TypeTableEntry *analyze_container_init_expr(CodeGen *g, ImportTableEntry *import,
-    BlockContext *context, AstNode *node)
-{
-    assert(node->type == NodeTypeContainerInitExpr);
-
-    AstNodeContainerInitExpr *container_init_expr = &node->data.container_init_expr;
-
-    ContainerInitKind kind = container_init_expr->kind;
-
-    if (container_init_expr->type->type == NodeTypeFieldAccessExpr) {
-        container_init_expr->type->data.field_access_expr.container_init_expr_node = node;
-    }
-
-    TypeTableEntry *container_meta_type = analyze_expression(g, import, context, nullptr,
-            container_init_expr->type);
-
-    if (container_meta_type->id == TypeTableEntryIdInvalid) {
-        return g->builtin_types.entry_invalid;
-    }
-
-    if (node->data.container_init_expr.enum_type) {
-        get_resolved_expr(node)->const_val = get_resolved_expr(container_init_expr->type)->const_val;
-        return node->data.container_init_expr.enum_type;
-    }
-
-    TypeTableEntry *container_type = resolve_type(g, container_init_expr->type);
-
-    if (container_type->id == TypeTableEntryIdInvalid) {
-        return container_type;
-    } else if (container_type->id == TypeTableEntryIdStruct &&
-               !container_type->data.structure.is_slice &&
-               (kind == ContainerInitKindStruct || (kind == ContainerInitKindArray &&
-                                                    container_init_expr->entries.length == 0)))
-    {
-        StructValExprCodeGen *codegen = &container_init_expr->resolved_struct_val_expr;
-        codegen->type_entry = container_type;
-        codegen->source_node = node;
-
-
-        size_t expr_field_count = container_init_expr->entries.length;
-        size_t actual_field_count = container_type->data.structure.src_field_count;
-
-        AstNode *non_const_expr_culprit = nullptr;
-
-        size_t *field_use_counts = allocate<size_t>(actual_field_count);
-        ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-        const_val->ok = true;
-        const_val->data.x_struct.fields = allocate<ConstExprValue*>(actual_field_count);
-        for (size_t i = 0; i < expr_field_count; i += 1) {
-            AstNode *val_field_node = container_init_expr->entries.at(i);
-            assert(val_field_node->type == NodeTypeStructValueField);
-
-            val_field_node->block_context = context;
-
-            TypeStructField *type_field = find_struct_type_field(container_type,
-                    val_field_node->data.struct_val_field.name);
-
-            if (!type_field) {
-                add_node_error(g, val_field_node,
-                    buf_sprintf("no member named '%s' in '%s'",
-                        buf_ptr(val_field_node->data.struct_val_field.name), buf_ptr(&container_type->name)));
-                continue;
-            }
-
-            if (type_field->type_entry->id == TypeTableEntryIdInvalid) {
-                return g->builtin_types.entry_invalid;
-            }
-
-            size_t field_index = type_field->src_index;
-            field_use_counts[field_index] += 1;
-            if (field_use_counts[field_index] > 1) {
-                add_node_error(g, val_field_node, buf_sprintf("duplicate field"));
-                continue;
-            }
-
-            val_field_node->data.struct_val_field.type_struct_field = type_field;
-
-            analyze_expression(g, import, context, type_field->type_entry,
-                    val_field_node->data.struct_val_field.expr);
-
-            if (const_val->ok) {
-                ConstExprValue *field_val =
-                    &get_resolved_expr(val_field_node->data.struct_val_field.expr)->const_val;
-                if (field_val->ok) {
-                    const_val->data.x_struct.fields[field_index] = field_val;
-                    const_val->depends_on_compile_var = const_val->depends_on_compile_var || field_val->depends_on_compile_var;
-                } else {
-                    const_val->ok = false;
-                    non_const_expr_culprit = val_field_node->data.struct_val_field.expr;
-                }
-            }
-        }
-        if (!const_val->ok) {
-            assert(non_const_expr_culprit);
-            if (context->fn_entry) {
-                context->fn_entry->struct_val_expr_alloca_list.append(codegen);
-            } else {
-                add_node_error(g, non_const_expr_culprit, buf_sprintf("unable to evaluate constant expression"));
-            }
-        }
-
-        for (size_t i = 0; i < actual_field_count; i += 1) {
-            if (field_use_counts[i] == 0) {
-                add_node_error(g, node,
-                    buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i].name)));
-            }
-        }
-        return container_type;
-    } else if (container_type->id == TypeTableEntryIdStruct &&
-               container_type->data.structure.is_slice &&
-               kind == ContainerInitKindArray)
-    {
-        size_t elem_count = container_init_expr->entries.length;
-
-        TypeTableEntry *pointer_type = container_type->data.structure.fields[0].type_entry;
-        assert(pointer_type->id == TypeTableEntryIdPointer);
-        TypeTableEntry *child_type = pointer_type->data.pointer.child_type;
-
-        ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-        const_val->ok = true;
-        const_val->data.x_array.fields = allocate<ConstExprValue*>(elem_count);
-
-        for (size_t i = 0; i < elem_count; i += 1) {
-            AstNode **elem_node = &container_init_expr->entries.at(i);
-            analyze_expression(g, import, context, child_type, *elem_node);
-
-            if (const_val->ok) {
-                ConstExprValue *elem_const_val = &get_resolved_expr(*elem_node)->const_val;
-                if (elem_const_val->ok) {
-                    const_val->data.x_array.fields[i] = elem_const_val;
-                    const_val->depends_on_compile_var = const_val->depends_on_compile_var ||
-                        elem_const_val->depends_on_compile_var;
-                } else {
-                    const_val->ok = false;
-                }
-            }
-        }
-
-        TypeTableEntry *fixed_size_array_type = get_array_type(g, child_type, elem_count);
-
-        StructValExprCodeGen *codegen = &container_init_expr->resolved_struct_val_expr;
-        codegen->type_entry = fixed_size_array_type;
-        codegen->source_node = node;
-        if (!const_val->ok) {
-            if (!context->fn_entry) {
-                add_node_error(g, node,
-                    buf_sprintf("unable to evaluate constant expression"));
-            } else {
-                context->fn_entry->struct_val_expr_alloca_list.append(codegen);
-            }
-        }
-
-        return fixed_size_array_type;
-    } else if (container_type->id == TypeTableEntryIdArray) {
-        zig_panic("TODO array container init");
-        return container_type;
-    } else if (container_type->id == TypeTableEntryIdVoid) {
-        if (container_init_expr->entries.length != 0) {
-            add_node_error(g, node, buf_sprintf("void expression expects no arguments"));
-            return g->builtin_types.entry_invalid;
-        } else {
-            return resolve_expr_const_val_as_void(g, node);
-        }
-    } else {
-        add_node_error(g, node,
-            buf_sprintf("type '%s' does not support %s initialization syntax",
-                buf_ptr(&container_type->name), err_container_init_syntax_name(kind)));
-        return g->builtin_types.entry_invalid;
-    }
-}
-
 static bool is_container(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
@@ -2926,12 +2744,6 @@ static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *i
     analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.array_access_expr.subscript);
 
     return return_type;
-}
-
-static TypeTableEntry *resolve_expr_const_val_as_void(CodeGen *g, AstNode *node) {
-    Expr *expr = get_resolved_expr(node);
-    expr->const_val.ok = true;
-    return g->builtin_types.entry_void;
 }
 
 static TypeTableEntry *resolve_expr_const_val_as_type(CodeGen *g, AstNode *node, TypeTableEntry *type,
@@ -5331,7 +5143,7 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
             return_type = analyze_field_access_expr(g, import, context, expected_type, node);
             break;
         case NodeTypeContainerInitExpr:
-            return_type = analyze_container_init_expr(g, import, context, node);
+            zig_panic("analyze container init moved to ir.cpp");
             break;
         case NodeTypeNumberLiteral:
             return_type = analyze_number_literal_expr(g, import, context, expected_type, node);

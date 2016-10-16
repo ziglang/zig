@@ -16,4 +16,6 @@ IrInstruction *ir_gen_fn(CodeGen *g, FnTableEntry *fn_entry);
 TypeTableEntry *ir_analyze(CodeGen *g, IrExecutable *old_executable, IrExecutable *new_executable,
         TypeTableEntry *expected_type);
 
+bool ir_has_side_effects(IrInstruction *instruction);
+
 #endif

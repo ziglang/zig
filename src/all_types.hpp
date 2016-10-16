@@ -1411,6 +1411,8 @@ struct IrBasicBlock {
     IrBasicBlock *other;
     const char *name_hint;
     size_t debug_id;
+    size_t ref_count;
+    LLVMBasicBlockRef llvm_block;
 };
 
 enum IrInstructionId {
@@ -1428,6 +1430,9 @@ enum IrInstructionId {
     IrInstructionIdConst,
     IrInstructionIdReturn,
     IrInstructionIdCast,
+    IrInstructionIdContainerInitList,
+    IrInstructionIdContainerInitFields,
+    IrInstructionIdUnreachable,
 };
 
 struct IrInstruction {
@@ -1584,6 +1589,27 @@ struct IrInstructionCast {
     IrInstruction *dest_type;
     CastOp cast_op;
     LLVMValueRef tmp_ptr;
+};
+
+struct IrInstructionContainerInitList {
+    IrInstruction base;
+
+    IrInstruction *container_type;
+    size_t item_count;
+    IrInstruction **items;
+};
+
+struct IrInstructionContainerInitFields {
+    IrInstruction base;
+
+    IrInstruction *container_type;
+    size_t field_count;
+    Buf **field_names;
+    IrInstruction **field_values;
+};
+
+struct IrInstructionUnreachable {
+    IrInstruction base;
 };
 
 #endif
