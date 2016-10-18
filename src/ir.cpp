@@ -40,6 +40,12 @@ static size_t exec_next_debug_id(IrExecutable *exec) {
     return result;
 }
 
+static size_t exec_next_var_slot(IrExecutable *exec) {
+    size_t result = exec->var_slot_count;
+    exec->var_slot_count += 1;
+    return result;
+}
+
 static void ir_link_new_instruction(IrInstruction *new_instruction, IrInstruction *old_instruction) {
     new_instruction->other = old_instruction;
     old_instruction->other = new_instruction;
@@ -61,6 +67,10 @@ static void ir_unref_bb(IrBasicBlock *bb) {
 
 static void ir_ref_instruction(IrInstruction *instruction) {
     instruction->ref_count += 1;
+}
+
+static void ir_ref_var(VariableTableEntry *var) {
+    var->ref_count += 1;
 }
 
 static IrBasicBlock *ir_build_basic_block(IrBuilder *irb, const char *name_hint) {
@@ -99,6 +109,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionUnOp *) {
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionBinOp *) {
     return IrInstructionIdBinOp;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionDeclVar *) {
+    return IrInstructionIdDeclVar;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionLoadVar *) {
@@ -295,6 +309,9 @@ static IrInstruction *ir_build_load_var(IrBuilder *irb, AstNode *source_node, Va
     IrInstructionLoadVar *load_var_instruction = ir_build_instruction<IrInstructionLoadVar>(irb, source_node);
     load_var_instruction->base.type_entry = var->type;
     load_var_instruction->var = var;
+
+    ir_ref_var(var);
+
     return &load_var_instruction->base;
 }
 
@@ -443,6 +460,36 @@ static IrInstruction *ir_build_unreachable_from(IrBuilder *irb, IrInstruction *o
     return new_instruction;
 }
 
+//static IrInstruction *ir_build_store(IrBuilder *irb, AstNode *source_node,
+//        VariableTableEntry *var, IrInstruction *value)
+//{
+//    IrInstructionStoreVar *store_instruction = ir_build_instruction<IrInstructionStoreVar>(irb, source_node);
+//    store_instruction->base.static_value.ok = true;
+//    store_instruction->base.type_entry = irb->codegen->builtin_types.entry_void;
+//    store_instruction->var = var;
+//    store_instruction->value = value;
+//    return &store_instruction->base;
+//}
+
+static IrInstruction *ir_build_var_decl(IrBuilder *irb, AstNode *source_node,
+        VariableTableEntry *var, IrInstruction *var_type, IrInstruction *init_value)
+{
+    IrInstructionDeclVar *decl_var_instruction = ir_build_instruction<IrInstructionDeclVar>(irb, source_node);
+    decl_var_instruction->base.static_value.ok = true;
+    decl_var_instruction->base.type_entry = irb->codegen->builtin_types.entry_void;
+    decl_var_instruction->var = var;
+    decl_var_instruction->var_type = var_type;
+    decl_var_instruction->init_value = init_value;
+    return &decl_var_instruction->base;
+}
+
+static IrInstruction *ir_build_var_decl_from(IrBuilder *irb, IrInstruction *old_instruction,
+        VariableTableEntry *var, IrInstruction *var_type, IrInstruction *init_value)
+{
+    IrInstruction *new_instruction = ir_build_var_decl(irb, old_instruction->source_node, var, var_type, init_value);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
 
 //static size_t get_conditional_defer_count(BlockContext *inner_block, BlockContext *outer_block) {
 //    size_t result = 0;
@@ -495,6 +542,58 @@ static void ir_set_cursor_at_end(IrBuilder *irb, IrBasicBlock *basic_block) {
     assert(basic_block);
 
     irb->current_basic_block = basic_block;
+}
+
+// Set name to nullptr to make the variable anonymous (not visible to programmer).
+static VariableTableEntry *ir_add_local_var(IrBuilder *irb, AstNode *node, Buf *name,
+        bool is_const, bool is_shadowable)
+{
+    VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
+    variable_entry->block_context = node->block_context;
+    variable_entry->import = node->owner;
+    variable_entry->shadowable = is_shadowable;
+    variable_entry->slot_index = exec_next_var_slot(irb->exec);
+
+    if (name) {
+        buf_init_from_buf(&variable_entry->name, name);
+
+        VariableTableEntry *existing_var = find_variable(irb->codegen, node->block_context, name);
+        if (existing_var && !existing_var->shadowable) {
+            ErrorMsg *msg = add_node_error(irb->codegen, node,
+                    buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
+            add_error_note(irb->codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
+            variable_entry->type = irb->codegen->builtin_types.entry_invalid;
+        } else {
+            auto primitive_table_entry = irb->codegen->primitive_type_table.maybe_get(name);
+            if (primitive_table_entry) {
+                TypeTableEntry *type = primitive_table_entry->value;
+                add_node_error(irb->codegen, node,
+                        buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
+                variable_entry->type = irb->codegen->builtin_types.entry_invalid;
+            } else {
+                AstNode *decl_node = find_decl(node->block_context, name);
+                if (decl_node && decl_node->type != NodeTypeVariableDeclaration) {
+                    ErrorMsg *msg = add_node_error(irb->codegen, node,
+                            buf_sprintf("redefinition of '%s'", buf_ptr(name)));
+                    add_error_note(irb->codegen, msg, decl_node, buf_sprintf("previous definition is here"));
+                    variable_entry->type = irb->codegen->builtin_types.entry_invalid;
+                }
+            }
+        }
+
+        node->block_context->var_table.put(&variable_entry->name, variable_entry);
+    } else {
+        // TODO replace _anon with @anon and make sure all tests still pass
+        buf_init_from_str(&variable_entry->name, "_anon");
+    }
+    if (node->block_context->fn_entry) {
+        node->block_context->fn_entry->variable_list.append(variable_entry);
+    }
+
+    variable_entry->is_const = is_const;
+    variable_entry->decl_node = node;
+
+    return variable_entry;
 }
 
 static IrInstruction *ir_gen_block(IrBuilder *irb, AstNode *block_node) {
@@ -883,6 +982,38 @@ static IrInstruction *ir_gen_container_init_expr(IrBuilder *irb, AstNode *node) 
     }
 }
 
+static IrInstruction *ir_gen_var_decl(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeVariableDeclaration);
+
+    AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
+
+    IrInstruction *type_instruction;
+    if (variable_declaration->type != nullptr) {
+        type_instruction = ir_gen_node(irb, variable_declaration->type, node->block_context);
+        if (type_instruction == irb->codegen->invalid_instruction)
+            return type_instruction;
+    } else {
+        type_instruction = nullptr;
+    }
+
+    IrInstruction *init_value = ir_gen_node(irb, variable_declaration->expr, node->block_context);
+    if (init_value == irb->codegen->invalid_instruction)
+        return init_value;
+
+    bool is_shadowable = false;
+    bool is_const = variable_declaration->is_const;
+    bool is_extern = variable_declaration->is_extern;
+    VariableTableEntry *var = ir_add_local_var(irb, node, variable_declaration->symbol, is_const, is_shadowable);
+
+    if (!is_extern && !variable_declaration->expr) {
+        var->type = irb->codegen->builtin_types.entry_invalid;
+        add_node_error(irb->codegen, node, buf_sprintf("variables must be initialized"));
+        return irb->codegen->invalid_instruction;
+    }
+
+    return ir_build_var_decl(irb, node, var, type_instruction, init_value);
+}
+
 static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockContext *block_context,
         bool pointer_only)
 {
@@ -906,10 +1037,11 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
             return ir_gen_prefix_op_expr(irb, node);
         case NodeTypeContainerInitExpr:
             return ir_gen_container_init_expr(irb, node);
+        case NodeTypeVariableDeclaration:
+            return ir_gen_var_decl(irb, node);
         case NodeTypeUnwrapErrorExpr:
         case NodeTypeReturnExpr:
         case NodeTypeDefer:
-        case NodeTypeVariableDeclaration:
         case NodeTypeArrayAccessExpr:
         case NodeTypeSliceExpr:
         case NodeTypeFieldAccessExpr:
@@ -1553,6 +1685,26 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     return ira->codegen->invalid_instruction;
 }
 
+static TypeTableEntry *ir_get_canonical_type(IrAnalyze *ira, IrInstruction *type_value) {
+    if (type_value == ira->codegen->invalid_instruction)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (type_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (type_value->type_entry->id != TypeTableEntryIdMetaType) {
+        add_node_error(ira->codegen, type_value->source_node, buf_sprintf("expected type, found expression"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (!type_value->static_value.ok) {
+        add_node_error(ira->codegen, type_value->source_node, buf_sprintf("unable to evaluate constant expression"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    return get_underlying_type(type_value->static_value.data.x_type);
+}
+
 static IrInstruction *ir_get_casted_value(IrAnalyze *ira, IrInstruction *value, TypeTableEntry *expected_type) {
     assert(value);
     assert(value != ira->codegen->invalid_instruction);
@@ -1913,6 +2065,119 @@ static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructi
             zig_panic("TODO analyze more binary operations");
     }
     zig_unreachable();
+}
+
+static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstructionDeclVar *decl_var_instruction) {
+    VariableTableEntry *var = decl_var_instruction->var;
+    AstNodeVariableDeclaration *variable_declaration = &var->decl_node->data.variable_declaration;
+    bool is_export = (variable_declaration->top_level_decl.visib_mod == VisibModExport);
+    bool is_extern = variable_declaration->is_extern;
+
+    var->ref_count = 0;
+
+    TypeTableEntry *explicit_type = nullptr;
+    IrInstruction *var_type = nullptr;
+    if (decl_var_instruction->var_type != nullptr) {
+        var_type = decl_var_instruction->var_type->other;
+        explicit_type = ir_get_canonical_type(ira, var_type);
+        switch (explicit_type->id) {
+            case TypeTableEntryIdTypeDecl:
+                zig_unreachable();
+            case TypeTableEntryIdInvalid:
+                explicit_type = ira->codegen->builtin_types.entry_invalid;
+                break;
+            case TypeTableEntryIdUnreachable:
+            case TypeTableEntryIdVar:
+            case TypeTableEntryIdNumLitFloat:
+            case TypeTableEntryIdNumLitInt:
+            case TypeTableEntryIdUndefLit:
+            case TypeTableEntryIdNullLit:
+            case TypeTableEntryIdBlock:
+                add_node_error(ira->codegen, var_type->source_node,
+                    buf_sprintf("variable of type '%s' not allowed", buf_ptr(&explicit_type->name)));
+                explicit_type = ira->codegen->builtin_types.entry_invalid;
+                break;
+            case TypeTableEntryIdNamespace:
+            case TypeTableEntryIdMetaType:
+            case TypeTableEntryIdVoid:
+            case TypeTableEntryIdBool:
+            case TypeTableEntryIdInt:
+            case TypeTableEntryIdFloat:
+            case TypeTableEntryIdPointer:
+            case TypeTableEntryIdArray:
+            case TypeTableEntryIdStruct:
+            case TypeTableEntryIdMaybe:
+            case TypeTableEntryIdErrorUnion:
+            case TypeTableEntryIdPureError:
+            case TypeTableEntryIdEnum:
+            case TypeTableEntryIdUnion:
+            case TypeTableEntryIdFn:
+            case TypeTableEntryIdGenericFn:
+                // OK
+                break;
+        }
+    }
+
+    IrInstruction *init_value = decl_var_instruction->init_value->other;
+    IrInstruction *casted_init_value = ir_get_casted_value(ira, init_value, explicit_type);
+    TypeTableEntry *result_type = get_underlying_type(casted_init_value->type_entry);
+    switch (result_type->id) {
+        case TypeTableEntryIdTypeDecl:
+            zig_unreachable();
+        case TypeTableEntryIdInvalid:
+            result_type = ira->codegen->builtin_types.entry_invalid;
+            break;
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+            if (is_export || is_extern || !casted_init_value->static_value.ok) {
+                add_node_error(ira->codegen, var_type->source_node, buf_sprintf("unable to infer variable type"));
+                result_type = ira->codegen->builtin_types.entry_invalid;
+            }
+            break;
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdBlock:
+            add_node_error(ira->codegen, var_type->source_node,
+                buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
+            result_type = ira->codegen->builtin_types.entry_invalid;
+            break;
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdNamespace:
+            if (!casted_init_value->static_value.ok) {
+                add_node_error(ira->codegen, var_type->source_node,
+                    buf_sprintf("variable of type '%s' must be constant", buf_ptr(&result_type->name)));
+                result_type = ira->codegen->builtin_types.entry_invalid;
+            }
+            break;
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdGenericFn:
+            // OK
+            break;
+    }
+
+    var->type = result_type;
+    assert(var->type != nullptr); // should have been caught by the parser
+
+    if (casted_init_value->static_value.ok) {
+        // TODO set the variable in the IrVarSlot
+    }
+    ir_build_var_decl_from(&ira->new_irb, &decl_var_instruction->base, var, var_type, casted_init_value);
+
+    return ira->codegen->builtin_types.entry_void;
 }
 
 static TypeTableEntry *ir_analyze_instruction_load_var(IrAnalyze *ira, IrInstructionLoadVar *load_var_instruction) {
@@ -3473,6 +3738,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_un_op(ira, (IrInstructionUnOp *)instruction);
         case IrInstructionIdBinOp:
             return ir_analyze_instruction_bin_op(ira, (IrInstructionBinOp *)instruction);
+        case IrInstructionIdDeclVar:
+            return ir_analyze_instruction_decl_var(ira, (IrInstructionDeclVar *)instruction);
         case IrInstructionIdLoadVar:
             return ir_analyze_instruction_load_var(ira, (IrInstructionLoadVar *)instruction);
         case IrInstructionIdCall:
@@ -3612,6 +3879,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdBr:
         case IrInstructionIdCondBr:
         case IrInstructionIdSwitchBr:
+        case IrInstructionIdDeclVar:
         case IrInstructionIdStoreVar:
         case IrInstructionIdCall:
         case IrInstructionIdReturn:

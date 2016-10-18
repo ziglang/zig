@@ -2820,6 +2820,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
+        case IrInstructionIdDeclVar:
+            return nullptr;
         case IrInstructionIdLoadVar:
             return ir_render_load_var(g, executable, (IrInstructionLoadVar *)instruction);
         case IrInstructionIdBinOp:

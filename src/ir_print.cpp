@@ -198,6 +198,19 @@ static void ir_print_bin_op(IrPrint *irp, IrInstructionBinOp *bin_op_instruction
     ir_print_other_instruction(irp, bin_op_instruction->op2);
 }
 
+static void ir_print_decl_var(IrPrint *irp, IrInstructionDeclVar *decl_var_instruction) {
+    const char *var_or_const = decl_var_instruction->var->is_const ? "const" : "var";
+    const char *name = buf_ptr(&decl_var_instruction->var->name);
+    if (decl_var_instruction->var_type) {
+        fprintf(irp->f, "%s %s: ", var_or_const, name);
+        ir_print_other_instruction(irp, decl_var_instruction->var_type);
+        fprintf(irp->f, " = ");
+    } else {
+        fprintf(irp->f, "%s %s = ", var_or_const, name);
+    }
+    ir_print_other_instruction(irp, decl_var_instruction->init_value);
+}
+
 static void ir_print_load_var(IrPrint *irp, IrInstructionLoadVar *load_var_instruction) {
     fprintf(irp->f, "%s", buf_ptr(&load_var_instruction->var->name));
 }
@@ -288,6 +301,11 @@ static void ir_print_unreachable(IrPrint *irp, IrInstructionUnreachable *instruc
     fprintf(irp->f, "unreachable");
 }
 
+static void ir_print_store(IrPrint *irp, IrInstructionStoreVar *store_instruction) {
+    fprintf(irp->f, "%s = ", buf_ptr(&store_instruction->var->name));
+    ir_print_other_instruction(irp, store_instruction->value);
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -301,6 +319,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdBinOp:
             ir_print_bin_op(irp, (IrInstructionBinOp *)instruction);
+            break;
+        case IrInstructionIdDeclVar:
+            ir_print_decl_var(irp, (IrInstructionDeclVar *)instruction);
             break;
         case IrInstructionIdLoadVar:
             ir_print_load_var(irp, (IrInstructionLoadVar *)instruction);
@@ -335,8 +356,10 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdUnreachable:
             ir_print_unreachable(irp, (IrInstructionUnreachable *)instruction);
             break;
-        case IrInstructionIdSwitchBr:
         case IrInstructionIdStoreVar:
+            ir_print_store(irp, (IrInstructionStoreVar *)instruction);
+            break;
+        case IrInstructionIdSwitchBr:
             zig_panic("TODO print more IR instructions");
     }
     fprintf(irp->f, "\n");

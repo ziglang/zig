@@ -1350,6 +1350,7 @@ struct VariableTableEntry {
     ImportTableEntry *import;
     bool shadowable;
     size_t slot_index;
+    size_t ref_count;
 };
 
 struct ErrorTableEntry {
@@ -1423,6 +1424,7 @@ enum IrInstructionId {
     IrInstructionIdPhi,
     IrInstructionIdUnOp,
     IrInstructionIdBinOp,
+    IrInstructionIdDeclVar,
     IrInstructionIdLoadVar,
     IrInstructionIdStoreVar,
     IrInstructionIdCall,
@@ -1542,6 +1544,14 @@ struct IrInstructionBinOp {
     IrInstruction *op1;
     IrBinOp op_id;
     IrInstruction *op2;
+};
+
+struct IrInstructionDeclVar {
+    IrInstruction base;
+
+    VariableTableEntry *var;
+    IrInstruction *var_type;
+    IrInstruction *init_value;
 };
 
 struct IrInstructionLoadVar {
