@@ -586,9 +586,6 @@ static VariableTableEntry *ir_add_local_var(IrBuilder *irb, AstNode *node, Buf *
         // TODO replace _anon with @anon and make sure all tests still pass
         buf_init_from_str(&variable_entry->name, "_anon");
     }
-    if (node->block_context->fn_entry) {
-        node->block_context->fn_entry->variable_list.append(variable_entry);
-    }
 
     variable_entry->is_const = is_const;
     variable_entry->decl_node = node;
@@ -2176,6 +2173,10 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         // TODO set the variable in the IrVarSlot
     }
     ir_build_var_decl_from(&ira->new_irb, &decl_var_instruction->base, var, var_type, casted_init_value);
+
+    BlockContext *scope = decl_var_instruction->base.source_node->block_context;
+    if (scope->fn_entry)
+        scope->fn_entry->variable_list.append(var);
 
     return ira->codegen->builtin_types.entry_void;
 }

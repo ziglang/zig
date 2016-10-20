@@ -2811,6 +2811,59 @@ static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInst
     zig_unreachable();
 }
 
+static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
+        IrInstructionDeclVar *decl_var_instruction)
+{
+    VariableTableEntry *var = decl_var_instruction->var;
+
+    if (!type_has_bits(var->type))
+        return nullptr;
+
+    IrInstruction *init_value = decl_var_instruction->init_value;
+
+    bool have_init_expr = false;
+    bool want_zeroes = false;
+
+    ConstExprValue *const_val = &init_value->static_value;
+    if (!const_val->ok || const_val->special == ConstValSpecialOther)
+        have_init_expr = true;
+    if (const_val->ok && const_val->special == ConstValSpecialZeroes)
+        want_zeroes = true;
+
+    if (have_init_expr) {
+        gen_assign_raw(g, init_value->source_node, BinOpTypeAssign, var->value_ref,
+                ir_llvm_value(g, init_value), var->type, init_value->type_entry);
+    } else {
+        bool ignore_uninit = false;
+        // handle runtime stack allocation
+        bool want_safe = ir_want_debug_safety(g, &decl_var_instruction->base);
+        if (!ignore_uninit && (want_safe || want_zeroes)) {
+            TypeTableEntry *usize = g->builtin_types.entry_usize;
+            uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, var->type->type_ref);
+            uint64_t align_bytes = get_memcpy_align(g, var->type);
+
+            // memset uninitialized memory to 0xa
+            LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+            LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), want_zeroes ? 0x00 : 0xaa, false);
+            LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, var->value_ref, ptr_u8, "");
+            LLVMValueRef byte_count = LLVMConstInt(usize->type_ref, size_bytes, false);
+            LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(), align_bytes, false);
+            LLVMValueRef params[] = {
+                dest_ptr,
+                fill_char,
+                byte_count,
+                align_in_bytes,
+                LLVMConstNull(LLVMInt1Type()), // is volatile
+            };
+
+            LLVMBuildCall(g->builder, g->memset_fn_val, params, 5, "");
+        }
+    }
+
+    gen_var_debug_decl(g, var);
+    return nullptr;
+}
+
 static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {
     set_debug_source_node(g, instruction->source_node);
 
@@ -2821,7 +2874,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
         case IrInstructionIdDeclVar:
-            return nullptr;
+            return ir_render_decl_var(g, executable, (IrInstructionDeclVar *)instruction);
         case IrInstructionIdLoadVar:
             return ir_render_load_var(g, executable, (IrInstructionLoadVar *)instruction);
         case IrInstructionIdBinOp:
