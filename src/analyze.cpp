@@ -3615,6 +3615,9 @@ static VariableTableEntry *add_local_var_shadowable(CodeGen *g, AstNode *source_
         // TODO replace _anon with @anon and make sure all tests still pass
         buf_init_from_str(&variable_entry->name, "_anon");
     }
+    if (context->fn_entry) {
+        context->fn_entry->variable_list.append(variable_entry);
+    }
 
     variable_entry->is_const = is_const;
     variable_entry->decl_node = source_node;

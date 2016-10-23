@@ -34,7 +34,7 @@ struct IrBasicBlock;
 
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
-    size_t var_slot_count;
+    size_t mem_slot_count;
     size_t next_debug_id;
 };
 
@@ -1349,7 +1349,7 @@ struct VariableTableEntry {
     bool force_depends_on_compile_var;
     ImportTableEntry *import;
     bool shadowable;
-    size_t slot_index;
+    size_t mem_slot_index;
     size_t ref_count;
 };
 
@@ -1425,8 +1425,11 @@ enum IrInstructionId {
     IrInstructionIdUnOp,
     IrInstructionIdBinOp,
     IrInstructionIdDeclVar,
-    IrInstructionIdLoadVar,
-    IrInstructionIdStoreVar,
+    IrInstructionIdLoadPtr,
+    IrInstructionIdStorePtr,
+    IrInstructionIdFieldPtr,
+    IrInstructionIdElemPtr,
+    IrInstructionIdVarPtr,
     IrInstructionIdCall,
     IrInstructionIdBuiltinCall,
     IrInstructionIdConst,
@@ -1554,16 +1557,36 @@ struct IrInstructionDeclVar {
     IrInstruction *init_value;
 };
 
-struct IrInstructionLoadVar {
+struct IrInstructionLoadPtr {
     IrInstruction base;
 
-    VariableTableEntry *var;
+    IrInstruction *ptr;
 };
 
-struct IrInstructionStoreVar {
+struct IrInstructionStorePtr {
     IrInstruction base;
 
+    IrInstruction *ptr;
     IrInstruction *value;
+};
+
+struct IrInstructionFieldPtr {
+    IrInstruction base;
+
+    IrInstruction *struct_ptr;
+    Buf field_name;
+};
+
+struct IrInstructionElemPtr {
+    IrInstruction base;
+
+    IrInstruction *array_ptr;
+    IrInstruction *elem_index;
+};
+
+struct IrInstructionVarPtr {
+    IrInstruction base;
+
     VariableTableEntry *var;
 };
 

@@ -38,6 +38,7 @@ include_directories(
 )
 
 set(ZIG_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/ir.cpp"
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
     "${CMAKE_SOURCE_DIR}/src/ast_render.cpp"
     "${CMAKE_SOURCE_DIR}/src/bignum.cpp"
@@ -47,7 +48,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/errmsg.cpp"
     "${CMAKE_SOURCE_DIR}/src/error.cpp"
     "${CMAKE_SOURCE_DIR}/src/eval.cpp"
-    "${CMAKE_SOURCE_DIR}/src/ir.cpp"
     "${CMAKE_SOURCE_DIR}/src/ir_print.cpp"
     "${CMAKE_SOURCE_DIR}/src/link.cpp"
     "${CMAKE_SOURCE_DIR}/src/main.cpp"
