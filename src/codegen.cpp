@@ -2808,6 +2808,9 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
     if (!type_has_bits(var->type))
         return nullptr;
 
+    if (var->ref_count == 0)
+        return nullptr;
+
     IrInstruction *init_value = decl_var_instruction->init_value;
 
     bool have_init_expr = false;
@@ -4348,6 +4351,8 @@ static void do_code_gen(CodeGen *g) {
             if (!type_has_bits(var->type)) {
                 continue;
             }
+            if (var->ref_count == 0)
+                continue;
 
             if (var->block_context->node->type == NodeTypeFnDef) {
                 assert(var->gen_arg_index != SIZE_MAX);

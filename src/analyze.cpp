@@ -2700,11 +2700,6 @@ static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, 
     return return_type;
 }
 
-enum LValPurpose {
-    LValPurposeAssign,
-    LValPurposeAddressOf,
-};
-
 static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         AstNode *node, LValPurpose purpose)
 {

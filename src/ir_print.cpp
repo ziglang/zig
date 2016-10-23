@@ -326,6 +326,13 @@ static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoadPtr *instruction) {
     ir_print_other_instruction(irp, instruction->ptr);
 }
 
+static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction) {
+    fprintf(irp->f, "*");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, " = ");
+    ir_print_other_instruction(irp, instruction->value);
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -382,8 +389,10 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdLoadPtr:
             ir_print_load_ptr(irp, (IrInstructionLoadPtr *)instruction);
             break;
-        case IrInstructionIdSwitchBr:
         case IrInstructionIdStorePtr:
+            ir_print_store_ptr(irp, (IrInstructionStorePtr *)instruction);
+            break;
+        case IrInstructionIdSwitchBr:
         case IrInstructionIdFieldPtr:
             zig_panic("TODO print more IR instructions");
     }

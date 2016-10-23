@@ -1645,4 +1645,10 @@ struct IrInstructionUnreachable {
     IrInstruction base;
 };
 
+enum LValPurpose {
+    LValPurposeNone,
+    LValPurposeAssign,
+    LValPurposeAddressOf,
+};
+
 #endif
