@@ -370,18 +370,18 @@ TODO
 Built-in functions are prefixed with `@`. Remember that the `inline` keyword on
 a parameter means that the parameter must be known at compile time.
 
-### @typeof(expression) -> type
+### @typeOf(expression) -> type
 
 This function returns a compile-time constant, which is the type of the
 expression passed as an argument. The expression is *not evaluated*.
 
-### @sizeof(inline T: type) -> (number literal)
+### @sizeOf(inline T: type) -> (number literal)
 
 This function returns the number of bytes it takes to store T in memory.
 
 The result is a target-specific compile time constant.
 
-### @alignof(inline T: type) -> (number literal)
+### @alignOf(inline T: type) -> (number literal)
 
 This function returns the number of bytes that this type should be aligned to
 for the current target.
