@@ -26,6 +26,7 @@ struct IrAnalyze {
     size_t instruction_index;
     TypeTableEntry *explicit_return_type;
     ZigList<IrInstruction *> implicit_return_type_list;
+    IrBasicBlock *const_predecessor_bb;
 };
 
 static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, BlockContext *scope);
@@ -397,6 +398,8 @@ static IrInstruction *ir_build_phi_from(IrBuilder *irb, IrInstruction *old_instr
 
 static IrInstruction *ir_build_br(IrBuilder *irb, AstNode *source_node, IrBasicBlock *dest_block) {
     IrInstructionBr *br_instruction = ir_build_instruction<IrInstructionBr>(irb, source_node);
+    br_instruction->base.type_entry = irb->codegen->builtin_types.entry_unreachable;
+    br_instruction->base.static_value.ok = true;
     br_instruction->dest_block = dest_block;
 
     ir_ref_bb(dest_block);
@@ -1618,12 +1621,13 @@ static void ir_finish_bb(IrAnalyze *ira) {
         ira->instruction_index = 0;
         ira->new_irb.current_basic_block = ir_get_new_bb(ira, old_bb);
         ira->old_irb.current_basic_block = old_bb;
+        ira->const_predecessor_bb = nullptr;
     }
 }
 
 static void ir_inline_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
     ira->instruction_index = 0;
-
+    ira->const_predecessor_bb = ira->old_irb.current_basic_block;
     ira->old_irb.current_basic_block = old_bb;
 }
 
@@ -2470,7 +2474,10 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
 
             ir_build_call_from(&ira->new_irb, &call_instruction->base,
                     call_instruction->fn, call_instruction->arg_count, call_instruction->args);
-            return fn_table_entry->type_entry;
+
+            TypeTableEntry *fn_type = fn_table_entry->type_entry;
+            TypeTableEntry *return_type = fn_type->data.fn.fn_type_id.return_type;
+            return return_type;
         } else {
             zig_panic("TODO analyze more fn call types");
         }
@@ -3946,6 +3953,24 @@ static TypeTableEntry *ir_analyze_instruction_unreachable(IrAnalyze *ira,
 }
 
 static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPhi *phi_instruction) {
+    if (ira->const_predecessor_bb) {
+        for (size_t i = 0; i < phi_instruction->incoming_count; i += 1) {
+            IrBasicBlock *predecessor = phi_instruction->incoming_blocks[i];
+            if (predecessor != ira->const_predecessor_bb)
+                continue;
+            IrInstruction *value = phi_instruction->incoming_values[i]->other;
+            assert(value->type_entry);
+            if (value->static_value.ok) {
+                ConstExprValue *out_val = ir_get_out_val(&phi_instruction->base);
+                *out_val = value->static_value;
+            } else {
+                phi_instruction->base.other = value;
+            }
+            return value->type_entry;
+        }
+        zig_unreachable();
+    }
+
     ZigList<IrBasicBlock*> new_incoming_blocks = {0};
     ZigList<IrInstruction*> new_incoming_values = {0};
 
@@ -4094,6 +4119,8 @@ static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *ins
 {
     TypeTableEntry *instruction_type = ir_analyze_instruction_nocast(ira, instruction);
     instruction->type_entry = instruction_type;
+    if (instruction->other)
+        instruction->other->type_entry = instruction_type;
 
     IrInstruction *casted_instruction = ir_get_casted_value(ira, instruction, expected_type);
     return casted_instruction->type_entry;
@@ -4128,6 +4155,11 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
 
     while (ira->block_queue_index < ira->block_queue.length) {
         IrInstruction *old_instruction = ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index);
+        if (old_instruction->ref_count == 0 && !ir_has_side_effects(old_instruction)) {
+            ira->instruction_index += 1;
+            continue;
+        }
+
         TypeTableEntry *return_type = ir_analyze_instruction(ira, old_instruction, nullptr);
 
         // unreachable instructions do their own control flow.
