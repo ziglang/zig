@@ -21,6 +21,11 @@ struct IrAnalyze {
     IrBuilder old_irb;
     IrBuilder new_irb;
     IrExecContext exec_context;
+    ZigList<IrBasicBlock *> block_queue;
+    size_t block_queue_index;
+    size_t instruction_index;
+    TypeTableEntry *explicit_return_type;
+    ZigList<IrInstruction *> implicit_return_type_list;
 };
 
 static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, BlockContext *scope);
@@ -56,11 +61,6 @@ static void ir_link_new_bb(IrBasicBlock *new_bb, IrBasicBlock *old_bb) {
 
 static void ir_ref_bb(IrBasicBlock *bb) {
     bb->ref_count += 1;
-}
-
-static void ir_unref_bb(IrBasicBlock *bb) {
-    bb->ref_count -= 1;
-    assert(bb->ref_count != SIZE_MAX);
 }
 
 static void ir_ref_instruction(IrInstruction *instruction) {
@@ -349,6 +349,14 @@ static IrInstruction *ir_build_call(IrBuilder *irb, AstNode *source_node,
     return &call_instruction->base;
 }
 
+static IrInstruction *ir_build_call_from(IrBuilder *irb, IrInstruction *old_instruction,
+        IrInstruction *fn, size_t arg_count, IrInstruction **args)
+{
+    IrInstruction *new_instruction = ir_build_call(irb, old_instruction->source_node, fn, arg_count, args);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
 static IrInstruction *ir_build_builtin_call(IrBuilder *irb, AstNode *source_node,
         BuiltinFnEntry *fn, IrInstruction **args)
 {
@@ -396,11 +404,11 @@ static IrInstruction *ir_build_br(IrBuilder *irb, AstNode *source_node, IrBasicB
     return &br_instruction->base;
 }
 
-static IrInstruction *ir_build_br_from(IrBuilder *irb, IrInstruction *old_instruction, IrBasicBlock *dest_block) {
-    IrInstruction *new_instruction = ir_build_br(irb, old_instruction->source_node, dest_block);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
-}
+//static IrInstruction *ir_build_br_from(IrBuilder *irb, IrInstruction *old_instruction, IrBasicBlock *dest_block) {
+//    IrInstruction *new_instruction = ir_build_br(irb, old_instruction->source_node, dest_block);
+//    ir_link_new_instruction(new_instruction, old_instruction);
+//    return new_instruction;
+//}
 
 static IrInstruction *ir_build_un_op(IrBuilder *irb, AstNode *source_node, IrUnOp op_id, IrInstruction *value) {
     IrInstructionUnOp *br_instruction = ir_build_instruction<IrInstructionUnOp>(irb, source_node);
@@ -1273,36 +1281,26 @@ static IrInstruction *ir_gen_lvalue(IrBuilder *irb, AstNode *node, BlockContext 
     zig_unreachable();
 }
 
-static IrInstruction *ir_gen_add_return(CodeGen *g, AstNode *node, BlockContext *scope,
-        IrExecutable *ir_executable, bool add_return, LValPurpose lval)
-{
+IrInstruction *ir_gen(CodeGen *codegen, AstNode *node, BlockContext *scope, IrExecutable *ir_executable) {
     assert(node->owner);
 
     IrBuilder ir_gen = {0};
     IrBuilder *irb = &ir_gen;
 
-    irb->codegen = g;
+    irb->codegen = codegen;
     irb->exec = ir_executable;
 
     irb->current_basic_block = ir_build_basic_block(irb, "Entry");
     // Entry block gets a reference because we enter it to begin.
     ir_ref_bb(irb->current_basic_block);
 
-    IrInstruction *result = ir_gen_node_extra(irb, node, scope, lval);
+    IrInstruction *result = ir_gen_node_extra(irb, node, scope, LValPurposeNone);
     assert(result);
 
-    if (result == g->invalid_instruction)
+    if (result == codegen->invalid_instruction)
         return result;
 
-    if (add_return)
-        return ir_build_return(irb, result->source_node, result);
-
-    return result;
-}
-
-IrInstruction *ir_gen(CodeGen *codegen, AstNode *node, BlockContext *scope, IrExecutable *ir_executable) {
-    bool add_return_no = false;
-    return ir_gen_add_return(codegen, node, scope, ir_executable, add_return_no, LValPurposeNone);
+    return ir_build_return(irb, result->source_node, result);
 }
 
 IrInstruction *ir_gen_fn(CodeGen *codegn, FnTableEntry *fn_entry) {
@@ -1315,8 +1313,7 @@ IrInstruction *ir_gen_fn(CodeGen *codegn, FnTableEntry *fn_entry) {
     AstNode *body_node = fn_def_node->data.fn_def.body;
     BlockContext *scope = fn_def_node->data.fn_def.block_context;
 
-    bool add_return_yes = true;
-    return ir_gen_add_return(codegn, body_node, scope, ir_executable, add_return_yes, LValPurposeNone);
+    return ir_gen(codegn, body_node, scope, ir_executable);
 }
 
 /*
@@ -1401,7 +1398,7 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     return false;
 }
 
-static TypeTableEntry *ir_determine_peer_types(IrAnalyze *ira, IrInstruction *parent_instruction,
+static TypeTableEntry *ir_determine_peer_types(IrAnalyze *ira, AstNode *source_node,
         IrInstruction **instructions, size_t instruction_count)
 {
     assert(instruction_count >= 1);
@@ -1465,7 +1462,7 @@ static TypeTableEntry *ir_determine_peer_types(IrAnalyze *ira, IrInstruction *pa
                 return ira->codegen->builtin_types.entry_invalid;
             }
         } else {
-            add_node_error(ira->codegen, parent_instruction->source_node,
+            add_node_error(ira->codegen, source_node,
                 buf_sprintf("incompatible types: '%s' and '%s'",
                     buf_ptr(&prev_type->name), buf_ptr(&cur_type->name)));
 
@@ -1566,10 +1563,10 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     return ImplicitCastMatchResultNo;
 }
 
-static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, IrInstruction *parent_instruction,
+static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node,
         IrInstruction **instructions, size_t instruction_count)
 {
-    return ir_determine_peer_types(ira, parent_instruction, instructions, instruction_count);
+    return ir_determine_peer_types(ira, source_node, instructions, instruction_count);
 }
 
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
@@ -1608,8 +1605,28 @@ static bool is_u8(TypeTableEntry *type) {
 static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
     if (old_bb->other)
         return old_bb->other;
-    return ir_build_bb_from(&ira->new_irb, old_bb);
+    IrBasicBlock *new_bb = ir_build_bb_from(&ira->new_irb, old_bb);
+    ira->block_queue.append(new_bb);
+    return new_bb;
 }
+
+static void ir_finish_bb(IrAnalyze *ira) {
+    ira->block_queue_index += 1;
+
+    if (ira->block_queue_index < ira->block_queue.length) {
+        IrBasicBlock *old_bb = ira->block_queue.at(ira->block_queue_index);
+        ira->instruction_index = 0;
+        ira->new_irb.current_basic_block = ir_get_new_bb(ira, old_bb);
+        ira->old_irb.current_basic_block = old_bb;
+    }
+}
+
+static void ir_inline_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
+    ira->instruction_index = 0;
+
+    ira->old_irb.current_basic_block = old_bb;
+}
+
 
 static ConstExprValue *ir_get_out_val(IrInstruction *instruction) {
     instruction->other = instruction;
@@ -1942,8 +1959,11 @@ static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira, IrInstructi
     if (value == ira->codegen->invalid_instruction) {
         return ira->codegen->builtin_types.entry_invalid;
     }
+    ira->implicit_return_type_list.append(value);
 
-    return ir_build_return_from(&ira->new_irb, &return_instruction->base, value)->type_entry;
+    IrInstruction *new_instruction = ir_build_return_from(&ira->new_irb, &return_instruction->base, value);
+    ir_finish_bb(ira);
+    return new_instruction->type_entry;
 }
 
 static TypeTableEntry *ir_analyze_instruction_const(IrAnalyze *ira, IrInstructionConst *const_instruction) {
@@ -1991,10 +2011,10 @@ static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp
 }
 
 static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
-    IrInstruction *op1 = bin_op_instruction->op1;
-    IrInstruction *op2 = bin_op_instruction->op2;
+    IrInstruction *op1 = bin_op_instruction->op1->other;
+    IrInstruction *op2 = bin_op_instruction->op2->other;
     IrInstruction *instructions[] = {op1, op2};
-    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, &bin_op_instruction->base, instructions, 2);
+    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, bin_op_instruction->base.source_node, instructions, 2);
     if (resolved_type->id == TypeTableEntryIdInvalid)
         return resolved_type;
     IrBinOp op_id = bin_op_instruction->op_id;
@@ -2052,9 +2072,60 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             zig_unreachable();
     }
 
-    zig_panic("TODO interpret bin_op_cmp");
+    IrInstruction *casted_op1 = ir_get_casted_value(ira, op1, resolved_type);
+    if (casted_op1 == ira->codegen->invalid_instruction)
+        return ira->codegen->builtin_types.entry_invalid;
 
-    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id, op1->other, op2->other);
+    IrInstruction *casted_op2 = ir_get_casted_value(ira, op2, resolved_type);
+    if (casted_op2 == ira->codegen->invalid_instruction)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ConstExprValue *op1_val = &casted_op1->static_value;
+    ConstExprValue *op2_val = &casted_op2->static_value;
+    if (op1_val->ok && op2_val->ok) {
+        bool type_can_gt_lt_cmp = (resolved_type->id == TypeTableEntryIdNumLitFloat ||
+                resolved_type->id == TypeTableEntryIdNumLitInt ||
+                resolved_type->id == TypeTableEntryIdFloat ||
+                resolved_type->id == TypeTableEntryIdInt);
+        bool answer;
+        if (type_can_gt_lt_cmp) {
+            bool (*bignum_cmp)(BigNum *, BigNum *);
+            if (op_id == IrBinOpCmpEq) {
+                bignum_cmp = bignum_cmp_eq;
+            } else if (op_id == IrBinOpCmpNotEq) {
+                bignum_cmp = bignum_cmp_neq;
+            } else if (op_id == IrBinOpCmpLessThan) {
+                bignum_cmp = bignum_cmp_lt;
+            } else if (op_id == IrBinOpCmpGreaterThan) {
+                bignum_cmp = bignum_cmp_gt;
+            } else if (op_id == IrBinOpCmpLessOrEq) {
+                bignum_cmp = bignum_cmp_lte;
+            } else if (op_id == IrBinOpCmpGreaterOrEq) {
+                bignum_cmp = bignum_cmp_gte;
+            } else {
+                zig_unreachable();
+            }
+
+            answer = bignum_cmp(&op1_val->data.x_bignum, &op2_val->data.x_bignum);
+        } else {
+            bool are_equal = const_values_equal(op1_val, op2_val, resolved_type);
+            if (op_id == IrBinOpCmpEq) {
+                answer = are_equal;
+            } else if (op_id == IrBinOpCmpNotEq) {
+                answer = !are_equal;
+            } else {
+                zig_unreachable();
+            }
+        }
+
+        ConstExprValue *out_val = ir_get_out_val(&bin_op_instruction->base);
+        out_val->ok = true;
+        out_val->depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
+        out_val->data.x_bool = answer;
+        return ira->codegen->builtin_types.entry_bool;
+    }
+
+    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id, casted_op1, casted_op2);
 
     return ira->codegen->builtin_types.entry_bool;
 }
@@ -2158,7 +2229,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
     IrInstruction *op1 = bin_op_instruction->op1->other;
     IrInstruction *op2 = bin_op_instruction->op2->other;
     IrInstruction *instructions[] = {op1, op2};
-    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, &bin_op_instruction->base, instructions, 2);
+    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, bin_op_instruction->base.source_node, instructions, 2);
     if (resolved_type->id == TypeTableEntryIdInvalid)
         return resolved_type;
     IrBinOp op_id = bin_op_instruction->op_id;
@@ -2393,6 +2464,13 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
 
             ir_link_new_instruction(cast_instruction, &call_instruction->base);
             return cast_instruction->type_entry;
+        } else if (fn_ref->type_entry->id == TypeTableEntryIdFn) {
+            // TODO fully port over the fn call analyze code to IR
+            FnTableEntry *fn_table_entry = fn_ref->static_value.data.x_fn;
+
+            ir_build_call_from(&ira->new_irb, &call_instruction->base,
+                    call_instruction->fn, call_instruction->arg_count, call_instruction->args);
+            return fn_table_entry->type_entry;
         } else {
             zig_panic("TODO analyze more fn call types");
         }
@@ -3777,9 +3855,15 @@ static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructio
 
 static TypeTableEntry *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr *br_instruction) {
     IrBasicBlock *old_dest_block = br_instruction->dest_block;
-    IrBasicBlock *new_bb = ir_get_new_bb(ira, old_dest_block);
-    ir_build_br_from(&ira->new_irb, &br_instruction->base, new_bb);
+
+    // TODO detect backward jumps
+
+    ir_inline_bb(ira, old_dest_block);
     return ira->codegen->builtin_types.entry_unreachable;
+
+    //IrBasicBlock *new_bb = ir_get_new_bb(ira, old_dest_block);
+    //ir_build_br_from(&ira->new_irb, &br_instruction->base, new_bb);
+    //return ira->codegen->builtin_types.entry_unreachable;
 }
 
 static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructionCondBr *cond_br_instruction) {
@@ -3787,26 +3871,20 @@ static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstruct
     IrInstruction *condition = ir_get_casted_value(ira, cond_br_instruction->condition->other, bool_type);
     if (condition == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
-    
+
+    // TODO detect backward jumps
     if (condition->static_value.ok) {
-        IrBasicBlock *old_dest_block;
-        IrBasicBlock *old_ignored_block;
-        if (condition->static_value.data.x_bool) {
-            old_dest_block = cond_br_instruction->then_block;
-            old_ignored_block = cond_br_instruction->else_block;
-        } else {
-            old_dest_block = cond_br_instruction->else_block;
-            old_ignored_block = cond_br_instruction->then_block;
-        }
-        ir_unref_bb(old_ignored_block);
-        IrBasicBlock *new_bb = ir_get_new_bb(ira, old_dest_block);
-        ir_build_br_from(&ira->new_irb, &cond_br_instruction->base, new_bb);
+        IrBasicBlock *old_dest_block = condition->static_value.data.x_bool ?
+            cond_br_instruction->then_block : cond_br_instruction->else_block;
+
+        ir_inline_bb(ira, old_dest_block);
         return ira->codegen->builtin_types.entry_unreachable;
     }
 
     IrBasicBlock *new_then_block = ir_get_new_bb(ira, cond_br_instruction->then_block);
     IrBasicBlock *new_else_block = ir_get_new_bb(ira, cond_br_instruction->else_block);
     ir_build_cond_br_from(&ira->new_irb, &cond_br_instruction->base, condition, new_then_block, new_else_block);
+    ir_finish_bb(ira);
     return ira->codegen->builtin_types.entry_unreachable;
 }
 
@@ -3862,7 +3940,9 @@ static TypeTableEntry *ir_analyze_instruction_builtin_call(IrAnalyze *ira,
 static TypeTableEntry *ir_analyze_instruction_unreachable(IrAnalyze *ira,
         IrInstructionUnreachable *unreachable_instruction)
 {
-    return ir_build_unreachable_from(&ira->new_irb, &unreachable_instruction->base)->type_entry;
+    IrInstruction *new_instruction = ir_build_unreachable_from(&ira->new_irb, &unreachable_instruction->base);
+    ir_finish_bb(ira);
+    return new_instruction->type_entry;
 }
 
 static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPhi *phi_instruction) {
@@ -3889,7 +3969,7 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
         return first_value->type_entry;
     }
 
-    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, &phi_instruction->base,
+    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, phi_instruction->base.source_node,
             new_incoming_values.items, new_incoming_values.length);
     if (resolved_type->id == TypeTableEntryIdInvalid)
         return resolved_type;
@@ -4014,8 +4094,6 @@ static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *ins
 {
     TypeTableEntry *instruction_type = ir_analyze_instruction_nocast(ira, instruction);
     instruction->type_entry = instruction_type;
-    if (instruction->other)
-        instruction->other->type_entry = instruction_type;
 
     IrInstruction *casted_instruction = ir_get_casted_value(ira, instruction, expected_type);
     return casted_instruction->type_entry;
@@ -4024,11 +4102,12 @@ static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *ins
 // This function attempts to evaluate IR code while doing type checking and other analysis.
 // It emits a new IrExecutable which is partially evaluated IR code.
 TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_exec,
-        TypeTableEntry *expected_type)
+        TypeTableEntry *expected_type, AstNode *expected_type_source_node)
 {
     IrAnalyze ir_analyze_data = {};
     IrAnalyze *ira = &ir_analyze_data;
     ira->codegen = codegen;
+    ira->explicit_return_type = expected_type;
 
     ira->old_irb.codegen = codegen;
     ira->old_irb.exec = old_exec;
@@ -4039,34 +4118,27 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
     ira->exec_context.mem_slot_count = ira->old_irb.exec->mem_slot_count;
     ira->exec_context.mem_slot_list = allocate<ConstExprValue>(ira->exec_context.mem_slot_count);
 
-    TypeTableEntry *return_type = ira->codegen->builtin_types.entry_void;
-    for (size_t bb_i = 0; bb_i < ira->old_irb.exec->basic_block_list.length; bb_i += 1) {
-        ira->old_irb.current_basic_block = ira->old_irb.exec->basic_block_list.at(bb_i);
-        if (ira->old_irb.current_basic_block->ref_count == 0)
+    IrBasicBlock *old_entry_bb = ira->old_irb.exec->basic_block_list.at(0);
+    IrBasicBlock *new_entry_bb = ir_get_new_bb(ira, old_entry_bb);
+    ir_ref_bb(new_entry_bb);
+    ira->old_irb.current_basic_block = old_entry_bb;
+    ira->new_irb.current_basic_block = new_entry_bb;
+    ira->block_queue_index = 0;
+    ira->instruction_index = 0;
+
+    while (ira->block_queue_index < ira->block_queue.length) {
+        IrInstruction *old_instruction = ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index);
+        TypeTableEntry *return_type = ir_analyze_instruction(ira, old_instruction, nullptr);
+
+        // unreachable instructions do their own control flow.
+        if (return_type->id == TypeTableEntryIdUnreachable)
             continue;
 
-        ira->new_irb.current_basic_block = ir_get_new_bb(ira, ira->old_irb.current_basic_block);
-
-        return_type = ira->codegen->builtin_types.entry_void;
-
-        for (size_t instr_i = 0; instr_i < ira->old_irb.current_basic_block->instruction_list.length; instr_i += 1) {
-            IrInstruction *instruction = ira->old_irb.current_basic_block->instruction_list.at(instr_i);
-            if (return_type->id == TypeTableEntryIdUnreachable) {
-                // TODO
-                //add_node_error(ira->codegen, first_executing_node(instruction->source_node),
-                //        buf_sprintf("unreachable code"));
-                break;
-            }
-            bool is_last = (instr_i == ira->old_irb.current_basic_block->instruction_list.length - 1);
-            TypeTableEntry *passed_expected_type = is_last ? expected_type : nullptr;
-            return_type = ir_analyze_instruction(ira, instruction, passed_expected_type);
-        }
+        ira->instruction_index += 1;
     }
 
-    // Give entry block a ref
-    ir_ref_bb(ira->new_irb.exec->basic_block_list.at(0));
-
-    return return_type;
+    return ir_resolve_peer_types(ira, expected_type_source_node, ira->implicit_return_type_list.items,
+            ira->implicit_return_type_list.length);
 }
 
 static bool ir_builtin_call_has_side_effects(IrInstructionBuiltinCall *call_instruction) {

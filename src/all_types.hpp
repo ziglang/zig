@@ -1609,6 +1609,9 @@ struct IrInstructionConst {
     IrInstruction base;
 };
 
+// When an IrExecutable is not in a function, a return instruction means that
+// the expression returns with that value, even though a return statement from
+// an AST perspective is invalid.
 struct IrInstructionReturn {
     IrInstruction base;
 

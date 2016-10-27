@@ -62,6 +62,12 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
             fprintf(irp->f, "&");
             ir_print_const_value(irp, type_entry->data.pointer.child_type, const_val->data.x_ptr.ptr[0]);
             break;
+        case TypeTableEntryIdFn:
+            {
+                FnTableEntry *fn_entry = const_val->data.x_fn;
+                fprintf(irp->f, "%s", buf_ptr(&fn_entry->symbol_name));
+                break;
+            }
         case TypeTableEntryIdVar:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdArray:
@@ -73,7 +79,6 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
-        case TypeTableEntryIdFn:
         case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:

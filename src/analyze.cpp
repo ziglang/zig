@@ -5314,7 +5314,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
 
     TypeTableEntry *block_return_type = ir_analyze(g, &fn_table_entry->ir_executable,
-            &fn_table_entry->analyzed_executable, expected_type);
+            &fn_table_entry->analyzed_executable, expected_type, fn_proto->return_type);
     node->data.fn_def.implicit_return_type = block_return_type;
 
     if (g->verbose) {
