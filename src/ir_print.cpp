@@ -93,11 +93,15 @@ static void ir_print_const_instruction(IrPrint *irp, IrInstruction *instruction)
     ir_print_const_value(irp, type_entry, const_val);
 }
 
+static void ir_print_var_instruction(IrPrint *irp, IrInstruction *instruction) {
+    fprintf(irp->f, "#%zu", instruction->debug_id);
+}
+
 static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction) {
     if (instruction->static_value.ok) {
         ir_print_const_instruction(irp, instruction);
     } else {
-        fprintf(irp->f, "#%zu", instruction->debug_id);
+        ir_print_var_instruction(irp, instruction);
     }
 }
 
@@ -333,7 +337,7 @@ static void ir_print_load_ptr(IrPrint *irp, IrInstructionLoadPtr *instruction) {
 
 static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction) {
     fprintf(irp->f, "*");
-    ir_print_other_instruction(irp, instruction->ptr);
+    ir_print_var_instruction(irp, instruction->ptr);
     fprintf(irp->f, " = ");
     ir_print_other_instruction(irp, instruction->value);
 }

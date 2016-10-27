@@ -21,7 +21,7 @@ struct IrAnalyze {
     IrBuilder old_irb;
     IrBuilder new_irb;
     IrExecContext exec_context;
-    ZigList<IrBasicBlock *> block_queue;
+    ZigList<IrBasicBlock *> old_bb_queue;
     size_t block_queue_index;
     size_t instruction_index;
     TypeTableEntry *explicit_return_type;
@@ -1609,15 +1609,15 @@ static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
     if (old_bb->other)
         return old_bb->other;
     IrBasicBlock *new_bb = ir_build_bb_from(&ira->new_irb, old_bb);
-    ira->block_queue.append(new_bb);
+    ira->old_bb_queue.append(old_bb);
     return new_bb;
 }
 
 static void ir_finish_bb(IrAnalyze *ira) {
     ira->block_queue_index += 1;
 
-    if (ira->block_queue_index < ira->block_queue.length) {
-        IrBasicBlock *old_bb = ira->block_queue.at(ira->block_queue_index);
+    if (ira->block_queue_index < ira->old_bb_queue.length) {
+        IrBasicBlock *old_bb = ira->old_bb_queue.at(ira->block_queue_index);
         ira->instruction_index = 0;
         ira->new_irb.current_basic_block = ir_get_new_bb(ira, old_bb);
         ira->old_irb.current_basic_block = old_bb;
@@ -2260,9 +2260,18 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (op1->static_value.ok && op2->static_value.ok) {
-        ConstExprValue *op1_val = &op1->static_value;
-        ConstExprValue *op2_val = &op2->static_value;
+    IrInstruction *casted_op1 = ir_get_casted_value(ira, op1, resolved_type);
+    if (casted_op1 == ira->codegen->invalid_instruction)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_op2 = ir_get_casted_value(ira, op2, resolved_type);
+    if (casted_op2 == ira->codegen->invalid_instruction)
+        return ira->codegen->builtin_types.entry_invalid;
+
+
+    if (casted_op1->static_value.ok && casted_op2->static_value.ok) {
+        ConstExprValue *op1_val = &casted_op1->static_value;
+        ConstExprValue *op2_val = &casted_op2->static_value;
         ConstExprValue *out_val = &bin_op_instruction->base.static_value;
 
         bin_op_instruction->base.other = &bin_op_instruction->base;
@@ -2286,8 +2295,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
 
     }
 
-    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id, op1, op2);
-
+    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id, casted_op1, casted_op2);
     return resolved_type;
 }
 
@@ -4006,17 +4014,20 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
 
 static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstructionVarPtr *var_ptr_instruction) {
     VariableTableEntry *var = var_ptr_instruction->var;
-    ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
     TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, var_ptr_instruction->var->type, false);
-    if (mem_slot->ok) {
-        ConstExprValue *out_val = ir_get_out_val(&var_ptr_instruction->base);
+    // TODO once the anlayze code is fully ported over to IR we won't need this SIZE_MAX thing.
+    if (var->mem_slot_index != SIZE_MAX) {
+        ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
+        if (mem_slot->ok) {
+            ConstExprValue *out_val = ir_get_out_val(&var_ptr_instruction->base);
 
-        out_val->ok = true;
-        out_val->data.x_ptr.len = 1;
-        out_val->data.x_ptr.is_c_str = false;
-        out_val->data.x_ptr.ptr = allocate<ConstExprValue *>(1);
-        out_val->data.x_ptr.ptr[0] = mem_slot;
-        return ptr_type;
+            out_val->ok = true;
+            out_val->data.x_ptr.len = 1;
+            out_val->data.x_ptr.is_c_str = false;
+            out_val->data.x_ptr.ptr = allocate<ConstExprValue *>(1);
+            out_val->data.x_ptr.ptr[0] = mem_slot;
+            return ptr_type;
+        }
     }
 
     ir_build_var_ptr_from(&ira->new_irb, &var_ptr_instruction->base, var);
@@ -4063,6 +4074,30 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
             *dest_val = casted_value->static_value;
             return ira->codegen->builtin_types.entry_void;
         }
+    }
+
+    if (ptr->static_value.ok) {
+        // This memory location is transforming from known at compile time to known at runtime.
+        // We must emit our own var ptr instruction.
+        ptr->static_value.ok = false;
+        IrInstruction *new_ptr_inst;
+        if (ptr->id == IrInstructionIdVarPtr) {
+            IrInstructionVarPtr *var_ptr_inst = (IrInstructionVarPtr *)ptr;
+            VariableTableEntry *var = var_ptr_inst->var;
+            new_ptr_inst = ir_build_var_ptr(&ira->new_irb, store_ptr_instruction->base.source_node, var);
+            assert(var->mem_slot_index != SIZE_MAX);
+            ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
+            mem_slot->ok = false;
+        } else if (ptr->id == IrInstructionIdFieldPtr) {
+            zig_panic("TODO");
+        } else if (ptr->id == IrInstructionIdElemPtr) {
+            zig_panic("TODO");
+        } else {
+            zig_unreachable();
+        }
+        new_ptr_inst->type_entry = ptr->type_entry;
+        ir_build_store_ptr(&ira->new_irb, store_ptr_instruction->base.source_node, new_ptr_inst, casted_value);
+        return ira->codegen->builtin_types.entry_void;
     }
 
     ir_build_store_ptr_from(&ira->new_irb, &store_ptr_instruction->base, ptr, casted_value);
@@ -4153,7 +4188,7 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
     ira->block_queue_index = 0;
     ira->instruction_index = 0;
 
-    while (ira->block_queue_index < ira->block_queue.length) {
+    while (ira->block_queue_index < ira->old_bb_queue.length) {
         IrInstruction *old_instruction = ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index);
         if (old_instruction->ref_count == 0 && !ir_has_side_effects(old_instruction)) {
             ira->instruction_index += 1;

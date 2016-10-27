@@ -3575,6 +3575,7 @@ static VariableTableEntry *add_local_var_shadowable(CodeGen *g, AstNode *source_
     variable_entry->block_context = context;
     variable_entry->import = import;
     variable_entry->shadowable = shadowable;
+    variable_entry->mem_slot_index = SIZE_MAX;
 
     if (name) {
         buf_init_from_buf(&variable_entry->name, name);

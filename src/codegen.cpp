@@ -1539,76 +1539,41 @@ static LLVMValueRef gen_arithmetic_bin_op_expr(CodeGen *g, AstNode *node) {
 
 }
 
-static LLVMIntPredicate cmp_op_to_int_predicate(BinOpType cmp_op, bool is_signed) {
+static LLVMIntPredicate cmp_op_to_int_predicate(IrBinOp cmp_op, bool is_signed) {
     switch (cmp_op) {
-        case BinOpTypeCmpEq:
+        case IrBinOpCmpEq:
             return LLVMIntEQ;
-        case BinOpTypeCmpNotEq:
+        case IrBinOpCmpNotEq:
             return LLVMIntNE;
-        case BinOpTypeCmpLessThan:
+        case IrBinOpCmpLessThan:
             return is_signed ? LLVMIntSLT : LLVMIntULT;
-        case BinOpTypeCmpGreaterThan:
+        case IrBinOpCmpGreaterThan:
             return is_signed ? LLVMIntSGT : LLVMIntUGT;
-        case BinOpTypeCmpLessOrEq:
+        case IrBinOpCmpLessOrEq:
             return is_signed ? LLVMIntSLE : LLVMIntULE;
-        case BinOpTypeCmpGreaterOrEq:
+        case IrBinOpCmpGreaterOrEq:
             return is_signed ? LLVMIntSGE : LLVMIntUGE;
         default:
             zig_unreachable();
     }
 }
 
-static LLVMRealPredicate cmp_op_to_real_predicate(BinOpType cmp_op) {
+static LLVMRealPredicate cmp_op_to_real_predicate(IrBinOp cmp_op) {
     switch (cmp_op) {
-        case BinOpTypeCmpEq:
+        case IrBinOpCmpEq:
             return LLVMRealOEQ;
-        case BinOpTypeCmpNotEq:
+        case IrBinOpCmpNotEq:
             return LLVMRealONE;
-        case BinOpTypeCmpLessThan:
+        case IrBinOpCmpLessThan:
             return LLVMRealOLT;
-        case BinOpTypeCmpGreaterThan:
+        case IrBinOpCmpGreaterThan:
             return LLVMRealOGT;
-        case BinOpTypeCmpLessOrEq:
+        case IrBinOpCmpLessOrEq:
             return LLVMRealOLE;
-        case BinOpTypeCmpGreaterOrEq:
+        case IrBinOpCmpGreaterOrEq:
             return LLVMRealOGE;
         default:
             zig_unreachable();
-    }
-}
-
-static LLVMValueRef gen_cmp_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeBinOpExpr);
-
-    LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
-    LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
-
-    TypeTableEntry *op1_type = get_expr_type(node->data.bin_op_expr.op1);
-    TypeTableEntry *op2_type = get_expr_type(node->data.bin_op_expr.op2);
-    assert(op1_type == op2_type);
-
-    if (op1_type->id == TypeTableEntryIdFloat) {
-        LLVMRealPredicate pred = cmp_op_to_real_predicate(node->data.bin_op_expr.bin_op);
-        return LLVMBuildFCmp(g->builder, pred, val1, val2, "");
-    } else if (op1_type->id == TypeTableEntryIdInt) {
-        LLVMIntPredicate pred = cmp_op_to_int_predicate(node->data.bin_op_expr.bin_op,
-                op1_type->data.integral.is_signed);
-        return LLVMBuildICmp(g->builder, pred, val1, val2, "");
-    } else if (op1_type->id == TypeTableEntryIdEnum) {
-        if (op1_type->data.enumeration.gen_field_count == 0) {
-            LLVMIntPredicate pred = cmp_op_to_int_predicate(node->data.bin_op_expr.bin_op, false);
-            return LLVMBuildICmp(g->builder, pred, val1, val2, "");
-        } else {
-            zig_unreachable();
-        }
-    } else if (op1_type->id == TypeTableEntryIdPureError ||
-               op1_type->id == TypeTableEntryIdPointer ||
-               op1_type->id == TypeTableEntryIdBool)
-    {
-        LLVMIntPredicate pred = cmp_op_to_int_predicate(node->data.bin_op_expr.bin_op, false);
-        return LLVMBuildICmp(g->builder, pred, val1, val2, "");
-    } else {
-        zig_unreachable();
     }
 }
 
@@ -1844,7 +1809,7 @@ static LLVMValueRef gen_bin_op_expr(CodeGen *g, AstNode *node) {
         case BinOpTypeCmpGreaterThan:
         case BinOpTypeCmpLessOrEq:
         case BinOpTypeCmpGreaterOrEq:
-            return gen_cmp_expr(g, node);
+            zig_panic("moved to ir_render");
         case BinOpTypeUnwrapMaybe:
             return gen_unwrap_maybe_expr(g, node);
         case BinOpTypeBinOr:
@@ -2341,6 +2306,41 @@ static LLVMValueRef ir_render_bin_op_bool(CodeGen *g, IrExecutable *executable,
     }
 }
 
+static LLVMValueRef ir_render_bin_op_cmp(CodeGen *g, IrExecutable *executable,
+        IrInstructionBinOp *bin_op_instruction)
+{
+    IrBinOp op_id = bin_op_instruction->op_id;
+    LLVMValueRef val1 = ir_llvm_value(g, bin_op_instruction->op1);
+    LLVMValueRef val2 = ir_llvm_value(g, bin_op_instruction->op2);
+
+    TypeTableEntry *op1_type = bin_op_instruction->op1->type_entry;
+    TypeTableEntry *op2_type = bin_op_instruction->op2->type_entry;
+    assert(op1_type == op2_type);
+
+    if (op1_type->id == TypeTableEntryIdFloat) {
+        LLVMRealPredicate pred = cmp_op_to_real_predicate(op_id);
+        return LLVMBuildFCmp(g->builder, pred, val1, val2, "");
+    } else if (op1_type->id == TypeTableEntryIdInt) {
+        LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, op1_type->data.integral.is_signed);
+        return LLVMBuildICmp(g->builder, pred, val1, val2, "");
+    } else if (op1_type->id == TypeTableEntryIdEnum) {
+        if (op1_type->data.enumeration.gen_field_count == 0) {
+            LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
+            return LLVMBuildICmp(g->builder, pred, val1, val2, "");
+        } else {
+            zig_unreachable();
+        }
+    } else if (op1_type->id == TypeTableEntryIdPureError ||
+               op1_type->id == TypeTableEntryIdPointer ||
+               op1_type->id == TypeTableEntryIdBool)
+    {
+        LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
+        return LLVMBuildICmp(g->builder, pred, val1, val2, "");
+    } else {
+        zig_unreachable();
+    }
+}
+
 static LLVMValueRef ir_render_bin_op_add(CodeGen *g, IrExecutable *executable,
         IrInstructionBinOp *bin_op_instruction)
 {
@@ -2389,7 +2389,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         case IrBinOpCmpGreaterThan:
         case IrBinOpCmpLessOrEq:
         case IrBinOpCmpGreaterOrEq:
-            zig_panic("TODO bin op cmp");
+            return ir_render_bin_op_cmp(g, executable, bin_op_instruction);
         case IrBinOpAdd:
         case IrBinOpAddWrap:
             return ir_render_bin_op_add(g, executable, bin_op_instruction);
@@ -2860,6 +2860,13 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildLoad(g->builder, ir_llvm_value(g, instruction->ptr), "");
 }
 
+static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, IrInstructionStorePtr *instruction) {
+    LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
+    LLVMValueRef value = ir_llvm_value(g, instruction->value);
+    LLVMBuildStore(g->builder, value, ptr);
+    return nullptr;
+}
+
 static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrInstructionVarPtr *instruction) {
     return instruction->var->value_ref;
 }
@@ -2931,13 +2938,14 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_un_op(g, executable, (IrInstructionUnOp *)instruction);
         case IrInstructionIdLoadPtr:
             return ir_render_load_ptr(g, executable, (IrInstructionLoadPtr *)instruction);
+        case IrInstructionIdStorePtr:
+            return ir_render_store_ptr(g, executable, (IrInstructionStorePtr *)instruction);
         case IrInstructionIdVarPtr:
             return ir_render_var_ptr(g, executable, (IrInstructionVarPtr *)instruction);
         case IrInstructionIdCall:
             return ir_render_call(g, executable, (IrInstructionCall *)instruction);
         case IrInstructionIdSwitchBr:
         case IrInstructionIdPhi:
-        case IrInstructionIdStorePtr:
         case IrInstructionIdBuiltinCall:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
