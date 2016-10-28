@@ -689,11 +689,11 @@ fn a() {}
 
     add_compile_fail_case("unreachable with return", R"SOURCE(
 fn a() -> unreachable {return;}
-    )SOURCE", 1, ".tmp_source.zig:2:24: error: expected type 'unreachable', got 'void'");
+    )SOURCE", 1, ".tmp_source.zig:2:24: error: expected type 'unreachable', found 'void'");
 
     add_compile_fail_case("control reaches end of non-void function", R"SOURCE(
 fn a() -> i32 {}
-    )SOURCE", 1, ".tmp_source.zig:2:15: error: expected type 'i32', got 'void'");
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: expected type 'i32', found 'void'");
 
     add_compile_fail_case("undefined function call", R"SOURCE(
 fn a() {
@@ -706,7 +706,7 @@ fn a() {
     b(1);
 }
 fn b(a: i32, b: i32, c: i32) { }
-    )SOURCE", 1, ".tmp_source.zig:3:6: error: expected 3 arguments, got 1");
+    )SOURCE", 1, ".tmp_source.zig:3:6: error: expected 3 arguments, found 1");
 
     add_compile_fail_case("invalid type", R"SOURCE(
 fn a() -> bogus {}
@@ -761,7 +761,7 @@ fn f() -> i32 {
     const a = c"a";
     a
 }
-    )SOURCE", 1, ".tmp_source.zig:4:5: error: expected type 'i32', got '&const u8'");
+    )SOURCE", 1, ".tmp_source.zig:4:5: error: expected type 'i32', found '&const u8'");
 
     add_compile_fail_case("if condition is bool, not int", R"SOURCE(
 fn f() {
@@ -819,7 +819,7 @@ fn f() {
     )SOURCE", 4, ".tmp_source.zig:4:5: error: use of undeclared identifier 'i'",
                  ".tmp_source.zig:4:7: error: use of undeclared identifier 'i'",
                  ".tmp_source.zig:5:8: error: array access of non-array",
-                 ".tmp_source.zig:5:9: error: expected type 'usize', got 'bool'");
+                 ".tmp_source.zig:5:9: error: expected type 'usize', found 'bool'");
 
     add_compile_fail_case("variadic functions only allowed in extern", R"SOURCE(
 fn f(...) {}
@@ -838,7 +838,7 @@ fn f(b: bool) {
     const x : i32 = if (b) { 1 };
     const y = if (b) { i32(1) };
 }
-    )SOURCE", 2, ".tmp_source.zig:3:21: error: expected type 'i32', got 'void'",
+    )SOURCE", 2, ".tmp_source.zig:3:21: error: expected type 'i32', found 'void'",
                  ".tmp_source.zig:4:15: error: incompatible types: 'i32' and 'void'");
 
     add_compile_fail_case("direct struct loop", R"SOURCE(
@@ -1014,7 +1014,7 @@ const x = foo();
 fn f(s: []u8) -> []u8 {
     s ++ "foo"
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: expected array or C string literal, got '[]u8'");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: expected array or C string literal, found '[]u8'");
 
     add_compile_fail_case("non compile time array concatenation", R"SOURCE(
 fn f(s: [10]u8) -> []u8 {
@@ -1069,7 +1069,7 @@ const members = []member_fn_type {
 fn f(foo: Foo, index: i32) {
     const result = members[index]();
 }
-    )SOURCE", 1, ".tmp_source.zig:21:34: error: expected 1 arguments, got 0");
+    )SOURCE", 1, ".tmp_source.zig:21:34: error: expected 1 arguments, found 0");
 
     add_compile_fail_case("missing function name and param name", R"SOURCE(
 fn () {}
@@ -1084,22 +1084,22 @@ fn a() -> i32 {0}
 fn b() -> i32 {1}
 fn c() -> i32 {2}
     )SOURCE", 3,
-            ".tmp_source.zig:2:21: error: expected type 'fn()', got 'fn() -> i32'",
-            ".tmp_source.zig:2:24: error: expected type 'fn()', got 'fn() -> i32'",
-            ".tmp_source.zig:2:27: error: expected type 'fn()', got 'fn() -> i32'");
+            ".tmp_source.zig:2:21: error: expected type 'fn()', found 'fn() -> i32'",
+            ".tmp_source.zig:2:24: error: expected type 'fn()', found 'fn() -> i32'",
+            ".tmp_source.zig:2:27: error: expected type 'fn()', found 'fn() -> i32'");
 
     add_compile_fail_case("extern function pointer mismatch", R"SOURCE(
 const fns = [](fn(i32)->i32){ a, b, c };
 pub fn a(x: i32) -> i32 {x + 0}
 pub fn b(x: i32) -> i32 {x + 1}
 export fn c(x: i32) -> i32 {x + 2}
-    )SOURCE", 1, ".tmp_source.zig:2:37: error: expected type 'fn(i32) -> i32', got 'extern fn(i32) -> i32'");
+    )SOURCE", 1, ".tmp_source.zig:2:37: error: expected type 'fn(i32) -> i32', found 'extern fn(i32) -> i32'");
 
 
     add_compile_fail_case("implicit cast from f64 to f32", R"SOURCE(
 const x : f64 = 1.0;
 const y : f32 = x;
-    )SOURCE", 1, ".tmp_source.zig:3:17: error: expected type 'f32', got 'f64'");
+    )SOURCE", 1, ".tmp_source.zig:3:17: error: expected type 'f32', found 'f64'");
 
 
     add_compile_fail_case("colliding invalid top level functions", R"SOURCE(
@@ -1221,7 +1221,7 @@ fn derp(){}
 
     add_compile_fail_case("assign null to non-nullable pointer", R"SOURCE(
 const a: &u8 = null;
-    )SOURCE", 1, ".tmp_source.zig:2:16: error: expected type '&u8', got '(null)'");
+    )SOURCE", 1, ".tmp_source.zig:2:16: error: expected type '&u8', found '(null)'");
 
     add_compile_fail_case("indexing an array of size zero", R"SOURCE(
 const array = []u8{};
@@ -1383,7 +1383,7 @@ fn f() {
     const x: u32 = 10;
     @truncate(i8, x);
 }
-    )SOURCE", 1, ".tmp_source.zig:4:19: error: expected signed integer type, got 'u32'");
+    )SOURCE", 1, ".tmp_source.zig:4:19: error: expected signed integer type, found 'u32'");
 
     add_compile_fail_case("truncate same bit count", R"SOURCE(
 fn f() {
@@ -1493,7 +1493,7 @@ fn f(foo: &const Foo) {
 
     foo.method(1, 2);
 }
-    )SOURCE", 1, ".tmp_source.zig:7:15: error: expected 1 arguments, got 2");
+    )SOURCE", 1, ".tmp_source.zig:7:15: error: expected 1 arguments, found 2");
 
     add_compile_fail_case("assign through constant pointer", R"SOURCE(
 fn f() {
@@ -1622,6 +1622,11 @@ fn callPrivFunction() {
 fn privateFunction() { }
         )SOURCE");
     }
+
+    add_compile_fail_case("container init with non-type", R"SOURCE(
+const zero: i32 = 0;
+const a = zero{1};
+    )SOURCE", 1, ".tmp_source.zig:3:11: error: expected type 'type', found 'i32'");
 
 }
 

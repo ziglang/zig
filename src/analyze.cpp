@@ -887,7 +887,7 @@ static TypeTableEntry *resolve_type(CodeGen *g, AstNode *node) {
     } else if (expr->type_entry->id == TypeTableEntryIdMetaType) {
         // OK
     } else {
-        add_node_error(g, node, buf_sprintf("expected type, found expression"));
+        add_node_error(g, node, buf_sprintf("expected type 'type', found '%s'", buf_ptr(&expr->type_entry->name)));
         return g->builtin_types.entry_invalid;
     }
 
@@ -1139,7 +1139,7 @@ static FnTableEntry *resolve_const_expr_fn(CodeGen *g, ImportTableEntry *import,
 
         return const_val->data.x_fn;
     } else {
-        add_node_error(g, *node, buf_sprintf("expected function, got '%s'", buf_ptr(&resolved_type->name)));
+        add_node_error(g, *node, buf_sprintf("expected function, found '%s'", buf_ptr(&resolved_type->name)));
         return nullptr;
     }
 }
@@ -2292,7 +2292,7 @@ static TypeTableEntry *resolve_type_compatibility(CodeGen *g, ImportTableEntry *
 
     if (!reported_err) {
         add_node_error(g, first_executing_node(node),
-            buf_sprintf("expected type '%s', got '%s'",
+            buf_sprintf("expected type '%s', found '%s'",
                 buf_ptr(&expected_type->name),
                 buf_ptr(&actual_type->name)));
     }
@@ -3564,14 +3564,14 @@ static TypeTableEntry *analyze_array_mult(CodeGen *g, ImportTableEntry *import, 
 
     if (op1_type->id != TypeTableEntryIdArray) {
         add_node_error(g, *op1,
-            buf_sprintf("expected array type, got '%s'", buf_ptr(&op1_type->name)));
+            buf_sprintf("expected array type, found '%s'", buf_ptr(&op1_type->name)));
         return g->builtin_types.entry_invalid;
     }
 
     if (op2_type->id != TypeTableEntryIdNumLitInt &&
         op2_type->id != TypeTableEntryIdInt)
     {
-        add_node_error(g, *op2, buf_sprintf("expected integer type, got '%s'", buf_ptr(&op2_type->name)));
+        add_node_error(g, *op2, buf_sprintf("expected integer type, found '%s'", buf_ptr(&op2_type->name)));
         return g->builtin_types.entry_invalid;
     }
 
@@ -3750,7 +3750,7 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                     return child_type;
                 } else {
                     add_node_error(g, op1,
-                        buf_sprintf("expected maybe type, got '%s'",
+                        buf_sprintf("expected maybe type, found '%s'",
                             buf_ptr(&lhs_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
@@ -3770,7 +3770,7 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                            op1_type->data.pointer.child_type == g->builtin_types.entry_u8) {
                     child_type = op1_type->data.pointer.child_type;
                 } else {
-                    add_node_error(g, *op1, buf_sprintf("expected array or C string literal, got '%s'",
+                    add_node_error(g, *op1, buf_sprintf("expected array or C string literal, found '%s'",
                                 buf_ptr(&op1_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
@@ -3781,7 +3781,7 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                     return g->builtin_types.entry_invalid;
                 } else if (op2_type->id == TypeTableEntryIdArray) {
                     if (op2_type->data.array.child_type != child_type) {
-                        add_node_error(g, *op2, buf_sprintf("expected array of type '%s', got '%s'",
+                        add_node_error(g, *op2, buf_sprintf("expected array of type '%s', found '%s'",
                                     buf_ptr(&child_type->name),
                                     buf_ptr(&op2_type->name)));
                         return g->builtin_types.entry_invalid;
@@ -3789,7 +3789,7 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                 } else if (op2_type->id == TypeTableEntryIdPointer &&
                         op2_type->data.pointer.child_type == g->builtin_types.entry_u8) {
                 } else {
-                    add_node_error(g, *op2, buf_sprintf("expected array or C string literal, got '%s'",
+                    add_node_error(g, *op2, buf_sprintf("expected array or C string literal, found '%s'",
                                 buf_ptr(&op2_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
@@ -3829,12 +3829,12 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
                 } else if (op1_type->id == TypeTableEntryIdPointer) {
                     if (!op1_val->data.x_ptr.is_c_str) {
                         add_node_error(g, *op1,
-                                buf_sprintf("expected array or C string literal, got '%s'",
+                                buf_sprintf("expected array or C string literal, found '%s'",
                                     buf_ptr(&op1_type->name)));
                         return g->builtin_types.entry_invalid;
                     } else if (!op2_val->data.x_ptr.is_c_str) {
                         add_node_error(g, *op2,
-                                buf_sprintf("expected array or C string literal, got '%s'",
+                                buf_sprintf("expected array or C string literal, found '%s'",
                                     buf_ptr(&op2_type->name)));
                         return g->builtin_types.entry_invalid;
                     }
@@ -3951,7 +3951,7 @@ static TypeTableEntry *analyze_unwrap_error_expr(CodeGen *g, ImportTableEntry *i
         return child_type;
     } else {
         add_node_error(g, op1,
-            buf_sprintf("expected error type, got '%s'", buf_ptr(&lhs_type->name)));
+            buf_sprintf("expected error type, found '%s'", buf_ptr(&lhs_type->name)));
         return g->builtin_types.entry_invalid;
     }
 }
@@ -4976,7 +4976,7 @@ static TypeTableEntry *analyze_cmpxchg(CodeGen *g, ImportTableEntry *import,
         return g->builtin_types.entry_invalid;
     } else if (ptr_type->id != TypeTableEntryIdPointer) {
         add_node_error(g, *ptr_arg,
-            buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&ptr_type->name)));
+            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&ptr_type->name)));
         return g->builtin_types.entry_invalid;
     }
 
@@ -5082,7 +5082,7 @@ static TypeTableEntry *analyze_div_exact(CodeGen *g, ImportTableEntry *import,
         zig_panic("TODO");
     } else {
         add_node_error(g, node,
-                buf_sprintf("expected integer type, got '%s'", buf_ptr(&result_type->name)));
+                buf_sprintf("expected integer type, found '%s'", buf_ptr(&result_type->name)));
         return g->builtin_types.entry_invalid;
     }
 }
@@ -5102,16 +5102,16 @@ static TypeTableEntry *analyze_truncate(CodeGen *g, ImportTableEntry *import,
         return g->builtin_types.entry_invalid;
     } else if (dest_type->id != TypeTableEntryIdInt) {
         add_node_error(g, *op1,
-                buf_sprintf("expected integer type, got '%s'", buf_ptr(&dest_type->name)));
+                buf_sprintf("expected integer type, found '%s'", buf_ptr(&dest_type->name)));
         return g->builtin_types.entry_invalid;
     } else if (src_type->id != TypeTableEntryIdInt) {
         add_node_error(g, *op2,
-                buf_sprintf("expected integer type, got '%s'", buf_ptr(&src_type->name)));
+                buf_sprintf("expected integer type, found '%s'", buf_ptr(&src_type->name)));
         return g->builtin_types.entry_invalid;
     } else if (src_type->data.integral.is_signed != dest_type->data.integral.is_signed) {
         const char *sign_str = dest_type->data.integral.is_signed ? "signed" : "unsigned";
         add_node_error(g, *op2,
-                buf_sprintf("expected %s integer type, got '%s'", sign_str, buf_ptr(&src_type->name)));
+                buf_sprintf("expected %s integer type, found '%s'", sign_str, buf_ptr(&src_type->name)));
         return g->builtin_types.entry_invalid;
     } else if (src_type->data.integral.bit_count <= dest_type->data.integral.bit_count) {
         add_node_error(g, *op2,
@@ -5348,12 +5348,12 @@ static TypeTableEntry *analyze_set_debug_safety(CodeGen *g, ImportTableEntry *im
             target_context = type_arg->data.unionation.block_context;
         } else {
             add_node_error(g, *target_node,
-                buf_sprintf("expected scope reference, got type '%s'", buf_ptr(&type_arg->name)));
+                buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&type_arg->name)));
             return g->builtin_types.entry_invalid;
         }
     } else {
         add_node_error(g, *target_node,
-            buf_sprintf("expected scope reference, got type '%s'", buf_ptr(&target_type->name)));
+            buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&target_type->name)));
         return g->builtin_types.entry_invalid;
     }
 
@@ -5398,7 +5398,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
 
     if (builtin_fn->param_count != actual_param_count) {
         add_node_error(g, node,
-                buf_sprintf("expected %zu arguments, got %zu",
+                buf_sprintf("expected %zu arguments, found %zu",
                     builtin_fn->param_count, actual_param_count));
         return g->builtin_types.entry_invalid;
     }
@@ -5428,7 +5428,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                             result_node);
                 } else {
                     add_node_error(g, type_node,
-                        buf_sprintf("expected integer type, got '%s'", buf_ptr(&int_type->name)));
+                        buf_sprintf("expected integer type, found '%s'", buf_ptr(&int_type->name)));
                 }
 
                 // TODO constant expression evaluation
@@ -5448,14 +5448,14 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     dest_type->id != TypeTableEntryIdPointer)
                 {
                     add_node_error(g, dest_node,
-                            buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&dest_type->name)));
+                            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&dest_type->name)));
                 }
 
                 if (src_type->id != TypeTableEntryIdInvalid &&
                     src_type->id != TypeTableEntryIdPointer)
                 {
                     add_node_error(g, src_node,
-                            buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&src_type->name)));
+                            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&src_type->name)));
                 }
 
                 if (dest_type->id == TypeTableEntryIdPointer &&
@@ -5486,7 +5486,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     dest_type->id != TypeTableEntryIdPointer)
                 {
                     add_node_error(g, dest_node,
-                            buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&dest_type->name)));
+                            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&dest_type->name)));
                 }
 
                 return builtin_fn->return_type;
@@ -5703,7 +5703,7 @@ static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry
                     return resolved_type;
                 } else {
                     add_node_error(g, type_node,
-                        buf_sprintf("expected integer type, got '%s'", buf_ptr(&int_type->name)));
+                        buf_sprintf("expected integer type, found '%s'", buf_ptr(&int_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
             }
@@ -5794,12 +5794,12 @@ static TypeTableEntry *analyze_fn_call_ptr(CodeGen *g, ImportTableEntry *import,
         if (call_param_count < expect_arg_count) {
             ok_invocation = false;
             add_node_error(g, node,
-                buf_sprintf("expected at least %zu arguments, got %zu", src_param_count, call_param_count));
+                buf_sprintf("expected at least %zu arguments, found %zu", src_param_count, call_param_count));
         }
     } else if (expect_arg_count != call_param_count) {
         ok_invocation = false;
         add_node_error(g, node,
-                buf_sprintf("expected %zu arguments, got %zu", expect_arg_count, call_param_count));
+                buf_sprintf("expected %zu arguments, found %zu", expect_arg_count, call_param_count));
     }
 
     bool all_args_const_expr = true;
@@ -5914,7 +5914,7 @@ static TypeTableEntry *analyze_fn_call_with_inline_args(CodeGen *g, ImportTableE
 
     if (src_param_count != call_param_count + struct_node_1_or_0) {
         add_node_error(g, call_node,
-            buf_sprintf("expected %zu arguments, got %zu", src_param_count - struct_node_1_or_0, call_param_count));
+            buf_sprintf("expected %zu arguments, found %zu", src_param_count - struct_node_1_or_0, call_param_count));
         return g->builtin_types.entry_invalid;
     }
 
@@ -6042,7 +6042,7 @@ static TypeTableEntry *analyze_generic_fn_call(CodeGen *g, ImportTableEntry *imp
 
     if (actual_param_count != expected_param_count) {
         add_node_error(g, first_executing_node(node),
-                buf_sprintf("expected %zu arguments, got %zu", expected_param_count, actual_param_count));
+                buf_sprintf("expected %zu arguments, found %zu", expected_param_count, actual_param_count));
         return g->builtin_types.entry_invalid;
     }
 
@@ -6379,7 +6379,7 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                     return type_entry->data.error.child_type;
                 } else {
                     add_node_error(g, *expr_node,
-                        buf_sprintf("expected error type, got '%s'", buf_ptr(&type_entry->name)));
+                        buf_sprintf("expected error type, found '%s'", buf_ptr(&type_entry->name)));
                     return g->builtin_types.entry_invalid;
                 }
             }
@@ -6393,7 +6393,7 @@ static TypeTableEntry *analyze_prefix_op_expr(CodeGen *g, ImportTableEntry *impo
                     return type_entry->data.maybe.child_type;
                 } else {
                     add_node_error(g, *expr_node,
-                        buf_sprintf("expected maybe type, got '%s'", buf_ptr(&type_entry->name)));
+                        buf_sprintf("expected maybe type, found '%s'", buf_ptr(&type_entry->name)));
                     return g->builtin_types.entry_invalid;
                 }
             }
@@ -6689,7 +6689,7 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
                     return resolved_type->data.error.child_type;
                 } else {
                     add_node_error(g, node->data.return_expr.expr,
-                        buf_sprintf("expected error type, got '%s'", buf_ptr(&resolved_type->name)));
+                        buf_sprintf("expected error type, found '%s'", buf_ptr(&resolved_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
             }
@@ -6717,7 +6717,7 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
                     return resolved_type->data.maybe.child_type;
                 } else {
                     add_node_error(g, node->data.return_expr.expr,
-                        buf_sprintf("expected maybe type, got '%s'", buf_ptr(&resolved_type->name)));
+                        buf_sprintf("expected maybe type, found '%s'", buf_ptr(&resolved_type->name)));
                     return g->builtin_types.entry_invalid;
                 }
             }
