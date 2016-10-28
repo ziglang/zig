@@ -320,6 +320,7 @@ static void ir_print_unreachable(IrPrint *irp, IrInstructionUnreachable *instruc
 }
 
 static void ir_print_elem_ptr(IrPrint *irp, IrInstructionElemPtr *instruction) {
+    fprintf(irp->f, "&");
     ir_print_other_instruction(irp, instruction->array_ptr);
     fprintf(irp->f, "[");
     ir_print_other_instruction(irp, instruction->elem_index);

@@ -2857,18 +2857,45 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
 }
 
 static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrInstructionLoadPtr *instruction) {
-    return LLVMBuildLoad(g->builder, ir_llvm_value(g, instruction->ptr), "");
+    LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
+    return get_handle_value(g, ptr, instruction->base.type_entry);
 }
 
 static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, IrInstructionStorePtr *instruction) {
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
+
+    assert(instruction->ptr->type_entry->id == TypeTableEntryIdPointer);
+    TypeTableEntry *op1_type = instruction->ptr->type_entry->data.pointer.child_type;
+    TypeTableEntry *op2_type = instruction->value->type_entry;
+
+    if (!type_has_bits(op1_type)) {
+        return nullptr;
+    }
+    if (handle_is_ptr(op1_type)) {
+        assert(op1_type == op2_type);
+        return gen_struct_memcpy(g, value, ptr, op1_type);
+    }
+
     LLVMBuildStore(g->builder, value, ptr);
     return nullptr;
 }
 
 static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrInstructionVarPtr *instruction) {
-    return instruction->var->value_ref;
+    VariableTableEntry *var = instruction->var;
+    if (type_has_bits(var->type)) {
+        assert(var->value_ref);
+        return get_handle_value(g, var->value_ref, var->type);
+    } else {
+        return nullptr;
+    }
+}
+
+static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrInstructionElemPtr *instruction) {
+    LLVMValueRef array_ptr = ir_llvm_value(g, instruction->array_ptr);
+    LLVMValueRef subscript_value = ir_llvm_value(g, instruction->elem_index);
+    TypeTableEntry *array_type = instruction->array_ptr->type_entry;
+    return gen_array_elem_ptr(g, instruction->base.source_node, array_ptr, array_type, subscript_value);
 }
 
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
@@ -2942,6 +2969,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_store_ptr(g, executable, (IrInstructionStorePtr *)instruction);
         case IrInstructionIdVarPtr:
             return ir_render_var_ptr(g, executable, (IrInstructionVarPtr *)instruction);
+        case IrInstructionIdElemPtr:
+            return ir_render_elem_ptr(g, executable, (IrInstructionElemPtr *)instruction);
         case IrInstructionIdCall:
             return ir_render_call(g, executable, (IrInstructionCall *)instruction);
         case IrInstructionIdSwitchBr:
@@ -2950,7 +2979,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdFieldPtr:
-        case IrInstructionIdElemPtr:
             zig_panic("TODO render more IR instructions to LLVM");
     }
     zig_unreachable();
