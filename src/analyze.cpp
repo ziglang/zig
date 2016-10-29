@@ -4970,11 +4970,6 @@ static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import,
 static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
-    if (!context->fn_entry) {
-        add_node_error(g, node, buf_sprintf("return expression outside function definition"));
-        return g->builtin_types.entry_invalid;
-    }
-
     if (!node->data.return_expr.expr) {
         node->data.return_expr.expr = create_ast_void_node(g, import, node);
         normalize_parent_ptrs(node);
@@ -4984,11 +4979,7 @@ static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import,
 
     switch (node->data.return_expr.kind) {
         case ReturnKindUnconditional:
-            {
-                analyze_expression(g, import, context, expected_return_type, node->data.return_expr.expr);
-
-                return g->builtin_types.entry_unreachable;
-            }
+            zig_panic("TODO moved to ir.cpp");
         case ReturnKindError:
             {
                 TypeTableEntry *expected_err_type;

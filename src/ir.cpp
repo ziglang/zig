@@ -594,6 +594,37 @@ static void ir_gen_defers_for_block(IrBuilder *irb, BlockContext *inner_block, B
     }
 }
 
+static IrInstruction *ir_gen_return(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeReturnExpr);
+
+    BlockContext *scope = node->block_context;
+
+    if (!scope->fn_entry) {
+        add_node_error(irb->codegen, node, buf_sprintf("return expression outside function definition"));
+        return irb->codegen->invalid_instruction;
+    }
+
+    AstNode *expr_node = node->data.return_expr.expr;
+    switch (node->data.return_expr.kind) {
+        case ReturnKindUnconditional:
+            {
+                IrInstruction *return_value;
+                if (expr_node) {
+                    return_value = ir_gen_node(irb, expr_node, scope);
+                } else {
+                    return_value = ir_build_const_void(irb, node);
+                }
+
+                return ir_build_return(irb, node, return_value);
+            }
+        case ReturnKindError:
+            zig_panic("TODO %%return");
+        case ReturnKindMaybe:
+            zig_panic("TODO ?return");
+    }
+    zig_unreachable();
+}
+
 //static IrInstruction *ir_gen_return(IrBuilder *irb, AstNode *source_node, IrInstruction *value, ReturnKnowledge rk) {
 //    BlockContext *defer_inner_block = source_node->block_context;
 //    BlockContext *defer_outer_block = irb->node->block_context;
@@ -1230,15 +1261,9 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
             return ir_gen_while_expr(irb, node);
         case NodeTypeArrayAccessExpr:
             return ir_gen_array_access(irb, node, lval);
-        case NodeTypeUnwrapErrorExpr:
         case NodeTypeReturnExpr:
-        // TODO
-    //if (!scope->fn_entry) {
-    //    add_node_error(ira->codegen, source_node,
-    //        buf_sprintf("return expression outside function definition"));
-    //    return ira->codegen->builtin_types.entry_invalid;
-    //}
-
+            return ir_gen_return(irb, node);
+        case NodeTypeUnwrapErrorExpr:
         case NodeTypeDefer:
         case NodeTypeSliceExpr:
         case NodeTypeFieldAccessExpr:
