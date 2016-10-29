@@ -49,6 +49,9 @@ static void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *conte
 static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
 static void resolve_use_decl(CodeGen *g, AstNode *node);
 static void preview_use_decl(CodeGen *g, AstNode *node);
+static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, ImportTableEntry *import,
+        BlockContext *context, Buf *name, TypeTableEntry *type_entry, bool is_const,
+        AstNode *val_node);
 
 AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
@@ -1677,6 +1680,129 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
     node->data.error_value_decl.top_level_decl.resolution = TldResolutionOk;
 }
 
+TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry) {
+    TypeTableEntry *underlying_type = get_underlying_type(type_entry);
+    switch (underlying_type->id) {
+        case TypeTableEntryIdTypeDecl:
+            zig_unreachable();
+        case TypeTableEntryIdInvalid:
+            return g->builtin_types.entry_invalid;
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdBlock:
+            add_node_error(g, source_node, buf_sprintf("variable of type '%s' not allowed",
+                buf_ptr(&underlying_type->name)));
+            return g->builtin_types.entry_invalid;
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdGenericFn:
+            return type_entry;
+    }
+    zig_unreachable();
+}
+
+static void resolve_var_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
+    assert(node->type == NodeTypeVariableDeclaration);
+
+    AstNodeVariableDeclaration *var_decl = &node->data.variable_declaration;
+    BlockContext *scope = node->block_context;
+    bool is_const = var_decl->is_const;
+    bool is_export = (var_decl->top_level_decl.visib_mod == VisibModExport);
+    bool is_extern = var_decl->is_extern;
+
+    assert(!scope->fn_entry);
+
+    TypeTableEntry *explicit_type = nullptr;
+    if (var_decl->type) {
+        TypeTableEntry *proposed_type = analyze_type_expr(g, import, scope, var_decl->type);
+        explicit_type = validate_var_type(g, var_decl->type, proposed_type);
+    }
+
+    TypeTableEntry *implicit_type = nullptr;
+    if (explicit_type && explicit_type->id == TypeTableEntryIdInvalid) {
+        implicit_type = explicit_type;
+    } else if (var_decl->expr) {
+        IrExecutable ir_executable = {0};
+        IrExecutable analyzed_executable = {0};
+        IrInstruction *result = ir_gen(g, var_decl->expr, scope, &ir_executable);
+        if (result == g->invalid_instruction) {
+            // ignore the poison value
+            implicit_type = g->builtin_types.entry_invalid;
+        } else {
+            if (g->verbose) {
+                fprintf(stderr, "var %s = {\n", buf_ptr(var_decl->symbol));
+                ir_print(stderr, &ir_executable, 4);
+                fprintf(stderr, "}\n");
+            }
+            implicit_type = ir_analyze(g, &ir_executable, &analyzed_executable,
+                explicit_type, var_decl->type);
+            if (g->verbose) {
+                fprintf(stderr, "var %s = { // (analyzed)\n", buf_ptr(var_decl->symbol));
+                ir_print(stderr, &analyzed_executable, 4);
+                fprintf(stderr, "}\n");
+            }
+
+            if (implicit_type->id == TypeTableEntryIdUnreachable) {
+                add_node_error(g, node,
+                    buf_sprintf("variable initialization is unreachable"));
+                implicit_type = g->builtin_types.entry_invalid;
+            } else if ((!is_const || is_export) &&
+                    (implicit_type->id == TypeTableEntryIdNumLitFloat ||
+                    implicit_type->id == TypeTableEntryIdNumLitInt))
+            {
+                add_node_error(g, node, buf_sprintf("unable to infer variable type"));
+                implicit_type = g->builtin_types.entry_invalid;
+            } else if (implicit_type->id == TypeTableEntryIdMetaType && !is_const) {
+                add_node_error(g, node, buf_sprintf("variable of type 'type' must be constant"));
+                implicit_type = g->builtin_types.entry_invalid;
+            }
+            if (implicit_type->id != TypeTableEntryIdInvalid) {
+                Expr *expr = get_resolved_expr(var_decl->expr);
+                IrInstruction *result = ir_exec_const_result(&analyzed_executable);
+                if (result) {
+                    assert(result->static_value.ok);
+                    expr->const_val = result->static_value;
+                    expr->type_entry = result->type_entry;
+                } else {
+                    add_node_error(g, first_executing_node(var_decl->expr),
+                        buf_sprintf("global variable initializer requires constant expression"));
+                    implicit_type = g->builtin_types.entry_invalid;
+                }
+            }
+        }
+    } else if (!is_extern) {
+        add_node_error(g, node, buf_sprintf("variables must be initialized"));
+        implicit_type = g->builtin_types.entry_invalid;
+    }
+
+    TypeTableEntry *type = explicit_type ? explicit_type : implicit_type;
+    assert(type != nullptr); // should have been caught by the parser
+
+    VariableTableEntry *var = add_local_var(g, node, import, scope,
+            var_decl->symbol, type, is_const, var_decl->expr);
+
+    var_decl->variable = var;
+
+    g->global_vars.append(var);
+}
+
 void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only) {
     TopLevelDecl *tld = get_as_top_level_decl(node);
     if (tld->resolution != TldResolutionUnresolved) {
@@ -1705,14 +1831,8 @@ void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only) {
             resolve_struct_decl(g, import, node);
             break;
         case NodeTypeVariableDeclaration:
-            {
-                AstNodeVariableDeclaration *variable_declaration = &node->data.variable_declaration;
-                VariableTableEntry *var = analyze_variable_declaration_raw(g, import, node->block_context,
-                        node, variable_declaration, false, node, false);
-
-                g->global_vars.append(var);
-                break;
-            }
+            resolve_var_decl(g, import, node);
+            break;
         case NodeTypeTypeDecl:
             {
                 AstNode *type_node = node->data.type_decl.child_type;
@@ -3566,6 +3686,7 @@ static TypeTableEntry *analyze_bin_op_expr(CodeGen *g, ImportTableEntry *import,
 }
 
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
+// TODO merge with definition of add_local_var in ir.cpp
 static VariableTableEntry *add_local_var_shadowable(CodeGen *g, AstNode *source_node, ImportTableEntry *import,
         BlockContext *context, Buf *name, TypeTableEntry *type_entry, bool is_const, AstNode *val_node,
         bool shadowable)

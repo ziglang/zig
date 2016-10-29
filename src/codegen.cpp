@@ -2885,7 +2885,7 @@ static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrIn
     VariableTableEntry *var = instruction->var;
     if (type_has_bits(var->type)) {
         assert(var->value_ref);
-        return get_handle_value(g, var->value_ref, var->type);
+        return var->value_ref;
     } else {
         return nullptr;
     }

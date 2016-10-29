@@ -58,5 +58,6 @@ void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only);
 TopLevelDecl *get_as_top_level_decl(AstNode *node);
 void mark_impure_fn(CodeGen *g, BlockContext *context, AstNode *node);
 bool type_is_codegen_pointer(TypeTableEntry *type);
+TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry);
 
 #endif
