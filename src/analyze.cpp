@@ -192,7 +192,7 @@ static BlockContext **get_container_block_context_ptr(TypeTableEntry *type_entry
     zig_unreachable();
 }
 
-static BlockContext *get_container_block_context(TypeTableEntry *type_entry) {
+BlockContext *get_container_block_context(TypeTableEntry *type_entry) {
     return *get_container_block_context_ptr(type_entry);
 }
 
@@ -217,7 +217,7 @@ static size_t bits_needed_for_unsigned(uint64_t x) {
     }
 }
 
-static bool type_is_complete(TypeTableEntry *type_entry) {
+bool type_is_complete(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
@@ -2422,7 +2422,7 @@ VariableTableEntry *find_variable(CodeGen *g, BlockContext *orig_context, Buf *n
     return nullptr;
 }
 
-static TypeEnumField *find_enum_type_field(TypeTableEntry *enum_type, Buf *name) {
+TypeEnumField *find_enum_type_field(TypeTableEntry *enum_type, Buf *name) {
     for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
         if (buf_eql_buf(type_enum_field->name, name)) {
@@ -2493,7 +2493,7 @@ static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *imp
     return enum_type;
 }
 
-static TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name) {
+TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name) {
     assert(type_entry->id == TypeTableEntryIdStruct);
     assert(type_entry->data.structure.complete);
     for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
@@ -2539,18 +2539,18 @@ static bool is_container(TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
-static bool is_container_ref(TypeTableEntry *type_entry) {
+bool is_container_ref(TypeTableEntry *type_entry) {
     return (type_entry->id == TypeTableEntryIdPointer) ?
         is_container(type_entry->data.pointer.child_type) : is_container(type_entry);
 }
 
-static TypeTableEntry *container_ref_type(TypeTableEntry *type_entry) {
+TypeTableEntry *container_ref_type(TypeTableEntry *type_entry) {
     assert(is_container_ref(type_entry));
     return (type_entry->id == TypeTableEntryIdPointer) ?
         type_entry->data.pointer.child_type : type_entry;
 }
 
-static void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
+void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdStruct:
             resolve_struct_type(g, type_entry->data.structure.decl_node->owner, type_entry);
@@ -4034,69 +4034,6 @@ static TypeTableEntry *analyze_while_expr(CodeGen *g, ImportTableEntry *import, 
     return expr_return_type;
 }
 
-static TypeTableEntry *analyze_for_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        TypeTableEntry *expected_type, AstNode *node)
-{
-    assert(node->type == NodeTypeForExpr);
-
-    AstNode *array_node = node->data.for_expr.array_expr;
-    TypeTableEntry *array_type = analyze_expression(g, import, context, nullptr, array_node);
-    TypeTableEntry *child_type;
-    if (array_type->id == TypeTableEntryIdInvalid) {
-        child_type = array_type;
-    } else if (array_type->id == TypeTableEntryIdArray) {
-        child_type = array_type->data.array.child_type;
-    } else if (array_type->id == TypeTableEntryIdStruct &&
-               array_type->data.structure.is_slice)
-    {
-        TypeTableEntry *pointer_type = array_type->data.structure.fields[0].type_entry;
-        assert(pointer_type->id == TypeTableEntryIdPointer);
-        child_type = pointer_type->data.pointer.child_type;
-    } else {
-        add_node_error(g, node,
-            buf_sprintf("iteration over non array type '%s'", buf_ptr(&array_type->name)));
-        child_type = g->builtin_types.entry_invalid;
-    }
-
-    TypeTableEntry *var_type;
-    if (child_type->id != TypeTableEntryIdInvalid && node->data.for_expr.elem_is_ptr) {
-        var_type = get_pointer_to_type(g, child_type, false);
-    } else {
-        var_type = child_type;
-    }
-
-    BlockContext *child_context = new_block_context(node, context);
-    child_context->parent_loop_node = node;
-
-    AstNode *elem_var_node = node->data.for_expr.elem_node;
-    if (!elem_var_node) {
-        add_node_error(g, node->data.for_expr.body,
-            buf_sprintf("for loop expression missing element parameter"));
-        return g->builtin_types.entry_invalid;
-    }
-
-    elem_var_node->block_context = child_context;
-    Buf *elem_var_name = elem_var_node->data.symbol_expr.symbol;
-    node->data.for_expr.elem_var = add_local_var(g, elem_var_node, import, child_context, elem_var_name,
-            var_type, true, nullptr);
-
-    AstNode *index_var_node = node->data.for_expr.index_node;
-    if (index_var_node) {
-        Buf *index_var_name = index_var_node->data.symbol_expr.symbol;
-        index_var_node->block_context = child_context;
-        node->data.for_expr.index_var = add_local_var(g, index_var_node, import, child_context, index_var_name,
-                g->builtin_types.entry_usize, true, nullptr);
-    } else {
-        node->data.for_expr.index_var = add_local_var(g, node, import, child_context, nullptr,
-                g->builtin_types.entry_usize, true, nullptr);
-    }
-
-    analyze_expression(g, import, child_context, g->builtin_types.entry_void, node->data.for_expr.body);
-
-
-    return g->builtin_types.entry_void;
-}
-
 static TypeTableEntry *analyze_break_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         TypeTableEntry *expected_type, AstNode *node)
 {
@@ -5294,7 +5231,7 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
             return_type = analyze_while_expr(g, import, context, expected_type, node);
             break;
         case NodeTypeForExpr:
-            return_type = analyze_for_expr(g, import, context, expected_type, node);
+            zig_panic("moved to ir.cpp");
             break;
         case NodeTypeArrayType:
             return_type = analyze_array_type(g, import, context, expected_type, node);

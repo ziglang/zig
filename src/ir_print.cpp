@@ -22,6 +22,16 @@ static void ir_print_prefix(IrPrint *irp, IrInstruction *instruction) {
 }
 
 static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, ConstExprValue *const_val) {
+    switch (const_val->special) {
+        case ConstValSpecialUndef:
+            fprintf(irp->f, "undefined");
+            return;
+        case ConstValSpecialZeroes:
+            fprintf(irp->f, "zeroes");
+            return;
+        case ConstValSpecialOther:
+            break;
+    }
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
             zig_unreachable();
@@ -343,6 +353,43 @@ static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction)
     ir_print_other_instruction(irp, instruction->value);
 }
 
+static void ir_print_typeof(IrPrint *irp, IrInstructionTypeOf *instruction) {
+    fprintf(irp->f, "@typeOf(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_to_ptr_type(IrPrint *irp, IrInstructionToPtrType *instruction) {
+    fprintf(irp->f, "@toPtrType(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_ptr_type_child(IrPrint *irp, IrInstructionPtrTypeChild *instruction) {
+    fprintf(irp->f, "@ptrTypeChild(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_field_ptr(IrPrint *irp, IrInstructionFieldPtr *instruction) {
+    fprintf(irp->f, "@FieldPtr(&");
+    ir_print_other_instruction(irp, instruction->container_ptr);
+    fprintf(irp->f, ".%s", buf_ptr(instruction->field_name));
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_read_field(IrPrint *irp, IrInstructionReadField *instruction) {
+    ir_print_other_instruction(irp, instruction->container_ptr);
+    fprintf(irp->f, ".%s", buf_ptr(instruction->field_name));
+}
+
+static void ir_print_struct_field_ptr(IrPrint *irp, IrInstructionStructFieldPtr *instruction) {
+    fprintf(irp->f, "@StructFieldPtr(&");
+    ir_print_other_instruction(irp, instruction->struct_ptr);
+    fprintf(irp->f, ".%s", buf_ptr(instruction->field->name));
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -402,8 +449,25 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdStorePtr:
             ir_print_store_ptr(irp, (IrInstructionStorePtr *)instruction);
             break;
-        case IrInstructionIdSwitchBr:
+        case IrInstructionIdTypeOf:
+            ir_print_typeof(irp, (IrInstructionTypeOf *)instruction);
+            break;
+        case IrInstructionIdToPtrType:
+            ir_print_to_ptr_type(irp, (IrInstructionToPtrType *)instruction);
+            break;
+        case IrInstructionIdPtrTypeChild:
+            ir_print_ptr_type_child(irp, (IrInstructionPtrTypeChild *)instruction);
+            break;
         case IrInstructionIdFieldPtr:
+            ir_print_field_ptr(irp, (IrInstructionFieldPtr *)instruction);
+            break;
+        case IrInstructionIdReadField:
+            ir_print_read_field(irp, (IrInstructionReadField *)instruction);
+            break;
+        case IrInstructionIdStructFieldPtr:
+            ir_print_struct_field_ptr(irp, (IrInstructionStructFieldPtr *)instruction);
+            break;
+        case IrInstructionIdSwitchBr:
             zig_panic("TODO print more IR instructions");
     }
     fprintf(irp->f, "\n");

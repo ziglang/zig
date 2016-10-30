@@ -1330,6 +1330,7 @@ struct CodeGen {
     LLVMValueRef err_name_table;
 
     IrInstruction *invalid_instruction;
+    Buf *len_buf;
 };
 
 struct VariableTableEntry {
@@ -1428,6 +1429,8 @@ enum IrInstructionId {
     IrInstructionIdLoadPtr,
     IrInstructionIdStorePtr,
     IrInstructionIdFieldPtr,
+    IrInstructionIdStructFieldPtr,
+    IrInstructionIdReadField,
     IrInstructionIdElemPtr,
     IrInstructionIdVarPtr,
     IrInstructionIdCall,
@@ -1438,6 +1441,9 @@ enum IrInstructionId {
     IrInstructionIdContainerInitList,
     IrInstructionIdContainerInitFields,
     IrInstructionIdUnreachable,
+    IrInstructionIdTypeOf,
+    IrInstructionIdToPtrType,
+    IrInstructionIdPtrTypeChild,
 };
 
 struct IrInstruction {
@@ -1573,8 +1579,22 @@ struct IrInstructionStorePtr {
 struct IrInstructionFieldPtr {
     IrInstruction base;
 
+    IrInstruction *container_ptr;
+    Buf *field_name;
+};
+
+struct IrInstructionStructFieldPtr {
+    IrInstruction base;
+
     IrInstruction *struct_ptr;
-    Buf field_name;
+    TypeStructField *field;
+};
+
+struct IrInstructionReadField {
+    IrInstruction base;
+
+    IrInstruction *container_ptr;
+    Buf *field_name;
 };
 
 struct IrInstructionElemPtr {
@@ -1646,6 +1666,24 @@ struct IrInstructionContainerInitFields {
 
 struct IrInstructionUnreachable {
     IrInstruction base;
+};
+
+struct IrInstructionTypeOf {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionToPtrType {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionPtrTypeChild {
+    IrInstruction base;
+
+    IrInstruction *value;
 };
 
 enum LValPurpose {

@@ -66,6 +66,8 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->is_test_build = false;
     g->want_h_file = true;
 
+    g->len_buf = buf_create_from_str("len");
+
     // the error.Ok value
     g->error_decls.append(nullptr);
 
@@ -2940,12 +2942,29 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
 }
 
+static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executable,
+    IrInstructionStructFieldPtr *instruction)
+{
+    LLVMValueRef struct_ptr = ir_llvm_value(g, instruction->struct_ptr);
+    TypeStructField *field = instruction->field;
+
+    if (!type_has_bits(field->type_entry))
+        return nullptr;
+
+    assert(field->gen_index != SIZE_MAX);
+    return LLVMBuildStructGEP(g->builder, struct_ptr, field->gen_index, "");
+}
+
 static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {
     set_debug_source_node(g, instruction->source_node);
 
     switch (instruction->id) {
         case IrInstructionIdInvalid:
         case IrInstructionIdConst:
+        case IrInstructionIdTypeOf:
+        case IrInstructionIdToPtrType:
+        case IrInstructionIdPtrTypeChild:
+        case IrInstructionIdFieldPtr:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -2973,12 +2992,14 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_elem_ptr(g, executable, (IrInstructionElemPtr *)instruction);
         case IrInstructionIdCall:
             return ir_render_call(g, executable, (IrInstructionCall *)instruction);
+        case IrInstructionIdStructFieldPtr:
+            return ir_render_struct_field_ptr(g, executable, (IrInstructionStructFieldPtr *)instruction);
         case IrInstructionIdSwitchBr:
         case IrInstructionIdPhi:
         case IrInstructionIdBuiltinCall:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
-        case IrInstructionIdFieldPtr:
+        case IrInstructionIdReadField:
             zig_panic("TODO render more IR instructions to LLVM");
     }
     zig_unreachable();
@@ -3282,89 +3303,6 @@ static LLVMValueRef gen_while_expr(CodeGen *g, AstNode *node) {
     }
 
     return nullptr;
-}
-
-static LLVMValueRef gen_for_expr(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeForExpr);
-    assert(node->data.for_expr.array_expr);
-    assert(node->data.for_expr.body);
-
-    zig_panic("TODO IR for loop");
-    //VariableTableEntry *elem_var = node->data.for_expr.elem_var;
-    //assert(elem_var);
-
-    //TypeTableEntry *array_type = get_expr_type(node->data.for_expr.array_expr);
-
-    //VariableTableEntry *index_var = node->data.for_expr.index_var;
-    //assert(index_var);
-    //LLVMValueRef index_ptr = index_var->value_ref;
-    //LLVMValueRef one_const = LLVMConstInt(g->builtin_types.entry_usize->type_ref, 1, false);
-
-    //LLVMBasicBlockRef cond_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForCond");
-    //LLVMBasicBlockRef body_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForBody");
-    //LLVMBasicBlockRef end_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForEnd");
-    //LLVMBasicBlockRef continue_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "ForContinue");
-
-    //LLVMValueRef array_val = gen_array_base_ptr(g, node->data.for_expr.array_expr);
-    //set_debug_source_node(g, node);
-    //LLVMBuildStore(g->builder, LLVMConstNull(index_var->type->type_ref), index_ptr);
-
-    //gen_var_debug_decl(g, index_var);
-
-    //LLVMValueRef len_val;
-    //TypeTableEntry *child_type;
-    //if (array_type->id == TypeTableEntryIdArray) {
-    //    len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
-    //            array_type->data.array.len, false);
-    //    child_type = array_type->data.array.child_type;
-    //} else if (array_type->id == TypeTableEntryIdStruct) {
-    //    assert(array_type->data.structure.is_slice);
-    //    TypeTableEntry *child_ptr_type = array_type->data.structure.fields[0].type_entry;
-    //    assert(child_ptr_type->id == TypeTableEntryIdPointer);
-    //    child_type = child_ptr_type->data.pointer.child_type;
-    //    size_t len_index = array_type->data.structure.fields[1].gen_index;
-    //    assert(len_index != SIZE_MAX);
-    //    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, array_val, len_index, "");
-    //    len_val = LLVMBuildLoad(g->builder, len_field_ptr, "");
-    //} else {
-    //    zig_unreachable();
-    //}
-    //LLVMBuildBr(g->builder, cond_block);
-
-    //LLVMPositionBuilderAtEnd(g->builder, cond_block);
-    //LLVMValueRef index_val = LLVMBuildLoad(g->builder, index_ptr, "");
-    //LLVMValueRef cond = LLVMBuildICmp(g->builder, LLVMIntSLT, index_val, len_val, "");
-    //LLVMBuildCondBr(g->builder, cond, body_block, end_block);
-
-    //LLVMPositionBuilderAtEnd(g->builder, body_block);
-    //LLVMValueRef elem_ptr = gen_array_elem_ptr(g, node, array_val, array_type, index_val);
-
-    //LLVMValueRef elem_val;
-    //if (node->data.for_expr.elem_is_ptr) {
-    //    elem_val = elem_ptr;
-    //} else {
-    //    elem_val = handle_is_ptr(child_type) ? elem_ptr : LLVMBuildLoad(g->builder, elem_ptr, "");
-    //}
-    //gen_assign_raw(g, node, BinOpTypeAssign, elem_var->value_ref, elem_val, elem_var->type, child_type);
-    //gen_var_debug_decl(g, elem_var);
-    //g->break_block_stack.append(end_block);
-    //g->continue_block_stack.append(continue_block);
-    //gen_expr(g, node->data.for_expr.body);
-    //g->break_block_stack.pop();
-    //g->continue_block_stack.pop();
-    //if (get_expr_type(node->data.for_expr.body)->id != TypeTableEntryIdUnreachable) {
-    //    set_debug_source_node(g, node);
-    //    LLVMBuildBr(g->builder, continue_block);
-    //}
-
-    //LLVMPositionBuilderAtEnd(g->builder, continue_block);
-    //set_debug_source_node(g, node);
-    //LLVMValueRef new_index_val = LLVMBuildNSWAdd(g->builder, index_val, one_const, "");
-    //LLVMBuildStore(g->builder, new_index_val, index_ptr);
-    //LLVMBuildBr(g->builder, cond_block);
-
-    //LLVMPositionBuilderAtEnd(g->builder, end_block);
-    //return nullptr;
 }
 
 //static LLVMValueRef gen_break(CodeGen *g, AstNode *node) {
@@ -3773,7 +3711,7 @@ static LLVMValueRef gen_expr(CodeGen *g, AstNode *node) {
         case NodeTypeWhileExpr:
             return gen_while_expr(g, node);
         case NodeTypeForExpr:
-            return gen_for_expr(g, node);
+            zig_panic("moved to ir render");
         case NodeTypeAsmExpr:
             return gen_asm_expr(g, node);
         case NodeTypeSymbol:

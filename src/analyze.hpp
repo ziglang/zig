@@ -50,7 +50,7 @@ TypeTableEntry *resolve_peer_type_compatibility(CodeGen *g, ImportTableEntry *im
         AstNode **child_nodes, TypeTableEntry **child_types, size_t child_count);
 
 
-
+// TODO move these over, these used to be static
 bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type);
 VariableTableEntry *find_variable(CodeGen *g, BlockContext *orig_context, Buf *name);
 AstNode *find_decl(BlockContext *context, Buf *name);
@@ -59,5 +59,12 @@ TopLevelDecl *get_as_top_level_decl(AstNode *node);
 void mark_impure_fn(CodeGen *g, BlockContext *context, AstNode *node);
 bool type_is_codegen_pointer(TypeTableEntry *type);
 TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry);
+TypeTableEntry *container_ref_type(TypeTableEntry *type_entry);
+bool type_is_complete(TypeTableEntry *type_entry);
+void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry);
+TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name);
+BlockContext *get_container_block_context(TypeTableEntry *type_entry);
+TypeEnumField *find_enum_type_field(TypeTableEntry *enum_type, Buf *name);
+bool is_container_ref(TypeTableEntry *type_entry);
 
 #endif
