@@ -2871,16 +2871,6 @@ static TypeTableEntry *resolve_expr_const_val_as_type(CodeGen *g, AstNode *node,
     return g->builtin_types.entry_type;
 }
 
-static TypeTableEntry *resolve_expr_const_val_as_block(CodeGen *g, AstNode *node, BlockContext *block_context,
-        bool depends_on_compile_var)
-{
-    Expr *expr = get_resolved_expr(node);
-    expr->const_val.ok = true;
-    expr->const_val.data.x_block = block_context;
-    expr->const_val.depends_on_compile_var = depends_on_compile_var;
-    return g->builtin_types.entry_block;
-}
-
 static TypeTableEntry *resolve_expr_const_val_as_other_expr(CodeGen *g, AstNode *node, AstNode *other,
         bool depends_on_compile_var)
 {
@@ -2997,13 +2987,6 @@ static TypeTableEntry *resolve_expr_const_val_as_unsigned_num_lit(CodeGen *g, As
     bignum_init_unsigned(&expr->const_val.data.x_bignum, x);
 
     return g->builtin_types.entry_num_lit_int;
-}
-
-static TypeTableEntry *resolve_expr_const_val_as_import(CodeGen *g, AstNode *node, ImportTableEntry *import) {
-    Expr *expr = get_resolved_expr(node);
-    expr->const_val.ok = true;
-    expr->const_val.data.x_import = import;
-    return g->builtin_types.entry_namespace;
 }
 
 static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
@@ -3903,26 +3886,6 @@ static TypeTableEntry *analyze_zeroes_literal_expr(CodeGen *g, ImportTableEntry 
     const_val->special = ConstValSpecialZeroes;
 
     return expected_type ? expected_type : g->builtin_types.entry_undef;
-}
-
-static TypeTableEntry *analyze_this_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        TypeTableEntry *expected_type, AstNode *node)
-{
-    if (!context->parent) {
-        return resolve_expr_const_val_as_import(g, node, import);
-    }
-    if (context->fn_entry && (!context->parent->fn_entry ||
-        (context->parent->parent && !context->parent->parent->fn_entry)))
-    {
-        return resolve_expr_const_val_as_fn(g, node, context->fn_entry, false);
-    }
-    if (context->node->type == NodeTypeContainerDecl) {
-        return resolve_expr_const_val_as_type(g, node, context->node->data.struct_decl.type_entry, false);
-    }
-    if (context->node->type == NodeTypeBlock) {
-        return resolve_expr_const_val_as_block(g, node, context, false);
-    }
-    zig_unreachable();
 }
 
 static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry *import,
@@ -5202,7 +5165,7 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
                     node->data.char_literal.value, false);
             break;
         case NodeTypeBoolLiteral:
-            return_type = resolve_expr_const_val_as_bool(g, node, node->data.bool_literal.value, false);
+            zig_panic("moved to ir.cpp");
             break;
         case NodeTypeNullLiteral:
             return_type = analyze_null_literal_expr(g, import, context, expected_type, node);
@@ -5214,7 +5177,7 @@ static TypeTableEntry *analyze_expression_pointer_only(CodeGen *g, ImportTableEn
             return_type = analyze_zeroes_literal_expr(g, import, context, expected_type, node);
             break;
         case NodeTypeThisLiteral:
-            return_type = analyze_this_literal_expr(g, import, context, expected_type, node);
+            zig_panic("moved to ir.cpp");
             break;
         case NodeTypeSymbol:
             return_type = analyze_symbol_expr(g, import, context, expected_type, node, pointer_only);

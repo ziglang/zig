@@ -335,6 +335,30 @@ static IrInstruction *ir_build_const_generic_fn(IrBuilder *irb, AstNode *source_
     return &const_instruction->base;
 }
 
+static IrInstruction *ir_build_const_import(IrBuilder *irb, AstNode *source_node, ImportTableEntry *import) {
+    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, source_node);
+    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_namespace;
+    const_instruction->base.static_value.ok = true;
+    const_instruction->base.static_value.data.x_import = import;
+    return &const_instruction->base;
+}
+
+static IrInstruction *ir_build_const_scope(IrBuilder *irb, AstNode *source_node, BlockContext *scope) {
+    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, source_node);
+    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_block;
+    const_instruction->base.static_value.ok = true;
+    const_instruction->base.static_value.data.x_block = scope;
+    return &const_instruction->base;
+}
+
+static IrInstruction *ir_build_const_bool(IrBuilder *irb, AstNode *source_node, bool value) {
+    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, source_node);
+    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_block;
+    const_instruction->base.static_value.ok = true;
+    const_instruction->base.static_value.data.x_bool = value;
+    return &const_instruction->base;
+}
+
 static IrInstruction *ir_build_bin_op(IrBuilder *irb, AstNode *source_node, IrBinOp op_id,
         IrInstruction *op1, IrInstruction *op2)
 {
@@ -1493,6 +1517,37 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, AstNode *node) {
 
 }
 
+static IrInstruction *ir_gen_this_literal(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeThisLiteral);
+
+    BlockContext *scope = node->block_context;
+
+    if (!scope->parent)
+        return ir_build_const_import(irb, node, node->owner);
+
+    if (scope->fn_entry && (!scope->parent->fn_entry ||
+        (scope->parent->parent && !scope->parent->parent->fn_entry)))
+    {
+        return ir_build_const_fn(irb, node, scope->fn_entry);
+    }
+
+    if (scope->node->type == NodeTypeContainerDecl) {
+        TypeTableEntry *container_type = scope->node->data.struct_decl.type_entry;
+        assert(container_type);
+        return ir_build_const_type(irb, node, container_type);
+    }
+
+    if (scope->node->type == NodeTypeBlock)
+        return ir_build_const_scope(irb, node, scope);
+
+    zig_unreachable();
+}
+
+static IrInstruction *ir_gen_bool_literal(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeBoolLiteral);
+    return ir_build_const_bool(irb, node, node->data.bool_literal.value);
+}
+
 static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockContext *block_context,
         LValPurpose lval)
 {
@@ -1528,6 +1583,10 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
             return ir_gen_return(irb, node);
         case NodeTypeFieldAccessExpr:
             return ir_gen_field_access(irb, node, lval);
+        case NodeTypeThisLiteral:
+            return ir_gen_this_literal(irb, node);
+        case NodeTypeBoolLiteral:
+            return ir_gen_bool_literal(irb, node);
         case NodeTypeUnwrapErrorExpr:
         case NodeTypeDefer:
         case NodeTypeSliceExpr:
@@ -1538,13 +1597,11 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
         case NodeTypeContinue:
         case NodeTypeLabel:
         case NodeTypeSwitchExpr:
-        case NodeTypeBoolLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
         case NodeTypeZeroesLiteral:
-        case NodeTypeThisLiteral:
         case NodeTypeErrorType:
         case NodeTypeTypeLiteral:
         case NodeTypeArrayType:
