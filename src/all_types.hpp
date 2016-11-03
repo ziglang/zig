@@ -301,6 +301,7 @@ struct AstNodeVariableDeclaration {
     TopLevelDecl top_level_decl;
     Buf *symbol;
     bool is_const;
+    bool is_inline;
     bool is_extern;
     // one or both of type and expr will be non null
     AstNode *type;
@@ -522,6 +523,7 @@ struct AstNodeWhileExpr {
     AstNode *condition;
     AstNode *continue_expr;
     AstNode *body;
+    bool is_inline;
 
     // populated by semantic analyzer
     bool condition_always_true;
@@ -536,6 +538,7 @@ struct AstNodeForExpr {
     AstNode *index_node; // always a symbol, might be null
     AstNode *body;
     bool elem_is_ptr;
+    bool is_inline;
 
     // populated by semantic analyzer
     bool contains_break;
@@ -1337,7 +1340,9 @@ struct VariableTableEntry {
     Buf name;
     TypeTableEntry *type;
     LLVMValueRef value_ref;
-    bool is_const;
+    bool src_is_const;
+    bool gen_is_const;
+    bool is_inline;
     // which node is the declaration of the variable
     AstNode *decl_node;
     // which node contains the ConstExprValue for this variable's value
@@ -1457,6 +1462,10 @@ struct IrInstruction {
     size_t ref_count;
     IrInstruction *other;
     ReturnKnowledge return_knowledge;
+    // if this is true, this instruction should not cause compile errors.
+    // for example, we can write to a variable with src_is_const true but
+    // gen_is_const false.
+    bool gen_only;
 };
 
 struct IrInstructionCondBr {
@@ -1465,12 +1474,14 @@ struct IrInstructionCondBr {
     IrInstruction *condition;
     IrBasicBlock *then_block;
     IrBasicBlock *else_block;
+    bool is_inline;
 };
 
 struct IrInstructionBr {
     IrInstruction base;
 
     IrBasicBlock *dest_block;
+    bool is_inline;
 };
 
 struct IrInstructionSwitchBrCase {
@@ -1485,6 +1496,7 @@ struct IrInstructionSwitchBr {
     IrBasicBlock *else_block;
     size_t case_count;
     IrInstructionSwitchBrCase *cases;
+    bool is_inline;
 };
 
 struct IrInstructionPhi {

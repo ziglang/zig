@@ -200,6 +200,7 @@ static T *ir_create_instruction(IrExecutable *exec, AstNode *source_node) {
 
 template<typename T>
 static T *ir_build_instruction(IrBuilder *irb, AstNode *source_node) {
+    assert(source_node);
     T *special_instruction = ir_create_instruction<T>(irb->exec, source_node);
     ir_instruction_append(irb->current_basic_block, &special_instruction->base);
     return special_instruction;
@@ -220,7 +221,7 @@ static IrInstruction *ir_build_cast(IrBuilder *irb, AstNode *source_node, IrInst
 }
 
 static IrInstruction *ir_build_cond_br(IrBuilder *irb, AstNode *source_node, IrInstruction *condition,
-        IrBasicBlock *then_block, IrBasicBlock *else_block)
+        IrBasicBlock *then_block, IrBasicBlock *else_block, bool is_inline)
 {
     IrInstructionCondBr *cond_br_instruction = ir_build_instruction<IrInstructionCondBr>(irb, source_node);
     cond_br_instruction->base.type_entry = irb->codegen->builtin_types.entry_unreachable;
@@ -228,6 +229,7 @@ static IrInstruction *ir_build_cond_br(IrBuilder *irb, AstNode *source_node, IrI
     cond_br_instruction->condition = condition;
     cond_br_instruction->then_block = then_block;
     cond_br_instruction->else_block = else_block;
+    cond_br_instruction->is_inline = is_inline;
 
     ir_ref_instruction(condition);
     ir_ref_bb(then_block);
@@ -237,10 +239,10 @@ static IrInstruction *ir_build_cond_br(IrBuilder *irb, AstNode *source_node, IrI
 }
 
 static IrInstruction *ir_build_cond_br_from(IrBuilder *irb, IrInstruction *old_instruction,
-        IrInstruction *condition, IrBasicBlock *then_block, IrBasicBlock *else_block)
+        IrInstruction *condition, IrBasicBlock *then_block, IrBasicBlock *else_block, bool is_inline)
 {
     IrInstruction *new_instruction = ir_build_cond_br(irb, old_instruction->source_node,
-            condition, then_block, else_block);
+            condition, then_block, else_block, is_inline);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -517,22 +519,23 @@ static IrInstruction *ir_build_phi_from(IrBuilder *irb, IrInstruction *old_instr
     return new_instruction;
 }
 
-static IrInstruction *ir_build_br(IrBuilder *irb, AstNode *source_node, IrBasicBlock *dest_block) {
+static IrInstruction *ir_build_br(IrBuilder *irb, AstNode *source_node, IrBasicBlock *dest_block, bool is_inline) {
     IrInstructionBr *br_instruction = ir_build_instruction<IrInstructionBr>(irb, source_node);
     br_instruction->base.type_entry = irb->codegen->builtin_types.entry_unreachable;
     br_instruction->base.static_value.ok = true;
     br_instruction->dest_block = dest_block;
+    br_instruction->is_inline = is_inline;
 
     ir_ref_bb(dest_block);
 
     return &br_instruction->base;
 }
 
-//static IrInstruction *ir_build_br_from(IrBuilder *irb, IrInstruction *old_instruction, IrBasicBlock *dest_block) {
-//    IrInstruction *new_instruction = ir_build_br(irb, old_instruction->source_node, dest_block);
-//    ir_link_new_instruction(new_instruction, old_instruction);
-//    return new_instruction;
-//}
+static IrInstruction *ir_build_br_from(IrBuilder *irb, IrInstruction *old_instruction, IrBasicBlock *dest_block) {
+    IrInstruction *new_instruction = ir_build_br(irb, old_instruction->source_node, dest_block, false);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
 
 static IrInstruction *ir_build_un_op(IrBuilder *irb, AstNode *source_node, IrUnOp op_id, IrInstruction *value) {
     IrInstructionUnOp *br_instruction = ir_build_instruction<IrInstructionUnOp>(irb, source_node);
@@ -634,7 +637,7 @@ static IrInstruction *ir_build_var_decl(IrBuilder *irb, AstNode *source_node,
     decl_var_instruction->var_type = var_type;
     decl_var_instruction->init_value = init_value;
 
-    ir_ref_instruction(var_type);
+    if (var_type) ir_ref_instruction(var_type);
     ir_ref_instruction(init_value);
 
     return &decl_var_instruction->base;
@@ -775,13 +778,14 @@ static void ir_set_cursor_at_end(IrBuilder *irb, IrBasicBlock *basic_block) {
 }
 
 static VariableTableEntry *add_local_var(CodeGen *codegen, AstNode *node, BlockContext *scope,
-        Buf *name, bool is_const, bool is_shadowable)
+        Buf *name, bool src_is_const, bool gen_is_const, bool is_shadowable, bool is_inline)
 {
     VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
     variable_entry->block_context = scope;
     variable_entry->import = node->owner;
     variable_entry->shadowable = is_shadowable;
     variable_entry->mem_slot_index = SIZE_MAX;
+    variable_entry->is_inline = is_inline;
 
     if (name) {
         buf_init_from_buf(&variable_entry->name, name);
@@ -817,7 +821,8 @@ static VariableTableEntry *add_local_var(CodeGen *codegen, AstNode *node, BlockC
         buf_init_from_str(&variable_entry->name, "_anon");
     }
 
-    variable_entry->is_const = is_const;
+    variable_entry->src_is_const = src_is_const;
+    variable_entry->gen_is_const = gen_is_const;
     variable_entry->decl_node = node;
 
     return variable_entry;
@@ -825,10 +830,12 @@ static VariableTableEntry *add_local_var(CodeGen *codegen, AstNode *node, BlockC
 
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 static VariableTableEntry *ir_add_local_var(IrBuilder *irb, AstNode *node, BlockContext *scope, Buf *name,
-        bool is_const, bool is_shadowable)
+        bool src_is_const, bool gen_is_const, bool is_shadowable, bool is_inline)
 {
-    VariableTableEntry *var = add_local_var(irb->codegen, node, scope, name, is_const, is_shadowable);
-    var->mem_slot_index = exec_next_mem_slot(irb->exec);
+    VariableTableEntry *var = add_local_var(irb->codegen, node, scope, name,
+            src_is_const, gen_is_const, is_shadowable, is_inline);
+    if (is_inline || gen_is_const)
+        var->mem_slot_index = exec_next_mem_slot(irb->exec);
     return var;
 }
 
@@ -1189,14 +1196,14 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, AstNode *node) {
     IrBasicBlock *else_block = ir_build_basic_block(irb, "Else");
     IrBasicBlock *endif_block = ir_build_basic_block(irb, "EndIf");
 
-    ir_build_cond_br(irb, condition->source_node, condition, then_block, else_block);
+    ir_build_cond_br(irb, condition->source_node, condition, then_block, else_block, false);
 
     ir_set_cursor_at_end(irb, then_block);
     IrInstruction *then_expr_result = ir_gen_node(irb, then_node, node->block_context);
     if (then_expr_result == irb->codegen->invalid_instruction)
         return then_expr_result;
     IrBasicBlock *after_then_block = irb->current_basic_block;
-    ir_build_br(irb, node, endif_block);
+    ir_build_br(irb, node, endif_block, false);
 
     ir_set_cursor_at_end(irb, else_block);
     IrInstruction *else_expr_result;
@@ -1208,7 +1215,7 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, AstNode *node) {
         else_expr_result = ir_build_const_void(irb, node);
     }
     IrBasicBlock *after_else_block = irb->current_basic_block;
-    ir_build_br(irb, node, endif_block);
+    ir_build_br(irb, node, endif_block, false);
 
     ir_set_cursor_at_end(irb, endif_block);
     IrInstruction **incoming_values = allocate<IrInstruction *>(2);
@@ -1333,8 +1340,9 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, AstNode *node) {
     bool is_shadowable = false;
     bool is_const = variable_declaration->is_const;
     bool is_extern = variable_declaration->is_extern;
+    bool is_inline = variable_declaration->is_inline;
     VariableTableEntry *var = ir_add_local_var(irb, node, node->block_context,
-            variable_declaration->symbol, is_const, is_shadowable);
+            variable_declaration->symbol, is_const, is_const, is_shadowable, is_inline);
 
     if (!is_extern && !variable_declaration->expr) {
         var->type = irb->codegen->builtin_types.entry_invalid;
@@ -1356,18 +1364,18 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, AstNode *node) {
         ir_build_basic_block(irb, "WhileContinue") : cond_block;
     IrBasicBlock *end_block = ir_build_basic_block(irb, "WhileEnd");
 
-    ir_build_br(irb, node, cond_block);
+    bool is_inline = node->data.while_expr.is_inline;
+    ir_build_br(irb, node, cond_block, is_inline);
 
     if (continue_expr_node) {
         ir_set_cursor_at_end(irb, continue_block);
         ir_gen_node(irb, continue_expr_node, node->block_context);
-        ir_build_br(irb, node, cond_block);
-
+        ir_build_br(irb, node, cond_block, is_inline);
     }
 
     ir_set_cursor_at_end(irb, cond_block);
     IrInstruction *cond_val = ir_gen_node(irb, node->data.while_expr.condition, node->block_context);
-    ir_build_cond_br(irb, node->data.while_expr.condition, cond_val, body_block, end_block);
+    ir_build_cond_br(irb, node->data.while_expr.condition, cond_val, body_block, end_block, is_inline);
 
     ir_set_cursor_at_end(irb, body_block);
 
@@ -1377,7 +1385,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, AstNode *node) {
     irb->break_block_stack.pop();
     irb->continue_block_stack.pop();
 
-    ir_build_br(irb, node, continue_block);
+    ir_build_br(irb, node, continue_block, is_inline);
     ir_set_cursor_at_end(irb, end_block);
 
     return ir_build_const_void(irb, node);
@@ -1411,30 +1419,36 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, AstNode *node) {
     } else {
         elem_var_type = ir_build_ptr_type_child(irb, elem_node, pointer_type);
     }
+    bool is_inline = node->data.for_expr.is_inline;
 
     BlockContext *child_scope = new_block_context(node, parent_scope);
     child_scope->parent_loop_node = node;
     elem_node->block_context = child_scope;
 
     // TODO make it an error to write to element variable or i variable.
-
     Buf *elem_var_name = elem_node->data.symbol_expr.symbol;
-    node->data.for_expr.elem_var = ir_add_local_var(irb, elem_node, child_scope, elem_var_name, false, false);
+    node->data.for_expr.elem_var = ir_add_local_var(irb, elem_node, child_scope, elem_var_name,
+            true, false, false, is_inline);
     IrInstruction *undefined_value = ir_build_const_undefined(irb, elem_node);
     ir_build_var_decl(irb, elem_node, node->data.for_expr.elem_var, elem_var_type, undefined_value); 
     IrInstruction *elem_var_ptr = ir_build_var_ptr(irb, node, node->data.for_expr.elem_var);
 
+    AstNode *index_var_source_node;
     if (index_node) {
+        index_var_source_node = index_node;
         Buf *index_var_name = index_node->data.symbol_expr.symbol;
         index_node->block_context = child_scope;
-        node->data.for_expr.index_var = ir_add_local_var(irb, index_node, child_scope, index_var_name, false, false);
+        node->data.for_expr.index_var = ir_add_local_var(irb, index_node, child_scope, index_var_name,
+                true, false, false, is_inline);
     } else {
-        node->data.for_expr.index_var = ir_add_local_var(irb, node, child_scope, nullptr, false, true);
+        index_var_source_node = node;
+        node->data.for_expr.index_var = ir_add_local_var(irb, node, child_scope, nullptr,
+                true, false, true, is_inline);
     }
     IrInstruction *usize = ir_build_const_type(irb, node, irb->codegen->builtin_types.entry_usize);
     IrInstruction *zero = ir_build_const_usize(irb, node, 0);
     IrInstruction *one = ir_build_const_usize(irb, node, 1);
-    ir_build_var_decl(irb, index_node, node->data.for_expr.index_var, usize, zero); 
+    ir_build_var_decl(irb, index_var_source_node, node->data.for_expr.index_var, usize, zero); 
     IrInstruction *index_ptr = ir_build_var_ptr(irb, node, node->data.for_expr.index_var);
 
 
@@ -1444,12 +1458,12 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, AstNode *node) {
     IrBasicBlock *continue_block = ir_build_basic_block(irb, "ForContinue");
 
     IrInstruction *len_val = ir_build_read_field(irb, node, array_val, irb->codegen->len_buf);
-    ir_build_br(irb, node, cond_block);
+    ir_build_br(irb, node, cond_block, is_inline);
 
     ir_set_cursor_at_end(irb, cond_block);
     IrInstruction *index_val = ir_build_load_ptr(irb, node, index_ptr);
     IrInstruction *cond = ir_build_bin_op(irb, node, IrBinOpCmpLessThan, index_val, len_val);
-    ir_build_cond_br(irb, node, cond, body_block, end_block);
+    ir_build_cond_br(irb, node, cond, body_block, end_block, is_inline);
 
     ir_set_cursor_at_end(irb, body_block);
     IrInstruction *elem_ptr = ir_build_elem_ptr(irb, node, array_val, index_val);
@@ -1467,12 +1481,12 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, AstNode *node) {
     irb->break_block_stack.pop();
     irb->continue_block_stack.pop();
 
-    ir_build_br(irb, node, continue_block);
+    ir_build_br(irb, node, continue_block, is_inline);
 
     ir_set_cursor_at_end(irb, continue_block);
     IrInstruction *new_index_val = ir_build_bin_op(irb, node, IrBinOpAdd, index_val, one);
     ir_build_store_ptr(irb, node, index_ptr, new_index_val);
-    ir_build_br(irb, node, cond_block);
+    ir_build_br(irb, node, cond_block, is_inline);
 
     ir_set_cursor_at_end(irb, end_block);
     return ir_build_const_void(irb, node);
@@ -1911,23 +1925,41 @@ static void ir_inline_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
 }
 
 
-static ConstExprValue *ir_get_out_val(IrInstruction *instruction) {
-    instruction->other = instruction;
-    return &instruction->static_value;
+static ConstExprValue *ir_build_const_from(IrAnalyze *ira, IrInstruction *old_instruction,
+        bool depends_on_compile_var)
+{
+    IrInstruction *new_instruction;
+    if (old_instruction->id == IrInstructionIdVarPtr) {
+        IrInstructionVarPtr *old_var_ptr_instruction = (IrInstructionVarPtr *)old_instruction;
+        IrInstructionVarPtr *var_ptr_instruction = ir_create_instruction<IrInstructionVarPtr>(ira->new_irb.exec,
+                old_instruction->source_node);
+        var_ptr_instruction->var = old_var_ptr_instruction->var;
+        new_instruction = &var_ptr_instruction->base;
+    } else if (old_instruction->id == IrInstructionIdFieldPtr) {
+        zig_panic("TODO");
+    } else if (old_instruction->id == IrInstructionIdElemPtr) {
+        zig_panic("TODO");
+    } else {
+        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
+                old_instruction->source_node);
+        new_instruction = &const_instruction->base;
+    }
+    ir_link_new_instruction(new_instruction, old_instruction);
+    ConstExprValue *const_val = &new_instruction->static_value;
+    const_val->ok = true;
+    const_val->depends_on_compile_var = depends_on_compile_var;
+    return const_val;
 }
 
 static TypeTableEntry *ir_analyze_void(IrAnalyze *ira, IrInstruction *instruction) {
-    ConstExprValue *const_val = ir_get_out_val(instruction);
-    const_val->ok = true;
+    ir_build_const_from(ira, instruction, false);
     return ira->codegen->builtin_types.entry_void;
 }
 
 static TypeTableEntry *ir_analyze_const_usize(IrAnalyze *ira, IrInstruction *instruction, uint64_t value,
     bool depends_on_compile_var)
 {
-    ConstExprValue *const_val = ir_get_out_val(instruction);
-    const_val->ok = true;
-    const_val->depends_on_compile_var = depends_on_compile_var;
+    ConstExprValue *const_val = ir_build_const_from(ira, instruction, depends_on_compile_var);
     bignum_init_unsigned(&const_val->data.x_bignum, value);
     return ira->codegen->builtin_types.entry_usize;
 }
@@ -2295,7 +2327,8 @@ static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp
     ConstExprValue *op1_val = &casted_op1->static_value;
     ConstExprValue *op2_val = &casted_op2->static_value;
     if (op1_val->ok && op2_val->ok) {
-        ConstExprValue *out_val = ir_get_out_val(&bin_op_instruction->base);
+        bool depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
+        ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base, depends_on_compile_var);
 
         assert(op1->type_entry->id == TypeTableEntryIdBool);
         assert(op2->type_entry->id == TypeTableEntryIdBool);
@@ -2306,14 +2339,10 @@ static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp
         } else {
             zig_unreachable();
         }
-        out_val->ok = true;
-        out_val->depends_on_compile_var = op1_val->depends_on_compile_var ||
-            op2_val->depends_on_compile_var;
         return bool_type;
     }
 
     ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, bin_op_instruction->op_id, op1->other, op2->other);
-
     return bool_type;
 }
 
@@ -2425,9 +2454,8 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             }
         }
 
-        ConstExprValue *out_val = ir_get_out_val(&bin_op_instruction->base);
-        out_val->ok = true;
-        out_val->depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
+        bool depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
+        ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base, depends_on_compile_var);
         out_val->data.x_bool = answer;
         return ira->codegen->builtin_types.entry_bool;
     }
@@ -4108,12 +4136,15 @@ static TypeTableEntry *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr
 
     // TODO detect backward jumps
 
-    ir_inline_bb(ira, old_dest_block);
-    return ira->codegen->builtin_types.entry_unreachable;
+    if (br_instruction->is_inline || old_dest_block->ref_count == 1) {
+        ir_inline_bb(ira, old_dest_block);
+        return ira->codegen->builtin_types.entry_unreachable;
+    }
 
-    //IrBasicBlock *new_bb = ir_get_new_bb(ira, old_dest_block);
-    //ir_build_br_from(&ira->new_irb, &br_instruction->base, new_bb);
-    //return ira->codegen->builtin_types.entry_unreachable;
+    IrBasicBlock *new_bb = ir_get_new_bb(ira, old_dest_block);
+    ir_build_br_from(&ira->new_irb, &br_instruction->base, new_bb);
+    ir_finish_bb(ira);
+    return ira->codegen->builtin_types.entry_unreachable;
 }
 
 static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructionCondBr *cond_br_instruction) {
@@ -4129,13 +4160,20 @@ static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstruct
         IrBasicBlock *old_dest_block = condition->static_value.data.x_bool ?
             cond_br_instruction->then_block : cond_br_instruction->else_block;
 
-        ir_inline_bb(ira, old_dest_block);
+        if (cond_br_instruction->is_inline || old_dest_block->ref_count == 1) {
+            ir_inline_bb(ira, old_dest_block);
+            return ira->codegen->builtin_types.entry_unreachable;
+        }
+    } else if (cond_br_instruction->is_inline) {
+        add_node_error(ira->codegen, condition->source_node,
+                buf_sprintf("unable to evaluate constant expression"));
+        ir_finish_bb(ira);
         return ira->codegen->builtin_types.entry_unreachable;
     }
 
     IrBasicBlock *new_then_block = ir_get_new_bb(ira, cond_br_instruction->then_block);
     IrBasicBlock *new_else_block = ir_get_new_bb(ira, cond_br_instruction->else_block);
-    ir_build_cond_br_from(&ira->new_irb, &cond_br_instruction->base, condition, new_then_block, new_else_block);
+    ir_build_cond_br_from(&ira->new_irb, &cond_br_instruction->base, condition, new_then_block, new_else_block, false);
     ir_finish_bb(ira);
     return ira->codegen->builtin_types.entry_unreachable;
 }
@@ -4206,7 +4244,8 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
             IrInstruction *value = phi_instruction->incoming_values[i]->other;
             assert(value->type_entry);
             if (value->static_value.ok) {
-                ConstExprValue *out_val = ir_get_out_val(&phi_instruction->base);
+                ConstExprValue *out_val = ir_build_const_from(ira, &phi_instruction->base,
+                        value->static_value.depends_on_compile_var);
                 *out_val = value->static_value;
             } else {
                 phi_instruction->base.other = value;
@@ -4259,9 +4298,9 @@ static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstruct
     if (var->mem_slot_index != SIZE_MAX) {
         ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
         if (mem_slot->ok) {
-            ConstExprValue *out_val = ir_get_out_val(&var_ptr_instruction->base);
+            ConstExprValue *out_val = ir_build_const_from(ira, &var_ptr_instruction->base,
+                    mem_slot->depends_on_compile_var);
 
-            out_val->ok = true;
             out_val->data.x_ptr.len = 1;
             out_val->data.x_ptr.is_c_str = false;
             out_val->data.x_ptr.ptr = allocate<ConstExprValue *>(1);
@@ -4477,7 +4516,8 @@ static TypeTableEntry *ir_analyze_instruction_load_ptr(IrAnalyze *ira, IrInstruc
         if (ptr->static_value.ok) {
             ConstExprValue *pointee = ptr->static_value.data.x_ptr.ptr[0];
             if (pointee->ok) {
-                ConstExprValue *out_val = ir_get_out_val(&load_ptr_instruction->base);
+                ConstExprValue *out_val = ir_build_const_from(ira, &load_ptr_instruction->base,
+                        pointee->depends_on_compile_var);
                 *out_val = *pointee;
                 return child_type;
             }
@@ -4576,8 +4616,7 @@ static TypeTableEntry *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdFn:
         case TypeTableEntryIdTypeDecl:
             {
-                ConstExprValue *out_val = ir_get_out_val(&typeof_instruction->base);
-                out_val->ok = true;
+                ConstExprValue *out_val = ir_build_const_from(ira, &typeof_instruction->base, false);
                 // TODO depends_on_compile_var should be set based on whether the type of the expression 
                 // depends_on_compile_var. but we currently don't have a thing to tell us if the type of
                 // something depends on a compile var
@@ -4609,9 +4648,8 @@ static TypeTableEntry *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    ConstExprValue *out_val = ir_get_out_val(&to_ptr_type_instruction->base);
-    out_val->ok = true;
-    out_val->depends_on_compile_var = type_value->static_value.depends_on_compile_var;
+    ConstExprValue *out_val = ir_build_const_from(ira, &to_ptr_type_instruction->base,
+            type_value->static_value.depends_on_compile_var);
     out_val->data.x_type = ptr_type;
     return ira->codegen->builtin_types.entry_type;
 }
@@ -4630,9 +4668,8 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type_child(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    ConstExprValue *out_val = ir_get_out_val(&ptr_type_child_instruction->base);
-    out_val->ok = true;
-    out_val->depends_on_compile_var = type_value->static_value.depends_on_compile_var;
+    ConstExprValue *out_val = ir_build_const_from(ira, &ptr_type_child_instruction->base,
+            type_value->static_value.depends_on_compile_var);
     out_val->data.x_type = type_entry->data.pointer.child_type;
     return ira->codegen->builtin_types.entry_type;
 }
@@ -4733,10 +4770,6 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
 
     while (ira->block_queue_index < ira->old_bb_queue.length) {
         IrInstruction *old_instruction = ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index);
-
-        fprintf(stderr, "===%zu====", old_instruction->debug_id);
-        ir_print(stderr, ira->new_irb.exec, 4);
-        fprintf(stderr, "========");
 
         if (old_instruction->ref_count == 0 && !ir_has_side_effects(old_instruction)) {
             ira->instruction_index += 1;

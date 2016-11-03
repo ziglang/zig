@@ -231,14 +231,15 @@ static void ir_print_bin_op(IrPrint *irp, IrInstructionBinOp *bin_op_instruction
 }
 
 static void ir_print_decl_var(IrPrint *irp, IrInstructionDeclVar *decl_var_instruction) {
-    const char *var_or_const = decl_var_instruction->var->is_const ? "const" : "var";
+    const char *inline_kw = decl_var_instruction->var->is_inline ? "inline " : "";
+    const char *var_or_const = decl_var_instruction->var->gen_is_const ? "const" : "var";
     const char *name = buf_ptr(&decl_var_instruction->var->name);
     if (decl_var_instruction->var_type) {
-        fprintf(irp->f, "%s %s: ", var_or_const, name);
+        fprintf(irp->f, "%s%s %s: ", inline_kw, var_or_const, name);
         ir_print_other_instruction(irp, decl_var_instruction->var_type);
         fprintf(irp->f, " = ");
     } else {
-        fprintf(irp->f, "%s %s = ", var_or_const, name);
+        fprintf(irp->f, "%s%s %s = ", inline_kw, var_or_const, name);
     }
     ir_print_other_instruction(irp, decl_var_instruction->init_value);
 }
@@ -275,7 +276,8 @@ static void ir_print_builtin_call(IrPrint *irp, IrInstructionBuiltinCall *call_i
 
 
 static void ir_print_cond_br(IrPrint *irp, IrInstructionCondBr *cond_br_instruction) {
-    fprintf(irp->f, "if (");
+    const char *inline_kw = cond_br_instruction->is_inline ? "inline " : "";
+    fprintf(irp->f, "%sif (", inline_kw);
     ir_print_other_instruction(irp, cond_br_instruction->condition);
     fprintf(irp->f, ") ");
     ir_print_other_block(irp, cond_br_instruction->then_block);
@@ -284,7 +286,8 @@ static void ir_print_cond_br(IrPrint *irp, IrInstructionCondBr *cond_br_instruct
 }
 
 static void ir_print_br(IrPrint *irp, IrInstructionBr *br_instruction) {
-    fprintf(irp->f, "goto ");
+    const char *inline_kw = br_instruction->is_inline ? "inline " : "";
+    fprintf(irp->f, "%sgoto ", inline_kw);
     ir_print_other_block(irp, br_instruction->dest_block);
 }
 

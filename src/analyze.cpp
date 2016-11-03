@@ -3026,7 +3026,7 @@ static bool var_is_pure(VariableTableEntry *var, BlockContext *context) {
         // variable was declared in the current function, so it's OK.
         return true;
     }
-    return var->is_const && var->type->deep_const;
+    return var->src_is_const && var->type->deep_const;
 }
 
 static TypeTableEntry *analyze_var_ref(CodeGen *g, AstNode *source_node, VariableTableEntry *var,
@@ -3036,7 +3036,7 @@ static TypeTableEntry *analyze_var_ref(CodeGen *g, AstNode *source_node, Variabl
     if (!var_is_pure(var, context)) {
         mark_impure_fn(g, context, source_node);
     }
-    if (var->is_const && var->val_node) {
+    if (var->src_is_const && var->val_node) {
         ConstExprValue *other_const_val = &get_resolved_expr(var->val_node)->const_val;
         if (other_const_val->ok) {
             return resolve_expr_const_val_as_other_expr(g, source_node, var->val_node,
@@ -3188,7 +3188,7 @@ static TypeTableEntry *analyze_lvalue(CodeGen *g, ImportTableEntry *import, Bloc
             Buf *name = lhs_node->data.symbol_expr.symbol;
             VariableTableEntry *var = find_variable(g, block_context, name);
             if (var) {
-                if (var->is_const) {
+                if (var->src_is_const) {
                     add_node_error(g, lhs_node, buf_sprintf("cannot assign to constant"));
                     expected_rhs_type = g->builtin_types.entry_invalid;
                 } else {
@@ -3736,7 +3736,8 @@ static VariableTableEntry *add_local_var_shadowable(CodeGen *g, AstNode *source_
         context->fn_entry->variable_list.append(variable_entry);
     }
 
-    variable_entry->is_const = is_const;
+    variable_entry->src_is_const = is_const;
+    variable_entry->gen_is_const = is_const;
     variable_entry->decl_node = source_node;
     variable_entry->val_node = val_node;
 

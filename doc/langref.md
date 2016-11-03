@@ -15,7 +15,7 @@ ErrorValueDecl = "error" Symbol ";"
 
 GlobalVarDecl = VariableDeclaration ";"
 
-VariableDeclaration = ("var" | "const") Symbol option(":" TypeExpr) "=" Expression
+VariableDeclaration = option("inline") ("var" | "const") Symbol option(":" TypeExpr) "=" Expression
 
 ContainerDecl = ("struct" | "enum" | "union") Symbol option(ParamDeclList) "{" many(StructMember) "}"
 
@@ -79,9 +79,9 @@ SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" Symbol "|") Expre
 
 SwitchItem = Expression | (Expression "..." Expression)
 
-WhileExpression = "while" "(" Expression option(";" Expression) ")" Expression
+WhileExpression = option("inline") "while" "(" Expression option(";" Expression) ")" Expression
 
-ForExpression = "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") Expression
+ForExpression = option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") Expression
 
 BoolOrExpression = BoolAndExpression "||" BoolOrExpression | BoolAndExpression
 

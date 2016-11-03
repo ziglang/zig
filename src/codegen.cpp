@@ -4105,7 +4105,7 @@ static void build_all_basic_blocks(CodeGen *g, FnTableEntry *fn) {
 static void gen_global_var(CodeGen *g, VariableTableEntry *var, LLVMValueRef init_val,
     TypeTableEntry *type_entry)
 {
-    assert(var->is_const);
+    assert(var->gen_is_const);
     assert(var->import);
     assert(type_entry);
     bool is_local_to_unit = true;
@@ -4183,12 +4183,12 @@ static void do_code_gen(CodeGen *g) {
             LLVMSetUnnamedAddr(global_value, true);
 
             // TODO debug info for function pointers
-            if (var->is_const && var->type->id != TypeTableEntryIdFn) {
+            if (var->gen_is_const && var->type->id != TypeTableEntryIdFn) {
                 gen_global_var(g, var, init_val, var->type);
             }
         }
 
-        LLVMSetGlobalConstant(global_value, var->is_const);
+        LLVMSetGlobalConstant(global_value, var->gen_is_const);
 
         var->value_ref = global_value;
     }
