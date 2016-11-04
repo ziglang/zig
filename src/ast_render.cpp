@@ -261,17 +261,6 @@ static void print_indent(AstRender *ar) {
     }
 }
 
-static bool is_node_void(AstNode *node) {
-    if (node->type == NodeTypeSymbol) {
-        if (node->data.symbol_expr.override_type_entry) {
-            return node->data.symbol_expr.override_type_entry->id == TypeTableEntryIdVoid;
-        } else if (buf_eql_str(node->data.symbol_expr.symbol, "void")) {
-            return true;
-        }
-    }
-    return false;
-}
-
 static bool is_alpha_under(uint8_t c) {
     return (c >= 'a' && c <= 'z') ||
         (c >= 'A' && c <= 'Z') || c == '_';
@@ -406,10 +395,8 @@ static void render_node(AstRender *ar, AstNode *node) {
                 fprintf(ar->f, ")");
 
                 AstNode *return_type_node = node->data.fn_proto.return_type;
-                if (!is_node_void(return_type_node)) {
-                    fprintf(ar->f, " -> ");
-                    render_node(ar, return_type_node);
-                }
+                fprintf(ar->f, " -> ");
+                render_node(ar, return_type_node);
                 break;
             }
         case NodeTypeFnDef:
@@ -521,14 +508,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                 break;
             }
         case NodeTypeSymbol:
-            {
-                TypeTableEntry *override_type = node->data.symbol_expr.override_type_entry;
-                if (override_type) {
-                    fprintf(ar->f, "%s", buf_ptr(&override_type->name));
-                } else {
-                    print_symbol(ar, node->data.symbol_expr.symbol);
-                }
-            }
+            print_symbol(ar, node->data.symbol_expr.symbol);
             break;
         case NodeTypePrefixOpExpr:
             {
@@ -623,10 +603,8 @@ static void render_node(AstRender *ar, AstNode *node) {
                     assert(field_node->type == NodeTypeStructField);
                     print_indent(ar);
                     print_symbol(ar, field_node->data.struct_field.name);
-                    if (!is_node_void(field_node->data.struct_field.type)) {
-                        fprintf(ar->f, ": ");
-                        render_node(ar, field_node->data.struct_field.type);
-                    }
+                    fprintf(ar->f, ": ");
+                    render_node(ar, field_node->data.struct_field.type);
                     fprintf(ar->f, ",\n");
                 }
 

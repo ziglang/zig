@@ -230,9 +230,7 @@ static AstNode *create_type_decl_node(Context *c, const char *name, AstNode *chi
 }
 
 static AstNode *make_type_node(Context *c, TypeTableEntry *type_entry) {
-    AstNode *node = create_node(c, NodeTypeSymbol);
-    node->data.symbol_expr.override_type_entry = type_entry;
-    return node;
+    zig_panic("TODO bypass AST in parseh");
 }
 
 static AstNode *create_fn_proto_node(Context *c, Buf *name, TypeTableEntry *fn_type) {

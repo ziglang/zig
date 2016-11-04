@@ -738,8 +738,6 @@ struct AstNodeSymbolExpr {
 
     // populated by semantic analyzer
     Expr resolved_expr;
-    // set this to instead of analyzing the node, pretend it's a type entry and it's this one.
-    TypeTableEntry *override_type_entry;
     TypeEnumField *enum_field;
     uint32_t err_value;
 };
@@ -1439,7 +1437,6 @@ enum IrInstructionId {
     IrInstructionIdElemPtr,
     IrInstructionIdVarPtr,
     IrInstructionIdCall,
-    IrInstructionIdBuiltinCall,
     IrInstructionIdConst,
     IrInstructionIdReturn,
     IrInstructionIdCast,
@@ -1449,6 +1446,7 @@ enum IrInstructionId {
     IrInstructionIdTypeOf,
     IrInstructionIdToPtrType,
     IrInstructionIdPtrTypeChild,
+    IrInstructionIdSetFnTest,
 };
 
 struct IrInstruction {
@@ -1630,13 +1628,6 @@ struct IrInstructionCall {
     IrInstruction **args;
 };
 
-struct IrInstructionBuiltinCall {
-    IrInstruction base;
-
-    BuiltinFnEntry *fn;
-    IrInstruction **args;
-};
-
 struct IrInstructionConst {
     IrInstruction base;
 };
@@ -1696,6 +1687,13 @@ struct IrInstructionPtrTypeChild {
     IrInstruction base;
 
     IrInstruction *value;
+};
+
+struct IrInstructionSetFnTest {
+    IrInstruction base;
+
+    IrInstruction *fn_value;
+    IrInstruction *is_test;
 };
 
 enum LValPurpose {

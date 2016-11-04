@@ -45,10 +45,6 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
 
 AstNode *first_executing_node(AstNode *node);
 
-TypeTableEntry *resolve_peer_type_compatibility(CodeGen *g, ImportTableEntry *import,
-        BlockContext *block_context, AstNode *parent_source_node,
-        AstNode **child_nodes, TypeTableEntry **child_types, size_t child_count);
-
 
 // TODO move these over, these used to be static
 bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type);

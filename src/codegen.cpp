@@ -2965,6 +2965,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdToPtrType:
         case IrInstructionIdPtrTypeChild:
         case IrInstructionIdFieldPtr:
+        case IrInstructionIdSetFnTest:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -2996,7 +2997,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_struct_field_ptr(g, executable, (IrInstructionStructFieldPtr *)instruction);
         case IrInstructionIdSwitchBr:
         case IrInstructionIdPhi:
-        case IrInstructionIdBuiltinCall:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdReadField:
@@ -5303,8 +5303,6 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
 }
 
 static void get_c_type_node(CodeGen *g, AstNode *type_node, Buf *out_buf) {
-    assert(type_node->type != NodeTypeSymbol || !type_node->data.symbol_expr.override_type_entry);
-
     Expr *expr = get_resolved_expr(type_node);
     assert(expr->type_entry);
     assert(expr->type_entry->id == TypeTableEntryIdMetaType);

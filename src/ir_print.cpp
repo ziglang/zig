@@ -78,6 +78,12 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
                 fprintf(irp->f, "%s", buf_ptr(&fn_entry->symbol_name));
                 break;
             }
+        case TypeTableEntryIdBlock:
+            {
+                AstNode *node = const_val->data.x_block->node;
+                fprintf(irp->f, "(scope:%zu:%zu)", node->line + 1, node->column + 1);
+                break;
+            }
         case TypeTableEntryIdVar:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdArray:
@@ -91,7 +97,6 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
-        case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
             zig_panic("TODO render more constant types in IR printer");
     }
@@ -263,18 +268,6 @@ static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_builtin_call(IrPrint *irp, IrInstructionBuiltinCall *call_instruction) {
-    fprintf(irp->f, "@%s(", buf_ptr(&call_instruction->fn->name));
-    for (size_t i = 0; i < call_instruction->fn->param_count; i += 1) {
-        IrInstruction *arg = call_instruction->args[i];
-        if (i != 0)
-            fprintf(irp->f, ", ");
-        ir_print_other_instruction(irp, arg);
-    }
-    fprintf(irp->f, ")");
-}
-
-
 static void ir_print_cond_br(IrPrint *irp, IrInstructionCondBr *cond_br_instruction) {
     const char *inline_kw = cond_br_instruction->is_inline ? "inline " : "";
     fprintf(irp->f, "%sif (", inline_kw);
@@ -393,6 +386,14 @@ static void ir_print_struct_field_ptr(IrPrint *irp, IrInstructionStructFieldPtr 
     fprintf(irp->f, ")");
 }
 
+static void ir_print_set_fn_test(IrPrint *irp, IrInstructionSetFnTest *instruction) {
+    fprintf(irp->f, "@setFnTest(");
+    ir_print_other_instruction(irp, instruction->fn_value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->is_test);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -424,9 +425,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdBr:
             ir_print_br(irp, (IrInstructionBr *)instruction);
-            break;
-        case IrInstructionIdBuiltinCall:
-            ir_print_builtin_call(irp, (IrInstructionBuiltinCall *)instruction);
             break;
         case IrInstructionIdPhi:
             ir_print_phi(irp, (IrInstructionPhi *)instruction);
@@ -469,6 +467,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdStructFieldPtr:
             ir_print_struct_field_ptr(irp, (IrInstructionStructFieldPtr *)instruction);
+            break;
+        case IrInstructionIdSetFnTest:
+            ir_print_set_fn_test(irp, (IrInstructionSetFnTest *)instruction);
             break;
         case IrInstructionIdSwitchBr:
             zig_panic("TODO print more IR instructions");
