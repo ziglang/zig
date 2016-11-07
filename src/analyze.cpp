@@ -369,7 +369,7 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
     }
 }
 
-static TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
+TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
     if (child_type->error_parent) {
         return child_type->error_parent;
     } else {
@@ -2582,7 +2582,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
             &fn_table_entry->analyzed_executable, expected_type, fn_proto->return_type);
     node->data.fn_def.implicit_return_type = block_return_type;
 
-    if (g->verbose) {
+    if (block_return_type->id != TypeTableEntryIdInvalid && g->verbose) {
         fprintf(stderr, "fn %s { // (analyzed)\n", buf_ptr(&fn_table_entry->symbol_name));
         ir_print(stderr, &fn_table_entry->analyzed_executable, 4);
         fprintf(stderr, "}\n");

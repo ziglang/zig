@@ -31,6 +31,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
 TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import, BlockContext *context,
         ContainerKind kind, AstNode *decl_node, const char *name);
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
+TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type);
 bool handle_is_ptr(TypeTableEntry *type_entry);
 void find_libc_include_path(CodeGen *g);
 void find_libc_lib_path(CodeGen *g);

@@ -1447,6 +1447,8 @@ enum IrInstructionId {
     IrInstructionIdToPtrType,
     IrInstructionIdPtrTypeChild,
     IrInstructionIdSetFnTest,
+    IrInstructionIdArrayType,
+    IrInstructionIdSliceType,
 };
 
 struct IrInstruction {
@@ -1694,6 +1696,20 @@ struct IrInstructionSetFnTest {
 
     IrInstruction *fn_value;
     IrInstruction *is_test;
+};
+
+struct IrInstructionArrayType {
+    IrInstruction base;
+
+    IrInstruction *size;
+    IrInstruction *child_type;
+};
+
+struct IrInstructionSliceType {
+    IrInstruction base;
+
+    bool is_const;
+    IrInstruction *child_type;
 };
 
 enum LValPurpose {

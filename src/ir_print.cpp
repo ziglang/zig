@@ -394,6 +394,19 @@ static void ir_print_set_fn_test(IrPrint *irp, IrInstructionSetFnTest *instructi
     fprintf(irp->f, ")");
 }
 
+static void ir_print_array_type(IrPrint *irp, IrInstructionArrayType *instruction) {
+    fprintf(irp->f, "[");
+    ir_print_other_instruction(irp, instruction->size);
+    fprintf(irp->f, "]");
+    ir_print_other_instruction(irp, instruction->child_type);
+}
+
+static void ir_print_slice_type(IrPrint *irp, IrInstructionSliceType *instruction) {
+    const char *const_kw = instruction->is_const ? "const " : "";
+    fprintf(irp->f, "[]%s", const_kw);
+    ir_print_other_instruction(irp, instruction->child_type);
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -470,6 +483,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSetFnTest:
             ir_print_set_fn_test(irp, (IrInstructionSetFnTest *)instruction);
+            break;
+        case IrInstructionIdArrayType:
+            ir_print_array_type(irp, (IrInstructionArrayType *)instruction);
+            break;
+        case IrInstructionIdSliceType:
+            ir_print_slice_type(irp, (IrInstructionSliceType *)instruction);
             break;
         case IrInstructionIdSwitchBr:
             zig_panic("TODO print more IR instructions");
