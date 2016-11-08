@@ -1309,7 +1309,6 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, AstNode *node) {
     assert(node->type == NodeTypePrefixOpExpr);
 
     PrefixOp prefix_op = node->data.prefix_op_expr.prefix_op;
-    //AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
 
     switch (prefix_op) {
         case PrefixOpInvalid:
@@ -3013,6 +3012,68 @@ static TypeTableEntry *ir_analyze_unary_prefix_op_err(IrAnalyze *ira, IrInstruct
     zig_unreachable();
 }
 
+static TypeTableEntry *ir_analyze_unary_address_of(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
+    IrInstruction *value = un_op_instruction->value->other;
+    if (value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    bool is_const;
+    if (un_op_instruction->op_id == IrUnOpAddressOf) {
+        is_const = false;
+    } else if (un_op_instruction->op_id == IrUnOpConstAddressOf) {
+        is_const = true;
+    } else {
+        zig_unreachable();
+    }
+
+    TypeTableEntry *child_type = value->type_entry;
+    TypeTableEntry *canon_child_type = get_underlying_type(child_type);
+    switch (canon_child_type->id) {
+        case TypeTableEntryIdTypeDecl:
+            zig_unreachable();
+        case TypeTableEntryIdInvalid:
+            return ira->codegen->builtin_types.entry_invalid;
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdVar:
+            add_node_error(ira->codegen, un_op_instruction->base.source_node,
+                    buf_sprintf("unable to get address of type '%s'", buf_ptr(&child_type->name)));
+            // TODO if type decl, add note pointing to type decl declaration
+            return ira->codegen->builtin_types.entry_invalid;
+        case TypeTableEntryIdMetaType:
+            {
+                ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base,
+                        value->static_value.depends_on_compile_var);
+                out_val->data.x_type = get_pointer_to_type(ira->codegen, child_type, is_const);
+                return ira->codegen->builtin_types.entry_type;
+            }
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdGenericFn:
+            {
+                zig_panic("TODO address of operation");
+                break;
+            }
+    }
+    zig_unreachable();
+}
+
 static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
     IrUnOp op_id = un_op_instruction->op_id;
     switch (op_id) {
@@ -3085,37 +3146,7 @@ static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructio
             //}
         case IrUnOpAddressOf:
         case IrUnOpConstAddressOf:
-            zig_panic("TODO analyze PrefixOpAddressOf and PrefixOpConstAddressOf");
-            //{
-            //    bool is_const = (prefix_op == PrefixOpConstAddressOf);
-
-            //    TypeTableEntry *child_type = analyze_lvalue(g, import, context,
-            //            *expr_node, LValPurposeAddressOf, is_const);
-
-            //    if (child_type->id == TypeTableEntryIdInvalid) {
-            //        return g->builtin_types.entry_invalid;
-            //    } else if (child_type->id == TypeTableEntryIdMetaType) {
-            //        TypeTableEntry *meta_type = analyze_type_expr_pointer_only(g, import, context,
-            //                *expr_node, true);
-            //        if (meta_type->id == TypeTableEntryIdInvalid) {
-            //            return g->builtin_types.entry_invalid;
-            //        } else if (meta_type->id == TypeTableEntryIdUnreachable) {
-            //            add_node_error(g, node, buf_create_from_str("pointer to unreachable not allowed"));
-            //            return g->builtin_types.entry_invalid;
-            //        } else {
-            //            return resolve_expr_const_val_as_type(g, node,
-            //                    get_pointer_to_type(g, meta_type, is_const), false);
-            //        }
-            //    } else if (child_type->id == TypeTableEntryIdNumLitInt ||
-            //               child_type->id == TypeTableEntryIdNumLitFloat)
-            //    {
-            //        add_node_error(g, *expr_node,
-            //            buf_sprintf("unable to get address of type '%s'", buf_ptr(&child_type->name)));
-            //        return g->builtin_types.entry_invalid;
-            //    } else {
-            //        return get_pointer_to_type(g, child_type, is_const);
-            //    }
-            //}
+            return ir_analyze_unary_address_of(ira, un_op_instruction);
         case IrUnOpDereference:
             zig_panic("TODO remove this IrUnOp item");
         case IrUnOpMaybe:
