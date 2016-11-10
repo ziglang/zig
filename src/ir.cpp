@@ -367,6 +367,55 @@ static IrInstruction *ir_build_const_bool(IrBuilder *irb, AstNode *source_node, 
     return &const_instruction->base;
 }
 
+static IrInstruction *ir_build_const_str_lit(IrBuilder *irb, AstNode *source_node, Buf *str) {
+    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, source_node);
+    TypeTableEntry *u8_type = irb->codegen->builtin_types.entry_u8;
+    TypeTableEntry *type_entry = get_array_type(irb->codegen, u8_type, buf_len(str));
+    const_instruction->base.type_entry = type_entry;
+    ConstExprValue *const_val = &const_instruction->base.static_value;
+    const_val->ok = true;
+    const_val->data.x_array.fields = allocate<ConstExprValue*>(buf_len(str));
+
+    ConstExprValue *all_chars = allocate<ConstExprValue>(buf_len(str));
+    for (size_t i = 0; i < buf_len(str); i += 1) {
+        ConstExprValue *this_char = &all_chars[i];
+        this_char->ok = true;
+        bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
+        const_val->data.x_array.fields[i] = this_char;
+    }
+
+    return &const_instruction->base;
+}
+
+static IrInstruction *ir_build_const_c_str_lit(IrBuilder *irb, AstNode *source_node, Buf *str) {
+    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, source_node);
+    TypeTableEntry *u8_type = irb->codegen->builtin_types.entry_u8;
+    TypeTableEntry *type_entry = get_pointer_to_type(irb->codegen, u8_type, true);
+    const_instruction->base.type_entry = type_entry;
+    ConstExprValue *const_val = &const_instruction->base.static_value;
+    const_val->ok = true;
+
+    size_t len_with_null = buf_len(str) + 1;
+    const_val->data.x_ptr.ptr = allocate<ConstExprValue*>(len_with_null);
+    const_val->data.x_ptr.len = len_with_null;
+    const_val->data.x_ptr.is_c_str = true;
+
+    ConstExprValue *all_chars = allocate<ConstExprValue>(len_with_null);
+    for (size_t i = 0; i < buf_len(str); i += 1) {
+        ConstExprValue *this_char = &all_chars[i];
+        this_char->ok = true;
+        bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
+        const_val->data.x_ptr.ptr[i] = this_char;
+    }
+
+    ConstExprValue *null_char = &all_chars[len_with_null - 1];
+    null_char->ok = true;
+    bignum_init_unsigned(&null_char->data.x_bignum, 0);
+    const_val->data.x_ptr.ptr[len_with_null - 1] = null_char;
+
+    return &const_instruction->base;
+}
+
 static IrInstruction *ir_build_bin_op(IrBuilder *irb, AstNode *source_node, IrBinOp op_id,
         IrInstruction *op1, IrInstruction *op2)
 {
@@ -398,9 +447,7 @@ static IrInstruction *ir_build_var_ptr(IrBuilder *irb, AstNode *source_node, Var
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_var_ptr_from(IrBuilder *irb, IrInstruction *old_instruction,
-        VariableTableEntry *var)
-{
+static IrInstruction *ir_build_var_ptr_from(IrBuilder *irb, IrInstruction *old_instruction, VariableTableEntry *var) {
     IrInstruction *new_instruction = ir_build_var_ptr(irb, old_instruction->source_node, var);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
@@ -1589,6 +1636,16 @@ static IrInstruction *ir_gen_bool_literal(IrBuilder *irb, AstNode *node) {
     return ir_build_const_bool(irb, node, node->data.bool_literal.value);
 }
 
+static IrInstruction *ir_gen_string_literal(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeStringLiteral);
+
+    if (node->data.string_literal.c) {
+        return ir_build_const_c_str_lit(irb, node, node->data.string_literal.buf);
+    } else {
+        return ir_build_const_str_lit(irb, node, node->data.string_literal.buf);
+    }
+}
+
 static IrInstruction *ir_gen_array_type(IrBuilder *irb, AstNode *node) {
     assert(node->type == NodeTypeArrayType);
 
@@ -1662,6 +1719,8 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
             return ir_gen_bool_literal(irb, node);
         case NodeTypeArrayType:
             return ir_gen_array_type(irb, node);
+        case NodeTypeStringLiteral:
+            return ir_gen_string_literal(irb, node);
         case NodeTypeUnwrapErrorExpr:
         case NodeTypeDefer:
         case NodeTypeSliceExpr:
@@ -1672,7 +1731,6 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
         case NodeTypeContinue:
         case NodeTypeLabel:
         case NodeTypeSwitchExpr:
-        case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
@@ -3331,11 +3389,14 @@ static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstruct
     if (var->type->id == TypeTableEntryIdInvalid)
         return var->type;
 
+    zig_panic("TODO if var is a global, this code is wrong");
+
     TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, var->type, false);
-    // TODO once the anlayze code is fully ported over to IR we won't need this SIZE_MAX thing.
+    // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
     if (var->mem_slot_index != SIZE_MAX) {
         ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
         if (mem_slot->ok) {
+            zig_panic("TODO do we really want to set up this fake pointer to do constant evaluation?");
             ConstExprValue *out_val = ir_build_const_from(ira, &var_ptr_instruction->base,
                     mem_slot->depends_on_compile_var);
 
@@ -6993,16 +7054,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //    validate_voided_expr(g, node->data.defer.expr, resolved_type);
 //
 //    return g->builtin_types.entry_void;
-//}
-//
-//static TypeTableEntry *analyze_string_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-//        TypeTableEntry *expected_type, AstNode *node)
-//{
-//    if (node->data.string_literal.c) {
-//        return resolve_expr_const_val_as_c_string_lit(g, node, node->data.string_literal.buf);
-//    } else {
-//        return resolve_expr_const_val_as_string_lit(g, node, node->data.string_literal.buf);
-//    }
 //}
 //
 //static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, BlockContext *parent_context,

@@ -84,9 +84,22 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
                 fprintf(irp->f, "(scope:%zu:%zu)", node->line + 1, node->column + 1);
                 break;
             }
+        case TypeTableEntryIdArray:
+            {
+                uint64_t len = type_entry->data.array.len;
+                fprintf(irp->f, "%s{", buf_ptr(&type_entry->name));
+                for (uint64_t i = 0; i < len; i += 1) {
+                    if (i != 0)
+                        fprintf(irp->f, ",");
+                    ConstExprValue *child_value = const_val->data.x_array.fields[i];
+                    TypeTableEntry *child_type = type_entry->data.array.child_type;
+                    ir_print_const_value(irp, child_type, child_value);
+                }
+                fprintf(irp->f, "}");
+                break;
+            }
         case TypeTableEntryIdVar:
         case TypeTableEntryIdFloat:
-        case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:

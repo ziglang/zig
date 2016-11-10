@@ -1593,6 +1593,7 @@ struct IrInstructionFieldPtr {
 
     IrInstruction *container_ptr;
     Buf *field_name;
+    bool is_const;
 };
 
 struct IrInstructionStructFieldPtr {
@@ -1600,6 +1601,7 @@ struct IrInstructionStructFieldPtr {
 
     IrInstruction *struct_ptr;
     TypeStructField *field;
+    bool is_const;
 };
 
 struct IrInstructionReadField {
@@ -1614,12 +1616,14 @@ struct IrInstructionElemPtr {
 
     IrInstruction *array_ptr;
     IrInstruction *elem_index;
+    bool is_const;
 };
 
 struct IrInstructionVarPtr {
     IrInstruction base;
 
     VariableTableEntry *var;
+    bool is_const;
 };
 
 struct IrInstructionCall {
@@ -1716,6 +1720,7 @@ enum LValPurpose {
     LValPurposeNone,
     LValPurposeAssign,
     LValPurposeAddressOf,
+    LValPurposeConstAddressOf,
 };
 
 #endif
