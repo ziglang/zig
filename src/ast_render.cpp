@@ -406,10 +406,6 @@ static void render_node(AstRender *ar, AstNode *node) {
                 render_node(ar, node->data.fn_def.body);
                 break;
             }
-        case NodeTypeFnDecl:
-            zig_panic("TODO");
-        case NodeTypeParamDecl:
-            zig_panic("TODO");
         case NodeTypeBlock:
             fprintf(ar->f, "{\n");
             ar->indent += ar->indent_size;
@@ -463,8 +459,6 @@ static void render_node(AstRender *ar, AstNode *node) {
                 render_node(ar, node->data.type_decl.child_type);
                 break;
             }
-        case NodeTypeErrorValueDecl:
-            zig_panic("TODO");
         case NodeTypeBinOpExpr:
             fprintf(ar->f, "(");
             render_node(ar, node->data.bin_op_expr.op1);
@@ -472,8 +466,6 @@ static void render_node(AstRender *ar, AstNode *node) {
             render_node(ar, node->data.bin_op_expr.op2);
             fprintf(ar->f, ")");
             break;
-        case NodeTypeUnwrapErrorExpr:
-            zig_panic("TODO");
         case NodeTypeNumberLiteral:
             switch (node->data.number_literal.bignum->kind) {
                 case BigNumKindInt:
@@ -544,8 +536,6 @@ static void render_node(AstRender *ar, AstNode *node) {
             render_node(ar, node->data.array_access_expr.subscript);
             fprintf(ar->f, "]");
             break;
-        case NodeTypeSliceExpr:
-            zig_panic("TODO");
         case NodeTypeFieldAccessExpr:
             {
                 AstNode *lhs = node->data.field_access_expr.struct_expr;
@@ -555,42 +545,9 @@ static void render_node(AstRender *ar, AstNode *node) {
                 print_symbol(ar, rhs);
                 break;
             }
-        case NodeTypeUse:
-            zig_panic("TODO");
-        case NodeTypeBoolLiteral:
-            zig_panic("TODO");
-        case NodeTypeNullLiteral:
-            zig_panic("TODO");
         case NodeTypeUndefinedLiteral:
-            zig_panic("TODO");
-        case NodeTypeZeroesLiteral:
-            zig_panic("TODO");
-        case NodeTypeThisLiteral:
-            zig_panic("TODO");
-        case NodeTypeIfBoolExpr:
-            zig_panic("TODO");
-        case NodeTypeIfVarExpr:
-            zig_panic("TODO");
-        case NodeTypeWhileExpr:
-            zig_panic("TODO");
-        case NodeTypeForExpr:
-            zig_panic("TODO");
-        case NodeTypeSwitchExpr:
-            zig_panic("TODO");
-        case NodeTypeSwitchProng:
-            zig_panic("TODO");
-        case NodeTypeSwitchRange:
-            zig_panic("TODO");
-        case NodeTypeLabel:
-            zig_panic("TODO");
-        case NodeTypeGoto:
-            zig_panic("TODO");
-        case NodeTypeBreak:
-            zig_panic("TODO");
-        case NodeTypeContinue:
-            zig_panic("TODO");
-        case NodeTypeAsmExpr:
-            zig_panic("TODO");
+            fprintf(ar->f, "undefined");
+            break;
         case NodeTypeContainerDecl:
             {
                 const char *struct_name = buf_ptr(node->data.struct_decl.name);
@@ -612,8 +569,6 @@ static void render_node(AstRender *ar, AstNode *node) {
                 fprintf(ar->f, "}");
                 break;
             }
-        case NodeTypeStructField:
-            zig_panic("TODO");
         case NodeTypeContainerInitExpr:
             fprintf(ar->f, "(");
             render_node(ar, node->data.container_init_expr.type);
@@ -621,8 +576,6 @@ static void render_node(AstRender *ar, AstNode *node) {
             assert(node->data.container_init_expr.entries.length == 0);
             fprintf(ar->f, "}");
             break;
-        case NodeTypeStructValueField:
-            zig_panic("TODO");
         case NodeTypeArrayType:
             {
                 fprintf(ar->f, "[");
@@ -645,6 +598,31 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeVarLiteral:
             fprintf(ar->f, "var");
             break;
+        case NodeTypeFnDecl:
+        case NodeTypeParamDecl:
+        case NodeTypeErrorValueDecl:
+        case NodeTypeUnwrapErrorExpr:
+        case NodeTypeSliceExpr:
+        case NodeTypeStructField:
+        case NodeTypeStructValueField:
+        case NodeTypeUse:
+        case NodeTypeBoolLiteral:
+        case NodeTypeNullLiteral:
+        case NodeTypeZeroesLiteral:
+        case NodeTypeThisLiteral:
+        case NodeTypeIfBoolExpr:
+        case NodeTypeIfVarExpr:
+        case NodeTypeWhileExpr:
+        case NodeTypeForExpr:
+        case NodeTypeSwitchExpr:
+        case NodeTypeSwitchProng:
+        case NodeTypeSwitchRange:
+        case NodeTypeLabel:
+        case NodeTypeGoto:
+        case NodeTypeBreak:
+        case NodeTypeContinue:
+        case NodeTypeAsmExpr:
+            zig_panic("TODO more ast rendering");
     }
 }
 

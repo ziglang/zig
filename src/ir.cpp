@@ -1678,6 +1678,11 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, AstNode *node) {
     }
 }
 
+static IrInstruction *ir_gen_undefined_literal(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeUndefinedLiteral);
+    return ir_build_const_undefined(irb, node);
+}
+
 static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockContext *block_context,
         LValPurpose lval)
 {
@@ -1721,6 +1726,8 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
             return ir_gen_array_type(irb, node);
         case NodeTypeStringLiteral:
             return ir_gen_string_literal(irb, node);
+        case NodeTypeUndefinedLiteral:
+            return ir_gen_undefined_literal(irb, node);
         case NodeTypeUnwrapErrorExpr:
         case NodeTypeDefer:
         case NodeTypeSliceExpr:
@@ -1733,7 +1740,6 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
         case NodeTypeSwitchExpr:
         case NodeTypeCharLiteral:
         case NodeTypeNullLiteral:
-        case NodeTypeUndefinedLiteral:
         case NodeTypeZeroesLiteral:
         case NodeTypeErrorType:
         case NodeTypeTypeLiteral:
@@ -2497,7 +2503,9 @@ static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
 }
 
 static TypeTableEntry *ir_analyze_instruction_const(IrAnalyze *ira, IrInstructionConst *const_instruction) {
-    const_instruction->base.other = &const_instruction->base;
+    bool depends_on_compile_var = const_instruction->base.static_value.depends_on_compile_var;
+    ConstExprValue *out_val = ir_build_const_from(ira, &const_instruction->base, depends_on_compile_var);
+    *out_val = const_instruction->base.static_value;
     return const_instruction->base.type_entry;
 }
 
@@ -3084,9 +3092,9 @@ static TypeTableEntry *ir_analyze_unary_address_of(IrAnalyze *ira, IrInstruction
         zig_unreachable();
     }
 
-    TypeTableEntry *child_type = value->type_entry;
-    TypeTableEntry *canon_child_type = get_underlying_type(child_type);
-    switch (canon_child_type->id) {
+    TypeTableEntry *target_type = value->type_entry;
+    TypeTableEntry *canon_target_type = get_underlying_type(target_type);
+    switch (canon_target_type->id) {
         case TypeTableEntryIdTypeDecl:
             zig_unreachable();
         case TypeTableEntryIdInvalid:
@@ -3100,13 +3108,15 @@ static TypeTableEntry *ir_analyze_unary_address_of(IrAnalyze *ira, IrInstruction
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVar:
             add_node_error(ira->codegen, un_op_instruction->base.source_node,
-                    buf_sprintf("unable to get address of type '%s'", buf_ptr(&child_type->name)));
+                    buf_sprintf("unable to get address of type '%s'", buf_ptr(&target_type->name)));
             // TODO if type decl, add note pointing to type decl declaration
             return ira->codegen->builtin_types.entry_invalid;
         case TypeTableEntryIdMetaType:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base,
                         value->static_value.depends_on_compile_var);
+                assert(value->static_value.ok);
+                TypeTableEntry *child_type = value->static_value.data.x_type;
                 out_val->data.x_type = get_pointer_to_type(ira->codegen, child_type, is_const);
                 return ira->codegen->builtin_types.entry_type;
             }
