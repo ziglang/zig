@@ -3389,27 +3389,33 @@ static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstruct
     if (var->type->id == TypeTableEntryIdInvalid)
         return var->type;
 
-    zig_panic("TODO if var is a global, this code is wrong");
-
     TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, var->type, false);
-    // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
-    if (var->mem_slot_index != SIZE_MAX) {
-        ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
-        if (mem_slot->ok) {
-            zig_panic("TODO do we really want to set up this fake pointer to do constant evaluation?");
-            ConstExprValue *out_val = ir_build_const_from(ira, &var_ptr_instruction->base,
-                    mem_slot->depends_on_compile_var);
 
-            out_val->data.x_ptr.len = 1;
-            out_val->data.x_ptr.is_c_str = false;
-            out_val->data.x_ptr.ptr = allocate<ConstExprValue *>(1);
-            out_val->data.x_ptr.ptr[0] = mem_slot;
-            return ptr_type;
-        }
+    ConstExprValue *mem_slot = nullptr;
+    if (var->block_context->fn_entry) {
+        // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
+        if (var->mem_slot_index != SIZE_MAX)
+            mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
+    } else if (var->src_is_const) {
+        AstNode *var_decl_node = var->decl_node;
+        assert(var_decl_node->type == NodeTypeVariableDeclaration);
+        mem_slot = &get_resolved_expr(var_decl_node->data.variable_declaration.expr)->const_val;
+        assert(mem_slot->ok);
     }
 
-    ir_build_var_ptr_from(&ira->new_irb, &var_ptr_instruction->base, var);
-    return ptr_type;
+    if (mem_slot && mem_slot->ok) {
+        ConstExprValue *out_val = ir_build_const_from(ira, &var_ptr_instruction->base,
+                mem_slot->depends_on_compile_var);
+
+        out_val->data.x_ptr.len = 1;
+        out_val->data.x_ptr.is_c_str = false;
+        out_val->data.x_ptr.ptr = allocate<ConstExprValue *>(1);
+        out_val->data.x_ptr.ptr[0] = mem_slot;
+        return ptr_type;
+    } else {
+        ir_build_var_ptr_from(&ira->new_irb, &var_ptr_instruction->base, var);
+        return ptr_type;
+    }
 }
 
 static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionElemPtr *elem_ptr_instruction) {

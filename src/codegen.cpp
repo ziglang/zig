@@ -2212,7 +2212,7 @@ static void do_code_gen(CodeGen *g) {
             if (!type_has_bits(var->type)) {
                 continue;
             }
-            if (var->ref_count == 0)
+            if (var->is_inline)
                 continue;
 
             if (var->block_context->node->type == NodeTypeFnDef) {
@@ -2257,6 +2257,7 @@ static void do_code_gen(CodeGen *g) {
 
             VariableTableEntry *variable = param_decl->data.param_decl.variable;
             assert(variable);
+            assert(variable->value_ref);
 
             if (!handle_is_ptr(variable->type)) {
                 clear_debug_source_node(g);
@@ -3015,8 +3016,8 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
     }
 
     if (g->verbose) {
-        fprintf(stderr, "\nSemantic Analysis:\n");
-        fprintf(stderr, "--------------------\n");
+        fprintf(stderr, "\nIR Generation and Semantic Analysis:\n");
+        fprintf(stderr, "--------------------------------------\n");
     }
     if (!g->error_during_imports) {
         semantic_analyze(g);

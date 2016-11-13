@@ -847,7 +847,9 @@ static IrInstruction *analyze_const_value(CodeGen *g, BlockContext *scope, AstNo
         return g->invalid_instruction;
 
     if (g->verbose) {
-        fprintf(stderr, "{\n");
+        fprintf(stderr, "\nSource: ");
+        ast_render(stderr, node, 4);
+        fprintf(stderr, "\n{ // (IR)\n");
         ir_print(stderr, &ir_executable, 4);
         fprintf(stderr, "}\n");
     }
@@ -2573,7 +2575,9 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
         return;
     }
     if (g->verbose) {
-        fprintf(stderr, "fn %s {\n", buf_ptr(&fn_table_entry->symbol_name));
+        fprintf(stderr, "\n");
+        ast_render(stderr, fn_table_entry->fn_def_node, 4);
+        fprintf(stderr, "\n{ // (IR)\n");
         ir_print(stderr, &fn_table_entry->ir_executable, 4);
         fprintf(stderr, "}\n");
     }
@@ -2583,7 +2587,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     node->data.fn_def.implicit_return_type = block_return_type;
 
     if (block_return_type->id != TypeTableEntryIdInvalid && g->verbose) {
-        fprintf(stderr, "fn %s { // (analyzed)\n", buf_ptr(&fn_table_entry->symbol_name));
+        fprintf(stderr, "{ // (analyzed)\n");
         ir_print(stderr, &fn_table_entry->analyzed_executable, 4);
         fprintf(stderr, "}\n");
     }

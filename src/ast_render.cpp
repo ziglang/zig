@@ -655,7 +655,5 @@ void ast_render(FILE *f, AstNode *node, int indent_size) {
     ar.indent_size = indent_size;
     ar.indent = 0;
 
-    assert(node->type == NodeTypeRoot);
-
     render_node(&ar, node);
 }
