@@ -2074,6 +2074,11 @@ static void ir_inline_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
     ira->old_irb.current_basic_block = old_bb;
 }
 
+static TypeTableEntry *ir_finish_anal(IrAnalyze *ira, TypeTableEntry *result_type) {
+    if (result_type->id == TypeTableEntryIdUnreachable)
+        ir_finish_bb(ira);
+    return result_type;
+}
 
 static ConstExprValue *ir_build_const_from(IrAnalyze *ira, IrInstruction *old_instruction,
         bool depends_on_compile_var)
@@ -2485,21 +2490,16 @@ static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
     IrInstructionReturn *return_instruction)
 {
     IrInstruction *value = return_instruction->value->other;
-    if (value == ira->codegen->invalid_instruction) {
-        ir_finish_bb(ira);
-        return ira->codegen->builtin_types.entry_unreachable;
-    }
+    if (value == ira->codegen->invalid_instruction)
+        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
     ira->implicit_return_type_list.append(value);
 
     IrInstruction *casted_value = ir_get_casted_value(ira, value, ira->explicit_return_type);
-    if (casted_value == ira->codegen->invalid_instruction) {
-        ir_finish_bb(ira);
-        return ira->codegen->builtin_types.entry_unreachable;
-    }
+    if (casted_value == ira->codegen->invalid_instruction)
+        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 
     ir_build_return_from(&ira->new_irb, &return_instruction->base, casted_value);
-    ir_finish_bb(ira);
-    return ira->codegen->builtin_types.entry_unreachable;
+    return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
 
 static TypeTableEntry *ir_analyze_instruction_const(IrAnalyze *ira, IrInstructionConst *const_instruction) {
@@ -2975,7 +2975,7 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
                 return ira->codegen->builtin_types.entry_invalid;
 
             ir_link_new_instruction(cast_instruction, &call_instruction->base);
-            return cast_instruction->type_entry;
+            return ir_finish_anal(ira, cast_instruction->type_entry);
         } else if (fn_ref->type_entry->id == TypeTableEntryIdFn) {
             // TODO fully port over the fn call analyze code to IR
             FnTableEntry *fn_table_entry = fn_ref->static_value.data.x_fn;
@@ -2985,14 +2985,15 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
             for (size_t i = 0; i < call_instruction->arg_count; i += 1) {
                 TypeTableEntry *param_type = fn_type->data.fn.fn_type_id.param_info[i].type;
                 IrInstruction *old_arg = call_instruction->args[i]->other;
+                if (old_arg->type_entry->id == TypeTableEntryIdInvalid)
+                    return ira->codegen->builtin_types.entry_invalid;
                 casted_args[i] = ir_get_casted_value(ira, old_arg, param_type);
             }
 
             ir_build_call_from(&ira->new_irb, &call_instruction->base,
                     call_instruction->fn, call_instruction->arg_count, casted_args);
 
-            TypeTableEntry *return_type = fn_type->data.fn.fn_type_id.return_type;
-            return return_type;
+            return ir_finish_anal(ira, fn_type->data.fn.fn_type_id.return_type);
         } else {
             zig_panic("TODO analyze more fn call types");
         }
@@ -3298,17 +3299,14 @@ static TypeTableEntry *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr
 
     IrBasicBlock *new_bb = ir_get_new_bb(ira, old_dest_block);
     ir_build_br_from(&ira->new_irb, &br_instruction->base, new_bb);
-    ir_finish_bb(ira);
-    return ira->codegen->builtin_types.entry_unreachable;
+    return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
 
 static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructionCondBr *cond_br_instruction) {
     TypeTableEntry *bool_type = ira->codegen->builtin_types.entry_bool;
     IrInstruction *condition = ir_get_casted_value(ira, cond_br_instruction->condition->other, bool_type);
-    if (condition == ira->codegen->invalid_instruction) {
-        ir_finish_bb(ira);
-        return ira->codegen->builtin_types.entry_unreachable;
-    }
+    if (condition == ira->codegen->invalid_instruction)
+        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 
     // TODO detect backward jumps
     if (condition->static_value.ok) {
@@ -3322,23 +3320,20 @@ static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstruct
     } else if (cond_br_instruction->is_inline) {
         add_node_error(ira->codegen, condition->source_node,
                 buf_sprintf("unable to evaluate constant expression"));
-        ir_finish_bb(ira);
-        return ira->codegen->builtin_types.entry_unreachable;
+        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
     }
 
     IrBasicBlock *new_then_block = ir_get_new_bb(ira, cond_br_instruction->then_block);
     IrBasicBlock *new_else_block = ir_get_new_bb(ira, cond_br_instruction->else_block);
     ir_build_cond_br_from(&ira->new_irb, &cond_br_instruction->base, condition, new_then_block, new_else_block, false);
-    ir_finish_bb(ira);
-    return ira->codegen->builtin_types.entry_unreachable;
+    return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
 
 static TypeTableEntry *ir_analyze_instruction_unreachable(IrAnalyze *ira,
         IrInstructionUnreachable *unreachable_instruction)
 {
     ir_build_unreachable_from(&ira->new_irb, &unreachable_instruction->base);
-    ir_finish_bb(ira);
-    return ira->codegen->builtin_types.entry_unreachable;
+    return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
 
 static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionPhi *phi_instruction) {
@@ -3984,8 +3979,12 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
         ira->instruction_index += 1;
     }
 
-    return ir_resolve_peer_types(ira, expected_type_source_node, ira->implicit_return_type_list.items,
-            ira->implicit_return_type_list.length);
+    if (ira->implicit_return_type_list.length == 0) {
+        return codegen->builtin_types.entry_unreachable;
+    } else {
+        return ir_resolve_peer_types(ira, expected_type_source_node, ira->implicit_return_type_list.items,
+                ira->implicit_return_type_list.length);
+    }
 }
 
 bool ir_has_side_effects(IrInstruction *instruction) {
