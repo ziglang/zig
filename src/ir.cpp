@@ -197,6 +197,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSliceType *) {
     return IrInstructionIdSliceType;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAsm *) {
+    return IrInstructionIdAsm;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -794,6 +798,38 @@ static IrInstruction *ir_build_slice_type(IrBuilder *irb, AstNode *source_node, 
     ir_ref_instruction(child_type);
 
     return &instruction->base;
+}
+
+static IrInstruction *ir_build_asm(IrBuilder *irb, AstNode *source_node, IrInstruction **input_list,
+        IrInstruction **output_types, size_t return_count, bool has_side_effects)
+{
+    IrInstructionAsm *instruction = ir_build_instruction<IrInstructionAsm>(irb, source_node);
+    instruction->input_list = input_list;
+    instruction->output_types = output_types;
+    instruction->return_count = return_count;
+    instruction->has_side_effects = has_side_effects;
+
+    assert(source_node->type == NodeTypeAsmExpr);
+    for (size_t i = 0; i < source_node->data.asm_expr.output_list.length; i += 1) {
+        IrInstruction *output_type = output_types[i];
+        if (output_type) ir_ref_instruction(output_type);
+    }
+
+    for (size_t i = 0; i < source_node->data.asm_expr.input_list.length; i += 1) {
+        IrInstruction *input_value = input_list[i];
+        ir_ref_instruction(input_value);
+    }
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_asm_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction **input_list,
+        IrInstruction **output_types, size_t return_count, bool has_side_effects)
+{
+    IrInstruction *new_instruction = ir_build_asm(irb, old_instruction->source_node, input_list, output_types,
+            return_count, has_side_effects);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
 }
 
 static void ir_gen_defers_for_block(IrBuilder *irb, BlockContext *inner_block, BlockContext *outer_block,
@@ -1683,6 +1719,56 @@ static IrInstruction *ir_gen_undefined_literal(IrBuilder *irb, AstNode *node) {
     return ir_build_const_undefined(irb, node);
 }
 
+static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeAsmExpr);
+
+    IrInstruction **input_list = allocate<IrInstruction *>(node->data.asm_expr.input_list.length);
+    IrInstruction **output_types = allocate<IrInstruction *>(node->data.asm_expr.output_list.length);
+    size_t return_count = 0;
+    bool is_volatile = node->data.asm_expr.is_volatile;
+    if (!is_volatile && node->data.asm_expr.output_list.length == 0) {
+        add_node_error(irb->codegen, node,
+                buf_sprintf("assembly expression with no output must be marked volatile"));
+        return irb->codegen->invalid_instruction;
+    }
+    for (size_t i = 0; i < node->data.asm_expr.output_list.length; i += 1) {
+        AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
+        if (asm_output->return_type) {
+            return_count += 1;
+
+            IrInstruction *return_type = ir_gen_node(irb, asm_output->return_type, node->block_context);
+            if (return_type == irb->codegen->invalid_instruction)
+                return irb->codegen->invalid_instruction;
+            if (return_count > 1) {
+                add_node_error(irb->codegen, node,
+                        buf_sprintf("inline assembly allows up to one output value"));
+                return irb->codegen->invalid_instruction;
+            }
+            output_types[i] = return_type;
+        } else {
+            Buf *variable_name = asm_output->variable_name;
+            VariableTableEntry *var = find_variable(irb->codegen, node->block_context, variable_name);
+            if (var) {
+                asm_output->variable = var;
+            } else {
+                add_node_error(irb->codegen, node,
+                        buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
+                return irb->codegen->invalid_instruction;
+            }
+        }
+    }
+    for (size_t i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
+        AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
+        IrInstruction *input_value = ir_gen_node(irb, asm_input->expr, node->block_context);
+        if (input_value == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+
+        input_list[i] = input_value;
+    }
+
+    return ir_build_asm(irb, node, input_list, output_types, return_count, is_volatile);
+}
+
 static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockContext *block_context,
         LValPurpose lval)
 {
@@ -1728,11 +1814,12 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
             return ir_gen_string_literal(irb, node);
         case NodeTypeUndefinedLiteral:
             return ir_gen_undefined_literal(irb, node);
+        case NodeTypeAsmExpr:
+            return ir_gen_asm_expr(irb, node);
         case NodeTypeUnwrapErrorExpr:
         case NodeTypeDefer:
         case NodeTypeSliceExpr:
         case NodeTypeIfVarExpr:
-        case NodeTypeAsmExpr:
         case NodeTypeGoto:
         case NodeTypeBreak:
         case NodeTypeContinue:
@@ -3865,6 +3952,30 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
     zig_unreachable();
 }
 
+static TypeTableEntry *ir_analyze_instruction_asm(IrAnalyze *ira, IrInstructionAsm *asm_instruction) {
+    assert(asm_instruction->base.source_node->type == NodeTypeAsmExpr);
+    mark_impure_fn(ira->codegen, asm_instruction->base.source_node->block_context,
+            asm_instruction->base.source_node);
+
+    // TODO validate the output types and variable types
+
+    AstNodeAsmExpr *asm_expr = &asm_instruction->base.source_node->data.asm_expr;
+
+    TypeTableEntry *return_type = ira->codegen->builtin_types.entry_void;
+    for (size_t i = 0; i < asm_expr->output_list.length; i += 1) {
+        AsmOutput *asm_output = asm_expr->output_list.at(i);
+        if (asm_output->return_type) {
+            return_type = ir_resolve_type(ira, asm_instruction->output_types[i]);
+            if (return_type->id == TypeTableEntryIdInvalid)
+                return ira->codegen->builtin_types.entry_invalid;
+        }
+    }
+
+    ir_build_asm_from(&ira->new_irb, &asm_instruction->base, asm_instruction->input_list,
+            asm_instruction->output_types, asm_instruction->return_count, asm_instruction->has_side_effects);
+    return return_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -3911,6 +4022,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_set_fn_test(ira, (IrInstructionSetFnTest *)instruction);
         case IrInstructionIdSliceType:
             return ir_analyze_instruction_slice_type(ira, (IrInstructionSliceType *)instruction);
+        case IrInstructionIdAsm:
+            return ir_analyze_instruction_asm(ira, (IrInstructionAsm *)instruction);
         case IrInstructionIdSwitchBr:
         case IrInstructionIdCast:
         case IrInstructionIdContainerInitList:
@@ -4020,6 +4133,11 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdArrayType:
         case IrInstructionIdSliceType:
             return false;
+        case IrInstructionIdAsm:
+            {
+                IrInstructionAsm *asm_instruction = (IrInstructionAsm *)instruction;
+                return asm_instruction->has_side_effects;
+            }
     }
     zig_unreachable();
 }
@@ -7135,44 +7253,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //    return return_type;
 //}
 //
-//static TypeTableEntry *analyze_asm_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-//        TypeTableEntry *expected_type, AstNode *node)
-//{
-//    mark_impure_fn(g, context, node);
-//
-//    node->data.asm_expr.return_count = 0;
-//    TypeTableEntry *return_type = g->builtin_types.entry_void;
-//    for (size_t i = 0; i < node->data.asm_expr.output_list.length; i += 1) {
-//        AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
-//        if (asm_output->return_type) {
-//            node->data.asm_expr.return_count += 1;
-//            return_type = analyze_type_expr(g, import, context, asm_output->return_type);
-//            if (node->data.asm_expr.return_count > 1) {
-//                add_node_error(g, node,
-//                    buf_sprintf("inline assembly allows up to one output value"));
-//                break;
-//            }
-//        } else {
-//            Buf *variable_name = asm_output->variable_name;
-//            VariableTableEntry *var = find_variable(g, context, variable_name);
-//            if (var) {
-//                asm_output->variable = var;
-//                return var->type;
-//            } else {
-//                add_node_error(g, node,
-//                        buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
-//                return g->builtin_types.entry_invalid;
-//            }
-//        }
-//    }
-//    for (size_t i = 0; i < node->data.asm_expr.input_list.length; i += 1) {
-//        AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
-//        analyze_expression(g, import, context, nullptr, asm_input->expr);
-//    }
-//
-//    return return_type;
-//}
-//
 //static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
 //        BlockContext *context, AstNode *node, Buf *err_name)
 //{
@@ -7272,49 +7352,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //        }
 //    }
 //    return var->type;
-//}
-//
-//static TypeTableEntry *analyze_null_literal_expr(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *block_context, TypeTableEntry *expected_type, AstNode *node)
-//{
-//    assert(node->type == NodeTypeNullLiteral);
-//
-//    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-//    const_val->ok = true;
-//
-//    return g->builtin_types.entry_null;
-//}
-//
-//static TypeTableEntry *analyze_undefined_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-//        TypeTableEntry *expected_type, AstNode *node)
-//{
-//    assert(node->type == NodeTypeUndefinedLiteral);
-//
-//    Expr *expr = get_resolved_expr(node);
-//    ConstExprValue *const_val = &expr->const_val;
-//
-//    const_val->ok = true;
-//    const_val->special = ConstValSpecialUndef;
-//
-//    return expected_type ? expected_type : g->builtin_types.entry_undef;
-//}
-//
-//static TypeTableEntry *analyze_zeroes_literal_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-//        TypeTableEntry *expected_type, AstNode *node)
-//{
-//    Expr *expr = get_resolved_expr(node);
-//    ConstExprValue *const_val = &expr->const_val;
-//
-//    const_val->ok = true;
-//    const_val->special = ConstValSpecialZeroes;
-//
-//    return expected_type ? expected_type : g->builtin_types.entry_undef;
-//}
-//
-//static TypeTableEntry *analyze_number_literal_expr(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *block_context, TypeTableEntry *expected_type, AstNode *node)
-//{
-//    return resolve_expr_const_val_as_bignum(g, node, expected_type, node->data.number_literal.bignum, false);
 //}
 //
 //static TypeTableEntry *analyze_fn_proto_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -8656,111 +8693,6 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //    }
 //}
 //
-//static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeAsmExpr);
-//
-//    AstNodeAsmExpr *asm_expr = &node->data.asm_expr;
-//
-//    Buf *src_template = asm_expr->asm_template;
-//
-//    Buf llvm_template = BUF_INIT;
-//    buf_resize(&llvm_template, 0);
-//
-//    for (size_t token_i = 0; token_i < asm_expr->token_list.length; token_i += 1) {
-//        AsmToken *asm_token = &asm_expr->token_list.at(token_i);
-//        switch (asm_token->id) {
-//            case AsmTokenIdTemplate:
-//                for (size_t offset = asm_token->start; offset < asm_token->end; offset += 1) {
-//                    uint8_t c = *((uint8_t*)(buf_ptr(src_template) + offset));
-//                    if (c == '$') {
-//                        buf_append_str(&llvm_template, "$$");
-//                    } else {
-//                        buf_append_char(&llvm_template, c);
-//                    }
-//                }
-//                break;
-//            case AsmTokenIdPercent:
-//                buf_append_char(&llvm_template, '%');
-//                break;
-//            case AsmTokenIdVar:
-//                size_t index = find_asm_index(g, node, asm_token);
-//                assert(index < SIZE_MAX);
-//                buf_appendf(&llvm_template, "$%zu", index);
-//                break;
-//        }
-//    }
-//
-//    Buf constraint_buf = BUF_INIT;
-//    buf_resize(&constraint_buf, 0);
-//
-//    assert(asm_expr->return_count == 0 || asm_expr->return_count == 1);
-//
-//    size_t total_constraint_count = asm_expr->output_list.length +
-//                                 asm_expr->input_list.length +
-//                                 asm_expr->clobber_list.length;
-//    size_t input_and_output_count = asm_expr->output_list.length +
-//                                 asm_expr->input_list.length -
-//                                 asm_expr->return_count;
-//    size_t total_index = 0;
-//    size_t param_index = 0;
-//    LLVMTypeRef *param_types = allocate<LLVMTypeRef>(input_and_output_count);
-//    LLVMValueRef *param_values = allocate<LLVMValueRef>(input_and_output_count);
-//    for (size_t i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
-//        AsmOutput *asm_output = asm_expr->output_list.at(i);
-//        bool is_return = (asm_output->return_type != nullptr);
-//        assert(*buf_ptr(asm_output->constraint) == '=');
-//        if (is_return) {
-//            buf_appendf(&constraint_buf, "=%s", buf_ptr(asm_output->constraint) + 1);
-//        } else {
-//            buf_appendf(&constraint_buf, "=*%s", buf_ptr(asm_output->constraint) + 1);
-//        }
-//        if (total_index + 1 < total_constraint_count) {
-//            buf_append_char(&constraint_buf, ',');
-//        }
-//
-//        if (!is_return) {
-//            VariableTableEntry *variable = asm_output->variable;
-//            assert(variable);
-//            param_types[param_index] = LLVMTypeOf(variable->value_ref);
-//            param_values[param_index] = variable->value_ref;
-//            param_index += 1;
-//        }
-//    }
-//    for (size_t i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1, param_index += 1) {
-//        AsmInput *asm_input = asm_expr->input_list.at(i);
-//        buf_append_buf(&constraint_buf, asm_input->constraint);
-//        if (total_index + 1 < total_constraint_count) {
-//            buf_append_char(&constraint_buf, ',');
-//        }
-//
-//        TypeTableEntry *expr_type = get_expr_type(asm_input->expr);
-//        param_types[param_index] = expr_type->type_ref;
-//        param_values[param_index] = gen_expr(g, asm_input->expr);
-//    }
-//    for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
-//        Buf *clobber_buf = asm_expr->clobber_list.at(i);
-//        buf_appendf(&constraint_buf, "~{%s}", buf_ptr(clobber_buf));
-//        if (total_index + 1 < total_constraint_count) {
-//            buf_append_char(&constraint_buf, ',');
-//        }
-//    }
-//
-//    LLVMTypeRef ret_type;
-//    if (asm_expr->return_count == 0) {
-//        ret_type = LLVMVoidType();
-//    } else {
-//        ret_type = get_expr_type(node)->type_ref;
-//    }
-//    LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, input_and_output_count, false);
-//
-//    bool is_volatile = asm_expr->is_volatile || (asm_expr->output_list.length == 0);
-//    LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
-//            buf_ptr(&constraint_buf), is_volatile, false);
-//
-//    set_debug_source_node(g, node);
-//    return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
-//}
-//
 //static LLVMValueRef gen_container_init_expr(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeContainerInitExpr);
 //
@@ -9404,35 +9336,6 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //    return result;
 //}
 //
-//static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok) {
-//    const char *ptr = buf_ptr(node->data.asm_expr.asm_template) + tok->start + 2;
-//    size_t len = tok->end - tok->start - 2;
-//    size_t result = 0;
-//    for (size_t i = 0; i < node->data.asm_expr.output_list.length; i += 1, result += 1) {
-//        AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
-//        if (buf_eql_mem(asm_output->asm_symbolic_name, ptr, len)) {
-//            return result;
-//        }
-//    }
-//    for (size_t i = 0; i < node->data.asm_expr.input_list.length; i += 1, result += 1) {
-//        AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
-//        if (buf_eql_mem(asm_input->asm_symbolic_name, ptr, len)) {
-//            return result;
-//        }
-//    }
-//    return SIZE_MAX;
-//}
-//
-//static LLVMValueRef gen_symbol(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeSymbol);
-//    VariableTableEntry *variable = get_resolved_expr(node)->variable;
-//    if (variable) {
-//        return gen_variable(g, node, variable);
-//    }
-//
-//    zig_unreachable();
-//}
-//
 //static LLVMValueRef gen_label(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeLabel);
 //
@@ -9447,13 +9350,3 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //    LLVMPositionBuilderAtEnd(g->builder, basic_block);
 //    return nullptr;
 //}
-//
-//static LLVMValueRef gen_variable(CodeGen *g, AstNode *source_node, VariableTableEntry *variable) {
-//    if (!type_has_bits(variable->type)) {
-//        return nullptr;
-//    } else {
-//        assert(variable->value_ref);
-//        return get_handle_value(g, variable->value_ref, variable->type);
-//    }
-//}
-//

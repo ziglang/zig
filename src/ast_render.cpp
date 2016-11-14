@@ -407,13 +407,19 @@ static void render_node(AstRender *ar, AstNode *node) {
                 break;
             }
         case NodeTypeBlock:
+            if (node->data.block.statements.length == 0) {
+                fprintf(ar->f, "{}");
+                break;
+            }
             fprintf(ar->f, "{\n");
             ar->indent += ar->indent_size;
             for (size_t i = 0; i < node->data.block.statements.length; i += 1) {
                 AstNode *statement = node->data.block.statements.at(i);
                 print_indent(ar);
                 render_node(ar, statement);
-                fprintf(ar->f, ";\n");
+                if (i != node->data.block.statements.length - 1)
+                    fprintf(ar->f, ";");
+                fprintf(ar->f, "\n");
             }
             ar->indent -= ar->indent_size;
             print_indent(ar);
@@ -598,6 +604,60 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeVarLiteral:
             fprintf(ar->f, "var");
             break;
+        case NodeTypeAsmExpr:
+            {
+                AstNodeAsmExpr *asm_expr = &node->data.asm_expr;
+                const char *volatile_str = asm_expr->is_volatile ? " volatile" : "";
+                fprintf(ar->f, "asm%s (\"%s\"\n", volatile_str, buf_ptr(asm_expr->asm_template));
+                print_indent(ar);
+                fprintf(ar->f, ": ");
+                for (size_t i = 0; i < asm_expr->output_list.length; i += 1) {
+                    AsmOutput *asm_output = asm_expr->output_list.at(i);
+
+                    if (i != 0) {
+                        fprintf(ar->f, ",\n");
+                        print_indent(ar);
+                    }
+
+                    fprintf(ar->f, "[%s] \"%s\" (",
+                            buf_ptr(asm_output->asm_symbolic_name),
+                            buf_ptr(asm_output->constraint));
+                    if (asm_output->return_type) {
+                        fprintf(ar->f, "-> ");
+                        render_node(ar, asm_output->return_type);
+                    } else {
+                        fprintf(ar->f, "%s", buf_ptr(asm_output->variable_name));
+                    }
+                    fprintf(ar->f, ")");
+                }
+                fprintf(ar->f, "\n");
+                print_indent(ar);
+                fprintf(ar->f, ": ");
+                for (size_t i = 0; i < asm_expr->input_list.length; i += 1) {
+                    AsmInput *asm_input = asm_expr->input_list.at(i);
+
+                    if (i != 0) {
+                        fprintf(ar->f, ",\n");
+                        print_indent(ar);
+                    }
+
+                    fprintf(ar->f, "[%s] \"%s\" (",
+                            buf_ptr(asm_input->asm_symbolic_name),
+                            buf_ptr(asm_input->constraint));
+                    render_node(ar, asm_input->expr);
+                    fprintf(ar->f, ")");
+                }
+                fprintf(ar->f, "\n");
+                print_indent(ar);
+                fprintf(ar->f, ": ");
+                for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1) {
+                    Buf *reg_name = asm_expr->clobber_list.at(i);
+                    if (i != 0) fprintf(ar->f, ", ");
+                    fprintf(ar->f, "\"%s\"", buf_ptr(reg_name));
+                }
+                fprintf(ar->f, ")");
+                break;
+            }
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
@@ -621,7 +681,6 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeGoto:
         case NodeTypeBreak:
         case NodeTypeContinue:
-        case NodeTypeAsmExpr:
             zig_panic("TODO more ast rendering");
     }
 }

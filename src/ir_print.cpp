@@ -420,6 +420,48 @@ static void ir_print_slice_type(IrPrint *irp, IrInstructionSliceType *instructio
     ir_print_other_instruction(irp, instruction->child_type);
 }
 
+static void ir_print_asm(IrPrint *irp, IrInstructionAsm *instruction) {
+    assert(instruction->base.source_node->type == NodeTypeAsmExpr);
+    AstNodeAsmExpr *asm_expr = &instruction->base.source_node->data.asm_expr;
+    const char *volatile_kw = instruction->has_side_effects ? " volatile" : "";
+    fprintf(irp->f, "asm%s (\"%s\") : ", volatile_kw, buf_ptr(asm_expr->asm_template));
+
+    for (size_t i = 0; i < asm_expr->output_list.length; i += 1) {
+        AsmOutput *asm_output = asm_expr->output_list.at(i);
+        if (i != 0) fprintf(irp->f, ", ");
+
+        fprintf(irp->f, "[%s] \"%s\" (",
+                buf_ptr(asm_output->asm_symbolic_name),
+                buf_ptr(asm_output->constraint));
+        if (asm_output->return_type) {
+            fprintf(irp->f, "-> ");
+            ir_print_other_instruction(irp, instruction->output_types[i]);
+        } else {
+            fprintf(irp->f, "%s", buf_ptr(asm_output->variable_name));
+        }
+        fprintf(irp->f, ")");
+    }
+
+    fprintf(irp->f, " : ");
+    for (size_t i = 0; i < asm_expr->input_list.length; i += 1) {
+        AsmInput *asm_input = asm_expr->input_list.at(i);
+
+        if (i != 0) fprintf(irp->f, ", ");
+        fprintf(irp->f, "[%s] \"%s\" (",
+                buf_ptr(asm_input->asm_symbolic_name),
+                buf_ptr(asm_input->constraint));
+        ir_print_other_instruction(irp, instruction->input_list[i]);
+        fprintf(irp->f, ")");
+    }
+    fprintf(irp->f, " : ");
+    for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1) {
+        Buf *reg_name = asm_expr->clobber_list.at(i);
+        if (i != 0) fprintf(irp->f, ", ");
+        fprintf(irp->f, "\"%s\"", buf_ptr(reg_name));
+    }
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -502,6 +544,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSliceType:
             ir_print_slice_type(irp, (IrInstructionSliceType *)instruction);
+            break;
+        case IrInstructionIdAsm:
+            ir_print_asm(irp, (IrInstructionAsm *)instruction);
             break;
         case IrInstructionIdSwitchBr:
             zig_panic("TODO print more IR instructions");

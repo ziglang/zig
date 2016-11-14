@@ -631,7 +631,6 @@ struct AstNodeAsmExpr {
     ZigList<Buf*> clobber_list;
 
     // populated by semantic analyzer
-    size_t return_count;
     Expr resolved_expr;
 };
 
@@ -1449,6 +1448,7 @@ enum IrInstructionId {
     IrInstructionIdSetFnTest,
     IrInstructionIdArrayType,
     IrInstructionIdSliceType,
+    IrInstructionIdAsm,
 };
 
 struct IrInstruction {
@@ -1714,6 +1714,16 @@ struct IrInstructionSliceType {
 
     bool is_const;
     IrInstruction *child_type;
+};
+
+struct IrInstructionAsm {
+    IrInstruction base;
+
+    // Most information on inline assembly comes from the source node.
+    IrInstruction **input_list;
+    IrInstruction **output_types;
+    size_t return_count;
+    bool has_side_effects;
 };
 
 enum LValPurpose {
