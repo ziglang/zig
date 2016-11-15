@@ -2180,7 +2180,9 @@ static ConstExprValue *ir_build_const_from(IrAnalyze *ira, IrInstruction *old_in
     } else if (old_instruction->id == IrInstructionIdFieldPtr) {
         zig_panic("TODO");
     } else if (old_instruction->id == IrInstructionIdElemPtr) {
-        zig_panic("TODO");
+        IrInstructionElemPtr *elem_ptr_instruction = ir_create_instruction<IrInstructionElemPtr>(ira->new_irb.exec,
+                old_instruction->source_node);
+        new_instruction = &elem_ptr_instruction->base;
     } else {
         IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
                 old_instruction->source_node);
@@ -2577,7 +2579,7 @@ static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
     IrInstructionReturn *return_instruction)
 {
     IrInstruction *value = return_instruction->value->other;
-    if (value == ira->codegen->invalid_instruction)
+    if (value->type_entry->id == TypeTableEntryIdInvalid)
         return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
     ira->implicit_return_type_list.append(value);
 
@@ -3512,7 +3514,12 @@ static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstruct
 
 static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionElemPtr *elem_ptr_instruction) {
     IrInstruction *array_ptr = elem_ptr_instruction->array_ptr->other;
+    if (array_ptr->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
     IrInstruction *elem_index = elem_ptr_instruction->elem_index->other;
+    if (elem_index->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *array_type = array_ptr->type_entry;
     TypeTableEntry *return_type;
@@ -3522,7 +3529,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     } else if (array_type->id == TypeTableEntryIdArray) {
         if (array_type->data.array.len == 0) {
             add_node_error(ira->codegen, elem_ptr_instruction->base.source_node,
-                    buf_sprintf("out of bounds array access"));
+                    buf_sprintf("index 0 outside array of size 0"));
         }
         TypeTableEntry *child_type = array_type->data.array.child_type;
         return_type = get_pointer_to_type(ira->codegen, child_type, false);
@@ -3541,12 +3548,57 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     if (casted_elem_index == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (array_ptr->static_value.ok && casted_elem_index->static_value.ok) {
-        zig_panic("TODO compile time array access");
+    if (casted_elem_index->static_value.ok) {
+        uint64_t index = casted_elem_index->static_value.data.x_bignum.data.x_uint;
+        if (array_type->id == TypeTableEntryIdArray) {
+            uint64_t array_len = array_type->data.array.len;
+            if (index >= array_len) {
+                add_node_error(ira->codegen, elem_ptr_instruction->base.source_node,
+                    buf_sprintf("index %" PRIu64 " outside array of size %" PRIu64,
+                            index, array_len));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+        }
+
+        if (array_ptr->static_value.ok) {
+            bool depends_on_compile_var = array_ptr->static_value.depends_on_compile_var ||
+                casted_elem_index->static_value.depends_on_compile_var;
+            ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base, depends_on_compile_var);
+            out_val->data.x_ptr.len = 1;
+            out_val->data.x_ptr.is_c_str = false;
+            out_val->data.x_ptr.ptr = allocate<ConstExprValue *>(1);
+            if (array_type->id == TypeTableEntryIdPointer) {
+                uint64_t pointer_len = array_ptr->static_value.data.x_ptr.len;
+                if (index >= pointer_len) {
+                    add_node_error(ira->codegen, elem_ptr_instruction->base.source_node,
+                        buf_sprintf("index %" PRIu64 " outside pointer of size %" PRIu64,
+                            index, pointer_len));
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
+                out_val->data.x_ptr.ptr[0] = array_ptr->static_value.data.x_ptr.ptr[index];
+            } else if (is_slice(array_type)) {
+                ConstExprValue *ptr_field = array_ptr->static_value.data.x_struct.fields[0];
+                ConstExprValue *len_field = array_ptr->static_value.data.x_struct.fields[1];
+                uint64_t slice_len = len_field->data.x_bignum.data.x_uint;
+                if (index >= slice_len) {
+                    add_node_error(ira->codegen, elem_ptr_instruction->base.source_node,
+                        buf_sprintf("index %" PRIu64 " outside slice of size %" PRIu64,
+                            index, slice_len));
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
+                assert(index < ptr_field->data.x_ptr.len);
+                out_val->data.x_ptr.ptr[0] = ptr_field->data.x_ptr.ptr[index];
+            } else if (array_type->id == TypeTableEntryIdArray) {
+                out_val->data.x_ptr.ptr[0] = array_ptr->static_value.data.x_array.fields[index];
+            } else {
+                zig_unreachable();
+            }
+            return return_type;
+        }
+
     }
 
     ir_build_elem_ptr_from(&ira->new_irb, &elem_ptr_instruction->base, array_ptr, casted_elem_index);
-
     return return_type;
 }
 
