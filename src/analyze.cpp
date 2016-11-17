@@ -882,7 +882,7 @@ static TypeTableEntry *analyze_type_expr_pointer_only(CodeGen *g, ImportTableEnt
     if (result->type_entry->id == TypeTableEntryIdInvalid)
         return g->builtin_types.entry_invalid;
 
-    assert(result->static_value.ok);
+    assert(result->static_value.special != ConstValSpecialRuntime);
     return result->static_value.data.x_type;
 }
 
@@ -1963,9 +1963,8 @@ static void resolve_var_decl(CodeGen *g, ImportTableEntry *import, AstNode *node
         }
         if (implicit_type->id != TypeTableEntryIdInvalid) {
             Expr *expr = get_resolved_expr(var_decl->expr);
-            assert(result->static_value.ok);
-            expr->const_val = result->static_value;
-            expr->type_entry = result->type_entry;
+            assert(result->static_value.special != ConstValSpecialRuntime);
+            expr->instruction = result;
         }
     } else if (!is_extern) {
         add_node_error(g, node, buf_sprintf("variables must be initialized"));
@@ -2132,8 +2131,8 @@ static bool num_lit_fits_in_other_type(CodeGen *g, AstNode *literal_node, TypeTa
     }
 
     Expr *expr = get_resolved_expr(literal_node);
-    ConstExprValue *const_val = &expr->const_val;
-    assert(const_val->ok);
+    ConstExprValue *const_val = &expr->instruction->static_value;
+    assert(const_val->special != ConstValSpecialRuntime);
     if (other_type_underlying->id == TypeTableEntryIdFloat) {
         return true;
     } else if (other_type_underlying->id == TypeTableEntryIdInt &&
@@ -2600,15 +2599,15 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
     AstNode *use_target_node = src_use_node->data.use.expr;
     Expr *expr = get_resolved_expr(use_target_node);
 
-    if (expr->type_entry->id == TypeTableEntryIdInvalid) {
+    if (expr->instruction->type_entry->id == TypeTableEntryIdInvalid) {
         tld->import->any_imports_failed = true;
         return;
     }
 
     tld->resolution = TldResolutionOk;
 
-    ConstExprValue *const_val = &expr->const_val;
-    assert(const_val->ok);
+    ConstExprValue *const_val = &expr->instruction->static_value;
+    assert(const_val->special != ConstValSpecialRuntime);
 
     ImportTableEntry *target_import = const_val->data.x_import;
     assert(target_import);
@@ -3031,10 +3030,11 @@ void find_libc_lib_path(CodeGen *g) {
 }
 
 static uint32_t hash_ptr(void *ptr) {
-    uint64_t x = (uint64_t)(uintptr_t)(ptr);
-    uint32_t a = x >> 32;
-    uint32_t b = x & 0xffffffff;
-    return a ^ b;
+    return ((uintptr_t)ptr) % UINT32_MAX;
+}
+
+static uint32_t hash_size(size_t x) {
+    return x % UINT32_MAX;
 }
 
 uint32_t fn_type_id_hash(FnTypeId *id) {
@@ -3090,7 +3090,7 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
         case TypeTableEntryIdNumLitFloat:
             return const_val->data.x_bignum.data.x_float * UINT32_MAX;
         case TypeTableEntryIdPointer:
-            return hash_ptr(const_val->data.x_ptr.ptr);
+            return hash_ptr(const_val->data.x_ptr.base_ptr) + hash_size(const_val->data.x_ptr.index);
         case TypeTableEntryIdUndefLit:
             return 162837799;
         case TypeTableEntryIdNullLit:
@@ -3143,8 +3143,8 @@ uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {
     for (size_t i = 0; i < id->generic_param_count; i += 1) {
         GenericParamValue *generic_param = &id->generic_params[i];
         if (generic_param->node) {
-            ConstExprValue *const_val = &get_resolved_expr(generic_param->node)->const_val;
-            assert(const_val->ok);
+            ConstExprValue *const_val = &get_resolved_expr(generic_param->node)->instruction->static_value;
+            assert(const_val->special != ConstValSpecialRuntime);
             result += hash_const_val(generic_param->type, const_val);
         }
         result += hash_ptr(generic_param->type);
@@ -3160,10 +3160,10 @@ bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
         GenericParamValue *b_val = &b->generic_params[i];
         if (a_val->type != b_val->type) return false;
         if (a_val->node && b_val->node) {
-            ConstExprValue *a_const_val = &get_resolved_expr(a_val->node)->const_val;
-            ConstExprValue *b_const_val = &get_resolved_expr(b_val->node)->const_val;
-            assert(a_const_val->ok);
-            assert(b_const_val->ok);
+            ConstExprValue *a_const_val = &get_resolved_expr(a_val->node)->instruction->static_value;
+            ConstExprValue *b_const_val = &get_resolved_expr(b_val->node)->instruction->static_value;
+            assert(a_const_val->special != ConstValSpecialRuntime);
+            assert(b_const_val->special != ConstValSpecialRuntime);
             if (!const_values_equal(a_const_val, b_const_val, a_val->type)) {
                 return false;
             }
@@ -3236,4 +3236,5 @@ uint64_t get_memcpy_align(CodeGen *g, TypeTableEntry *type_entry) {
     TypeTableEntry *first_type_in_mem = type_of_first_thing_in_memory(type_entry);
     return LLVMABISizeOfType(g->target_data_ref, first_type_in_mem->type_ref);
 }
+
 

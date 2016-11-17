@@ -226,7 +226,8 @@ void codegen_set_rdynamic(CodeGen *g, bool rdynamic) {
     g->linker_rdynamic = rdynamic;
 }
 
-static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val);
+static void render_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val);
+static void render_const_val_global(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val);
 
 static void set_debug_source_node(CodeGen *g, AstNode *node) {
     assert(node->block_context);
@@ -862,10 +863,16 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
     if (!type_has_bits(instruction->type_entry))
         return nullptr;
     if (!instruction->llvm_value) {
-        assert(instruction->static_value.ok);
+        assert(instruction->static_value.special != ConstValSpecialRuntime);
         assert(instruction->type_entry);
-        instruction->llvm_value = gen_const_val(g, instruction->type_entry, &instruction->static_value);
+        render_const_val(g, instruction->type_entry, &instruction->static_value);
+        instruction->llvm_value = instruction->static_value.llvm_value;
         assert(instruction->llvm_value);
+    }
+    if (instruction->static_value.special != ConstValSpecialRuntime) {
+        if (instruction->type_entry->id == TypeTableEntryIdPointer) {
+            return LLVMBuildLoad(g->builder, instruction->static_value.llvm_global, "");
+        }
     }
     return instruction->llvm_value;
 }
@@ -1401,9 +1408,9 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
     bool want_zeroes = false;
 
     ConstExprValue *const_val = &init_value->static_value;
-    if (!const_val->ok || const_val->special == ConstValSpecialOther)
+    if (const_val->special == ConstValSpecialRuntime || const_val->special == ConstValSpecialStatic)
         have_init_expr = true;
-    if (const_val->ok && const_val->special == ConstValSpecialZeroes)
+    if (const_val->special == ConstValSpecialZeroes)
         want_zeroes = true;
 
     if (have_init_expr) {
@@ -1740,14 +1747,14 @@ static void ir_render(CodeGen *g, FnTableEntry *fn_entry) {
 }
 
 static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val) {
-    assert(const_val->ok);
-
     switch (const_val->special) {
+        case ConstValSpecialRuntime:
+            zig_unreachable();
         case ConstValSpecialUndef:
             return LLVMGetUndef(type_entry->type_ref);
         case ConstValSpecialZeroes:
             return LLVMConstNull(type_entry->type_ref);
-        case ConstValSpecialOther:
+        case ConstValSpecialStatic:
             break;
 
     }
@@ -1814,7 +1821,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
                         continue;
                     }
                     fields[type_struct_field->gen_index] = gen_const_val(g, type_struct_field->type_entry,
-                            const_val->data.x_struct.fields[i]);
+                            &const_val->data.x_struct.fields[i]);
                 }
                 return LLVMConstNamedStruct(type_entry->type_ref, fields,
                         type_entry->data.structure.gen_field_count);
@@ -1829,8 +1836,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
                 uint64_t len = type_entry->data.array.len;
                 LLVMValueRef *values = allocate<LLVMValueRef>(len);
                 for (uint64_t i = 0; i < len; i += 1) {
-                    ConstExprValue *field_value = const_val->data.x_array.fields[i];
-                    values[i] = gen_const_val(g, child_type, field_value);
+                    ConstExprValue *elem_value = &const_val->data.x_array.elements[i];
+                    values[i] = gen_const_val(g, child_type, elem_value);
                 }
                 return LLVMConstArray(child_type->type_ref, values, len);
             }
@@ -1878,29 +1885,26 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdPointer:
             {
                 TypeTableEntry *child_type = type_entry->data.pointer.child_type;
-                size_t len = const_val->data.x_ptr.len;
-                LLVMValueRef target_val;
-                if (len == 1) {
-                    target_val = gen_const_val(g, child_type, const_val->data.x_ptr.ptr[0]);
-                } else if (len > 1) {
-                    LLVMValueRef *values = allocate<LLVMValueRef>(len);
-                    for (size_t i = 0; i < len; i += 1) {
-                        values[i] = gen_const_val(g, child_type, const_val->data.x_ptr.ptr[i]);
-                    }
-                    target_val = LLVMConstArray(child_type->type_ref, values, len);
-                } else {
-                    return LLVMGetUndef(type_entry->type_ref);
-                }
-                LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(target_val), "");
-                LLVMSetInitializer(global_value, target_val);
-                LLVMSetLinkage(global_value, LLVMPrivateLinkage);
-                LLVMSetGlobalConstant(global_value, type_entry->data.pointer.is_const);
-                LLVMSetUnnamedAddr(global_value, true);
 
-                if (len > 1) {
-                    return LLVMConstBitCast(global_value, type_entry->type_ref);
+                render_const_val_global(g, type_entry, const_val);
+                size_t index = const_val->data.x_ptr.index;
+                if (index == SIZE_MAX) {
+                    render_const_val(g, child_type, const_val->data.x_ptr.base_ptr);
+                    render_const_val_global(g, child_type, const_val->data.x_ptr.base_ptr);
+                    return const_val->data.x_ptr.base_ptr->llvm_global;
                 } else {
-                    return global_value;
+                    ConstExprValue *array_const_val = const_val->data.x_ptr.base_ptr;
+                    TypeTableEntry *array_type = get_array_type(g, child_type,
+                            array_const_val->data.x_array.size);
+                    render_const_val(g, array_type, array_const_val);
+                    render_const_val_global(g, array_type, array_const_val);
+                    TypeTableEntry *usize = g->builtin_types.entry_usize;
+                    LLVMValueRef indices[] = {
+                        LLVMConstNull(usize->type_ref),
+                        LLVMConstInt(usize->type_ref, index, false),
+                    };
+                    LLVMValueRef ptr_val = LLVMConstInBoundsGEP(array_const_val->llvm_global, indices, 2);
+                    return ptr_val;
                 }
             }
         case TypeTableEntryIdErrorUnion:
@@ -1945,27 +1949,26 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
     zig_unreachable();
 }
 
-static void gen_const_globals(CodeGen *g) {
-    for (size_t i = 0; i < g->global_const_list.length; i += 1) {
-        AstNode *expr_node = g->global_const_list.at(i);
-        Expr *expr = get_resolved_expr(expr_node);
-        ConstExprValue *const_val = &expr->const_val;
-        assert(const_val->ok);
-        TypeTableEntry *type_entry = expr->type_entry;
+static void render_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val) {
+    if (!const_val->llvm_value)
+        const_val->llvm_value = gen_const_val(g, type_entry, const_val);
 
-        if (handle_is_ptr(type_entry)) {
-            LLVMValueRef init_val = gen_const_val(g, type_entry, const_val);
-            LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_val), "");
-            LLVMSetInitializer(global_value, init_val);
-            LLVMSetLinkage(global_value, LLVMPrivateLinkage);
-            LLVMSetGlobalConstant(global_value, true);
-            LLVMSetUnnamedAddr(global_value, true);
-            expr->const_llvm_val = global_value;
-        } else {
-            expr->const_llvm_val = gen_const_val(g, type_entry, const_val);
-        }
-        assert(expr->const_llvm_val);
+    if (const_val->llvm_global)
+        LLVMSetInitializer(const_val->llvm_global, const_val->llvm_value);
+}
+
+static void render_const_val_global(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val) {
+    if (!const_val->llvm_global) {
+        LLVMValueRef global_value = LLVMAddGlobal(g->module, type_entry->type_ref, "");
+        LLVMSetLinkage(global_value, LLVMInternalLinkage);
+        LLVMSetGlobalConstant(global_value, true);
+        LLVMSetUnnamedAddr(global_value, true);
+
+        const_val->llvm_global = global_value;
     }
+
+    if (const_val->llvm_value)
+        LLVMSetInitializer(const_val->llvm_global, const_val->llvm_value);
 }
 
 static void delete_unused_builtin_fns(CodeGen *g) {
@@ -2096,9 +2099,6 @@ static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
     delete_unused_builtin_fns(g);
-
-
-    gen_const_globals(g);
     generate_error_name_table(g);
 
     // Generate module level variables
@@ -2107,8 +2107,8 @@ static void do_code_gen(CodeGen *g) {
 
         if (var->type->id == TypeTableEntryIdNumLitFloat) {
             // Generate debug info for it but that's it.
-            ConstExprValue *const_val = &get_resolved_expr(var->val_node)->const_val;
-            assert(const_val->ok);
+            ConstExprValue *const_val = &get_resolved_expr(var->val_node)->instruction->static_value;
+            assert(const_val->special != ConstValSpecialRuntime);
             TypeTableEntry *var_type = g->builtin_types.entry_f64;
             LLVMValueRef init_val = LLVMConstReal(var_type->type_ref, const_val->data.x_bignum.data.x_float);
             gen_global_var(g, var, init_val, var_type);
@@ -2117,8 +2117,8 @@ static void do_code_gen(CodeGen *g) {
 
         if (var->type->id == TypeTableEntryIdNumLitInt) {
             // Generate debug info for it but that's it.
-            ConstExprValue *const_val = &get_resolved_expr(var->val_node)->const_val;
-            assert(const_val->ok);
+            ConstExprValue *const_val = &get_resolved_expr(var->val_node)->instruction->static_value;
+            assert(const_val->special != ConstValSpecialRuntime);
             TypeTableEntry *var_type = const_val->data.x_bignum.is_negative ?
                 g->builtin_types.entry_isize : g->builtin_types.entry_usize;
             LLVMValueRef init_val = LLVMConstInt(var_type->type_ref,
@@ -2143,25 +2143,13 @@ static void do_code_gen(CodeGen *g) {
             LLVMSetLinkage(global_value, LLVMExternalLinkage);
         } else {
             AstNode *expr_node = var->decl_node->data.variable_declaration.expr;
-            LLVMValueRef init_val;
-            if (expr_node) {
-                Expr *expr = get_resolved_expr(expr_node);
-                ConstExprValue *const_val = &expr->const_val;
-                assert(const_val->ok);
-                TypeTableEntry *type_entry = expr->type_entry;
-                init_val = gen_const_val(g, type_entry, const_val);
-            } else {
-                init_val = LLVMConstNull(var->type->type_ref);
-            }
-
-            global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_val), buf_ptr(&var->name));
-            LLVMSetInitializer(global_value, init_val);
-            LLVMSetLinkage(global_value, LLVMInternalLinkage);
-            LLVMSetUnnamedAddr(global_value, true);
-
+            IrInstruction *instruction = get_resolved_expr(expr_node)->instruction;
+            render_const_val(g, instruction->type_entry, &instruction->static_value);
+            render_const_val_global(g, instruction->type_entry, &instruction->static_value);
+            global_value = instruction->static_value.llvm_global;
             // TODO debug info for function pointers
             if (var->gen_is_const && var->type->id != TypeTableEntryIdFn) {
-                gen_global_var(g, var, init_val, var->type);
+                gen_global_var(g, var, instruction->static_value.llvm_value, var->type);
             }
         }
 
@@ -3282,11 +3270,11 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
 
 static void get_c_type_node(CodeGen *g, AstNode *type_node, Buf *out_buf) {
     Expr *expr = get_resolved_expr(type_node);
-    assert(expr->type_entry);
-    assert(expr->type_entry->id == TypeTableEntryIdMetaType);
+    assert(expr->instruction->type_entry);
+    assert(expr->instruction->type_entry->id == TypeTableEntryIdMetaType);
 
-    ConstExprValue *const_val = &expr->const_val;
-    assert(const_val->ok);
+    ConstExprValue *const_val = &expr->instruction->static_value;
+    assert(const_val->special != ConstValSpecialRuntime);
 
     TypeTableEntry *type_entry = const_val->data.x_type;
 

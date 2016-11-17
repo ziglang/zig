@@ -2763,7 +2763,6 @@ AstNode *ast_clone_subtree_special(AstNode *old_node, uint32_t *next_node_index,
                                  old_node->data.prefix_op_expr.primary_expr, next_node_index);
             break;
         case NodeTypeFnCallExpr:
-            assert(!old_node->data.fn_call_expr.resolved_expr.has_global_const);
             clone_subtree_field(&new_node->data.fn_call_expr.fn_ref_expr,
                                  old_node->data.fn_call_expr.fn_ref_expr, next_node_index);
             clone_subtree_list(&new_node->data.fn_call_expr.params,

@@ -23,13 +23,15 @@ static void ir_print_prefix(IrPrint *irp, IrInstruction *instruction) {
 
 static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, ConstExprValue *const_val) {
     switch (const_val->special) {
+        case ConstValSpecialRuntime:
+            zig_unreachable();
         case ConstValSpecialUndef:
             fprintf(irp->f, "undefined");
             return;
         case ConstValSpecialZeroes:
             fprintf(irp->f, "zeroes");
             return;
-        case ConstValSpecialOther:
+        case ConstValSpecialStatic:
             break;
     }
     switch (type_entry->id) {
@@ -70,7 +72,7 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
             }
         case TypeTableEntryIdPointer:
             fprintf(irp->f, "&");
-            ir_print_const_value(irp, type_entry->data.pointer.child_type, const_val->data.x_ptr.ptr[0]);
+            ir_print_const_value(irp, type_entry->data.pointer.child_type, const_ptr_pointee(const_val));
             break;
         case TypeTableEntryIdFn:
             {
@@ -91,7 +93,7 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
                 for (uint64_t i = 0; i < len; i += 1) {
                     if (i != 0)
                         fprintf(irp->f, ",");
-                    ConstExprValue *child_value = const_val->data.x_array.fields[i];
+                    ConstExprValue *child_value = &const_val->data.x_array.elements[i];
                     TypeTableEntry *child_type = type_entry->data.array.child_type;
                     ir_print_const_value(irp, child_type, child_value);
                 }
@@ -126,7 +128,7 @@ static void ir_print_var_instruction(IrPrint *irp, IrInstruction *instruction) {
 }
 
 static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction) {
-    if (instruction->static_value.ok) {
+    if (instruction->static_value.special != ConstValSpecialRuntime) {
         ir_print_const_instruction(irp, instruction);
     } else {
         ir_print_var_instruction(irp, instruction);

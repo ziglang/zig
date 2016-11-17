@@ -19,5 +19,6 @@ TypeTableEntry *ir_analyze(CodeGen *g, IrExecutable *old_executable, IrExecutabl
 IrInstruction *ir_exec_const_result(IrExecutable *exec);
 
 bool ir_has_side_effects(IrInstruction *instruction);
+ConstExprValue *const_ptr_pointee(ConstExprValue *const_val);
 
 #endif

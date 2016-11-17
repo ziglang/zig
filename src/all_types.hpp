@@ -51,17 +51,24 @@ struct ConstEnumValue {
 };
 
 struct ConstStructValue {
-    ConstExprValue **fields;
+    ConstExprValue *fields;
 };
 
 struct ConstArrayValue {
-    ConstExprValue **fields;
+    ConstExprValue *elements;
+    // This will be the same as `len` from the type, but we duplicate the information
+    // in the constant value so that pointers pointing to arrays can see this size.
+    size_t size;
 };
 
 struct ConstPtrValue {
-    ConstExprValue **ptr;
-    // len should almost always be 1. exceptions include C strings
-    uint64_t len;
+    ConstExprValue *base_ptr;
+    // If index is SIZE_MAX, then base_ptr points directly to child type.
+    // Otherwise base_ptr points to an array const val and index is offset
+    // in object units from base_ptr into the block of memory pointed to
+    size_t index;
+    // This flag helps us preserve the null byte when performing compile-time
+    // concatenation on C strings.
     bool is_c_str;
 };
 
@@ -71,15 +78,17 @@ struct ConstErrValue {
 };
 
 enum ConstValSpecial {
-    ConstValSpecialOther,
+    ConstValSpecialRuntime,
+    ConstValSpecialStatic,
     ConstValSpecialUndef,
     ConstValSpecialZeroes,
 };
 
 struct ConstExprValue {
-    bool ok;
-    bool depends_on_compile_var;
     ConstValSpecial special;
+    bool depends_on_compile_var;
+    LLVMValueRef llvm_value;
+    LLVMValueRef llvm_global;
 
     // populated if val_type == ConstValTypeOk
     union {
@@ -108,13 +117,9 @@ enum ReturnKnowledge {
 };
 
 struct Expr {
-    TypeTableEntry *type_entry;
+    IrInstruction *instruction;
     ReturnKnowledge return_knowledge;
     VariableTableEntry *variable;
-
-    LLVMValueRef const_llvm_val;
-    ConstExprValue const_val;
-    bool has_global_const;
 };
 
 struct StructValExprCodeGen {
@@ -1289,7 +1294,6 @@ struct CodeGen {
     // there will not be a corresponding fn_defs entry.
     ZigList<FnTableEntry *> fn_protos;
     ZigList<VariableTableEntry *> global_vars;
-    ZigList<AstNode *> global_const_list;
 
     OutType out_type;
     FnTableEntry *cur_fn;
@@ -1732,5 +1736,8 @@ enum LValPurpose {
     LValPurposeAddressOf,
     LValPurposeConstAddressOf,
 };
+
+static const size_t slice_ptr_index = 0;
+static const size_t slice_len_index = 1;
 
 #endif

@@ -147,7 +147,7 @@ static int eval_const_expr_bin_op_bignum(ConstExprValue *op1_val, ConstExprValue
         }
     }
 
-    out_val->ok = true;
+    out_val->special = ConstValSpecialStatic;
     out_val->depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
     return 0;
 }
@@ -155,8 +155,8 @@ static int eval_const_expr_bin_op_bignum(ConstExprValue *op1_val, ConstExprValue
 int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
         BinOpType bin_op, ConstExprValue *op2_val, TypeTableEntry *op2_type, ConstExprValue *out_val)
 {
-    assert(op1_val->ok);
-    assert(op2_val->ok);
+    assert(op1_val->special != ConstValSpecialRuntime);
+    assert(op2_val->special != ConstValSpecialRuntime);
     assert(op1_type->id != TypeTableEntryIdInvalid);
     assert(op2_type->id != TypeTableEntryIdInvalid);
 
@@ -171,7 +171,7 @@ int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
             assert(op1_type->id == TypeTableEntryIdBool);
             assert(op2_type->id == TypeTableEntryIdBool);
             out_val->data.x_bool = eval_bool_bin_op_bool(op1_val->data.x_bool, bin_op, op2_val->data.x_bool);
-            out_val->ok = true;
+            out_val->special = ConstValSpecialStatic;
             out_val->depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
             return 0;
         case BinOpTypeCmpEq:
@@ -219,7 +219,7 @@ int eval_const_expr_bin_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
                 out_val->depends_on_compile_var =
                     op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
                 out_val->data.x_bool = answer;
-                out_val->ok = true;
+                out_val->special = ConstValSpecialStatic;
                 return 0;
             }
         case BinOpTypeAdd:
@@ -309,67 +309,7 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
             *const_val = *other_val;
             break;
         case CastOpPointerReinterpret:
-            if (other_type->id == TypeTableEntryIdPointer &&
-                new_type->id == TypeTableEntryIdPointer)
-            {
-                TypeTableEntry *other_child_type = other_type->data.pointer.child_type;
-                TypeTableEntry *new_child_type = new_type->data.pointer.child_type;
-
-                if ((other_child_type->id == TypeTableEntryIdInt ||
-                    other_child_type->id == TypeTableEntryIdFloat) &&
-                    (new_child_type->id == TypeTableEntryIdInt ||
-                    new_child_type->id == TypeTableEntryIdFloat))
-                {
-                    ConstExprValue **ptr_val = allocate<ConstExprValue*>(1);
-                    *ptr_val = other_val->data.x_ptr.ptr[0];
-                    const_val->data.x_ptr.ptr = ptr_val;
-                    const_val->data.x_ptr.len = 1;
-                    const_val->ok = true;
-                    const_val->special = other_val->special;
-                    const_val->depends_on_compile_var = other_val->depends_on_compile_var;
-                } else {
-                    zig_panic("TODO");
-                }
-            } else if (other_type->id == TypeTableEntryIdMaybe &&
-                       new_type->id == TypeTableEntryIdMaybe)
-            {
-                if (!other_val->data.x_maybe) {
-                    *const_val = *other_val;
-                    break;
-                }
-
-                TypeTableEntry *other_ptr_type = other_type->data.maybe.child_type;
-                TypeTableEntry *new_ptr_type = new_type->data.maybe.child_type;
-
-                if (other_ptr_type->id == TypeTableEntryIdPointer &&
-                    new_ptr_type->id == TypeTableEntryIdPointer) 
-                {
-                    TypeTableEntry *other_child_type = other_ptr_type->data.pointer.child_type;
-                    TypeTableEntry *new_child_type = new_ptr_type->data.pointer.child_type;
-
-                    if ((other_child_type->id == TypeTableEntryIdInt ||
-                        other_child_type->id == TypeTableEntryIdFloat) &&
-                        (new_child_type->id == TypeTableEntryIdInt ||
-                        new_child_type->id == TypeTableEntryIdFloat))
-                    {
-                        ConstExprValue *ptr_parent = allocate<ConstExprValue>(1);
-                        ConstExprValue **ptr_val = allocate<ConstExprValue*>(1);
-                        *ptr_val = other_val->data.x_maybe->data.x_ptr.ptr[0];
-                        ptr_parent->data.x_ptr.ptr = ptr_val;
-                        ptr_parent->data.x_ptr.len = 1;
-                        ptr_parent->ok = true;
-
-                        const_val->data.x_maybe = ptr_parent;
-                        const_val->ok = true;
-                        const_val->special = other_val->special;
-                        const_val->depends_on_compile_var = other_val->depends_on_compile_var;
-                    } else {
-                        zig_panic("TODO");
-                    }
-                } else {
-                    zig_panic("TODO");
-                }
-            }
+            zig_panic("TODO compile time pointer reinterpret");
             break;
         case CastOpPtrToInt:
         case CastOpIntToPtr:
@@ -378,62 +318,43 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
             // can't do it
             break;
         case CastOpToUnknownSizeArray:
-            {
-                assert(other_type->id == TypeTableEntryIdArray);
-
-                ConstExprValue *all_fields = allocate<ConstExprValue>(2);
-                ConstExprValue *ptr_field = &all_fields[0];
-                ConstExprValue *len_field = &all_fields[1];
-
-                const_val->data.x_struct.fields = allocate<ConstExprValue*>(2);
-                const_val->data.x_struct.fields[0] = ptr_field;
-                const_val->data.x_struct.fields[1] = len_field;
-
-                ptr_field->ok = true;
-                ptr_field->data.x_ptr.ptr = other_val->data.x_array.fields;
-                ptr_field->data.x_ptr.len = other_type->data.array.len;
-
-                len_field->ok = true;
-                bignum_init_unsigned(&len_field->data.x_bignum, other_type->data.array.len);
-
-                const_val->ok = true;
-                break;
-            }
+            zig_panic("TODO compile time implicit to unknown size array");
+            break;
         case CastOpMaybeWrap:
             const_val->data.x_maybe = other_val;
-            const_val->ok = true;
+            const_val->special = ConstValSpecialStatic;
             break;
         case CastOpNullToMaybe:
             const_val->data.x_maybe = nullptr;
-            const_val->ok = true;
+            const_val->special = ConstValSpecialStatic;
             break;
         case CastOpErrorWrap:
             const_val->data.x_err.err = nullptr;
             const_val->data.x_err.payload = other_val;
-            const_val->ok = true;
+            const_val->special = ConstValSpecialStatic;
             break;
         case CastOpPureErrorWrap:
             const_val->data.x_err.err = other_val->data.x_err.err;
-            const_val->ok = true;
+            const_val->special = ConstValSpecialStatic;
             break;
         case CastOpErrToInt:
             {
                 uint64_t value = other_val->data.x_err.err ? other_val->data.x_err.err->value : 0;
                 bignum_init_unsigned(&const_val->data.x_bignum, value);
-                const_val->ok = true;
+                const_val->special = ConstValSpecialStatic;
                 break;
             }
         case CastOpIntToFloat:
             bignum_cast_to_float(&const_val->data.x_bignum, &other_val->data.x_bignum);
-            const_val->ok = true;
+            const_val->special = ConstValSpecialStatic;
             break;
         case CastOpFloatToInt:
             bignum_cast_to_int(&const_val->data.x_bignum, &other_val->data.x_bignum);
-            const_val->ok = true;
+            const_val->special = ConstValSpecialStatic;
             break;
         case CastOpBoolToInt:
             bignum_init_unsigned(&const_val->data.x_bignum, other_val->data.x_bool ? 1 : 0);
-            const_val->ok = true;
+            const_val->special = ConstValSpecialStatic;
             break;
         case CastOpIntToEnum:
             {
@@ -442,12 +363,12 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
                 assert(value < new_type->data.enumeration.src_field_count);
                 const_val->data.x_enum.tag = value;
                 const_val->data.x_enum.payload = NULL;
-                const_val->ok = true;
+                const_val->special = ConstValSpecialStatic;
                 break;
             }
         case CastOpEnumToInt:
             bignum_init_unsigned(&const_val->data.x_bignum, other_val->data.x_enum.tag);
-            const_val->ok = true;
+            const_val->special = ConstValSpecialStatic;
             break;
     }
 }
@@ -465,7 +386,7 @@ static bool int_type_depends_on_compile_var(CodeGen *g, TypeTableEntry *int_type
 
 void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val, bool is_max) {
     if (type_entry->id == TypeTableEntryIdInt) {
-        const_val->ok = true;
+        const_val->special = ConstValSpecialStatic;
         const_val->depends_on_compile_var = int_type_depends_on_compile_var(g, type_entry);
         if (is_max) {
             if (type_entry->data.integral.is_signed) {
@@ -486,7 +407,7 @@ void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *
     } else if (type_entry->id == TypeTableEntryIdFloat) {
         zig_panic("TODO analyze_min_max_value float");
     } else if (type_entry->id == TypeTableEntryIdBool) {
-        const_val->ok = true;
+        const_val->special = ConstValSpecialStatic;
         const_val->data.x_bool = is_max;
     } else {
         zig_unreachable();
