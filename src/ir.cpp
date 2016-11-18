@@ -1165,7 +1165,12 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, AstNode *node, LValPurpose l
 
     auto primitive_table_entry = irb->codegen->primitive_type_table.maybe_get(variable_name);
     if (primitive_table_entry) {
-        return ir_build_const_type(irb, node, primitive_table_entry->value);
+        IrInstruction *value = ir_build_const_type(irb, node, primitive_table_entry->value);
+        if (lval == LValPurposeAddressOf) {
+            return ir_build_un_op(irb, node, IrUnOpAddressOf, value);
+        } else {
+            return value;
+        }
     }
 
     VariableTableEntry *var = find_variable(irb->codegen, node->block_context, variable_name);
@@ -1179,7 +1184,11 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, AstNode *node, LValPurpose l
 
     AstNode *decl_node = find_decl(node->block_context, variable_name);
     if (decl_node) {
-        return ir_gen_decl_ref(irb, node, decl_node, lval, node->block_context);
+        IrInstruction *value = ir_gen_decl_ref(irb, node, decl_node, lval, node->block_context);
+        if (lval == LValPurposeAddressOf)
+            return ir_build_un_op(irb, node, IrUnOpAddressOf, value);
+        else
+            return value;
     }
 
     if (node->owner->any_imports_failed) {
@@ -1196,7 +1205,8 @@ static IrInstruction *ir_gen_array_access(IrBuilder *irb, AstNode *node, LValPur
     assert(node->type == NodeTypeArrayAccessExpr);
 
     AstNode *array_ref_node = node->data.array_access_expr.array_ref_expr;
-    IrInstruction *array_ref_instruction = ir_gen_node(irb, array_ref_node, node->block_context);
+    IrInstruction *array_ref_instruction = ir_gen_node_extra(irb, array_ref_node, node->block_context,
+            LValPurposeAddressOf);
     if (array_ref_instruction == irb->codegen->invalid_instruction)
         return array_ref_instruction;
 
@@ -1396,6 +1406,10 @@ static IrInstruction *ir_gen_prefix_op_id_lval(IrBuilder *irb, AstNode *node, Ir
     if (value == irb->codegen->invalid_instruction)
         return value;
 
+    if (lval == LValPurposeAddressOf && (op_id == IrUnOpAddressOf || op_id == IrUnOpConstAddressOf)) {
+        return value;
+    }
+
     return ir_build_un_op(irb, node, op_id, value);
 }
 
@@ -1422,7 +1436,7 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, AstNode *node, LValP
         case PrefixOpAddressOf:
             return ir_gen_prefix_op_id_lval(irb, node, IrUnOpAddressOf, LValPurposeAddressOf);
         case PrefixOpConstAddressOf:
-            return ir_gen_prefix_op_id_lval(irb, node, IrUnOpConstAddressOf, LValPurposeConstAddressOf);
+            return ir_gen_prefix_op_id_lval(irb, node, IrUnOpConstAddressOf, LValPurposeAddressOf);
         case PrefixOpDereference:
             return ir_gen_prefix_op_id_lval(irb, node, IrUnOpDereference, lval);
         case PrefixOpMaybe:
@@ -2972,11 +2986,14 @@ static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructi
 }
 
 static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstructionDeclVar *decl_var_instruction) {
-    IrInstruction *init_value = decl_var_instruction->init_value->other;
-    if (init_value->type_entry->id == TypeTableEntryIdInvalid)
-        return init_value->type_entry;
-
     VariableTableEntry *var = decl_var_instruction->var;
+
+    IrInstruction *init_value = decl_var_instruction->init_value->other;
+    if (init_value->type_entry->id == TypeTableEntryIdInvalid) {
+        var->type = ira->codegen->builtin_types.entry_invalid;
+        return var->type;
+    }
+
     AstNodeVariableDeclaration *variable_declaration = &var->decl_node->data.variable_declaration;
     bool is_export = (variable_declaration->top_level_decl.visib_mod == VisibModExport);
     bool is_extern = variable_declaration->is_extern;
@@ -3522,6 +3539,7 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
 
 static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstructionVarPtr *var_ptr_instruction) {
     VariableTableEntry *var = var_ptr_instruction->var;
+    assert(var->type);
     if (var->type->id == TypeTableEntryIdInvalid)
         return var->type;
 
@@ -3561,7 +3579,12 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     if (elem_index->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *array_type = array_ptr->type_entry;
+    // This will be a pointer type because elem ptr IR instruction operates on a pointer to a thing.
+    TypeTableEntry *ptr_type = array_ptr->type_entry;
+    assert(ptr_type->id == TypeTableEntryIdPointer);
+
+    TypeTableEntry *array_type = ptr_type->data.pointer.child_type;
+    ConstExprValue *array_ptr_val = const_ptr_pointee(&array_ptr->static_value);
     TypeTableEntry *return_type;
 
     if (array_type->id == TypeTableEntryIdInvalid) {
@@ -3600,12 +3623,12 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
             }
         }
 
-        if (array_ptr->static_value.special != ConstValSpecialRuntime) {
-            bool depends_on_compile_var = array_ptr->static_value.depends_on_compile_var ||
+        if (array_ptr_val->special != ConstValSpecialRuntime) {
+            bool depends_on_compile_var = array_ptr_val->depends_on_compile_var ||
                 casted_elem_index->static_value.depends_on_compile_var;
             ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base, depends_on_compile_var);
             if (array_type->id == TypeTableEntryIdPointer) {
-                size_t offset = array_ptr->static_value.data.x_ptr.index;
+                size_t offset = array_ptr_val->data.x_ptr.index;
                 size_t new_index;
                 size_t mem_size;
                 size_t old_size;
@@ -3615,7 +3638,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                     old_size = 1;
                 } else {
                     new_index = offset + index;
-                    mem_size = array_ptr->static_value.data.x_ptr.base_ptr->data.x_array.size;
+                    mem_size = array_ptr_val->data.x_ptr.base_ptr->data.x_array.size;
                     old_size = mem_size - offset;
                 }
                 if (new_index >= mem_size) {
@@ -3623,11 +3646,11 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                         buf_sprintf("index %" PRIu64 " outside pointer of size %" PRIu64, index, old_size));
                     return ira->codegen->builtin_types.entry_invalid;
                 }
-                out_val->data.x_ptr.base_ptr = array_ptr->static_value.data.x_ptr.base_ptr;
+                out_val->data.x_ptr.base_ptr = array_ptr_val->data.x_ptr.base_ptr;
                 out_val->data.x_ptr.index = new_index;
             } else if (is_slice(array_type)) {
-                ConstExprValue *ptr_field = &array_ptr->static_value.data.x_struct.fields[slice_ptr_index];
-                ConstExprValue *len_field = &array_ptr->static_value.data.x_struct.fields[slice_len_index];
+                ConstExprValue *ptr_field = &array_ptr_val->data.x_struct.fields[slice_ptr_index];
+                ConstExprValue *len_field = &array_ptr_val->data.x_struct.fields[slice_len_index];
                 uint64_t slice_len = len_field->data.x_bignum.data.x_uint;
                 if (index >= slice_len) {
                     add_node_error(ira->codegen, elem_ptr_instruction->base.source_node,
@@ -3645,7 +3668,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                     out_val->data.x_ptr.index = new_index;
                 }
             } else if (array_type->id == TypeTableEntryIdArray) {
-                out_val->data.x_ptr.base_ptr = &array_ptr->static_value;
+                out_val->data.x_ptr.base_ptr = array_ptr_val;
                 out_val->data.x_ptr.index = index;
             } else {
                 zig_unreachable();

@@ -1734,7 +1734,6 @@ enum LValPurpose {
     LValPurposeNone,
     LValPurposeAssign,
     LValPurposeAddressOf,
-    LValPurposeConstAddressOf,
 };
 
 static const size_t slice_ptr_index = 0;
