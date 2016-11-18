@@ -793,7 +793,6 @@ struct AstNode {
     size_t column;
     uint32_t create_index; // for determinism purposes
     ImportTableEntry *owner;
-    AstNode **parent_field; // for AST rewriting
     // the context in which this expression/node is evaluated.
     // for blocks, this points to the containing scope, not the block's own scope for its children.
     BlockContext *block_context;

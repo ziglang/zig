@@ -281,7 +281,6 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, size_t *token_index) {
 
     node->data.param_decl.type = ast_parse_type_expr(pc, token_index, true);
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -396,7 +395,6 @@ static AstNode *ast_parse_array_type_expr(ParseContext *pc, size_t *token_index,
 
     node->data.array_type.child_type = ast_parse_type_expr(pc, token_index, true);
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -580,7 +578,6 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, size_t *token_index, bool m
 
     ast_eat_token(pc, token_index, TokenIdRParen);
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -667,7 +664,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         ast_parse_fn_call_param_list(pc, token_index, &node->data.fn_call_expr.params);
         node->data.fn_call_expr.is_builtin = true;
 
-        normalize_parent_ptrs(node);
         return node;
     } else if (token->id == TokenIdSymbol) {
         *token_index += 1;
@@ -750,7 +746,6 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_inde
                         field_node->data.struct_val_field.name = token_buf(field_name_tok);
                         field_node->data.struct_val_field.expr = ast_parse_expression(pc, token_index, true);
 
-                        normalize_parent_ptrs(field_node);
                         node->data.container_init_expr.entries.append(field_node);
 
                         Token *comma_tok = &pc->tokens->at(*token_index);
@@ -797,7 +792,6 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_inde
                 }
             }
 
-            normalize_parent_ptrs(node);
             prefix_op_expr = node;
         } else {
             return prefix_op_expr;
@@ -828,7 +822,6 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
             node->data.fn_call_expr.fn_ref_expr = primary_expr;
             ast_parse_fn_call_param_list(pc, token_index, &node->data.fn_call_expr.params);
 
-            normalize_parent_ptrs(node);
             primary_expr = node;
         } else if (first_token->id == TokenIdLBracket) {
             *token_index += 1;
@@ -853,7 +846,6 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
                     node->data.slice_expr.is_const = true;
                 }
 
-                normalize_parent_ptrs(node);
                 primary_expr = node;
             } else if (ellipsis_or_r_bracket->id == TokenIdRBracket) {
                 *token_index += 1;
@@ -862,7 +854,6 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
                 node->data.array_access_expr.array_ref_expr = primary_expr;
                 node->data.array_access_expr.subscript = expr_node;
 
-                normalize_parent_ptrs(node);
                 primary_expr = node;
             } else {
                 ast_invalid_token_error(pc, first_token);
@@ -876,7 +867,6 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
             node->data.field_access_expr.struct_expr = primary_expr;
             node->data.field_access_expr.field_name = token_buf(name_token);
 
-            normalize_parent_ptrs(node);
             primary_expr = node;
         } else {
             return primary_expr;
@@ -955,8 +945,6 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, 
     node->data.prefix_op_expr.primary_expr = prefix_op_expr;
     node->data.prefix_op_expr.prefix_op = prefix_op;
 
-    normalize_parent_ptrs(node);
-    normalize_parent_ptrs(parent_node);
     return parent_node;
 }
 
@@ -1010,7 +998,6 @@ static AstNode *ast_parse_mult_expr(ParseContext *pc, size_t *token_index, bool 
         node->data.bin_op_expr.bin_op = mult_op;
         node->data.bin_op_expr.op2 = operand_2;
 
-        normalize_parent_ptrs(node);
         operand_1 = node;
     }
 }
@@ -1064,7 +1051,6 @@ static AstNode *ast_parse_add_expr(ParseContext *pc, size_t *token_index, bool m
         node->data.bin_op_expr.bin_op = add_op;
         node->data.bin_op_expr.op2 = operand_2;
 
-        normalize_parent_ptrs(node);
         operand_1 = node;
     }
 }
@@ -1116,7 +1102,6 @@ static AstNode *ast_parse_bit_shift_expr(ParseContext *pc, size_t *token_index, 
         node->data.bin_op_expr.bin_op = bit_shift_op;
         node->data.bin_op_expr.op2 = operand_2;
 
-        normalize_parent_ptrs(node);
         operand_1 = node;
     }
 }
@@ -1143,7 +1128,6 @@ static AstNode *ast_parse_bin_and_expr(ParseContext *pc, size_t *token_index, bo
         node->data.bin_op_expr.bin_op = BinOpTypeBinAnd;
         node->data.bin_op_expr.op2 = operand_2;
 
-        normalize_parent_ptrs(node);
         operand_1 = node;
     }
 }
@@ -1169,7 +1153,6 @@ static AstNode *ast_parse_bin_xor_expr(ParseContext *pc, size_t *token_index, bo
         node->data.bin_op_expr.bin_op = BinOpTypeBinXor;
         node->data.bin_op_expr.op2 = operand_2;
 
-        normalize_parent_ptrs(node);
         operand_1 = node;
     }
 }
@@ -1195,7 +1178,6 @@ static AstNode *ast_parse_bin_or_expr(ParseContext *pc, size_t *token_index, boo
         node->data.bin_op_expr.bin_op = BinOpTypeBinOr;
         node->data.bin_op_expr.op2 = operand_2;
 
-        normalize_parent_ptrs(node);
         operand_1 = node;
     }
 }
@@ -1246,7 +1228,6 @@ static AstNode *ast_parse_comparison_expr(ParseContext *pc, size_t *token_index,
     node->data.bin_op_expr.bin_op = cmp_op;
     node->data.bin_op_expr.op2 = operand_2;
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -1271,7 +1252,6 @@ static AstNode *ast_parse_bool_and_expr(ParseContext *pc, size_t *token_index, b
         node->data.bin_op_expr.bin_op = BinOpTypeBoolAnd;
         node->data.bin_op_expr.op2 = operand_2;
 
-        normalize_parent_ptrs(node);
         operand_1 = node;
     }
 }
@@ -1349,7 +1329,6 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool ma
         node->data.if_var_expr.then_block = ast_parse_expression(pc, token_index, true);
         node->data.if_var_expr.else_node = ast_parse_else(pc, token_index, false);
 
-        normalize_parent_ptrs(node);
         return node;
     } else {
         AstNode *node = ast_create_node(pc, NodeTypeIfBoolExpr, if_tok);
@@ -1358,7 +1337,6 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool ma
         node->data.if_bool_expr.then_block = ast_parse_expression(pc, token_index, true);
         node->data.if_bool_expr.else_node = ast_parse_else(pc, token_index, false);
 
-        normalize_parent_ptrs(node);
         return node;
     }
 }
@@ -1402,7 +1380,6 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index) {
     node->data.return_expr.kind = kind;
     node->data.return_expr.expr = ast_parse_expression(pc, token_index, false);
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -1445,7 +1422,6 @@ static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
     node->data.defer.kind = kind;
     node->data.defer.expr = ast_parse_expression(pc, token_index, false);
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -1505,7 +1481,6 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
     if (eq_or_colon->id == TokenIdEq) {
         node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
 
-        normalize_parent_ptrs(node);
         return node;
     } else if (eq_or_colon->id == TokenIdColon) {
         node->data.variable_declaration.type = ast_parse_type_expr(pc, token_index, true);
@@ -1516,7 +1491,6 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
             node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
         }
 
-        normalize_parent_ptrs(node);
         return node;
     } else {
         ast_invalid_token_error(pc, eq_or_colon);
@@ -1544,7 +1518,6 @@ static AstNode *ast_parse_bool_or_expr(ParseContext *pc, size_t *token_index, bo
         node->data.bin_op_expr.bin_op = BinOpTypeBoolOr;
         node->data.bin_op_expr.op2 = operand_2;
 
-        normalize_parent_ptrs(node);
         operand_1 = node;
     }
 }
@@ -1596,7 +1569,6 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, size_t *token_index, bool
     }
 
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -1666,7 +1638,6 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, size_t *token_index, bool m
 
     node->data.for_expr.body = ast_parse_expression(pc, token_index, true);
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -1700,7 +1671,6 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
         if (token->id == TokenIdRBrace) {
             *token_index += 1;
 
-            normalize_parent_ptrs(node);
             return node;
         }
 
@@ -1721,7 +1691,6 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
                 range_node->data.switch_range.start = expr1;
                 range_node->data.switch_range.end = ast_parse_expression(pc, token_index, true);
 
-                normalize_parent_ptrs(range_node);
             } else {
                 prong_node->data.switch_prong.items.append(expr1);
             }
@@ -1745,7 +1714,6 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
         prong_node->data.switch_prong.expr = ast_parse_expression(pc, token_index, true);
         ast_eat_token(pc, token_index, TokenIdComma);
 
-        normalize_parent_ptrs(prong_node);
     }
 }
 
@@ -1843,7 +1811,6 @@ static AstNode *ast_parse_unwrap_expr(ParseContext *pc, size_t *token_index, boo
         node->data.bin_op_expr.bin_op = BinOpTypeUnwrapMaybe;
         node->data.bin_op_expr.op2 = rhs;
 
-        normalize_parent_ptrs(node);
         return node;
     } else if (token->id == TokenIdPercentPercent) {
         *token_index += 1;
@@ -1859,7 +1826,6 @@ static AstNode *ast_parse_unwrap_expr(ParseContext *pc, size_t *token_index, boo
         }
         node->data.unwrap_err_expr.op2 = ast_parse_expression(pc, token_index, true);
 
-        normalize_parent_ptrs(node);
         return node;
     } else {
         return lhs;
@@ -1886,7 +1852,6 @@ static AstNode *ast_parse_ass_expr(ParseContext *pc, size_t *token_index, bool m
     node->data.bin_op_expr.bin_op = ass_op;
     node->data.bin_op_expr.op2 = rhs;
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -1961,7 +1926,6 @@ static AstNode *ast_parse_label(ParseContext *pc, size_t *token_index, bool mand
 
 static AstNode *ast_create_void_expr(ParseContext *pc, Token *token) {
     AstNode *node = ast_create_node(pc, NodeTypeBlock, token);
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -2017,7 +1981,6 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
         if (last_token->id == TokenIdRBrace) {
             *token_index += 1;
 
-            normalize_parent_ptrs(node);
             return node;
         } else if (!semicolon_expected) {
             continue;
@@ -2079,7 +2042,6 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         node->data.fn_proto.return_type = ast_create_void_type_node(pc, next_token);
     }
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -2117,14 +2079,12 @@ static AstNode *ast_parse_fn_def(ParseContext *pc, size_t *token_index, bool man
     Token *semi_token = &pc->tokens->at(*token_index);
     if (semi_token->id == TokenIdSemicolon) {
         *token_index += 1;
-        normalize_parent_ptrs(fn_proto);
         return fn_proto;
     }
 
     AstNode *node = ast_create_node(pc, NodeTypeFnDef, first_token);
     node->data.fn_def.fn_proto = fn_proto;
     node->data.fn_def.body = ast_parse_block(pc, token_index, true);
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -2148,7 +2108,6 @@ static AstNode *ast_parse_extern_decl(ParseContext *pc, size_t *token_index, boo
 
         fn_proto_node->data.fn_proto.is_extern = true;
 
-        normalize_parent_ptrs(fn_proto_node);
         return fn_proto_node;
     }
 
@@ -2158,7 +2117,6 @@ static AstNode *ast_parse_extern_decl(ParseContext *pc, size_t *token_index, boo
 
         var_decl_node->data.variable_declaration.is_extern = true;
 
-        normalize_parent_ptrs(var_decl_node);
         return var_decl_node;
     }
 
@@ -2181,7 +2139,6 @@ static AstNode *ast_parse_use(ParseContext *pc, size_t *token_index, VisibMod vi
 
     ast_eat_token(pc, token_index, TokenIdSemicolon);
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -2279,13 +2236,11 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
             }
 
             node->data.struct_decl.fields.append(field_node);
-            normalize_parent_ptrs(field_node);
         } else {
             ast_invalid_token_error(pc, token);
         }
     }
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -2307,7 +2262,6 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, size_t *token_index
     node->data.error_value_decl.top_level_decl.visib_mod = visib_mod;
     node->data.error_value_decl.name = token_buf(name_tok);
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -2333,7 +2287,6 @@ static AstNode *ast_parse_type_decl(ParseContext *pc, size_t *token_index, Visib
 
     node->data.type_decl.top_level_decl.visib_mod = visib_mod;
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -2415,7 +2368,6 @@ static AstNode *ast_parse_root(ParseContext *pc, size_t *token_index) {
         ast_invalid_token_error(pc, &pc->tokens->at(*token_index));
     }
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -2629,265 +2581,4 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             // none
             break;
     }
-}
-
-static void normalize_parent_ptrs_visit(AstNode **node, void *context) {
-    (*node)->parent_field = node;
-}
-
-void normalize_parent_ptrs(AstNode *node) {
-    ast_visit_node_children(node, normalize_parent_ptrs_visit, nullptr);
-}
-
-static void clone_subtree_list(ZigList<AstNode *> *dest, ZigList<AstNode *> *src, uint32_t *next_node_index) {
-    memset(dest, 0, sizeof(ZigList<AstNode *>));
-    dest->resize(src->length);
-    for (size_t i = 0; i < src->length; i += 1) {
-        dest->at(i) = ast_clone_subtree(src->at(i), next_node_index);
-        dest->at(i)->parent_field = &dest->at(i);
-    }
-}
-
-static void clone_subtree_list_omit_inline_params(ZigList<AstNode *> *dest, ZigList<AstNode *> *src,
-        uint32_t *next_node_index)
-{
-    memset(dest, 0, sizeof(ZigList<AstNode *>));
-    dest->ensure_capacity(src->length);
-    for (size_t i = 0; i < src->length; i += 1) {
-        AstNode *src_node = src->at(i);
-        assert(src_node->type == NodeTypeParamDecl);
-        if (src_node->data.param_decl.is_inline) {
-            continue;
-        }
-        dest->append(ast_clone_subtree(src_node, next_node_index));
-        dest->last()->parent_field = &dest->last();
-    }
-}
-
-static void clone_subtree_field_special(AstNode **dest, AstNode *src, uint32_t *next_node_index,
-        enum AstCloneSpecial special)
-{
-    if (src) {
-        *dest = ast_clone_subtree_special(src, next_node_index, special);
-        (*dest)->parent_field = dest;
-    } else {
-        *dest = nullptr;
-    }
-}
-
-static void clone_subtree_field(AstNode **dest, AstNode *src, uint32_t *next_node_index) {
-    return clone_subtree_field_special(dest, src, next_node_index, AstCloneSpecialNone);
-}
-
-AstNode *ast_clone_subtree_special(AstNode *old_node, uint32_t *next_node_index, enum AstCloneSpecial special) {
-    AstNode *new_node = allocate_nonzero<AstNode>(1);
-    safe_memcpy(new_node, old_node, 1);
-    new_node->create_index = *next_node_index;
-    *next_node_index += 1;
-    new_node->parent_field = nullptr;
-
-    switch (new_node->type) {
-        case NodeTypeRoot:
-            clone_subtree_list(&new_node->data.root.top_level_decls,
-                               &old_node->data.root.top_level_decls, next_node_index);
-            break;
-        case NodeTypeFnProto:
-            clone_subtree_field(&new_node->data.fn_proto.return_type, old_node->data.fn_proto.return_type,
-                    next_node_index);
-
-            if (special == AstCloneSpecialOmitInlineParams) {
-                clone_subtree_list_omit_inline_params(&new_node->data.fn_proto.params, &old_node->data.fn_proto.params,
-                        next_node_index);
-            } else {
-                clone_subtree_list(&new_node->data.fn_proto.params, &old_node->data.fn_proto.params,
-                        next_node_index);
-            }
-
-            break;
-        case NodeTypeFnDef:
-            clone_subtree_field_special(&new_node->data.fn_def.fn_proto, old_node->data.fn_def.fn_proto,
-                    next_node_index, special);
-            new_node->data.fn_def.fn_proto->data.fn_proto.fn_def_node = new_node;
-            clone_subtree_field(&new_node->data.fn_def.body, old_node->data.fn_def.body, next_node_index);
-            break;
-        case NodeTypeFnDecl:
-            clone_subtree_field(&new_node->data.fn_decl.fn_proto, old_node->data.fn_decl.fn_proto,
-                    next_node_index);
-            break;
-        case NodeTypeParamDecl:
-            clone_subtree_field(&new_node->data.param_decl.type, old_node->data.param_decl.type, next_node_index);
-            break;
-        case NodeTypeBlock:
-            clone_subtree_list(&new_node->data.block.statements, &old_node->data.block.statements,
-                    next_node_index);
-            break;
-        case NodeTypeReturnExpr:
-            clone_subtree_field(&new_node->data.return_expr.expr, old_node->data.return_expr.expr, next_node_index);
-            break;
-        case NodeTypeDefer:
-            clone_subtree_field(&new_node->data.defer.expr, old_node->data.defer.expr, next_node_index);
-            break;
-        case NodeTypeVariableDeclaration:
-            clone_subtree_field(&new_node->data.variable_declaration.type, old_node->data.variable_declaration.type, next_node_index);
-            clone_subtree_field(&new_node->data.variable_declaration.expr, old_node->data.variable_declaration.expr, next_node_index);
-            break;
-        case NodeTypeTypeDecl:
-            clone_subtree_field(&new_node->data.type_decl.child_type, old_node->data.type_decl.child_type, next_node_index);
-            break;
-        case NodeTypeErrorValueDecl:
-            // none
-            break;
-        case NodeTypeBinOpExpr:
-            clone_subtree_field(&new_node->data.bin_op_expr.op1, old_node->data.bin_op_expr.op1, next_node_index);
-            clone_subtree_field(&new_node->data.bin_op_expr.op2, old_node->data.bin_op_expr.op2, next_node_index);
-            break;
-        case NodeTypeUnwrapErrorExpr:
-            clone_subtree_field(&new_node->data.unwrap_err_expr.op1, old_node->data.unwrap_err_expr.op1, next_node_index);
-            clone_subtree_field(&new_node->data.unwrap_err_expr.symbol, old_node->data.unwrap_err_expr.symbol, next_node_index);
-            clone_subtree_field(&new_node->data.unwrap_err_expr.op2, old_node->data.unwrap_err_expr.op2, next_node_index);
-            break;
-        case NodeTypeNumberLiteral:
-            // none
-            break;
-        case NodeTypeStringLiteral:
-            // none
-            break;
-        case NodeTypeCharLiteral:
-            // none
-            break;
-        case NodeTypeSymbol:
-            // none
-            break;
-        case NodeTypePrefixOpExpr:
-            clone_subtree_field(&new_node->data.prefix_op_expr.primary_expr,
-                                 old_node->data.prefix_op_expr.primary_expr, next_node_index);
-            break;
-        case NodeTypeFnCallExpr:
-            clone_subtree_field(&new_node->data.fn_call_expr.fn_ref_expr,
-                                 old_node->data.fn_call_expr.fn_ref_expr, next_node_index);
-            clone_subtree_list(&new_node->data.fn_call_expr.params,
-                               &old_node->data.fn_call_expr.params, next_node_index);
-            break;
-        case NodeTypeArrayAccessExpr:
-            clone_subtree_field(&new_node->data.array_access_expr.array_ref_expr,
-                                 old_node->data.array_access_expr.array_ref_expr, next_node_index);
-            clone_subtree_field(&new_node->data.array_access_expr.subscript,
-                                 old_node->data.array_access_expr.subscript, next_node_index);
-            break;
-        case NodeTypeSliceExpr:
-            clone_subtree_field(&new_node->data.slice_expr.array_ref_expr, old_node->data.slice_expr.array_ref_expr, next_node_index);
-            clone_subtree_field(&new_node->data.slice_expr.start, old_node->data.slice_expr.start, next_node_index);
-            clone_subtree_field(&new_node->data.slice_expr.end, old_node->data.slice_expr.end, next_node_index);
-            break;
-        case NodeTypeFieldAccessExpr:
-            clone_subtree_field(&new_node->data.field_access_expr.struct_expr, old_node->data.field_access_expr.struct_expr, next_node_index);
-            break;
-        case NodeTypeUse:
-            clone_subtree_field(&new_node->data.use.expr, old_node->data.use.expr, next_node_index);
-            break;
-        case NodeTypeBoolLiteral:
-            // none
-            break;
-        case NodeTypeNullLiteral:
-            // none
-            break;
-        case NodeTypeUndefinedLiteral:
-            // none
-            break;
-        case NodeTypeZeroesLiteral:
-            // none
-            break;
-        case NodeTypeThisLiteral:
-            // none
-            break;
-        case NodeTypeIfBoolExpr:
-            clone_subtree_field(&new_node->data.if_bool_expr.condition, old_node->data.if_bool_expr.condition, next_node_index);
-            clone_subtree_field(&new_node->data.if_bool_expr.then_block, old_node->data.if_bool_expr.then_block, next_node_index);
-            clone_subtree_field(&new_node->data.if_bool_expr.else_node, old_node->data.if_bool_expr.else_node, next_node_index);
-            break;
-        case NodeTypeIfVarExpr:
-            clone_subtree_field(&new_node->data.if_var_expr.var_decl.type, old_node->data.if_var_expr.var_decl.type, next_node_index);
-            clone_subtree_field(&new_node->data.if_var_expr.var_decl.expr, old_node->data.if_var_expr.var_decl.expr, next_node_index);
-            clone_subtree_field(&new_node->data.if_var_expr.then_block, old_node->data.if_var_expr.then_block, next_node_index);
-            clone_subtree_field(&new_node->data.if_var_expr.else_node, old_node->data.if_var_expr.else_node, next_node_index);
-            break;
-        case NodeTypeWhileExpr:
-            clone_subtree_field(&new_node->data.while_expr.condition, old_node->data.while_expr.condition, next_node_index);
-            clone_subtree_field(&new_node->data.while_expr.body, old_node->data.while_expr.body, next_node_index);
-            clone_subtree_field(&new_node->data.while_expr.continue_expr,
-                    old_node->data.while_expr.continue_expr, next_node_index);
-            break;
-        case NodeTypeForExpr:
-            clone_subtree_field(&new_node->data.for_expr.elem_node, old_node->data.for_expr.elem_node, next_node_index);
-            clone_subtree_field(&new_node->data.for_expr.array_expr, old_node->data.for_expr.array_expr, next_node_index);
-            clone_subtree_field(&new_node->data.for_expr.index_node, old_node->data.for_expr.index_node, next_node_index);
-            clone_subtree_field(&new_node->data.for_expr.body, old_node->data.for_expr.body, next_node_index);
-            break;
-        case NodeTypeSwitchExpr:
-            clone_subtree_field(&new_node->data.switch_expr.expr, old_node->data.switch_expr.expr, next_node_index);
-            clone_subtree_list(&new_node->data.switch_expr.prongs, &old_node->data.switch_expr.prongs,
-                    next_node_index);
-            break;
-        case NodeTypeSwitchProng:
-            clone_subtree_list(&new_node->data.switch_prong.items, &old_node->data.switch_prong.items,
-                    next_node_index);
-            clone_subtree_field(&new_node->data.switch_prong.var_symbol, old_node->data.switch_prong.var_symbol, next_node_index);
-            clone_subtree_field(&new_node->data.switch_prong.expr, old_node->data.switch_prong.expr, next_node_index);
-            break;
-        case NodeTypeSwitchRange:
-            clone_subtree_field(&new_node->data.switch_range.start, old_node->data.switch_range.start, next_node_index);
-            clone_subtree_field(&new_node->data.switch_range.end, old_node->data.switch_range.end, next_node_index);
-            break;
-        case NodeTypeLabel:
-            // none
-            break;
-        case NodeTypeGoto:
-            // none
-            break;
-        case NodeTypeBreak:
-            // none
-            break;
-        case NodeTypeContinue:
-            // none
-            break;
-        case NodeTypeAsmExpr:
-            zig_panic("TODO");
-            break;
-        case NodeTypeContainerDecl:
-            clone_subtree_list(&new_node->data.struct_decl.fields, &old_node->data.struct_decl.fields,
-                    next_node_index);
-            clone_subtree_list(&new_node->data.struct_decl.decls, &old_node->data.struct_decl.decls,
-                    next_node_index);
-            break;
-        case NodeTypeStructField:
-            clone_subtree_field(&new_node->data.struct_field.type, old_node->data.struct_field.type, next_node_index);
-            break;
-        case NodeTypeContainerInitExpr:
-            clone_subtree_field(&new_node->data.container_init_expr.type, old_node->data.container_init_expr.type, next_node_index);
-            clone_subtree_list(&new_node->data.container_init_expr.entries,
-                    &old_node->data.container_init_expr.entries, next_node_index);
-            break;
-        case NodeTypeStructValueField:
-            clone_subtree_field(&new_node->data.struct_val_field.expr, old_node->data.struct_val_field.expr, next_node_index);
-            break;
-        case NodeTypeArrayType:
-            clone_subtree_field(&new_node->data.array_type.size, old_node->data.array_type.size, next_node_index);
-            clone_subtree_field(&new_node->data.array_type.child_type, old_node->data.array_type.child_type, next_node_index);
-            break;
-        case NodeTypeErrorType:
-            // none
-            break;
-        case NodeTypeTypeLiteral:
-            // none
-            break;
-        case NodeTypeVarLiteral:
-            // none
-            break;
-    }
-
-    return new_node;
-}
-
-AstNode *ast_clone_subtree(AstNode *old_node, uint32_t *next_node_index) {
-    return ast_clone_subtree_special(old_node, next_node_index, AstCloneSpecialNone);
 }

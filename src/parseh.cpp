@@ -112,7 +112,6 @@ static AstNode *create_field_access_node(Context *c, const char *lhs, const char
     AstNode *node = create_node(c, NodeTypeFieldAccessExpr);
     node->data.field_access_expr.struct_expr = create_symbol_node(c, lhs);
     node->data.field_access_expr.field_name = buf_create_from_str(rhs);
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -125,7 +124,6 @@ static AstNode *create_typed_var_decl_node(Context *c, bool is_const, const char
     node->data.variable_declaration.top_level_decl.visib_mod = c->visib_mod;
     node->data.variable_declaration.expr = init_node;
     node->data.variable_declaration.type = type_node;
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -138,7 +136,6 @@ static AstNode *create_prefix_node(Context *c, PrefixOp op, AstNode *child_node)
     AstNode *node = create_node(c, NodeTypePrefixOpExpr);
     node->data.prefix_op_expr.prefix_op = op;
     node->data.prefix_op_expr.primary_expr = child_node;
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -149,7 +146,6 @@ static AstNode *create_struct_field_node(Context *c, const char *name, AstNode *
     node->data.struct_field.top_level_decl.visib_mod = VisibModPub;
     node->data.struct_field.type = type_node;
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -160,7 +156,6 @@ static AstNode *create_param_decl_node(Context *c, const char *name, AstNode *ty
     node->data.param_decl.type = type_node;
     node->data.param_decl.is_noalias = is_noalias;
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -225,7 +220,6 @@ static AstNode *create_type_decl_node(Context *c, const char *name, AstNode *chi
     node->data.type_decl.top_level_decl.visib_mod = c->visib_mod;
     node->data.type_decl.child_type = child_type_node;
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -249,7 +243,6 @@ static AstNode *create_fn_proto_node(Context *c, Buf *name, TypeTableEntry *fn_t
                     make_type_node(c, info->type), info->is_noalias));
     }
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -257,7 +250,6 @@ static AstNode *create_one_statement_block(Context *c, AstNode *statement) {
     AstNode *node = create_node(c, NodeTypeBlock);
     node->data.block.statements.append(statement);
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -275,11 +267,9 @@ static AstNode *create_inline_fn_node(Context *c, Buf *fn_name, Buf *var_name, T
         fn_call_node->data.fn_call_expr.params.append(create_symbol_node(c, buf_ptr(param_name)));
     }
 
-    normalize_parent_ptrs(fn_call_node);
 
     node->data.fn_def.body = create_one_statement_block(c, fn_call_node);
 
-    normalize_parent_ptrs(node);
     return node;
 }
 
@@ -761,7 +751,6 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         node->data.fn_proto.params.append(create_param_decl_node(c, name, type_node, param_info->is_noalias));
     }
 
-    normalize_parent_ptrs(node);
 
     c->fn_table.put(buf_create_from_buf(fn_name), true);
     c->root->data.root.top_level_decls.append(node);
@@ -981,7 +970,6 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
                 enum_node->data.struct_decl.fields.append(field_node);
             }
 
-            normalize_parent_ptrs(enum_node);
             c->root->data.root.top_level_decls.append(enum_node);
         } else {
             TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(&enum_type->name),
@@ -1158,7 +1146,6 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
             struct_node->data.struct_decl.fields.append(field_node);
         }
 
-        normalize_parent_ptrs(struct_node);
         c->root->data.root.top_level_decls.append(struct_node);
     } else {
         TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(&struct_type->name),
@@ -1622,7 +1609,6 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     render_macros(c);
     render_aliases(c);
 
-    normalize_parent_ptrs(c->root);
     import->root = c->root;
 
     return 0;

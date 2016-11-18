@@ -343,8 +343,6 @@ static void print_symbol(AstRender *ar, Buf *symbol) {
 }
 
 static void render_node(AstRender *ar, AstNode *node) {
-    assert(node->type == NodeTypeRoot || *node->parent_field == node);
-
     switch (node->type) {
         case NodeTypeRoot:
             for (size_t i = 0; i < node->data.root.top_level_decls.length; i += 1) {
@@ -658,6 +656,19 @@ static void render_node(AstRender *ar, AstNode *node) {
                 fprintf(ar->f, ")");
                 break;
             }
+        case NodeTypeWhileExpr:
+            {
+                const char *inline_str = node->data.while_expr.is_inline ? "inline " : "";
+                fprintf(ar->f, "%swhile (", inline_str);
+                render_node(ar, node->data.while_expr.condition);
+                if (node->data.while_expr.continue_expr) {
+                    fprintf(ar->f, "; ");
+                    render_node(ar, node->data.while_expr.continue_expr);
+                }
+                fprintf(ar->f, ") ");
+                render_node(ar, node->data.while_expr.body);
+                break;
+            }
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
@@ -672,7 +683,6 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeThisLiteral:
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
-        case NodeTypeWhileExpr:
         case NodeTypeForExpr:
         case NodeTypeSwitchExpr:
         case NodeTypeSwitchProng:

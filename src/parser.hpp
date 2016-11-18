@@ -22,16 +22,6 @@ AstNode * ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner, E
 
 void ast_print(AstNode *node, int indent);
 
-void normalize_parent_ptrs(AstNode *node);
-
-AstNode *ast_clone_subtree(AstNode *node, uint32_t *next_node_index);
-
-enum AstCloneSpecial {
-    AstCloneSpecialNone,
-    AstCloneSpecialOmitInlineParams,
-};
-AstNode *ast_clone_subtree_special(AstNode *node, uint32_t *next_node_index, enum AstCloneSpecial special);
-
 void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *context), void *context);
 
 #endif
