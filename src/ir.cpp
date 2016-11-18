@@ -4095,18 +4095,28 @@ static TypeTableEntry *ir_analyze_instruction_asm(IrAnalyze *ira, IrInstructionA
 
     AstNodeAsmExpr *asm_expr = &asm_instruction->base.source_node->data.asm_expr;
 
+    IrInstruction **input_list = allocate<IrInstruction *>(asm_expr->input_list.length);
+    IrInstruction **output_types = allocate<IrInstruction *>(asm_expr->output_list.length);
+
     TypeTableEntry *return_type = ira->codegen->builtin_types.entry_void;
     for (size_t i = 0; i < asm_expr->output_list.length; i += 1) {
         AsmOutput *asm_output = asm_expr->output_list.at(i);
         if (asm_output->return_type) {
-            return_type = ir_resolve_type(ira, asm_instruction->output_types[i]);
+            output_types[i] = asm_instruction->output_types[i]->other;
+            return_type = ir_resolve_type(ira, output_types[i]);
             if (return_type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
         }
     }
 
-    ir_build_asm_from(&ira->new_irb, &asm_instruction->base, asm_instruction->input_list,
-            asm_instruction->output_types, asm_instruction->return_count, asm_instruction->has_side_effects);
+    for (size_t i = 0; i < asm_expr->input_list.length; i += 1) {
+        input_list[i] = asm_instruction->input_list[i]->other;
+        if (input_list[i]->type_entry->id == TypeTableEntryIdInvalid)
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    ir_build_asm_from(&ira->new_irb, &asm_instruction->base, input_list, output_types,
+            asm_instruction->return_count, asm_instruction->has_side_effects);
     return return_type;
 }
 

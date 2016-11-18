@@ -1544,133 +1544,129 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
     return LLVMBuildStructGEP(g->builder, struct_ptr, field->gen_index, "");
 }
 
-static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstructionAsm *instruction) {
-    zig_panic("TODO render asm");
+static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok) {
+    const char *ptr = buf_ptr(node->data.asm_expr.asm_template) + tok->start + 2;
+    size_t len = tok->end - tok->start - 2;
+    size_t result = 0;
+    for (size_t i = 0; i < node->data.asm_expr.output_list.length; i += 1, result += 1) {
+        AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
+        if (buf_eql_mem(asm_output->asm_symbolic_name, ptr, len)) {
+            return result;
+        }
+    }
+    for (size_t i = 0; i < node->data.asm_expr.input_list.length; i += 1, result += 1) {
+        AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
+        if (buf_eql_mem(asm_input->asm_symbolic_name, ptr, len)) {
+            return result;
+        }
+    }
+    return SIZE_MAX;
 }
-//static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok) {
-//    const char *ptr = buf_ptr(node->data.asm_expr.asm_template) + tok->start + 2;
-//    size_t len = tok->end - tok->start - 2;
-//    size_t result = 0;
-//    for (size_t i = 0; i < node->data.asm_expr.output_list.length; i += 1, result += 1) {
-//        AsmOutput *asm_output = node->data.asm_expr.output_list.at(i);
-//        if (buf_eql_mem(asm_output->asm_symbolic_name, ptr, len)) {
-//            return result;
-//        }
-//    }
-//    for (size_t i = 0; i < node->data.asm_expr.input_list.length; i += 1, result += 1) {
-//        AsmInput *asm_input = node->data.asm_expr.input_list.at(i);
-//        if (buf_eql_mem(asm_input->asm_symbolic_name, ptr, len)) {
-//            return result;
-//        }
-//    }
-//    return SIZE_MAX;
-//}
-//
-//static LLVMValueRef gen_asm_expr(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeAsmExpr);
-//
-//    AstNodeAsmExpr *asm_expr = &node->data.asm_expr;
-//
-//    Buf *src_template = asm_expr->asm_template;
-//
-//    Buf llvm_template = BUF_INIT;
-//    buf_resize(&llvm_template, 0);
-//
-//    for (size_t token_i = 0; token_i < asm_expr->token_list.length; token_i += 1) {
-//        AsmToken *asm_token = &asm_expr->token_list.at(token_i);
-//        switch (asm_token->id) {
-//            case AsmTokenIdTemplate:
-//                for (size_t offset = asm_token->start; offset < asm_token->end; offset += 1) {
-//                    uint8_t c = *((uint8_t*)(buf_ptr(src_template) + offset));
-//                    if (c == '$') {
-//                        buf_append_str(&llvm_template, "$$");
-//                    } else {
-//                        buf_append_char(&llvm_template, c);
-//                    }
-//                }
-//                break;
-//            case AsmTokenIdPercent:
-//                buf_append_char(&llvm_template, '%');
-//                break;
-//            case AsmTokenIdVar:
-//                size_t index = find_asm_index(g, node, asm_token);
-//                assert(index < SIZE_MAX);
-//                buf_appendf(&llvm_template, "$%zu", index);
-//                break;
-//        }
-//    }
-//
-//    Buf constraint_buf = BUF_INIT;
-//    buf_resize(&constraint_buf, 0);
-//
-//    assert(asm_expr->return_count == 0 || asm_expr->return_count == 1);
-//
-//    size_t total_constraint_count = asm_expr->output_list.length +
-//                                 asm_expr->input_list.length +
-//                                 asm_expr->clobber_list.length;
-//    size_t input_and_output_count = asm_expr->output_list.length +
-//                                 asm_expr->input_list.length -
-//                                 asm_expr->return_count;
-//    size_t total_index = 0;
-//    size_t param_index = 0;
-//    LLVMTypeRef *param_types = allocate<LLVMTypeRef>(input_and_output_count);
-//    LLVMValueRef *param_values = allocate<LLVMValueRef>(input_and_output_count);
-//    for (size_t i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
-//        AsmOutput *asm_output = asm_expr->output_list.at(i);
-//        bool is_return = (asm_output->return_type != nullptr);
-//        assert(*buf_ptr(asm_output->constraint) == '=');
-//        if (is_return) {
-//            buf_appendf(&constraint_buf, "=%s", buf_ptr(asm_output->constraint) + 1);
-//        } else {
-//            buf_appendf(&constraint_buf, "=*%s", buf_ptr(asm_output->constraint) + 1);
-//        }
-//        if (total_index + 1 < total_constraint_count) {
-//            buf_append_char(&constraint_buf, ',');
-//        }
-//
-//        if (!is_return) {
-//            VariableTableEntry *variable = asm_output->variable;
-//            assert(variable);
-//            param_types[param_index] = LLVMTypeOf(variable->value_ref);
-//            param_values[param_index] = variable->value_ref;
-//            param_index += 1;
-//        }
-//    }
-//    for (size_t i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1, param_index += 1) {
-//        AsmInput *asm_input = asm_expr->input_list.at(i);
-//        buf_append_buf(&constraint_buf, asm_input->constraint);
-//        if (total_index + 1 < total_constraint_count) {
-//            buf_append_char(&constraint_buf, ',');
-//        }
-//
-//        TypeTableEntry *expr_type = get_expr_type(asm_input->expr);
-//        param_types[param_index] = expr_type->type_ref;
-//        param_values[param_index] = gen_expr(g, asm_input->expr);
-//    }
-//    for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
-//        Buf *clobber_buf = asm_expr->clobber_list.at(i);
-//        buf_appendf(&constraint_buf, "~{%s}", buf_ptr(clobber_buf));
-//        if (total_index + 1 < total_constraint_count) {
-//            buf_append_char(&constraint_buf, ',');
-//        }
-//    }
-//
-//    LLVMTypeRef ret_type;
-//    if (asm_expr->return_count == 0) {
-//        ret_type = LLVMVoidType();
-//    } else {
-//        ret_type = get_expr_type(node)->type_ref;
-//    }
-//    LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, input_and_output_count, false);
-//
-//    bool is_volatile = asm_expr->is_volatile || (asm_expr->output_list.length == 0);
-//    LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
-//            buf_ptr(&constraint_buf), is_volatile, false);
-//
-//    set_debug_source_node(g, node);
-//    return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
-//}
-//
+
+static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstructionAsm *instruction) {
+    AstNode *asm_node = instruction->base.source_node;
+    assert(asm_node->type == NodeTypeAsmExpr);
+    AstNodeAsmExpr *asm_expr = &asm_node->data.asm_expr;
+
+    Buf *src_template = asm_expr->asm_template;
+
+    Buf llvm_template = BUF_INIT;
+    buf_resize(&llvm_template, 0);
+
+    for (size_t token_i = 0; token_i < asm_expr->token_list.length; token_i += 1) {
+        AsmToken *asm_token = &asm_expr->token_list.at(token_i);
+        switch (asm_token->id) {
+            case AsmTokenIdTemplate:
+                for (size_t offset = asm_token->start; offset < asm_token->end; offset += 1) {
+                    uint8_t c = *((uint8_t*)(buf_ptr(src_template) + offset));
+                    if (c == '$') {
+                        buf_append_str(&llvm_template, "$$");
+                    } else {
+                        buf_append_char(&llvm_template, c);
+                    }
+                }
+                break;
+            case AsmTokenIdPercent:
+                buf_append_char(&llvm_template, '%');
+                break;
+            case AsmTokenIdVar:
+                size_t index = find_asm_index(g, asm_node, asm_token);
+                assert(index < SIZE_MAX);
+                buf_appendf(&llvm_template, "$%zu", index);
+                break;
+        }
+    }
+
+    Buf constraint_buf = BUF_INIT;
+    buf_resize(&constraint_buf, 0);
+
+    assert(instruction->return_count == 0 || instruction->return_count == 1);
+
+    size_t total_constraint_count = asm_expr->output_list.length +
+                                 asm_expr->input_list.length +
+                                 asm_expr->clobber_list.length;
+    size_t input_and_output_count = asm_expr->output_list.length +
+                                 asm_expr->input_list.length -
+                                 instruction->return_count;
+    size_t total_index = 0;
+    size_t param_index = 0;
+    LLVMTypeRef *param_types = allocate<LLVMTypeRef>(input_and_output_count);
+    LLVMValueRef *param_values = allocate<LLVMValueRef>(input_and_output_count);
+    for (size_t i = 0; i < asm_expr->output_list.length; i += 1, total_index += 1) {
+        AsmOutput *asm_output = asm_expr->output_list.at(i);
+        bool is_return = (asm_output->return_type != nullptr);
+        assert(*buf_ptr(asm_output->constraint) == '=');
+        if (is_return) {
+            buf_appendf(&constraint_buf, "=%s", buf_ptr(asm_output->constraint) + 1);
+        } else {
+            buf_appendf(&constraint_buf, "=*%s", buf_ptr(asm_output->constraint) + 1);
+        }
+        if (total_index + 1 < total_constraint_count) {
+            buf_append_char(&constraint_buf, ',');
+        }
+
+        if (!is_return) {
+            VariableTableEntry *variable = asm_output->variable;
+            assert(variable);
+            param_types[param_index] = LLVMTypeOf(variable->value_ref);
+            param_values[param_index] = variable->value_ref;
+            param_index += 1;
+        }
+    }
+    for (size_t i = 0; i < asm_expr->input_list.length; i += 1, total_index += 1, param_index += 1) {
+        AsmInput *asm_input = asm_expr->input_list.at(i);
+        IrInstruction *ir_input = instruction->input_list[i];
+        buf_append_buf(&constraint_buf, asm_input->constraint);
+        if (total_index + 1 < total_constraint_count) {
+            buf_append_char(&constraint_buf, ',');
+        }
+
+        param_types[param_index] = ir_input->type_entry->type_ref;
+        param_values[param_index] = ir_llvm_value(g, ir_input);
+    }
+    for (size_t i = 0; i < asm_expr->clobber_list.length; i += 1, total_index += 1) {
+        Buf *clobber_buf = asm_expr->clobber_list.at(i);
+        buf_appendf(&constraint_buf, "~{%s}", buf_ptr(clobber_buf));
+        if (total_index + 1 < total_constraint_count) {
+            buf_append_char(&constraint_buf, ',');
+        }
+    }
+
+    LLVMTypeRef ret_type;
+    if (instruction->return_count == 0) {
+        ret_type = LLVMVoidType();
+    } else {
+        ret_type = instruction->base.type_entry->type_ref;
+    }
+    LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, input_and_output_count, false);
+
+    bool is_volatile = asm_expr->is_volatile || (asm_expr->output_list.length == 0);
+    LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
+            buf_ptr(&constraint_buf), is_volatile, false);
+
+    set_debug_source_node(g, asm_node);
+    return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
+}
 
 
 
@@ -3307,7 +3303,7 @@ void codegen_generate_h_file(CodeGen *g) {
             continue;
 
         Buf return_type_c = BUF_INIT;
-        get_c_type_node(g, fn_proto->return_type, &return_type_c);
+        get_c_type(g, fn_table_entry->type_entry->data.fn.fn_type_id.return_type, &return_type_c);
 
         buf_appendf(&h_buf, "%s %s %s(",
                 buf_ptr(export_macro),
