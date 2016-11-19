@@ -1939,6 +1939,9 @@ static void resolve_var_decl(CodeGen *g, ImportTableEntry *import, AstNode *node
         {
             add_node_error(g, node, buf_sprintf("unable to infer variable type"));
             implicit_type = g->builtin_types.entry_invalid;
+        } else if (implicit_type->id == TypeTableEntryIdNullLit) {
+            add_node_error(g, node, buf_sprintf("unable to infer variable type"));
+            implicit_type = g->builtin_types.entry_invalid;
         } else if (implicit_type->id == TypeTableEntryIdMetaType && !is_const) {
             add_node_error(g, node, buf_sprintf("variable of type 'type' must be constant"));
             implicit_type = g->builtin_types.entry_invalid;

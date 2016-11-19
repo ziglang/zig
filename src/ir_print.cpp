@@ -100,11 +100,15 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
                 fprintf(irp->f, "}");
                 break;
             }
+        case TypeTableEntryIdNullLit:
+            {
+                fprintf(irp->f, "null");
+                break;
+            }
         case TypeTableEntryIdVar:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:

@@ -701,6 +701,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 }
                 break;
             }
+        case NodeTypeNullLiteral:
+            {
+                fprintf(ar->f, "null");
+                break;
+            }
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
@@ -709,7 +714,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeUse:
-        case NodeTypeNullLiteral:
         case NodeTypeZeroesLiteral:
         case NodeTypeIfVarExpr:
         case NodeTypeForExpr:

@@ -329,6 +329,13 @@ static IrInstruction *ir_build_const_bignum(IrBuilder *irb, AstNode *source_node
     return &const_instruction->base;
 }
 
+static IrInstruction *ir_build_const_null(IrBuilder *irb, AstNode *source_node) {
+    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, source_node);
+    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_null;
+    const_instruction->base.static_value.special = ConstValSpecialStatic;
+    return &const_instruction->base;
+}
+
 static IrInstruction *ir_build_const_usize(IrBuilder *irb, AstNode *source_node, uint64_t value) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, source_node);
     const_instruction->base.type_entry = irb->codegen->builtin_types.entry_usize;
@@ -1138,6 +1145,13 @@ static IrInstruction *ir_gen_num_lit(IrBuilder *irb, AstNode *node) {
     return ir_build_const_bignum(irb, node, node->data.number_literal.bignum);
 }
 
+static IrInstruction *ir_gen_null_literal(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeNullLiteral);
+
+    return ir_build_const_null(irb, node);
+}
+
+
 static IrInstruction *ir_gen_decl_ref(IrBuilder *irb, AstNode *source_node, AstNode *decl_node,
         LValPurpose lval, BlockContext *scope)
 {
@@ -1895,6 +1909,8 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
             return ir_gen_undefined_literal(irb, node);
         case NodeTypeAsmExpr:
             return ir_gen_asm_expr(irb, node);
+        case NodeTypeNullLiteral:
+            return ir_gen_null_literal(irb, node);
         case NodeTypeUnwrapErrorExpr:
         case NodeTypeDefer:
         case NodeTypeSliceExpr:
@@ -1905,7 +1921,6 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
         case NodeTypeLabel:
         case NodeTypeSwitchExpr:
         case NodeTypeCharLiteral:
-        case NodeTypeNullLiteral:
         case NodeTypeZeroesLiteral:
         case NodeTypeErrorType:
         case NodeTypeTypeLiteral:
@@ -3127,6 +3142,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVar:
         case TypeTableEntryIdBlock:
+        case TypeTableEntryIdNullLit:
             add_node_error(ira->codegen, var_type->source_node,
                 buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
             result_type = ira->codegen->builtin_types.entry_invalid;
@@ -3140,7 +3156,6 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
             }
             break;
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
         case TypeTableEntryIdInt:
