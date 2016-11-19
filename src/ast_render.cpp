@@ -696,7 +696,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, ") ");
                 render_node_grouped(ar, node->data.if_bool_expr.then_block);
                 if (node->data.if_bool_expr.else_node) {
-                    fprintf(ar->f, "else ");
+                    fprintf(ar->f, " else ");
                     render_node_grouped(ar, node->data.if_bool_expr.else_node);
                 }
                 break;

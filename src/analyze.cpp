@@ -869,25 +869,15 @@ static IrInstruction *analyze_const_value(CodeGen *g, BlockContext *scope, AstNo
     return result;
 }
 
-static TypeTableEntry *analyze_type_expr_pointer_only(CodeGen *g, ImportTableEntry *import,
-        BlockContext *context, AstNode *node, bool pointer_only)
+static TypeTableEntry *analyze_type_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+        AstNode *node)
 {
-    if (pointer_only)
-        zig_panic("TODO");
-
     IrInstruction *result = analyze_const_value(g, context, node, g->builtin_types.entry_type);
     if (result->type_entry->id == TypeTableEntryIdInvalid)
         return g->builtin_types.entry_invalid;
 
     assert(result->static_value.special != ConstValSpecialRuntime);
     return result->static_value.data.x_type;
-}
-
-// Calls analyze_expression on node, and then resolve_type.
-static TypeTableEntry *analyze_type_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-        AstNode *node)
-{
-    return analyze_type_expr_pointer_only(g, import, context, node, false);
 }
 
 static bool fn_wants_full_static_eval(FnTableEntry *fn_table_entry) {

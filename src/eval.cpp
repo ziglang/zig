@@ -318,8 +318,23 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
             // can't do it
             break;
         case CastOpToUnknownSizeArray:
-            zig_panic("TODO compile time implicit to unknown size array");
-            break;
+            {
+                assert(other_type->id == TypeTableEntryIdArray);
+                assert(other_val->data.x_array.size == other_type->data.array.len);
+
+                const_val->data.x_struct.fields = allocate<ConstExprValue>(2);
+                ConstExprValue *ptr_field = &const_val->data.x_struct.fields[slice_ptr_index];
+                ConstExprValue *len_field = &const_val->data.x_struct.fields[slice_len_index];
+
+                ptr_field->special = ConstValSpecialStatic;
+                ptr_field->data.x_ptr.base_ptr = other_val;
+
+                len_field->special = ConstValSpecialStatic;
+                bignum_init_unsigned(&len_field->data.x_bignum, other_type->data.array.len);
+
+                const_val->special = ConstValSpecialStatic;
+                break;
+            }
         case CastOpMaybeWrap:
             const_val->data.x_maybe = other_val;
             const_val->special = ConstValSpecialStatic;
