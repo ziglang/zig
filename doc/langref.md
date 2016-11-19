@@ -404,7 +404,7 @@ Function                                                             Operation
 @shlWithOverflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a << b
 ```
 
-### @memset(dest, c: u8, byte_count: usize)
+### @memset(dest: &T, c: u8, byte_count: usize)
 
 This function sets a region of memory to `c`. `dest` is a pointer.
 
@@ -412,11 +412,10 @@ This function is a low level intrinsic with no safety mechanisms. Most higher
 level code will not use this function, instead using something like this:
 
 ```zig
-// assume dest is a slice
-for (dest) |*b| *b = c;
+for (destSlice) |*b| *b = c;
 ```
 
-### @memcpy(dest, source, byte_count: usize)
+### @memcpy(noalias dest: &T, noalias source: &const T, byte_count: usize)
 
 This function copies bytes from one region of memory to another. `dest` and
 `source` are both pointers and must not overlap.
@@ -426,8 +425,7 @@ level code will not use this function, instead using something like this:
 
 ```zig
 const mem = @import("std").mem;
-// assume dest and source are slices
-mem.copy(dest, source);
+mem.copy(destSlice, sourceSlice);
 ```
 
 ### @breakpoint()

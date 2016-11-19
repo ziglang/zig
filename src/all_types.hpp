@@ -870,7 +870,6 @@ uint32_t generic_fn_type_id_hash(GenericFnTypeId *id);
 bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b);
 
 
-static const size_t fn_type_id_prealloc_param_info_count = 4;
 struct FnTypeId {
     TypeTableEntry *return_type;
     FnTypeParamInfo *param_info;
@@ -879,7 +878,6 @@ struct FnTypeId {
     bool is_naked;
     bool is_cold;
     bool is_extern;
-    FnTypeParamInfo prealloc_param_info[fn_type_id_prealloc_param_info_count];
 };
 
 uint32_t fn_type_id_hash(FnTypeId*);

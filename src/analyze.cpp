@@ -682,9 +682,6 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id, bool gen_debug_inf
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
     fn_type->deep_const = true;
     fn_type->data.fn.fn_type_id = *fn_type_id;
-    if (fn_type_id->param_info == &fn_type_id->prealloc_param_info[0]) {
-        fn_type->data.fn.fn_type_id.param_info = &fn_type->data.fn.fn_type_id.prealloc_param_info[0];
-    }
 
     if (fn_type_id->is_cold) {
         fn_type->data.fn.calling_convention = LLVMColdCallConv;
@@ -915,12 +912,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
     fn_type_id.is_naked = is_naked;
     fn_type_id.is_cold = is_cold;
     fn_type_id.param_count = fn_proto->params.length;
-
-    if (fn_type_id.param_count > fn_type_id_prealloc_param_info_count) {
-        fn_type_id.param_info = allocate_nonzero<FnTypeParamInfo>(fn_type_id.param_count);
-    } else {
-        fn_type_id.param_info = &fn_type_id.prealloc_param_info[0];
-    }
+    fn_type_id.param_info = allocate_nonzero<FnTypeParamInfo>(fn_type_id.param_count);
 
     fn_type_id.is_var_args = fn_proto->is_var_args;
     fn_type_id.return_type = analyze_type_expr(g, import, context, fn_proto->return_type);

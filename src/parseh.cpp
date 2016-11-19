@@ -602,12 +602,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     }
                 }
 
-                if (fn_type_id.param_count > fn_type_id_prealloc_param_info_count) {
-                    fn_type_id.param_info = allocate_nonzero<FnTypeParamInfo>(fn_type_id.param_count);
-                } else {
-                    fn_type_id.param_info = &fn_type_id.prealloc_param_info[0];
-                }
-
+                fn_type_id.param_info = allocate_nonzero<FnTypeParamInfo>(fn_type_id.param_count);
                 for (size_t i = 0; i < fn_type_id.param_count; i += 1) {
                     QualType qt = fn_proto_ty->getParamType(i);
                     TypeTableEntry *param_type = resolve_qual_type(c, qt, decl);

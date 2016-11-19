@@ -1483,7 +1483,8 @@ static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrIn
 }
 
 static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrInstructionElemPtr *instruction) {
-    LLVMValueRef array_ptr = ir_llvm_value(g, instruction->array_ptr);
+    LLVMValueRef array_ptr_ptr = ir_llvm_value(g, instruction->array_ptr);
+    LLVMValueRef array_ptr = LLVMBuildLoad(g->builder, array_ptr_ptr, "");
     LLVMValueRef subscript_value = ir_llvm_value(g, instruction->elem_index);
     TypeTableEntry *array_type = instruction->array_ptr->type_entry;
     return gen_array_elem_ptr(g, instruction->base.source_node, array_ptr, array_type, subscript_value);
@@ -3265,19 +3266,6 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
     }
 }
 
-static void get_c_type_node(CodeGen *g, AstNode *type_node, Buf *out_buf) {
-    Expr *expr = get_resolved_expr(type_node);
-    assert(expr->instruction->type_entry);
-    assert(expr->instruction->type_entry->id == TypeTableEntryIdMetaType);
-
-    ConstExprValue *const_val = &expr->instruction->static_value;
-    assert(const_val->special != ConstValSpecialRuntime);
-
-    TypeTableEntry *type_entry = const_val->data.x_type;
-
-    return get_c_type(g, type_entry, out_buf);
-}
-
 void codegen_generate_h_file(CodeGen *g) {
     assert(!g->is_test_build);
 
@@ -3303,25 +3291,27 @@ void codegen_generate_h_file(CodeGen *g) {
         if (fn_proto->top_level_decl.visib_mod != VisibModExport)
             continue;
 
+        FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
         Buf return_type_c = BUF_INIT;
-        get_c_type(g, fn_table_entry->type_entry->data.fn.fn_type_id.return_type, &return_type_c);
+        get_c_type(g, fn_type_id->return_type, &return_type_c);
 
         buf_appendf(&h_buf, "%s %s %s(",
                 buf_ptr(export_macro),
                 buf_ptr(&return_type_c),
-                buf_ptr(fn_proto->name));
+                buf_ptr(&fn_table_entry->symbol_name));
 
         Buf param_type_c = BUF_INIT;
-        if (fn_proto->params.length) {
-            for (size_t param_i = 0; param_i < fn_proto->params.length; param_i += 1) {
+        if (fn_type_id->param_count > 0) {
+            for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
+                FnTypeParamInfo *param_info = &fn_type_id->param_info[param_i];
                 AstNode *param_decl_node = fn_proto->params.at(param_i);
-                AstNode *param_type = param_decl_node->data.param_decl.type;
-                get_c_type_node(g, param_type, &param_type_c);
-                buf_appendf(&h_buf, "%s %s",
-                        buf_ptr(&param_type_c),
-                        buf_ptr(param_decl_node->data.param_decl.name));
-                if (param_i < fn_proto->params.length - 1)
-                    buf_appendf(&h_buf, ", ");
+                Buf *param_name = param_decl_node->data.param_decl.name;
+
+                const char *comma_str = (param_i == 0) ? "" : ", ";
+                const char *restrict_str = param_info->is_noalias ? "restrict" : "";
+                get_c_type(g, param_info->type, &param_type_c);
+                buf_appendf(&h_buf, "%s%s%s %s", comma_str, buf_ptr(&param_type_c),
+                        restrict_str, buf_ptr(param_name));
             }
             buf_appendf(&h_buf, ")");
         } else {

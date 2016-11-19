@@ -36,6 +36,7 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
 static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *instruction);
 
 ConstExprValue *const_ptr_pointee(ConstExprValue *const_val) {
+    assert(const_val->special == ConstValSpecialStatic);
     ConstExprValue *base_ptr = const_val->data.x_ptr.base_ptr;
     size_t index = const_val->data.x_ptr.index;
 
@@ -3620,7 +3621,6 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
     TypeTableEntry *array_type = ptr_type->data.pointer.child_type;
-    ConstExprValue *array_ptr_val = const_ptr_pointee(&array_ptr->static_value);
     TypeTableEntry *return_type;
 
     if (array_type->id == TypeTableEntryIdInvalid) {
@@ -3659,7 +3659,11 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
             }
         }
 
-        if (array_ptr_val->special != ConstValSpecialRuntime) {
+        ConstExprValue *array_ptr_val;
+        if (array_ptr->static_value.special != ConstValSpecialRuntime &&
+            (array_ptr_val = const_ptr_pointee(&array_ptr->static_value)) &&
+            array_ptr_val->special != ConstValSpecialRuntime)
+        {
             bool depends_on_compile_var = array_ptr_val->depends_on_compile_var ||
                 casted_elem_index->static_value.depends_on_compile_var;
             ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base, depends_on_compile_var);
