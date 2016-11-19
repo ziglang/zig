@@ -1449,6 +1449,7 @@ enum IrInstructionId {
     IrInstructionIdToPtrType,
     IrInstructionIdPtrTypeChild,
     IrInstructionIdSetFnTest,
+    IrInstructionIdSetDebugSafety,
     IrInstructionIdArrayType,
     IrInstructionIdSliceType,
     IrInstructionIdAsm,
@@ -1703,6 +1704,13 @@ struct IrInstructionSetFnTest {
 
     IrInstruction *fn_value;
     IrInstruction *is_test;
+};
+
+struct IrInstructionSetDebugSafety {
+    IrInstruction base;
+
+    IrInstruction *scope_value;
+    IrInstruction *debug_safety_on;
 };
 
 struct IrInstructionArrayType {

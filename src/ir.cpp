@@ -201,6 +201,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSetFnTest *) {
     return IrInstructionIdSetFnTest;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSetDebugSafety *) {
+    return IrInstructionIdSetDebugSafety;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionArrayType *) {
     return IrInstructionIdArrayType;
 }
@@ -786,6 +790,19 @@ static IrInstruction *ir_build_set_fn_test(IrBuilder *irb, AstNode *source_node,
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_set_debug_safety(IrBuilder *irb, AstNode *source_node,
+        IrInstruction *scope_value, IrInstruction *debug_safety_on)
+{
+    IrInstructionSetDebugSafety *instruction = ir_build_instruction<IrInstructionSetDebugSafety>(irb, source_node);
+    instruction->scope_value = scope_value;
+    instruction->debug_safety_on = debug_safety_on;
+
+    ir_ref_instruction(scope_value);
+    ir_ref_instruction(debug_safety_on);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_array_type(IrBuilder *irb, AstNode *source_node, IrInstruction *size,
         IrInstruction *child_type)
 {
@@ -1291,6 +1308,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, AstNode *node) {
 
                 return ir_build_set_fn_test(irb, node, arg0_value, arg1_value);
             }
+        case BuiltinFnIdSetDebugSafety:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, node->block_context);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, node->block_context);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_set_debug_safety(irb, node, arg0_value, arg1_value);
+            }
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdSizeof:
@@ -1325,7 +1356,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, AstNode *node) {
         case BuiltinFnIdSetFnVisible:
         case BuiltinFnIdSetFnStaticEval:
         case BuiltinFnIdSetFnNoInline:
-        case BuiltinFnIdSetDebugSafety:
             zig_panic("TODO IR gen more builtin functions");
     }
     zig_unreachable();
@@ -2260,6 +2290,15 @@ static TypeTableEntry *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value
     return const_val->data.x_type;
 }
 
+static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value) {
+    if (value->static_value.special != ConstValSpecialStatic) {
+        add_node_error(ira->codegen, value->source_node,
+                buf_sprintf("unable to evaluate constant expression"));
+        return nullptr;
+    }
+    return &value->static_value;
+}
+
 static bool ir_resolve_bool(IrAnalyze *ira, IrInstruction *bool_value, bool *out) {
     if (bool_value == ira->codegen->invalid_instruction)
         return false;
@@ -2273,12 +2312,9 @@ static bool ir_resolve_bool(IrAnalyze *ira, IrInstruction *bool_value, bool *out
         return false;
     }
 
-    ConstExprValue *const_val = &bool_value->static_value;
-    if (const_val->special == ConstValSpecialRuntime) {
-        add_node_error(ira->codegen, bool_value->source_node,
-                buf_sprintf("unable to evaluate constant expression"));
+    ConstExprValue *const_val = ir_resolve_const(ira, bool_value);
+    if (!const_val)
         return false;
-    }
 
     *out = const_val->data.x_bool;
     return true;
@@ -4027,9 +4063,64 @@ static TypeTableEntry *ir_analyze_instruction_set_fn_test(IrAnalyze *ira,
     }
     fn_entry->fn_test_set_node = source_node;
 
-    ira->codegen->test_fn_count += 1;
+    if (fn_entry->is_test)
+        ira->codegen->test_fn_count += 1;
 
     ir_build_const_from(ira, &set_fn_test_instruction->base, false);
+    return ira->codegen->builtin_types.entry_void;
+}
+
+static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
+        IrInstructionSetDebugSafety *set_debug_safety_instruction)
+{
+    IrInstruction *target_instruction = set_debug_safety_instruction->scope_value->other;
+    TypeTableEntry *target_type = target_instruction->type_entry;
+    if (target_type->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+    ConstExprValue *target_val = ir_resolve_const(ira, target_instruction);
+    if (!target_val)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    BlockContext *target_context;
+    if (target_type->id == TypeTableEntryIdBlock) {
+        target_context = target_val->data.x_block;
+    } else if (target_type->id == TypeTableEntryIdFn) {
+        target_context = target_val->data.x_fn->fn_def_node->data.fn_def.block_context;
+    } else if (target_type->id == TypeTableEntryIdMetaType) {
+        TypeTableEntry *type_arg = target_val->data.x_type;
+        if (type_arg->id == TypeTableEntryIdStruct) {
+            target_context = type_arg->data.structure.block_context;
+        } else if (type_arg->id == TypeTableEntryIdEnum) {
+            target_context = type_arg->data.enumeration.block_context;
+        } else if (type_arg->id == TypeTableEntryIdUnion) {
+            target_context = type_arg->data.unionation.block_context;
+        } else {
+            add_node_error(ira->codegen, target_instruction->source_node,
+                buf_sprintf("expected scope reference, got type '%s'", buf_ptr(&type_arg->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    } else {
+        add_node_error(ira->codegen, target_instruction->source_node,
+            buf_sprintf("expected scope reference, got type '%s'", buf_ptr(&target_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *debug_safety_on_value = set_debug_safety_instruction->debug_safety_on->other;
+    bool want_debug_safety;
+    if (!ir_resolve_bool(ira, debug_safety_on_value, &want_debug_safety))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    AstNode *source_node = set_debug_safety_instruction->base.source_node;
+    if (target_context->safety_set_node) {
+        ErrorMsg *msg = add_node_error(ira->codegen, source_node,
+                buf_sprintf("function test attribute set twice"));
+        add_error_note(ira->codegen, msg, target_context->safety_set_node, buf_sprintf("first set here"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    target_context->safety_set_node = source_node;
+    target_context->safety_off = !want_debug_safety;
+
+    ir_build_const_from(ira, &set_debug_safety_instruction->base, false);
     return ira->codegen->builtin_types.entry_void;
 }
 
@@ -4164,6 +4255,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_ptr_type_child(ira, (IrInstructionPtrTypeChild *)instruction);
         case IrInstructionIdSetFnTest:
             return ir_analyze_instruction_set_fn_test(ira, (IrInstructionSetFnTest *)instruction);
+        case IrInstructionIdSetDebugSafety:
+            return ir_analyze_instruction_set_debug_safety(ira, (IrInstructionSetDebugSafety *)instruction);
         case IrInstructionIdSliceType:
             return ir_analyze_instruction_slice_type(ira, (IrInstructionSliceType *)instruction);
         case IrInstructionIdAsm:
@@ -4257,6 +4350,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdReturn:
         case IrInstructionIdUnreachable:
         case IrInstructionIdSetFnTest:
+        case IrInstructionIdSetDebugSafety:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
@@ -4854,64 +4948,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //    return g->builtin_types.entry_void;
 //}
 //
-//static TypeTableEntry *analyze_set_debug_safety(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *parent_context, AstNode *node)
-//{
-//    AstNode **target_node = &node->data.fn_call_expr.params.at(0);
-//    AstNode **value_node = &node->data.fn_call_expr.params.at(1);
-//
-//    TypeTableEntry *target_type = analyze_expression(g, import, parent_context, nullptr, *target_node);
-//    BlockContext *target_context;
-//    ConstExprValue *const_val = &get_resolved_expr(*target_node)->const_val;
-//    if (target_type->id == TypeTableEntryIdInvalid) {
-//        return g->builtin_types.entry_invalid;
-//    }
-//    if (!const_val->ok) {
-//        add_node_error(g, *target_node, buf_sprintf("unable to evaluate constant expression"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//    if (target_type->id == TypeTableEntryIdBlock) {
-//        target_context = const_val->data.x_block;
-//    } else if (target_type->id == TypeTableEntryIdFn) {
-//        target_context = const_val->data.x_fn->fn_def_node->data.fn_def.block_context;
-//    } else if (target_type->id == TypeTableEntryIdMetaType) {
-//        TypeTableEntry *type_arg = const_val->data.x_type;
-//        if (type_arg->id == TypeTableEntryIdStruct) {
-//            target_context = type_arg->data.structure.block_context;
-//        } else if (type_arg->id == TypeTableEntryIdEnum) {
-//            target_context = type_arg->data.enumeration.block_context;
-//        } else if (type_arg->id == TypeTableEntryIdUnion) {
-//            target_context = type_arg->data.unionation.block_context;
-//        } else {
-//            add_node_error(g, *target_node,
-//                buf_sprintf("expected scope reference, got type '%s'", buf_ptr(&type_arg->name)));
-//            return g->builtin_types.entry_invalid;
-//        }
-//    } else {
-//        add_node_error(g, *target_node,
-//            buf_sprintf("expected scope reference, got type '%s'", buf_ptr(&target_type->name)));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    bool want_debug_safety;
-//    bool ok = resolve_const_expr_bool(g, import, parent_context, value_node, &want_debug_safety);
-//    if (!ok) {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    if (target_context->safety_set_node) {
-//        ErrorMsg *msg = add_node_error(g, node, buf_sprintf("debug safety for scope set twice"));
-//        add_error_note(g, msg, target_context->safety_set_node, buf_sprintf("first set here"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//    target_context->safety_set_node = node;
-//
-//    target_context->safety_off = !want_debug_safety;
-//
-//    return g->builtin_types.entry_void;
-//}
-
-
 //static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
 //        TypeTableEntry *expected_type, AstNode *node)
 //{
@@ -5215,8 +5251,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //            return analyze_set_fn_static_eval(g, import, context, node);
 //        case BuiltinFnIdSetFnVisible:
 //            return analyze_set_fn_visible(g, import, context, node);
-//        case BuiltinFnIdSetDebugSafety:
-//            return analyze_set_debug_safety(g, import, context, node);
 //    }
 //    zig_unreachable();
 //}

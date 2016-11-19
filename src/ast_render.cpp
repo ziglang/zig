@@ -669,6 +669,17 @@ static void render_node(AstRender *ar, AstNode *node) {
                 render_node(ar, node->data.while_expr.body);
                 break;
             }
+        case NodeTypeThisLiteral:
+            {
+                fprintf(ar->f, "this");
+                break;
+            }
+        case NodeTypeBoolLiteral:
+            {
+                const char *bool_str = node->data.bool_literal.value ? "true" : "false";
+                fprintf(ar->f, "%s", bool_str);
+                break;
+            }
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
@@ -677,10 +688,8 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeStructField:
         case NodeTypeStructValueField:
         case NodeTypeUse:
-        case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeZeroesLiteral:
-        case NodeTypeThisLiteral:
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
         case NodeTypeForExpr:

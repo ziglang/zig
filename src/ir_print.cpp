@@ -409,6 +409,14 @@ static void ir_print_set_fn_test(IrPrint *irp, IrInstructionSetFnTest *instructi
     fprintf(irp->f, ")");
 }
 
+static void ir_print_set_debug_safety(IrPrint *irp, IrInstructionSetDebugSafety *instruction) {
+    fprintf(irp->f, "@setDebugSafety(");
+    ir_print_other_instruction(irp, instruction->scope_value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->debug_safety_on);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_array_type(IrPrint *irp, IrInstructionArrayType *instruction) {
     fprintf(irp->f, "[");
     ir_print_other_instruction(irp, instruction->size);
@@ -540,6 +548,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSetFnTest:
             ir_print_set_fn_test(irp, (IrInstructionSetFnTest *)instruction);
+            break;
+        case IrInstructionIdSetDebugSafety:
+            ir_print_set_debug_safety(irp, (IrInstructionSetDebugSafety *)instruction);
             break;
         case IrInstructionIdArrayType:
             ir_print_array_type(irp, (IrInstructionArrayType *)instruction);
