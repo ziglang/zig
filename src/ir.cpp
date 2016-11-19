@@ -1152,25 +1152,43 @@ static IrInstruction *ir_gen_decl_ref(IrBuilder *irb, AstNode *source_node, AstN
     if (decl_node->type == NodeTypeVariableDeclaration) {
         VariableTableEntry *var = decl_node->data.variable_declaration.variable;
         IrInstruction *var_ptr = ir_build_var_ptr(irb, source_node, var);
-        return ir_build_load_ptr(irb, source_node, var_ptr);
+        if (lval != LValPurposeNone)
+            return var_ptr;
+        else
+            return ir_build_load_ptr(irb, source_node, var_ptr);
     } else if (decl_node->type == NodeTypeFnProto) {
         FnTableEntry *fn_entry = decl_node->data.fn_proto.fn_table_entry;
         assert(fn_entry->type_entry);
+        IrInstruction *ref_instruction;
         if (fn_entry->type_entry->id == TypeTableEntryIdGenericFn) {
-            return ir_build_const_generic_fn(irb, source_node, fn_entry->type_entry);
+            ref_instruction = ir_build_const_generic_fn(irb, source_node, fn_entry->type_entry);
         } else {
-            return ir_build_const_fn(irb, source_node, fn_entry);
+            ref_instruction = ir_build_const_fn(irb, source_node, fn_entry);
         }
+        if (lval != LValPurposeNone)
+            return ir_build_un_op(irb, source_node, IrUnOpAddressOf, ref_instruction);
+        else
+            return ref_instruction;
     } else if (decl_node->type == NodeTypeContainerDecl) {
+        IrInstruction *ref_instruction;
         if (decl_node->data.struct_decl.generic_params.length > 0) {
             TypeTableEntry *type_entry = decl_node->data.struct_decl.generic_fn_type;
             assert(type_entry);
-            return ir_build_const_generic_fn(irb, source_node, type_entry);
+            ref_instruction = ir_build_const_generic_fn(irb, source_node, type_entry);
         } else {
-            return ir_build_const_type(irb, source_node, decl_node->data.struct_decl.type_entry);
+            ref_instruction = ir_build_const_type(irb, source_node, decl_node->data.struct_decl.type_entry);
         }
+        if (lval != LValPurposeNone)
+            return ir_build_un_op(irb, source_node, IrUnOpAddressOf, ref_instruction);
+        else
+            return ref_instruction;
     } else if (decl_node->type == NodeTypeTypeDecl) {
-        return ir_build_const_type(irb, source_node, decl_node->data.type_decl.child_type_entry);
+        TypeTableEntry *child_type = decl_node->data.type_decl.child_type_entry;
+        IrInstruction *ref_instruction = ir_build_const_type(irb, source_node, child_type);
+        if (lval != LValPurposeNone)
+            return ir_build_un_op(irb, source_node, IrUnOpAddressOf, ref_instruction);
+        else
+            return ref_instruction;
     } else {
         zig_unreachable();
     }
@@ -1201,13 +1219,8 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, AstNode *node, LValPurpose l
     }
 
     AstNode *decl_node = find_decl(node->block_context, variable_name);
-    if (decl_node) {
-        IrInstruction *value = ir_gen_decl_ref(irb, node, decl_node, lval, node->block_context);
-        if (lval == LValPurposeAddressOf)
-            return ir_build_un_op(irb, node, IrUnOpAddressOf, value);
-        else
-            return value;
-    }
+    if (decl_node)
+        return ir_gen_decl_ref(irb, node, decl_node, lval, node->block_context);
 
     if (node->owner->any_imports_failed) {
         // skip the error message since we had a failing import in this file
