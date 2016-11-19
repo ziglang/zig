@@ -3242,9 +3242,19 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
                 buf_appendf(out_buf, "%s%s *", const_str, buf_ptr(&child_buf));
                 break;
             }
+        case TypeTableEntryIdMaybe:
+            {
+                TypeTableEntry *child_type = type_entry->data.maybe.child_type;
+                if (child_type->id == TypeTableEntryIdPointer ||
+                    child_type->id == TypeTableEntryIdFn)
+                {
+                    return get_c_type(g, child_type, out_buf);
+                } else {
+                    zig_unreachable();
+                }
+            }
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
-        case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdEnum:

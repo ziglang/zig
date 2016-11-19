@@ -342,13 +342,23 @@ static void print_symbol(AstRender *ar, Buf *symbol) {
     fprintf(ar->f, "@\"%s\"", buf_ptr(&escaped));
 }
 
-static void render_node(AstRender *ar, AstNode *node) {
+static void render_node_extra(AstRender *ar, AstNode *node, bool grouped);
+
+static void render_node_grouped(AstRender *ar, AstNode *node) {
+    return render_node_extra(ar, node, true);
+}
+
+static void render_node_ungrouped(AstRender *ar, AstNode *node) {
+    return render_node_extra(ar, node, false);
+}
+
+static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
     switch (node->type) {
         case NodeTypeRoot:
             for (size_t i = 0; i < node->data.root.top_level_decls.length; i += 1) {
                 AstNode *child = node->data.root.top_level_decls.at(i);
                 print_indent(ar);
-                render_node(ar, child);
+                render_node_grouped(ar, child);
 
                 if (child->type == NodeTypeUse ||
                     child->type == NodeTypeVariableDeclaration ||
@@ -381,7 +391,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                         print_symbol(ar, param_decl->data.param_decl.name);
                         fprintf(ar->f, ": ");
                     }
-                    render_node(ar, param_decl->data.param_decl.type);
+                    render_node_grouped(ar, param_decl->data.param_decl.type);
 
                     if (arg_i + 1 < arg_count || is_var_args) {
                         fprintf(ar->f, ", ");
@@ -394,14 +404,14 @@ static void render_node(AstRender *ar, AstNode *node) {
 
                 AstNode *return_type_node = node->data.fn_proto.return_type;
                 fprintf(ar->f, " -> ");
-                render_node(ar, return_type_node);
+                render_node_grouped(ar, return_type_node);
                 break;
             }
         case NodeTypeFnDef:
             {
-                render_node(ar, node->data.fn_def.fn_proto);
+                render_node_grouped(ar, node->data.fn_def.fn_proto);
                 fprintf(ar->f, " ");
-                render_node(ar, node->data.fn_def.body);
+                render_node_grouped(ar, node->data.fn_def.body);
                 break;
             }
         case NodeTypeBlock:
@@ -414,7 +424,7 @@ static void render_node(AstRender *ar, AstNode *node) {
             for (size_t i = 0; i < node->data.block.statements.length; i += 1) {
                 AstNode *statement = node->data.block.statements.at(i);
                 print_indent(ar);
-                render_node(ar, statement);
+                render_node_grouped(ar, statement);
                 if (i != node->data.block.statements.length - 1)
                     fprintf(ar->f, ";");
                 fprintf(ar->f, "\n");
@@ -427,14 +437,14 @@ static void render_node(AstRender *ar, AstNode *node) {
             {
                 const char *return_str = return_string(node->data.return_expr.kind);
                 fprintf(ar->f, "%s ", return_str);
-                render_node(ar, node->data.return_expr.expr);
+                render_node_grouped(ar, node->data.return_expr.expr);
                 break;
             }
         case NodeTypeDefer:
             {
                 const char *defer_str = defer_string(node->data.defer.kind);
                 fprintf(ar->f, "%s ", defer_str);
-                render_node(ar, node->data.return_expr.expr);
+                render_node_grouped(ar, node->data.return_expr.expr);
                 break;
             }
         case NodeTypeVariableDeclaration:
@@ -447,11 +457,11 @@ static void render_node(AstRender *ar, AstNode *node) {
 
                 if (node->data.variable_declaration.type) {
                     fprintf(ar->f, ": ");
-                    render_node(ar, node->data.variable_declaration.type);
+                    render_node_grouped(ar, node->data.variable_declaration.type);
                 }
                 if (node->data.variable_declaration.expr) {
                     fprintf(ar->f, " = ");
-                    render_node(ar, node->data.variable_declaration.expr);
+                    render_node_grouped(ar, node->data.variable_declaration.expr);
                 }
                 break;
             }
@@ -460,15 +470,15 @@ static void render_node(AstRender *ar, AstNode *node) {
                 const char *pub_str = visib_mod_string(node->data.type_decl.top_level_decl.visib_mod);
                 const char *var_name = buf_ptr(node->data.type_decl.symbol);
                 fprintf(ar->f, "%stype %s = ", pub_str, var_name);
-                render_node(ar, node->data.type_decl.child_type);
+                render_node_grouped(ar, node->data.type_decl.child_type);
                 break;
             }
         case NodeTypeBinOpExpr:
-            fprintf(ar->f, "(");
-            render_node(ar, node->data.bin_op_expr.op1);
+            if (!grouped) fprintf(ar->f, "(");
+            render_node_ungrouped(ar, node->data.bin_op_expr.op1);
             fprintf(ar->f, " %s ", bin_op_str(node->data.bin_op_expr.bin_op));
-            render_node(ar, node->data.bin_op_expr.op2);
-            fprintf(ar->f, ")");
+            render_node_ungrouped(ar, node->data.bin_op_expr.op2);
+            if (!grouped) fprintf(ar->f, ")");
             break;
         case NodeTypeNumberLiteral:
             switch (node->data.number_literal.bignum->kind) {
@@ -511,7 +521,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                 PrefixOp op = node->data.prefix_op_expr.prefix_op;
                 fprintf(ar->f, "%s", prefix_op_str(op));
 
-                render_node(ar, node->data.prefix_op_expr.primary_expr);
+                render_node_ungrouped(ar, node->data.prefix_op_expr.primary_expr);
                 break;
             }
         case NodeTypeFnCallExpr:
@@ -520,7 +530,7 @@ static void render_node(AstRender *ar, AstNode *node) {
             } else {
                 fprintf(ar->f, "(");
             }
-            render_node(ar, node->data.fn_call_expr.fn_ref_expr);
+            render_node_ungrouped(ar, node->data.fn_call_expr.fn_ref_expr);
             if (!node->data.fn_call_expr.is_builtin) {
                 fprintf(ar->f, ")");
             }
@@ -530,21 +540,21 @@ static void render_node(AstRender *ar, AstNode *node) {
                 if (i != 0) {
                     fprintf(ar->f, ", ");
                 }
-                render_node(ar, param);
+                render_node_grouped(ar, param);
             }
             fprintf(ar->f, ")");
             break;
         case NodeTypeArrayAccessExpr:
-            render_node(ar, node->data.array_access_expr.array_ref_expr);
+            render_node_ungrouped(ar, node->data.array_access_expr.array_ref_expr);
             fprintf(ar->f, "[");
-            render_node(ar, node->data.array_access_expr.subscript);
+            render_node_grouped(ar, node->data.array_access_expr.subscript);
             fprintf(ar->f, "]");
             break;
         case NodeTypeFieldAccessExpr:
             {
                 AstNode *lhs = node->data.field_access_expr.struct_expr;
                 Buf *rhs = node->data.field_access_expr.field_name;
-                render_node(ar, lhs);
+                render_node_ungrouped(ar, lhs);
                 fprintf(ar->f, ".");
                 print_symbol(ar, rhs);
                 break;
@@ -565,7 +575,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                     print_indent(ar);
                     print_symbol(ar, field_node->data.struct_field.name);
                     fprintf(ar->f, ": ");
-                    render_node(ar, field_node->data.struct_field.type);
+                    render_node_grouped(ar, field_node->data.struct_field.type);
                     fprintf(ar->f, ",\n");
                 }
 
@@ -574,9 +584,8 @@ static void render_node(AstRender *ar, AstNode *node) {
                 break;
             }
         case NodeTypeContainerInitExpr:
-            fprintf(ar->f, "(");
-            render_node(ar, node->data.container_init_expr.type);
-            fprintf(ar->f, "){");
+            render_node_ungrouped(ar, node->data.container_init_expr.type);
+            fprintf(ar->f, "{");
             assert(node->data.container_init_expr.entries.length == 0);
             fprintf(ar->f, "}");
             break;
@@ -584,13 +593,13 @@ static void render_node(AstRender *ar, AstNode *node) {
             {
                 fprintf(ar->f, "[");
                 if (node->data.array_type.size) {
-                    render_node(ar, node->data.array_type.size);
+                    render_node_grouped(ar, node->data.array_type.size);
                 }
                 fprintf(ar->f, "]");
                 if (node->data.array_type.is_const) {
                     fprintf(ar->f, "const ");
                 }
-                render_node(ar, node->data.array_type.child_type);
+                render_node_ungrouped(ar, node->data.array_type.child_type);
                 break;
             }
         case NodeTypeErrorType:
@@ -622,7 +631,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                             buf_ptr(asm_output->constraint));
                     if (asm_output->return_type) {
                         fprintf(ar->f, "-> ");
-                        render_node(ar, asm_output->return_type);
+                        render_node_grouped(ar, asm_output->return_type);
                     } else {
                         fprintf(ar->f, "%s", buf_ptr(asm_output->variable_name));
                     }
@@ -642,7 +651,7 @@ static void render_node(AstRender *ar, AstNode *node) {
                     fprintf(ar->f, "[%s] \"%s\" (",
                             buf_ptr(asm_input->asm_symbolic_name),
                             buf_ptr(asm_input->constraint));
-                    render_node(ar, asm_input->expr);
+                    render_node_grouped(ar, asm_input->expr);
                     fprintf(ar->f, ")");
                 }
                 fprintf(ar->f, "\n");
@@ -660,13 +669,13 @@ static void render_node(AstRender *ar, AstNode *node) {
             {
                 const char *inline_str = node->data.while_expr.is_inline ? "inline " : "";
                 fprintf(ar->f, "%swhile (", inline_str);
-                render_node(ar, node->data.while_expr.condition);
+                render_node_grouped(ar, node->data.while_expr.condition);
                 if (node->data.while_expr.continue_expr) {
                     fprintf(ar->f, "; ");
-                    render_node(ar, node->data.while_expr.continue_expr);
+                    render_node_grouped(ar, node->data.while_expr.continue_expr);
                 }
                 fprintf(ar->f, ") ");
-                render_node(ar, node->data.while_expr.body);
+                render_node_grouped(ar, node->data.while_expr.body);
                 break;
             }
         case NodeTypeThisLiteral:
@@ -680,6 +689,18 @@ static void render_node(AstRender *ar, AstNode *node) {
                 fprintf(ar->f, "%s", bool_str);
                 break;
             }
+        case NodeTypeIfBoolExpr:
+            {
+                fprintf(ar->f, "if (");
+                render_node_grouped(ar, node->data.if_bool_expr.condition);
+                fprintf(ar->f, ") ");
+                render_node_grouped(ar, node->data.if_bool_expr.then_block);
+                if (node->data.if_bool_expr.else_node) {
+                    fprintf(ar->f, "else ");
+                    render_node_grouped(ar, node->data.if_bool_expr.else_node);
+                }
+                break;
+            }
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
@@ -690,7 +711,6 @@ static void render_node(AstRender *ar, AstNode *node) {
         case NodeTypeUse:
         case NodeTypeNullLiteral:
         case NodeTypeZeroesLiteral:
-        case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
         case NodeTypeForExpr:
         case NodeTypeSwitchExpr:
@@ -711,5 +731,5 @@ void ast_render(FILE *f, AstNode *node, int indent_size) {
     ar.indent_size = indent_size;
     ar.indent = 0;
 
-    render_node(&ar, node);
+    render_node_grouped(&ar, node);
 }

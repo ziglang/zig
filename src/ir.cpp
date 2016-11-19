@@ -3113,8 +3113,11 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     var->type = result_type;
     assert(var->type);
 
-    ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
-    *mem_slot = casted_init_value->static_value;
+    if (var->mem_slot_index != SIZE_MAX) {
+        assert(var->mem_slot_index < ira->exec_context.mem_slot_count);
+        ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
+        *mem_slot = casted_init_value->static_value;
+    }
 
     ir_build_var_decl_from(&ira->new_irb, &decl_var_instruction->base, var, var_type, casted_init_value);
 
@@ -3341,6 +3344,70 @@ static TypeTableEntry *ir_analyze_dereference(IrAnalyze *ira, IrInstructionUnOp 
     return child_type;
 }
 
+static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
+    IrInstruction *value = un_op_instruction->value->other;
+    TypeTableEntry *type_entry = ir_resolve_type(ira, value);
+    TypeTableEntry *canon_type = get_underlying_type(type_entry);
+    switch (canon_type->id) {
+        case TypeTableEntryIdInvalid:
+            return ira->codegen->builtin_types.entry_invalid;
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdTypeDecl:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdGenericFn:
+            {
+                ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base,
+                        value->static_value.depends_on_compile_var);
+                out_val->data.x_type = get_maybe_type(ira->codegen, type_entry);
+                return ira->codegen->builtin_types.entry_type;
+            }
+        case TypeTableEntryIdUnreachable:
+            add_node_error(ira->codegen, un_op_instruction->base.source_node,
+                    buf_sprintf("type '%s' not nullable", buf_ptr(&type_entry->name)));
+            // TODO if it's a type decl, put an error note here pointing to the decl
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+    zig_unreachable();
+}
+
+static TypeTableEntry *ir_analyze_unwrap_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
+    IrInstruction *value = un_op_instruction->value->other;
+    TypeTableEntry *type_entry = value->type_entry;
+    if (type_entry->id == TypeTableEntryIdInvalid) {
+        return type_entry;
+    } else if (type_entry->id == TypeTableEntryIdMaybe) {
+        if (value->static_value.special != ConstValSpecialRuntime) {
+            zig_panic("TODO compile time eval unwrap maybe");
+        }
+        ir_build_un_op_from(&ira->new_irb, &un_op_instruction->base, IrUnOpUnwrapMaybe, value);
+        return type_entry->data.maybe.child_type;
+    } else {
+        add_node_error(ira->codegen, un_op_instruction->base.source_node,
+            buf_sprintf("expected maybe type, found '%s'", buf_ptr(&type_entry->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+}
+
 static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
     IrUnOp op_id = un_op_instruction->op_id;
     switch (op_id) {
@@ -3417,34 +3484,7 @@ static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructio
         case IrUnOpDereference:
             return ir_analyze_dereference(ira, un_op_instruction);
         case IrUnOpMaybe:
-            zig_panic("TODO analyze PrefixOpMaybe");
-            //{
-            //    TypeTableEntry *type_entry = analyze_expression(g, import, context, nullptr, *expr_node);
-
-            //    if (type_entry->id == TypeTableEntryIdInvalid) {
-            //        return type_entry;
-            //    } else if (type_entry->id == TypeTableEntryIdMetaType) {
-            //        TypeTableEntry *meta_type = resolve_type(g, *expr_node);
-            //        if (meta_type->id == TypeTableEntryIdInvalid) {
-            //            return g->builtin_types.entry_invalid;
-            //        } else if (meta_type->id == TypeTableEntryIdUnreachable) {
-            //            add_node_error(g, node, buf_create_from_str("unable to wrap unreachable in maybe type"));
-            //            return g->builtin_types.entry_invalid;
-            //        } else {
-            //            return resolve_expr_const_val_as_type(g, node, get_maybe_type(g, meta_type), false);
-            //        }
-            //    } else if (type_entry->id == TypeTableEntryIdUnreachable) {
-            //        add_node_error(g, *expr_node, buf_sprintf("unable to wrap unreachable in maybe type"));
-            //        return g->builtin_types.entry_invalid;
-            //    } else {
-            //        ConstExprValue *target_const_val = &get_resolved_expr(*expr_node)->const_val;
-            //        TypeTableEntry *maybe_type = get_maybe_type(g, type_entry);
-            //        if (!target_const_val->ok) {
-            //            return maybe_type;
-            //        }
-            //        return resolve_expr_const_val_as_non_null(g, node, maybe_type, target_const_val);
-            //    }
-            //}
+            return ir_analyze_maybe(ira, un_op_instruction);
         case IrUnOpError:
             return ir_analyze_unary_prefix_op_err(ira, un_op_instruction);
         case IrUnOpUnwrapError:
@@ -3463,20 +3503,7 @@ static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructio
             //    }
             //}
         case IrUnOpUnwrapMaybe:
-            zig_panic("TODO analyze PrefixOpUnwrapMaybe");
-            //{
-            //    TypeTableEntry *type_entry = analyze_expression(g, import, context, nullptr, *expr_node);
-
-            //    if (type_entry->id == TypeTableEntryIdInvalid) {
-            //        return type_entry;
-            //    } else if (type_entry->id == TypeTableEntryIdMaybe) {
-            //        return type_entry->data.maybe.child_type;
-            //    } else {
-            //        add_node_error(g, *expr_node,
-            //            buf_sprintf("expected maybe type, got '%s'", buf_ptr(&type_entry->name)));
-            //        return g->builtin_types.entry_invalid;
-            //    }
-            //}
+            return ir_analyze_unwrap_maybe(ira, un_op_instruction);
         case IrUnOpErrorReturn:
             zig_panic("TODO analyze IrUnOpErrorReturn");
         case IrUnOpMaybeReturn:
