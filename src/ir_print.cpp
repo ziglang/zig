@@ -105,11 +105,19 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
                 fprintf(irp->f, "null");
                 break;
             }
+        case TypeTableEntryIdMaybe:
+            {
+                if (const_val->data.x_maybe) {
+                    ir_print_const_value(irp, type_entry->data.maybe.child_type, const_val->data.x_maybe);
+                } else {
+                    fprintf(irp->f, "null");
+                }
+                break;
+            }
         case TypeTableEntryIdVar:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdEnum:
