@@ -222,6 +222,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCompileVar *) {
     return IrInstructionIdCompileVar;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSizeOf *) {
+    return IrInstructionIdSizeOf;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -865,6 +869,15 @@ static IrInstruction *ir_build_compile_var(IrBuilder *irb, AstNode *source_node,
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_size_of(IrBuilder *irb, AstNode *source_node, IrInstruction *type_value) {
+    IrInstructionSizeOf *instruction = ir_build_instruction<IrInstructionSizeOf>(irb, source_node);
+    instruction->type_value = type_value;
+
+    ir_ref_instruction(type_value);
+
+    return &instruction->base;
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, BlockContext *inner_block, BlockContext *outer_block,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -1356,9 +1369,17 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, AstNode *node) {
 
                 return ir_build_compile_var(irb, node, arg0_value);
             }
+        case BuiltinFnIdSizeof:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, node->block_context);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_size_of(irb, node, arg0_value);
+            }
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
-        case BuiltinFnIdSizeof:
         case BuiltinFnIdAlignof:
         case BuiltinFnIdMaxValue:
         case BuiltinFnIdMinValue:
@@ -4417,6 +4438,56 @@ static TypeTableEntry *ir_analyze_instruction_compile_var(IrAnalyze *ira,
     zig_unreachable();
 }
 
+static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
+        IrInstructionSizeOf *size_of_instruction)
+{
+    IrInstruction *type_value = size_of_instruction->type_value->other;
+    TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
+    TypeTableEntry *canon_type_entry = get_underlying_type(type_entry);
+    switch (canon_type_entry->id) {
+        case TypeTableEntryIdInvalid:
+            return ira->codegen->builtin_types.entry_invalid;
+        case TypeTableEntryIdTypeDecl:
+            zig_unreachable();
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdNamespace:
+            add_node_error(ira->codegen, size_of_instruction->base.source_node,
+                    buf_sprintf("no size available for type '%s'", buf_ptr(&type_entry->name)));
+            // TODO if this is a typedecl, add error note showing the declaration of the type decl
+            return ira->codegen->builtin_types.entry_invalid;
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
+            {
+                uint64_t size_in_bytes = type_size(ira->codegen, type_entry);
+                bool depends_on_compile_var = false; // TODO types should be able to depend on compile var
+                ConstExprValue *out_val = ir_build_const_from(ira, &size_of_instruction->base,
+                        depends_on_compile_var);
+                bignum_init_unsigned(&out_val->data.x_bignum, size_in_bytes);
+                return ira->codegen->builtin_types.entry_num_lit_int;
+            }
+    }
+    zig_unreachable();
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -4471,6 +4542,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_array_type(ira, (IrInstructionArrayType *)instruction);
         case IrInstructionIdCompileVar:
             return ir_analyze_instruction_compile_var(ira, (IrInstructionCompileVar *)instruction);
+        case IrInstructionIdSizeOf:
+            return ir_analyze_instruction_size_of(ira, (IrInstructionSizeOf *)instruction);
         case IrInstructionIdSwitchBr:
         case IrInstructionIdCast:
         case IrInstructionIdContainerInitList:
@@ -4580,6 +4653,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdArrayType:
         case IrInstructionIdSliceType:
         case IrInstructionIdCompileVar:
+        case IrInstructionIdSizeOf:
             return false;
         case IrInstructionIdAsm:
             {
@@ -5247,24 +5321,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                }
 //
 //                return builtin_fn->return_type;
-//            }
-//        case BuiltinFnIdSizeof:
-//            {
-//                AstNode *type_node = node->data.fn_call_expr.params.at(0);
-//                TypeTableEntry *type_entry = analyze_type_expr(g, import, context, type_node);
-//                if (type_entry->id == TypeTableEntryIdInvalid) {
-//                    return g->builtin_types.entry_invalid;
-//                } else if (type_entry->id == TypeTableEntryIdUnreachable) {
-//                    add_node_error(g, first_executing_node(type_node),
-//                            buf_sprintf("no size available for type '%s'", buf_ptr(&type_entry->name)));
-//                    return g->builtin_types.entry_invalid;
-//                } else {
-//                    uint64_t size_in_bytes = type_size(g, type_entry);
-//                    bool depends_on_compile_var = (type_entry == g->builtin_types.entry_usize ||
-//                            type_entry == g->builtin_types.entry_isize);
-//                    return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
-//                            size_in_bytes, depends_on_compile_var);
-//                }
 //            }
 //        case BuiltinFnIdAlignof:
 //            {
@@ -8044,7 +8100,6 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //                LLVMBuildCall(g->builder, builtin_fn->fn_val, params, 5, "");
 //                return nullptr;
 //            }
-//        case BuiltinFnIdSizeof:
 //        case BuiltinFnIdAlignof:
 //        case BuiltinFnIdMinValue:
 //        case BuiltinFnIdMaxValue:

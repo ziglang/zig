@@ -36,7 +36,8 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
     }
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
-            zig_unreachable();
+            fprintf(irp->f, "(invalid)");
+            break;
         case TypeTableEntryIdVoid:
             fprintf(irp->f, "{}");
             break;
@@ -490,6 +491,12 @@ static void ir_print_compile_var(IrPrint *irp, IrInstructionCompileVar *instruct
     fprintf(irp->f, ")");
 }
 
+static void ir_print_size_of(IrPrint *irp, IrInstructionSizeOf *instruction) {
+    fprintf(irp->f, "@sizeOf(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -581,6 +588,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCompileVar:
             ir_print_compile_var(irp, (IrInstructionCompileVar *)instruction);
+            break;
+        case IrInstructionIdSizeOf:
+            ir_print_size_of(irp, (IrInstructionSizeOf *)instruction);
             break;
         case IrInstructionIdSwitchBr:
             zig_panic("TODO print more IR instructions");

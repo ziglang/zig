@@ -1452,6 +1452,7 @@ enum IrInstructionId {
     IrInstructionIdSliceType,
     IrInstructionIdAsm,
     IrInstructionIdCompileVar,
+    IrInstructionIdSizeOf,
 };
 
 struct IrInstruction {
@@ -1740,6 +1741,12 @@ struct IrInstructionCompileVar {
     IrInstruction base;
 
     IrInstruction *name;
+};
+
+struct IrInstructionSizeOf {
+    IrInstruction base;
+
+    IrInstruction *type_value;
 };
 
 enum LValPurpose {
