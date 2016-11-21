@@ -360,3 +360,37 @@ bool bignum_multiply_by_scalar(BigNum *bignum, uint64_t scalar) {
     assert(!bignum->is_negative);
     return __builtin_umulll_overflow(bignum->data.x_uint, scalar, &bignum->data.x_uint);
 }
+
+uint32_t bignum_ctz(BigNum *bignum, uint32_t bit_count) {
+    assert(bignum->kind == BigNumKindInt);
+
+    uint64_t x = bignum_to_twos_complement(bignum);
+    uint32_t result = 0;
+    for (uint32_t i = 0; i < bit_count; i += 1) {
+        if ((x & 0x1) != 0)
+            break;
+
+        result += 1;
+        x = x >> 1;
+    }
+    return result;
+}
+
+uint32_t bignum_clz(BigNum *bignum, uint32_t bit_count) {
+    assert(bignum->kind == BigNumKindInt);
+
+    if (bit_count == 0)
+        return 0;
+
+    uint64_t x = bignum_to_twos_complement(bignum);
+    uint64_t mask = ((uint64_t)1) << ((uint64_t)bit_count - 1);
+    uint32_t result = 0;
+    for (uint32_t i = 0; i < bit_count; i += 1) {
+        if ((x & mask) != 0)
+            break;
+
+        result += 1;
+        x = x << 1;
+    }
+    return result;
+}

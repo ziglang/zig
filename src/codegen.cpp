@@ -1478,6 +1478,46 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
     }
 }
 
+static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, BuiltinFnId fn_id) {
+    // [0-ctz,1-clz][0-8,1-16,2-32,3-64]
+    size_t index0 = (fn_id == BuiltinFnIdCtz) ? 0 : 1;
+    size_t index1 = bits_index(int_type->data.integral.bit_count);
+    LLVMValueRef *fn = &g->int_builtin_fns[index0][index1];
+    if (!*fn) {
+        const char *fn_name = (fn_id == BuiltinFnIdCtz) ? "cttz" : "ctlz";
+        Buf *llvm_name = buf_sprintf("llvm.%s.i%zu", fn_name, int_type->data.integral.bit_count);
+        LLVMTypeRef param_types[] = {
+            int_type->type_ref,
+            LLVMInt1Type(),
+        };
+        LLVMTypeRef fn_type = LLVMFunctionType(int_type->type_ref, param_types, 2, false);
+        *fn = LLVMAddFunction(g->module, buf_ptr(llvm_name), fn_type);
+    }
+    return *fn;
+}
+
+static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstructionClz *instruction) {
+    TypeTableEntry *int_type = instruction->base.type_entry;
+    LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdClz);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef params[] {
+        operand,
+        LLVMConstNull(LLVMInt1Type()),
+    };
+    return LLVMBuildCall(g->builder, fn_val, params, 2, "");
+}
+
+static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstructionCtz *instruction) {
+    TypeTableEntry *int_type = instruction->base.type_entry;
+    LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdCtz);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->value);
+    LLVMValueRef params[] {
+        operand,
+        LLVMConstNull(LLVMInt1Type()),
+    };
+    return LLVMBuildCall(g->builder, fn_val, params, 2, "");
+}
+
 static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {
     set_debug_source_node(g, instruction->source_node);
 
@@ -1529,6 +1569,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_test_null(g, executable, (IrInstructionTestNull *)instruction);
         case IrInstructionIdUnwrapMaybe:
             return ir_render_unwrap_maybe(g, executable, (IrInstructionUnwrapMaybe *)instruction);
+        case IrInstructionIdClz:
+            return ir_render_clz(g, executable, (IrInstructionClz *)instruction);
+        case IrInstructionIdCtz:
+            return ir_render_ctz(g, executable, (IrInstructionCtz *)instruction);
         case IrInstructionIdSwitchBr:
         case IrInstructionIdPhi:
         case IrInstructionIdContainerInitList:
@@ -2774,8 +2818,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCUndef, "cUndef", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileVar, "compileVar", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdConstEval, "constEval", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdCtz, "ctz", 2);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdClz, "clz", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdCtz, "ctz", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdClz, "clz", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdImport, "import", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCImport, "cImport", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdErrName, "errorName", 1);

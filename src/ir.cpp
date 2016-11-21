@@ -234,6 +234,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionUnwrapMaybe *) {
     return IrInstructionIdUnwrapMaybe;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionClz *) {
+    return IrInstructionIdClz;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCtz *) {
+    return IrInstructionIdCtz;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -924,6 +932,36 @@ static IrInstruction *ir_build_unwrap_maybe_from(IrBuilder *irb, IrInstruction *
     return new_instruction;
 }
 
+static IrInstruction *ir_build_clz(IrBuilder *irb, AstNode *source_node, IrInstruction *value) {
+    IrInstructionClz *instruction = ir_build_instruction<IrInstructionClz>(irb, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_clz_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *value) {
+    IrInstruction *new_instruction = ir_build_clz(irb, old_instruction->source_node, value);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
+static IrInstruction *ir_build_ctz(IrBuilder *irb, AstNode *source_node, IrInstruction *value) {
+    IrInstructionCtz *instruction = ir_build_instruction<IrInstructionCtz>(irb, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_ctz_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *value) {
+    IrInstruction *new_instruction = ir_build_ctz(irb, old_instruction->source_node, value);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, BlockContext *inner_block, BlockContext *outer_block,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -964,9 +1002,9 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, AstNode *node) {
                 return ir_build_return(irb, node, return_value);
             }
         case ReturnKindError:
-            zig_panic("TODO %%return");
+            zig_panic("TODO gen IR for %%return");
         case ReturnKindMaybe:
-            zig_panic("TODO ?return");
+            zig_panic("TODO gen IR for ?return");
     }
     zig_unreachable();
 }
@@ -1188,7 +1226,7 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, AstNode *node) {
         case BinOpTypeArrayMult:
             return ir_gen_bin_op_id(irb, node, IrBinOpArrayMult);
         case BinOpTypeUnwrapMaybe:
-            zig_panic("TODO gen IR for unwrap maybe");
+            zig_panic("TODO gen IR for unwrap maybe binary operation");
     }
     zig_unreachable();
 }
@@ -1357,7 +1395,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, AstNode *node) {
 
     if (builtin_fn->param_count != actual_param_count) {
         add_node_error(irb->codegen, node,
-                buf_sprintf("expected %zu arguments, got %zu",
+                buf_sprintf("expected %zu arguments, found %zu",
                     builtin_fn->param_count, actual_param_count));
         return irb->codegen->invalid_instruction;
     }
@@ -1423,6 +1461,24 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, AstNode *node) {
 
                 return ir_build_size_of(irb, node, arg0_value);
             }
+        case BuiltinFnIdCtz:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, node->block_context);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_ctz(irb, node, arg0_value);
+            }
+        case BuiltinFnIdClz:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, node->block_context);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_clz(irb, node, arg0_value);
+            }
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdAlignof:
@@ -1438,8 +1494,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, AstNode *node) {
         case BuiltinFnIdCUndef:
         case BuiltinFnIdCompileErr:
         case BuiltinFnIdConstEval:
-        case BuiltinFnIdCtz:
-        case BuiltinFnIdClz:
         case BuiltinFnIdImport:
         case BuiltinFnIdCImport:
         case BuiltinFnIdErrName:
@@ -1547,13 +1601,17 @@ static IrInstruction *ir_gen_prefix_op_id(IrBuilder *irb, AstNode *node, IrUnOp 
     return ir_gen_prefix_op_id_lval(irb, node, op_id, LValPurposeNone);
 }
 
-static IrInstruction *ir_gen_prefix_op_unwrap_maybe(IrBuilder *irb, AstNode *node) {
+static IrInstruction *ir_gen_prefix_op_unwrap_maybe(IrBuilder *irb, AstNode *node, LValPurpose lval) {
     AstNode *expr = node->data.prefix_op_expr.primary_expr;
-    IrInstruction *value = ir_gen_node(irb, expr, node->block_context);
+    IrInstruction *value = ir_gen_node_extra(irb, expr, node->block_context, LValPurposeAddressOf);
     if (value == irb->codegen->invalid_instruction)
         return value;
 
-    return ir_build_unwrap_maybe(irb, node, value, true);
+    IrInstruction *unwrapped_ptr = ir_build_unwrap_maybe(irb, node, value, true);
+    if (lval == LValPurposeNone)
+        return ir_build_load_ptr(irb, node, unwrapped_ptr);
+    else
+        return unwrapped_ptr;
 }
 
 static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, AstNode *node, LValPurpose lval) {
@@ -1585,7 +1643,7 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, AstNode *node, LValP
         case PrefixOpUnwrapError:
             return ir_gen_prefix_op_id(irb, node, IrUnOpUnwrapError);
         case PrefixOpUnwrapMaybe:
-            return ir_gen_prefix_op_unwrap_maybe(irb, node);
+            return ir_gen_prefix_op_unwrap_maybe(irb, node, lval);
     }
     zig_unreachable();
 }
@@ -2349,7 +2407,7 @@ static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_inst
         return result;
     } else {
         IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->source_node,
-                dest_type->other, value->other, cast_op);
+                dest_type, value, cast_op);
         result->type_entry = wanted_type;
         if (need_alloca && source_instr->source_node->block_context->fn_entry) {
             IrInstructionCast *cast_instruction = (IrInstructionCast *)result;
@@ -2776,7 +2834,7 @@ static IrInstruction *ir_get_casted_value(IrAnalyze *ira, IrInstruction *value, 
     switch (result) {
         case ImplicitCastMatchResultNo:
             add_node_error(ira->codegen, first_executing_node(value->source_node),
-                buf_sprintf("expected type '%s', got '%s'",
+                buf_sprintf("expected type '%s', found '%s'",
                     buf_ptr(&expected_type->name),
                     buf_ptr(&value->type_entry->name)));
             return ira->codegen->invalid_instruction;
@@ -3346,7 +3404,7 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
                 return ira->codegen->builtin_types.entry_invalid;
             }
 
-            IrInstruction *arg = call_instruction->args[0];
+            IrInstruction *arg = call_instruction->args[0]->other;
             IrInstruction *cast_instruction = ir_analyze_cast(ira, &call_instruction->base, fn_ref, arg);
             if (cast_instruction == ira->codegen->invalid_instruction)
                 return ira->codegen->builtin_types.entry_invalid;
@@ -3701,7 +3759,7 @@ static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructio
             //        return type_entry->data.error.child_type;
             //    } else {
             //        add_node_error(g, *expr_node,
-            //            buf_sprintf("expected error type, got '%s'", buf_ptr(&type_entry->name)));
+            //            buf_sprintf("expected error type, found '%s'", buf_ptr(&type_entry->name)));
             //        return g->builtin_types.entry_invalid;
             //    }
             //}
@@ -4175,6 +4233,7 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
     if (ptr->static_value.special != ConstValSpecialRuntime) {
         // This memory location is transforming from known at compile time to known at runtime.
         // We must emit our own var ptr instruction.
+        // TODO can we delete this code now that we have inline var?
         ptr->static_value.special = ConstValSpecialRuntime;
         IrInstruction *new_ptr_inst;
         if (ptr->id == IrInstructionIdVarPtr) {
@@ -4347,12 +4406,12 @@ static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
             target_context = type_arg->data.unionation.block_context;
         } else {
             add_node_error(ira->codegen, target_instruction->source_node,
-                buf_sprintf("expected scope reference, got type '%s'", buf_ptr(&type_arg->name)));
+                buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&type_arg->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
     } else {
         add_node_error(ira->codegen, target_instruction->source_node,
-            buf_sprintf("expected scope reference, got type '%s'", buf_ptr(&target_type->name)));
+            buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&target_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -4682,6 +4741,54 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
     return result_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_ctz(IrAnalyze *ira, IrInstructionCtz *ctz_instruction) {
+    IrInstruction *value = ctz_instruction->value->other;
+    if (value->type_entry->id == TypeTableEntryIdInvalid) {
+        return ira->codegen->builtin_types.entry_invalid;
+    } else if (value->type_entry->id == TypeTableEntryIdInt) {
+        if (value->static_value.special != ConstValSpecialRuntime) {
+            uint32_t result = bignum_ctz(&value->static_value.data.x_bignum,
+                    value->type_entry->data.integral.bit_count);
+            bool depends_on_compile_var = value->static_value.depends_on_compile_var;
+            ConstExprValue *out_val = ir_build_const_from(ira, &ctz_instruction->base,
+                    depends_on_compile_var);
+            bignum_init_unsigned(&out_val->data.x_bignum, result);
+            return value->type_entry;
+        }
+
+        ir_build_ctz_from(&ira->new_irb, &ctz_instruction->base, value);
+        return value->type_entry;
+    } else {
+        add_node_error(ira->codegen, ctz_instruction->base.source_node,
+            buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->type_entry->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+}
+
+static TypeTableEntry *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionClz *clz_instruction) {
+    IrInstruction *value = clz_instruction->value->other;
+    if (value->type_entry->id == TypeTableEntryIdInvalid) {
+        return ira->codegen->builtin_types.entry_invalid;
+    } else if (value->type_entry->id == TypeTableEntryIdInt) {
+        if (value->static_value.special != ConstValSpecialRuntime) {
+            uint32_t result = bignum_clz(&value->static_value.data.x_bignum,
+                    value->type_entry->data.integral.bit_count);
+            bool depends_on_compile_var = value->static_value.depends_on_compile_var;
+            ConstExprValue *out_val = ir_build_const_from(ira, &clz_instruction->base,
+                    depends_on_compile_var);
+            bignum_init_unsigned(&out_val->data.x_bignum, result);
+            return value->type_entry;
+        }
+
+        ir_build_clz_from(&ira->new_irb, &clz_instruction->base, value);
+        return value->type_entry;
+    } else {
+        add_node_error(ira->codegen, clz_instruction->base.source_node,
+            buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->type_entry->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -4742,6 +4849,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_test_null(ira, (IrInstructionTestNull *)instruction);
         case IrInstructionIdUnwrapMaybe:
             return ir_analyze_instruction_unwrap_maybe(ira, (IrInstructionUnwrapMaybe *)instruction);
+        case IrInstructionIdClz:
+            return ir_analyze_instruction_clz(ira, (IrInstructionClz *)instruction);
+        case IrInstructionIdCtz:
+            return ir_analyze_instruction_ctz(ira, (IrInstructionCtz *)instruction);
         case IrInstructionIdSwitchBr:
         case IrInstructionIdCast:
         case IrInstructionIdContainerInitList:
@@ -4854,6 +4965,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSizeOf:
         case IrInstructionIdTestNull:
         case IrInstructionIdUnwrapMaybe:
+        case IrInstructionIdClz:
+        case IrInstructionIdCtz:
             return false;
         case IrInstructionIdAsm:
             {
@@ -5117,7 +5230,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //        return g->builtin_types.entry_invalid;
 //    } else if (ptr_type->id != TypeTableEntryIdPointer) {
 //        add_node_error(g, *ptr_arg,
-//            buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&ptr_type->name)));
+//            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&ptr_type->name)));
 //        return g->builtin_types.entry_invalid;
 //    }
 //
@@ -5223,7 +5336,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //        zig_panic("TODO");
 //    } else {
 //        add_node_error(g, node,
-//                buf_sprintf("expected integer type, got '%s'", buf_ptr(&result_type->name)));
+//                buf_sprintf("expected integer type, found '%s'", buf_ptr(&result_type->name)));
 //        return g->builtin_types.entry_invalid;
 //    }
 //}
@@ -5243,16 +5356,16 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //        return g->builtin_types.entry_invalid;
 //    } else if (dest_type->id != TypeTableEntryIdInt) {
 //        add_node_error(g, *op1,
-//                buf_sprintf("expected integer type, got '%s'", buf_ptr(&dest_type->name)));
+//                buf_sprintf("expected integer type, found '%s'", buf_ptr(&dest_type->name)));
 //        return g->builtin_types.entry_invalid;
 //    } else if (src_type->id != TypeTableEntryIdInt) {
 //        add_node_error(g, *op2,
-//                buf_sprintf("expected integer type, got '%s'", buf_ptr(&src_type->name)));
+//                buf_sprintf("expected integer type, found '%s'", buf_ptr(&src_type->name)));
 //        return g->builtin_types.entry_invalid;
 //    } else if (src_type->data.integral.is_signed != dest_type->data.integral.is_signed) {
 //        const char *sign_str = dest_type->data.integral.is_signed ? "signed" : "unsigned";
 //        add_node_error(g, *op2,
-//                buf_sprintf("expected %s integer type, got '%s'", sign_str, buf_ptr(&src_type->name)));
+//                buf_sprintf("expected %s integer type, found '%s'", sign_str, buf_ptr(&src_type->name)));
 //        return g->builtin_types.entry_invalid;
 //    } else if (src_type->data.integral.bit_count <= dest_type->data.integral.bit_count) {
 //        add_node_error(g, *op2,
@@ -5459,7 +5572,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                            result_node);
 //                } else {
 //                    add_node_error(g, type_node,
-//                        buf_sprintf("expected integer type, got '%s'", buf_ptr(&int_type->name)));
+//                        buf_sprintf("expected integer type, found '%s'", buf_ptr(&int_type->name)));
 //                }
 //
 //                // TODO constant expression evaluation
@@ -5479,14 +5592,14 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                    dest_type->id != TypeTableEntryIdPointer)
 //                {
 //                    add_node_error(g, dest_node,
-//                            buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&dest_type->name)));
+//                            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&dest_type->name)));
 //                }
 //
 //                if (src_type->id != TypeTableEntryIdInvalid &&
 //                    src_type->id != TypeTableEntryIdPointer)
 //                {
 //                    add_node_error(g, src_node,
-//                            buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&src_type->name)));
+//                            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&src_type->name)));
 //                }
 //
 //                if (dest_type->id == TypeTableEntryIdPointer &&
@@ -5517,7 +5630,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                    dest_type->id != TypeTableEntryIdPointer)
 //                {
 //                    add_node_error(g, dest_node,
-//                            buf_sprintf("expected pointer argument, got '%s'", buf_ptr(&dest_type->name)));
+//                            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&dest_type->name)));
 //                }
 //
 //                return builtin_fn->return_type;
@@ -5621,29 +5734,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                *const_val = *const_expr_val;
 //
 //                return resolved_type;
-//            }
-//        case BuiltinFnIdCtz:
-//        case BuiltinFnIdClz:
-//            {
-//                AstNode *type_node = node->data.fn_call_expr.params.at(0);
-//                TypeTableEntry *int_type = analyze_type_expr(g, import, context, type_node);
-//                if (int_type->id == TypeTableEntryIdInvalid) {
-//                    return int_type;
-//                } else if (int_type->id == TypeTableEntryIdInt) {
-//                    AstNode **expr_node = node->data.fn_call_expr.params.at(1)->parent_field;
-//                    TypeTableEntry *resolved_type = analyze_expression(g, import, context, int_type, *expr_node);
-//                    if (resolved_type->id == TypeTableEntryIdInvalid) {
-//                        return resolved_type;
-//                    }
-//
-//                    // TODO const expr eval
-//
-//                    return resolved_type;
-//                } else {
-//                    add_node_error(g, type_node,
-//                        buf_sprintf("expected integer type, got '%s'", buf_ptr(&int_type->name)));
-//                    return g->builtin_types.entry_invalid;
-//                }
 //            }
 //        case BuiltinFnIdImport:
 //            return analyze_import(g, import, context, node);
@@ -6192,7 +6282,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                    return child_type;
 //                } else {
 //                    add_node_error(g, op1,
-//                        buf_sprintf("expected maybe type, got '%s'",
+//                        buf_sprintf("expected maybe type, found '%s'",
 //                            buf_ptr(&lhs_type->name)));
 //                    return g->builtin_types.entry_invalid;
 //                }
@@ -6212,7 +6302,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                           op1_type->data.pointer.child_type == g->builtin_types.entry_u8) {
 //                    child_type = op1_type->data.pointer.child_type;
 //                } else {
-//                    add_node_error(g, *op1, buf_sprintf("expected array or C string literal, got '%s'",
+//                    add_node_error(g, *op1, buf_sprintf("expected array or C string literal, found '%s'",
 //                                buf_ptr(&op1_type->name)));
 //                    return g->builtin_types.entry_invalid;
 //                }
@@ -6223,7 +6313,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                    return g->builtin_types.entry_invalid;
 //                } else if (op2_type->id == TypeTableEntryIdArray) {
 //                    if (op2_type->data.array.child_type != child_type) {
-//                        add_node_error(g, *op2, buf_sprintf("expected array of type '%s', got '%s'",
+//                        add_node_error(g, *op2, buf_sprintf("expected array of type '%s', found '%s'",
 //                                    buf_ptr(&child_type->name),
 //                                    buf_ptr(&op2_type->name)));
 //                        return g->builtin_types.entry_invalid;
@@ -6231,7 +6321,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                } else if (op2_type->id == TypeTableEntryIdPointer &&
 //                        op2_type->data.pointer.child_type == g->builtin_types.entry_u8) {
 //                } else {
-//                    add_node_error(g, *op2, buf_sprintf("expected array or C string literal, got '%s'",
+//                    add_node_error(g, *op2, buf_sprintf("expected array or C string literal, found '%s'",
 //                                buf_ptr(&op2_type->name)));
 //                    return g->builtin_types.entry_invalid;
 //                }
@@ -6271,12 +6361,12 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                } else if (op1_type->id == TypeTableEntryIdPointer) {
 //                    if (!op1_val->data.x_ptr.is_c_str) {
 //                        add_node_error(g, *op1,
-//                                buf_sprintf("expected array or C string literal, got '%s'",
+//                                buf_sprintf("expected array or C string literal, found '%s'",
 //                                    buf_ptr(&op1_type->name)));
 //                        return g->builtin_types.entry_invalid;
 //                    } else if (!op2_val->data.x_ptr.is_c_str) {
 //                        add_node_error(g, *op2,
-//                                buf_sprintf("expected array or C string literal, got '%s'",
+//                                buf_sprintf("expected array or C string literal, found '%s'",
 //                                    buf_ptr(&op2_type->name)));
 //                        return g->builtin_types.entry_invalid;
 //                    }
@@ -6510,12 +6600,12 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //        if (call_param_count < expect_arg_count) {
 //            ok_invocation = false;
 //            add_node_error(g, node,
-//                buf_sprintf("expected at least %zu arguments, got %zu", src_param_count, call_param_count));
+//                buf_sprintf("expected at least %zu arguments, found %zu", src_param_count, call_param_count));
 //        }
 //    } else if (expect_arg_count != call_param_count) {
 //        ok_invocation = false;
 //        add_node_error(g, node,
-//                buf_sprintf("expected %zu arguments, got %zu", expect_arg_count, call_param_count));
+//                buf_sprintf("expected %zu arguments, found %zu", expect_arg_count, call_param_count));
 //    }
 //
 //    bool all_args_const_expr = true;
@@ -6631,7 +6721,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //
 //    if (src_param_count != call_param_count + struct_node_1_or_0) {
 //        add_node_error(g, call_node,
-//            buf_sprintf("expected %zu arguments, got %zu", src_param_count - struct_node_1_or_0, call_param_count));
+//            buf_sprintf("expected %zu arguments, found %zu", src_param_count - struct_node_1_or_0, call_param_count));
 //        return g->builtin_types.entry_invalid;
 //    }
 //
@@ -6759,7 +6849,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //
 //    if (actual_param_count != expected_param_count) {
 //        add_node_error(g, first_executing_node(node),
-//                buf_sprintf("expected %zu arguments, got %zu", expected_param_count, actual_param_count));
+//                buf_sprintf("expected %zu arguments, found %zu", expected_param_count, actual_param_count));
 //        return g->builtin_types.entry_invalid;
 //    }
 //
@@ -7180,7 +7270,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                    return resolved_type->data.error.child_type;
 //                } else {
 //                    add_node_error(g, node->data.return_expr.expr,
-//                        buf_sprintf("expected error type, got '%s'", buf_ptr(&resolved_type->name)));
+//                        buf_sprintf("expected error type, found '%s'", buf_ptr(&resolved_type->name)));
 //                    return g->builtin_types.entry_invalid;
 //                }
 //            }
@@ -7208,7 +7298,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //                    return resolved_type->data.maybe.child_type;
 //                } else {
 //                    add_node_error(g, node->data.return_expr.expr,
-//                        buf_sprintf("expected maybe type, got '%s'", buf_ptr(&resolved_type->name)));
+//                        buf_sprintf("expected maybe type, found '%s'", buf_ptr(&resolved_type->name)));
 //                    return g->builtin_types.entry_invalid;
 //                }
 //            }
@@ -7502,14 +7592,14 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //
 //    if (op1_type->id != TypeTableEntryIdArray) {
 //        add_node_error(g, *op1,
-//            buf_sprintf("expected array type, got '%s'", buf_ptr(&op1_type->name)));
+//            buf_sprintf("expected array type, found '%s'", buf_ptr(&op1_type->name)));
 //        return g->builtin_types.entry_invalid;
 //    }
 //
 //    if (op2_type->id != TypeTableEntryIdNumLitInt &&
 //        op2_type->id != TypeTableEntryIdInt)
 //    {
-//        add_node_error(g, *op2, buf_sprintf("expected integer type, got '%s'", buf_ptr(&op2_type->name)));
+//        add_node_error(g, *op2, buf_sprintf("expected integer type, found '%s'", buf_ptr(&op2_type->name)));
 //        return g->builtin_types.entry_invalid;
 //    }
 //
@@ -7576,7 +7666,7 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //        return child_type;
 //    } else {
 //        add_node_error(g, op1,
-//            buf_sprintf("expected error type, got '%s'", buf_ptr(&lhs_type->name)));
+//            buf_sprintf("expected error type, found '%s'", buf_ptr(&lhs_type->name)));
 //        return g->builtin_types.entry_invalid;
 //    }
 //}
@@ -8076,21 +8166,6 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //        case BuiltinFnIdCompileErr:
 //        case BuiltinFnIdIntType:
 //            zig_unreachable();
-//        case BuiltinFnIdCtz:
-//        case BuiltinFnIdClz:
-//            {
-//                size_t fn_call_param_count = node->data.fn_call_expr.params.length;
-//                assert(fn_call_param_count == 2);
-//                TypeTableEntry *int_type = get_type_for_type_node(node->data.fn_call_expr.params.at(0));
-//                assert(int_type->id == TypeTableEntryIdInt);
-//                LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, builtin_fn->id);
-//                LLVMValueRef operand = gen_expr(g, node->data.fn_call_expr.params.at(1));
-//                LLVMValueRef params[] {
-//                    operand,
-//                    LLVMConstNull(LLVMInt1Type()),
-//                };
-//                return LLVMBuildCall(g->builder, fn_val, params, 2, "");
-//            }
 //        case BuiltinFnIdAddWithOverflow:
 //        case BuiltinFnIdSubWithOverflow:
 //        case BuiltinFnIdMulWithOverflow:
@@ -9537,24 +9612,6 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //    LLVMValueRef init_val = nullptr;
 //    TypeTableEntry *init_val_type;
 //    return gen_var_decl_raw(g, node, &node->data.variable_declaration, false, &init_val, &init_val_type, false);
-//}
-//
-//static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, BuiltinFnId fn_id) {
-//    // [0-ctz,1-clz][0-8,1-16,2-32,3-64]
-//    size_t index0 = (fn_id == BuiltinFnIdCtz) ? 0 : 1;
-//    size_t index1 = bits_index(int_type->data.integral.bit_count);
-//    LLVMValueRef *fn = &g->int_builtin_fns[index0][index1];
-//    if (!*fn) {
-//        const char *fn_name = (fn_id == BuiltinFnIdCtz) ? "cttz" : "ctlz";
-//        Buf *llvm_name = buf_sprintf("llvm.%s.i%zu", fn_name, int_type->data.integral.bit_count);
-//        LLVMTypeRef param_types[] = {
-//            int_type->type_ref,
-//            LLVMInt1Type(),
-//        };
-//        LLVMTypeRef fn_type = LLVMFunctionType(int_type->type_ref, param_types, 2, false);
-//        *fn = LLVMAddFunction(g->module, buf_ptr(llvm_name), fn_type);
-//    }
-//    return *fn;
 //}
 //
 //static LLVMValueRef gen_fence(CodeGen *g, AstNode *node) {

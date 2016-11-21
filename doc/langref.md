@@ -538,12 +538,12 @@ expression is not known at compile time.
 
 The result of the function is the result of the expression.
 
-### @ctz(inline T: type, x: T) -> T
+### @ctz(x: T) -> T
 
 This function counts the number of trailing zeroes in x which is an integer
 type T.
 
-### @clz(inline T: type, x: T) -> T
+### @clz(x: T) -> T
 
 This function counts the number of leading zeroes in x which is an integer
 type T.

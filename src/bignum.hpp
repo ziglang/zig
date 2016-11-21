@@ -66,4 +66,7 @@ bool bignum_multiply_by_scalar(BigNum *bignum, uint64_t scalar);
 struct Buf;
 Buf *bignum_to_buf(BigNum *bn);
 
+uint32_t bignum_ctz(BigNum *bignum, uint32_t bit_count);
+uint32_t bignum_clz(BigNum *bignum, uint32_t bit_count);
+
 #endif

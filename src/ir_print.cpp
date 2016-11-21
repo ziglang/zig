@@ -511,6 +511,18 @@ static void ir_print_unwrap_maybe(IrPrint *irp, IrInstructionUnwrapMaybe *instru
     }
 }
 
+static void ir_print_clz(IrPrint *irp, IrInstructionClz *instruction) {
+    fprintf(irp->f, "@clz(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_ctz(IrPrint *irp, IrInstructionCtz *instruction) {
+    fprintf(irp->f, "@ctz(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -611,6 +623,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdUnwrapMaybe:
             ir_print_unwrap_maybe(irp, (IrInstructionUnwrapMaybe *)instruction);
+            break;
+        case IrInstructionIdCtz:
+            ir_print_ctz(irp, (IrInstructionCtz *)instruction);
+            break;
+        case IrInstructionIdClz:
+            ir_print_clz(irp, (IrInstructionClz *)instruction);
             break;
         case IrInstructionIdSwitchBr:
             zig_panic("TODO print more IR instructions");

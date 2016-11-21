@@ -1455,6 +1455,8 @@ enum IrInstructionId {
     IrInstructionIdSizeOf,
     IrInstructionIdTestNull,
     IrInstructionIdUnwrapMaybe,
+    IrInstructionIdClz,
+    IrInstructionIdCtz,
 };
 
 struct IrInstruction {
@@ -1764,6 +1766,18 @@ struct IrInstructionUnwrapMaybe {
 
     IrInstruction *value;
     bool safety_check_on;
+};
+
+struct IrInstructionCtz {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionClz {
+    IrInstruction base;
+
+    IrInstruction *value;
 };
 
 enum LValPurpose {
