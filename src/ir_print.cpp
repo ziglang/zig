@@ -497,6 +497,20 @@ static void ir_print_size_of(IrPrint *irp, IrInstructionSizeOf *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_test_null(IrPrint *irp, IrInstructionTestNull *instruction) {
+    fprintf(irp->f, "*");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, " == null");
+}
+
+static void ir_print_unwrap_maybe(IrPrint *irp, IrInstructionUnwrapMaybe *instruction) {
+    fprintf(irp->f, "&??*");
+    ir_print_other_instruction(irp, instruction->value);
+    if (!instruction->safety_check_on) {
+        fprintf(irp->f, " // no safety");
+    }
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -591,6 +605,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSizeOf:
             ir_print_size_of(irp, (IrInstructionSizeOf *)instruction);
+            break;
+        case IrInstructionIdTestNull:
+            ir_print_test_null(irp, (IrInstructionTestNull *)instruction);
+            break;
+        case IrInstructionIdUnwrapMaybe:
+            ir_print_unwrap_maybe(irp, (IrInstructionUnwrapMaybe *)instruction);
             break;
         case IrInstructionIdSwitchBr:
             zig_panic("TODO print more IR instructions");

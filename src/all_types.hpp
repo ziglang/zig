@@ -1453,6 +1453,8 @@ enum IrInstructionId {
     IrInstructionIdAsm,
     IrInstructionIdCompileVar,
     IrInstructionIdSizeOf,
+    IrInstructionIdTestNull,
+    IrInstructionIdUnwrapMaybe,
 };
 
 struct IrInstruction {
@@ -1749,6 +1751,21 @@ struct IrInstructionSizeOf {
     IrInstruction *type_value;
 };
 
+// returns true if nonnull, returns false if null
+// this is so that `zeroes` sets maybe values to null
+struct IrInstructionTestNull {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionUnwrapMaybe {
+    IrInstruction base;
+
+    IrInstruction *value;
+    bool safety_check_on;
+};
+
 enum LValPurpose {
     LValPurposeNone,
     LValPurposeAssign,
@@ -1757,5 +1774,8 @@ enum LValPurpose {
 
 static const size_t slice_ptr_index = 0;
 static const size_t slice_len_index = 1;
+
+static const size_t maybe_child_index = 0;
+static const size_t maybe_null_index = 1;
 
 #endif

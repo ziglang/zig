@@ -706,6 +706,27 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "null");
                 break;
             }
+        case NodeTypeIfVarExpr:
+            {
+                AstNodeVariableDeclaration *var_decl = &node->data.if_var_expr.var_decl;
+                const char *var_str = var_decl->is_const ? "const" : "var";
+                const char *var_name = buf_ptr(var_decl->symbol);
+                const char *ptr_str = node->data.if_var_expr.var_is_ptr ? "*" : "";
+                fprintf(ar->f, "if (%s %s%s", var_str, ptr_str, var_name);
+                if (var_decl->type) {
+                    fprintf(ar->f, ": ");
+                    render_node_ungrouped(ar, var_decl->type);
+                }
+                fprintf(ar->f, " = ");
+                render_node_grouped(ar, var_decl->expr);
+                fprintf(ar->f, ") ");
+                render_node_grouped(ar, node->data.if_var_expr.then_block);
+                if (node->data.if_var_expr.else_node) {
+                    fprintf(ar->f, " else ");
+                    render_node_grouped(ar, node->data.if_var_expr.else_node);
+                }
+                break;
+            }
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
@@ -715,7 +736,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeStructValueField:
         case NodeTypeUse:
         case NodeTypeZeroesLiteral:
-        case NodeTypeIfVarExpr:
         case NodeTypeForExpr:
         case NodeTypeSwitchExpr:
         case NodeTypeSwitchProng:
