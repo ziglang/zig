@@ -1626,6 +1626,7 @@ struct IrInstructionElemPtr {
     IrInstruction *array_ptr;
     IrInstruction *elem_index;
     bool is_const;
+    bool safety_check_on;
 };
 
 struct IrInstructionVarPtr {

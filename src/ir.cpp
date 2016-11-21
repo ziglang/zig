@@ -506,11 +506,12 @@ static IrInstruction *ir_build_var_ptr_from(IrBuilder *irb, IrInstruction *old_i
 }
 
 static IrInstruction *ir_build_elem_ptr(IrBuilder *irb, AstNode *source_node, IrInstruction *array_ptr,
-        IrInstruction *elem_index)
+        IrInstruction *elem_index, bool safety_check_on)
 {
     IrInstructionElemPtr *instruction = ir_build_instruction<IrInstructionElemPtr>(irb, source_node);
     instruction->array_ptr = array_ptr;
     instruction->elem_index = elem_index;
+    instruction->safety_check_on = safety_check_on;
 
     ir_ref_instruction(array_ptr);
     ir_ref_instruction(elem_index);
@@ -519,9 +520,10 @@ static IrInstruction *ir_build_elem_ptr(IrBuilder *irb, AstNode *source_node, Ir
 }
 
 static IrInstruction *ir_build_elem_ptr_from(IrBuilder *irb, IrInstruction *old_instruction,
-        IrInstruction *array_ptr, IrInstruction *elem_index)
+        IrInstruction *array_ptr, IrInstruction *elem_index, bool safety_check_on)
 {
-    IrInstruction *new_instruction = ir_build_elem_ptr(irb, old_instruction->source_node, array_ptr, elem_index);
+    IrInstruction *new_instruction = ir_build_elem_ptr(irb, old_instruction->source_node, array_ptr, elem_index,
+            safety_check_on);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -1353,7 +1355,8 @@ static IrInstruction *ir_gen_array_access(IrBuilder *irb, AstNode *node, LValPur
     if (subscript_instruction == irb->codegen->invalid_instruction)
         return subscript_instruction;
 
-    IrInstruction *ptr_instruction = ir_build_elem_ptr(irb, node, array_ref_instruction, subscript_instruction);
+    IrInstruction *ptr_instruction = ir_build_elem_ptr(irb, node, array_ref_instruction,
+            subscript_instruction, true);
     if (lval != LValPurposeNone)
         return ptr_instruction;
 
@@ -1840,7 +1843,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, AstNode *node) {
     ir_build_cond_br(irb, node, cond, body_block, end_block, is_inline);
 
     ir_set_cursor_at_end(irb, body_block);
-    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, node, array_val, index_val);
+    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, node, array_val, index_val, true);
     IrInstruction *elem_val;
     if (node->data.for_expr.elem_is_ptr) {
         elem_val = elem_ptr;
@@ -3960,6 +3963,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     if (casted_elem_index == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
+    bool safety_check_on = true;
     if (casted_elem_index->static_value.special != ConstValSpecialRuntime) {
         uint64_t index = casted_elem_index->static_value.data.x_bignum.data.x_uint;
         if (array_type->id == TypeTableEntryIdArray) {
@@ -3970,6 +3974,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                             index, array_len));
                 return ira->codegen->builtin_types.entry_invalid;
             }
+            safety_check_on = false;
         }
 
         ConstExprValue *array_ptr_val;
@@ -4031,7 +4036,8 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
 
     }
 
-    ir_build_elem_ptr_from(&ira->new_irb, &elem_ptr_instruction->base, array_ptr, casted_elem_index);
+    ir_build_elem_ptr_from(&ira->new_irb, &elem_ptr_instruction->base, array_ptr,
+            casted_elem_index, safety_check_on);
     return return_type;
 }
 
@@ -8668,18 +8674,6 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //    return target_ref;
 //}
 //
-//static LLVMValueRef gen_arithmetic_bin_op_expr(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeBinOpExpr);
-//
-//    LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
-//    LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
-//
-//    TypeTableEntry *op1_type = get_expr_type(node->data.bin_op_expr.op1);
-//    TypeTableEntry *op2_type = get_expr_type(node->data.bin_op_expr.op2);
-//    return gen_arithmetic_bin_op(g, node, val1, val2, op1_type, op2_type, node->data.bin_op_expr.bin_op);
-//
-//}
-//
 //static LLVMValueRef gen_bool_and_expr(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeBinOpExpr);
 //
@@ -9677,98 +9671,4 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //    }
 //    LLVMPositionBuilderAtEnd(g->builder, basic_block);
 //    return nullptr;
-//}
-//static LLVMValueRef gen_overflow_shl_op(CodeGen *g, TypeTableEntry *type_entry,
-//        LLVMValueRef val1, LLVMValueRef val2)
-//{
-//    // for unsigned left shifting, we do the wrapping shift, then logically shift
-//    // right the same number of bits
-//    // if the values don't match, we have an overflow
-//    // for signed left shifting we do the same except arithmetic shift right
-//
-//    assert(type_entry->id == TypeTableEntryIdInt);
-//
-//    LLVMValueRef result = LLVMBuildShl(g->builder, val1, val2, "");
-//    LLVMValueRef orig_val;
-//    if (type_entry->data.integral.is_signed) {
-//        orig_val = LLVMBuildAShr(g->builder, result, val2, "");
-//    } else {
-//        orig_val = LLVMBuildLShr(g->builder, result, val2, "");
-//    }
-//    LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val1, orig_val, "");
-//
-//    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "OverflowOk");
-//    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "OverflowFail");
-//    LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
-//
-//    LLVMPositionBuilderAtEnd(g->builder, fail_block);
-//    gen_debug_safety_crash(g);
-//
-//    LLVMPositionBuilderAtEnd(g->builder, ok_block);
-//    return result;
-//}
-//
-//static LLVMValueRef gen_div(CodeGen *g, AstNode *source_node, LLVMValueRef val1, LLVMValueRef val2,
-//        TypeTableEntry *type_entry, bool exact)
-//{
-//
-//    if (want_debug_safety(g, source_node)) {
-//        LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
-//        LLVMValueRef is_zero_bit;
-//        if (type_entry->id == TypeTableEntryIdInt) {
-//            is_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
-//        } else if (type_entry->id == TypeTableEntryIdFloat) {
-//            is_zero_bit = LLVMBuildFCmp(g->builder, LLVMRealOEQ, val2, zero, "");
-//        } else {
-//            zig_unreachable();
-//        }
-//        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivZeroOk");
-//        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivZeroFail");
-//        LLVMBuildCondBr(g->builder, is_zero_bit, fail_block, ok_block);
-//
-//        LLVMPositionBuilderAtEnd(g->builder, fail_block);
-//        gen_debug_safety_crash(g);
-//
-//        LLVMPositionBuilderAtEnd(g->builder, ok_block);
-//    }
-//
-//    if (type_entry->id == TypeTableEntryIdFloat) {
-//        assert(!exact);
-//        return LLVMBuildFDiv(g->builder, val1, val2, "");
-//    }
-//
-//    assert(type_entry->id == TypeTableEntryIdInt);
-//
-//    if (exact) {
-//        if (want_debug_safety(g, source_node)) {
-//            LLVMValueRef remainder_val;
-//            if (type_entry->data.integral.is_signed) {
-//                remainder_val = LLVMBuildSRem(g->builder, val1, val2, "");
-//            } else {
-//                remainder_val = LLVMBuildURem(g->builder, val1, val2, "");
-//            }
-//            LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
-//            LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
-//
-//            LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivExactOk");
-//            LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivExactFail");
-//            LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
-//
-//            LLVMPositionBuilderAtEnd(g->builder, fail_block);
-//            gen_debug_safety_crash(g);
-//
-//            LLVMPositionBuilderAtEnd(g->builder, ok_block);
-//        }
-//        if (type_entry->data.integral.is_signed) {
-//            return LLVMBuildExactSDiv(g->builder, val1, val2, "");
-//        } else {
-//            return ZigLLVMBuildExactUDiv(g->builder, val1, val2, "");
-//        }
-//    } else {
-//        if (type_entry->data.integral.is_signed) {
-//            return LLVMBuildSDiv(g->builder, val1, val2, "");
-//        } else {
-//            return LLVMBuildUDiv(g->builder, val1, val2, "");
-//        }
-//    }
 //}

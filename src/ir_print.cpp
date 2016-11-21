@@ -359,6 +359,9 @@ static void ir_print_elem_ptr(IrPrint *irp, IrInstructionElemPtr *instruction) {
     fprintf(irp->f, "[");
     ir_print_other_instruction(irp, instruction->elem_index);
     fprintf(irp->f, "]");
+    if (!instruction->safety_check_on) {
+        fprintf(irp->f, " // no safety");
+    }
 }
 
 static void ir_print_var_ptr(IrPrint *irp, IrInstructionVarPtr *instruction) {

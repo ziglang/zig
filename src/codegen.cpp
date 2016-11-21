@@ -455,55 +455,6 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, AstNode *source_node, TypeT
     }
 }
 
-static LLVMValueRef gen_array_elem_ptr(CodeGen *g, AstNode *source_node, LLVMValueRef array_ptr,
-        TypeTableEntry *array_type, LLVMValueRef subscript_value)
-{
-    assert(subscript_value);
-
-    if (!type_has_bits(array_type)) {
-        return nullptr;
-    }
-
-    if (array_type->id == TypeTableEntryIdArray) {
-        if (want_debug_safety(g, source_node)) {
-            LLVMValueRef end = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
-                    array_type->data.array.len, false);
-            add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, end);
-        }
-        LLVMValueRef indices[] = {
-            LLVMConstNull(g->builtin_types.entry_usize->type_ref),
-            subscript_value
-        };
-        return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
-    } else if (array_type->id == TypeTableEntryIdPointer) {
-        assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
-        LLVMValueRef indices[] = {
-            subscript_value
-        };
-        return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 1, "");
-    } else if (array_type->id == TypeTableEntryIdStruct) {
-        assert(array_type->data.structure.is_slice);
-        assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
-        assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
-
-        if (want_debug_safety(g, source_node)) {
-            size_t len_index = array_type->data.structure.fields[1].gen_index;
-            assert(len_index != SIZE_MAX);
-            LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, len_index, "");
-            LLVMValueRef len = LLVMBuildLoad(g->builder, len_ptr, "");
-            add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, len);
-        }
-
-        size_t ptr_index = array_type->data.structure.fields[0].gen_index;
-        assert(ptr_index != SIZE_MAX);
-        LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, ptr_index, "");
-        LLVMValueRef ptr = LLVMBuildLoad(g->builder, ptr_ptr, "");
-        return LLVMBuildInBoundsGEP(g->builder, ptr, &subscript_value, 1, "");
-    } else {
-        zig_unreachable();
-    }
-}
-
 static LLVMValueRef gen_overflow_op(CodeGen *g, TypeTableEntry *type_entry, AddSubMul op,
         LLVMValueRef val1, LLVMValueRef val2)
 {
@@ -640,83 +591,98 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
     return nullptr;
 }
 
-static LLVMValueRef ir_render_bin_op_bool(CodeGen *g, IrExecutable *executable,
-        IrInstructionBinOp *bin_op_instruction)
+static LLVMValueRef gen_overflow_shl_op(CodeGen *g, TypeTableEntry *type_entry,
+        LLVMValueRef val1, LLVMValueRef val2)
 {
-    IrBinOp op_id = bin_op_instruction->op_id;
-    LLVMValueRef op1 = ir_llvm_value(g, bin_op_instruction->op1);
-    LLVMValueRef op2 = ir_llvm_value(g, bin_op_instruction->op2);
-    if (op_id == IrBinOpBoolOr) {
-        return LLVMBuildOr(g->builder, op1, op2, "");
-    } else if (op_id == IrBinOpBoolAnd) {
-        return LLVMBuildAnd(g->builder, op1, op2, "");
+    // for unsigned left shifting, we do the wrapping shift, then logically shift
+    // right the same number of bits
+    // if the values don't match, we have an overflow
+    // for signed left shifting we do the same except arithmetic shift right
+
+    assert(type_entry->id == TypeTableEntryIdInt);
+
+    LLVMValueRef result = LLVMBuildShl(g->builder, val1, val2, "");
+    LLVMValueRef orig_val;
+    if (type_entry->data.integral.is_signed) {
+        orig_val = LLVMBuildAShr(g->builder, result, val2, "");
     } else {
-        zig_unreachable();
+        orig_val = LLVMBuildLShr(g->builder, result, val2, "");
     }
+    LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val1, orig_val, "");
+
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "OverflowOk");
+    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "OverflowFail");
+    LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, fail_block);
+    gen_debug_safety_crash(g);
+
+    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    return result;
 }
 
-static LLVMValueRef ir_render_bin_op_cmp(CodeGen *g, IrExecutable *executable,
-        IrInstructionBinOp *bin_op_instruction)
+static LLVMValueRef gen_div(CodeGen *g, AstNode *source_node, LLVMValueRef val1, LLVMValueRef val2,
+        TypeTableEntry *type_entry, bool exact)
 {
-    IrBinOp op_id = bin_op_instruction->op_id;
-    LLVMValueRef val1 = ir_llvm_value(g, bin_op_instruction->op1);
-    LLVMValueRef val2 = ir_llvm_value(g, bin_op_instruction->op2);
 
-    TypeTableEntry *op1_type = bin_op_instruction->op1->type_entry;
-    TypeTableEntry *op2_type = bin_op_instruction->op2->type_entry;
-    assert(op1_type == op2_type);
-
-    if (op1_type->id == TypeTableEntryIdFloat) {
-        LLVMRealPredicate pred = cmp_op_to_real_predicate(op_id);
-        return LLVMBuildFCmp(g->builder, pred, val1, val2, "");
-    } else if (op1_type->id == TypeTableEntryIdInt) {
-        LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, op1_type->data.integral.is_signed);
-        return LLVMBuildICmp(g->builder, pred, val1, val2, "");
-    } else if (op1_type->id == TypeTableEntryIdEnum) {
-        if (op1_type->data.enumeration.gen_field_count == 0) {
-            LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
-            return LLVMBuildICmp(g->builder, pred, val1, val2, "");
+    if (want_debug_safety(g, source_node)) {
+        LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
+        LLVMValueRef is_zero_bit;
+        if (type_entry->id == TypeTableEntryIdInt) {
+            is_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
+        } else if (type_entry->id == TypeTableEntryIdFloat) {
+            is_zero_bit = LLVMBuildFCmp(g->builder, LLVMRealOEQ, val2, zero, "");
         } else {
             zig_unreachable();
         }
-    } else if (op1_type->id == TypeTableEntryIdPureError ||
-               op1_type->id == TypeTableEntryIdPointer ||
-               op1_type->id == TypeTableEntryIdBool)
-    {
-        LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
-        return LLVMBuildICmp(g->builder, pred, val1, val2, "");
-    } else {
-        zig_unreachable();
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivZeroOk");
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivZeroFail");
+        LLVMBuildCondBr(g->builder, is_zero_bit, fail_block, ok_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_debug_safety_crash(g);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
-}
 
-static LLVMValueRef ir_render_bin_op_add(CodeGen *g, IrExecutable *executable,
-        IrInstructionBinOp *bin_op_instruction)
-{
-    IrBinOp op_id = bin_op_instruction->op_id;
-    IrInstruction *op1 = bin_op_instruction->op1;
-    IrInstruction *op2 = bin_op_instruction->op2;
+    if (type_entry->id == TypeTableEntryIdFloat) {
+        assert(!exact);
+        return LLVMBuildFDiv(g->builder, val1, val2, "");
+    }
 
-    assert(op1->type_entry == op2->type_entry);
+    assert(type_entry->id == TypeTableEntryIdInt);
 
-    LLVMValueRef op1_value = ir_llvm_value(g, op1);
-    LLVMValueRef op2_value = ir_llvm_value(g, op2);
+    if (exact) {
+        if (want_debug_safety(g, source_node)) {
+            LLVMValueRef remainder_val;
+            if (type_entry->data.integral.is_signed) {
+                remainder_val = LLVMBuildSRem(g->builder, val1, val2, "");
+            } else {
+                remainder_val = LLVMBuildURem(g->builder, val1, val2, "");
+            }
+            LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
+            LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
 
-    if (op1->type_entry->id == TypeTableEntryIdFloat) {
-        return LLVMBuildFAdd(g->builder, op1_value, op2_value, "");
-    } else if (op1->type_entry->id == TypeTableEntryIdInt) {
-        bool is_wrapping = (op_id == IrBinOpAddWrap);
-        if (is_wrapping) {
-            return LLVMBuildAdd(g->builder, op1_value, op2_value, "");
-        } else if (ir_want_debug_safety(g, &bin_op_instruction->base)) {
-            return gen_overflow_op(g, op1->type_entry, AddSubMulAdd, op1_value, op2_value);
-        } else if (op1->type_entry->data.integral.is_signed) {
-            return LLVMBuildNSWAdd(g->builder, op1_value, op2_value, "");
+            LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivExactOk");
+            LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "DivExactFail");
+            LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+            LLVMPositionBuilderAtEnd(g->builder, fail_block);
+            gen_debug_safety_crash(g);
+
+            LLVMPositionBuilderAtEnd(g->builder, ok_block);
+        }
+        if (type_entry->data.integral.is_signed) {
+            return LLVMBuildExactSDiv(g->builder, val1, val2, "");
         } else {
-            return LLVMBuildNUWAdd(g->builder, op1_value, op2_value, "");
+            return ZigLLVMBuildExactUDiv(g->builder, val1, val2, "");
         }
     } else {
-        zig_unreachable();
+        if (type_entry->data.integral.is_signed) {
+            return LLVMBuildSDiv(g->builder, val1, val2, "");
+        } else {
+            return LLVMBuildUDiv(g->builder, val1, val2, "");
+        }
     }
 }
 
@@ -724,37 +690,146 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         IrInstructionBinOp *bin_op_instruction)
 {
     IrBinOp op_id = bin_op_instruction->op_id;
+    IrInstruction *op1 = bin_op_instruction->op1;
+    IrInstruction *op2 = bin_op_instruction->op2;
+    AstNode *source_node = bin_op_instruction->base.source_node;
+
+    assert(op1->type_entry == op2->type_entry);
+
+    LLVMValueRef op1_value = ir_llvm_value(g, op1);
+    LLVMValueRef op2_value = ir_llvm_value(g, op2);
     switch (op_id) {
         case IrBinOpInvalid:
         case IrBinOpArrayCat:
         case IrBinOpArrayMult:
             zig_unreachable();
         case IrBinOpBoolOr:
+            return LLVMBuildOr(g->builder, op1_value, op2_value, "");
         case IrBinOpBoolAnd:
-            return ir_render_bin_op_bool(g, executable, bin_op_instruction);
+            return LLVMBuildAnd(g->builder, op1_value, op2_value, "");
         case IrBinOpCmpEq:
         case IrBinOpCmpNotEq:
         case IrBinOpCmpLessThan:
         case IrBinOpCmpGreaterThan:
         case IrBinOpCmpLessOrEq:
         case IrBinOpCmpGreaterOrEq:
-            return ir_render_bin_op_cmp(g, executable, bin_op_instruction);
+            if (op1->type_entry->id == TypeTableEntryIdFloat) {
+                LLVMRealPredicate pred = cmp_op_to_real_predicate(op_id);
+                return LLVMBuildFCmp(g->builder, pred, op1_value, op2_value, "");
+            } else if (op1->type_entry->id == TypeTableEntryIdInt) {
+                LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, op1->type_entry->data.integral.is_signed);
+                return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
+            } else if (op1->type_entry->id == TypeTableEntryIdEnum) {
+                if (op1->type_entry->data.enumeration.gen_field_count == 0) {
+                    LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
+                    return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
+                } else {
+                    zig_unreachable();
+                }
+            } else if (op1->type_entry->id == TypeTableEntryIdPureError ||
+                    op1->type_entry->id == TypeTableEntryIdPointer ||
+                    op1->type_entry->id == TypeTableEntryIdBool)
+            {
+                LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
+                return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
+            } else {
+                zig_unreachable();
+            }
         case IrBinOpAdd:
         case IrBinOpAddWrap:
-            return ir_render_bin_op_add(g, executable, bin_op_instruction);
+            if (op1->type_entry->id == TypeTableEntryIdFloat) {
+                return LLVMBuildFAdd(g->builder, op1_value, op2_value, "");
+            } else if (op1->type_entry->id == TypeTableEntryIdInt) {
+                bool is_wrapping = (op_id == IrBinOpAddWrap);
+                if (is_wrapping) {
+                    return LLVMBuildAdd(g->builder, op1_value, op2_value, "");
+                } else if (ir_want_debug_safety(g, &bin_op_instruction->base)) {
+                    return gen_overflow_op(g, op1->type_entry, AddSubMulAdd, op1_value, op2_value);
+                } else if (op1->type_entry->data.integral.is_signed) {
+                    return LLVMBuildNSWAdd(g->builder, op1_value, op2_value, "");
+                } else {
+                    return LLVMBuildNUWAdd(g->builder, op1_value, op2_value, "");
+                }
+            } else {
+                zig_unreachable();
+            }
         case IrBinOpBinOr:
+            return LLVMBuildOr(g->builder, op1_value, op2_value, "");
         case IrBinOpBinXor:
+            return LLVMBuildXor(g->builder, op1_value, op2_value, "");
         case IrBinOpBinAnd:
+            return LLVMBuildAnd(g->builder, op1_value, op2_value, "");
         case IrBinOpBitShiftLeft:
         case IrBinOpBitShiftLeftWrap:
+            {
+                assert(op1->type_entry->id == TypeTableEntryIdInt);
+                bool is_wrapping = (op_id == IrBinOpBitShiftLeftWrap);
+                if (is_wrapping) {
+                    return LLVMBuildShl(g->builder, op1_value, op2_value, "");
+                } else if (want_debug_safety(g, source_node)) {
+                    return gen_overflow_shl_op(g, op1->type_entry, op1_value, op2_value);
+                } else if (op1->type_entry->data.integral.is_signed) {
+                    return ZigLLVMBuildNSWShl(g->builder, op1_value, op2_value, "");
+                } else {
+                    return ZigLLVMBuildNUWShl(g->builder, op1_value, op2_value, "");
+                }
+            }
         case IrBinOpBitShiftRight:
+            assert(op1->type_entry->id == TypeTableEntryIdInt);
+            if (op1->type_entry->data.integral.is_signed) {
+                return LLVMBuildAShr(g->builder, op1_value, op2_value, "");
+            } else {
+                return LLVMBuildLShr(g->builder, op1_value, op2_value, "");
+            }
         case IrBinOpSub:
         case IrBinOpSubWrap:
+            if (op1->type_entry->id == TypeTableEntryIdFloat) {
+                return LLVMBuildFSub(g->builder, op1_value, op2_value, "");
+            } else if (op1->type_entry->id == TypeTableEntryIdInt) {
+                bool is_wrapping = (op_id == IrBinOpSubWrap);
+                if (is_wrapping) {
+                    return LLVMBuildSub(g->builder, op1_value, op2_value, "");
+                } else if (want_debug_safety(g, source_node)) {
+                    return gen_overflow_op(g, op1->type_entry, AddSubMulSub, op1_value, op2_value);
+                } else if (op1->type_entry->data.integral.is_signed) {
+                    return LLVMBuildNSWSub(g->builder, op1_value, op2_value, "");
+                } else {
+                    return LLVMBuildNUWSub(g->builder, op1_value, op2_value, "");
+                }
+            } else {
+                zig_unreachable();
+            }
         case IrBinOpMult:
         case IrBinOpMultWrap:
+            if (op1->type_entry->id == TypeTableEntryIdFloat) {
+                return LLVMBuildFMul(g->builder, op1_value, op2_value, "");
+            } else if (op1->type_entry->id == TypeTableEntryIdInt) {
+                bool is_wrapping = (op_id == IrBinOpMultWrap);
+                if (is_wrapping) {
+                    return LLVMBuildMul(g->builder, op1_value, op2_value, "");
+                } else if (want_debug_safety(g, source_node)) {
+                    return gen_overflow_op(g, op1->type_entry, AddSubMulMul, op1_value, op2_value);
+                } else if (op1->type_entry->data.integral.is_signed) {
+                    return LLVMBuildNSWMul(g->builder, op1_value, op2_value, "");
+                } else {
+                    return LLVMBuildNUWMul(g->builder, op1_value, op2_value, "");
+                }
+            } else {
+                zig_unreachable();
+            }
         case IrBinOpDiv:
+            return gen_div(g, source_node, op1_value, op2_value, op1->type_entry, false);
         case IrBinOpMod:
-            zig_panic("TODO render more bin ops to LLVM");
+            if (op1->type_entry->id == TypeTableEntryIdFloat) {
+                return LLVMBuildFRem(g->builder, op1_value, op2_value, "");
+            } else {
+                assert(op1->type_entry->id == TypeTableEntryIdInt);
+                if (op1->type_entry->data.integral.is_signed) {
+                    return LLVMBuildSRem(g->builder, op1_value, op2_value, "");
+                } else {
+                    return LLVMBuildURem(g->builder, op1_value, op2_value, "");
+                }
+            }
     }
     zig_unreachable();
 }
@@ -1242,10 +1317,56 @@ static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrIn
 
 static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrInstructionElemPtr *instruction) {
     LLVMValueRef array_ptr_ptr = ir_llvm_value(g, instruction->array_ptr);
-    LLVMValueRef array_ptr = LLVMBuildLoad(g->builder, array_ptr_ptr, "");
+    TypeTableEntry *array_ptr_type = instruction->array_ptr->type_entry;
+    assert(array_ptr_type->id == TypeTableEntryIdPointer);
+    TypeTableEntry *array_type = array_ptr_type->data.pointer.child_type;
+    LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type);
     LLVMValueRef subscript_value = ir_llvm_value(g, instruction->elem_index);
-    TypeTableEntry *array_type = instruction->array_ptr->type_entry;
-    return gen_array_elem_ptr(g, instruction->base.source_node, array_ptr, array_type, subscript_value);
+    assert(subscript_value);
+
+    if (!type_has_bits(array_type))
+        return nullptr;
+
+    bool safety_check_on = ir_want_debug_safety(g, &instruction->base) && instruction->safety_check_on;
+
+    if (array_type->id == TypeTableEntryIdArray) {
+        if (safety_check_on) {
+            LLVMValueRef end = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+                    array_type->data.array.len, false);
+            add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, end);
+        }
+        LLVMValueRef indices[] = {
+            LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+            subscript_value
+        };
+        return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
+    } else if (array_type->id == TypeTableEntryIdPointer) {
+        assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
+        LLVMValueRef indices[] = {
+            subscript_value
+        };
+        return LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 1, "");
+    } else if (array_type->id == TypeTableEntryIdStruct) {
+        assert(array_type->data.structure.is_slice);
+        assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
+        assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
+
+        if (safety_check_on) {
+            size_t len_index = array_type->data.structure.fields[1].gen_index;
+            assert(len_index != SIZE_MAX);
+            LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, len_index, "");
+            LLVMValueRef len = LLVMBuildLoad(g->builder, len_ptr, "");
+            add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, len);
+        }
+
+        size_t ptr_index = array_type->data.structure.fields[0].gen_index;
+        assert(ptr_index != SIZE_MAX);
+        LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, ptr_index, "");
+        LLVMValueRef ptr = LLVMBuildLoad(g->builder, ptr_ptr, "");
+        return LLVMBuildInBoundsGEP(g->builder, ptr, &subscript_value, 1, "");
+    } else {
+        zig_unreachable();
+    }
 }
 
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
@@ -1423,7 +1544,6 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
             buf_ptr(&constraint_buf), is_volatile, false);
 
-    set_debug_source_node(g, asm_node);
     return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
 }
 
