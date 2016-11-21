@@ -1649,6 +1649,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdPtrTypeChild:
         case IrInstructionIdFieldPtr:
         case IrInstructionIdSetFnTest:
+        case IrInstructionIdSetFnVisible:
         case IrInstructionIdSetDebugSafety:
         case IrInstructionIdArrayType:
         case IrInstructionIdSliceType:

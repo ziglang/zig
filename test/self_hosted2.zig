@@ -1,13 +1,29 @@
 pub const SYS_write = 1;
 pub const SYS_exit = 60;
 pub const stdout_fileno = 1;
-const text = "hello\n";
+
+// normal comment
+/// this is a documentation comment
+/// doc comment line 2
+fn emptyFunctionWithComments() {
+}
+
+export fn disabledExternFn() {
+    @setFnVisible(this, false);
+}
+
+fn runAllTests() {
+    emptyFunctionWithComments();
+    disabledExternFn();
+}
 
 export nakedcc fn _start() -> unreachable {
     myMain();
 }
 
 fn myMain() -> unreachable {
+    runAllTests();
+    const text = "OK\n";
     write(stdout_fileno, &text[0], text.len);
     exit(0);
 }

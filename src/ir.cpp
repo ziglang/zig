@@ -202,6 +202,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSetFnTest *) {
     return IrInstructionIdSetFnTest;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSetFnVisible *) {
+    return IrInstructionIdSetFnVisible;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSetDebugSafety *) {
     return IrInstructionIdSetDebugSafety;
 }
@@ -804,6 +808,19 @@ static IrInstruction *ir_build_set_fn_test(IrBuilder *irb, AstNode *source_node,
 
     ir_ref_instruction(fn_value);
     ir_ref_instruction(is_test);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_set_fn_visible(IrBuilder *irb, AstNode *source_node, IrInstruction *fn_value,
+        IrInstruction *is_visible)
+{
+    IrInstructionSetFnVisible *instruction = ir_build_instruction<IrInstructionSetFnVisible>(irb, source_node);
+    instruction->fn_value = fn_value;
+    instruction->is_visible = is_visible;
+
+    ir_ref_instruction(fn_value);
+    ir_ref_instruction(is_visible);
 
     return &instruction->base;
 }
@@ -1432,6 +1449,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, AstNode *node) {
 
                 return ir_build_set_fn_test(irb, node, arg0_value, arg1_value);
             }
+        case BuiltinFnIdSetFnVisible:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, node->block_context);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, node->block_context);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_set_fn_visible(irb, node, arg0_value, arg1_value);
+            }
         case BuiltinFnIdSetDebugSafety:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -1509,7 +1540,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, AstNode *node) {
         case BuiltinFnIdDivExact:
         case BuiltinFnIdTruncate:
         case BuiltinFnIdIntType:
-        case BuiltinFnIdSetFnVisible:
         case BuiltinFnIdSetFnStaticEval:
         case BuiltinFnIdSetFnNoInline:
             zig_panic("TODO IR gen more builtin functions");
@@ -4394,6 +4424,43 @@ static TypeTableEntry *ir_analyze_instruction_set_fn_test(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_void;
 }
 
+static TypeTableEntry *ir_analyze_instruction_set_fn_visible(IrAnalyze *ira,
+        IrInstructionSetFnVisible *set_fn_visible_instruction)
+{
+    IrInstruction *fn_value = set_fn_visible_instruction->fn_value->other;
+    IrInstruction *is_visible_value = set_fn_visible_instruction->is_visible->other;
+
+    FnTableEntry *fn_entry = ir_resolve_fn(ira, fn_value);
+    if (!fn_entry)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    bool want_export;
+    if (!ir_resolve_bool(ira, is_visible_value, &want_export))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    AstNode *source_node = set_fn_visible_instruction->base.source_node;
+    if (fn_entry->fn_export_set_node) {
+        ErrorMsg *msg = add_node_error(ira->codegen, source_node,
+                buf_sprintf("function visibility set twice"));
+        add_error_note(ira->codegen, msg, fn_entry->fn_export_set_node, buf_sprintf("first set here"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    fn_entry->fn_export_set_node = source_node;
+
+    AstNodeFnProto *fn_proto = &fn_entry->proto_node->data.fn_proto;
+    if (fn_proto->top_level_decl.visib_mod != VisibModExport) {
+        ErrorMsg *msg = add_node_error(ira->codegen, source_node,
+            buf_sprintf("function must be marked export to set function visibility"));
+        add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("function declared here"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    if (!want_export)
+        LLVMSetLinkage(fn_entry->fn_value, LLVMInternalLinkage);
+
+    ir_build_const_from(ira, &set_fn_visible_instruction->base, false);
+    return ira->codegen->builtin_types.entry_void;
+}
+
 static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
         IrInstructionSetDebugSafety *set_debug_safety_instruction)
 {
@@ -4847,6 +4914,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_ptr_type_child(ira, (IrInstructionPtrTypeChild *)instruction);
         case IrInstructionIdSetFnTest:
             return ir_analyze_instruction_set_fn_test(ira, (IrInstructionSetFnTest *)instruction);
+        case IrInstructionIdSetFnVisible:
+            return ir_analyze_instruction_set_fn_visible(ira, (IrInstructionSetFnVisible *)instruction);
         case IrInstructionIdSetDebugSafety:
             return ir_analyze_instruction_set_debug_safety(ira, (IrInstructionSetDebugSafety *)instruction);
         case IrInstructionIdSliceType:
@@ -4957,6 +5026,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdReturn:
         case IrInstructionIdUnreachable:
         case IrInstructionIdSetFnTest:
+        case IrInstructionIdSetFnVisible:
         case IrInstructionIdSetDebugSafety:
             return true;
         case IrInstructionIdPhi:
@@ -5523,44 +5593,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //    return g->builtin_types.entry_void;
 //}
 //
-//static TypeTableEntry *analyze_set_fn_visible(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *context, AstNode *node)
-//{
-//    AstNode **fn_node = &node->data.fn_call_expr.params.at(0);
-//    AstNode **value_node = &node->data.fn_call_expr.params.at(1);
-//
-//    FnTableEntry *fn_entry = resolve_const_expr_fn(g, import, context, fn_node);
-//    if (!fn_entry) {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    bool want_export;
-//    bool ok = resolve_const_expr_bool(g, import, context, value_node, &want_export);
-//    if (!ok) {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    if (fn_entry->fn_export_set_node) {
-//        ErrorMsg *msg = add_node_error(g, node, buf_sprintf("function visibility set twice"));
-//        add_error_note(g, msg, fn_entry->fn_export_set_node, buf_sprintf("first set here"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//    fn_entry->fn_export_set_node = node;
-//
-//    AstNodeFnProto *fn_proto = &fn_entry->proto_node->data.fn_proto;
-//    if (fn_proto->top_level_decl.visib_mod != VisibModExport) {
-//        ErrorMsg *msg = add_node_error(g, node,
-//            buf_sprintf("function must be marked export to set function visibility"));
-//        add_error_note(g, msg, fn_entry->proto_node, buf_sprintf("function declared here"));
-//        return g->builtin_types.entry_void;
-//    }
-//    if (!want_export) {
-//        fn_proto->top_level_decl.visib_mod = VisibModPub;
-//    }
-//
-//    return g->builtin_types.entry_void;
-//}
-//
 //static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
 //        TypeTableEntry *expected_type, AstNode *node)
 //{
@@ -5784,8 +5816,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //            return analyze_set_fn_no_inline(g, import, context, node);
 //        case BuiltinFnIdSetFnStaticEval:
 //            return analyze_set_fn_static_eval(g, import, context, node);
-//        case BuiltinFnIdSetFnVisible:
-//            return analyze_set_fn_visible(g, import, context, node);
 //    }
 //    zig_unreachable();
 //}
@@ -8310,7 +8340,6 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //        case BuiltinFnIdUnreachable:
 //            zig_panic("moved to ir render");
 //        case BuiltinFnIdSetFnTest:
-//        case BuiltinFnIdSetFnVisible:
 //        case BuiltinFnIdSetFnStaticEval:
 //        case BuiltinFnIdSetFnNoInline:
 //        case BuiltinFnIdSetDebugSafety:
