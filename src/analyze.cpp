@@ -838,9 +838,9 @@ static IrInstruction *analyze_const_value(CodeGen *g, BlockContext *scope, AstNo
 {
     IrExecutable ir_executable = {0};
     IrExecutable analyzed_executable = {0};
-    IrInstruction *pass1 = ir_gen(g, node, scope, &ir_executable);
+    ir_gen(g, node, scope, &ir_executable);
 
-    if (pass1->type_entry->id == TypeTableEntryIdInvalid)
+    if (ir_executable.invalid)
         return g->invalid_instruction;
 
     if (g->verbose) {
@@ -2552,8 +2552,8 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
             buf_sprintf("byvalue types not yet supported on extern function return values"));
     }
 
-    IrInstruction *result = ir_gen_fn(g, fn_table_entry);
-    if (result == g->invalid_instruction) {
+    ir_gen_fn(g, fn_table_entry);
+    if (fn_table_entry->ir_executable.invalid) {
         fn_proto_node->data.fn_proto.skip = true;
         fn_table_entry->anal_state = FnAnalStateSkipped;
         return;

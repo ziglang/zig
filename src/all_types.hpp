@@ -36,6 +36,7 @@ struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
     size_t mem_slot_count;
     size_t next_debug_id;
+    bool invalid;
 };
 
 enum OutType {

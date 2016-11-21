@@ -2058,7 +2058,7 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, AstNode *node) {
     return ir_build_phi(irb, node, 2, incoming_blocks, incoming_values);
 }
 
-static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockContext *block_context,
+static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, BlockContext *block_context,
         LValPurpose lval)
 {
     assert(block_context);
@@ -2138,6 +2138,14 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockCont
             zig_panic("TODO more IR gen for node types");
     }
     zig_unreachable();
+}
+
+static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, BlockContext *block_context,
+        LValPurpose lval)
+{
+    IrInstruction *result = ir_gen_node_raw(irb, node, block_context, lval);
+    irb->exec->invalid = irb->exec->invalid || (result == irb->codegen->invalid_instruction);
+    return result;
 }
 
 static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, BlockContext *scope) {
@@ -4881,6 +4889,8 @@ static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *ins
 TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutable *new_exec,
         TypeTableEntry *expected_type, AstNode *expected_type_source_node)
 {
+    assert(!old_exec->invalid);
+
     IrAnalyze ir_analyze_data = {};
     IrAnalyze *ira = &ir_analyze_data;
     ira->codegen = codegen;
