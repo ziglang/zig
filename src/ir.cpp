@@ -114,6 +114,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSwitchBr *) {
     return IrInstructionIdSwitchBr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSwitchVar *) {
+    return IrInstructionIdSwitchVar;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSwitchTarget *) {
+    return IrInstructionIdSwitchTarget;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionPhi *) {
     return IrInstructionIdPhi;
 }
@@ -981,6 +989,51 @@ static IrInstruction *ir_build_ctz_from(IrBuilder *irb, IrInstruction *old_instr
     return new_instruction;
 }
 
+static IrInstruction *ir_build_switch_br(IrBuilder *irb, AstNode *source_node, IrInstruction *target_value,
+        IrBasicBlock *else_block, size_t case_count, IrInstructionSwitchBrCase *cases, bool is_inline)
+{
+    IrInstructionSwitchBr *instruction = ir_build_instruction<IrInstructionSwitchBr>(irb, source_node);
+    instruction->target_value = target_value;
+    instruction->else_block = else_block;
+    instruction->case_count = case_count;
+    instruction->cases = cases;
+    instruction->is_inline = is_inline;
+
+    ir_ref_instruction(target_value);
+    ir_ref_bb(else_block);
+
+    for (size_t i = 0; i < case_count; i += 1) {
+        ir_ref_instruction(cases[i].value);
+        ir_ref_bb(cases[i].block);
+    }
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_switch_target(IrBuilder *irb, AstNode *source_node,
+        IrInstruction *target_value_ptr)
+{
+    IrInstructionSwitchTarget *instruction = ir_build_instruction<IrInstructionSwitchTarget>(irb, source_node);
+    instruction->target_value_ptr = target_value_ptr;
+
+    ir_ref_instruction(target_value_ptr);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_switch_var(IrBuilder *irb, AstNode *source_node,
+        IrInstruction *target_value_ptr, IrInstruction *prong_value)
+{
+    IrInstructionSwitchVar *instruction = ir_build_instruction<IrInstructionSwitchVar>(irb, source_node);
+    instruction->target_value_ptr = target_value_ptr;
+    instruction->prong_value = prong_value;
+
+    ir_ref_instruction(target_value_ptr);
+    ir_ref_instruction(prong_value);
+
+    return &instruction->base;
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, BlockContext *inner_block, BlockContext *outer_block,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -1047,7 +1100,7 @@ static VariableTableEntry *add_local_var(CodeGen *codegen, AstNode *node, BlockC
     if (name) {
         buf_init_from_buf(&variable_entry->name, name);
 
-        VariableTableEntry *existing_var = find_variable(codegen, node->block_context, name);
+        VariableTableEntry *existing_var = find_variable(codegen, scope, name);
         if (existing_var && !existing_var->shadowable) {
             ErrorMsg *msg = add_node_error(codegen, node,
                     buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
@@ -1061,7 +1114,7 @@ static VariableTableEntry *add_local_var(CodeGen *codegen, AstNode *node, BlockC
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
                 variable_entry->type = codegen->builtin_types.entry_invalid;
             } else {
-                AstNode *decl_node = find_decl(node->block_context, name);
+                AstNode *decl_node = find_decl(scope, name);
                 if (decl_node && decl_node->type != NodeTypeVariableDeclaration) {
                     ErrorMsg *msg = add_node_error(codegen, node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
@@ -1071,7 +1124,7 @@ static VariableTableEntry *add_local_var(CodeGen *codegen, AstNode *node, BlockC
             }
         }
 
-        node->block_context->var_table.put(&variable_entry->name, variable_entry);
+        scope->var_table.put(&variable_entry->name, variable_entry);
     } else {
         assert(is_shadowable);
         // TODO replace _anon with @anon and make sure all tests still pass
@@ -2052,8 +2105,11 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, AstNode *node) {
 
     ir_set_cursor_at_end(irb, then_block);
     IrInstruction *var_type = nullptr;
-    if (var_decl->type)
+    if (var_decl->type) {
         var_type = ir_gen_node(irb, var_decl->type, node->block_context);
+        if (var_type == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+    }
     BlockContext *child_scope = new_block_context(node, node->block_context);
     bool is_shadowable = false;
     bool is_const = var_decl->is_const;
@@ -2089,6 +2145,190 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, AstNode *node) {
     incoming_blocks[1] = after_else_block;
 
     return ir_build_phi(irb, node, 2, incoming_blocks, incoming_values);
+}
+
+static bool ir_gen_switch_prong_expr(IrBuilder *irb, AstNode *switch_node, AstNode *prong_node,
+        IrBasicBlock *end_block, bool is_inline, IrInstruction *target_value_ptr, IrInstruction *prong_value,
+        ZigList<IrBasicBlock *> incoming_blocks, ZigList<IrInstruction *> incoming_values)
+{
+    assert(switch_node->type == NodeTypeSwitchExpr);
+    assert(prong_node->type == NodeTypeSwitchProng);
+
+    AstNode *expr_node = prong_node->data.switch_prong.expr;
+    AstNode *var_symbol_node = prong_node->data.switch_prong.var_symbol;
+    BlockContext *child_scope;
+    if (var_symbol_node) {
+        assert(var_symbol_node->type == NodeTypeSymbol);
+        Buf *var_name = var_symbol_node->data.symbol_expr.symbol;
+        bool var_is_ptr = prong_node->data.switch_prong.var_is_ptr;
+
+        child_scope = new_block_context(switch_node, switch_node->block_context);
+        bool is_shadowable = false;
+        bool is_const = true;
+        VariableTableEntry *var = ir_add_local_var(irb, var_symbol_node, child_scope,
+                var_name, is_const, is_const, is_shadowable, is_inline);
+        IrInstruction *var_value;
+        if (prong_value) {
+            IrInstruction *var_ptr_value = ir_build_switch_var(irb, var_symbol_node, target_value_ptr, prong_value);
+            var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, var_symbol_node, var_ptr_value);
+        } else {
+            var_value = var_is_ptr ? target_value_ptr : ir_build_load_ptr(irb, var_symbol_node, target_value_ptr);
+        }
+        IrInstruction *var_type = nullptr; // infer the type
+        ir_build_var_decl(irb, var_symbol_node, var, var_type, var_value); 
+    } else {
+        child_scope = switch_node->block_context;
+    }
+
+    IrInstruction *expr_result = ir_gen_node(irb, expr_node, child_scope);
+    if (expr_result == irb->codegen->invalid_instruction)
+        return false;
+    ir_build_br(irb, switch_node, end_block, is_inline);
+    incoming_blocks.append(irb->current_basic_block);
+    incoming_values.append(expr_result);
+    return true;
+}
+
+static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeSwitchExpr);
+
+    AstNode *target_node = node->data.switch_expr.expr;
+    IrInstruction *target_value_ptr = ir_gen_node_extra(irb, target_node, node->block_context, LValPurposeAddressOf);
+    if (target_value_ptr == irb->codegen->invalid_instruction)
+        return target_value_ptr;
+    IrInstruction *target_value = ir_build_switch_target(irb, node, target_value_ptr);
+
+    IrBasicBlock *else_block = ir_build_basic_block(irb, "SwitchElse");
+    IrBasicBlock *end_block = ir_build_basic_block(irb, "SwitchEnd");
+
+    size_t prong_count = node->data.switch_expr.prongs.length;
+    ZigList<IrInstructionSwitchBrCase> cases = {0};
+    bool is_inline = (node->block_context->fn_entry == nullptr);
+
+    ZigList<IrInstruction *> incoming_values = {0};
+    ZigList<IrBasicBlock *> incoming_blocks = {0};
+
+    AstNode *else_prong = nullptr;
+    for (size_t prong_i = 0; prong_i < prong_count; prong_i += 1) {
+        AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
+        size_t prong_item_count = prong_node->data.switch_prong.items.length;
+        if (prong_item_count == 0) {
+            if (else_prong) {
+                ErrorMsg *msg = add_node_error(irb->codegen, prong_node,
+                        buf_sprintf("multiple else prongs in switch expression"));
+                add_error_note(irb->codegen, msg, else_prong,
+                        buf_sprintf("previous else prong is here"));
+                return irb->codegen->invalid_instruction;
+            }
+            else_prong = prong_node;
+
+            if (!ir_gen_switch_prong_expr(irb, node, prong_node, end_block,
+                is_inline, target_value_ptr, nullptr, incoming_blocks, incoming_values))
+            {
+                return irb->codegen->invalid_instruction;
+            }
+        } else {
+            if (prong_node->data.switch_prong.any_items_are_range) {
+                IrInstruction *ok_bit = nullptr;
+                AstNode *last_item_node = nullptr;
+                for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
+                    AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
+                    last_item_node = item_node;
+                    if (item_node->type == NodeTypeSwitchRange) {
+                        AstNode *start_node = item_node->data.switch_range.start;
+                        AstNode *end_node = item_node->data.switch_range.end;
+
+                        IrInstruction *start_value = ir_gen_node(irb, start_node, node->block_context);
+                        if (start_value == irb->codegen->invalid_instruction)
+                            return irb->codegen->invalid_instruction;
+                        IrInstruction *end_value = ir_gen_node(irb, end_node, node->block_context);
+                        if (end_value == irb->codegen->invalid_instruction)
+                            return irb->codegen->invalid_instruction;
+
+                        IrInstruction *lower_range_ok = ir_build_bin_op(irb, item_node, IrBinOpCmpGreaterOrEq,
+                                target_value, start_value);
+                        IrInstruction *upper_range_ok = ir_build_bin_op(irb, item_node, IrBinOpCmpLessOrEq,
+                                target_value, end_value);
+                        IrInstruction *both_ok = ir_build_bin_op(irb, item_node, IrBinOpBoolAnd,
+                                lower_range_ok, upper_range_ok);
+                        if (ok_bit) {
+                            ok_bit = ir_build_bin_op(irb, item_node, IrBinOpBoolAnd, both_ok, ok_bit);
+                        } else {
+                            ok_bit = both_ok;
+                        }
+                    } else {
+                        IrInstruction *item_value = ir_gen_node(irb, item_node, node->block_context);
+                        if (item_value == irb->codegen->invalid_instruction)
+                            return irb->codegen->invalid_instruction;
+
+                        IrInstruction *cmp_ok = ir_build_bin_op(irb, item_node, IrBinOpCmpEq,
+                                item_value, target_value);
+                        if (ok_bit) {
+                            ok_bit = ir_build_bin_op(irb, item_node, IrBinOpBoolAnd, cmp_ok, ok_bit);
+                        } else {
+                            ok_bit = cmp_ok;
+                        }
+                    }
+                }
+
+                IrBasicBlock *range_block_yes = ir_build_basic_block(irb, "SwitchRangeYes");
+                IrBasicBlock *range_block_no = ir_build_basic_block(irb, "SwitchRangeNo");
+
+                assert(ok_bit);
+                assert(last_item_node);
+                ir_build_cond_br(irb, last_item_node, ok_bit, range_block_yes, range_block_no, is_inline);
+
+                ir_set_cursor_at_end(irb, range_block_yes);
+                if (!ir_gen_switch_prong_expr(irb, node, prong_node, end_block,
+                    is_inline, target_value_ptr, nullptr, incoming_blocks, incoming_values))
+                {
+                    return irb->codegen->invalid_instruction;
+                }
+
+                ir_set_cursor_at_end(irb, range_block_no);
+            } else {
+                for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
+                    AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
+                    assert(item_node->type != NodeTypeSwitchRange);
+
+                    IrInstruction *item_value = ir_gen_node(irb, item_node, node->block_context);
+                    if (item_value == irb->codegen->invalid_instruction)
+                        return irb->codegen->invalid_instruction;
+
+                    IrBasicBlock *prong_block = ir_build_basic_block(irb, "SwitchProng");
+                    IrBasicBlock *prev_block = irb->current_basic_block;
+                    ir_set_cursor_at_end(irb, prong_block);
+
+                    if (!ir_gen_switch_prong_expr(irb, node, prong_node, end_block,
+                        is_inline, target_value_ptr, item_value, incoming_blocks, incoming_values))
+                    {
+                        return irb->codegen->invalid_instruction;
+                    }
+
+                    IrInstructionSwitchBrCase *this_case = cases.add_one();
+                    this_case->value = item_value;
+                    this_case->block = prong_block;
+
+                    ir_set_cursor_at_end(irb, prev_block);
+                }
+            }
+        }
+    }
+
+    if (cases.length == 0) {
+        ir_build_br(irb, node, else_block, is_inline);
+    } else {
+        ir_build_switch_br(irb, node, target_value, else_block, cases.length, cases.items, is_inline);
+    }
+
+    if (!else_prong) {
+        ir_set_cursor_at_end(irb, else_block);
+        ir_build_unreachable(irb, node);
+    }
+
+    ir_set_cursor_at_end(irb, end_block);
+    assert(incoming_blocks.length == incoming_values.length);
+    return ir_build_phi(irb, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
 }
 
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, BlockContext *block_context,
@@ -2142,6 +2382,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, BlockContex
             return ir_gen_null_literal(irb, node);
         case NodeTypeIfVarExpr:
             return ir_gen_if_var_expr(irb, node);
+        case NodeTypeSwitchExpr:
+            return ir_gen_switch_expr(irb, node);
         case NodeTypeUnwrapErrorExpr:
         case NodeTypeDefer:
         case NodeTypeSliceExpr:
@@ -2149,7 +2391,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, BlockContex
         case NodeTypeBreak:
         case NodeTypeContinue:
         case NodeTypeLabel:
-        case NodeTypeSwitchExpr:
         case NodeTypeCharLiteral:
         case NodeTypeZeroesLiteral:
         case NodeTypeErrorType:
@@ -4870,6 +5111,24 @@ static TypeTableEntry *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionC
     }
 }
 
+static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
+        IrInstructionSwitchBr *switch_br_instruction)
+{
+    zig_panic("TODO switch br analyze");
+}
+
+static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
+        IrInstructionSwitchTarget *switch_target_instruction)
+{
+    zig_panic("TODO switch target analyze");
+}
+
+static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira,
+        IrInstructionSwitchVar *switch_var_instruction)
+{
+    zig_panic("TODO switch var analyze");
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -4937,6 +5196,11 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdCtz:
             return ir_analyze_instruction_ctz(ira, (IrInstructionCtz *)instruction);
         case IrInstructionIdSwitchBr:
+            return ir_analyze_instruction_switch_br(ira, (IrInstructionSwitchBr *)instruction);
+        case IrInstructionIdSwitchTarget:
+            return ir_analyze_instruction_switch_target(ira, (IrInstructionSwitchTarget *)instruction);
+        case IrInstructionIdSwitchVar:
+            return ir_analyze_instruction_switch_var(ira, (IrInstructionSwitchVar *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
@@ -5053,6 +5317,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdUnwrapMaybe:
         case IrInstructionIdClz:
         case IrInstructionIdCtz:
+        case IrInstructionIdSwitchVar:
+        case IrInstructionIdSwitchTarget:
             return false;
         case IrInstructionIdAsm:
             {
@@ -7037,246 +7303,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //        return g->builtin_types.entry_invalid;
 //    }
 //}
-//static TypeTableEntry *analyze_switch_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-//        TypeTableEntry *expected_type, AstNode *node)
-//{
-//    AstNode **expr_node = &node->data.switch_expr.expr;
-//    TypeTableEntry *expr_type = analyze_expression(g, import, context, nullptr, *expr_node);
-//    ConstExprValue *expr_val = &get_resolved_expr(*expr_node)->const_val;
-//    if (expr_val->ok && !expr_val->depends_on_compile_var) {
-//        add_node_error(g, first_executing_node(*expr_node),
-//                buf_sprintf("value is constant; unnecessary switch statement"));
-//    }
-//    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-//
-//
-//    size_t prong_count = node->data.switch_expr.prongs.length;
-//    AstNode **peer_nodes = allocate<AstNode*>(prong_count);
-//    TypeTableEntry **peer_types = allocate<TypeTableEntry*>(prong_count);
-//
-//    bool any_errors = false;
-//    if (expr_type->id == TypeTableEntryIdInvalid) {
-//        return expr_type;
-//    } else if (expr_type->id == TypeTableEntryIdUnreachable) {
-//        add_node_error(g, first_executing_node(*expr_node),
-//                buf_sprintf("switch on unreachable expression not allowed"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//
-//    size_t *field_use_counts = nullptr;
-//    HashMap<int, AstNode *, int_hash, int_eq> err_use_nodes = {};
-//    if (expr_type->id == TypeTableEntryIdEnum) {
-//        field_use_counts = allocate<size_t>(expr_type->data.enumeration.src_field_count);
-//    } else if (expr_type->id == TypeTableEntryIdErrorUnion) {
-//        err_use_nodes.init(10);
-//    }
-//
-//    size_t *const_chosen_prong_index = &node->data.switch_expr.const_chosen_prong_index;
-//    *const_chosen_prong_index = SIZE_MAX;
-//    AstNode *else_prong = nullptr;
-//    for (size_t prong_i = 0; prong_i < prong_count; prong_i += 1) {
-//        AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
-//
-//        TypeTableEntry *var_type;
-//        bool var_is_target_expr;
-//        if (prong_node->data.switch_prong.items.length == 0) {
-//            if (else_prong) {
-//                add_node_error(g, prong_node, buf_sprintf("multiple else prongs in switch expression"));
-//                any_errors = true;
-//            } else {
-//                else_prong = prong_node;
-//            }
-//            var_type = expr_type;
-//            var_is_target_expr = true;
-//            if (*const_chosen_prong_index == SIZE_MAX && expr_val->ok) {
-//                *const_chosen_prong_index = prong_i;
-//            }
-//        } else {
-//            bool all_agree_on_var_type = true;
-//            var_type = nullptr;
-//
-//            for (size_t item_i = 0; item_i < prong_node->data.switch_prong.items.length; item_i += 1) {
-//                AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
-//                if (item_node->type == NodeTypeSwitchRange) {
-//                    zig_panic("TODO range in switch statement");
-//                }
-//
-//                if (expr_type->id == TypeTableEntryIdEnum) {
-//                    if (item_node->type == NodeTypeSymbol) {
-//                        Buf *field_name = item_node->data.symbol_expr.symbol;
-//                        TypeEnumField *type_enum_field = find_enum_type_field(expr_type, field_name);
-//                        if (type_enum_field) {
-//                            item_node->data.symbol_expr.enum_field = type_enum_field;
-//                            if (!var_type) {
-//                                var_type = type_enum_field->type_entry;
-//                            }
-//                            if (type_enum_field->type_entry != var_type) {
-//                                all_agree_on_var_type = false;
-//                            }
-//                            uint32_t field_index = type_enum_field->value;
-//                            assert(field_use_counts);
-//                            field_use_counts[field_index] += 1;
-//                            if (field_use_counts[field_index] > 1) {
-//                                add_node_error(g, item_node,
-//                                    buf_sprintf("duplicate switch value: '%s'",
-//                                        buf_ptr(type_enum_field->name)));
-//                                any_errors = true;
-//                            }
-//                            if (!any_errors && expr_val->ok) {
-//                                if (expr_val->data.x_enum.tag == type_enum_field->value) {
-//                                    *const_chosen_prong_index = prong_i;
-//                                }
-//                            }
-//                        } else {
-//                            add_node_error(g, item_node,
-//                                    buf_sprintf("enum '%s' has no field '%s'",
-//                                        buf_ptr(&expr_type->name), buf_ptr(field_name)));
-//                            any_errors = true;
-//                        }
-//                    } else {
-//                        add_node_error(g, item_node, buf_sprintf("expected enum tag name"));
-//                        any_errors = true;
-//                    }
-//                } else if (expr_type->id == TypeTableEntryIdErrorUnion) {
-//                    if (item_node->type == NodeTypeSymbol) {
-//                        Buf *err_name = item_node->data.symbol_expr.symbol;
-//                        bool is_ok_case = buf_eql_str(err_name, "Ok");
-//                        auto err_table_entry = is_ok_case ? nullptr: g->error_table.maybe_get(err_name);
-//                        if (is_ok_case || err_table_entry) {
-//                            uint32_t err_value = is_ok_case ? 0 : err_table_entry->value->value;
-//                            item_node->data.symbol_expr.err_value = err_value;
-//                            TypeTableEntry *this_var_type;
-//                            if (is_ok_case) {
-//                                this_var_type = expr_type->data.error.child_type;
-//                            } else {
-//                                this_var_type = g->builtin_types.entry_pure_error;
-//                            }
-//                            if (!var_type) {
-//                                var_type = this_var_type;
-//                            }
-//                            if (this_var_type != var_type) {
-//                                all_agree_on_var_type = false;
-//                            }
-//
-//                            // detect duplicate switch values
-//                            auto existing_entry = err_use_nodes.maybe_get(err_value);
-//                            if (existing_entry) {
-//                                add_node_error(g, existing_entry->value,
-//                                        buf_sprintf("duplicate switch value: '%s'", buf_ptr(err_name)));
-//                                any_errors = true;
-//                            } else {
-//                                err_use_nodes.put(err_value, item_node);
-//                            }
-//
-//                            if (!any_errors && expr_val->ok) {
-//                                if (expr_val->data.x_err.err->value == err_value) {
-//                                    *const_chosen_prong_index = prong_i;
-//                                }
-//                            }
-//                        } else {
-//                            add_node_error(g, item_node,
-//                                    buf_sprintf("use of undeclared error value '%s'", buf_ptr(err_name)));
-//                            any_errors = true;
-//                        }
-//                    } else {
-//                        add_node_error(g, item_node, buf_sprintf("expected error value name"));
-//                        any_errors = true;
-//                    }
-//                } else {
-//                    if (!any_errors && expr_val->ok) {
-//                        // note: there is now a function in eval.cpp for doing const expr comparison
-//                        zig_panic("TODO determine if const exprs are equal");
-//                    }
-//                    TypeTableEntry *item_type = analyze_expression(g, import, context, expr_type, item_node);
-//                    if (item_type->id != TypeTableEntryIdInvalid) {
-//                        ConstExprValue *const_val = &get_resolved_expr(item_node)->const_val;
-//                        if (!const_val->ok) {
-//                            add_node_error(g, item_node,
-//                                buf_sprintf("unable to evaluate constant expression"));
-//                            any_errors = true;
-//                        }
-//                    }
-//                }
-//            }
-//            if (!var_type || !all_agree_on_var_type) {
-//                var_type = expr_type;
-//                var_is_target_expr = true;
-//            } else {
-//                var_is_target_expr = false;
-//            }
-//        }
-//
-//        BlockContext *child_context = new_block_context(node, context);
-//        prong_node->data.switch_prong.block_context = child_context;
-//        AstNode *var_node = prong_node->data.switch_prong.var_symbol;
-//        if (var_node) {
-//            assert(var_node->type == NodeTypeSymbol);
-//            Buf *var_name = var_node->data.symbol_expr.symbol;
-//            var_node->block_context = child_context;
-//            prong_node->data.switch_prong.var = add_local_var(g, var_node, import,
-//                    child_context, var_name, var_type, true, nullptr);
-//            prong_node->data.switch_prong.var_is_target_expr = var_is_target_expr;
-//        }
-//    }
-//
-//    for (size_t prong_i = 0; prong_i < prong_count; prong_i += 1) {
-//        AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
-//        BlockContext *child_context = prong_node->data.switch_prong.block_context;
-//        child_context->codegen_excluded = expr_val->ok && (*const_chosen_prong_index != prong_i);
-//
-//        if (child_context->codegen_excluded) {
-//            peer_types[prong_i] = g->builtin_types.entry_unreachable;
-//        } else {
-//            peer_types[prong_i] = analyze_expression(g, import, child_context, expected_type,
-//                    prong_node->data.switch_prong.expr);
-//        }
-//        // This must go after the analyze_expression for
-//        // prong_node->data.switch_prong.expr because of AST rewriting.
-//        peer_nodes[prong_i] = prong_node->data.switch_prong.expr;
-//    }
-//
-//    if (expr_type->id == TypeTableEntryIdEnum && !else_prong) {
-//        for (uint32_t i = 0; i < expr_type->data.enumeration.src_field_count; i += 1) {
-//            if (field_use_counts[i] == 0) {
-//                add_node_error(g, node,
-//                    buf_sprintf("enumeration value '%s' not handled in switch",
-//                        buf_ptr(expr_type->data.enumeration.fields[i].name)));
-//                any_errors = true;
-//            }
-//        }
-//    }
-//
-//    if (any_errors) {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    if (prong_count == 0) {
-//        add_node_error(g, node, buf_sprintf("switch statement has no prongs"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    TypeTableEntry *result_type = resolve_peer_type_compatibility(g, import, context, node,
-//            peer_nodes, peer_types, prong_count);
-//
-//    if (expr_val->ok) {
-//        assert(*const_chosen_prong_index != SIZE_MAX);
-//
-//        *const_val = get_resolved_expr(peer_nodes[*const_chosen_prong_index])->const_val;
-//        // the target expr depends on a compile var because we have an error on unnecessary
-//        // switch statement, so the entire switch statement does too
-//        const_val->depends_on_compile_var = true;
-//
-//        if (!const_val->ok) {
-//            return add_error_if_type_is_num_lit(g, result_type, node);
-//        }
-//    } else {
-//        return add_error_if_type_is_num_lit(g, result_type, node);
-//    }
-//
-//    return result_type;
-//}
-//
 //static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
 //        TypeTableEntry *expected_type, AstNode *node)
 //{
@@ -9336,190 +9362,6 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //
 //    gen_var_debug_decl(g, variable);
 //    return nullptr;
-//}
-//
-//static LLVMValueRef gen_switch_expr(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeSwitchExpr);
-//
-//    if (node->data.switch_expr.const_chosen_prong_index != SIZE_MAX) {
-//        AstNode *prong_node = node->data.switch_expr.prongs.at(node->data.switch_expr.const_chosen_prong_index);
-//        assert(prong_node->type == NodeTypeSwitchProng);
-//        AstNode *prong_expr = prong_node->data.switch_prong.expr;
-//        return gen_expr(g, prong_expr);
-//    }
-//
-//    TypeTableEntry *target_type = get_expr_type(node->data.switch_expr.expr);
-//    LLVMValueRef target_value_handle = gen_expr(g, node->data.switch_expr.expr);
-//    LLVMValueRef target_value;
-//    if (handle_is_ptr(target_type)) {
-//        if (target_type->id == TypeTableEntryIdEnum) {
-//            set_debug_source_node(g, node);
-//            LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, target_value_handle, 0, "");
-//            target_value = LLVMBuildLoad(g->builder, tag_field_ptr, "");
-//        } else if (target_type->id == TypeTableEntryIdErrorUnion) {
-//            set_debug_source_node(g, node);
-//            LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, target_value_handle, 0, "");
-//            target_value = LLVMBuildLoad(g->builder, tag_field_ptr, "");
-//        } else {
-//            zig_unreachable();
-//        }
-//    } else {
-//        target_value = target_value_handle;
-//    }
-//
-//
-//    TypeTableEntry *switch_type = get_expr_type(node);
-//    bool result_has_bits = type_has_bits(switch_type);
-//    bool end_unreachable = (switch_type->id == TypeTableEntryIdUnreachable);
-//
-//    LLVMBasicBlockRef end_block = end_unreachable ?
-//        nullptr : LLVMAppendBasicBlock(g->cur_fn->fn_value, "SwitchEnd");
-//    LLVMBasicBlockRef else_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SwitchElse");
-//    size_t prong_count = node->data.switch_expr.prongs.length;
-//
-//    set_debug_source_node(g, node);
-//    LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, target_value, else_block, prong_count);
-//
-//    ZigList<LLVMValueRef> incoming_values = {0};
-//    ZigList<LLVMBasicBlockRef> incoming_blocks = {0};
-//
-//    AstNode *else_prong = nullptr;
-//    for (size_t prong_i = 0; prong_i < prong_count; prong_i += 1) {
-//        AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
-//        VariableTableEntry *prong_var = prong_node->data.switch_prong.var;
-//
-//        LLVMBasicBlockRef prong_block;
-//        if (prong_node->data.switch_prong.items.length == 0) {
-//            assert(!else_prong);
-//            else_prong = prong_node;
-//            prong_block = else_block;
-//        } else {
-//            prong_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SwitchProng");
-//            size_t prong_item_count = prong_node->data.switch_prong.items.length;
-//            bool make_item_blocks = prong_var && prong_item_count > 1;
-//
-//            for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
-//                AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
-//
-//                assert(item_node->type != NodeTypeSwitchRange);
-//                LLVMValueRef val;
-//                if (target_type->id == TypeTableEntryIdEnum ||
-//                    target_type->id == TypeTableEntryIdErrorUnion)
-//                {
-//                    assert(item_node->type == NodeTypeSymbol);
-//                    TypeEnumField *enum_field = nullptr;
-//                    uint32_t err_value = 0;
-//                    if (target_type->id == TypeTableEntryIdEnum) {
-//                        enum_field = item_node->data.symbol_expr.enum_field;
-//                        assert(enum_field);
-//                        val = LLVMConstInt(target_type->data.enumeration.tag_type->type_ref,
-//                                enum_field->value, false);
-//                    } else if (target_type->id == TypeTableEntryIdErrorUnion) {
-//                        err_value = item_node->data.symbol_expr.err_value;
-//                        val = LLVMConstInt(g->err_tag_type->type_ref, err_value, false);
-//                    } else {
-//                        zig_unreachable();
-//                    }
-//
-//                    if (prong_var && type_has_bits(prong_var->type)) {
-//                        LLVMBasicBlockRef item_block;
-//
-//                        if (make_item_blocks) {
-//                            item_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "SwitchProngItem");
-//                            LLVMAddCase(switch_instr, val, item_block);
-//                            LLVMPositionBuilderAtEnd(g->builder, item_block);
-//                        } else {
-//                            LLVMAddCase(switch_instr, val, prong_block);
-//                            LLVMPositionBuilderAtEnd(g->builder, prong_block);
-//                        }
-//
-//                        AstNode *var_node = prong_node->data.switch_prong.var_symbol;
-//                        set_debug_source_node(g, var_node);
-//                        if (prong_node->data.switch_prong.var_is_target_expr) {
-//                            gen_assign_raw(g, var_node, BinOpTypeAssign,
-//                                    prong_var->value_ref, target_value, prong_var->type, target_type);
-//                        } else if (target_type->id == TypeTableEntryIdEnum) {
-//                            assert(enum_field);
-//                            assert(type_has_bits(enum_field->type_entry));
-//                            LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, target_value_handle,
-//                                    1, "");
-//                            LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr,
-//                                    LLVMPointerType(enum_field->type_entry->type_ref, 0), "");
-//                            LLVMValueRef handle_val = get_handle_value(g, bitcasted_union_field_ptr,
-//                                    enum_field->type_entry);
-//
-//                            gen_assign_raw(g, var_node, BinOpTypeAssign,
-//                                    prong_var->value_ref, handle_val, prong_var->type, enum_field->type_entry);
-//                        } else if (target_type->id == TypeTableEntryIdErrorUnion) {
-//                            if (err_value == 0) {
-//                                // variable is the payload
-//                                LLVMValueRef err_payload_ptr = LLVMBuildStructGEP(g->builder,
-//                                        target_value_handle, 1, "");
-//                                LLVMValueRef handle_val = get_handle_value(g, err_payload_ptr, prong_var->type);
-//                                gen_assign_raw(g, var_node, BinOpTypeAssign,
-//                                        prong_var->value_ref, handle_val, prong_var->type, prong_var->type);
-//                            } else {
-//                                // variable is the pure error value
-//                                LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder,
-//                                        target_value_handle, 0, "");
-//                                LLVMValueRef handle_val = LLVMBuildLoad(g->builder, err_tag_ptr, "");
-//                                gen_assign_raw(g, var_node, BinOpTypeAssign,
-//                                        prong_var->value_ref, handle_val, prong_var->type, g->err_tag_type);
-//                            }
-//                        } else {
-//                            zig_unreachable();
-//                        }
-//                        if (make_item_blocks) {
-//                            set_debug_source_node(g, var_node);
-//                            LLVMBuildBr(g->builder, prong_block);
-//                        }
-//                    } else {
-//                        LLVMAddCase(switch_instr, val, prong_block);
-//                    }
-//                } else {
-//                    assert(get_resolved_expr(item_node)->const_val.ok);
-//                    val = gen_expr(g, item_node);
-//                    LLVMAddCase(switch_instr, val, prong_block);
-//                }
-//            }
-//        }
-//
-//        LLVMPositionBuilderAtEnd(g->builder, prong_block);
-//        AstNode *prong_expr = prong_node->data.switch_prong.expr;
-//        LLVMValueRef prong_val = gen_expr(g, prong_expr);
-//
-//        if (get_expr_type(prong_expr)->id != TypeTableEntryIdUnreachable) {
-//            set_debug_source_node(g, prong_expr);
-//            LLVMBuildBr(g->builder, end_block);
-//            incoming_values.append(prong_val);
-//            incoming_blocks.append(LLVMGetInsertBlock(g->builder));
-//        }
-//    }
-//
-//    if (!else_prong) {
-//        LLVMPositionBuilderAtEnd(g->builder, else_block);
-//        set_debug_source_node(g, node);
-//        if (want_debug_safety(g, node)) {
-//            gen_debug_safety_crash(g);
-//        } else {
-//            LLVMBuildUnreachable(g->builder);
-//        }
-//    }
-//
-//    if (end_unreachable) {
-//        return nullptr;
-//    }
-//
-//    LLVMPositionBuilderAtEnd(g->builder, end_block);
-//
-//    if (result_has_bits) {
-//        set_debug_source_node(g, node);
-//        LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMTypeOf(incoming_values.at(0)), "");
-//        LLVMAddIncoming(phi, incoming_values.items, incoming_blocks.items, incoming_values.length);
-//        return phi;
-//    } else {
-//        return nullptr;
-//    }
 //}
 //
 //static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node, bool is_lvalue) {

@@ -65,6 +65,12 @@ compromises backward compatibility.
  * Compiler exposes itself as a library.
  * Support for all popular architectures and operating systems.
 
+## Community
+
+ * IRC: `#zig` on Freenode.
+ * Reddit: [/r/zig](https://www.reddit.com/r/zig)
+ * Email list: [ziglang@googlegroups.com](https://groups.google.com/forum/#!forum/ziglang)
+
 ## Building
 
 ### Dependencies
@@ -147,9 +153,3 @@ To fix this, you have 2 options:
 
  * Compile Zig with the same compiler that LLVM was compiled with.
  * Add `-DZIG_LLVM_OLD_CXX_ABI=yes` to the cmake configure line.
-
-## Community
-
- * IRC chat: `#zig` on Freenode.
- * Reddit: [/r/zig](https://www.reddit.com/r/zig)
- * Email list: [ziglang@googlegroups.com](https://groups.google.com/forum/#!forum/ziglang)

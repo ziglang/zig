@@ -38,8 +38,9 @@ struct ZigList {
         return items[--length];
     }
 
-    void add_one() {
-        return resize(length + 1);
+    T *add_one() {
+        resize(length + 1);
+        return &last();
     }
 
     const T & last() const {

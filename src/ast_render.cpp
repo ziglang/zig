@@ -727,6 +727,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 }
                 break;
             }
+        case NodeTypeSwitchExpr:
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
@@ -737,7 +738,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeUse:
         case NodeTypeZeroesLiteral:
         case NodeTypeForExpr:
-        case NodeTypeSwitchExpr:
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
         case NodeTypeLabel:

@@ -560,18 +560,14 @@ struct AstNodeSwitchExpr {
 
     // populated by semantic analyzer
     Expr resolved_expr;
-    size_t const_chosen_prong_index;
 };
 
 struct AstNodeSwitchProng {
     ZigList<AstNode *> items;
     AstNode *var_symbol;
     AstNode *expr;
-
-    // populated by semantic analyzer
-    BlockContext *block_context;
-    VariableTableEntry *var;
-    bool var_is_target_expr;
+    bool var_is_ptr;
+    bool any_items_are_range;
 };
 
 struct AstNodeSwitchRange {
@@ -1426,6 +1422,8 @@ enum IrInstructionId {
     IrInstructionIdBr,
     IrInstructionIdCondBr,
     IrInstructionIdSwitchBr,
+    IrInstructionIdSwitchVar,
+    IrInstructionIdSwitchTarget,
     IrInstructionIdPhi,
     IrInstructionIdUnOp,
     IrInstructionIdBinOp,
@@ -1507,6 +1505,19 @@ struct IrInstructionSwitchBr {
     size_t case_count;
     IrInstructionSwitchBrCase *cases;
     bool is_inline;
+};
+
+struct IrInstructionSwitchVar {
+    IrInstruction base;
+
+    IrInstruction *target_value_ptr;
+    IrInstruction *prong_value;
+};
+
+struct IrInstructionSwitchTarget {
+    IrInstruction base;
+
+    IrInstruction *target_value_ptr;
 };
 
 struct IrInstructionPhi {

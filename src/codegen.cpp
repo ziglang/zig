@@ -1695,6 +1695,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCtz:
             return ir_render_ctz(g, executable, (IrInstructionCtz *)instruction);
         case IrInstructionIdSwitchBr:
+        case IrInstructionIdSwitchTarget:
+        case IrInstructionIdSwitchVar:
         case IrInstructionIdPhi:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:

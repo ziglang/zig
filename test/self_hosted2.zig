@@ -12,9 +12,23 @@ export fn disabledExternFn() {
     @setFnVisible(this, false);
 }
 
+fn inlinedLoop() {
+    inline var i = 0;
+    inline var sum = 0;
+    inline while (i <= 5; i += 1)
+        sum += i;
+    assert(sum == 15);
+}
+
+fn assert(ok: bool) {
+    if (!ok)
+        @unreachable();
+}
+
 fn runAllTests() {
     emptyFunctionWithComments();
     disabledExternFn();
+    inlinedLoop();
 }
 
 export nakedcc fn _start() -> unreachable {

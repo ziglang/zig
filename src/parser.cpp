@@ -1643,7 +1643,7 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, size_t *token_index, bool m
 
 /*
 SwitchExpression : "switch" "(" Expression ")" "{" many(SwitchProng) "}"
-SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" "Symbol" "|") Expression ","
+SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" option("*") Symbol "|") Expression ","
 SwitchItem : Expression | (Expression "..." Expression)
 */
 static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -1691,6 +1691,7 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
                 range_node->data.switch_range.start = expr1;
                 range_node->data.switch_range.end = ast_parse_expression(pc, token_index, true);
 
+                prong_node->data.switch_prong.any_items_are_range = true;
             } else {
                 prong_node->data.switch_prong.items.append(expr1);
             }
@@ -1707,7 +1708,21 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
         Token *maybe_bar = &pc->tokens->at(*token_index);
         if (maybe_bar->id == TokenIdBinOr) {
             *token_index += 1;
-            prong_node->data.switch_prong.var_symbol = ast_parse_symbol(pc, token_index);
+
+            Token *star_or_symbol = &pc->tokens->at(*token_index);
+            AstNode *var_symbol_node;
+            bool var_is_ptr;
+            if (star_or_symbol->id == TokenIdStar) {
+                *token_index += 1;
+                var_is_ptr = true;
+                var_symbol_node = ast_parse_symbol(pc, token_index);
+            } else {
+                var_is_ptr = false;
+                var_symbol_node = ast_parse_symbol(pc, token_index);
+            }
+
+            prong_node->data.switch_prong.var_symbol = var_symbol_node;
+            prong_node->data.switch_prong.var_is_ptr = var_is_ptr;
             ast_eat_token(pc, token_index, TokenIdBinOr);
         }
 

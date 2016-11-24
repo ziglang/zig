@@ -645,6 +645,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             ir_print_clz(irp, (IrInstructionClz *)instruction);
             break;
         case IrInstructionIdSwitchBr:
+        case IrInstructionIdSwitchVar:
+        case IrInstructionIdSwitchTarget:
             zig_panic("TODO print more IR instructions");
     }
     fprintf(irp->f, "\n");
