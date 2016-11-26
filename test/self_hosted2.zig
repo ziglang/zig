@@ -20,6 +20,35 @@ fn inlinedLoop() {
     assert(sum == 15);
 }
 
+fn switchWithNumbers() {
+    testSwitchWithNumbers(13);
+}
+
+fn testSwitchWithNumbers(x: u32) {
+    const result = switch (x) {
+        1, 2, 3, 4 ... 8 => false,
+        13 => true,
+        else => false,
+    };
+    assert(result);
+}
+
+fn switchWithAllRanges() {
+    assert(testSwitchWithAllRanges(50, 3) == 1);
+    assert(testSwitchWithAllRanges(101, 0) == 2);
+    assert(testSwitchWithAllRanges(300, 5) == 3);
+    assert(testSwitchWithAllRanges(301, 6) == 6);
+}
+
+fn testSwitchWithAllRanges(x: u32, y: u32) -> u32 {
+    switch (x) {
+        0 ... 100 => 1,
+        101 ... 200 => 2,
+        201 ... 300 => 3,
+        else => y,
+    }
+}
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -29,6 +58,8 @@ fn runAllTests() {
     emptyFunctionWithComments();
     disabledExternFn();
     inlinedLoop();
+    switchWithNumbers();
+    switchWithAllRanges();
 }
 
 export nakedcc fn _start() -> unreachable {

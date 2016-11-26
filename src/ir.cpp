@@ -630,6 +630,7 @@ static IrInstruction *ir_build_phi(IrBuilder *irb, AstNode *source_node,
     phi_instruction->incoming_values = incoming_values;
 
     for (size_t i = 0; i < incoming_count; i += 1) {
+        ir_ref_bb(incoming_blocks[i]);
         ir_ref_instruction(incoming_values[i]);
     }
 
@@ -2784,8 +2785,8 @@ static void ir_start_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrBasicBlock *cons
     ira->old_irb.current_basic_block = old_bb;
     ira->const_predecessor_bb = const_predecessor_bb;
 
-    assert(old_bb->other);
-    ira->new_irb.exec->basic_block_list.append(old_bb->other);
+    if (old_bb->other)
+        ira->new_irb.exec->basic_block_list.append(old_bb->other);
 }
 
 static void ir_finish_bb(IrAnalyze *ira) {
