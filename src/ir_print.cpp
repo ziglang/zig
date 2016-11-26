@@ -313,6 +313,8 @@ static void ir_print_br(IrPrint *irp, IrInstructionBr *br_instruction) {
 }
 
 static void ir_print_phi(IrPrint *irp, IrInstructionPhi *phi_instruction) {
+    assert(phi_instruction->incoming_count != 0);
+    assert(phi_instruction->incoming_count != SIZE_MAX);
     for (size_t i = 0; i < phi_instruction->incoming_count; i += 1) {
         IrBasicBlock *incoming_block = phi_instruction->incoming_blocks[i];
         IrInstruction *incoming_value = phi_instruction->incoming_values[i];
@@ -534,6 +536,39 @@ static void ir_print_ctz(IrPrint *irp, IrInstructionCtz *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_switch_br(IrPrint *irp, IrInstructionSwitchBr *instruction) {
+    const char *inline_kw = instruction->is_inline ? "inline " : "";
+    fprintf(irp->f, "%sswitch (", inline_kw);
+    ir_print_other_instruction(irp, instruction->target_value);
+    fprintf(irp->f, ") ");
+    for (size_t i = 0; i < instruction->case_count; i += 1) {
+        IrInstructionSwitchBrCase *this_case = &instruction->cases[i];
+        ir_print_other_instruction(irp, this_case->value);
+        fprintf(irp->f, " => ");
+        ir_print_other_block(irp, this_case->block);
+        fprintf(irp->f, ", ");
+    }
+    fprintf(irp->f, "else => ");
+    ir_print_other_block(irp, instruction->else_block);
+}
+
+static void ir_print_switch_var(IrPrint *irp, IrInstructionSwitchVar *instruction) {
+    fprintf(irp->f, "switchvar ");
+    ir_print_other_instruction(irp, instruction->target_value_ptr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->prong_value);
+}
+
+static void ir_print_switch_target(IrPrint *irp, IrInstructionSwitchTarget *instruction) {
+    fprintf(irp->f, "switchtarget ");
+    ir_print_other_instruction(irp, instruction->target_value_ptr);
+}
+
+static void ir_print_enum_tag(IrPrint *irp, IrInstructionEnumTag *instruction) {
+    fprintf(irp->f, "enumtag ");
+    ir_print_other_instruction(irp, instruction->value);
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -645,9 +680,17 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             ir_print_clz(irp, (IrInstructionClz *)instruction);
             break;
         case IrInstructionIdSwitchBr:
+            ir_print_switch_br(irp, (IrInstructionSwitchBr *)instruction);
+            break;
         case IrInstructionIdSwitchVar:
+            ir_print_switch_var(irp, (IrInstructionSwitchVar *)instruction);
+            break;
         case IrInstructionIdSwitchTarget:
-            zig_panic("TODO print more IR instructions");
+            ir_print_switch_target(irp, (IrInstructionSwitchTarget *)instruction);
+            break;
+        case IrInstructionIdEnumTag:
+            ir_print_enum_tag(irp, (IrInstructionEnumTag *)instruction);
+            break;
     }
     fprintf(irp->f, "\n");
 }

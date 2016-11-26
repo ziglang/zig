@@ -2108,44 +2108,6 @@ static bool type_has_codegen_value(TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
-static bool num_lit_fits_in_other_type(CodeGen *g, AstNode *literal_node, TypeTableEntry *other_type) {
-    TypeTableEntry *other_type_underlying = get_underlying_type(other_type);
-
-    if (other_type_underlying->id == TypeTableEntryIdInvalid) {
-        return false;
-    }
-
-    Expr *expr = get_resolved_expr(literal_node);
-    ConstExprValue *const_val = &expr->instruction->static_value;
-    assert(const_val->special != ConstValSpecialRuntime);
-    if (other_type_underlying->id == TypeTableEntryIdFloat) {
-        return true;
-    } else if (other_type_underlying->id == TypeTableEntryIdInt &&
-               const_val->data.x_bignum.kind == BigNumKindInt)
-    {
-        if (bignum_fits_in_bits(&const_val->data.x_bignum, other_type_underlying->data.integral.bit_count,
-                    other_type_underlying->data.integral.is_signed))
-        {
-            return true;
-        }
-    } else if ((other_type_underlying->id == TypeTableEntryIdNumLitFloat &&
-                const_val->data.x_bignum.kind == BigNumKindFloat) ||
-               (other_type_underlying->id == TypeTableEntryIdNumLitInt &&
-                const_val->data.x_bignum.kind == BigNumKindInt))
-    {
-        return true;
-    }
-
-    const char *num_lit_str = (const_val->data.x_bignum.kind == BigNumKindFloat) ? "float" : "integer";
-
-    add_node_error(g, literal_node,
-        buf_sprintf("%s value %s cannot be implicitly casted to type '%s'",
-            num_lit_str,
-            buf_ptr(bignum_to_buf(&const_val->data.x_bignum)),
-            buf_ptr(&other_type->name)));
-    return false;
-}
-
 bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
     if (expected_type == actual_type)
         return true;
@@ -2227,94 +2189,6 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
             }
         }
         return true;
-    }
-
-
-    return false;
-}
-
-static bool types_match_with_implicit_cast(CodeGen *g, TypeTableEntry *expected_type,
-        TypeTableEntry *actual_type, AstNode *literal_node, bool *reported_err)
-{
-    if (types_match_const_cast_only(expected_type, actual_type)) {
-        return true;
-    }
-
-    // implicit conversion from non maybe type to maybe type
-    if (expected_type->id == TypeTableEntryIdMaybe &&
-        types_match_with_implicit_cast(g, expected_type->data.maybe.child_type, actual_type,
-            literal_node, reported_err))
-    {
-        return true;
-    }
-
-    // implicit conversion from null literal to maybe type
-    if (expected_type->id == TypeTableEntryIdMaybe &&
-        actual_type->id == TypeTableEntryIdNullLit)
-    {
-        return true;
-    }
-
-    // implicit conversion from error child type to error type
-    if (expected_type->id == TypeTableEntryIdErrorUnion &&
-        types_match_with_implicit_cast(g, expected_type->data.error.child_type, actual_type,
-            literal_node, reported_err))
-    {
-        return true;
-    }
-
-    // implicit conversion from pure error to error union type
-    if (expected_type->id == TypeTableEntryIdErrorUnion &&
-        actual_type->id == TypeTableEntryIdPureError)
-    {
-        return true;
-    }
-
-    // implicit widening conversion
-    if (expected_type->id == TypeTableEntryIdInt &&
-        actual_type->id == TypeTableEntryIdInt &&
-        expected_type->data.integral.is_signed == actual_type->data.integral.is_signed &&
-        expected_type->data.integral.bit_count >= actual_type->data.integral.bit_count)
-    {
-        return true;
-    }
-
-    // small enough unsigned ints can get casted to large enough signed ints
-    if (expected_type->id == TypeTableEntryIdInt && expected_type->data.integral.is_signed &&
-        actual_type->id == TypeTableEntryIdInt && !actual_type->data.integral.is_signed &&
-        expected_type->data.integral.bit_count > actual_type->data.integral.bit_count)
-    {
-        return true;
-    }
-
-    // implicit float widening conversion
-    if (expected_type->id == TypeTableEntryIdFloat &&
-        actual_type->id == TypeTableEntryIdFloat &&
-        expected_type->data.floating.bit_count >= actual_type->data.floating.bit_count)
-    {
-        return true;
-    }
-
-    // implicit array to slice conversion
-    if (expected_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_slice &&
-        actual_type->id == TypeTableEntryIdArray &&
-        types_match_const_cast_only(
-            expected_type->data.structure.fields[0].type_entry->data.pointer.child_type,
-            actual_type->data.array.child_type))
-    {
-        return true;
-    }
-
-    // implicit number literal to typed number
-    if ((actual_type->id == TypeTableEntryIdNumLitFloat ||
-         actual_type->id == TypeTableEntryIdNumLitInt))
-    {
-        if (num_lit_fits_in_other_type(g, literal_node, expected_type)) {
-            return true;
-        } else {
-            *reported_err = true;
-        }
     }
 
 

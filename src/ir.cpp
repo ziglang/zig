@@ -88,16 +88,21 @@ static void ir_ref_var(VariableTableEntry *var) {
     var->ref_count += 1;
 }
 
-static IrBasicBlock *ir_build_basic_block(IrBuilder *irb, const char *name_hint) {
+static IrBasicBlock *ir_build_basic_block_raw(IrBuilder *irb, const char *name_hint) {
     IrBasicBlock *result = allocate<IrBasicBlock>(1);
     result->name_hint = name_hint;
     result->debug_id = exec_next_debug_id(irb->exec);
+    return result;
+}
+
+static IrBasicBlock *ir_build_basic_block(IrBuilder *irb, const char *name_hint) {
+    IrBasicBlock *result = ir_build_basic_block_raw(irb, name_hint);
     irb->exec->basic_block_list.append(result);
     return result;
 }
 
 static IrBasicBlock *ir_build_bb_from(IrBuilder *irb, IrBasicBlock *other_bb) {
-    IrBasicBlock *new_bb = ir_build_basic_block(irb, other_bb->name_hint);
+    IrBasicBlock *new_bb = ir_build_basic_block_raw(irb, other_bb->name_hint);
     ir_link_new_bb(new_bb, other_bb);
     return new_bb;
 }
@@ -252,6 +257,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionClz *) {
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCtz *) {
     return IrInstructionIdCtz;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumTag *) {
+    return IrInstructionIdEnumTag;
 }
 
 template<typename T>
@@ -612,6 +621,9 @@ static IrInstruction *ir_build_call_from(IrBuilder *irb, IrInstruction *old_inst
 static IrInstruction *ir_build_phi(IrBuilder *irb, AstNode *source_node,
         size_t incoming_count, IrBasicBlock **incoming_blocks, IrInstruction **incoming_values)
 {
+    assert(incoming_count != 0);
+    assert(incoming_count != SIZE_MAX);
+
     IrInstructionPhi *phi_instruction = ir_build_instruction<IrInstructionPhi>(irb, source_node);
     phi_instruction->incoming_count = incoming_count;
     phi_instruction->incoming_blocks = incoming_blocks;
@@ -993,6 +1005,8 @@ static IrInstruction *ir_build_switch_br(IrBuilder *irb, AstNode *source_node, I
         IrBasicBlock *else_block, size_t case_count, IrInstructionSwitchBrCase *cases, bool is_inline)
 {
     IrInstructionSwitchBr *instruction = ir_build_instruction<IrInstructionSwitchBr>(irb, source_node);
+    instruction->base.type_entry = irb->codegen->builtin_types.entry_unreachable;
+    instruction->base.static_value.special = ConstValSpecialStatic;
     instruction->target_value = target_value;
     instruction->else_block = else_block;
     instruction->case_count = case_count;
@@ -1008,6 +1022,16 @@ static IrInstruction *ir_build_switch_br(IrBuilder *irb, AstNode *source_node, I
     }
 
     return &instruction->base;
+}
+
+static IrInstruction *ir_build_switch_br_from(IrBuilder *irb, IrInstruction *old_instruction,
+        IrInstruction *target_value, IrBasicBlock *else_block, size_t case_count,
+        IrInstructionSwitchBrCase *cases, bool is_inline)
+{
+    IrInstruction *new_instruction = ir_build_switch_br(irb, old_instruction->source_node,
+            target_value, else_block, case_count, cases, is_inline);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
 }
 
 static IrInstruction *ir_build_switch_target(IrBuilder *irb, AstNode *source_node,
@@ -1032,6 +1056,21 @@ static IrInstruction *ir_build_switch_var(IrBuilder *irb, AstNode *source_node,
     ir_ref_instruction(prong_value);
 
     return &instruction->base;
+}
+
+static IrInstruction *ir_build_enum_tag(IrBuilder *irb, AstNode *source_node, IrInstruction *value) {
+    IrInstructionEnumTag *instruction = ir_build_instruction<IrInstructionEnumTag>(irb, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_enum_tag_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *value) {
+    IrInstruction *new_instruction = ir_build_enum_tag(irb, old_instruction->source_node, value);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
 }
 
 static void ir_gen_defers_for_block(IrBuilder *irb, BlockContext *inner_block, BlockContext *outer_block,
@@ -2149,7 +2188,7 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, AstNode *node) {
 
 static bool ir_gen_switch_prong_expr(IrBuilder *irb, AstNode *switch_node, AstNode *prong_node,
         IrBasicBlock *end_block, bool is_inline, IrInstruction *target_value_ptr, IrInstruction *prong_value,
-        ZigList<IrBasicBlock *> incoming_blocks, ZigList<IrInstruction *> incoming_values)
+        ZigList<IrBasicBlock *> *incoming_blocks, ZigList<IrInstruction *> *incoming_values)
 {
     assert(switch_node->type == NodeTypeSwitchExpr);
     assert(prong_node->type == NodeTypeSwitchProng);
@@ -2184,8 +2223,8 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, AstNode *switch_node, AstNo
     if (expr_result == irb->codegen->invalid_instruction)
         return false;
     ir_build_br(irb, switch_node, end_block, is_inline);
-    incoming_blocks.append(irb->current_basic_block);
-    incoming_values.append(expr_result);
+    incoming_blocks->append(irb->current_basic_block);
+    incoming_values->append(expr_result);
     return true;
 }
 
@@ -2222,11 +2261,14 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, AstNode *node) {
             }
             else_prong = prong_node;
 
+            IrBasicBlock *prev_block = irb->current_basic_block;
+            ir_set_cursor_at_end(irb, else_block);
             if (!ir_gen_switch_prong_expr(irb, node, prong_node, end_block,
-                is_inline, target_value_ptr, nullptr, incoming_blocks, incoming_values))
+                is_inline, target_value_ptr, nullptr, &incoming_blocks, &incoming_values))
             {
                 return irb->codegen->invalid_instruction;
             }
+            ir_set_cursor_at_end(irb, prev_block);
         } else {
             if (prong_node->data.switch_prong.any_items_are_range) {
                 IrInstruction *ok_bit = nullptr;
@@ -2235,6 +2277,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, AstNode *node) {
                     AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
                     last_item_node = item_node;
                     if (item_node->type == NodeTypeSwitchRange) {
+                        item_node->block_context = node->block_context;
                         AstNode *start_node = item_node->data.switch_range.start;
                         AstNode *end_node = item_node->data.switch_range.end;
 
@@ -2252,7 +2295,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, AstNode *node) {
                         IrInstruction *both_ok = ir_build_bin_op(irb, item_node, IrBinOpBoolAnd,
                                 lower_range_ok, upper_range_ok);
                         if (ok_bit) {
-                            ok_bit = ir_build_bin_op(irb, item_node, IrBinOpBoolAnd, both_ok, ok_bit);
+                            ok_bit = ir_build_bin_op(irb, item_node, IrBinOpBoolOr, both_ok, ok_bit);
                         } else {
                             ok_bit = both_ok;
                         }
@@ -2264,7 +2307,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, AstNode *node) {
                         IrInstruction *cmp_ok = ir_build_bin_op(irb, item_node, IrBinOpCmpEq,
                                 item_value, target_value);
                         if (ok_bit) {
-                            ok_bit = ir_build_bin_op(irb, item_node, IrBinOpBoolAnd, cmp_ok, ok_bit);
+                            ok_bit = ir_build_bin_op(irb, item_node, IrBinOpBoolOr, cmp_ok, ok_bit);
                         } else {
                             ok_bit = cmp_ok;
                         }
@@ -2280,13 +2323,16 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, AstNode *node) {
 
                 ir_set_cursor_at_end(irb, range_block_yes);
                 if (!ir_gen_switch_prong_expr(irb, node, prong_node, end_block,
-                    is_inline, target_value_ptr, nullptr, incoming_blocks, incoming_values))
+                    is_inline, target_value_ptr, nullptr, &incoming_blocks, &incoming_values))
                 {
                     return irb->codegen->invalid_instruction;
                 }
 
                 ir_set_cursor_at_end(irb, range_block_no);
             } else {
+                IrBasicBlock *prong_block = ir_build_basic_block(irb, "SwitchProng");
+                IrInstruction *last_item_value = nullptr;
+
                 for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
                     AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
                     assert(item_node->type != NodeTypeSwitchRange);
@@ -2295,22 +2341,24 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, AstNode *node) {
                     if (item_value == irb->codegen->invalid_instruction)
                         return irb->codegen->invalid_instruction;
 
-                    IrBasicBlock *prong_block = ir_build_basic_block(irb, "SwitchProng");
-                    IrBasicBlock *prev_block = irb->current_basic_block;
-                    ir_set_cursor_at_end(irb, prong_block);
-
-                    if (!ir_gen_switch_prong_expr(irb, node, prong_node, end_block,
-                        is_inline, target_value_ptr, item_value, incoming_blocks, incoming_values))
-                    {
-                        return irb->codegen->invalid_instruction;
-                    }
-
                     IrInstructionSwitchBrCase *this_case = cases.add_one();
                     this_case->value = item_value;
                     this_case->block = prong_block;
 
-                    ir_set_cursor_at_end(irb, prev_block);
+                    last_item_value = item_value;
                 }
+                IrInstruction *only_item_value = (prong_item_count == 1) ? last_item_value : nullptr;
+
+                IrBasicBlock *prev_block = irb->current_basic_block;
+                ir_set_cursor_at_end(irb, prong_block);
+                if (!ir_gen_switch_prong_expr(irb, node, prong_node, end_block,
+                    is_inline, target_value_ptr, only_item_value, &incoming_blocks, &incoming_values))
+                {
+                    return irb->codegen->invalid_instruction;
+                }
+
+                ir_set_cursor_at_end(irb, prev_block);
+
             }
         }
     }
@@ -2712,8 +2760,32 @@ static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
     if (old_bb->other)
         return old_bb->other;
     IrBasicBlock *new_bb = ir_build_bb_from(&ira->new_irb, old_bb);
+
+    // We are about to enqueue old_bb for analysis. Before we do so, check old_bb
+    // for phi instructions. Any incoming blocks in the phi instructions need to be
+    // queued first.
+    for (size_t instr_i = 0; instr_i < old_bb->instruction_list.length; instr_i += 1) {
+        IrInstruction *instruction = old_bb->instruction_list.at(instr_i);
+        if (instruction->id != IrInstructionIdPhi)
+            break;
+        IrInstructionPhi *phi_instruction = (IrInstructionPhi *)instruction;
+        for (size_t incoming_i = 0; incoming_i < phi_instruction->incoming_count; incoming_i += 1) {
+            IrBasicBlock *predecessor = phi_instruction->incoming_blocks[incoming_i];
+            ir_get_new_bb(ira, predecessor);
+        }
+    }
     ira->old_bb_queue.append(old_bb);
+
     return new_bb;
+}
+
+static void ir_start_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrBasicBlock *const_predecessor_bb) {
+    ira->instruction_index = 0;
+    ira->old_irb.current_basic_block = old_bb;
+    ira->const_predecessor_bb = const_predecessor_bb;
+
+    assert(old_bb->other);
+    ira->new_irb.exec->basic_block_list.append(old_bb->other);
 }
 
 static void ir_finish_bb(IrAnalyze *ira) {
@@ -2721,17 +2793,14 @@ static void ir_finish_bb(IrAnalyze *ira) {
 
     if (ira->block_queue_index < ira->old_bb_queue.length) {
         IrBasicBlock *old_bb = ira->old_bb_queue.at(ira->block_queue_index);
-        ira->instruction_index = 0;
         ira->new_irb.current_basic_block = ir_get_new_bb(ira, old_bb);
-        ira->old_irb.current_basic_block = old_bb;
-        ira->const_predecessor_bb = nullptr;
+
+        ir_start_bb(ira, old_bb, nullptr);
     }
 }
 
 static void ir_inline_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
-    ira->instruction_index = 0;
-    ira->const_predecessor_bb = ira->old_irb.current_basic_block;
-    ira->old_irb.current_basic_block = old_bb;
+    ir_start_bb(ira, old_bb, ira->old_irb.current_basic_block);
 }
 
 static TypeTableEntry *ir_finish_anal(IrAnalyze *ira, TypeTableEntry *result_type) {
@@ -3603,6 +3672,8 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
             return explicit_type;
     }
 
+    AstNode *source_node = decl_var_instruction->base.source_node;
+
     IrInstruction *casted_init_value = ir_get_casted_value(ira, init_value, explicit_type);
     TypeTableEntry *result_type = get_underlying_type(casted_init_value->type_entry);
     switch (result_type->id) {
@@ -3614,7 +3685,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
             if (is_export || is_extern || casted_init_value->static_value.special == ConstValSpecialRuntime) {
-                add_node_error(ira->codegen, var_type->source_node, buf_sprintf("unable to infer variable type"));
+                add_node_error(ira->codegen, source_node, buf_sprintf("unable to infer variable type"));
                 result_type = ira->codegen->builtin_types.entry_invalid;
             }
             break;
@@ -3622,14 +3693,14 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdVar:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdNullLit:
-            add_node_error(ira->codegen, var_type->source_node,
+            add_node_error(ira->codegen, source_node,
                 buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
             result_type = ira->codegen->builtin_types.entry_invalid;
             break;
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdNamespace:
             if (casted_init_value->static_value.special == ConstValSpecialRuntime) {
-                add_node_error(ira->codegen, var_type->source_node,
+                add_node_error(ira->codegen, source_node,
                     buf_sprintf("variable of type '%s' must be constant", buf_ptr(&result_type->name)));
                 result_type = ira->codegen->builtin_types.entry_invalid;
             }
@@ -4072,6 +4143,8 @@ static TypeTableEntry *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr
 
 static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructionCondBr *cond_br_instruction) {
     IrInstruction *condition = cond_br_instruction->condition->other;
+    if (condition->type_entry->id == TypeTableEntryIdInvalid)
+        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 
     // TODO detect backward jumps
 
@@ -4116,6 +4189,9 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
                 continue;
             IrInstruction *value = phi_instruction->incoming_values[i]->other;
             assert(value->type_entry);
+            if (value->type_entry->id == TypeTableEntryIdInvalid)
+                return ira->codegen->builtin_types.entry_invalid;
+
             if (value->static_value.special != ConstValSpecialRuntime) {
                 ConstExprValue *out_val = ir_build_const_from(ira, &phi_instruction->base,
                         value->static_value.depends_on_compile_var);
@@ -4141,7 +4217,10 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
 
         IrInstruction *old_value = phi_instruction->incoming_values[i];
         assert(old_value);
-        new_incoming_values.append(old_value->other);
+        IrInstruction *new_value = old_value->other;
+        if (new_value->type_entry->id == TypeTableEntryIdInvalid)
+            return ira->codegen->builtin_types.entry_invalid;
+        new_incoming_values.append(new_value);
     }
     assert(new_incoming_blocks.length != 0);
 
@@ -4155,6 +4234,21 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
             new_incoming_values.items, new_incoming_values.length);
     if (resolved_type->id == TypeTableEntryIdInvalid)
         return resolved_type;
+
+    if (resolved_type->id == TypeTableEntryIdNumLitFloat ||
+        resolved_type->id == TypeTableEntryIdNumLitInt)
+    {
+        add_node_error(ira->codegen, phi_instruction->base.source_node,
+                buf_sprintf("unable to infer expression type"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    // cast all literal values to the resolved type
+    for (size_t i = 0; i < new_incoming_values.length; i += 1) {
+        IrInstruction *new_value = new_incoming_values.at(i);
+        IrInstruction *casted_value = ir_get_casted_value(ira, new_value, resolved_type);
+        new_incoming_values.items[i] = casted_value;
+    }
 
     ir_build_phi_from(&ira->new_irb, &phi_instruction->base, new_incoming_blocks.length,
             new_incoming_blocks.items, new_incoming_values.items);
@@ -5114,19 +5208,135 @@ static TypeTableEntry *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionC
 static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         IrInstructionSwitchBr *switch_br_instruction)
 {
-    zig_panic("TODO switch br analyze");
+    IrInstruction *target_value = switch_br_instruction->target_value->other;
+    if (target_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+
+    // TODO detect backward jumps
+
+    size_t case_count = switch_br_instruction->case_count;
+    bool is_inline = switch_br_instruction->is_inline;
+
+    if (is_inline || target_value->static_value.special != ConstValSpecialRuntime) {
+        zig_panic("TODO compile time switch br");
+    }
+
+    IrInstructionSwitchBrCase *cases = allocate<IrInstructionSwitchBrCase>(case_count);
+    for (size_t i = 0; i < case_count; i += 1) {
+        IrInstructionSwitchBrCase *old_case = &switch_br_instruction->cases[i];
+        IrInstructionSwitchBrCase *new_case = &cases[i];
+        new_case->block = ir_get_new_bb(ira, old_case->block);
+        new_case->value = ira->codegen->invalid_instruction;
+
+        IrInstruction *old_value = old_case->value;
+        IrInstruction *new_value = old_value->other;
+        if (new_value->type_entry->id == TypeTableEntryIdInvalid)
+            continue;
+
+        IrInstruction *casted_new_value = ir_get_casted_value(ira, new_value, target_value->type_entry);
+        if (casted_new_value->type_entry->id == TypeTableEntryIdInvalid)
+            continue;
+
+        if (casted_new_value->static_value.special != ConstValSpecialStatic) {
+            add_node_error(ira->codegen, casted_new_value->source_node,
+                buf_sprintf("unable to evaluate constant expression"));
+            continue;
+        }
+
+        new_case->value = casted_new_value;
+    }
+
+    IrBasicBlock *new_else_block = ir_get_new_bb(ira, switch_br_instruction->else_block);
+    ir_build_switch_br_from(&ira->new_irb, &switch_br_instruction->base,
+            target_value, new_else_block, case_count, cases, is_inline);
+    return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
 
 static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         IrInstructionSwitchTarget *switch_target_instruction)
 {
-    zig_panic("TODO switch target analyze");
+    IrInstruction *target_value_ptr = switch_target_instruction->target_value_ptr->other;
+    if (target_value_ptr->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    assert(target_value_ptr->type_entry->id == TypeTableEntryIdPointer);
+    TypeTableEntry *target_type = target_value_ptr->type_entry->data.pointer.child_type;
+    bool depends_on_compile_var = target_value_ptr->static_value.depends_on_compile_var;
+    ConstExprValue *pointee_val = nullptr;
+    if (target_value_ptr->static_value.special != ConstValSpecialRuntime) {
+        pointee_val = const_ptr_pointee(&target_value_ptr->static_value);
+        if (pointee_val->special == ConstValSpecialRuntime)
+            pointee_val = nullptr;
+    }
+    TypeTableEntry *canon_target_type = get_underlying_type(target_type);
+    switch (canon_target_type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdTypeDecl:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdPureError:
+            if (pointee_val) {
+                ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base,
+                        depends_on_compile_var);
+                *out_val = *pointee_val;
+                return target_type;
+            }
+
+            ir_build_load_ptr_from(&ira->new_irb, &switch_target_instruction->base, target_value_ptr);
+            return target_type;
+        case TypeTableEntryIdEnum:
+            {
+                TypeTableEntry *tag_type = target_type->data.enumeration.tag_type;
+                if (pointee_val) {
+                    ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base,
+                            depends_on_compile_var);
+                    bignum_init_unsigned(&out_val->data.x_bignum, pointee_val->data.x_enum.tag);
+                    return tag_type;
+                }
+
+                ir_build_enum_tag_from(&ira->new_irb, &switch_target_instruction->base, target_value_ptr);
+                return tag_type;
+            }
+        case TypeTableEntryIdErrorUnion:
+            // see https://github.com/andrewrk/zig/issues/83
+            zig_panic("TODO switch on error union");
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdGenericFn:
+            add_node_error(ira->codegen, switch_target_instruction->base.source_node,
+                buf_sprintf("invalid switch target type '%s'", buf_ptr(&target_type->name)));
+            // TODO if this is a typedecl, add error note showing the declaration of the type decl
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+    zig_unreachable();
 }
 
 static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira,
         IrInstructionSwitchVar *switch_var_instruction)
 {
     zig_panic("TODO switch var analyze");
+}
+
+static TypeTableEntry *ir_analyze_instruction_enum_tag(IrAnalyze *ira,
+        IrInstructionEnumTag *enum_tag_instruction)
+{
+    zig_panic("TODO ir_analyze_instruction_enum_tag");
 }
 
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
@@ -5201,6 +5411,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_switch_target(ira, (IrInstructionSwitchTarget *)instruction);
         case IrInstructionIdSwitchVar:
             return ir_analyze_instruction_switch_var(ira, (IrInstructionSwitchVar *)instruction);
+        case IrInstructionIdEnumTag:
+            return ir_analyze_instruction_enum_tag(ira, (IrInstructionEnumTag *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
@@ -5247,10 +5459,10 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
     IrBasicBlock *old_entry_bb = ira->old_irb.exec->basic_block_list.at(0);
     IrBasicBlock *new_entry_bb = ir_get_new_bb(ira, old_entry_bb);
     ir_ref_bb(new_entry_bb);
-    ira->old_irb.current_basic_block = old_entry_bb;
     ira->new_irb.current_basic_block = new_entry_bb;
     ira->block_queue_index = 0;
-    ira->instruction_index = 0;
+
+    ir_start_bb(ira, old_entry_bb, nullptr);
 
     while (ira->block_queue_index < ira->old_bb_queue.length) {
         IrInstruction *old_instruction = ira->old_irb.current_basic_block->instruction_list.at(ira->instruction_index);
@@ -5319,6 +5531,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCtz:
         case IrInstructionIdSwitchVar:
         case IrInstructionIdSwitchTarget:
+        case IrInstructionIdEnumTag:
             return false;
         case IrInstructionIdAsm:
             {

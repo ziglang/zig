@@ -354,6 +354,9 @@ static void render_node_ungrouped(AstRender *ar, AstNode *node) {
 
 static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
     switch (node->type) {
+        case NodeTypeSwitchProng:
+        case NodeTypeSwitchRange:
+            zig_unreachable();
         case NodeTypeRoot:
             for (size_t i = 0; i < node->data.root.top_level_decls.length; i += 1) {
                 AstNode *child = node->data.root.top_level_decls.at(i);
@@ -728,6 +731,47 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 break;
             }
         case NodeTypeSwitchExpr:
+            {
+                AstNodeSwitchExpr *switch_expr = &node->data.switch_expr;
+                fprintf(ar->f, "switch (");
+                render_node_grouped(ar, switch_expr->expr);
+                fprintf(ar->f, ") {\n");
+                ar->indent += ar->indent_size;
+
+                for (size_t prong_i = 0; prong_i < switch_expr->prongs.length; prong_i += 1) {
+                    AstNode *prong_node = switch_expr->prongs.at(prong_i);
+                    AstNodeSwitchProng *switch_prong = &prong_node->data.switch_prong;
+                    print_indent(ar);
+                    for (size_t item_i = 0; item_i < switch_prong->items.length; item_i += 1) {
+                        AstNode *item_node = switch_prong->items.at(item_i);
+                        if (item_i != 0)
+                            fprintf(ar->f, ", ");
+                        if (item_node->type == NodeTypeSwitchRange) {
+                            AstNode *start_node = item_node->data.switch_range.start;
+                            AstNode *end_node = item_node->data.switch_range.end;
+                            render_node_grouped(ar, start_node);
+                            fprintf(ar->f, "...");
+                            render_node_grouped(ar, end_node);
+                        } else {
+                            render_node_grouped(ar, item_node);
+                        }
+                    }
+                    const char *else_str = (switch_prong->items.length == 0) ? "else" : "";
+                    fprintf(ar->f, "%s => ", else_str);
+                    if (switch_prong->var_symbol) {
+                        const char *star_str = switch_prong->var_is_ptr ? "*" : "";
+                        Buf *var_name = switch_prong->var_symbol->data.symbol_expr.symbol;
+                        fprintf(ar->f, "|%s%s| ", star_str, buf_ptr(var_name));
+                    }
+                    render_node_grouped(ar, switch_prong->expr);
+                    fprintf(ar->f, ",\n");
+                }
+
+                ar->indent -= ar->indent_size;
+                print_indent(ar);
+                fprintf(ar->f, "}");
+                break;
+            }
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
@@ -738,8 +782,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeUse:
         case NodeTypeZeroesLiteral:
         case NodeTypeForExpr:
-        case NodeTypeSwitchProng:
-        case NodeTypeSwitchRange:
         case NodeTypeLabel:
         case NodeTypeGoto:
         case NodeTypeBreak:

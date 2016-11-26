@@ -1638,6 +1638,31 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstru
     return LLVMBuildCall(g->builder, fn_val, params, 2, "");
 }
 
+static LLVMValueRef ir_render_switch_br(CodeGen *g, IrExecutable *executable, IrInstructionSwitchBr *instruction) {
+    assert(!instruction->is_inline);
+
+    LLVMValueRef target_value = ir_llvm_value(g, instruction->target_value);
+    LLVMBasicBlockRef else_block = instruction->else_block->llvm_block;
+    LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, target_value, else_block, instruction->case_count);
+    for (size_t i = 0; i < instruction->case_count; i += 1) {
+        IrInstructionSwitchBrCase *this_case = &instruction->cases[i];
+        LLVMAddCase(switch_instr, ir_llvm_value(g, this_case->value), this_case->block->llvm_block);
+    }
+    return nullptr;
+}
+
+static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutable *executable, IrInstructionPhi *instruction) {
+    LLVMValueRef phi = LLVMBuildPhi(g->builder, instruction->base.type_entry->type_ref, "");
+    LLVMValueRef *incoming_values = allocate<LLVMValueRef>(instruction->incoming_count);
+    LLVMBasicBlockRef *incoming_blocks = allocate<LLVMBasicBlockRef>(instruction->incoming_count);
+    for (size_t i = 0; i < instruction->incoming_count; i += 1) {
+        incoming_values[i] = ir_llvm_value(g, instruction->incoming_values[i]);
+        incoming_blocks[i] = instruction->incoming_blocks[i]->llvm_block;
+    }
+    LLVMAddIncoming(phi, incoming_values, incoming_blocks, instruction->incoming_count);
+    return phi;
+}
+
 static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {
     set_debug_source_node(g, instruction->source_node);
 
@@ -1655,6 +1680,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSliceType:
         case IrInstructionIdCompileVar:
         case IrInstructionIdSizeOf:
+        case IrInstructionIdSwitchTarget:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -1695,12 +1721,14 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCtz:
             return ir_render_ctz(g, executable, (IrInstructionCtz *)instruction);
         case IrInstructionIdSwitchBr:
-        case IrInstructionIdSwitchTarget:
-        case IrInstructionIdSwitchVar:
+            return ir_render_switch_br(g, executable, (IrInstructionSwitchBr *)instruction);
         case IrInstructionIdPhi:
+            return ir_render_phi(g, executable, (IrInstructionPhi *)instruction);
+        case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdReadField:
+        case IrInstructionIdEnumTag:
             zig_panic("TODO render more IR instructions to LLVM");
     }
     zig_unreachable();

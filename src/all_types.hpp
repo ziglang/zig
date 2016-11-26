@@ -1455,6 +1455,7 @@ enum IrInstructionId {
     IrInstructionIdSizeOf,
     IrInstructionIdTestNull,
     IrInstructionIdUnwrapMaybe,
+    IrInstructionIdEnumTag,
     IrInstructionIdClz,
     IrInstructionIdCtz,
 };
@@ -1796,6 +1797,12 @@ struct IrInstructionCtz {
 };
 
 struct IrInstructionClz {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionEnumTag {
     IrInstruction base;
 
     IrInstruction *value;
