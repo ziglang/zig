@@ -557,6 +557,7 @@ struct AstNodeForExpr {
 struct AstNodeSwitchExpr {
     AstNode *expr;
     ZigList<AstNode *> prongs;
+    bool is_inline;
 
     // populated by semantic analyzer
     Expr resolved_expr;

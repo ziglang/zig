@@ -73,7 +73,7 @@ AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&
 
 BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression
 
-SwitchExpression = "switch" "(" Expression ")" "{" many(SwitchProng) "}"
+SwitchExpression = option("inline") "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 
 SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" option("*") Symbol "|") Expression ","
 

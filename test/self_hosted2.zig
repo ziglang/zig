@@ -49,6 +49,18 @@ fn testSwitchWithAllRanges(x: u32, y: u32) -> u32 {
     }
 }
 
+fn testInlineSwitch() {
+    const x = 3 + 4;
+    const result = inline switch (x) {
+        3 => 10,
+        4 => 11,
+        5, 6 => 12,
+        7, 8 => 13,
+        else => 14,
+    };
+    assert(result + 1 == 14);
+}
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -60,6 +72,7 @@ fn runAllTests() {
     inlinedLoop();
     switchWithNumbers();
     switchWithAllRanges();
+    testInlineSwitch();
 }
 
 export nakedcc fn _start() -> unreachable {

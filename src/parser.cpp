@@ -1642,23 +1642,36 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, size_t *token_index, bool m
 }
 
 /*
-SwitchExpression : "switch" "(" Expression ")" "{" many(SwitchProng) "}"
+SwitchExpression = option("inline") "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" option("*") Symbol "|") Expression ","
 SwitchItem : Expression | (Expression "..." Expression)
 */
 static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *token = &pc->tokens->at(*token_index);
-
-    if (token->id != TokenIdKeywordSwitch) {
-        if (mandatory) {
-            ast_expect_token(pc, token, TokenIdKeywordSwitch);
+    Token *first_token = &pc->tokens->at(*token_index);
+    Token *switch_token;
+    bool is_inline;
+    if (first_token->id == TokenIdKeywordInline) {
+        is_inline = true;
+        switch_token = &pc->tokens->at(*token_index + 1);
+        if (switch_token->id == TokenIdKeywordSwitch) {
+            *token_index += 2;
+        } else if (mandatory) {
+            ast_expect_token(pc, first_token, TokenIdKeywordSwitch);
         } else {
             return nullptr;
         }
+    } else if (first_token->id == TokenIdKeywordSwitch) {
+        is_inline = false;
+        switch_token = first_token;
+        *token_index += 1;
+    } else if (mandatory) {
+        ast_expect_token(pc, first_token, TokenIdKeywordSwitch);
+    } else {
+        return nullptr;
     }
-    *token_index += 1;
 
-    AstNode *node = ast_create_node(pc, NodeTypeSwitchExpr, token);
+    AstNode *node = ast_create_node(pc, NodeTypeSwitchExpr, switch_token);
+    node->data.switch_expr.is_inline = is_inline;
 
     ast_eat_token(pc, token_index, TokenIdLParen);
     node->data.switch_expr.expr = ast_parse_expression(pc, token_index, true);
