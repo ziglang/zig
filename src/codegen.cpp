@@ -1681,6 +1681,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCompileVar:
         case IrInstructionIdSizeOf:
         case IrInstructionIdSwitchTarget:
+        case IrInstructionIdStaticEval:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -2968,7 +2969,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCDefine, "cDefine", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCUndef, "cUndef", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileVar, "compileVar", 1);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdConstEval, "constEval", 1);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdStaticEval, "staticEval", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCtz, "ctz", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdClz, "clz", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdImport, "import", 1);

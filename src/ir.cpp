@@ -263,6 +263,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumTag *) {
     return IrInstructionIdEnumTag;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionStaticEval *) {
+    return IrInstructionIdStaticEval;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1074,6 +1078,15 @@ static IrInstruction *ir_build_enum_tag_from(IrBuilder *irb, IrInstruction *old_
     return new_instruction;
 }
 
+static IrInstruction *ir_build_static_eval(IrBuilder *irb, AstNode *source_node, IrInstruction *value) {
+    IrInstructionStaticEval *instruction = ir_build_instruction<IrInstructionStaticEval>(irb, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value);
+
+    return &instruction->base;
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, BlockContext *inner_block, BlockContext *outer_block,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -1606,6 +1619,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, AstNode *node) {
 
                 return ir_build_clz(irb, node, arg0_value);
             }
+        case BuiltinFnIdStaticEval:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, node->block_context);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_static_eval(irb, node, arg0_value);
+            }
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdAlignof:
@@ -1620,7 +1642,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, AstNode *node) {
         case BuiltinFnIdCDefine:
         case BuiltinFnIdCUndef:
         case BuiltinFnIdCompileErr:
-        case BuiltinFnIdConstEval:
         case BuiltinFnIdImport:
         case BuiltinFnIdCImport:
         case BuiltinFnIdErrName:
@@ -2285,14 +2306,18 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, AstNode *node) {
                         IrInstruction *start_value = ir_gen_node(irb, start_node, node->block_context);
                         if (start_value == irb->codegen->invalid_instruction)
                             return irb->codegen->invalid_instruction;
+
                         IrInstruction *end_value = ir_gen_node(irb, end_node, node->block_context);
                         if (end_value == irb->codegen->invalid_instruction)
                             return irb->codegen->invalid_instruction;
 
+                        IrInstruction *start_value_const = ir_build_static_eval(irb, start_node, start_value);
+                        IrInstruction *end_value_const = ir_build_static_eval(irb, start_node, end_value);
+
                         IrInstruction *lower_range_ok = ir_build_bin_op(irb, item_node, IrBinOpCmpGreaterOrEq,
-                                target_value, start_value);
+                                target_value, start_value_const);
                         IrInstruction *upper_range_ok = ir_build_bin_op(irb, item_node, IrBinOpCmpLessOrEq,
-                                target_value, end_value);
+                                target_value, end_value_const);
                         IrInstruction *both_ok = ir_build_bin_op(irb, item_node, IrBinOpBoolAnd,
                                 lower_range_ok, upper_range_ok);
                         if (ok_bit) {
@@ -3291,16 +3316,21 @@ static TypeTableEntry *ir_analyze_instruction_const(IrAnalyze *ira, IrInstructio
 }
 
 static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
-    IrInstruction *op1 = bin_op_instruction->op1;
-    IrInstruction *op2 = bin_op_instruction->op2;
+    IrInstruction *op1 = bin_op_instruction->op1->other;
+    if (op1->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *op2 = bin_op_instruction->op2->other;
+    if (op2->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *bool_type = ira->codegen->builtin_types.entry_bool;
 
-    IrInstruction *casted_op1 = ir_get_casted_value(ira, op1->other, bool_type);
+    IrInstruction *casted_op1 = ir_get_casted_value(ira, op1, bool_type);
     if (casted_op1 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    IrInstruction *casted_op2 = ir_get_casted_value(ira, op2->other, bool_type);
+    IrInstruction *casted_op2 = ir_get_casted_value(ira, op2, bool_type);
     if (casted_op2 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -3310,8 +3340,8 @@ static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp
         bool depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
         ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base, depends_on_compile_var);
 
-        assert(op1->type_entry->id == TypeTableEntryIdBool);
-        assert(op2->type_entry->id == TypeTableEntryIdBool);
+        assert(casted_op1->type_entry->id == TypeTableEntryIdBool);
+        assert(casted_op2->type_entry->id == TypeTableEntryIdBool);
         if (bin_op_instruction->op_id == IrBinOpBoolOr) {
             out_val->data.x_bool = op1_val->data.x_bool || op2_val->data.x_bool;
         } else if (bin_op_instruction->op_id == IrBinOpBoolAnd) {
@@ -3322,7 +3352,7 @@ static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp
         return bool_type;
     }
 
-    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, bin_op_instruction->op_id, op1->other, op2->other);
+    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, bin_op_instruction->op_id, casted_op1, casted_op2);
     return bool_type;
 }
 
@@ -5238,11 +5268,8 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         if (casted_new_value->type_entry->id == TypeTableEntryIdInvalid)
             continue;
 
-        if (casted_new_value->static_value.special != ConstValSpecialStatic) {
-            add_node_error(ira->codegen, casted_new_value->source_node,
-                buf_sprintf("unable to evaluate constant expression"));
+        if (!ir_resolve_const(ira, casted_new_value))
             continue;
-        }
 
         new_case->value = casted_new_value;
     }
@@ -5340,6 +5367,22 @@ static TypeTableEntry *ir_analyze_instruction_enum_tag(IrAnalyze *ira,
     zig_panic("TODO ir_analyze_instruction_enum_tag");
 }
 
+static TypeTableEntry *ir_analyze_instruction_static_eval(IrAnalyze *ira,
+        IrInstructionStaticEval *static_eval_instruction)
+{
+    IrInstruction *value = static_eval_instruction->value->other;
+    if (value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ConstExprValue *val = ir_resolve_const(ira, value);
+    if (!val)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ConstExprValue *out_val = ir_build_const_from(ira, &static_eval_instruction->base, val->depends_on_compile_var);
+    *out_val = *val;
+    return value->type_entry;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -5414,6 +5457,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_switch_var(ira, (IrInstructionSwitchVar *)instruction);
         case IrInstructionIdEnumTag:
             return ir_analyze_instruction_enum_tag(ira, (IrInstructionEnumTag *)instruction);
+        case IrInstructionIdStaticEval:
+            return ir_analyze_instruction_static_eval(ira, (IrInstructionStaticEval *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
@@ -5533,6 +5578,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSwitchVar:
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdEnumTag:
+        case IrInstructionIdStaticEval:
             return false;
         case IrInstructionIdAsm:
             {
@@ -6243,26 +6289,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //        case BuiltinFnIdCUndef:
 //            zig_panic("TODO");
 //
-//        case BuiltinFnIdConstEval:
-//            {
-//                AstNode **expr_node = node->data.fn_call_expr.params.at(0)->parent_field;
-//                TypeTableEntry *resolved_type = analyze_expression(g, import, context, expected_type, *expr_node);
-//                if (resolved_type->id == TypeTableEntryIdInvalid) {
-//                    return resolved_type;
-//                }
-//
-//                ConstExprValue *const_expr_val = &get_resolved_expr(*expr_node)->const_val;
-//
-//                if (!const_expr_val->ok) {
-//                    add_node_error(g, *expr_node, buf_sprintf("unable to evaluate constant expression"));
-//                    return g->builtin_types.entry_invalid;
-//                }
-//
-//                ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-//                *const_val = *const_expr_val;
-//
-//                return resolved_type;
-//            }
 //        case BuiltinFnIdImport:
 //            return analyze_import(g, import, context, node);
 //        case BuiltinFnIdCImport:
@@ -8553,7 +8579,6 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //        case BuiltinFnIdMinValue:
 //        case BuiltinFnIdMaxValue:
 //        case BuiltinFnIdMemberCount:
-//        case BuiltinFnIdConstEval:
 //        case BuiltinFnIdEmbedFile:
 //            // caught by constant expression eval codegen
 //            zig_unreachable();

@@ -1146,7 +1146,7 @@ enum BuiltinFnId {
     BuiltinFnIdCUndef,
     BuiltinFnIdCompileVar,
     BuiltinFnIdCompileErr,
-    BuiltinFnIdConstEval,
+    BuiltinFnIdStaticEval,
     BuiltinFnIdCtz,
     BuiltinFnIdClz,
     BuiltinFnIdImport,
@@ -1458,6 +1458,7 @@ enum IrInstructionId {
     IrInstructionIdEnumTag,
     IrInstructionIdClz,
     IrInstructionIdCtz,
+    IrInstructionIdStaticEval,
 };
 
 struct IrInstruction {
@@ -1803,6 +1804,12 @@ struct IrInstructionClz {
 };
 
 struct IrInstructionEnumTag {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionStaticEval {
     IrInstruction base;
 
     IrInstruction *value;

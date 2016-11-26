@@ -531,7 +531,7 @@ Build scripts can set additional compile variables of any name and type.
 The result of this function is a compile time constant that is marked as
 depending on a compile variable.
 
-### @constEval(expression) -> @typeof(expression)
+### @staticEval(expression) -> @typeOf(expression)
 
 This function wraps an expression and generates a compile error if the
 expression is not known at compile time.
