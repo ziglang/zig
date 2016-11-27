@@ -2640,15 +2640,16 @@ IrInstruction *ir_gen(CodeGen *codegen, AstNode *node, BlockContext *scope, IrEx
 
     IrInstruction *result = ir_gen_node_extra(irb, node, scope, LValPurposeNone);
     assert(result);
+    if (irb->exec->invalid)
+        return codegen->invalid_instruction;
 
     IrInstruction *return_instruction = ir_build_return(irb, result->source_node, result);
     assert(return_instruction);
 
-    if (result == codegen->invalid_instruction)
+    if (!ir_goto_pass2(irb)) {
+        irb->exec->invalid = true;
         return codegen->invalid_instruction;
-
-    if (!ir_goto_pass2(irb))
-        return codegen->invalid_instruction;
+    }
 
     return return_instruction;
 }
