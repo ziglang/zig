@@ -4012,10 +4012,14 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
 }
 
 static TypeTableEntry *ir_analyze_unary_bool_not(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
+    IrInstruction *value = un_op_instruction->value->other;
+    if (value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
     TypeTableEntry *bool_type = ira->codegen->builtin_types.entry_bool;
 
-    IrInstruction *casted_value = ir_get_casted_value(ira, un_op_instruction->value->other, bool_type);
-    if (casted_value == ira->codegen->invalid_instruction)
+    IrInstruction *casted_value = ir_get_casted_value(ira, value, bool_type);
+    if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     ConstExprValue *operand_val = &casted_value->static_value;
