@@ -76,11 +76,13 @@ static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
 }
 
 static void ast_update_node_line_info(AstNode *node, Token *first_token) {
+    assert(first_token);
     node->line = first_token->start_line;
     node->column = first_token->start_column;
 }
 
 static AstNode *ast_create_node(ParseContext *pc, NodeType type, Token *first_token) {
+    assert(first_token);
     AstNode *node = ast_create_node_no_line_info(pc, type);
     ast_update_node_line_info(node, first_token);
     return node;
@@ -1541,6 +1543,7 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, size_t *token_index, bool
             return nullptr;
         }
     } else if (first_token->id == TokenIdKeywordWhile) {
+        while_token = first_token;
         is_inline = false;
         *token_index += 1;
     } else if (mandatory) {
