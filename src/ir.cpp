@@ -643,8 +643,8 @@ static IrInstruction *ir_build_phi_from(IrBuilder *irb, IrInstruction *old_instr
     return new_instruction;
 }
 
-static IrInstruction *ir_build_br(IrBuilder *irb, AstNode *source_node, IrBasicBlock *dest_block, bool is_inline) {
-    IrInstructionBr *br_instruction = ir_build_instruction<IrInstructionBr>(irb, source_node);
+static IrInstruction *ir_create_br(IrBuilder *irb, AstNode *source_node, IrBasicBlock *dest_block, bool is_inline) {
+    IrInstructionBr *br_instruction = ir_create_instruction<IrInstructionBr>(irb->exec, source_node);
     br_instruction->base.type_entry = irb->codegen->builtin_types.entry_unreachable;
     br_instruction->base.static_value.special = ConstValSpecialStatic;
     br_instruction->dest_block = dest_block;
@@ -653,6 +653,12 @@ static IrInstruction *ir_build_br(IrBuilder *irb, AstNode *source_node, IrBasicB
     ir_ref_bb(dest_block);
 
     return &br_instruction->base;
+}
+
+static IrInstruction *ir_build_br(IrBuilder *irb, AstNode *source_node, IrBasicBlock *dest_block, bool is_inline) {
+    IrInstruction *instruction = ir_create_br(irb, source_node, dest_block, is_inline);
+    ir_instruction_append(irb->current_basic_block, instruction);
+    return instruction;
 }
 
 static IrInstruction *ir_build_br_from(IrBuilder *irb, IrInstruction *old_instruction, IrBasicBlock *dest_block) {
@@ -2438,6 +2444,55 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, AstNode *node) {
     return ir_build_phi(irb, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
 }
 
+static LabelTableEntry *find_label(IrExecutable *exec, BlockContext *orig_context, Buf *name) {
+    BlockContext *context = orig_context;
+    while (context) {
+        auto entry = context->label_table.maybe_get(name);
+        if (entry) {
+            return entry->value;
+        }
+        context = context->parent;
+    }
+    return nullptr;
+}
+
+static IrInstruction *ir_gen_label(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeLabel);
+
+    Buf *label_name = node->data.label.name;
+    IrBasicBlock *label_block = ir_build_basic_block(irb, buf_ptr(label_name));
+    LabelTableEntry *label = allocate<LabelTableEntry>(1);
+    label->decl_node = node;
+    label->bb = label_block;
+    irb->exec->all_labels.append(label);
+
+    LabelTableEntry *existing_label = find_label(irb->exec, node->block_context, label_name);
+    if (existing_label) {
+        ErrorMsg *msg = add_node_error(irb->codegen, node,
+            buf_sprintf("duplicate label name '%s'", buf_ptr(label_name)));
+        add_error_note(irb->codegen, msg, existing_label->decl_node, buf_sprintf("other label here"));
+        return irb->codegen->invalid_instruction;
+    } else {
+        node->block_context->label_table.put(label_name, label);
+    }
+
+    bool is_inline = (node->block_context->fn_entry == nullptr);
+    ir_build_br(irb, node, label_block, is_inline);
+    ir_set_cursor_at_end(irb, label_block);
+    return ir_build_const_void(irb, node);
+}
+
+static IrInstruction *ir_gen_goto(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeGoto);
+
+    // make a placeholder unreachable statement and a note to come back and
+    // replace the instruction with a branch instruction
+    node->data.goto_expr.bb = irb->current_basic_block;
+    node->data.goto_expr.instruction_index = irb->current_basic_block->instruction_list.length;
+    irb->exec->goto_list.append(node);
+    return ir_build_unreachable(irb, node);
+}
+
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, BlockContext *block_context,
         LValPurpose lval)
 {
@@ -2491,13 +2546,15 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, BlockContex
             return ir_gen_if_var_expr(irb, node);
         case NodeTypeSwitchExpr:
             return ir_gen_switch_expr(irb, node);
+        case NodeTypeLabel:
+            return ir_gen_label(irb, node);
+        case NodeTypeGoto:
+            return ir_gen_goto(irb, node);
         case NodeTypeUnwrapErrorExpr:
         case NodeTypeDefer:
         case NodeTypeSliceExpr:
-        case NodeTypeGoto:
         case NodeTypeBreak:
         case NodeTypeContinue:
-        case NodeTypeLabel:
         case NodeTypeCharLiteral:
         case NodeTypeZeroesLiteral:
         case NodeTypeErrorType:
@@ -2533,11 +2590,46 @@ static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, BlockContext *s
     return ir_gen_node_extra(irb, node, scope, LValPurposeNone);
 }
 
+static bool ir_goto_pass2(IrBuilder *irb) {
+    for (size_t i = 0; i < irb->exec->goto_list.length; i += 1) {
+        AstNode *goto_node = irb->exec->goto_list.at(i);
+        size_t instruction_index = goto_node->data.goto_expr.instruction_index;
+        IrInstruction **slot = &goto_node->data.goto_expr.bb->instruction_list.at(instruction_index);
+        IrInstruction *old_instruction = *slot;
+
+        Buf *label_name = goto_node->data.goto_expr.name;
+        LabelTableEntry *label = find_label(irb->exec, goto_node->block_context, label_name);
+        if (!label) {
+            add_node_error(irb->codegen, goto_node,
+                buf_sprintf("no label in scope named '%s'", buf_ptr(label_name)));
+            return false;
+        }
+        label->used = true;
+
+        bool is_inline = goto_node->data.goto_expr.is_inline || (goto_node->block_context->fn_entry == nullptr);
+        IrInstruction *new_instruction = ir_create_br(irb, goto_node, label->bb, is_inline);
+        new_instruction->ref_count = old_instruction->ref_count;
+        *slot = new_instruction;
+    }
+
+    for (size_t i = 0; i < irb->exec->all_labels.length; i += 1) {
+        LabelTableEntry *label = irb->exec->all_labels.at(i);
+        if (!label->used) {
+            add_node_error(irb->codegen, label->decl_node,
+                    buf_sprintf("label '%s' defined but not used",
+                        buf_ptr(label->decl_node->data.label.name)));
+            return false;
+        }
+    }
+
+    return true;
+}
+
 IrInstruction *ir_gen(CodeGen *codegen, AstNode *node, BlockContext *scope, IrExecutable *ir_executable) {
     assert(node->owner);
 
-    IrBuilder ir_gen = {0};
-    IrBuilder *irb = &ir_gen;
+    IrBuilder ir_builder = {0};
+    IrBuilder *irb = &ir_builder;
 
     irb->codegen = codegen;
     irb->exec = ir_executable;
@@ -2549,10 +2641,16 @@ IrInstruction *ir_gen(CodeGen *codegen, AstNode *node, BlockContext *scope, IrEx
     IrInstruction *result = ir_gen_node_extra(irb, node, scope, LValPurposeNone);
     assert(result);
 
-    if (result == codegen->invalid_instruction)
-        return result;
+    IrInstruction *return_instruction = ir_build_return(irb, result->source_node, result);
+    assert(return_instruction);
 
-    return ir_build_return(irb, result->source_node, result);
+    if (result == codegen->invalid_instruction)
+        return codegen->invalid_instruction;
+
+    if (!ir_goto_pass2(irb))
+        return codegen->invalid_instruction;
+
+    return return_instruction;
 }
 
 IrInstruction *ir_gen_fn(CodeGen *codegn, FnTableEntry *fn_entry) {
@@ -7241,19 +7339,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //    }
 //    zig_unreachable();
 //}
-//static TypeTableEntry *analyze_goto_pass1(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-//        TypeTableEntry *expected_type, AstNode *node)
-//{
-//    assert(node->type == NodeTypeGoto);
-//
-//    FnTableEntry *fn_table_entry = context->fn_entry;
-//    assert(fn_table_entry);
-//
-//    fn_table_entry->goto_list.append(node);
-//
-//    return g->builtin_types.entry_unreachable;
-//}
-//
 //static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
 //        AstNode *field_access_node, AstNode *value_node, TypeTableEntry *enum_type, Buf *field_name,
 //        AstNode *out_node)
@@ -7710,69 +7795,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //    return g->builtin_types.entry_void;
 //}
 //
-//static TypeTableEntry *analyze_block_expr(CodeGen *g, ImportTableEntry *import, BlockContext *parent_context,
-//        TypeTableEntry *expected_type, AstNode *node)
-//{
-//    BlockContext *child_context = new_block_context(node, parent_context);
-//    node->data.block.child_block = child_context;
-//    TypeTableEntry *return_type = g->builtin_types.entry_void;
-//
-//    for (size_t i = 0; i < node->data.block.statements.length; i += 1) {
-//        AstNode *child = node->data.block.statements.at(i);
-//        if (child->type == NodeTypeLabel) {
-//            FnTableEntry *fn_table_entry = child_context->fn_entry;
-//            assert(fn_table_entry);
-//
-//            LabelTableEntry *label = allocate<LabelTableEntry>(1);
-//            label->decl_node = child;
-//            label->entered_from_fallthrough = (return_type->id != TypeTableEntryIdUnreachable);
-//
-//            child->block_context = child_context;
-//            child->data.label.label_entry = label;
-//            fn_table_entry->all_labels.append(label);
-//
-//            child_context->label_table.put(child->data.label.name, label);
-//
-//            return_type = g->builtin_types.entry_void;
-//            continue;
-//        }
-//        if (return_type->id == TypeTableEntryIdUnreachable) {
-//            if (is_node_void_expr(child)) {
-//                // {unreachable;void;void} is allowed.
-//                // ignore void statements once we enter unreachable land.
-//                analyze_expression(g, import, child_context, g->builtin_types.entry_void, child);
-//                continue;
-//            }
-//            add_node_error(g, first_executing_node(child), buf_sprintf("unreachable code"));
-//            break;
-//        }
-//        bool is_last = (i == node->data.block.statements.length - 1);
-//        TypeTableEntry *passed_expected_type = is_last ? expected_type : nullptr;
-//        return_type = analyze_expression(g, import, child_context, passed_expected_type, child);
-//        if (child->type == NodeTypeDefer && return_type->id != TypeTableEntryIdInvalid) {
-//            // defer starts a new block context
-//            child_context = child->data.defer.child_block;
-//            assert(child_context);
-//        }
-//        if (!is_last) {
-//            validate_voided_expr(g, child, return_type);
-//        }
-//    }
-//    node->data.block.nested_block = child_context;
-//
-//    ConstExprValue *const_val = &node->data.block.resolved_expr.const_val;
-//    if (node->data.block.statements.length == 0) {
-//        const_val->ok = true;
-//    } else if (node->data.block.statements.length == 1) {
-//        AstNode *only_node = node->data.block.statements.at(0);
-//        ConstExprValue *other_const_val = &get_resolved_expr(only_node)->const_val;
-//        if (other_const_val->ok) {
-//            *const_val = *other_const_val;
-//        }
-//    }
-//
-//    return return_type;
-//}
 //
 //static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
 //        BlockContext *context, AstNode *node, Buf *err_name)
@@ -7841,51 +7863,6 @@ IrInstruction *ir_exec_const_result(IrExecutable *exec) {
 //
 //    return ir_build_return(irb, source_node, value);
 //}
-/*
-static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *node) {
-    assert(node->type == NodeTypeGoto);
-    Buf *label_name = node->data.goto_expr.name;
-    BlockContext *context = node->block_context;
-    assert(context);
-    LabelTableEntry *label = find_label(g, context, label_name);
-
-    if (!label) {
-        add_node_error(g, node, buf_sprintf("no label in scope named '%s'", buf_ptr(label_name)));
-        return;
-    }
-
-    label->used = true;
-    node->data.goto_expr.label_entry = label;
-}
-
-    for (size_t i = 0; i < fn_table_entry->goto_list.length; i += 1) {
-        AstNode *goto_node = fn_table_entry->goto_list.at(i);
-        assert(goto_node->type == NodeTypeGoto);
-        analyze_goto_pass2(g, import, goto_node);
-    }
-
-    for (size_t i = 0; i < fn_table_entry->all_labels.length; i += 1) {
-        LabelTableEntry *label = fn_table_entry->all_labels.at(i);
-        if (!label->used) {
-            add_node_error(g, label->decl_node,
-                    buf_sprintf("label '%s' defined but not used",
-                        buf_ptr(label->decl_node->data.label.name)));
-        }
-    }
-*/
-
-//static LabelTableEntry *find_label(CodeGen *g, BlockContext *orig_context, Buf *name) {
-//    BlockContext *context = orig_context;
-//    while (context && context->fn_entry) {
-//        auto entry = context->label_table.maybe_get(name);
-//        if (entry) {
-//            return entry->value;
-//        }
-//        context = context->parent;
-//    }
-//    return nullptr;
-//}
-
 //
 //static LLVMValueRef gen_err_name(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeFnCallExpr);
@@ -9180,20 +9157,6 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //    return nullptr;
 //}
 //
-//static LLVMValueRef gen_goto(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeGoto);
-//
-//    // generate defers for blocks that we exit
-//    LabelTableEntry *label = node->data.goto_expr.label_entry;
-//    BlockContext *this_context = node->block_context;
-//    BlockContext *target_context = label->decl_node->block_context;
-//    gen_defers_for_block(g, this_context, target_context, false, false);
-//
-//    set_debug_source_node(g, node);
-//    LLVMBuildBr(g->builder, node->data.goto_expr.label_entry->basic_block);
-//    return nullptr;
-//}
-//
 //static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
 //    AstNode *init_expr = node->data.variable_declaration.expr;
 //    if (node->data.variable_declaration.is_const && init_expr) {
@@ -9248,19 +9211,4 @@ static void analyze_goto_pass2(CodeGen *g, ImportTableEntry *import, AstNode *no
 //        inner_block = inner_block->parent;
 //    }
 //    return result;
-//}
-//
-//static LLVMValueRef gen_label(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeLabel);
-//
-//    LabelTableEntry *label = node->data.label.label_entry;
-//    assert(label);
-//
-//    LLVMBasicBlockRef basic_block = label->basic_block;
-//    if (label->entered_from_fallthrough) {
-//        set_debug_source_node(g, node);
-//        LLVMBuildBr(g->builder, basic_block);
-//    }
-//    LLVMPositionBuilderAtEnd(g->builder, basic_block);
-//    return nullptr;
 //}

@@ -67,6 +67,23 @@ fn testNamespaceFnCall() {
     assert(case_namespace_fn_call.foo() == 1234);
 }
 
+fn gotoAndLabels() {
+    gotoLoop();
+    assert(goto_counter == 10);
+}
+fn gotoLoop() {
+    var i: i32 = 0;
+    goto cond;
+loop:
+    i += 1;
+cond:
+    if (!(i < 10)) goto end;
+    goto_counter += 1;
+    goto loop;
+end:
+}
+var goto_counter: i32 = 0;
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -80,6 +97,7 @@ fn runAllTests() {
     switchWithAllRanges();
     testInlineSwitch();
     testNamespaceFnCall();
+    gotoAndLabels();
 }
 
 export nakedcc fn _start() -> unreachable {

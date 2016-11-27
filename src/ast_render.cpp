@@ -356,6 +356,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
     switch (node->type) {
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
+        case NodeTypeLabel:
             zig_unreachable();
         case NodeTypeRoot:
             for (size_t i = 0; i < node->data.root.top_level_decls.length; i += 1) {
@@ -426,6 +427,13 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             ar->indent += ar->indent_size;
             for (size_t i = 0; i < node->data.block.statements.length; i += 1) {
                 AstNode *statement = node->data.block.statements.at(i);
+                if (statement->type == NodeTypeLabel) {
+                    ar->indent -= ar->indent_size;
+                    print_indent(ar);
+                    fprintf(ar->f, "%s:\n", buf_ptr(statement->data.label.name));
+                    ar->indent += ar->indent_size;
+                    continue;
+                }
                 print_indent(ar);
                 render_node_grouped(ar, statement);
                 if (i != node->data.block.statements.length - 1)
@@ -771,6 +779,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "}");
                 break;
             }
+        case NodeTypeGoto:
+            {
+                fprintf(ar->f, "goto %s", buf_ptr(node->data.goto_expr.name));
+                break;
+            }
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
@@ -781,8 +794,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeUse:
         case NodeTypeZeroesLiteral:
         case NodeTypeForExpr:
-        case NodeTypeLabel:
-        case NodeTypeGoto:
         case NodeTypeBreak:
         case NodeTypeContinue:
             zig_panic("TODO more ast rendering");

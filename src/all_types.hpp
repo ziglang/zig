@@ -37,6 +37,8 @@ struct IrExecutable {
     size_t mem_slot_count;
     size_t next_debug_id;
     bool invalid;
+    ZigList<LabelTableEntry *> all_labels;
+    ZigList<AstNode *> goto_list;
 };
 
 enum OutType {
@@ -554,16 +556,15 @@ struct AstNodeSwitchRange {
 
 struct AstNodeLabel {
     Buf *name;
-
-    // populated by semantic analyzer
-    LabelTableEntry *label_entry;
 };
 
 struct AstNodeGoto {
     Buf *name;
+    bool is_inline;
 
     // populated by semantic analyzer
-    LabelTableEntry *label_entry;
+    IrBasicBlock *bb;
+    size_t instruction_index;
 };
 
 struct AsmOutput {
@@ -1059,7 +1060,6 @@ struct FnTableEntry {
     ImportTableEntry *import_entry;
     // Required to be a pre-order traversal of the AST. (parents must come before children)
     ZigList<BlockContext *> all_block_contexts;
-    ZigList<LabelTableEntry *> all_labels;
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
     bool internal_linkage;
@@ -1082,7 +1082,6 @@ struct FnTableEntry {
     ZigList<IrInstructionCast *> cast_alloca_list;
     ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
     ZigList<VariableTableEntry *> variable_list;
-    ZigList<AstNode *> goto_list;
 };
 
 enum BuiltinFnId {
@@ -1319,9 +1318,8 @@ struct ErrorTableEntry {
 
 struct LabelTableEntry {
     AstNode *decl_node;
-    LLVMBasicBlockRef basic_block;
+    IrBasicBlock *bb;
     bool used;
-    bool entered_from_fallthrough;
 };
 
 struct BlockContext {
@@ -1427,10 +1425,6 @@ struct IrInstruction {
     size_t ref_count;
     IrInstruction *other;
     ReturnKnowledge return_knowledge;
-    // if this is true, this instruction should not cause compile errors.
-    // for example, we can write to a variable with src_is_const true but
-    // gen_is_const false.
-    bool gen_only;
 };
 
 struct IrInstructionCondBr {
