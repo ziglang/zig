@@ -17,6 +17,8 @@
 #include "parser.hpp"
 #include "zig_llvm.hpp"
 
+static const size_t default_backward_branch_quota = 1000;
+
 static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *enum_type);
 static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type);
 
@@ -836,7 +838,6 @@ static IrInstruction *analyze_const_value(CodeGen *g, BlockContext *scope, AstNo
         TypeTableEntry *expected_type)
 {
     IrExecutable ir_executable = {0};
-    IrExecutable analyzed_executable = {0};
     ir_gen(g, node, scope, &ir_executable);
 
     if (ir_executable.invalid)
@@ -849,6 +850,8 @@ static IrInstruction *analyze_const_value(CodeGen *g, BlockContext *scope, AstNo
         ir_print(stderr, &ir_executable, 4);
         fprintf(stderr, "}\n");
     }
+    IrExecutable analyzed_executable = {0};
+    analyzed_executable.backward_branch_quota = default_backward_branch_quota;
     TypeTableEntry *result_type = ir_analyze(g, &ir_executable, &analyzed_executable, expected_type, node);
     if (result_type->id == TypeTableEntryIdInvalid)
         return g->invalid_instruction;
@@ -1514,6 +1517,7 @@ static void preview_fn_proto_instance(CodeGen *g, ImportTableEntry *import, AstN
     }
 
     FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
+    fn_table_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
     fn_table_entry->import_entry = import;
     fn_table_entry->proto_node = proto_node;
     fn_table_entry->fn_def_node = fn_def_node;

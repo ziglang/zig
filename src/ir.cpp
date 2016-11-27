@@ -2957,8 +2957,24 @@ static void ir_finish_bb(IrAnalyze *ira) {
     }
 }
 
-static void ir_inline_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
+static TypeTableEntry *ir_unreach_error(IrAnalyze *ira) {
+    ira->block_queue_index = SIZE_MAX;
+    ira->new_irb.exec->invalid = true;
+    return ira->codegen->builtin_types.entry_unreachable;
+}
+
+static TypeTableEntry *ir_inline_bb(IrAnalyze *ira, IrInstruction *source_instruction, IrBasicBlock *old_bb) {
+    if (old_bb->debug_id <= ira->old_irb.current_basic_block->debug_id) {
+        ira->new_irb.exec->backward_branch_count += 1;
+        if (ira->new_irb.exec->backward_branch_count > ira->new_irb.exec->backward_branch_quota) {
+            add_node_error(ira->codegen, source_instruction->source_node,
+                    buf_sprintf("evaluation exceeded %zu backwards branches", ira->new_irb.exec->backward_branch_quota));
+            return ir_unreach_error(ira);
+        }
+    }
+
     ir_start_bb(ira, old_bb, ira->old_irb.current_basic_block);
+    return ira->codegen->builtin_types.entry_unreachable;
 }
 
 static TypeTableEntry *ir_finish_anal(IrAnalyze *ira, TypeTableEntry *result_type) {
@@ -3439,12 +3455,12 @@ static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
 {
     IrInstruction *value = return_instruction->value->other;
     if (value->type_entry->id == TypeTableEntryIdInvalid)
-        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+        return ir_unreach_error(ira);
     ira->implicit_return_type_list.append(value);
 
     IrInstruction *casted_value = ir_get_casted_value(ira, value, ira->explicit_return_type);
     if (casted_value == ira->codegen->invalid_instruction)
-        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+        return ir_unreach_error(ira);
 
     ir_build_return_from(&ira->new_irb, &return_instruction->base, casted_value);
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
@@ -4302,11 +4318,8 @@ static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructio
 static TypeTableEntry *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr *br_instruction) {
     IrBasicBlock *old_dest_block = br_instruction->dest_block;
 
-    // TODO detect backward jumps
-
     if (br_instruction->is_inline || old_dest_block->ref_count == 1) {
-        ir_inline_bb(ira, old_dest_block);
-        return ira->codegen->builtin_types.entry_unreachable;
+        return ir_inline_bb(ira, &br_instruction->base, old_dest_block);
     }
 
     IrBasicBlock *new_bb = ir_get_new_bb(ira, old_dest_block);
@@ -4317,28 +4330,24 @@ static TypeTableEntry *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr
 static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructionCondBr *cond_br_instruction) {
     IrInstruction *condition = cond_br_instruction->condition->other;
     if (condition->type_entry->id == TypeTableEntryIdInvalid)
-        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
-
-    // TODO detect backward jumps
+        return ir_unreach_error(ira);
 
     if (cond_br_instruction->is_inline || condition->static_value.special != ConstValSpecialRuntime) {
         bool cond_is_true;
         if (!ir_resolve_bool(ira, condition, &cond_is_true))
-            return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+            return ir_unreach_error(ira);
 
         IrBasicBlock *old_dest_block = cond_is_true ?
             cond_br_instruction->then_block : cond_br_instruction->else_block;
 
-        if (cond_br_instruction->is_inline || old_dest_block->ref_count == 1) {
-            ir_inline_bb(ira, old_dest_block);
-            return ira->codegen->builtin_types.entry_unreachable;
-        }
+        if (cond_br_instruction->is_inline || old_dest_block->ref_count == 1)
+            return ir_inline_bb(ira, &cond_br_instruction->base, old_dest_block);
     }
 
     TypeTableEntry *bool_type = ira->codegen->builtin_types.entry_bool;
     IrInstruction *casted_condition = ir_get_casted_value(ira, condition, bool_type);
     if (casted_condition == ira->codegen->invalid_instruction)
-        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+        return ir_unreach_error(ira);
 
     IrBasicBlock *new_then_block = ir_get_new_bb(ira, cond_br_instruction->then_block);
     IrBasicBlock *new_else_block = ir_get_new_bb(ira, cond_br_instruction->else_block);
@@ -5418,9 +5427,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
 {
     IrInstruction *target_value = switch_br_instruction->target_value->other;
     if (target_value->type_entry->id == TypeTableEntryIdInvalid)
-        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
-
-    // TODO detect backward jumps
+        return ir_unreach_error(ira);
 
     size_t case_count = switch_br_instruction->case_count;
     bool is_inline = switch_br_instruction->is_inline;
@@ -5428,27 +5435,26 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
     if (is_inline || target_value->static_value.special != ConstValSpecialRuntime) {
         ConstExprValue *target_val = ir_resolve_const(ira, target_value);
         if (!target_val)
-            return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+            return ir_unreach_error(ira);
 
         for (size_t i = 0; i < case_count; i += 1) {
             IrInstructionSwitchBrCase *old_case = &switch_br_instruction->cases[i];
             IrInstruction *case_value = old_case->value->other;
             if (case_value->type_entry->id == TypeTableEntryIdInvalid)
-                return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+                return ir_unreach_error(ira);
 
             IrInstruction *casted_case_value = ir_get_casted_value(ira, case_value, target_value->type_entry);
             if (casted_case_value->type_entry->id == TypeTableEntryIdInvalid)
-                return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+                return ir_unreach_error(ira);
 
             ConstExprValue *case_val = ir_resolve_const(ira, casted_case_value);
             if (!case_val)
-                return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+                return ir_unreach_error(ira);
 
             if (const_values_equal(target_val, case_val, target_value->type_entry)) {
                 IrBasicBlock *old_dest_block = old_case->block;
                 if (is_inline || old_dest_block->ref_count == 1) {
-                    ir_inline_bb(ira, old_dest_block);
-                    return ira->codegen->builtin_types.entry_unreachable;
+                    return ir_inline_bb(ira, &switch_br_instruction->base, old_dest_block);
                 } else {
                     IrBasicBlock *new_dest_block = ir_get_new_bb(ira, old_dest_block);
                     ir_build_br_from(&ira->new_irb, &switch_br_instruction->base, new_dest_block);
@@ -5840,7 +5846,9 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
         ira->instruction_index += 1;
     }
 
-    if (ira->implicit_return_type_list.length == 0) {
+    if (new_exec->invalid) {
+        return ira->codegen->builtin_types.entry_invalid;
+    } else if (ira->implicit_return_type_list.length == 0) {
         return codegen->builtin_types.entry_unreachable;
     } else {
         return ir_resolve_peer_types(ira, expected_type_source_node, ira->implicit_return_type_list.items,

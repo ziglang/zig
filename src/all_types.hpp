@@ -36,6 +36,8 @@ struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
     size_t mem_slot_count;
     size_t next_debug_id;
+    size_t backward_branch_count;
+    size_t backward_branch_quota;
     bool invalid;
     ZigList<LabelTableEntry *> all_labels;
     ZigList<AstNode *> goto_list;
