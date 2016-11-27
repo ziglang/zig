@@ -2523,6 +2523,11 @@ static IrInstruction *ir_lval_wrap(IrBuilder *irb, IrInstruction *value, LValPur
     return ir_build_ref(irb, value->source_node, value);
 }
 
+static IrInstruction *ir_gen_type_literal(IrBuilder *irb, AstNode *node) {
+    assert(node->type == NodeTypeTypeLiteral);
+    return ir_build_const_type(irb, node, irb->codegen->builtin_types.entry_type);
+}
+
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, BlockContext *block_context,
         LValPurpose lval)
 {
@@ -2580,6 +2585,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, BlockContex
             return ir_gen_label(irb, node);
         case NodeTypeGoto:
             return ir_gen_goto(irb, node);
+        case NodeTypeTypeLiteral:
+            return ir_lval_wrap(irb, ir_gen_type_literal(irb, node), lval);
         case NodeTypeUnwrapErrorExpr:
         case NodeTypeDefer:
         case NodeTypeSliceExpr:
@@ -2588,7 +2595,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, BlockContex
         case NodeTypeCharLiteral:
         case NodeTypeZeroesLiteral:
         case NodeTypeErrorType:
-        case NodeTypeTypeLiteral:
         case NodeTypeVarLiteral:
         case NodeTypeRoot:
         case NodeTypeFnProto:

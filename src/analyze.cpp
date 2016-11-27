@@ -907,14 +907,18 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
     fn_type_id.param_info = allocate_nonzero<FnTypeParamInfo>(fn_type_id.param_count);
 
     fn_type_id.is_var_args = fn_proto->is_var_args;
-    fn_type_id.return_type = analyze_type_expr(g, import, context, fn_proto->return_type);
 
     for (size_t i = 0; i < fn_type_id.param_count; i += 1) {
         AstNode *child = fn_proto->params.at(i);
         assert(child->type == NodeTypeParamDecl);
 
-        TypeTableEntry *type_entry = analyze_type_expr(g, import, context,
-                child->data.param_decl.type);
+        TypeTableEntry *type_entry;
+        if (fn_proto->skip) {
+            type_entry = g->builtin_types.entry_invalid;
+        } else {
+            type_entry = analyze_type_expr(g, import, context, child->data.param_decl.type);
+        }
+
         switch (type_entry->id) {
             case TypeTableEntryIdInvalid:
                 fn_proto->skip = true;
@@ -927,16 +931,20 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
             case TypeTableEntryIdNamespace:
             case TypeTableEntryIdBlock:
             case TypeTableEntryIdGenericFn:
-                fn_proto->skip = true;
-                add_node_error(g, child->data.param_decl.type,
-                    buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
+                if (!fn_proto->skip) {
+                    fn_proto->skip = true;
+                    add_node_error(g, child->data.param_decl.type,
+                        buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
+                }
                 break;
             case TypeTableEntryIdMetaType:
                 if (!child->data.param_decl.is_inline) {
-                    fn_proto->skip = true;
-                    add_node_error(g, child->data.param_decl.type,
-                        buf_sprintf("parameter of type '%s' must be declared inline",
-                        buf_ptr(&type_entry->name)));
+                    if (!fn_proto->skip) {
+                        fn_proto->skip = true;
+                        add_node_error(g, child->data.param_decl.type,
+                            buf_sprintf("parameter of type '%s' must be declared inline",
+                            buf_ptr(&type_entry->name)));
+                    }
                 }
                 break;
             case TypeTableEntryIdVoid:
@@ -967,6 +975,11 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
         param_info->is_noalias = child->data.param_decl.is_noalias;
     }
 
+    if (fn_proto->skip) {
+        fn_type_id.return_type = g->builtin_types.entry_invalid;
+    } else {
+        fn_type_id.return_type = analyze_type_expr(g, import, context, fn_proto->return_type);
+    }
     switch (fn_type_id.return_type->id) {
         case TypeTableEntryIdInvalid:
             fn_proto->skip = true;
@@ -979,9 +992,11 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdVar:
-            fn_proto->skip = true;
-            add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type '%s' not allowed", buf_ptr(&fn_type_id.return_type->name)));
+            if (!fn_proto->skip) {
+                fn_proto->skip = true;
+                add_node_error(g, fn_proto->return_type,
+                    buf_sprintf("return type '%s' not allowed", buf_ptr(&fn_type_id.return_type->name)));
+            }
             break;
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdUnreachable:
