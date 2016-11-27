@@ -65,8 +65,6 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->is_test_build = false;
     g->want_h_file = true;
 
-    g->len_buf = buf_create_from_str("len");
-
     // the error.Ok value
     g->error_decls.append(nullptr);
 
@@ -1682,6 +1680,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSizeOf:
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdStaticEval:
+        case IrInstructionIdImport:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -1728,8 +1727,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
-        case IrInstructionIdReadField:
         case IrInstructionIdEnumTag:
+        case IrInstructionIdArrayLen:
             zig_panic("TODO render more IR instructions to LLVM");
     }
     zig_unreachable();
@@ -2114,7 +2113,7 @@ static void do_code_gen(CodeGen *g) {
 
         if (var->type->id == TypeTableEntryIdNumLitFloat) {
             // Generate debug info for it but that's it.
-            ConstExprValue *const_val = &get_resolved_expr(var->val_node)->instruction->static_value;
+            ConstExprValue *const_val = &var->decl_node->data.variable_declaration.top_level_decl.value->static_value;
             assert(const_val->special != ConstValSpecialRuntime);
             TypeTableEntry *var_type = g->builtin_types.entry_f64;
             LLVMValueRef init_val = LLVMConstReal(var_type->type_ref, const_val->data.x_bignum.data.x_float);
@@ -2124,7 +2123,7 @@ static void do_code_gen(CodeGen *g) {
 
         if (var->type->id == TypeTableEntryIdNumLitInt) {
             // Generate debug info for it but that's it.
-            ConstExprValue *const_val = &get_resolved_expr(var->val_node)->instruction->static_value;
+            ConstExprValue *const_val = &var->decl_node->data.variable_declaration.top_level_decl.value->static_value;
             assert(const_val->special != ConstValSpecialRuntime);
             TypeTableEntry *var_type = const_val->data.x_bignum.is_negative ?
                 g->builtin_types.entry_isize : g->builtin_types.entry_usize;
@@ -2149,8 +2148,7 @@ static void do_code_gen(CodeGen *g) {
 
             LLVMSetLinkage(global_value, LLVMExternalLinkage);
         } else {
-            AstNode *expr_node = var->decl_node->data.variable_declaration.expr;
-            IrInstruction *instruction = get_resolved_expr(expr_node)->instruction;
+            IrInstruction *instruction = var->decl_node->data.variable_declaration.top_level_decl.value;
             render_const_val(g, instruction->type_entry, &instruction->static_value);
             render_const_val_global(g, instruction->type_entry, &instruction->static_value);
             global_value = instruction->static_value.llvm_global;

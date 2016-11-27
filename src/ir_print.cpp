@@ -115,6 +115,12 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
                 }
                 break;
             }
+        case TypeTableEntryIdNamespace:
+            {
+                ImportTableEntry *import = const_val->data.x_import;
+                fprintf(irp->f, "(namespace: %s)", buf_ptr(import->path));
+                break;
+            }
         case TypeTableEntryIdVar:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdStruct:
@@ -124,7 +130,6 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdTypeDecl:
-        case TypeTableEntryIdNamespace:
         case TypeTableEntryIdGenericFn:
             zig_panic("TODO render more constant types in IR printer");
     }
@@ -407,11 +412,6 @@ static void ir_print_field_ptr(IrPrint *irp, IrInstructionFieldPtr *instruction)
     fprintf(irp->f, ")");
 }
 
-static void ir_print_read_field(IrPrint *irp, IrInstructionReadField *instruction) {
-    ir_print_other_instruction(irp, instruction->container_ptr);
-    fprintf(irp->f, ".%s", buf_ptr(instruction->field_name));
-}
-
 static void ir_print_struct_field_ptr(IrPrint *irp, IrInstructionStructFieldPtr *instruction) {
     fprintf(irp->f, "@StructFieldPtr(&");
     ir_print_other_instruction(irp, instruction->struct_ptr);
@@ -575,6 +575,17 @@ static void ir_print_static_eval(IrPrint *irp, IrInstructionStaticEval *instruct
     fprintf(irp->f, ")");
 }
 
+static void ir_print_import(IrPrint *irp, IrInstructionImport *instruction) {
+    fprintf(irp->f, "@import(");
+    ir_print_other_instruction(irp, instruction->name);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_array_len(IrPrint *irp, IrInstructionArrayLen *instruction) {
+    ir_print_other_instruction(irp, instruction->array_value);
+    fprintf(irp->f, ".len");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -643,9 +654,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdFieldPtr:
             ir_print_field_ptr(irp, (IrInstructionFieldPtr *)instruction);
             break;
-        case IrInstructionIdReadField:
-            ir_print_read_field(irp, (IrInstructionReadField *)instruction);
-            break;
         case IrInstructionIdStructFieldPtr:
             ir_print_struct_field_ptr(irp, (IrInstructionStructFieldPtr *)instruction);
             break;
@@ -699,6 +707,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdStaticEval:
             ir_print_static_eval(irp, (IrInstructionStaticEval *)instruction);
+            break;
+        case IrInstructionIdImport:
+            ir_print_import(irp, (IrInstructionImport *)instruction);
+            break;
+        case IrInstructionIdArrayLen:
+            ir_print_array_len(irp, (IrInstructionArrayLen *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

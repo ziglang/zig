@@ -19,7 +19,6 @@
 
 static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *enum_type);
 static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type);
-static void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *context, AstNode *node);
 
 AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
@@ -1670,7 +1669,7 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
     node->data.error_value_decl.top_level_decl.resolution = TldResolutionOk;
 }
 
-static void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *context, AstNode *node) {
+void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *context, AstNode *node) {
     switch (node->type) {
         case NodeTypeRoot:
             for (size_t i = 0; i < import->root->data.root.top_level_decls.length; i += 1) {
@@ -1947,9 +1946,8 @@ static void resolve_var_decl(CodeGen *g, ImportTableEntry *import, AstNode *node
             implicit_type = g->builtin_types.entry_invalid;
         }
         if (implicit_type->id != TypeTableEntryIdInvalid) {
-            Expr *expr = get_resolved_expr(var_decl->expr);
             assert(result->static_value.special != ConstValSpecialRuntime);
-            expr->instruction = result;
+            var_decl->top_level_decl.value = result;
         }
     } else if (!is_extern) {
         add_node_error(g, node, buf_sprintf("variables must be initialized"));
@@ -2206,7 +2204,6 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     if (parent) {
         context->parent_loop_node = parent->parent_loop_node;
         context->c_import_buf = parent->c_import_buf;
-        context->codegen_excluded = parent->codegen_excluded;
     }
 
     if (node && node->type == NodeTypeFnDef) {
@@ -2455,17 +2452,16 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
 
 static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node) {
     TopLevelDecl *tld = get_as_top_level_decl(dst_use_node);
-    AstNode *use_target_node = src_use_node->data.use.expr;
-    Expr *expr = get_resolved_expr(use_target_node);
 
-    if (expr->instruction->type_entry->id == TypeTableEntryIdInvalid) {
+    IrInstruction *use_target_value = tld->value;
+    if (use_target_value->type_entry->id == TypeTableEntryIdInvalid) {
         tld->import->any_imports_failed = true;
         return;
     }
 
     tld->resolution = TldResolutionOk;
 
-    ConstExprValue *const_val = &expr->instruction->static_value;
+    ConstExprValue *const_val = &use_target_value->static_value;
     assert(const_val->special != ConstValSpecialRuntime);
 
     ImportTableEntry *target_import = const_val->data.x_import;
@@ -2511,7 +2507,7 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
 
 }
 
-static void resolve_use_decl(CodeGen *g, AstNode *node) {
+void resolve_use_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeUse);
     if (get_as_top_level_decl(node)->resolution != TldResolutionUnresolved) {
         return;
@@ -2519,7 +2515,7 @@ static void resolve_use_decl(CodeGen *g, AstNode *node) {
     add_symbols_from_import(g, node, node);
 }
 
-static void preview_use_decl(CodeGen *g, AstNode *node) {
+void preview_use_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeUse);
     TopLevelDecl *tld = get_as_top_level_decl(node);
 
@@ -2635,97 +2631,6 @@ void semantic_analyze(CodeGen *g) {
             analyze_fn_body(g, fn_entry);
         }
     }
-}
-
-Expr *get_resolved_expr(AstNode *node) {
-    switch (node->type) {
-        case NodeTypeReturnExpr:
-            return &node->data.return_expr.resolved_expr;
-        case NodeTypeDefer:
-            return &node->data.defer.resolved_expr;
-        case NodeTypeBinOpExpr:
-            return &node->data.bin_op_expr.resolved_expr;
-        case NodeTypeUnwrapErrorExpr:
-            return &node->data.unwrap_err_expr.resolved_expr;
-        case NodeTypePrefixOpExpr:
-            return &node->data.prefix_op_expr.resolved_expr;
-        case NodeTypeFnCallExpr:
-            return &node->data.fn_call_expr.resolved_expr;
-        case NodeTypeArrayAccessExpr:
-            return &node->data.array_access_expr.resolved_expr;
-        case NodeTypeSliceExpr:
-            return &node->data.slice_expr.resolved_expr;
-        case NodeTypeFieldAccessExpr:
-            return &node->data.field_access_expr.resolved_expr;
-        case NodeTypeIfBoolExpr:
-            return &node->data.if_bool_expr.resolved_expr;
-        case NodeTypeIfVarExpr:
-            return &node->data.if_var_expr.resolved_expr;
-        case NodeTypeWhileExpr:
-            return &node->data.while_expr.resolved_expr;
-        case NodeTypeForExpr:
-            return &node->data.for_expr.resolved_expr;
-        case NodeTypeAsmExpr:
-            return &node->data.asm_expr.resolved_expr;
-        case NodeTypeContainerInitExpr:
-            return &node->data.container_init_expr.resolved_expr;
-        case NodeTypeNumberLiteral:
-            return &node->data.number_literal.resolved_expr;
-        case NodeTypeStringLiteral:
-            return &node->data.string_literal.resolved_expr;
-        case NodeTypeBlock:
-            return &node->data.block.resolved_expr;
-        case NodeTypeSymbol:
-            return &node->data.symbol_expr.resolved_expr;
-        case NodeTypeVariableDeclaration:
-            return &node->data.variable_declaration.resolved_expr;
-        case NodeTypeCharLiteral:
-            return &node->data.char_literal.resolved_expr;
-        case NodeTypeBoolLiteral:
-            return &node->data.bool_literal.resolved_expr;
-        case NodeTypeNullLiteral:
-            return &node->data.null_literal.resolved_expr;
-        case NodeTypeUndefinedLiteral:
-            return &node->data.undefined_literal.resolved_expr;
-        case NodeTypeZeroesLiteral:
-            return &node->data.zeroes_literal.resolved_expr;
-        case NodeTypeThisLiteral:
-            return &node->data.this_literal.resolved_expr;
-        case NodeTypeGoto:
-            return &node->data.goto_expr.resolved_expr;
-        case NodeTypeBreak:
-            return &node->data.break_expr.resolved_expr;
-        case NodeTypeContinue:
-            return &node->data.continue_expr.resolved_expr;
-        case NodeTypeLabel:
-            return &node->data.label.resolved_expr;
-        case NodeTypeArrayType:
-            return &node->data.array_type.resolved_expr;
-        case NodeTypeErrorType:
-            return &node->data.error_type.resolved_expr;
-        case NodeTypeTypeLiteral:
-            return &node->data.type_literal.resolved_expr;
-        case NodeTypeSwitchExpr:
-            return &node->data.switch_expr.resolved_expr;
-        case NodeTypeFnProto:
-            return &node->data.fn_proto.resolved_expr;
-        case NodeTypeVarLiteral:
-            return &node->data.var_literal.resolved_expr;
-        case NodeTypeSwitchProng:
-        case NodeTypeSwitchRange:
-        case NodeTypeRoot:
-        case NodeTypeFnDef:
-        case NodeTypeFnDecl:
-        case NodeTypeParamDecl:
-        case NodeTypeUse:
-        case NodeTypeContainerDecl:
-        case NodeTypeStructField:
-        case NodeTypeStructValueField:
-        case NodeTypeErrorValueDecl:
-        case NodeTypeTypeDecl:
-            zig_unreachable();
-    }
-    zig_unreachable();
 }
 
 TopLevelDecl *get_as_top_level_decl(AstNode *node) {
@@ -2997,40 +2902,42 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
 }
 
 uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {
-    uint32_t result = 0;
-    result += hash_ptr(id->decl_node);
-    for (size_t i = 0; i < id->generic_param_count; i += 1) {
-        GenericParamValue *generic_param = &id->generic_params[i];
-        if (generic_param->node) {
-            ConstExprValue *const_val = &get_resolved_expr(generic_param->node)->instruction->static_value;
-            assert(const_val->special != ConstValSpecialRuntime);
-            result += hash_const_val(generic_param->type, const_val);
-        }
-        result += hash_ptr(generic_param->type);
-    }
-    return result;
+    zig_panic("TODO generic_fn_type_id_hash");
+    //uint32_t result = 0;
+    //result += hash_ptr(id->decl_node);
+    //for (size_t i = 0; i < id->generic_param_count; i += 1) {
+    //    GenericParamValue *generic_param = &id->generic_params[i];
+    //    if (generic_param->node) {
+    //        ConstExprValue *const_val = &get_resolved_expr(generic_param->node)->instruction->static_value;
+    //        assert(const_val->special != ConstValSpecialRuntime);
+    //        result += hash_const_val(generic_param->type, const_val);
+    //    }
+    //    result += hash_ptr(generic_param->type);
+    //}
+    //return result;
 }
 
 bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
-    if (a->decl_node != b->decl_node) return false;
-    assert(a->generic_param_count == b->generic_param_count);
-    for (size_t i = 0; i < a->generic_param_count; i += 1) {
-        GenericParamValue *a_val = &a->generic_params[i];
-        GenericParamValue *b_val = &b->generic_params[i];
-        if (a_val->type != b_val->type) return false;
-        if (a_val->node && b_val->node) {
-            ConstExprValue *a_const_val = &get_resolved_expr(a_val->node)->instruction->static_value;
-            ConstExprValue *b_const_val = &get_resolved_expr(b_val->node)->instruction->static_value;
-            assert(a_const_val->special != ConstValSpecialRuntime);
-            assert(b_const_val->special != ConstValSpecialRuntime);
-            if (!const_values_equal(a_const_val, b_const_val, a_val->type)) {
-                return false;
-            }
-        } else {
-            assert(!a_val->node && !b_val->node);
-        }
-    }
-    return true;
+    zig_panic("TODO generic_fn_type_id_eql");
+    //if (a->decl_node != b->decl_node) return false;
+    //assert(a->generic_param_count == b->generic_param_count);
+    //for (size_t i = 0; i < a->generic_param_count; i += 1) {
+    //    GenericParamValue *a_val = &a->generic_params[i];
+    //    GenericParamValue *b_val = &b->generic_params[i];
+    //    if (a_val->type != b_val->type) return false;
+    //    if (a_val->node && b_val->node) {
+    //        ConstExprValue *a_const_val = &get_resolved_expr(a_val->node)->instruction->static_value;
+    //        ConstExprValue *b_const_val = &get_resolved_expr(b_val->node)->instruction->static_value;
+    //        assert(a_const_val->special != ConstValSpecialRuntime);
+    //        assert(b_const_val->special != ConstValSpecialRuntime);
+    //        if (!const_values_equal(a_const_val, b_const_val, a_val->type)) {
+    //            return false;
+    //        }
+    //    } else {
+    //        assert(!a_val->node && !b_val->node);
+    //    }
+    //}
+    //return true;
 }
 
 bool type_has_bits(TypeTableEntry *type_entry) {
@@ -3095,5 +3002,3 @@ uint64_t get_memcpy_align(CodeGen *g, TypeTableEntry *type_entry) {
     TypeTableEntry *first_type_in_mem = type_of_first_thing_in_memory(type_entry);
     return LLVMABISizeOfType(g->target_data_ref, first_type_in_mem->type_ref);
 }
-
-

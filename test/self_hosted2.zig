@@ -1,3 +1,5 @@
+const case_namespace_fn_call = @import("cases/namespace_fn_call.zig");
+
 pub const SYS_write = 1;
 pub const SYS_exit = 60;
 pub const stdout_fileno = 1;
@@ -61,6 +63,10 @@ fn testInlineSwitch() {
     assert(result + 1 == 14);
 }
 
+fn testNamespaceFnCall() {
+    assert(case_namespace_fn_call.foo() == 1234);
+}
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -73,6 +79,7 @@ fn runAllTests() {
     switchWithNumbers();
     switchWithAllRanges();
     testInlineSwitch();
+    testNamespaceFnCall();
 }
 
 export nakedcc fn _start() -> unreachable {

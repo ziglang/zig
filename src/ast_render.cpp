@@ -528,25 +528,24 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 break;
             }
         case NodeTypeFnCallExpr:
-            if (node->data.fn_call_expr.is_builtin) {
-                fprintf(ar->f, "@");
-            } else {
-                fprintf(ar->f, "(");
-            }
-            render_node_ungrouped(ar, node->data.fn_call_expr.fn_ref_expr);
-            if (!node->data.fn_call_expr.is_builtin) {
-                fprintf(ar->f, ")");
-            }
-            fprintf(ar->f, "(");
-            for (size_t i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
-                AstNode *param = node->data.fn_call_expr.params.at(i);
-                if (i != 0) {
-                    fprintf(ar->f, ", ");
+            {
+                if (node->data.fn_call_expr.is_builtin) {
+                    fprintf(ar->f, "@");
                 }
-                render_node_grouped(ar, param);
+                AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
+                bool grouped = (fn_ref_node->type != NodeTypeBinOpExpr);
+                render_node_extra(ar, fn_ref_node, grouped);
+                fprintf(ar->f, "(");
+                for (size_t i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
+                    AstNode *param = node->data.fn_call_expr.params.at(i);
+                    if (i != 0) {
+                        fprintf(ar->f, ", ");
+                    }
+                    render_node_grouped(ar, param);
+                }
+                fprintf(ar->f, ")");
+                break;
             }
-            fprintf(ar->f, ")");
-            break;
         case NodeTypeArrayAccessExpr:
             render_node_ungrouped(ar, node->data.array_access_expr.array_ref_expr);
             fprintf(ar->f, "[");

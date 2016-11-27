@@ -117,12 +117,6 @@ enum ReturnKnowledge {
     ReturnKnowledgeSkipDefers,
 };
 
-struct Expr {
-    IrInstruction *instruction;
-    ReturnKnowledge return_knowledge;
-    VariableTableEntry *variable;
-};
-
 struct StructValExprCodeGen {
     TypeTableEntry *type_entry;
     LLVMValueRef ptr;
@@ -152,6 +146,7 @@ struct TopLevelDecl {
     bool dep_loop_flag;
     TldResolution resolution;
     AstNode *parent_decl;
+    IrInstruction *value;
 };
 
 struct TypeEnumField {
@@ -232,7 +227,6 @@ struct AstNodeFnProto {
     AstNode *fn_def_node;
     FnTableEntry *fn_table_entry;
     bool skip;
-    Expr resolved_expr;
     // computed from params field
     size_t inline_arg_count;
     size_t inline_or_var_type_arg_count;
@@ -274,7 +268,6 @@ struct AstNodeBlock {
     // you can follow its parents up to child_block. it will equal
     // child_block if there are no defers or var decls in the block.
     BlockContext *nested_block;
-    Expr resolved_expr;
 };
 
 enum ReturnKind {
@@ -287,9 +280,6 @@ struct AstNodeReturnExpr {
     ReturnKind kind;
     // might be null in case of return void;
     AstNode *expr;
-
-    // populated by semantic analyzer:
-    Expr resolved_expr;
 };
 
 struct AstNodeDefer {
@@ -297,7 +287,6 @@ struct AstNodeDefer {
     AstNode *expr;
 
     // populated by semantic analyzer:
-    Expr resolved_expr;
     size_t index_in_block;
     LLVMBasicBlockRef basic_block;
     BlockContext *child_block;
@@ -314,7 +303,6 @@ struct AstNodeVariableDeclaration {
     AstNode *expr;
 
     // populated by semantic analyzer
-    Expr resolved_expr;
     VariableTableEntry *variable;
 };
 
@@ -392,7 +380,6 @@ struct AstNodeBinOpExpr {
     // populated by semantic analyzer:
     // for when op is BinOpTypeAssign
     VariableTableEntry *var_entry;
-    Expr resolved_expr;
 };
 
 struct AstNodeUnwrapErrorExpr {
@@ -401,7 +388,6 @@ struct AstNodeUnwrapErrorExpr {
     AstNode *op2;
 
     // populated by semantic analyzer:
-    Expr resolved_expr;
     VariableTableEntry *var;
 };
 
@@ -434,7 +420,6 @@ struct AstNodeFnCallExpr {
 
     // populated by semantic analyzer:
     BuiltinFnEntry *builtin_fn;
-    Expr resolved_expr;
     FnTableEntry *fn_entry;
     CastOp cast_op;
     // if cast_op is CastOpArrayToString, this will be a pointer to
@@ -447,7 +432,6 @@ struct AstNodeArrayAccessExpr {
     AstNode *subscript;
 
     // populated by semantic analyzer:
-    Expr resolved_expr;
 };
 
 struct AstNodeSliceExpr {
@@ -457,7 +441,6 @@ struct AstNodeSliceExpr {
     bool is_const;
 
     // populated by semantic analyzer:
-    Expr resolved_expr;
     StructValExprCodeGen resolved_struct_val_expr;
 };
 
@@ -468,7 +451,6 @@ struct AstNodeFieldAccessExpr {
     // populated by semantic analyzer
     TypeStructField *type_struct_field;
     TypeEnumField *type_enum_field;
-    Expr resolved_expr;
     StructValExprCodeGen resolved_struct_val_expr; // for enum values
     TypeTableEntry *bare_container_type;
     bool is_member_fn;
@@ -495,7 +477,6 @@ struct AstNodePrefixOpExpr {
     AstNode *primary_expr;
 
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeUse {
@@ -511,7 +492,6 @@ struct AstNodeIfBoolExpr {
     AstNode *else_node; // null, block node, or other if expr node
 
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeIfVarExpr {
@@ -522,7 +502,6 @@ struct AstNodeIfVarExpr {
 
     // populated by semantic analyzer
     TypeTableEntry *type;
-    Expr resolved_expr;
 };
 
 struct AstNodeWhileExpr {
@@ -535,7 +514,6 @@ struct AstNodeWhileExpr {
     bool condition_always_true;
     bool contains_break;
     bool contains_continue;
-    Expr resolved_expr;
 };
 
 struct AstNodeForExpr {
@@ -549,7 +527,6 @@ struct AstNodeForExpr {
     // populated by semantic analyzer
     bool contains_break;
     bool contains_continue;
-    Expr resolved_expr;
     VariableTableEntry *elem_var;
     VariableTableEntry *index_var;
 };
@@ -560,7 +537,6 @@ struct AstNodeSwitchExpr {
     bool is_inline;
 
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeSwitchProng {
@@ -580,7 +556,6 @@ struct AstNodeLabel {
     Buf *name;
 
     // populated by semantic analyzer
-    Expr resolved_expr;
     LabelTableEntry *label_entry;
 };
 
@@ -588,7 +563,6 @@ struct AstNodeGoto {
     Buf *name;
 
     // populated by semantic analyzer
-    Expr resolved_expr;
     LabelTableEntry *label_entry;
 };
 
@@ -634,7 +608,6 @@ struct AstNodeAsmExpr {
     ZigList<Buf*> clobber_list;
 
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 enum ContainerKind {
@@ -670,14 +643,12 @@ struct AstNodeStringLiteral {
     bool c;
 
     // populated by semantic analyzer:
-    Expr resolved_expr;
 };
 
 struct AstNodeCharLiteral {
     uint8_t value;
 
     // populated by semantic analyzer:
-    Expr resolved_expr;
 };
 
 struct AstNodeNumberLiteral {
@@ -688,7 +659,6 @@ struct AstNodeNumberLiteral {
     bool overflow;
 
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeStructValueField {
@@ -711,35 +681,29 @@ struct AstNodeContainerInitExpr {
 
     // populated by semantic analyzer
     StructValExprCodeGen resolved_struct_val_expr;
-    Expr resolved_expr;
     TypeTableEntry *enum_type;
 };
 
 struct AstNodeNullLiteral {
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeUndefinedLiteral {
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeZeroesLiteral {
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeThisLiteral {
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeSymbolExpr {
     Buf *symbol;
 
     // populated by semantic analyzer
-    Expr resolved_expr;
     TypeEnumField *enum_field;
     uint32_t err_value;
 };
@@ -748,17 +712,14 @@ struct AstNodeBoolLiteral {
     bool value;
 
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeBreakExpr {
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeContinueExpr {
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeArrayType {
@@ -767,22 +728,18 @@ struct AstNodeArrayType {
     bool is_const;
 
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeErrorType {
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeTypeLiteral {
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNodeVarLiteral {
     // populated by semantic analyzer
-    Expr resolved_expr;
 };
 
 struct AstNode {
@@ -1329,7 +1286,6 @@ struct CodeGen {
     LLVMValueRef err_name_table;
 
     IrInstruction *invalid_instruction;
-    Buf *len_buf;
 };
 
 struct VariableTableEntry {
@@ -1389,9 +1345,6 @@ struct BlockContext {
     ZigLLVMDIScope *di_scope;
     Buf *c_import_buf;
 
-    // if this is true, then this code will not be generated
-    bool codegen_excluded;
-
     bool safety_off;
     AstNode *safety_set_node;
 };
@@ -1433,7 +1386,6 @@ enum IrInstructionId {
     IrInstructionIdStorePtr,
     IrInstructionIdFieldPtr,
     IrInstructionIdStructFieldPtr,
-    IrInstructionIdReadField,
     IrInstructionIdElemPtr,
     IrInstructionIdVarPtr,
     IrInstructionIdCall,
@@ -1460,6 +1412,8 @@ enum IrInstructionId {
     IrInstructionIdClz,
     IrInstructionIdCtz,
     IrInstructionIdStaticEval,
+    IrInstructionIdImport,
+    IrInstructionIdArrayLen,
 };
 
 struct IrInstruction {
@@ -1626,13 +1580,6 @@ struct IrInstructionStructFieldPtr {
     IrInstruction *struct_ptr;
     TypeStructField *field;
     bool is_const;
-};
-
-struct IrInstructionReadField {
-    IrInstruction base;
-
-    IrInstruction *container_ptr;
-    Buf *field_name;
 };
 
 struct IrInstructionElemPtr {
@@ -1814,6 +1761,18 @@ struct IrInstructionStaticEval {
     IrInstruction base;
 
     IrInstruction *value;
+};
+
+struct IrInstructionImport {
+    IrInstruction base;
+
+    IrInstruction *name;
+};
+
+struct IrInstructionArrayLen {
+    IrInstruction base;
+
+    IrInstruction *array_value;
 };
 
 enum LValPurpose {
