@@ -586,6 +586,11 @@ static void ir_print_array_len(IrPrint *irp, IrInstructionArrayLen *instruction)
     fprintf(irp->f, ".len");
 }
 
+static void ir_print_ref(IrPrint *irp, IrInstructionRef *instruction) {
+    fprintf(irp->f, "ref ");
+    ir_print_other_instruction(irp, instruction->value);
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -713,6 +718,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdArrayLen:
             ir_print_array_len(irp, (IrInstructionArrayLen *)instruction);
+            break;
+        case IrInstructionIdRef:
+            ir_print_ref(irp, (IrInstructionRef *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

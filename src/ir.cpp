@@ -272,6 +272,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionArrayLen *) {
     return IrInstructionIdArrayLen;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionRef *) {
+    return IrInstructionIdRef;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1108,6 +1112,21 @@ static IrInstruction *ir_build_array_len_from(IrBuilder *irb, IrInstruction *old
         IrInstruction *array_value)
 {
     IrInstruction *new_instruction = ir_build_array_len(irb, old_instruction->source_node, array_value);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
+static IrInstruction *ir_build_ref(IrBuilder *irb, AstNode *source_node, IrInstruction *value) {
+    IrInstructionRef *instruction = ir_build_instruction<IrInstructionRef>(irb, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_ref_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *value) {
+    IrInstruction *new_instruction = ir_build_ref(irb, old_instruction->source_node, value);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -2493,6 +2512,17 @@ static IrInstruction *ir_gen_goto(IrBuilder *irb, AstNode *node) {
     return ir_build_unreachable(irb, node);
 }
 
+static IrInstruction *ir_lval_wrap(IrBuilder *irb, IrInstruction *value, LValPurpose lval) {
+    if (lval == LValPurposeNone)
+        return value;
+    if (value == irb->codegen->invalid_instruction)
+        return value;
+
+    // We needed a pointer to a value, but we got a value. So we create
+    // an instruction which just makes a const pointer of it.
+    return ir_build_ref(irb, value->source_node, value);
+}
+
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, BlockContext *block_context,
         LValPurpose lval)
 {
@@ -2509,7 +2539,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, BlockContex
         case NodeTypeSymbol:
             return ir_gen_symbol(irb, node, lval);
         case NodeTypeFnCallExpr:
-            return ir_gen_fn_call(irb, node);
+            return ir_lval_wrap(irb, ir_gen_fn_call(irb, node), lval);
         case NodeTypeIfBoolExpr:
             return ir_gen_if_bool_expr(irb, node);
         case NodeTypePrefixOpExpr:
@@ -2898,8 +2928,7 @@ static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_inst
                 dest_type, value, cast_op);
         result->type_entry = wanted_type;
         if (need_alloca && source_instr->source_node->block_context->fn_entry) {
-            IrInstructionCast *cast_instruction = (IrInstructionCast *)result;
-            source_instr->source_node->block_context->fn_entry->cast_alloca_list.append(cast_instruction);
+            source_instr->source_node->block_context->fn_entry->alloca_list.append(result);
         }
         return result;
     }
@@ -5700,6 +5729,31 @@ static TypeTableEntry *ir_analyze_instruction_array_len(IrAnalyze *ira,
     }
 }
 
+static TypeTableEntry *ir_analyze_instruction_ref(IrAnalyze *ira, IrInstructionRef *ref_instruction) {
+    IrInstruction *value = ref_instruction->value->other;
+    if (value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    FnTableEntry *fn_entry = ref_instruction->base.source_node->block_context->fn_entry;
+    if (!fn_entry || value->static_value.special != ConstValSpecialRuntime) {
+        ConstExprValue *val = ir_resolve_const(ira, value);
+        if (!val)
+            return ira->codegen->builtin_types.entry_invalid;
+        return ir_analyze_const_ptr(ira, &ref_instruction->base, val, value->type_entry, false);
+    }
+
+    TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, value->type_entry, true);
+    if (handle_is_ptr(value->type_entry)) {
+        // this instruction is a noop - codegen can pass the pointer we already have as the result
+        ir_link_new_instruction(value, &ref_instruction->base);
+        return ptr_type;
+    } else {
+        fn_entry->alloca_list.append(&ref_instruction->base);
+        ir_build_ref_from(&ira->new_irb, &ref_instruction->base, value);
+        return ptr_type;
+    }
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -5778,6 +5832,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_import(ira, (IrInstructionImport *)instruction);
         case IrInstructionIdArrayLen:
             return ir_analyze_instruction_array_len(ira, (IrInstructionArrayLen *)instruction);
+        case IrInstructionIdRef:
+            return ir_analyze_instruction_ref(ira, (IrInstructionRef *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
@@ -5901,6 +5957,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdEnumTag:
         case IrInstructionIdStaticEval:
+        case IrInstructionIdRef:
             return false;
         case IrInstructionIdAsm:
             {

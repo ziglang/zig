@@ -1081,8 +1081,7 @@ struct FnTableEntry {
     AstNode *fn_test_set_node;
     AstNode *fn_static_eval_set_node;
 
-    ZigList<IrInstructionCast *> cast_alloca_list;
-    ZigList<StructValExprCodeGen *> struct_val_expr_alloca_list;
+    ZigList<IrInstruction *> alloca_list;
     ZigList<VariableTableEntry *> variable_list;
 };
 
@@ -1414,6 +1413,7 @@ enum IrInstructionId {
     IrInstructionIdStaticEval,
     IrInstructionIdImport,
     IrInstructionIdArrayLen,
+    IrInstructionIdRef,
 };
 
 struct IrInstruction {
@@ -1769,6 +1769,13 @@ struct IrInstructionArrayLen {
     IrInstruction base;
 
     IrInstruction *array_value;
+};
+
+struct IrInstructionRef {
+    IrInstruction base;
+
+    IrInstruction *value;
+    LLVMValueRef tmp_ptr;
 };
 
 enum LValPurpose {

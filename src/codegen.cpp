@@ -1661,6 +1661,16 @@ static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutable *executable, IrInstru
     return phi;
 }
 
+static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutable *executable, IrInstructionRef *instruction) {
+    LLVMValueRef value = ir_llvm_value(g, instruction->value);
+    if (handle_is_ptr(instruction->value->type_entry)) {
+        return value;
+    } else {
+        LLVMBuildStore(g->builder, value, instruction->tmp_ptr);
+        return instruction->tmp_ptr;
+    }
+}
+
 static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {
     set_debug_source_node(g, instruction->source_node);
 
@@ -1724,6 +1734,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_switch_br(g, executable, (IrInstructionSwitchBr *)instruction);
         case IrInstructionIdPhi:
             return ir_render_phi(g, executable, (IrInstructionPhi *)instruction);
+        case IrInstructionIdRef:
+            return ir_render_ref(g, executable, (IrInstructionRef *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
@@ -2317,17 +2329,20 @@ static void do_code_gen(CodeGen *g) {
 
         clear_debug_source_node(g);
 
-        // allocate structs which are the result of casts
-        for (size_t cea_i = 0; cea_i < fn_table_entry->cast_alloca_list.length; cea_i += 1) {
-            IrInstructionCast *cast_instruction = fn_table_entry->cast_alloca_list.at(cea_i);
-            cast_instruction->tmp_ptr = LLVMBuildAlloca(g->builder, cast_instruction->base.type_entry->type_ref, "");
-        }
-
-        // allocate structs which are struct value expressions
-        for (size_t alloca_i = 0; alloca_i < fn_table_entry->struct_val_expr_alloca_list.length; alloca_i += 1) {
-            StructValExprCodeGen *struct_val_expr_node = fn_table_entry->struct_val_expr_alloca_list.at(alloca_i);
-            struct_val_expr_node->ptr = LLVMBuildAlloca(g->builder,
-                    struct_val_expr_node->type_entry->type_ref, "");
+        // allocate temporary stack data
+        for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_list.length; alloca_i += 1) {
+            IrInstruction *instruction = fn_table_entry->alloca_list.at(alloca_i);
+            LLVMValueRef *slot;
+            if (instruction->id == IrInstructionIdCast) {
+                IrInstructionCast *cast_instruction = (IrInstructionCast *)instruction;
+                slot = &cast_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdRef) {
+                IrInstructionRef *ref_instruction = (IrInstructionRef *)instruction;
+                slot = &ref_instruction->tmp_ptr;
+            } else {
+                zig_unreachable();
+            }
+            *slot = LLVMBuildAlloca(g->builder, instruction->type_entry->type_ref, "");
         }
 
         // create debug variable declarations for variables and allocate all local variables
