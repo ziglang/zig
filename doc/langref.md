@@ -147,7 +147,7 @@ PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpr
 
 ArrayType = "[" option(Expression) "]" option("const") TypeExpr
 
-GotoExpression = "goto" Symbol
+GotoExpression = option("inline") "goto" Symbol
 
 GroupedExpression = "(" Expression ")"
 

@@ -584,6 +584,40 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, size_t *token_index, bool m
 }
 
 /*
+GotoExpression = option("inline") "goto" Symbol
+*/
+static AstNode *ast_parse_goto_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
+    Token *first_token = &pc->tokens->at(*token_index);
+    Token *goto_token;
+    bool is_inline;
+    if (first_token->id == TokenIdKeywordInline) {
+        is_inline = true;
+        goto_token = &pc->tokens->at(*token_index + 1);
+        if (goto_token->id == TokenIdKeywordGoto) {
+            *token_index += 2;
+        } else if (mandatory) {
+            ast_expect_token(pc, first_token, TokenIdKeywordGoto);
+        } else {
+            return nullptr;
+        }
+    } else if (first_token->id == TokenIdKeywordGoto) {
+        goto_token = first_token;
+        is_inline = false;
+        *token_index += 1;
+    } else if (mandatory) {
+        ast_expect_token(pc, first_token, TokenIdKeywordGoto);
+    } else {
+        return nullptr;
+    }
+
+    AstNode *node = ast_create_node(pc, NodeTypeGoto, goto_token);
+
+    Token *dest_symbol = ast_eat_token(pc, token_index, TokenIdSymbol);
+    node->data.goto_expr.name = token_buf(dest_symbol);
+    node->data.goto_expr.is_inline = is_inline;
+    return node;
+}
+/*
 PrimaryExpression = "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." "Symbol")
 KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "zeroes" | "error" | "type" | "this"
 */
@@ -672,17 +706,11 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
         node->data.symbol_expr.symbol = token_buf(token);
         return node;
-    } else if (token->id == TokenIdKeywordGoto) {
-        AstNode *node = ast_create_node(pc, NodeTypeGoto, token);
-        *token_index += 1;
-
-        Token *dest_symbol = &pc->tokens->at(*token_index);
-        *token_index += 1;
-        ast_expect_token(pc, dest_symbol, TokenIdSymbol);
-
-        node->data.goto_expr.name = token_buf(dest_symbol);
-        return node;
     }
+
+    AstNode *goto_node = ast_parse_goto_expr(pc, token_index, false);
+    if (goto_node)
+        return goto_node;
 
     AstNode *grouped_expr_node = ast_parse_grouped_expr(pc, token_index, false);
     if (grouped_expr_node) {
