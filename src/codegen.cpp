@@ -1368,27 +1368,34 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
 }
 
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
-    LLVMValueRef fn_val = ir_llvm_value(g, instruction->fn);
-    TypeTableEntry *fn_type = instruction->fn->type_entry;
+    LLVMValueRef fn_val;
+    TypeTableEntry *fn_type;
+    if (instruction->fn_entry) {
+        fn_val = instruction->fn_entry->fn_value;
+        fn_type = instruction->fn_entry->type_entry;
+    } else {
+        assert(instruction->fn_ref);
+        fn_val = ir_llvm_value(g, instruction->fn_ref);
+        fn_type = instruction->fn_ref->type_entry;
+    }
+
     TypeTableEntry *src_return_type = fn_type->data.fn.fn_type_id.return_type;
     bool ret_has_bits = type_has_bits(src_return_type);
-    size_t fn_call_param_count = instruction->arg_count;
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type);
-    size_t actual_param_count = fn_call_param_count + (first_arg_ret ? 1 : 0);
+    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0);
     bool is_var_args = fn_type->data.fn.fn_type_id.is_var_args;
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
     size_t gen_param_index = 0;
     if (first_arg_ret) {
-        zig_panic("TODO");
-        //gen_param_values[gen_param_index] = node->data.fn_call_expr.tmp_ptr;
-        //gen_param_index += 1;
+        gen_param_values[gen_param_index] = instruction->tmp_ptr;
+        gen_param_index += 1;
     }
-    for (size_t call_i = 0; call_i < fn_call_param_count; call_i += 1) {
+    for (size_t call_i = 0; call_i < instruction->arg_count; call_i += 1) {
         IrInstruction *param_instruction = instruction->args[call_i];
-        LLVMValueRef param_value = ir_llvm_value(g, param_instruction);
-        assert(param_value);
         TypeTableEntry *param_type = param_instruction->type_entry;
         if (is_var_args || type_has_bits(param_type)) {
+            LLVMValueRef param_value = ir_llvm_value(g, param_instruction);
+            assert(param_value);
             gen_param_values[gen_param_index] = param_value;
             gen_param_index += 1;
         }
@@ -1402,8 +1409,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     } else if (!ret_has_bits) {
         return nullptr;
     } else if (first_arg_ret) {
-        zig_panic("TODO");
-        //return node->data.fn_call_expr.tmp_ptr;
+        return instruction->tmp_ptr;
     } else {
         return result;
     }
@@ -1420,6 +1426,22 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
 
     assert(field->gen_index != SIZE_MAX);
     return LLVMBuildStructGEP(g->builder, struct_ptr, field->gen_index, "");
+}
+
+static LLVMValueRef ir_render_enum_field_ptr(CodeGen *g, IrExecutable *executable,
+    IrInstructionEnumFieldPtr *instruction)
+{
+    LLVMValueRef enum_ptr = ir_llvm_value(g, instruction->enum_ptr);
+    TypeEnumField *field = instruction->field;
+
+    if (!type_has_bits(field->type_entry))
+        return nullptr;
+
+    LLVMTypeRef field_type_ref = LLVMPointerType(field->type_entry->type_ref, 0);
+    LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, enum_ptr, enum_gen_union_index, "");
+    LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr, field_type_ref, "");
+
+    return bitcasted_union_field_ptr;
 }
 
 static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok) {
@@ -1691,6 +1713,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdStaticEval:
         case IrInstructionIdImport:
+        case IrInstructionIdContainerInitFields:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -1720,6 +1743,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_call(g, executable, (IrInstructionCall *)instruction);
         case IrInstructionIdStructFieldPtr:
             return ir_render_struct_field_ptr(g, executable, (IrInstructionStructFieldPtr *)instruction);
+        case IrInstructionIdEnumFieldPtr:
+            return ir_render_enum_field_ptr(g, executable, (IrInstructionEnumFieldPtr *)instruction);
         case IrInstructionIdAsm:
             return ir_render_asm(g, executable, (IrInstructionAsm *)instruction);
         case IrInstructionIdTestNull:
@@ -1738,7 +1763,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_ref(g, executable, (IrInstructionRef *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
-        case IrInstructionIdContainerInitFields:
+        case IrInstructionIdStructInit:
         case IrInstructionIdEnumTag:
         case IrInstructionIdArrayLen:
             zig_panic("TODO render more IR instructions to LLVM");
@@ -1960,6 +1985,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
             zig_unreachable();
 
@@ -2197,7 +2223,6 @@ static void do_code_gen(CodeGen *g) {
 
         TypeTableEntry *fn_type = fn_table_entry->type_entry;
 
-        bool is_sret = false;
         if (!type_has_bits(fn_type->data.fn.fn_type_id.return_type)) {
             // nothing to do
         } else if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdPointer) {
@@ -2208,10 +2233,6 @@ static void do_code_gen(CodeGen *g) {
             LLVMValueRef first_arg = LLVMGetParam(fn_table_entry->fn_value, 0);
             LLVMAddAttribute(first_arg, LLVMStructRetAttribute);
             ZigLLVMAddNonNullAttr(fn_table_entry->fn_value, 1);
-            is_sret = true;
-        }
-        if (fn_table_entry->is_pure && !is_sret && g->is_release_build) {
-            LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMReadOnlyAttribute);
         }
 
 
@@ -2234,9 +2255,7 @@ static void do_code_gen(CodeGen *g) {
             if (param_is_noalias) {
                 LLVMAddAttribute(argument_val, LLVMNoAliasAttribute);
             }
-            if ((param_type->id == TypeTableEntryIdPointer && (param_type->data.pointer.is_const || fn_table_entry->is_pure)) ||
-                is_byval)
-            {
+            if ((param_type->id == TypeTableEntryIdPointer && param_type->data.pointer.is_const) || is_byval) {
                 LLVMAddAttribute(argument_val, LLVMReadOnlyAttribute);
             }
             if (param_type->id == TypeTableEntryIdPointer) {
@@ -2339,6 +2358,15 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdRef) {
                 IrInstructionRef *ref_instruction = (IrInstructionRef *)instruction;
                 slot = &ref_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdContainerInitList) {
+                IrInstructionContainerInitList *container_init_list_instruction = (IrInstructionContainerInitList *)instruction;
+                slot = &container_init_list_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdStructInit) {
+                IrInstructionStructInit *struct_init_instruction = (IrInstructionStructInit *)instruction;
+                slot = &struct_init_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdCall) {
+                IrInstructionCall *call_instruction = (IrInstructionCall *)instruction;
+                slot = &call_instruction->tmp_ptr;
             } else {
                 zig_unreachable();
             }
@@ -2464,46 +2492,39 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNamespace);
         buf_init_from_str(&entry->name, "(namespace)");
         entry->zero_bits = true;
-        entry->deep_const = true;
         g->builtin_types.entry_namespace = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBlock);
         buf_init_from_str(&entry->name, "(block)");
         entry->zero_bits = true;
-        entry->deep_const = true;
         g->builtin_types.entry_block = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumLitFloat);
         buf_init_from_str(&entry->name, "(float literal)");
         entry->zero_bits = true;
-        entry->deep_const = true;
         g->builtin_types.entry_num_lit_float = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNumLitInt);
         buf_init_from_str(&entry->name, "(integer literal)");
         entry->zero_bits = true;
-        entry->deep_const = true;
         g->builtin_types.entry_num_lit_int = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUndefLit);
         buf_init_from_str(&entry->name, "(undefined)");
-        entry->deep_const = true;
         g->builtin_types.entry_undef = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNullLit);
         buf_init_from_str(&entry->name, "(null)");
-        entry->deep_const = true;
         g->builtin_types.entry_null = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVar);
         buf_init_from_str(&entry->name, "(var)");
-        entry->deep_const = true;
         g->builtin_types.entry_var = entry;
     }
 
@@ -2514,7 +2535,6 @@ static void define_builtin_types(CodeGen *g) {
 
             TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
             entry->type_ref = LLVMIntType(size_in_bits);
-            entry->deep_const = true;
 
             const char u_or_i = is_signed ? 'i' : 'u';
             buf_resize(&entry->name, 0);
@@ -2554,7 +2574,6 @@ static void define_builtin_types(CodeGen *g) {
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMIntType(size_in_bits);
-        entry->deep_const = true;
 
         buf_init_from_str(&entry->name, info->name);
 
@@ -2574,7 +2593,6 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdBool);
         entry->type_ref = LLVMInt1Type();
-        entry->deep_const = true;
         buf_init_from_str(&entry->name, "bool");
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
@@ -2590,7 +2608,6 @@ static void define_builtin_types(CodeGen *g) {
         bool is_signed = is_signed_list[sign_i];
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
-        entry->deep_const = true;
         entry->type_ref = LLVMIntType(g->pointer_size_bytes * 8);
 
         const char u_or_i = is_signed ? 'i' : 'u';
@@ -2616,7 +2633,6 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->deep_const = true;
         entry->type_ref = LLVMFloatType();
         buf_init_from_str(&entry->name, "f32");
         entry->data.floating.bit_count = 32;
@@ -2632,7 +2648,6 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->deep_const = true;
         entry->type_ref = LLVMDoubleType();
         buf_init_from_str(&entry->name, "f64");
         entry->data.floating.bit_count = 64;
@@ -2648,7 +2663,6 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
-        entry->deep_const = true;
         entry->type_ref = LLVMX86FP80Type();
         buf_init_from_str(&entry->name, "c_long_double");
         entry->data.floating.bit_count = 80;
@@ -2664,7 +2678,6 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);
-        entry->deep_const = true;
         entry->type_ref = LLVMVoidType();
         entry->zero_bits = true;
         buf_init_from_str(&entry->name, "void");
@@ -2677,7 +2690,6 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUnreachable);
-        entry->deep_const = true;
         entry->type_ref = LLVMVoidType();
         entry->zero_bits = true;
         buf_init_from_str(&entry->name, "unreachable");
@@ -2687,7 +2699,6 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMetaType);
-        entry->deep_const = true;
         buf_init_from_str(&entry->name, "type");
         entry->zero_bits = true;
         g->builtin_types.entry_type = entry;
@@ -2710,7 +2721,6 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPureError);
-        entry->deep_const = true;
         buf_init_from_str(&entry->name, "error");
 
         // TODO allow overriding this type and keep track of max value and emit an
@@ -2726,7 +2736,6 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        entry->deep_const = true;
         entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "@OS");
         uint32_t field_count = target_os_count();
@@ -2752,7 +2761,6 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        entry->deep_const = true;
         entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "@Arch");
         uint32_t field_count = target_arch_count();
@@ -2784,7 +2792,6 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        entry->deep_const = true;
         entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "@Environ");
         uint32_t field_count = target_environ_count();
@@ -2811,7 +2818,6 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        entry->deep_const = true;
         entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "@ObjectFormat");
         uint32_t field_count = target_oformat_count();
@@ -2838,7 +2844,6 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        entry->deep_const = true;
         buf_init_from_str(&entry->name, "AtomicOrder");
         uint32_t field_count = 6;
         entry->data.enumeration.src_field_count = field_count;
@@ -2998,7 +3003,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdUnreachable, "unreachable", 0);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnTest, "setFnTest", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnVisible, "setFnVisible", 2);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnStaticEval, "setFnStaticEval", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnNoInline, "setFnNoInline", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
 }
@@ -3287,6 +3291,7 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdNumLitFloat:

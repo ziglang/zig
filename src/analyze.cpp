@@ -84,45 +84,10 @@ AstNode *first_executing_node(AstNode *node) {
     zig_unreachable();
 }
 
-void mark_impure_fn(CodeGen *g, BlockContext *context, AstNode *node) {
-    if (!context->fn_entry) return;
-    if (!context->fn_entry->is_pure) return;
-
-    context->fn_entry->is_pure = false;
-    if (context->fn_entry->want_pure == WantPureTrue) {
-        context->fn_entry->proto_node->data.fn_proto.skip = true;
-
-        ErrorMsg *msg = add_node_error(g, context->fn_entry->proto_node,
-            buf_sprintf("failed to evaluate function at compile time"));
-
-        add_error_note(g, msg, node,
-            buf_sprintf("unable to evaluate this expression at compile time"));
-
-        if (context->fn_entry->want_pure_attr_node) {
-            add_error_note(g, msg, context->fn_entry->want_pure_attr_node,
-                buf_sprintf("required to be compile-time function here"));
-        }
-
-        if (context->fn_entry->want_pure_return_type) {
-            add_error_note(g, msg, context->fn_entry->want_pure_return_type,
-                buf_sprintf("required to be compile-time function because of return type '%s'",
-                buf_ptr(&context->fn_entry->type_entry->data.fn.fn_type_id.return_type->name)));
-        }
-    }
-}
-
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     // if this assert fails, then parseh generated code that
     // failed semantic analysis, which isn't supposed to happen
     assert(!node->owner->c_import_node);
-
-    // if an error occurs in a function then it becomes impure
-    if (node->block_context) {
-        FnTableEntry *fn_entry = node->block_context->fn_entry;
-        if (fn_entry) {
-            fn_entry->is_pure = false;
-        }
-    }
 
     ErrorMsg *err = err_msg_create_with_line(node->owner->path, node->line, node->column,
             node->owner->source_code, node->owner->line_offsets, msg);
@@ -217,6 +182,7 @@ bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
             return true;
     }
     zig_unreachable();
@@ -241,7 +207,6 @@ TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
 static TypeTableEntry *get_generic_fn_type(CodeGen *g, AstNode *decl_node) {
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdGenericFn);
     buf_init_from_str(&entry->name, "(generic function)");
-    entry->deep_const = true;
     entry->zero_bits = true;
     entry->data.generic_fn.decl_node = decl_node;
     return entry;
@@ -254,8 +219,6 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
         return *parent_pointer;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
-
-        entry->deep_const = is_const && child_type->deep_const;
 
         const char *const_str = is_const ? "const " : "";
         buf_resize(&entry->name, 0);
@@ -297,8 +260,6 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
         assert(child_type->type_ref);
         assert(child_type->di_type);
-
-        entry->deep_const = child_type->deep_const;
 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
@@ -383,8 +344,6 @@ TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
 
         entry->data.error.child_type = child_type;
 
-        entry->deep_const = child_type->deep_const;
-
         if (!type_has_bits(child_type)) {
             entry->type_ref = g->err_tag_type->type_ref;
             entry->di_type = g->err_tag_type->di_type;
@@ -456,7 +415,6 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
         entry->type_ref = child_type->type_ref ? LLVMArrayType(child_type->type_ref, array_size) : nullptr;
         entry->zero_bits = (array_size == 0) || child_type->zero_bits;
-        entry->deep_const = child_type->deep_const;
 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
@@ -506,8 +464,6 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
     } else if (is_const) {
         TypeTableEntry *var_peer = get_slice_type(g, child_type, false);
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
-
-        entry->deep_const = child_type->deep_const;
 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "[]const %s", buf_ptr(&child_type->name));
@@ -657,7 +613,6 @@ TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *
 
     buf_init_from_str(&entry->name, name);
 
-    entry->deep_const = child_type->deep_const;
     entry->type_ref = child_type->type_ref;
     entry->di_type = child_type->di_type;
     entry->zero_bits = child_type->zero_bits;
@@ -673,6 +628,23 @@ TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *
     return entry;
 }
 
+TypeTableEntry *get_bound_fn_type(CodeGen *g, FnTableEntry *fn_entry) {
+    TypeTableEntry *fn_type = fn_entry->type_entry;
+    assert(fn_type->id == TypeTableEntryIdFn);
+    if (fn_type->data.fn.bound_fn_parent)
+        return fn_type->data.fn.bound_fn_parent;
+
+    TypeTableEntry *bound_fn_type = new_type_table_entry(TypeTableEntryIdBoundFn);
+    bound_fn_type->data.bound_fn.fn_type = fn_type;
+    bound_fn_type->zero_bits = true;
+
+    buf_resize(&bound_fn_type->name, 0);
+    buf_appendf(&bound_fn_type->name, "(bound %s)", buf_ptr(&fn_type->name));
+
+    fn_type->data.fn.bound_fn_parent = bound_fn_type;
+    return bound_fn_type;
+}
+
 // accepts ownership of fn_type_id memory
 TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id, bool gen_debug_info) {
     auto table_entry = g->fn_type_table.maybe_get(fn_type_id);
@@ -681,7 +653,6 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id, bool gen_debug_inf
     }
 
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
-    fn_type->deep_const = true;
     fn_type->data.fn.fn_type_id = *fn_type_id;
 
     if (fn_type_id->is_cold) {
@@ -838,6 +809,7 @@ static IrInstruction *analyze_const_value(CodeGen *g, BlockContext *scope, AstNo
         TypeTableEntry *expected_type)
 {
     IrExecutable ir_executable = {0};
+    ir_executable.is_inline = true;
     ir_gen(g, node, scope, &ir_executable);
 
     if (ir_executable.invalid)
@@ -851,6 +823,7 @@ static IrInstruction *analyze_const_value(CodeGen *g, BlockContext *scope, AstNo
         fprintf(stderr, "}\n");
     }
     IrExecutable analyzed_executable = {0};
+    analyzed_executable.is_inline = true;
     analyzed_executable.backward_branch_quota = default_backward_branch_quota;
     TypeTableEntry *result_type = ir_analyze(g, &ir_executable, &analyzed_executable, expected_type, node);
     if (result_type->id == TypeTableEntryIdInvalid)
@@ -884,8 +857,7 @@ static TypeTableEntry *analyze_type_expr(CodeGen *g, ImportTableEntry *import, B
 
 static bool fn_wants_full_static_eval(FnTableEntry *fn_table_entry) {
     assert(fn_table_entry);
-    AstNodeFnProto *fn_proto = &fn_table_entry->proto_node->data.fn_proto;
-    return fn_proto->inline_arg_count == fn_proto->params.length && fn_table_entry->want_pure == WantPureTrue;
+    return false;
 }
 
 // fn_table_entry is populated if and only if there is a function definition for this prototype
@@ -931,6 +903,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
             case TypeTableEntryIdNamespace:
             case TypeTableEntryIdBlock:
             case TypeTableEntryIdGenericFn:
+            case TypeTableEntryIdBoundFn:
                 if (!fn_proto->skip) {
                     fn_proto->skip = true;
                     add_node_error(g, child->data.param_decl.type,
@@ -991,6 +964,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
             if (!fn_proto->skip) {
                 fn_proto->skip = true;
@@ -1023,9 +997,6 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
     }
 
     if (fn_table_entry && fn_type_id.return_type->id == TypeTableEntryIdMetaType) {
-        fn_table_entry->want_pure = WantPureTrue;
-        fn_table_entry->want_pure_return_type = fn_proto->return_type;
-
         ErrorMsg *err_msg = nullptr;
         for (size_t i = 0; i < fn_proto->params.length; i += 1) {
             AstNode *param_decl_node = fn_proto->params.at(i);
@@ -1046,8 +1017,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
         }
     }
 
-
-    bool gen_debug_info = !(fn_table_entry && fn_wants_full_static_eval(fn_table_entry));
+    bool gen_debug_info = fn_table_entry && !fn_wants_full_static_eval(fn_table_entry);
     return get_fn_type(g, &fn_type_id, gen_debug_info);
 }
 
@@ -1167,8 +1137,6 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
     assert(decl_node->type == NodeTypeContainerDecl);
     assert(enum_type->di_type);
 
-    enum_type->deep_const = true;
-
     uint32_t field_count = decl_node->data.struct_decl.fields.length;
 
     enum_type->data.enumeration.src_field_count = field_count;
@@ -1197,11 +1165,6 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
                 field_node->data.struct_field.type);
         type_enum_field->type_entry = field_type;
         type_enum_field->value = i;
-
-        if (!field_type->deep_const) {
-            enum_type->deep_const = false;
-        }
-
 
         di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(type_enum_field->name), i);
 
@@ -1362,8 +1325,6 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     assert(decl_node->type == NodeTypeContainerDecl);
     assert(struct_type->di_type);
 
-    struct_type->deep_const = true;
-
     size_t field_count = decl_node->data.struct_decl.fields.length;
 
     struct_type->data.structure.src_field_count = field_count;
@@ -1388,10 +1349,6 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
         type_struct_field->type_entry = field_type;
         type_struct_field->src_index = i;
         type_struct_field->gen_index = SIZE_MAX;
-
-        if (!field_type->deep_const) {
-            struct_type->deep_const = false;
-        }
 
         if (field_type->id == TypeTableEntryIdStruct) {
             resolve_struct_type(g, import, field_type);
@@ -1537,7 +1494,6 @@ static void preview_fn_proto_instance(CodeGen *g, ImportTableEntry *import, AstN
     fn_table_entry->proto_node = proto_node;
     fn_table_entry->fn_def_node = fn_def_node;
     fn_table_entry->is_extern = is_extern;
-    fn_table_entry->is_pure = fn_def_node != nullptr;
 
     get_fully_qualified_decl_name(&fn_table_entry->symbol_name, proto_node, '_');
 
@@ -1852,6 +1808,7 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
             return type_entry;
     }
     zig_unreachable();
@@ -2100,6 +2057,7 @@ static bool type_has_codegen_value(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
             return false;
 
         case TypeTableEntryIdBool:
@@ -2314,6 +2272,7 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
             return false;
     }
     zig_unreachable();
@@ -2361,6 +2320,7 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
             zig_unreachable();
@@ -2428,10 +2388,6 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
 
         if (fn_type->data.fn.gen_param_info) {
             var->gen_arg_index = fn_type->data.fn.gen_param_info[i].gen_index;
-        }
-
-        if (!type->deep_const) {
-            fn_table_entry->is_pure = false;
         }
     }
 
@@ -2768,6 +2724,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
              zig_unreachable();
         case TypeTableEntryIdUnreachable:
@@ -2818,6 +2775,14 @@ static uint32_t hash_ptr(void *ptr) {
 
 static uint32_t hash_size(size_t x) {
     return x % UINT32_MAX;
+}
+
+uint32_t fn_table_entry_hash(FnTableEntry* value) {
+    return ptr_hash(value);
+}
+
+bool fn_table_entry_eql(FnTableEntry *a, FnTableEntry *b) {
+    return ptr_eq(a, b);
 }
 
 uint32_t fn_type_id_hash(FnTypeId *id) {
@@ -2912,6 +2877,7 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
         case TypeTableEntryIdBlock:
             return hash_ptr(const_val->data.x_block);
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVar:
@@ -2990,6 +2956,7 @@ static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry)
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
             zig_unreachable();
         case TypeTableEntryIdArray:

@@ -56,6 +56,7 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *ty
         case TypeTableEntryIdBlock:
             zig_panic("TODO");
         case TypeTableEntryIdGenericFn:
+        case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVar:

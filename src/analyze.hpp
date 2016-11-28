@@ -31,6 +31,7 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import,
         ContainerKind kind, AstNode *decl_node, const char *name);
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
 TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type);
+TypeTableEntry *get_bound_fn_type(CodeGen *g, FnTableEntry *fn_entry);
 bool handle_is_ptr(TypeTableEntry *type_entry);
 void find_libc_include_path(CodeGen *g);
 void find_libc_lib_path(CodeGen *g);
@@ -52,7 +53,6 @@ VariableTableEntry *find_variable(CodeGen *g, BlockContext *orig_context, Buf *n
 AstNode *find_decl(BlockContext *context, Buf *name);
 void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only);
 TopLevelDecl *get_as_top_level_decl(AstNode *node);
-void mark_impure_fn(CodeGen *g, BlockContext *context, AstNode *node);
 bool type_is_codegen_pointer(TypeTableEntry *type);
 TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry);
 TypeTableEntry *container_ref_type(TypeTableEntry *type_entry);

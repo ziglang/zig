@@ -7,6 +7,8 @@ struct IrPrint {
     int indent_size;
 };
 
+static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction);
+
 static void ir_print_indent(IrPrint *irp) {
     for (int i = 0; i < irp->indent; i += 1) {
         fprintf(irp->f, " ");
@@ -35,25 +37,30 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
             break;
     }
     switch (type_entry->id) {
+        case TypeTableEntryIdTypeDecl:
+            return ir_print_const_value(irp, type_entry->data.type_decl.canonical_type, const_val);
         case TypeTableEntryIdInvalid:
             fprintf(irp->f, "(invalid)");
-            break;
+            return;
+        case TypeTableEntryIdVar:
+            fprintf(irp->f, "(var)");
+            return;
         case TypeTableEntryIdVoid:
             fprintf(irp->f, "{}");
-            break;
+            return;
         case TypeTableEntryIdNumLitFloat:
             fprintf(irp->f, "%f", const_val->data.x_bignum.data.x_float);
-            break;
+            return;
         case TypeTableEntryIdNumLitInt:
             {
                 BigNum *bignum = &const_val->data.x_bignum;
                 const char *negative_str = bignum->is_negative ? "-" : "";
                 fprintf(irp->f, "%s%llu", negative_str, bignum->data.x_uint);
-                break;
+                return;
             }
         case TypeTableEntryIdMetaType:
             fprintf(irp->f, "%s", buf_ptr(&const_val->data.x_type->name));
-            break;
+            return;
         case TypeTableEntryIdInt:
             {
                 BigNum *bignum = &const_val->data.x_bignum;
@@ -61,31 +68,38 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
                 const char *negative_str = bignum->is_negative ? "-" : "";
                 fprintf(irp->f, "%s%llu", negative_str, bignum->data.x_uint);
             }
-            break;
+            return;
+        case TypeTableEntryIdFloat:
+            {
+                BigNum *bignum = &const_val->data.x_bignum;
+                assert(bignum->kind == BigNumKindFloat);
+                fprintf(irp->f, "%f", bignum->data.x_float);
+            }
+            return;
         case TypeTableEntryIdUnreachable:
             fprintf(irp->f, "@unreachable()");
-            break;
+            return;
         case TypeTableEntryIdBool:
             {
                 const char *value = const_val->data.x_bool ? "true" : "false";
                 fprintf(irp->f, "%s", value);
-                break;
+                return;
             }
         case TypeTableEntryIdPointer:
             fprintf(irp->f, "&");
             ir_print_const_value(irp, type_entry->data.pointer.child_type, const_ptr_pointee(const_val));
-            break;
+            return;
         case TypeTableEntryIdFn:
             {
                 FnTableEntry *fn_entry = const_val->data.x_fn;
                 fprintf(irp->f, "%s", buf_ptr(&fn_entry->symbol_name));
-                break;
+                return;
             }
         case TypeTableEntryIdBlock:
             {
                 AstNode *node = const_val->data.x_block->node;
                 fprintf(irp->f, "(scope:%zu:%zu)", node->line + 1, node->column + 1);
-                break;
+                return;
             }
         case TypeTableEntryIdArray:
             {
@@ -99,12 +113,17 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
                     ir_print_const_value(irp, child_type, child_value);
                 }
                 fprintf(irp->f, "}");
-                break;
+                return;
             }
         case TypeTableEntryIdNullLit:
             {
                 fprintf(irp->f, "null");
-                break;
+                return;
+            }
+        case TypeTableEntryIdUndefLit:
+            {
+                fprintf(irp->f, "undefined");
+                return;
             }
         case TypeTableEntryIdMaybe:
             {
@@ -113,26 +132,56 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
                 } else {
                     fprintf(irp->f, "null");
                 }
-                break;
+                return;
             }
         case TypeTableEntryIdNamespace:
             {
                 ImportTableEntry *import = const_val->data.x_import;
                 fprintf(irp->f, "(namespace: %s)", buf_ptr(import->path));
-                break;
+                return;
             }
-        case TypeTableEntryIdVar:
-        case TypeTableEntryIdFloat:
-        case TypeTableEntryIdStruct:
-        case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
-        case TypeTableEntryIdEnum:
-        case TypeTableEntryIdUnion:
-        case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdGenericFn:
-            zig_panic("TODO render more constant types in IR printer");
+            {
+                TypeTableEntry *type_entry = const_val->data.x_type;
+                AstNode *decl_node = type_entry->data.generic_fn.decl_node;
+                assert(decl_node->type == NodeTypeFnProto);
+                fprintf(irp->f, "%s", buf_ptr(decl_node->data.fn_proto.name));
+                return;
+            }
+        case TypeTableEntryIdBoundFn:
+            {
+                FnTableEntry *fn_entry = const_val->data.x_bound_fn.fn;
+                fprintf(irp->f, "bound %s to ", buf_ptr(&fn_entry->symbol_name));
+                ir_print_other_instruction(irp, const_val->data.x_bound_fn.first_arg);
+                return;
+            }
+        case TypeTableEntryIdStruct:
+            {
+                fprintf(irp->f, "(struct %s constant)", buf_ptr(&type_entry->name));
+                return;
+            }
+        case TypeTableEntryIdEnum:
+            {
+                fprintf(irp->f, "(enum %s constant)", buf_ptr(&type_entry->name));
+                return;
+            }
+        case TypeTableEntryIdErrorUnion:
+            {
+                fprintf(irp->f, "(error union %s constant)", buf_ptr(&type_entry->name));
+                return;
+            }
+        case TypeTableEntryIdUnion:
+            {
+                fprintf(irp->f, "(union %s constant)", buf_ptr(&type_entry->name));
+                return;
+            }
+        case TypeTableEntryIdPureError:
+            {
+                fprintf(irp->f, "(pure error constant)");
+                return;
+            }
     }
+    zig_unreachable();
 }
 
 static void ir_print_const_instruction(IrPrint *irp, IrInstruction *instruction) {
@@ -285,12 +334,16 @@ static void ir_print_decl_var(IrPrint *irp, IrInstructionDeclVar *decl_var_instr
 static void ir_print_cast(IrPrint *irp, IrInstructionCast *cast_instruction) {
     fprintf(irp->f, "cast ");
     ir_print_other_instruction(irp, cast_instruction->value);
-    fprintf(irp->f, " to ");
-    ir_print_other_instruction(irp, cast_instruction->dest_type);
+    fprintf(irp->f, " to %s", buf_ptr(&cast_instruction->dest_type->name));
 }
 
 static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
-    ir_print_other_instruction(irp, call_instruction->fn);
+    if (call_instruction->fn_entry) {
+        fprintf(irp->f, "%s", buf_ptr(&call_instruction->fn_entry->symbol_name));
+    } else {
+        assert(call_instruction->fn_ref);
+        ir_print_other_instruction(irp, call_instruction->fn_ref);
+    }
     fprintf(irp->f, "(");
     for (size_t i = 0; i < call_instruction->arg_count; i += 1) {
         IrInstruction *arg = call_instruction->args[i];
@@ -347,13 +400,24 @@ static void ir_print_container_init_fields(IrPrint *irp, IrInstructionContainerI
     ir_print_other_instruction(irp, instruction->container_type);
     fprintf(irp->f, "{");
     for (size_t i = 0; i < instruction->field_count; i += 1) {
-        Buf *name = instruction->field_names[i];
-        IrInstruction *field_value = instruction->field_values[i];
+        IrInstructionContainerInitFieldsField *field = &instruction->fields[i];
         const char *comma = (i == 0) ? "" : ", ";
-        fprintf(irp->f, "%s.%s = ", comma, buf_ptr(name));
-        ir_print_other_instruction(irp, field_value);
+        fprintf(irp->f, "%s.%s = ", comma, buf_ptr(field->name));
+        ir_print_other_instruction(irp, field->value);
     }
-    fprintf(irp->f, "}");
+    fprintf(irp->f, "} // container init");
+}
+
+static void ir_print_struct_init(IrPrint *irp, IrInstructionStructInit *instruction) {
+    fprintf(irp->f, "%s {", buf_ptr(&instruction->struct_type->name));
+    for (size_t i = 0; i < instruction->field_count; i += 1) {
+        IrInstructionStructInitField *field = &instruction->fields[i];
+        Buf *field_name = field->type_struct_field->name;
+        const char *comma = (i == 0) ? "" : ", ";
+        fprintf(irp->f, "%s.%s = ", comma, buf_ptr(field_name));
+        ir_print_other_instruction(irp, field->value);
+    }
+    fprintf(irp->f, "} // struct init");
 }
 
 static void ir_print_unreachable(IrPrint *irp, IrInstructionUnreachable *instruction) {
@@ -406,15 +470,21 @@ static void ir_print_ptr_type_child(IrPrint *irp, IrInstructionPtrTypeChild *ins
 }
 
 static void ir_print_field_ptr(IrPrint *irp, IrInstructionFieldPtr *instruction) {
-    fprintf(irp->f, "@FieldPtr(&");
+    fprintf(irp->f, "fieldptr ");
     ir_print_other_instruction(irp, instruction->container_ptr);
     fprintf(irp->f, ".%s", buf_ptr(instruction->field_name));
-    fprintf(irp->f, ")");
 }
 
 static void ir_print_struct_field_ptr(IrPrint *irp, IrInstructionStructFieldPtr *instruction) {
     fprintf(irp->f, "@StructFieldPtr(&");
     ir_print_other_instruction(irp, instruction->struct_ptr);
+    fprintf(irp->f, ".%s", buf_ptr(instruction->field->name));
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_enum_field_ptr(IrPrint *irp, IrInstructionEnumFieldPtr *instruction) {
+    fprintf(irp->f, "@EnumFieldPtr(&");
+    ir_print_other_instruction(irp, instruction->enum_ptr);
     fprintf(irp->f, ".%s", buf_ptr(instruction->field->name));
     fprintf(irp->f, ")");
 }
@@ -632,6 +702,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdContainerInitFields:
             ir_print_container_init_fields(irp, (IrInstructionContainerInitFields *)instruction);
             break;
+        case IrInstructionIdStructInit:
+            ir_print_struct_init(irp, (IrInstructionStructInit *)instruction);
+            break;
         case IrInstructionIdUnreachable:
             ir_print_unreachable(irp, (IrInstructionUnreachable *)instruction);
             break;
@@ -661,6 +734,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdStructFieldPtr:
             ir_print_struct_field_ptr(irp, (IrInstructionStructFieldPtr *)instruction);
+            break;
+        case IrInstructionIdEnumFieldPtr:
+            ir_print_enum_field_ptr(irp, (IrInstructionEnumFieldPtr *)instruction);
             break;
         case IrInstructionIdSetFnTest:
             ir_print_set_fn_test(irp, (IrInstructionSetFnTest *)instruction);

@@ -41,6 +41,7 @@ struct IrExecutable {
     bool invalid;
     ZigList<LabelTableEntry *> all_labels;
     ZigList<AstNode *> goto_list;
+    bool is_inline;
 };
 
 enum OutType {
@@ -82,6 +83,11 @@ struct ConstErrValue {
     ConstExprValue *payload;
 };
 
+struct ConstBoundFnValue {
+    FnTableEntry *fn;
+    IrInstruction *first_arg;
+};
+
 enum ConstValSpecial {
     ConstValSpecialRuntime,
     ConstValSpecialStatic,
@@ -100,6 +106,7 @@ struct ConstExprValue {
         BigNum x_bignum;
         bool x_bool;
         FnTableEntry *x_fn;
+        ConstBoundFnValue x_bound_fn;
         TypeTableEntry *x_type;
         ConstExprValue *x_maybe;
         ConstErrValue x_err;
@@ -494,6 +501,7 @@ struct AstNodeIfBoolExpr {
     AstNode *condition;
     AstNode *then_block;
     AstNode *else_node; // null, block node, or other if expr node
+    bool is_inline; // TODO
 
     // populated by semantic analyzer
 };
@@ -503,6 +511,7 @@ struct AstNodeIfVarExpr {
     AstNode *then_block;
     AstNode *else_node; // null, block node, or other if expr node
     bool var_is_ptr;
+    bool is_inline; // TODO
 
     // populated by semantic analyzer
     TypeTableEntry *type;
@@ -941,10 +950,16 @@ struct TypeTableEntryFn {
 
     LLVMTypeRef raw_type_ref;
     LLVMCallConv calling_convention;
+
+    TypeTableEntry *bound_fn_parent;
 };
 
 struct TypeTableEntryGenericFn {
     AstNode *decl_node;
+};
+
+struct TypeTableEntryBoundFn {
+    TypeTableEntry *fn_type;
 };
 
 struct TypeTableEntryTypeDecl {
@@ -978,6 +993,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdNamespace,
     TypeTableEntryIdBlock,
     TypeTableEntryIdGenericFn,
+    TypeTableEntryIdBoundFn,
 };
 
 struct TypeTableEntry {
@@ -988,7 +1004,6 @@ struct TypeTableEntry {
     ZigLLVMDIType *di_type;
 
     bool zero_bits;
-    bool deep_const;
 
     union {
         TypeTableEntryPointer pointer;
@@ -1003,6 +1018,7 @@ struct TypeTableEntry {
         TypeTableEntryFn fn;
         TypeTableEntryTypeDecl type_decl;
         TypeTableEntryGenericFn generic_fn;
+        TypeTableEntryBoundFn bound_fn;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
@@ -1043,12 +1059,6 @@ enum FnAnalState {
 };
 
 
-enum WantPure {
-    WantPureAuto,
-    WantPureFalse,
-    WantPureTrue,
-};
-
 enum FnInline {
     FnInlineAuto,
     FnInlineAlways,
@@ -1067,10 +1077,6 @@ struct FnTableEntry {
     bool internal_linkage;
     bool is_extern;
     bool is_test;
-    bool is_pure;
-    WantPure want_pure;
-    AstNode *want_pure_attr_node;
-    AstNode *want_pure_return_type;
     FnInline fn_inline;
     FnAnalState anal_state;
     IrExecutable ir_executable;
@@ -1084,6 +1090,9 @@ struct FnTableEntry {
     ZigList<IrInstruction *> alloca_list;
     ZigList<VariableTableEntry *> variable_list;
 };
+
+uint32_t fn_table_entry_hash(FnTableEntry*);
+bool fn_table_entry_eql(FnTableEntry *a, FnTableEntry *b);
 
 enum BuiltinFnId {
     BuiltinFnIdInvalid,
@@ -1122,7 +1131,6 @@ enum BuiltinFnId {
     BuiltinFnIdUnreachable,
     BuiltinFnIdSetFnTest,
     BuiltinFnIdSetFnVisible,
-    BuiltinFnIdSetFnStaticEval,
     BuiltinFnIdSetFnNoInline,
     BuiltinFnIdSetDebugSafety,
 };
@@ -1385,6 +1393,7 @@ enum IrInstructionId {
     IrInstructionIdStorePtr,
     IrInstructionIdFieldPtr,
     IrInstructionIdStructFieldPtr,
+    IrInstructionIdEnumFieldPtr,
     IrInstructionIdElemPtr,
     IrInstructionIdVarPtr,
     IrInstructionIdCall,
@@ -1393,6 +1402,7 @@ enum IrInstructionId {
     IrInstructionIdCast,
     IrInstructionIdContainerInitList,
     IrInstructionIdContainerInitFields,
+    IrInstructionIdStructInit,
     IrInstructionIdUnreachable,
     IrInstructionIdTypeOf,
     IrInstructionIdToPtrType,
@@ -1578,6 +1588,14 @@ struct IrInstructionStructFieldPtr {
     bool is_const;
 };
 
+struct IrInstructionEnumFieldPtr {
+    IrInstruction base;
+
+    IrInstruction *enum_ptr;
+    TypeEnumField *field;
+    bool is_const;
+};
+
 struct IrInstructionElemPtr {
     IrInstruction base;
 
@@ -1597,9 +1615,12 @@ struct IrInstructionVarPtr {
 struct IrInstructionCall {
     IrInstruction base;
 
-    IrInstruction *fn;
+    IrInstruction *fn_ref;
+    FnTableEntry *fn_entry;
     size_t arg_count;
     IrInstruction **args;
+    bool is_inline;
+    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionConst {
@@ -1615,11 +1636,12 @@ struct IrInstructionReturn {
     IrInstruction *value;
 };
 
+// TODO get rid of this instruction, replace with instructions for each op code
 struct IrInstructionCast {
     IrInstruction base;
 
     IrInstruction *value;
-    IrInstruction *dest_type;
+    TypeTableEntry *dest_type;
     CastOp cast_op;
     LLVMValueRef tmp_ptr;
 };
@@ -1630,6 +1652,14 @@ struct IrInstructionContainerInitList {
     IrInstruction *container_type;
     size_t item_count;
     IrInstruction **items;
+    LLVMValueRef tmp_ptr;
+};
+
+struct IrInstructionContainerInitFieldsField {
+    Buf *name;
+    IrInstruction *value;
+    AstNode *source_node;
+    TypeStructField *type_struct_field;
 };
 
 struct IrInstructionContainerInitFields {
@@ -1637,8 +1667,21 @@ struct IrInstructionContainerInitFields {
 
     IrInstruction *container_type;
     size_t field_count;
-    Buf **field_names;
-    IrInstruction **field_values;
+    IrInstructionContainerInitFieldsField *fields;
+};
+
+struct IrInstructionStructInitField {
+    IrInstruction *value;
+    TypeStructField *type_struct_field;
+};
+
+struct IrInstructionStructInit {
+    IrInstruction base;
+
+    TypeTableEntry *struct_type;
+    size_t field_count;
+    IrInstructionStructInitField *fields;
+    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionUnreachable {
@@ -1789,5 +1832,8 @@ static const size_t slice_len_index = 1;
 
 static const size_t maybe_child_index = 0;
 static const size_t maybe_null_index = 1;
+
+static const size_t enum_gen_tag_index = 0;
+static const size_t enum_gen_union_index = 1;
 
 #endif

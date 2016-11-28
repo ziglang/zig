@@ -84,6 +84,18 @@ end:
 }
 var goto_counter: i32 = 0;
 
+
+
+struct FooA {
+    fn add(a: i32, b: i32) -> i32 { a + b }
+}
+const foo_a = FooA {};
+
+fn testStructStatic() {
+    const result = FooA.add(3, 4);
+    assert(result == 7);
+}
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -98,6 +110,7 @@ fn runAllTests() {
     testInlineSwitch();
     testNamespaceFnCall();
     gotoAndLabels();
+    testStructStatic();
 }
 
 export nakedcc fn _start() -> unreachable {
