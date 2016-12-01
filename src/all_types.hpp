@@ -19,7 +19,7 @@
 struct AstNode;
 struct ImportTableEntry;
 struct FnTableEntry;
-struct BlockContext;
+struct Scope;
 struct TypeTableEntry;
 struct VariableTableEntry;
 struct ErrorTableEntry;
@@ -115,7 +115,7 @@ struct ConstExprValue {
         ConstArrayValue x_array;
         ConstPtrValue x_ptr;
         ImportTableEntry *x_import;
-        BlockContext *x_block;
+        Scope *x_block;
     } data;
 };
 
@@ -252,7 +252,7 @@ struct AstNodeFnDef {
     // populated by semantic analyzer
     TypeTableEntry *implicit_return_type;
     // the first child block context
-    BlockContext *block_context;
+    Scope *scope;
 };
 
 struct AstNodeFnDecl {
@@ -274,11 +274,11 @@ struct AstNodeBlock {
 
     // populated by semantic analyzer
     // this one is the scope that the block itself introduces
-    BlockContext *child_block;
+    Scope *child_block;
     // this is the innermost scope created by defers and var decls.
     // you can follow its parents up to child_block. it will equal
     // child_block if there are no defers or var decls in the block.
-    BlockContext *nested_block;
+    Scope *nested_block;
 };
 
 enum ReturnKind {
@@ -300,7 +300,7 @@ struct AstNodeDefer {
     // populated by semantic analyzer:
     size_t index_in_block;
     LLVMBasicBlockRef basic_block;
-    BlockContext *child_block;
+    Scope *child_block;
 };
 
 struct AstNodeVariableDeclaration {
@@ -638,7 +638,7 @@ struct AstNodeStructDecl {
     ZigList<AstNode *> decls;
 
     // populated by semantic analyzer
-    BlockContext *block_context;
+    Scope *scope;
     TypeTableEntry *type_entry;
     TypeTableEntry *generic_fn_type;
     bool skip;
@@ -762,7 +762,7 @@ struct AstNode {
     ImportTableEntry *owner;
     // the context in which this expression/node is evaluated.
     // for blocks, this points to the containing scope, not the block's own scope for its children.
-    BlockContext *block_context;
+    Scope *scope;
     union {
         AstNodeRoot root;
         AstNodeFnDef fn_def;
@@ -884,7 +884,7 @@ struct TypeTableEntryStruct {
     uint64_t size_bytes;
     bool is_invalid; // true if any fields are invalid
     bool is_slice;
-    BlockContext *block_context;
+    Scope *scope;
 
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;
@@ -910,7 +910,7 @@ struct TypeTableEntryEnum {
     TypeTableEntry *tag_type;
     TypeTableEntry *union_type;
 
-    BlockContext *block_context;
+    Scope *scope;
 
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;
@@ -926,7 +926,7 @@ struct TypeTableEntryUnion {
     TypeStructField *fields;
     uint64_t size_bytes;
     bool is_invalid; // true if any fields are invalid
-    BlockContext *block_context;
+    Scope *scope;
 
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;
@@ -1044,7 +1044,7 @@ struct ImportTableEntry {
     ZigLLVMDIFile *di_file;
     Buf *source_code;
     ZigList<size_t> *line_offsets;
-    BlockContext *block_context;
+    Scope *scope;
     AstNode *c_import_node;
     bool any_imports_failed;
 
@@ -1071,7 +1071,7 @@ struct FnTableEntry {
     AstNode *fn_def_node;
     ImportTableEntry *import_entry;
     // Required to be a pre-order traversal of the AST. (parents must come before children)
-    ZigList<BlockContext *> all_block_contexts;
+    ZigList<Scope *> all_block_contexts;
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
     bool internal_linkage;
@@ -1310,7 +1310,7 @@ struct VariableTableEntry {
     ZigLLVMDILocalVariable *di_loc_var;
     size_t src_arg_index;
     size_t gen_arg_index;
-    BlockContext *block_context;
+    Scope *scope;
     LLVMValueRef param_value_ref;
     bool force_depends_on_compile_var;
     ImportTableEntry *import;
@@ -1331,7 +1331,7 @@ struct LabelTableEntry {
     bool used;
 };
 
-struct BlockContext {
+struct Scope {
     AstNode *node;
 
     // any variables that are introduced by this scope
@@ -1343,7 +1343,7 @@ struct BlockContext {
     FnTableEntry *fn_entry;
 
     // if the block has a parent, this is it
-    BlockContext *parent;
+    Scope *parent;
 
     // if break or continue is valid in this context, this is the loop node that
     // it would pertain to

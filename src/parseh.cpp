@@ -817,7 +817,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
     const EnumDecl *enum_def = enum_decl->getDefinition();
     if (!enum_def) {
         TypeTableEntry *enum_type = get_partial_container_type(c->codegen, c->import,
-                c->import->block_context,
+                c->import->scope,
                 ContainerKindEnum, c->source_node, buf_ptr(full_type_name));
         c->enum_type_table.put(bare_name, enum_type);
         c->decl_table.put(enum_decl, enum_type);
@@ -842,7 +842,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
 
     if (pure_enum) {
         TypeTableEntry *enum_type = get_partial_container_type(c->codegen, c->import,
-                c->import->block_context,
+                c->import->scope,
                 ContainerKindEnum, c->source_node, buf_ptr(full_type_name));
         c->enum_type_table.put(bare_name, enum_type);
         c->decl_table.put(enum_decl, enum_type);
@@ -1002,7 +1002,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
 
 
     TypeTableEntry *struct_type = get_partial_container_type(c->codegen, c->import,
-            c->import->block_context, ContainerKindStruct, c->source_node, buf_ptr(full_type_name));
+            c->import->scope, ContainerKindStruct, c->source_node, buf_ptr(full_type_name));
 
     c->struct_type_table.put(bare_name, struct_type);
     c->decl_table.put(record_decl, struct_type);

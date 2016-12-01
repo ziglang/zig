@@ -115,26 +115,26 @@ TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
     return entry;
 }
 
-static BlockContext **get_container_block_context_ptr(TypeTableEntry *type_entry) {
+static Scope **get_container_block_context_ptr(TypeTableEntry *type_entry) {
     if (type_entry->id == TypeTableEntryIdStruct) {
-        return &type_entry->data.structure.block_context;
+        return &type_entry->data.structure.scope;
     } else if (type_entry->id == TypeTableEntryIdEnum) {
-        return &type_entry->data.enumeration.block_context;
+        return &type_entry->data.enumeration.scope;
     } else if (type_entry->id == TypeTableEntryIdUnion) {
-        return &type_entry->data.unionation.block_context;
+        return &type_entry->data.unionation.scope;
     }
     zig_unreachable();
 }
 
-BlockContext *get_container_block_context(TypeTableEntry *type_entry) {
+Scope *get_container_block_context(TypeTableEntry *type_entry) {
     return *get_container_block_context_ptr(type_entry);
 }
 
 static TypeTableEntry *new_container_type_entry(TypeTableEntryId id, AstNode *source_node,
-        BlockContext *parent_context)
+        Scope *parent_context)
 {
     TypeTableEntry *entry = new_type_table_entry(id);
-    *get_container_block_context_ptr(entry) = new_block_context(source_node, parent_context);
+    *get_container_block_context_ptr(entry) = new_scope(source_node, parent_context);
     return entry;
 }
 
@@ -766,7 +766,7 @@ static TypeTableEntryId container_to_type(ContainerKind kind) {
     zig_unreachable();
 }
 
-TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import, Scope *context,
         ContainerKind kind, AstNode *decl_node, const char *name)
 {
     TypeTableEntryId type_id = container_to_type(kind);
@@ -805,7 +805,7 @@ TypeTableEntry *get_underlying_type(TypeTableEntry *type_entry) {
     }
 }
 
-static IrInstruction *analyze_const_value(CodeGen *g, BlockContext *scope, AstNode *node,
+static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node,
         TypeTableEntry *expected_type)
 {
     IrExecutable ir_executable = {0};
@@ -844,7 +844,7 @@ static IrInstruction *analyze_const_value(CodeGen *g, BlockContext *scope, AstNo
     return result;
 }
 
-static TypeTableEntry *analyze_type_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+static TypeTableEntry *analyze_type_expr(CodeGen *g, ImportTableEntry *import, Scope *context,
         AstNode *node)
 {
     IrInstruction *result = analyze_const_value(g, context, node, g->builtin_types.entry_type);
@@ -861,7 +861,7 @@ static bool fn_wants_full_static_eval(FnTableEntry *fn_table_entry) {
 }
 
 // fn_table_entry is populated if and only if there is a function definition for this prototype
-static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *import, BlockContext *context,
+static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *import, Scope *context,
         TypeTableEntry *expected_type, AstNode *node, bool is_naked, bool is_cold, FnTableEntry *fn_table_entry)
 {
     assert(node->type == NodeTypeFnProto);
@@ -1022,7 +1022,7 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
 }
 
 static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_table_entry,
-        ImportTableEntry *import, BlockContext *containing_context)
+        ImportTableEntry *import, Scope *containing_context)
 {
     assert(node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &node->data.fn_proto;
@@ -1060,8 +1060,8 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
     }
 
     if (fn_table_entry->fn_def_node) {
-        BlockContext *context = new_block_context(fn_table_entry->fn_def_node, containing_context);
-        fn_table_entry->fn_def_node->data.fn_def.block_context = context;
+        Scope *context = new_scope(fn_table_entry->fn_def_node, containing_context);
+        fn_table_entry->fn_def_node->data.fn_def.scope = context;
     }
 
     if (!fn_wants_full_static_eval(fn_table_entry)) {
@@ -1109,7 +1109,7 @@ static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_t
                 fn_type->di_type, fn_table_entry->internal_linkage,
                 is_definition, scope_line, flags, is_optimized, nullptr);
 
-            fn_table_entry->fn_def_node->data.fn_def.block_context->di_scope = ZigLLVMSubprogramToScope(subprogram);
+            fn_table_entry->fn_def_node->data.fn_def.scope->di_scope = ZigLLVMSubprogramToScope(subprogram);
             ZigLLVMFnSetSubprogram(fn_table_entry->fn_value, subprogram);
         }
     }
@@ -1151,7 +1151,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
     uint64_t biggest_align_in_bits = 0;
     uint64_t biggest_union_member_size_in_bits = 0;
 
-    BlockContext *context = enum_type->data.enumeration.block_context;
+    Scope *context = enum_type->data.enumeration.scope;
 
     // set temporary flag
     enum_type->data.enumeration.embedded_in_current = true;
@@ -1337,7 +1337,7 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     // this field should be set to true only during the recursive calls to resolve_struct_type
     struct_type->data.structure.embedded_in_current = true;
 
-    BlockContext *context = struct_type->data.structure.block_context;
+    Scope *context = struct_type->data.structure.scope;
 
     size_t gen_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
@@ -1463,7 +1463,7 @@ static bool get_is_generic_fn(AstNode *proto_node) {
 }
 
 static void preview_fn_proto_instance(CodeGen *g, ImportTableEntry *import, AstNode *proto_node,
-        BlockContext *containing_context)
+        Scope *containing_context)
 {
     assert(proto_node->type == NodeTypeFnProto);
 
@@ -1546,7 +1546,7 @@ static void preview_fn_proto_instance(CodeGen *g, ImportTableEntry *import, AstN
     }
 }
 
-static void add_top_level_decl(CodeGen *g, ImportTableEntry *import, BlockContext *block_context,
+static void add_top_level_decl(CodeGen *g, ImportTableEntry *import, Scope *scope,
         AstNode *node, Buf *name)
 {
     assert(import);
@@ -1562,19 +1562,19 @@ static void add_top_level_decl(CodeGen *g, ImportTableEntry *import, BlockContex
         g->resolve_queue.append(node);
     }
 
-    node->block_context = block_context;
+    node->scope = scope;
 
-    auto entry = block_context->decl_table.maybe_get(name);
+    auto entry = scope->decl_table.maybe_get(name);
     if (entry) {
         AstNode *other_decl_node = entry->value;
         ErrorMsg *msg = add_node_error(g, node, buf_sprintf("redefinition of '%s'", buf_ptr(name)));
         add_error_note(g, msg, other_decl_node, buf_sprintf("previous definition is here"));
     } else {
-        block_context->decl_table.put(name, node);
+        scope->decl_table.put(name, node);
     }
 }
 
-static void scan_struct_decl(CodeGen *g, ImportTableEntry *import, BlockContext *context, AstNode *node) {
+static void scan_struct_decl(CodeGen *g, ImportTableEntry *import, Scope *context, AstNode *node) {
     assert(node->type == NodeTypeContainerDecl);
 
     if (node->data.struct_decl.type_entry) {
@@ -1591,7 +1591,7 @@ static void scan_struct_decl(CodeGen *g, ImportTableEntry *import, BlockContext 
     for (size_t i = 0; i < node->data.struct_decl.decls.length; i += 1) {
         AstNode *child_node = node->data.struct_decl.decls.at(i);
         get_as_top_level_decl(child_node)->parent_decl = node;
-        BlockContext *child_context = get_container_block_context(container_type);
+        Scope *child_context = get_container_block_context(container_type);
         scan_decls(g, import, child_context, child_node);
     }
 }
@@ -1644,7 +1644,7 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
     node->data.error_value_decl.top_level_decl.resolution = TldResolutionOk;
 }
 
-void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *context, AstNode *node) {
+void scan_decls(CodeGen *g, ImportTableEntry *import, Scope *context, AstNode *node) {
     switch (node->type) {
         case NodeTypeRoot:
             for (size_t i = 0; i < import->root->data.root.top_level_decls.length; i += 1) {
@@ -1695,7 +1695,7 @@ void scan_decls(CodeGen *g, ImportTableEntry *import, BlockContext *context, Ast
             {
                 TopLevelDecl *tld = get_as_top_level_decl(node);
                 tld->import = import;
-                node->block_context = context;
+                node->scope = context;
                 g->use_queue.append(node);
                 tld->import->use_decls.append(node);
                 break;
@@ -1817,12 +1817,12 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 // TODO merge with definition of add_local_var in ir.cpp
 static VariableTableEntry *add_local_var_shadowable(CodeGen *g, AstNode *source_node, ImportTableEntry *import,
-        BlockContext *context, Buf *name, TypeTableEntry *type_entry, bool is_const, AstNode *val_node,
+        Scope *context, Buf *name, TypeTableEntry *type_entry, bool is_const, AstNode *val_node,
         bool shadowable)
 {
     VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
     variable_entry->type = type_entry;
-    variable_entry->block_context = context;
+    variable_entry->scope = context;
     variable_entry->import = import;
     variable_entry->shadowable = shadowable;
     variable_entry->mem_slot_index = SIZE_MAX;
@@ -1875,7 +1875,7 @@ static VariableTableEntry *add_local_var_shadowable(CodeGen *g, AstNode *source_
 }
 
 static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, ImportTableEntry *import,
-        BlockContext *context, Buf *name, TypeTableEntry *type_entry, bool is_const, AstNode *val_node)
+        Scope *context, Buf *name, TypeTableEntry *type_entry, bool is_const, AstNode *val_node)
 {
     return add_local_var_shadowable(g, source_node, import, context, name, type_entry, is_const, val_node, false);
 }
@@ -1884,7 +1884,7 @@ static void resolve_var_decl(CodeGen *g, ImportTableEntry *import, AstNode *node
     assert(node->type == NodeTypeVariableDeclaration);
 
     AstNodeVariableDeclaration *var_decl = &node->data.variable_declaration;
-    BlockContext *scope = node->block_context;
+    Scope *scope = node->scope;
     bool is_const = var_decl->is_const;
     bool is_export = (var_decl->top_level_decl.visib_mod == VisibModExport);
     bool is_extern = var_decl->is_extern;
@@ -1963,7 +1963,7 @@ void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only) {
 
     switch (node->type) {
         case NodeTypeFnProto:
-            preview_fn_proto_instance(g, import, node, node->block_context);
+            preview_fn_proto_instance(g, import, node, node->scope);
             break;
         case NodeTypeContainerDecl:
             resolve_struct_decl(g, import, node);
@@ -1980,7 +1980,7 @@ void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only) {
                 if (node->data.type_decl.override_type) {
                     entry = node->data.type_decl.override_type;
                 } else {
-                    TypeTableEntry *child_type = analyze_type_expr(g, import, import->block_context, type_node);
+                    TypeTableEntry *child_type = analyze_type_expr(g, import, import->scope, type_node);
                     if (child_type->id == TypeTableEntryIdInvalid) {
                         entry = child_type;
                     } else {
@@ -2170,8 +2170,8 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
     return false;
 }
 
-BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
-    BlockContext *context = allocate<BlockContext>(1);
+Scope *new_scope(AstNode *node, Scope *parent) {
+    Scope *context = allocate<Scope>(1);
     context->node = node;
     context->parent = parent;
     context->decl_table.init(1);
@@ -2197,7 +2197,7 @@ BlockContext *new_block_context(AstNode *node, BlockContext *parent) {
     return context;
 }
 
-AstNode *find_decl(BlockContext *context, Buf *name) {
+AstNode *find_decl(Scope *context, Buf *name) {
     while (context) {
         auto entry = context->decl_table.maybe_get(name);
         if (entry) {
@@ -2208,8 +2208,8 @@ AstNode *find_decl(BlockContext *context, Buf *name) {
     return nullptr;
 }
 
-VariableTableEntry *find_variable(CodeGen *g, BlockContext *orig_context, Buf *name) {
-    BlockContext *context = orig_context;
+VariableTableEntry *find_variable(CodeGen *g, Scope *orig_context, Buf *name) {
+    Scope *context = orig_context;
     while (context) {
         auto entry = context->var_table.maybe_get(name);
         if (entry) {
@@ -2355,7 +2355,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
     fn_table_entry->anal_state = FnAnalStateProbing;
 
-    BlockContext *context = node->data.fn_def.block_context;
+    Scope *context = node->data.fn_def.scope;
 
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -2456,7 +2456,7 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
             continue;
         }
         if (target_tld->visib_mod != VisibModPrivate) {
-            auto existing_entry = tld->import->block_context->decl_table.maybe_get(target_tld->name);
+            auto existing_entry = tld->import->scope->decl_table.maybe_get(target_tld->name);
             if (existing_entry) {
                 AstNode *existing_decl = existing_entry->value;
                 if (existing_decl != decl_node) {
@@ -2467,7 +2467,7 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
                     add_error_note(g, msg, decl_node, buf_sprintf("imported definition here"));
                 }
             } else {
-                tld->import->block_context->decl_table.put(target_tld->name, decl_node);
+                tld->import->scope->decl_table.put(target_tld->name, decl_node);
             }
         }
     }
@@ -2494,7 +2494,7 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeUse);
     TopLevelDecl *tld = get_as_top_level_decl(node);
 
-    IrInstruction *result = analyze_const_value(g, tld->import->block_context, node->data.use.expr,
+    IrInstruction *result = analyze_const_value(g, tld->import->scope, node->data.use.expr,
             g->builtin_types.entry_namespace);
     if (result->type_entry->id == TypeTableEntryIdInvalid)
         tld->import->any_imports_failed = true;
@@ -2553,8 +2553,8 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
     g->import_table.put(abs_full_path, import_entry);
     g->import_queue.append(import_entry);
 
-    import_entry->block_context = new_block_context(import_entry->root, nullptr);
-    import_entry->block_context->di_scope = ZigLLVMFileToScope(import_entry->di_file);
+    import_entry->scope = new_scope(import_entry->root, nullptr);
+    import_entry->scope->di_scope = ZigLLVMFileToScope(import_entry->di_file);
 
 
     assert(import_entry->root->type == NodeTypeRoot);
@@ -2581,7 +2581,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
 void semantic_analyze(CodeGen *g) {
     for (; g->import_queue_index < g->import_queue.length; g->import_queue_index += 1) {
         ImportTableEntry *import = g->import_queue.at(g->import_queue_index);
-        scan_decls(g, import, import->block_context, import->root);
+        scan_decls(g, import, import->scope, import->root);
     }
 
     for (; g->use_queue_index < g->use_queue.length; g->use_queue_index += 1) {
