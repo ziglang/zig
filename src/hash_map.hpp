@@ -61,6 +61,15 @@ public:
         }
     }
 
+    Entry *put_unique(const K &key, const V &value) {
+        // TODO make this more efficient
+        Entry *entry = internal_get(key);
+        if (entry)
+            return entry;
+        put(key, value);
+        return nullptr;
+    }
+
     const V &get(const K &key) const {
         Entry *entry = internal_get(key);
         if (!entry)

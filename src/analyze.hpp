@@ -15,7 +15,6 @@ ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg);
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg);
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id);
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
-Scope *new_scope(AstNode *node, Scope *parent);
 bool is_node_void_expr(AstNode *node);
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry);
 TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, size_t size_in_bits);
@@ -59,11 +58,19 @@ TypeTableEntry *container_ref_type(TypeTableEntry *type_entry);
 bool type_is_complete(TypeTableEntry *type_entry);
 void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry);
 TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name);
-Scope *get_container_block_context(TypeTableEntry *type_entry);
+ScopeDecls *get_container_scope(TypeTableEntry *type_entry);
 TypeEnumField *find_enum_type_field(TypeTableEntry *enum_type, Buf *name);
 bool is_container_ref(TypeTableEntry *type_entry);
-void scan_decls(CodeGen *g, ImportTableEntry *import, Scope *context, AstNode *node);
+void scan_decls(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, AstNode *node);
 void preview_use_decl(CodeGen *g, AstNode *node);
 void resolve_use_decl(CodeGen *g, AstNode *node);
+
+ScopeDecls *create_decls_scope(AstNode *node, Scope *parent);
+Scope *create_block_scope(AstNode *node, Scope *parent);
+Scope *create_defer_scope(AstNode *node, Scope *parent);
+Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var);
+Scope *create_cimport_scope(AstNode *node, Scope *parent);
+Scope *create_loop_scope(AstNode *node, Scope *parent);
+Scope *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry);
 
 #endif

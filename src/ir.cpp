@@ -1211,20 +1211,31 @@ static IrInstruction *ir_build_ref_from(IrBuilder *irb, IrInstruction *old_instr
     return new_instruction;
 }
 
-static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_block, Scope *outer_block,
+static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
-    while (inner_block != outer_block) {
-        if (inner_block->node->type == NodeTypeDefer &&
-           ((inner_block->node->data.defer.kind == ReturnKindUnconditional) ||
-            (gen_error_defers && inner_block->node->data.defer.kind == ReturnKindError) ||
-            (gen_maybe_defers && inner_block->node->data.defer.kind == ReturnKindMaybe)))
+    while (inner_scope != outer_scope) {
+        if (inner_scope->node->type == NodeTypeDefer &&
+           ((inner_scope->node->data.defer.kind == ReturnKindUnconditional) ||
+            (gen_error_defers && inner_scope->node->data.defer.kind == ReturnKindError) ||
+            (gen_maybe_defers && inner_scope->node->data.defer.kind == ReturnKindMaybe)))
         {
-            AstNode *defer_expr_node = inner_block->node->data.defer.expr;
+            AstNode *defer_expr_node = inner_scope->node->data.defer.expr;
             ir_gen_node(irb, defer_expr_node, defer_expr_node->scope);
         }
-        inner_block = inner_block->parent;
+        inner_scope = inner_scope->parent;
     }
+}
+
+static FnTableEntry *scope_fn_entry(Scope *scope) {
+    while (scope) {
+        if (scope->node->type == NodeTypeFnDef) {
+            ScopeFnBody *fn_scope = (ScopeFnBody *)scope;
+            return fn_scope->fn_entry;
+        }
+        scope = scope->parent;
+    }
+    return nullptr;
 }
 
 static IrInstruction *ir_gen_return(IrBuilder *irb, AstNode *node) {
@@ -1232,7 +1243,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, AstNode *node) {
 
     Scope *scope = node->scope;
 
-    if (!scope->fn_entry) {
+    if (!scope_fn_entry(scope)) {
         add_node_error(irb->codegen, node, buf_sprintf("return expression outside function definition"));
         return irb->codegen->invalid_instruction;
     }
@@ -1243,7 +1254,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, AstNode *node) {
             {
                 IrInstruction *return_value;
                 if (expr_node) {
-                    return_value = ir_gen_node(irb, expr_node, scope);
+                    return_value = ir_gen_node(irb, expr_node, node->scope);
                 } else {
                     return_value = ir_build_const_void(irb, node);
                 }
@@ -1264,11 +1275,11 @@ static void ir_set_cursor_at_end(IrBuilder *irb, IrBasicBlock *basic_block) {
     irb->current_basic_block = basic_block;
 }
 
-static VariableTableEntry *add_local_var(CodeGen *codegen, AstNode *node, Scope *scope,
+static VariableTableEntry *add_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
         Buf *name, bool src_is_const, bool gen_is_const, bool is_shadowable, bool is_inline)
 {
     VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
-    variable_entry->scope = scope;
+    variable_entry->parent_scope = parent_scope;
     variable_entry->import = node->owner;
     variable_entry->shadowable = is_shadowable;
     variable_entry->mem_slot_index = SIZE_MAX;
@@ -1277,7 +1288,7 @@ static VariableTableEntry *add_local_var(CodeGen *codegen, AstNode *node, Scope 
     if (name) {
         buf_init_from_buf(&variable_entry->name, name);
 
-        VariableTableEntry *existing_var = find_variable(codegen, scope, name);
+        VariableTableEntry *existing_var = find_variable(codegen, parent_scope, name);
         if (existing_var && !existing_var->shadowable) {
             ErrorMsg *msg = add_node_error(codegen, node,
                     buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
@@ -1291,7 +1302,7 @@ static VariableTableEntry *add_local_var(CodeGen *codegen, AstNode *node, Scope 
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
                 variable_entry->type = codegen->builtin_types.entry_invalid;
             } else {
-                AstNode *decl_node = find_decl(scope, name);
+                AstNode *decl_node = find_decl(parent_scope, name);
                 if (decl_node && decl_node->type != NodeTypeVariableDeclaration) {
                     ErrorMsg *msg = add_node_error(codegen, node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
@@ -1301,28 +1312,32 @@ static VariableTableEntry *add_local_var(CodeGen *codegen, AstNode *node, Scope 
             }
         }
 
-        scope->var_table.put(&variable_entry->name, variable_entry);
     } else {
         assert(is_shadowable);
-        // TODO replace _anon with @anon and make sure all tests still pass
+        // TODO make this name not actually be in scope. user should be able to make a variable called "_anon"
+        // might already be solved, let's just make sure it has test coverage
+        // maybe we put a prefix on this so the debug info doesn't clobber user debug info for same named variables
         buf_init_from_str(&variable_entry->name, "_anon");
     }
 
     variable_entry->src_is_const = src_is_const;
     variable_entry->gen_is_const = gen_is_const;
     variable_entry->decl_node = node;
+    variable_entry->child_scope = create_var_scope(node, parent_scope, variable_entry);
 
     return variable_entry;
 }
 
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
-static VariableTableEntry *ir_add_local_var(IrBuilder *irb, AstNode *node, Scope *scope, Buf *name,
+// After you call this function var->child_scope has the variable in scope
+static VariableTableEntry *ir_create_var(IrBuilder *irb, AstNode *node, Scope *scope, Buf *name,
         bool src_is_const, bool gen_is_const, bool is_shadowable, bool is_inline)
 {
     VariableTableEntry *var = add_local_var(irb->codegen, node, scope, name,
             src_is_const, gen_is_const, is_shadowable, is_inline);
     if (is_inline || gen_is_const)
         var->mem_slot_index = exec_next_mem_slot(irb->exec);
+    assert(var->child_scope);
     return var;
 }
 
@@ -1330,7 +1345,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, AstNode *block_node) {
     assert(block_node->type == NodeTypeBlock);
 
     Scope *parent_scope = block_node->scope;
-    Scope *outer_block_scope = new_scope(block_node, parent_scope);
+    Scope *outer_block_scope = create_block_scope(block_node, parent_scope);
     Scope *child_scope = outer_block_scope;
 
     IrInstruction *return_value = nullptr;
@@ -1341,6 +1356,9 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, AstNode *block_node) {
             // defer starts a new block context
             child_scope = statement_node->data.defer.child_block;
             assert(child_scope);
+        } else if (return_value->id == IrInstructionIdDeclVar) {
+            IrInstructionDeclVar *decl_var_instruction = (IrInstructionDeclVar *)return_value;
+            child_scope = decl_var_instruction->var->child_scope;
         }
     }
 
@@ -1760,7 +1778,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, AstNode *node) {
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                if (node->scope->fn_entry) {
+                if (scope_fn_entry(node->scope)) {
                     add_node_error(irb->codegen, node, buf_sprintf("import valid only at top level scope"));
                     return irb->codegen->invalid_instruction;
                 }
@@ -1999,8 +2017,10 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, AstNode *node) {
     bool is_const = variable_declaration->is_const;
     bool is_extern = variable_declaration->is_extern;
     bool is_inline = ir_should_inline(irb) || variable_declaration->is_inline;
-    VariableTableEntry *var = ir_add_local_var(irb, node, node->scope,
+    VariableTableEntry *var = ir_create_var(irb, node, node->scope,
             variable_declaration->symbol, is_const, is_const, is_shadowable, is_inline);
+    // we detect IrInstructionIdDeclVar in gen_block to make sure the next node
+    // is inside var->child_scope
 
     if (!is_extern && !variable_declaration->expr) {
         var->type = irb->codegen->builtin_types.entry_invalid;
@@ -2079,14 +2099,15 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, AstNode *node) {
     }
     bool is_inline = ir_should_inline(irb) || node->data.for_expr.is_inline;
 
-    Scope *child_scope = new_scope(node, parent_scope);
-    child_scope->parent_loop_node = node;
+    Scope *child_scope = create_loop_scope(node, parent_scope);
     elem_node->scope = child_scope;
 
     // TODO make it an error to write to element variable or i variable.
     Buf *elem_var_name = elem_node->data.symbol_expr.symbol;
-    node->data.for_expr.elem_var = ir_add_local_var(irb, elem_node, child_scope, elem_var_name,
+    node->data.for_expr.elem_var = ir_create_var(irb, elem_node, child_scope, elem_var_name,
             true, false, false, is_inline);
+    child_scope = node->data.for_expr.elem_var->child_scope;
+
     IrInstruction *undefined_value = ir_build_const_undefined(irb, elem_node);
     ir_build_var_decl(irb, elem_node, node->data.for_expr.elem_var, elem_var_type, undefined_value); 
     IrInstruction *elem_var_ptr = ir_build_var_ptr(irb, node, node->data.for_expr.elem_var);
@@ -2096,13 +2117,15 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, AstNode *node) {
         index_var_source_node = index_node;
         Buf *index_var_name = index_node->data.symbol_expr.symbol;
         index_node->scope = child_scope;
-        node->data.for_expr.index_var = ir_add_local_var(irb, index_node, child_scope, index_var_name,
+        node->data.for_expr.index_var = ir_create_var(irb, index_node, child_scope, index_var_name,
                 true, false, false, is_inline);
     } else {
         index_var_source_node = node;
-        node->data.for_expr.index_var = ir_add_local_var(irb, node, child_scope, nullptr,
+        node->data.for_expr.index_var = ir_create_var(irb, node, child_scope, nullptr,
                 true, false, true, is_inline);
     }
+    child_scope = node->data.for_expr.index_var->child_scope;
+
     IrInstruction *usize = ir_build_const_type(irb, node, irb->codegen->builtin_types.entry_usize);
     IrInstruction *zero = ir_build_const_usize(irb, node, 0);
     IrInstruction *one = ir_build_const_usize(irb, node, 1);
@@ -2159,10 +2182,11 @@ static IrInstruction *ir_gen_this_literal(IrBuilder *irb, AstNode *node) {
     if (!scope->parent)
         return ir_build_const_import(irb, node, node->owner);
 
-    if (scope->fn_entry && (!scope->parent->fn_entry ||
-        (scope->parent->parent && !scope->parent->parent->fn_entry)))
+    FnTableEntry *fn_entry = scope_fn_entry(scope);
+    if (fn_entry && scope->parent && scope->parent->parent &&
+        !scope_fn_entry(scope->parent->parent))
     {
-        return ir_build_const_fn(irb, node, scope->fn_entry);
+        return ir_build_const_fn(irb, node, fn_entry);
     }
 
     if (scope->node->type == NodeTypeContainerDecl) {
@@ -2308,15 +2332,15 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, AstNode *node) {
         if (var_type == irb->codegen->invalid_instruction)
             return irb->codegen->invalid_instruction;
     }
-    Scope *child_scope = new_scope(node, node->scope);
     bool is_shadowable = false;
     bool is_const = var_decl->is_const;
-    VariableTableEntry *var = ir_add_local_var(irb, node, child_scope,
+    VariableTableEntry *var = ir_create_var(irb, node, node->scope,
             var_decl->symbol, is_const, is_const, is_shadowable, is_inline);
+
     IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, node, expr_value, false);
     IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, node, var_ptr_value);
     ir_build_var_decl(irb, node, var, var_type, var_value); 
-    IrInstruction *then_expr_result = ir_gen_node(irb, then_node, child_scope);
+    IrInstruction *then_expr_result = ir_gen_node(irb, then_node, var->child_scope);
     if (then_expr_result == irb->codegen->invalid_instruction)
         return then_expr_result;
     IrBasicBlock *after_then_block = irb->current_basic_block;
@@ -2360,11 +2384,11 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, AstNode *switch_node, AstNo
         Buf *var_name = var_symbol_node->data.symbol_expr.symbol;
         bool var_is_ptr = prong_node->data.switch_prong.var_is_ptr;
 
-        child_scope = new_scope(switch_node, switch_node->scope);
         bool is_shadowable = false;
         bool is_const = true;
-        VariableTableEntry *var = ir_add_local_var(irb, var_symbol_node, child_scope,
+        VariableTableEntry *var = ir_create_var(irb, var_symbol_node, switch_node->scope,
                 var_name, is_const, is_const, is_shadowable, is_inline);
+        child_scope = var->child_scope;
         IrInstruction *var_value;
         if (prong_value) {
             IrInstruction *var_ptr_value = ir_build_switch_var(irb, var_symbol_node, target_value_ptr, prong_value);
@@ -2542,14 +2566,25 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, AstNode *node) {
     return ir_build_phi(irb, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
 }
 
-static LabelTableEntry *find_label(IrExecutable *exec, Scope *orig_context, Buf *name) {
-    Scope *context = orig_context;
-    while (context) {
-        auto entry = context->label_table.maybe_get(name);
-        if (entry) {
-            return entry->value;
+static LabelTableEntry *find_label(IrExecutable *exec, Scope *scope, Buf *name) {
+    while (scope) {
+        if (scope->node->type == NodeTypeBlock) {
+            ScopeBlock *block_scope = (ScopeBlock *)scope;
+            auto entry = block_scope->label_table.maybe_get(name);
+            if (entry)
+                return entry->value;
         }
-        context = context->parent;
+        scope = scope->parent;
+    }
+
+    return nullptr;
+}
+
+static ScopeBlock *find_block_scope(IrExecutable *exec, Scope *scope) {
+    while (scope) {
+        if (scope->node->type == NodeTypeBlock)
+            return (ScopeBlock *)scope;
+        scope = scope->parent;
     }
     return nullptr;
 }
@@ -2571,7 +2606,8 @@ static IrInstruction *ir_gen_label(IrBuilder *irb, AstNode *node) {
         add_error_note(irb->codegen, msg, existing_label->decl_node, buf_sprintf("other label here"));
         return irb->codegen->invalid_instruction;
     } else {
-        node->scope->label_table.put(label_name, label);
+        ScopeBlock *scope_block = find_block_scope(irb->exec, node->scope);
+        scope_block->label_table.put(label_name, label);
     }
 
     bool is_inline = ir_should_inline(irb);
@@ -2778,9 +2814,9 @@ IrInstruction *ir_gen_fn(CodeGen *codegn, FnTableEntry *fn_entry) {
     assert(fn_def_node->type == NodeTypeFnDef);
 
     AstNode *body_node = fn_def_node->data.fn_def.body;
-    Scope *scope = fn_def_node->data.fn_def.scope;
+    Scope *child_scope = fn_def_node->data.fn_def.child_scope;
 
-    return ir_gen(codegn, body_node, scope, ir_executable);
+    return ir_gen(codegn, body_node, child_scope, ir_executable);
 }
 
 static IrInstruction *ir_eval_fn(IrAnalyze *ira, IrInstruction *source_instruction,
@@ -3023,8 +3059,10 @@ static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_inst
     } else {
         IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->source_node, wanted_type, value, cast_op);
         result->type_entry = wanted_type;
-        if (need_alloca && source_instr->source_node->scope->fn_entry) {
-            source_instr->source_node->scope->fn_entry->alloca_list.append(result);
+        if (need_alloca) {
+            FnTableEntry *fn_entry = scope_fn_entry(source_instr->source_node->scope);
+            if (fn_entry)
+                fn_entry->alloca_list.append(result);
         }
         return result;
     }
@@ -3550,7 +3588,8 @@ static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_inst
         ir_link_new_instruction(value, source_instruction);
         return ptr_type;
     } else {
-        FnTableEntry *fn_entry = source_instruction->source_node->scope->fn_entry;
+        FnTableEntry *fn_entry = scope_fn_entry(source_instruction->source_node->scope);
+        assert(fn_entry);
         IrInstruction *new_instruction = ir_build_ref_from(&ira->new_irb, source_instruction, value);
         fn_entry->alloca_list.append(new_instruction);
         return ptr_type;
@@ -4098,8 +4137,9 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     ir_build_var_decl_from(&ira->new_irb, &decl_var_instruction->base, var, var_type, casted_init_value);
 
     Scope *scope = decl_var_instruction->base.source_node->scope;
-    if (scope->fn_entry)
-        scope->fn_entry->variable_list.append(var);
+    FnTableEntry *fn_entry = scope_fn_entry(scope);
+    if (fn_entry)
+        fn_entry->variable_list.append(var);
 
     return ira->codegen->builtin_types.entry_void;
 }
@@ -4200,8 +4240,11 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
             fn_entry, fn_ref, call_param_count, casted_args);
 
-    if (type_has_bits(return_type) && handle_is_ptr(return_type))
-        call_instruction->base.source_node->scope->fn_entry->alloca_list.append(new_call_instruction);
+    if (type_has_bits(return_type) && handle_is_ptr(return_type)) {
+        FnTableEntry *fn_entry = scope_fn_entry(call_instruction->base.source_node->scope);
+        assert(fn_entry);
+        fn_entry->alloca_list.append(new_call_instruction);
+    }
 
     return ir_finish_anal(ira, return_type);
 }
@@ -4732,7 +4775,8 @@ static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruc
         return var->type;
 
     ConstExprValue *mem_slot = nullptr;
-    if (var->scope->fn_entry) {
+    FnTableEntry *fn_entry = scope_fn_entry(var->parent_scope);
+    if (fn_entry) {
         // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
         if (var->mem_slot_index != SIZE_MAX)
             mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
@@ -4879,9 +4923,8 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
     IrInstruction *container_ptr, TypeTableEntry *container_type)
 {
     if (!is_slice(bare_struct_type)) {
-        Scope *container_block_context = get_container_block_context(bare_struct_type);
-        assert(container_block_context);
-        auto entry = container_block_context->decl_table.maybe_get(field_name);
+        ScopeDecls *container_scope = get_container_scope(bare_struct_type);
+        auto entry = container_scope->decl_table.maybe_get(field_name);
         AstNode *fn_decl_node = entry ? entry->value : nullptr;
         if (fn_decl_node && fn_decl_node->type == NodeTypeFnProto) {
             resolve_top_level_decl(ira->codegen, fn_decl_node, false);
@@ -5023,8 +5066,8 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         } else if (child_type->id == TypeTableEntryIdEnum) {
             zig_panic("TODO enum type field");
         } else if (child_type->id == TypeTableEntryIdStruct) {
-            Scope *container_block_context = get_container_block_context(child_type);
-            auto entry = container_block_context->decl_table.maybe_get(field_name);
+            ScopeDecls *container_scope = get_container_scope(child_type);
+            auto entry = container_scope->decl_table.maybe_get(field_name);
             AstNode *decl_node = entry ? entry->value : nullptr;
             if (decl_node) {
                 bool depends_on_compile_var = container_ptr->static_value.depends_on_compile_var;
@@ -5055,7 +5098,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         ImportTableEntry *namespace_import = namespace_val->data.x_import;
 
         bool depends_on_compile_var = container_ptr->static_value.depends_on_compile_var;
-        AstNode *decl_node = find_decl(namespace_import->scope, field_name);
+        AstNode *decl_node = find_decl(&namespace_import->decls_scope->base, field_name);
         if (!decl_node) {
             // we must now resolve all the use decls
             for (size_t i = 0; i < namespace_import->use_decls.length; i += 1) {
@@ -5066,7 +5109,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 }
                 resolve_use_decl(ira->codegen, use_decl_node);
             }
-            decl_node = find_decl(namespace_import->scope, field_name);
+            decl_node = find_decl(&namespace_import->decls_scope->base, field_name);
         }
         if (decl_node) {
             TopLevelDecl *tld = get_as_top_level_decl(decl_node);
@@ -5327,15 +5370,15 @@ static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
     if (target_type->id == TypeTableEntryIdBlock) {
         target_context = target_val->data.x_block;
     } else if (target_type->id == TypeTableEntryIdFn) {
-        target_context = target_val->data.x_fn->fn_def_node->data.fn_def.scope;
+        target_context = target_val->data.x_fn->fn_def_node->data.fn_def.child_scope;
     } else if (target_type->id == TypeTableEntryIdMetaType) {
         TypeTableEntry *type_arg = target_val->data.x_type;
         if (type_arg->id == TypeTableEntryIdStruct) {
-            target_context = type_arg->data.structure.scope;
+            target_context = &type_arg->data.structure.decls_scope->base;
         } else if (type_arg->id == TypeTableEntryIdEnum) {
-            target_context = type_arg->data.enumeration.scope;
+            target_context = &type_arg->data.enumeration.decls_scope->base;
         } else if (type_arg->id == TypeTableEntryIdUnion) {
-            target_context = type_arg->data.unionation.scope;
+            target_context = &type_arg->data.unionation.decls_scope->base;
         } else {
             add_node_error(ira->codegen, target_instruction->source_node,
                 buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&type_arg->name)));
@@ -5966,7 +6009,7 @@ static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructi
     ImportTableEntry *target_import = add_source_file(ira->codegen, target_package,
             abs_full_path, search_dir, import_target_path, import_code);
 
-    scan_decls(ira->codegen, target_import, target_import->scope, target_import->root);
+    scan_decls(ira->codegen, target_import, target_import->decls_scope, target_import->root);
 
     ConstExprValue *out_val = ir_build_const_from(ira, &import_instruction->base, depends_on_compile_var);
     out_val->data.x_import = target_import;
@@ -6021,7 +6064,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
 
     IrInstructionStructInitField *new_fields = allocate<IrInstructionStructInitField>(actual_field_count);
 
-    FnTableEntry *fn_entry = instruction->source_node->scope->fn_entry;
+    FnTableEntry *fn_entry = scope_fn_entry(instruction->source_node->scope);
     bool outside_fn = (fn_entry == nullptr);
 
     ConstExprValue const_val = {};
@@ -6124,7 +6167,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
         const_val.data.x_array.elements = allocate<ConstExprValue>(elem_count);
         const_val.data.x_array.size = elem_count;
 
-        FnTableEntry *fn_entry = instruction->base.source_node->scope->fn_entry;
+        FnTableEntry *fn_entry = scope_fn_entry(instruction->base.source_node->scope);
         bool outside_fn = (fn_entry == nullptr);
 
         IrInstruction **new_items = allocate<IrInstruction *>(elem_count);

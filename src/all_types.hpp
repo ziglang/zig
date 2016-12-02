@@ -31,6 +31,7 @@ struct ConstExprValue;
 struct IrInstruction;
 struct IrInstructionCast;
 struct IrBasicBlock;
+struct ScopeDecls;
 
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
@@ -251,8 +252,8 @@ struct AstNodeFnDef {
 
     // populated by semantic analyzer
     TypeTableEntry *implicit_return_type;
-    // the first child block context
-    Scope *scope;
+    Scope *containing_scope;
+    Scope *child_scope;
 };
 
 struct AstNodeFnDecl {
@@ -638,7 +639,7 @@ struct AstNodeStructDecl {
     ZigList<AstNode *> decls;
 
     // populated by semantic analyzer
-    Scope *scope;
+    ScopeDecls *decls_scope;
     TypeTableEntry *type_entry;
     TypeTableEntry *generic_fn_type;
     bool skip;
@@ -884,7 +885,7 @@ struct TypeTableEntryStruct {
     uint64_t size_bytes;
     bool is_invalid; // true if any fields are invalid
     bool is_slice;
-    Scope *scope;
+    ScopeDecls *decls_scope;
 
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;
@@ -910,7 +911,7 @@ struct TypeTableEntryEnum {
     TypeTableEntry *tag_type;
     TypeTableEntry *union_type;
 
-    Scope *scope;
+    ScopeDecls *decls_scope;
 
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;
@@ -926,7 +927,7 @@ struct TypeTableEntryUnion {
     TypeStructField *fields;
     uint64_t size_bytes;
     bool is_invalid; // true if any fields are invalid
-    Scope *scope;
+    ScopeDecls *decls_scope;
 
     // set this flag temporarily to detect infinite loops
     bool embedded_in_current;
@@ -1044,7 +1045,7 @@ struct ImportTableEntry {
     ZigLLVMDIFile *di_file;
     Buf *source_code;
     ZigList<size_t> *line_offsets;
-    Scope *scope;
+    ScopeDecls *decls_scope;
     AstNode *c_import_node;
     bool any_imports_failed;
 
@@ -1070,8 +1071,6 @@ struct FnTableEntry {
     AstNode *proto_node;
     AstNode *fn_def_node;
     ImportTableEntry *import_entry;
-    // Required to be a pre-order traversal of the AST. (parents must come before children)
-    ZigList<Scope *> all_block_contexts;
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
     bool internal_linkage;
@@ -1310,7 +1309,8 @@ struct VariableTableEntry {
     ZigLLVMDILocalVariable *di_loc_var;
     size_t src_arg_index;
     size_t gen_arg_index;
-    Scope *scope;
+    Scope *parent_scope;
+    Scope *child_scope;
     LLVMValueRef param_value_ref;
     bool force_depends_on_compile_var;
     ImportTableEntry *import;
@@ -1334,26 +1334,77 @@ struct LabelTableEntry {
 struct Scope {
     AstNode *node;
 
-    // any variables that are introduced by this scope
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> decl_table;
-    HashMap<Buf *, VariableTableEntry *, buf_hash, buf_eql_buf> var_table;
-    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table; 
-
-    // if the block is inside a function, this is the function it is in:
-    FnTableEntry *fn_entry;
-
-    // if the block has a parent, this is it
+    // if the scope has a parent, this is it. Every scope has a parent except
+    // ScopeIdGlobal
     Scope *parent;
 
-    // if break or continue is valid in this context, this is the loop node that
-    // it would pertain to
-    AstNode *parent_loop_node;
-
     ZigLLVMDIScope *di_scope;
-    Buf *c_import_buf;
 
     bool safety_off;
     AstNode *safety_set_node;
+};
+
+// This scope comes from global declarations or from
+// declarations in a container declaration
+// NodeTypeRoot, NodeTypeContainerDecl
+struct ScopeDecls {
+    Scope base;
+
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> decl_table;
+};
+
+// This scope comes from a container declaration such as a struct,
+// enum, or union.
+struct ScopeContainer {
+    Scope base;
+
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> decl_table;
+};
+
+// This scope comes from a block expression in user code.
+// NodeTypeBlock
+struct ScopeBlock {
+    Scope base;
+
+    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table; 
+};
+
+// This scope is created from every defer expression.
+// NodeTypeDefer
+struct ScopeDefer {
+    Scope base;
+};
+
+// This scope is created for every variable declaration inside an IrExecutable
+// NodeTypeVariableDeclaration, NodeTypeParamDecl
+struct ScopeVarDecl {
+    Scope base;
+
+    // The variable that creates this scope
+    VariableTableEntry *var;
+};
+
+// This scope is created for a @cImport
+// NodeTypeFnCallExpr
+struct ScopeCImport {
+    Scope base;
+
+    Buf c_import_buf;
+};
+
+// This scope is created for a loop such as for or while in order to
+// make break and continue statements work.
+// NodeTypeForExpr or NodeTypeWhileExpr
+struct ScopeLoop {
+    Scope base;
+};
+
+// This scope is created for a function definition.
+// NodeTypeFnDef
+struct ScopeFnBody {
+    Scope base;
+
+    FnTableEntry *fn_entry;
 };
 
 enum AtomicOrder {

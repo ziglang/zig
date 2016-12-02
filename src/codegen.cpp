@@ -227,9 +227,47 @@ void codegen_set_rdynamic(CodeGen *g, bool rdynamic) {
 static void render_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val);
 static void render_const_val_global(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val);
 
+static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
+    if (scope->di_scope)
+        return scope->di_scope;
+
+    if (scope->node->type == NodeTypeFnDef) {
+        assert(scope->parent);
+        ScopeFnBody *fn_scope = (ScopeFnBody *)scope;
+        FnTableEntry *fn_table_entry = fn_scope->fn_entry;
+        unsigned line_number = fn_table_entry->proto_node->line + 1;
+        unsigned scope_line = line_number;
+        bool is_definition = fn_table_entry->fn_def_node != nullptr;
+        unsigned flags = 0;
+        bool is_optimized = g->is_release_build;
+        ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
+            get_di_scope(g, scope->parent), buf_ptr(&fn_table_entry->symbol_name), "",
+            scope->node->owner->di_file, line_number,
+            fn_table_entry->type_entry->di_type, fn_table_entry->internal_linkage,
+            is_definition, scope_line, flags, is_optimized, nullptr);
+
+        scope->di_scope = ZigLLVMSubprogramToScope(subprogram);
+        ZigLLVMFnSetSubprogram(fn_table_entry->fn_value, subprogram);
+    } else if (scope->node->type == NodeTypeRoot ||
+               scope->node->type == NodeTypeContainerDecl)
+    {
+        scope->di_scope = ZigLLVMFileToScope(scope->node->owner->di_file);
+    } else {
+        assert(scope->parent);
+        ZigLLVMDILexicalBlock *di_block = ZigLLVMCreateLexicalBlock(g->dbuilder,
+            get_di_scope(g, scope->parent),
+            scope->node->owner->di_file,
+            scope->node->line + 1,
+            scope->node->column + 1);
+        scope->di_scope = ZigLLVMLexicalBlockToScope(di_block);
+    }
+
+    return scope->di_scope;
+}
+
 static void set_debug_source_node(CodeGen *g, AstNode *node) {
     assert(node->scope);
-    ZigLLVMSetCurrentDebugLocation(g->builder, node->line + 1, node->column + 1, node->scope->di_scope);
+    ZigLLVMSetCurrentDebugLocation(g->builder, node->line + 1, node->column + 1, get_di_scope(g, node->scope));
 }
 
 static void clear_debug_source_node(CodeGen *g) {
@@ -558,10 +596,9 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node,
 }
 
 static void gen_var_debug_decl(CodeGen *g, VariableTableEntry *var) {
-    Scope *scope = var->scope;
     AstNode *source_node = var->decl_node;
     ZigLLVMDILocation *debug_loc = ZigLLVMGetDebugLoc(source_node->line + 1, source_node->column + 1,
-            scope->di_scope);
+        get_di_scope(g, var->parent_scope));
     ZigLLVMInsertDeclareAtEnd(g->dbuilder, var->value_ref, var->di_loc_var, debug_loc,
             LLVMGetInsertBlock(g->builder));
 }
@@ -2133,8 +2170,7 @@ static void gen_global_var(CodeGen *g, VariableTableEntry *var, LLVMValueRef ini
     assert(var->import);
     assert(type_entry);
     bool is_local_to_unit = true;
-    ZigLLVMCreateGlobalVariable(g->dbuilder,
-        var->scope->di_scope, buf_ptr(&var->name),
+    ZigLLVMCreateGlobalVariable(g->dbuilder, get_di_scope(g, var->parent_scope), buf_ptr(&var->name),
         buf_ptr(&var->name), var->import->di_file, var->decl_node->line + 1,
         type_entry->di_type, is_local_to_unit, init_val);
 }
@@ -2328,24 +2364,6 @@ static void do_code_gen(CodeGen *g) {
         AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
         build_all_basic_blocks(g, fn_table_entry);
-
-
-        // Set up debug info for blocks
-        for (size_t bc_i = 0; bc_i < fn_table_entry->all_block_contexts.length; bc_i += 1) {
-            Scope *scope = fn_table_entry->all_block_contexts.at(bc_i);
-
-            if (!scope->di_scope) {
-                ZigLLVMDILexicalBlock *di_block = ZigLLVMCreateLexicalBlock(g->dbuilder,
-                    scope->parent->di_scope,
-                    import->di_file,
-                    scope->node->line + 1,
-                    scope->node->column + 1);
-                scope->di_scope = ZigLLVMLexicalBlockToScope(di_block);
-            }
-
-
-        }
-
         clear_debug_source_node(g);
 
         // allocate temporary stack data
@@ -2383,7 +2401,7 @@ static void do_code_gen(CodeGen *g) {
             if (var->is_inline)
                 continue;
 
-            if (var->scope->node->type == NodeTypeFnDef) {
+            if (var->parent_scope->node->type == NodeTypeFnDef) {
                 assert(var->gen_arg_index != SIZE_MAX);
                 TypeTableEntry *gen_type;
                 if (handle_is_ptr(var->type)) {
@@ -2395,7 +2413,7 @@ static void do_code_gen(CodeGen *g) {
                     unsigned align_bytes = ZigLLVMGetPrefTypeAlignment(g->target_data_ref, var->type->type_ref);
                     LLVMSetAlignment(var->value_ref, align_bytes);
                 }
-                var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, var->scope->di_scope,
+                var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                         buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
                         gen_type->di_type, !g->strip_debug_symbols, 0, var->gen_arg_index + 1);
 
@@ -2406,7 +2424,7 @@ static void do_code_gen(CodeGen *g) {
                 unsigned align_bytes = ZigLLVMGetPrefTypeAlignment(g->target_data_ref, var->type->type_ref);
                 LLVMSetAlignment(var->value_ref, align_bytes);
 
-                var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, var->scope->di_scope,
+                var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                         buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
                         var->type->di_type, !g->strip_debug_symbols, 0);
             }
