@@ -377,7 +377,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             break;
         case NodeTypeFnProto:
             {
-                const char *pub_str = visib_mod_string(node->data.fn_proto.top_level_decl.visib_mod);
+                const char *pub_str = visib_mod_string(node->data.fn_proto.visib_mod);
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
                 const char *inline_str = inline_string(node->data.fn_proto.is_inline);
                 fprintf(ar->f, "%s%s%sfn ", pub_str, inline_str, extern_str);
@@ -460,7 +460,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeVariableDeclaration:
             {
-                const char *pub_str = visib_mod_string(node->data.variable_declaration.top_level_decl.visib_mod);
+                const char *pub_str = visib_mod_string(node->data.variable_declaration.visib_mod);
                 const char *extern_str = extern_string(node->data.variable_declaration.is_extern);
                 const char *const_or_var = const_or_var_string(node->data.variable_declaration.is_const);
                 fprintf(ar->f, "%s%s%s ", pub_str, extern_str, const_or_var);
@@ -478,7 +478,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeTypeDecl:
             {
-                const char *pub_str = visib_mod_string(node->data.type_decl.top_level_decl.visib_mod);
+                const char *pub_str = visib_mod_string(node->data.type_decl.visib_mod);
                 const char *var_name = buf_ptr(node->data.type_decl.symbol);
                 fprintf(ar->f, "%stype %s = ", pub_str, var_name);
                 render_node_grouped(ar, node->data.type_decl.child_type);
@@ -575,7 +575,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeContainerDecl:
             {
                 const char *struct_name = buf_ptr(node->data.struct_decl.name);
-                const char *pub_str = visib_mod_string(node->data.struct_decl.top_level_decl.visib_mod);
+                const char *pub_str = visib_mod_string(node->data.struct_decl.visib_mod);
                 const char *container_str = container_string(node->data.struct_decl.kind);
                 fprintf(ar->f, "%s%s %s {\n", pub_str, container_str, struct_name);
                 ar->indent += ar->indent_size;

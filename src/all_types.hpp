@@ -20,6 +20,8 @@ struct AstNode;
 struct ImportTableEntry;
 struct FnTableEntry;
 struct Scope;
+struct ScopeBlock;
+struct ScopeFnDef;
 struct TypeTableEntry;
 struct VariableTableEntry;
 struct ErrorTableEntry;
@@ -33,6 +35,13 @@ struct IrInstructionCast;
 struct IrBasicBlock;
 struct ScopeDecls;
 
+struct IrGotoItem {
+    AstNode *source_node;
+    IrBasicBlock *bb;
+    size_t instruction_index;
+    Scope *scope;
+};
+
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
     size_t mem_slot_count;
@@ -41,8 +50,9 @@ struct IrExecutable {
     size_t backward_branch_quota;
     bool invalid;
     ZigList<LabelTableEntry *> all_labels;
-    ZigList<AstNode *> goto_list;
+    ZigList<IrGotoItem> goto_list;
     bool is_inline;
+    FnTableEntry *fn_entry;
 };
 
 enum OutType {
@@ -129,16 +139,17 @@ enum ReturnKnowledge {
     ReturnKnowledgeSkipDefers,
 };
 
-struct StructValExprCodeGen {
-    TypeTableEntry *type_entry;
-    LLVMValueRef ptr;
-    AstNode *source_node;
-};
-
 enum VisibMod {
     VisibModPrivate,
     VisibModPub,
     VisibModExport,
+};
+
+enum TldId {
+    TldIdVar,
+    TldIdFn,
+    TldIdContainer,
+    TldIdTypeDef,
 };
 
 enum TldResolution {
@@ -147,18 +158,43 @@ enum TldResolution {
     TldResolutionOk,
 };
 
-struct TopLevelDecl {
-    // populated by parser
+struct Tld {
+    TldId id;
     Buf *name;
     VisibMod visib_mod;
+    AstNode *source_node;
 
-    // populated by semantic analyzer
     ImportTableEntry *import;
+    Scope *parent_scope;
     // set this flag temporarily to detect infinite loops
     bool dep_loop_flag;
     TldResolution resolution;
-    AstNode *parent_decl;
-    IrInstruction *value;
+    Tld *parent_tld;
+};
+
+struct TldVar {
+    Tld base;
+
+    VariableTableEntry *var;
+};
+
+struct TldFn {
+    Tld base;
+
+    FnTableEntry *fn_entry;
+};
+
+struct TldContainer {
+    Tld base;
+
+    ScopeDecls *decls_scope;
+    TypeTableEntry *type_entry;
+};
+
+struct TldTypeDef {
+    Tld base;
+
+    TypeTableEntry *type_entry;
 };
 
 struct TypeEnumField {
@@ -223,7 +259,7 @@ struct AstNodeRoot {
 };
 
 struct AstNodeFnProto {
-    TopLevelDecl top_level_decl;
+    VisibMod visib_mod;
     Buf *name;
     ZigList<AstNode *> params;
     AstNode *return_type;
@@ -232,28 +268,12 @@ struct AstNodeFnProto {
     bool is_inline;
     bool is_coldcc;
     bool is_nakedcc;
-
-    // populated by semantic analyzer:
-
-    // the function definition this fn proto is inside. can be null.
     AstNode *fn_def_node;
-    FnTableEntry *fn_table_entry;
-    bool skip;
-    // computed from params field
-    size_t inline_arg_count;
-    size_t inline_or_var_type_arg_count;
-    // if this is a generic function implementation, this points to the generic node
-    AstNode *generic_proto_node;
 };
 
 struct AstNodeFnDef {
     AstNode *fn_proto;
     AstNode *body;
-
-    // populated by semantic analyzer
-    TypeTableEntry *implicit_return_type;
-    Scope *containing_scope;
-    Scope *child_scope;
 };
 
 struct AstNodeFnDecl {
@@ -265,21 +285,10 @@ struct AstNodeParamDecl {
     AstNode *type;
     bool is_noalias;
     bool is_inline;
-
-    // populated by semantic analyzer
-    VariableTableEntry *variable;
 };
 
 struct AstNodeBlock {
     ZigList<AstNode *> statements;
-
-    // populated by semantic analyzer
-    // this one is the scope that the block itself introduces
-    Scope *child_block;
-    // this is the innermost scope created by defers and var decls.
-    // you can follow its parents up to child_block. it will equal
-    // child_block if there are no defers or var decls in the block.
-    Scope *nested_block;
 };
 
 enum ReturnKind {
@@ -298,14 +307,13 @@ struct AstNodeDefer {
     ReturnKind kind;
     AstNode *expr;
 
-    // populated by semantic analyzer:
-    size_t index_in_block;
-    LLVMBasicBlockRef basic_block;
-    Scope *child_block;
+    // temporary data used in IR generation
+    // TODO populate during gen_defer
+    Scope *child_scope;
 };
 
 struct AstNodeVariableDeclaration {
-    TopLevelDecl top_level_decl;
+    VisibMod visib_mod;
     Buf *symbol;
     bool is_const;
     bool is_inline;
@@ -313,28 +321,19 @@ struct AstNodeVariableDeclaration {
     // one or both of type and expr will be non null
     AstNode *type;
     AstNode *expr;
-
-    // populated by semantic analyzer
-    VariableTableEntry *variable;
 };
 
 struct AstNodeTypeDecl {
-    TopLevelDecl top_level_decl;
+    VisibMod visib_mod;
     Buf *symbol;
     AstNode *child_type;
-
-    // populated by semantic analyzer
-    // if this is set, don't process the node; we've already done so
-    // and here is the type (with id TypeTableEntryIdTypeDecl)
-    TypeTableEntry *override_type;
-    TypeTableEntry *child_type_entry;
 };
 
 struct AstNodeErrorValueDecl {
-    TopLevelDecl top_level_decl;
+    // always invalid if it's not VisibModPrivate but can be parsed that way
+    VisibMod visib_mod;
     Buf *name;
 
-    // populated by semantic analyzer
     ErrorTableEntry *err;
 };
 
@@ -388,19 +387,12 @@ struct AstNodeBinOpExpr {
     AstNode *op1;
     BinOpType bin_op;
     AstNode *op2;
-
-    // populated by semantic analyzer:
-    // for when op is BinOpTypeAssign
-    VariableTableEntry *var_entry;
 };
 
 struct AstNodeUnwrapErrorExpr {
     AstNode *op1;
     AstNode *symbol; // can be null
     AstNode *op2;
-
-    // populated by semantic analyzer:
-    VariableTableEntry *var;
 };
 
 enum CastOp {
@@ -429,21 +421,11 @@ struct AstNodeFnCallExpr {
     AstNode *fn_ref_expr;
     ZigList<AstNode *> params;
     bool is_builtin;
-
-    // populated by semantic analyzer:
-    BuiltinFnEntry *builtin_fn;
-    FnTableEntry *fn_entry;
-    CastOp cast_op;
-    // if cast_op is CastOpArrayToString, this will be a pointer to
-    // the string struct on the stack
-    LLVMValueRef tmp_ptr;
 };
 
 struct AstNodeArrayAccessExpr {
     AstNode *array_ref_expr;
     AstNode *subscript;
-
-    // populated by semantic analyzer:
 };
 
 struct AstNodeSliceExpr {
@@ -451,22 +433,11 @@ struct AstNodeSliceExpr {
     AstNode *start;
     AstNode *end;
     bool is_const;
-
-    // populated by semantic analyzer:
-    StructValExprCodeGen resolved_struct_val_expr;
 };
 
 struct AstNodeFieldAccessExpr {
     AstNode *struct_expr;
     Buf *field_name;
-
-    // populated by semantic analyzer
-    TypeStructField *type_struct_field;
-    TypeEnumField *type_enum_field;
-    StructValExprCodeGen resolved_struct_val_expr; // for enum values
-    TypeTableEntry *bare_container_type;
-    bool is_member_fn;
-    AstNode *container_init_expr_node;
 };
 
 enum PrefixOp {
@@ -487,24 +458,21 @@ enum PrefixOp {
 struct AstNodePrefixOpExpr {
     PrefixOp prefix_op;
     AstNode *primary_expr;
-
-    // populated by semantic analyzer
 };
 
 struct AstNodeUse {
+    VisibMod visib_mod;
     AstNode *expr;
 
-    // populated by semantic analyzer
-    TopLevelDecl top_level_decl;
+    TldResolution resolution;
+    IrInstruction *value;
 };
 
 struct AstNodeIfBoolExpr {
     AstNode *condition;
     AstNode *then_block;
     AstNode *else_node; // null, block node, or other if expr node
-    bool is_inline; // TODO
-
-    // populated by semantic analyzer
+    bool is_inline; // TODO parse inline if
 };
 
 struct AstNodeIfVarExpr {
@@ -512,10 +480,7 @@ struct AstNodeIfVarExpr {
     AstNode *then_block;
     AstNode *else_node; // null, block node, or other if expr node
     bool var_is_ptr;
-    bool is_inline; // TODO
-
-    // populated by semantic analyzer
-    TypeTableEntry *type;
+    bool is_inline; // TODO parse inline ?if?
 };
 
 struct AstNodeWhileExpr {
@@ -523,11 +488,6 @@ struct AstNodeWhileExpr {
     AstNode *continue_expr;
     AstNode *body;
     bool is_inline;
-
-    // populated by semantic analyzer
-    bool condition_always_true;
-    bool contains_break;
-    bool contains_continue;
 };
 
 struct AstNodeForExpr {
@@ -537,20 +497,12 @@ struct AstNodeForExpr {
     AstNode *body;
     bool elem_is_ptr;
     bool is_inline;
-
-    // populated by semantic analyzer
-    bool contains_break;
-    bool contains_continue;
-    VariableTableEntry *elem_var;
-    VariableTableEntry *index_var;
 };
 
 struct AstNodeSwitchExpr {
     AstNode *expr;
     ZigList<AstNode *> prongs;
     bool is_inline;
-
-    // populated by semantic analyzer
 };
 
 struct AstNodeSwitchProng {
@@ -573,10 +525,6 @@ struct AstNodeLabel {
 struct AstNodeGoto {
     Buf *name;
     bool is_inline;
-
-    // populated by semantic analyzer
-    IrBasicBlock *bb;
-    size_t instruction_index;
 };
 
 struct AsmOutput {
@@ -584,9 +532,6 @@ struct AsmOutput {
     Buf *constraint;
     Buf *variable_name;
     AstNode *return_type; // null unless "=r" and return
-
-    // populated by semantic analyzer
-    VariableTableEntry *variable;
 };
 
 struct AsmInput {
@@ -619,8 +564,6 @@ struct AstNodeAsmExpr {
     ZigList<AsmOutput*> output_list;
     ZigList<AsmInput*> input_list;
     ZigList<Buf*> clobber_list;
-
-    // populated by semantic analyzer
 };
 
 enum ContainerKind {
@@ -630,23 +573,17 @@ enum ContainerKind {
 };
 
 struct AstNodeStructDecl {
-    TopLevelDecl top_level_decl;
+    VisibMod visib_mod;
     Buf *name;
     ContainerKind kind;
     ZigList<AstNode *> generic_params;
     bool generic_params_is_var_args; // always an error but it can happen from parsing
     ZigList<AstNode *> fields;
     ZigList<AstNode *> decls;
-
-    // populated by semantic analyzer
-    ScopeDecls *decls_scope;
-    TypeTableEntry *type_entry;
-    TypeTableEntry *generic_fn_type;
-    bool skip;
 };
 
 struct AstNodeStructField {
-    TopLevelDecl top_level_decl;
+    VisibMod visib_mod;
     Buf *name;
     AstNode *type;
 };
@@ -654,14 +591,10 @@ struct AstNodeStructField {
 struct AstNodeStringLiteral {
     Buf *buf;
     bool c;
-
-    // populated by semantic analyzer:
 };
 
 struct AstNodeCharLiteral {
     uint8_t value;
-
-    // populated by semantic analyzer:
 };
 
 struct AstNodeNumberLiteral {
@@ -670,16 +603,11 @@ struct AstNodeNumberLiteral {
     // overflow is true if when parsing the number, we discovered it would not
     // fit without losing data in a uint64_t or double
     bool overflow;
-
-    // populated by semantic analyzer
 };
 
 struct AstNodeStructValueField {
     Buf *name;
     AstNode *expr;
-
-    // populated by semantic analyzer
-    TypeStructField *type_struct_field;
 };
 
 enum ContainerInitKind {
@@ -691,68 +619,47 @@ struct AstNodeContainerInitExpr {
     AstNode *type;
     ZigList<AstNode *> entries;
     ContainerInitKind kind;
-
-    // populated by semantic analyzer
-    StructValExprCodeGen resolved_struct_val_expr;
-    TypeTableEntry *enum_type;
 };
 
 struct AstNodeNullLiteral {
-    // populated by semantic analyzer
 };
 
 struct AstNodeUndefinedLiteral {
-    // populated by semantic analyzer
 };
 
 struct AstNodeZeroesLiteral {
-    // populated by semantic analyzer
 };
 
 struct AstNodeThisLiteral {
-    // populated by semantic analyzer
 };
 
 struct AstNodeSymbolExpr {
     Buf *symbol;
-
-    // populated by semantic analyzer
-    TypeEnumField *enum_field;
-    uint32_t err_value;
 };
 
 struct AstNodeBoolLiteral {
     bool value;
-
-    // populated by semantic analyzer
 };
 
 struct AstNodeBreakExpr {
-    // populated by semantic analyzer
 };
 
 struct AstNodeContinueExpr {
-    // populated by semantic analyzer
 };
 
 struct AstNodeArrayType {
     AstNode *size;
     AstNode *child_type;
     bool is_const;
-
-    // populated by semantic analyzer
 };
 
 struct AstNodeErrorType {
-    // populated by semantic analyzer
 };
 
 struct AstNodeTypeLiteral {
-    // populated by semantic analyzer
 };
 
 struct AstNodeVarLiteral {
-    // populated by semantic analyzer
 };
 
 struct AstNode {
@@ -761,9 +668,6 @@ struct AstNode {
     size_t column;
     uint32_t create_index; // for determinism purposes
     ImportTableEntry *owner;
-    // the context in which this expression/node is evaluated.
-    // for blocks, this points to the containing scope, not the block's own scope for its children.
-    Scope *scope;
     union {
         AstNodeRoot root;
         AstNodeFnDef fn_def;
@@ -822,26 +726,12 @@ struct FnTypeParamInfo {
     TypeTableEntry *type;
 };
 
-struct GenericParamValue {
-    TypeTableEntry *type;
-    AstNode *node;
-    size_t impl_index;
-};
-
-struct GenericFnTypeId {
-    AstNode *decl_node; // the generic fn or container decl node
-    GenericParamValue *generic_params;
-    size_t generic_param_count;
-};
-
-uint32_t generic_fn_type_id_hash(GenericFnTypeId *id);
-bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b);
-
 
 struct FnTypeId {
     TypeTableEntry *return_type;
     FnTypeParamInfo *param_info;
     size_t param_count;
+    size_t next_param_index;
     bool is_var_args;
     bool is_naked;
     bool is_cold;
@@ -945,6 +835,7 @@ struct FnGenParamInfo {
 
 struct TypeTableEntryFn {
     FnTypeId fn_type_id;
+    bool is_generic;
     TypeTableEntry *gen_return_type;
     size_t gen_param_count;
     FnGenParamInfo *gen_param_info;
@@ -953,10 +844,6 @@ struct TypeTableEntryFn {
     LLVMCallConv calling_convention;
 
     TypeTableEntry *bound_fn_parent;
-};
-
-struct TypeTableEntryGenericFn {
-    AstNode *decl_node;
 };
 
 struct TypeTableEntryBoundFn {
@@ -993,7 +880,6 @@ enum TypeTableEntryId {
     TypeTableEntryIdTypeDecl,
     TypeTableEntryIdNamespace,
     TypeTableEntryIdBlock,
-    TypeTableEntryIdGenericFn,
     TypeTableEntryIdBoundFn,
 };
 
@@ -1018,7 +904,6 @@ struct TypeTableEntry {
         TypeTableEntryUnion unionation;
         TypeTableEntryFn fn;
         TypeTableEntryTypeDecl type_decl;
-        TypeTableEntryGenericFn generic_fn;
         TypeTableEntryBoundFn bound_fn;
     } data;
 
@@ -1056,9 +941,8 @@ enum FnAnalState {
     FnAnalStateReady,
     FnAnalStateProbing,
     FnAnalStateComplete,
-    FnAnalStateSkipped,
+    FnAnalStateInvalid,
 };
-
 
 enum FnInline {
     FnInlineAuto,
@@ -1067,14 +951,18 @@ enum FnInline {
 };
 
 struct FnTableEntry {
-    LLVMValueRef fn_value;
+    LLVMValueRef llvm_value;
     AstNode *proto_node;
     AstNode *fn_def_node;
+    ScopeFnDef *fndef_scope; // parent should be the top level decls or container decls
+    Scope *child_scope; // parent is scope for last parameter
+    ScopeBlock *def_scope; // parent is child_scope
     ImportTableEntry *import_entry;
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
+    TypeTableEntry *implicit_return_type;
     bool internal_linkage;
-    bool is_extern;
+    bool disable_export;
     bool is_test;
     FnInline fn_inline;
     FnAnalState anal_state;
@@ -1161,11 +1049,10 @@ struct CodeGen {
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
     HashMap<FnTypeId *, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
-    HashMap<GenericFnTypeId *, AstNode *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
 
     ZigList<ImportTableEntry *> import_queue;
     size_t import_queue_index;
-    ZigList<AstNode *> resolve_queue;
+    ZigList<Tld *> resolve_queue;
     size_t resolve_queue_index;
     ZigList<AstNode *> use_queue;
     size_t use_queue_index;
@@ -1249,6 +1136,7 @@ struct CodeGen {
     // The function definitions this module includes. There must be a corresponding
     // fn_protos entry.
     ZigList<FnTableEntry *> fn_defs;
+    size_t fn_defs_index;
     // The function prototypes this module includes. In the case of external declarations,
     // there will not be a corresponding fn_defs entry.
     ZigList<FnTableEntry *> fn_protos;
@@ -1258,6 +1146,7 @@ struct CodeGen {
     FnTableEntry *cur_fn;
     FnTableEntry *main_fn;
     LLVMValueRef cur_ret_ptr;
+    LLVMValueRef cur_fn_val;
     ZigList<LLVMBasicBlockRef> break_block_stack;
     ZigList<LLVMBasicBlockRef> continue_block_stack;
     bool c_want_stdint;
@@ -1295,6 +1184,7 @@ struct CodeGen {
     IrInstruction *invalid_instruction;
 };
 
+// TODO after merging IR branch, we can probably delete some of these fields
 struct VariableTableEntry {
     Buf name;
     TypeTableEntry *type;
@@ -1304,8 +1194,6 @@ struct VariableTableEntry {
     bool is_inline;
     // which node is the declaration of the variable
     AstNode *decl_node;
-    // which node contains the ConstExprValue for this variable's value
-    AstNode *val_node;
     ZigLLVMDILocalVariable *di_loc_var;
     size_t src_arg_index;
     size_t gen_arg_index;
@@ -1313,10 +1201,10 @@ struct VariableTableEntry {
     Scope *child_scope;
     LLVMValueRef param_value_ref;
     bool force_depends_on_compile_var;
-    ImportTableEntry *import;
     bool shadowable;
     size_t mem_slot_index;
     size_t ref_count;
+    ConstExprValue *value;
 };
 
 struct ErrorTableEntry {
@@ -1339,9 +1227,6 @@ struct Scope {
     Scope *parent;
 
     ZigLLVMDIScope *di_scope;
-
-    bool safety_off;
-    AstNode *safety_set_node;
 };
 
 // This scope comes from global declarations or from
@@ -1350,15 +1235,12 @@ struct Scope {
 struct ScopeDecls {
     Scope base;
 
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> decl_table;
-};
-
-// This scope comes from a container declaration such as a struct,
-// enum, or union.
-struct ScopeContainer {
-    Scope base;
-
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> decl_table;
+    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> decl_table;
+    bool safety_off;
+    AstNode *safety_set_node;
+    ImportTableEntry *import;
+    // If this is a scope from a container, this is the type entry, otherwise null
+    TypeTableEntry *container_type;
 };
 
 // This scope comes from a block expression in user code.
@@ -1367,6 +1249,8 @@ struct ScopeBlock {
     Scope base;
 
     HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table; 
+    bool safety_off;
+    AstNode *safety_set_node;
 };
 
 // This scope is created from every defer expression.
@@ -1401,7 +1285,7 @@ struct ScopeLoop {
 
 // This scope is created for a function definition.
 // NodeTypeFnDef
-struct ScopeFnBody {
+struct ScopeFnDef {
     Scope base;
 
     FnTableEntry *fn_entry;
@@ -1479,6 +1363,7 @@ enum IrInstructionId {
 
 struct IrInstruction {
     IrInstructionId id;
+    Scope *scope;
     AstNode *source_node;
     ConstExprValue static_value;
     TypeTableEntry *type_entry;
@@ -1798,6 +1683,7 @@ struct IrInstructionAsm {
     // Most information on inline assembly comes from the source node.
     IrInstruction **input_list;
     IrInstruction **output_types;
+    VariableTableEntry **output_vars;
     size_t return_count;
     bool has_side_effects;
 };

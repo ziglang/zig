@@ -22,11 +22,11 @@ TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, size_t size_in_bits);
 TypeTableEntry **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_c_int_type(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *child_type);
-TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id, bool gen_debug_info);
+TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type);
 TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size);
 TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
-TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import, Scope *context,
+TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import, Scope *scope,
         ContainerKind kind, AstNode *decl_node, const char *name);
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
 TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type);
@@ -49,9 +49,8 @@ AstNode *first_executing_node(AstNode *node);
 // TODO move these over, these used to be static
 bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type);
 VariableTableEntry *find_variable(CodeGen *g, Scope *orig_context, Buf *name);
-AstNode *find_decl(Scope *context, Buf *name);
-void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only);
-TopLevelDecl *get_as_top_level_decl(AstNode *node);
+Tld *find_decl(Scope *scope, Buf *name);
+void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only);
 bool type_is_codegen_pointer(TypeTableEntry *type);
 TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry);
 TypeTableEntry *container_ref_type(TypeTableEntry *type_entry);
@@ -61,16 +60,21 @@ TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name);
 ScopeDecls *get_container_scope(TypeTableEntry *type_entry);
 TypeEnumField *find_enum_type_field(TypeTableEntry *enum_type, Buf *name);
 bool is_container_ref(TypeTableEntry *type_entry);
-void scan_decls(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, AstNode *node);
+void scan_decls(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, AstNode *node, Tld *parent_tld);
 void preview_use_decl(CodeGen *g, AstNode *node);
 void resolve_use_decl(CodeGen *g, AstNode *node);
+FnTableEntry *scope_fn_entry(Scope *scope);
+ImportTableEntry *get_scope_import(Scope *scope);
+void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node,
+    Scope *parent_scope, Tld *parent_tld);
+VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
+    TypeTableEntry *type_entry, bool is_const, ConstExprValue *init_value);
 
-ScopeDecls *create_decls_scope(AstNode *node, Scope *parent);
 Scope *create_block_scope(AstNode *node, Scope *parent);
 Scope *create_defer_scope(AstNode *node, Scope *parent);
 Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var);
 Scope *create_cimport_scope(AstNode *node, Scope *parent);
 Scope *create_loop_scope(AstNode *node, Scope *parent);
-Scope *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry);
+ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry);
 
 #endif

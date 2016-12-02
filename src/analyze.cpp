@@ -19,8 +19,8 @@
 
 static const size_t default_backward_branch_quota = 1000;
 
-static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *enum_type);
-static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type);
+static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type);
+static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type);
 
 AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
@@ -130,9 +130,82 @@ ScopeDecls *get_container_scope(TypeTableEntry *type_entry) {
     return *get_container_scope_ptr(type_entry);
 }
 
+void init_scope(Scope *dest, AstNode *node, Scope *parent) {
+    dest->node = node;
+    dest->parent = parent;
+}
+
+static ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEntry *container_type, ImportTableEntry *import) {
+    assert(node->type == NodeTypeRoot || node->type == NodeTypeContainerDecl);
+    ScopeDecls *scope = allocate<ScopeDecls>(1);
+    init_scope(&scope->base, node, parent);
+    scope->decl_table.init(4);
+    scope->container_type = container_type;
+    scope->import = import;
+    return scope;
+}
+
+Scope *create_block_scope(AstNode *node, Scope *parent) {
+    assert(node->type == NodeTypeBlock);
+    ScopeBlock *scope = allocate<ScopeBlock>(1);
+    init_scope(&scope->base, node, parent);
+    scope->label_table.init(1);
+    return &scope->base;
+}
+
+Scope *create_defer_scope(AstNode *node, Scope *parent) {
+    assert(node->type == NodeTypeDefer);
+    ScopeDefer *scope = allocate<ScopeDefer>(1);
+    init_scope(&scope->base, node, parent);
+    return &scope->base;
+}
+
+Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var) {
+    assert(node->type == NodeTypeVariableDeclaration || node->type == NodeTypeParamDecl);
+    ScopeVarDecl *scope = allocate<ScopeVarDecl>(1);
+    init_scope(&scope->base, node, parent);
+    scope->var = var;
+    return &scope->base;
+}
+
+Scope *create_cimport_scope(AstNode *node, Scope *parent) {
+    assert(node->type == NodeTypeFnCallExpr);
+    ScopeCImport *scope = allocate<ScopeCImport>(1);
+    init_scope(&scope->base, node, parent);
+    buf_resize(&scope->c_import_buf, 0);
+    return &scope->base;
+}
+
+Scope *create_loop_scope(AstNode *node, Scope *parent) {
+    assert(node->type == NodeTypeWhileExpr || node->type == NodeTypeForExpr);
+    ScopeLoop *scope = allocate<ScopeLoop>(1);
+    init_scope(&scope->base, node, parent);
+    return &scope->base;
+}
+
+ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry) {
+    assert(node->type == NodeTypeFnDef);
+    ScopeFnDef *scope = allocate<ScopeFnDef>(1);
+    init_scope(&scope->base, node, parent);
+    scope->fn_entry = fn_entry;
+    return scope;
+}
+
+ImportTableEntry *get_scope_import(Scope *scope) {
+    while (scope) {
+        if (scope->node->type == NodeTypeRoot || scope->node->type == NodeTypeContainerDecl) {
+            ScopeDecls *decls_scope = (ScopeDecls *)scope;
+            assert(decls_scope->import);
+            return decls_scope->import;
+        }
+        scope = scope->parent;
+    }
+    zig_unreachable();
+}
+
 static TypeTableEntry *new_container_type_entry(TypeTableEntryId id, AstNode *source_node, Scope *parent_scope) {
     TypeTableEntry *entry = new_type_table_entry(id);
-    *get_container_scope_ptr(entry) = create_decls_scope(source_node, parent_scope);
+    *get_container_scope_ptr(entry) = create_decls_scope(source_node, parent_scope, entry, get_scope_import(parent_scope));
     return entry;
 }
 
@@ -179,7 +252,6 @@ bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
-        case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdBoundFn:
             return true;
     }
@@ -200,14 +272,6 @@ static bool is_slice(TypeTableEntry *type) {
 
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
     return get_int_type(g, false, bits_needed_for_unsigned(x));
-}
-
-static TypeTableEntry *get_generic_fn_type(CodeGen *g, AstNode *decl_node) {
-    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdGenericFn);
-    buf_init_from_str(&entry->name, "(generic function)");
-    entry->zero_bits = true;
-    entry->data.generic_fn.decl_node = decl_node;
-    return entry;
 }
 
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
@@ -643,8 +707,7 @@ TypeTableEntry *get_bound_fn_type(CodeGen *g, FnTableEntry *fn_entry) {
     return bound_fn_type;
 }
 
-// accepts ownership of fn_type_id memory
-TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id, bool gen_debug_info) {
+TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     auto table_entry = g->fn_type_table.maybe_get(fn_type_id);
     if (table_entry) {
         return table_entry->value;
@@ -685,67 +748,65 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id, bool gen_debug_inf
         buf_appendf(&fn_type->name, " -> %s", buf_ptr(&fn_type_id->return_type->name));
     }
 
-    if (gen_debug_info) {
-        // next, loop over the parameters again and compute debug information
-        // and codegen information
-        bool first_arg_return = !fn_type_id->is_extern && handle_is_ptr(fn_type_id->return_type);
-        // +1 for maybe making the first argument the return value
-        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
-        // +1 because 0 is the return type and +1 for maybe making first arg ret val
-        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(2 + fn_type_id->param_count);
-        param_di_types[0] = fn_type_id->return_type->di_type;
-        size_t gen_param_index = 0;
-        TypeTableEntry *gen_return_type;
-        if (!type_has_bits(fn_type_id->return_type)) {
-            gen_return_type = g->builtin_types.entry_void;
-        } else if (first_arg_return) {
-            TypeTableEntry *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
+    // next, loop over the parameters again and compute debug information
+    // and codegen information
+    bool first_arg_return = !fn_type_id->is_extern && handle_is_ptr(fn_type_id->return_type);
+    // +1 for maybe making the first argument the return value
+    LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
+    // +1 because 0 is the return type and +1 for maybe making first arg ret val
+    ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(2 + fn_type_id->param_count);
+    param_di_types[0] = fn_type_id->return_type->di_type;
+    size_t gen_param_index = 0;
+    TypeTableEntry *gen_return_type;
+    if (!type_has_bits(fn_type_id->return_type)) {
+        gen_return_type = g->builtin_types.entry_void;
+    } else if (first_arg_return) {
+        TypeTableEntry *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
+        gen_param_types[gen_param_index] = gen_type->type_ref;
+        gen_param_index += 1;
+        // after the gen_param_index += 1 because 0 is the return type
+        param_di_types[gen_param_index] = gen_type->di_type;
+        gen_return_type = g->builtin_types.entry_void;
+    } else {
+        gen_return_type = fn_type_id->return_type;
+    }
+    fn_type->data.fn.gen_return_type = gen_return_type;
+
+    fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
+    for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
+        FnTypeParamInfo *src_param_info = &fn_type->data.fn.fn_type_id.param_info[i];
+        TypeTableEntry *type_entry = src_param_info->type;
+        FnGenParamInfo *gen_param_info = &fn_type->data.fn.gen_param_info[i];
+
+        gen_param_info->src_index = i;
+        gen_param_info->gen_index = SIZE_MAX;
+
+        assert(type_is_complete(type_entry));
+        if (type_has_bits(type_entry)) {
+            TypeTableEntry *gen_type;
+            if (handle_is_ptr(type_entry)) {
+                gen_type = get_pointer_to_type(g, type_entry, true);
+                gen_param_info->is_byval = true;
+            } else {
+                gen_type = type_entry;
+            }
             gen_param_types[gen_param_index] = gen_type->type_ref;
+            gen_param_info->gen_index = gen_param_index;
+            gen_param_info->type = gen_type;
+
             gen_param_index += 1;
+
             // after the gen_param_index += 1 because 0 is the return type
             param_di_types[gen_param_index] = gen_type->di_type;
-            gen_return_type = g->builtin_types.entry_void;
-        } else {
-            gen_return_type = fn_type_id->return_type;
         }
-        fn_type->data.fn.gen_return_type = gen_return_type;
-
-        fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
-        for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
-            FnTypeParamInfo *src_param_info = &fn_type->data.fn.fn_type_id.param_info[i];
-            TypeTableEntry *type_entry = src_param_info->type;
-            FnGenParamInfo *gen_param_info = &fn_type->data.fn.gen_param_info[i];
-
-            gen_param_info->src_index = i;
-            gen_param_info->gen_index = SIZE_MAX;
-
-            assert(type_is_complete(type_entry));
-            if (type_has_bits(type_entry)) {
-                TypeTableEntry *gen_type;
-                if (handle_is_ptr(type_entry)) {
-                    gen_type = get_pointer_to_type(g, type_entry, true);
-                    gen_param_info->is_byval = true;
-                } else {
-                    gen_type = type_entry;
-                }
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_info->gen_index = gen_param_index;
-                gen_param_info->type = gen_type;
-
-                gen_param_index += 1;
-
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
-            }
-        }
-
-        fn_type->data.fn.gen_param_count = gen_param_index;
-
-        fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
-                gen_param_types, gen_param_index, fn_type_id->is_var_args);
-        fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
-        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types, gen_param_index + 1, 0);
     }
+
+    fn_type->data.fn.gen_param_count = gen_param_index;
+
+    fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
+            gen_param_types, gen_param_index, fn_type_id->is_var_args);
+    fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
+    fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types, gen_param_index + 1, 0);
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);
 
@@ -767,6 +828,7 @@ static TypeTableEntryId container_to_type(ContainerKind kind) {
 TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import, Scope *scope,
         ContainerKind kind, AstNode *decl_node, const char *name)
 {
+
     TypeTableEntryId type_id = container_to_type(kind);
     TypeTableEntry *entry = new_container_type_entry(type_id, decl_node, scope);
 
@@ -782,7 +844,7 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import,
             break;
     }
 
-    unsigned line = decl_node ? decl_node->line : 0;
+    unsigned line = decl_node->line;
 
     entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), name);
     entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
@@ -792,6 +854,14 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import,
     buf_init_from_str(&entry->name, name);
 
     return entry;
+}
+
+static TypeTableEntry *get_partial_container_type_tld(CodeGen *g, Scope *scope, TldContainer *tld_container) {
+    ImportTableEntry *import = tld_container->base.import;
+    AstNode *container_node = tld_container->base.source_node;
+    assert(container_node->type == NodeTypeContainerDecl);
+    ContainerKind kind = container_node->data.struct_decl.kind;
+    return get_partial_container_type(g, import, scope, kind, container_node, buf_ptr(tld_container->base.name));
 }
 
 
@@ -842,9 +912,7 @@ static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *nod
     return result;
 }
 
-static TypeTableEntry *analyze_type_expr(CodeGen *g, ImportTableEntry *import, Scope *scope,
-        AstNode *node)
-{
+static TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
     IrInstruction *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type);
     if (result->type_entry->id == TypeTableEntryIdInvalid)
         return g->builtin_types.entry_invalid;
@@ -853,71 +921,77 @@ static TypeTableEntry *analyze_type_expr(CodeGen *g, ImportTableEntry *import, S
     return result->static_value.data.x_type;
 }
 
-static bool fn_wants_full_static_eval(FnTableEntry *fn_table_entry) {
-    assert(fn_table_entry);
-    return false;
+static TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
+    TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
+    fn_type->data.fn.fn_type_id = *fn_type_id;
+    fn_type->data.fn.is_generic = true;
+    return fn_type;
 }
 
-// fn_table_entry is populated if and only if there is a function definition for this prototype
-static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *import, Scope *scope,
-        TypeTableEntry *expected_type, AstNode *node, bool is_naked, bool is_cold, FnTableEntry *fn_table_entry)
-{
-    assert(node->type == NodeTypeFnProto);
-    AstNodeFnProto *fn_proto = &node->data.fn_proto;
-
-    if (fn_proto->skip) {
-        return g->builtin_types.entry_invalid;
-    }
+static TypeTableEntry *analyze_fn_type(CodeGen *g, TldFn *tld_fn) {
+    AstNode *proto_node = tld_fn->base.source_node;
+    assert(proto_node->type == NodeTypeFnProto);
+    AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
     FnTypeId fn_type_id = {0};
-    fn_type_id.is_extern = fn_proto->is_extern || (fn_proto->top_level_decl.visib_mod == VisibModExport);
-    fn_type_id.is_naked = is_naked;
-    fn_type_id.is_cold = is_cold;
+    fn_type_id.is_extern = fn_proto->is_extern || (fn_proto->visib_mod == VisibModExport);
+    fn_type_id.is_naked = fn_proto->is_nakedcc;
+    fn_type_id.is_cold = fn_proto->is_coldcc;
     fn_type_id.param_count = fn_proto->params.length;
     fn_type_id.param_info = allocate_nonzero<FnTypeParamInfo>(fn_type_id.param_count);
-
+    fn_type_id.next_param_index = 0;
     fn_type_id.is_var_args = fn_proto->is_var_args;
 
-    for (size_t i = 0; i < fn_type_id.param_count; i += 1) {
-        AstNode *child = fn_proto->params.at(i);
-        assert(child->type == NodeTypeParamDecl);
+    FnTableEntry *fn_entry = tld_fn->fn_entry;
+    Scope *child_scope = fn_entry->fndef_scope ? &fn_entry->fndef_scope->base : tld_fn->base.parent_scope;
 
-        TypeTableEntry *type_entry;
-        if (fn_proto->skip) {
-            type_entry = g->builtin_types.entry_invalid;
-        } else {
-            type_entry = analyze_type_expr(g, import, scope, child->data.param_decl.type);
+    for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
+        AstNode *param_node = fn_proto->params.at(fn_type_id.next_param_index);
+        assert(param_node->type == NodeTypeParamDecl);
+
+        bool param_is_inline = param_node->data.param_decl.is_inline;
+
+        if (param_is_inline) {
+            if (fn_type_id.is_extern) {
+                add_node_error(g, param_node,
+                        buf_sprintf("inline parameter not allowed in extern function"));
+                return g->builtin_types.entry_invalid;
+            }
+            return get_generic_fn_type(g, &fn_type_id);
         }
+
+        if (fn_entry && buf_len(param_node->data.param_decl.name) == 0) {
+            add_node_error(g, param_node, buf_sprintf("missing parameter name"));
+        }
+
+        TypeTableEntry *type_entry = analyze_type_expr(g, child_scope, param_node->data.param_decl.type);
 
         switch (type_entry->id) {
             case TypeTableEntryIdInvalid:
-                fn_proto->skip = true;
-                break;
-            case TypeTableEntryIdNumLitFloat:
-            case TypeTableEntryIdNumLitInt:
+                return g->builtin_types.entry_invalid;
+            case TypeTableEntryIdUnreachable:
             case TypeTableEntryIdUndefLit:
             case TypeTableEntryIdNullLit:
-            case TypeTableEntryIdUnreachable:
+                add_node_error(g, param_node->data.param_decl.type,
+                    buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
+                return g->builtin_types.entry_invalid;
+            case TypeTableEntryIdVar:
+                if (fn_type_id.is_extern) {
+                    add_node_error(g, param_node->data.param_decl.type,
+                            buf_sprintf("parameter of type 'var' not allowed in extern function"));
+                    return g->builtin_types.entry_invalid;
+                }
+                return get_generic_fn_type(g, &fn_type_id);
+            case TypeTableEntryIdNumLitFloat:
+            case TypeTableEntryIdNumLitInt:
             case TypeTableEntryIdNamespace:
             case TypeTableEntryIdBlock:
-            case TypeTableEntryIdGenericFn:
             case TypeTableEntryIdBoundFn:
-                if (!fn_proto->skip) {
-                    fn_proto->skip = true;
-                    add_node_error(g, child->data.param_decl.type,
-                        buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
-                }
-                break;
             case TypeTableEntryIdMetaType:
-                if (!child->data.param_decl.is_inline) {
-                    if (!fn_proto->skip) {
-                        fn_proto->skip = true;
-                        add_node_error(g, child->data.param_decl.type,
-                            buf_sprintf("parameter of type '%s' must be declared inline",
-                            buf_ptr(&type_entry->name)));
-                    }
-                }
-                break;
+                add_node_error(g, param_node->data.param_decl.type,
+                    buf_sprintf("parameter of type '%s' must be declared inline",
+                    buf_ptr(&type_entry->name)));
+                return g->builtin_types.entry_invalid;
             case TypeTableEntryIdVoid:
             case TypeTableEntryIdBool:
             case TypeTableEntryIdInt:
@@ -933,44 +1007,38 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
             case TypeTableEntryIdFn:
             case TypeTableEntryIdTypeDecl:
                 break;
-            case TypeTableEntryIdVar:
-                // var types are treated as generic functions; if we get to this code we should
-                // already be an instantiated function.
-                zig_unreachable();
         }
-        if (type_entry->id == TypeTableEntryIdInvalid) {
-            fn_proto->skip = true;
-        }
-        FnTypeParamInfo *param_info = &fn_type_id.param_info[i];
+        FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
         param_info->type = type_entry;
-        param_info->is_noalias = child->data.param_decl.is_noalias;
+        param_info->is_noalias = param_node->data.param_decl.is_noalias;
     }
 
-    if (fn_proto->skip) {
-        fn_type_id.return_type = g->builtin_types.entry_invalid;
-    } else {
-        fn_type_id.return_type = analyze_type_expr(g, import, scope, fn_proto->return_type);
-    }
+    fn_type_id.return_type = analyze_type_expr(g, child_scope, fn_proto->return_type);
+
     switch (fn_type_id.return_type->id) {
         case TypeTableEntryIdInvalid:
-            fn_proto->skip = true;
-            break;
-        case TypeTableEntryIdNumLitFloat:
-        case TypeTableEntryIdNumLitInt:
+            return g->builtin_types.entry_invalid;
+
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
+            add_node_error(g, fn_proto->return_type,
+                buf_sprintf("return type '%s' not allowed", buf_ptr(&fn_type_id.return_type->name)));
+            return g->builtin_types.entry_invalid;
+
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
-        case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
-            if (!fn_proto->skip) {
-                fn_proto->skip = true;
-                add_node_error(g, fn_proto->return_type,
-                    buf_sprintf("return type '%s' not allowed", buf_ptr(&fn_type_id.return_type->name)));
-            }
-            break;
         case TypeTableEntryIdMetaType:
+            if (fn_type_id.is_extern) {
+                add_node_error(g, fn_proto->return_type,
+                    buf_sprintf("return type '%s' not allowed in extern function",
+                    buf_ptr(&fn_type_id.return_type->name)));
+                return g->builtin_types.entry_invalid;
+            }
+            return get_generic_fn_type(g, &fn_type_id);
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
@@ -989,114 +1057,10 @@ static TypeTableEntry *analyze_fn_proto_type(CodeGen *g, ImportTableEntry *impor
             break;
     }
 
-
-    if (fn_proto->skip) {
-        return g->builtin_types.entry_invalid;
-    }
-
-    if (fn_table_entry && fn_type_id.return_type->id == TypeTableEntryIdMetaType) {
-        ErrorMsg *err_msg = nullptr;
-        for (size_t i = 0; i < fn_proto->params.length; i += 1) {
-            AstNode *param_decl_node = fn_proto->params.at(i);
-            assert(param_decl_node->type == NodeTypeParamDecl);
-            if (!param_decl_node->data.param_decl.is_inline) {
-                if (!err_msg) {
-                    err_msg = add_node_error(g, fn_proto->return_type,
-                        buf_sprintf("function with return type '%s' must declare all parameters inline",
-                        buf_ptr(&fn_type_id.return_type->name)));
-                }
-                add_error_note(g, err_msg, param_decl_node,
-                    buf_sprintf("non-inline parameter here"));
-            }
-        }
-        if (err_msg) {
-            fn_proto->skip = true;
-            return g->builtin_types.entry_invalid;
-        }
-    }
-
-    bool gen_debug_info = fn_table_entry && !fn_wants_full_static_eval(fn_table_entry);
-    return get_fn_type(g, &fn_type_id, gen_debug_info);
+    return get_fn_type(g, &fn_type_id);
 }
 
-static void resolve_function_proto(CodeGen *g, AstNode *node, FnTableEntry *fn_table_entry,
-        ImportTableEntry *import, Scope *containing_scope)
-{
-    assert(node->type == NodeTypeFnProto);
-    AstNodeFnProto *fn_proto = &node->data.fn_proto;
-
-    if (fn_proto->skip) {
-        return;
-    }
-
-    bool is_internal = (fn_proto->top_level_decl.visib_mod != VisibModExport);
-    bool is_c_compat = !is_internal || fn_proto->is_extern;
-    fn_table_entry->internal_linkage = !is_c_compat;
-
-
-
-    TypeTableEntry *fn_type = analyze_fn_proto_type(g, import, containing_scope, nullptr, node,
-            fn_proto->is_nakedcc, fn_proto->is_coldcc, fn_table_entry);
-
-    fn_table_entry->type_entry = fn_type;
-
-    if (fn_type->id == TypeTableEntryIdInvalid) {
-        fn_proto->skip = true;
-        return;
-    }
-
-    if (fn_proto->is_inline) {
-        fn_table_entry->fn_inline = FnInlineAlways;
-    }
-
-
-    Buf *symbol_name;
-    if (is_c_compat) {
-        symbol_name = &fn_table_entry->symbol_name;
-    } else {
-        symbol_name = buf_sprintf("_%s", buf_ptr(&fn_table_entry->symbol_name));
-    }
-
-    if (fn_table_entry->fn_def_node) {
-        fn_table_entry->fn_def_node->data.fn_def.containing_scope = create_fndef_scope(
-            fn_table_entry->fn_def_node, containing_scope, fn_table_entry);
-    }
-
-    if (!fn_wants_full_static_eval(fn_table_entry)) {
-        fn_table_entry->fn_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_type->data.fn.raw_type_ref);
-
-        switch (fn_table_entry->fn_inline) {
-            case FnInlineAlways:
-                LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMAlwaysInlineAttribute);
-                break;
-            case FnInlineNever:
-                LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoInlineAttribute);
-                break;
-            case FnInlineAuto:
-                break;
-        }
-        if (fn_type->data.fn.fn_type_id.is_naked) {
-            LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNakedAttribute);
-        }
-
-        LLVMSetLinkage(fn_table_entry->fn_value, fn_table_entry->internal_linkage ?
-                LLVMInternalLinkage : LLVMExternalLinkage);
-
-        if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdUnreachable) {
-            LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoReturnAttribute);
-        }
-        LLVMSetFunctionCallConv(fn_table_entry->fn_value, fn_type->data.fn.calling_convention);
-        if (!fn_table_entry->is_extern) {
-            LLVMAddFunctionAttr(fn_table_entry->fn_value, LLVMNoUnwindAttribute);
-        }
-        if (!g->is_release_build && fn_table_entry->fn_inline != FnInlineAlways) {
-            ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim", "true");
-            ZigLLVMAddFunctionAttr(fn_table_entry->fn_value, "no-frame-pointer-elim-non-leaf", nullptr);
-        }
-    }
-}
-
-static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *enum_type) {
+static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     // if you change this logic you likely must also change similar logic in parseh.cpp
     assert(enum_type->id == TypeTableEntryIdEnum);
 
@@ -1133,6 +1097,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
     uint64_t biggest_union_member_size_in_bits = 0;
 
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
+    ImportTableEntry *import = get_scope_import(scope);
 
     // set temporary flag
     enum_type->data.enumeration.embedded_in_current = true;
@@ -1142,17 +1107,16 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
         AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
         type_enum_field->name = field_node->data.struct_field.name;
-        TypeTableEntry *field_type = analyze_type_expr(g, import, scope,
-                field_node->data.struct_field.type);
+        TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
         type_enum_field->type_entry = field_type;
         type_enum_field->value = i;
 
         di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(type_enum_field->name), i);
 
         if (field_type->id == TypeTableEntryIdStruct) {
-            resolve_struct_type(g, import, field_type);
+            resolve_struct_type(g, field_type);
         } else if (field_type->id == TypeTableEntryIdEnum) {
-            resolve_enum_type(g, import, field_type);
+            resolve_enum_type(g, field_type);
         } else if (field_type->id == TypeTableEntryIdInvalid) {
             enum_type->data.enumeration.is_invalid = true;
             continue;
@@ -1281,7 +1245,7 @@ static void resolve_enum_type(CodeGen *g, ImportTableEntry *import, TypeTableEnt
     }
 }
 
-static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *struct_type) {
+static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     // if you change the logic of this function likely you must make a similar change in
     // parseh.cpp
     assert(struct_type->id == TypeTableEntryIdStruct);
@@ -1319,22 +1283,23 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     struct_type->data.structure.embedded_in_current = true;
 
     Scope *scope = &struct_type->data.structure.decls_scope->base;
+    ImportTableEntry *import = get_scope_import(scope);
 
     size_t gen_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         type_struct_field->name = field_node->data.struct_field.name;
-        TypeTableEntry *field_type = analyze_type_expr(g, import, scope,
+        TypeTableEntry *field_type = analyze_type_expr(g, scope,
                 field_node->data.struct_field.type);
         type_struct_field->type_entry = field_type;
         type_struct_field->src_index = i;
         type_struct_field->gen_index = SIZE_MAX;
 
         if (field_type->id == TypeTableEntryIdStruct) {
-            resolve_struct_type(g, import, field_type);
+            resolve_struct_type(g, field_type);
         } else if (field_type->id == TypeTableEntryIdEnum) {
-            resolve_enum_type(g, import, field_type);
+            resolve_enum_type(g, field_type);
         } else if (field_type->id == TypeTableEntryIdInvalid) {
             struct_type->data.structure.is_invalid = true;
             continue;
@@ -1408,16 +1373,13 @@ static void resolve_struct_type(CodeGen *g, ImportTableEntry *import, TypeTableE
     struct_type->zero_bits = (debug_size_in_bits == 0);
 }
 
-static void resolve_union_type(CodeGen *g, ImportTableEntry *import, TypeTableEntry *enum_type) {
+static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     zig_panic("TODO");
 }
 
-static void get_fully_qualified_decl_name(Buf *buf, AstNode *decl_node, uint8_t sep) {
-    TopLevelDecl *tld = get_as_top_level_decl(decl_node);
-    AstNode *parent_decl = tld->parent_decl;
-
-    if (parent_decl) {
-        get_fully_qualified_decl_name(buf, parent_decl, sep);
+static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, uint8_t sep) {
+    if (tld->parent_tld) {
+        get_fully_qualified_decl_name(buf, tld->parent_tld, sep);
         buf_append_char(buf, sep);
         buf_append_buf(buf, tld->name);
     } else {
@@ -1425,182 +1387,108 @@ static void get_fully_qualified_decl_name(Buf *buf, AstNode *decl_node, uint8_t 
     }
 }
 
-static void preview_generic_fn_proto(CodeGen *g, ImportTableEntry *import, AstNode *node) {
-    assert(node->type == NodeTypeContainerDecl);
-
-    if (node->data.struct_decl.generic_params_is_var_args) {
-        add_node_error(g, node, buf_sprintf("generic parameters cannot be var args"));
-        node->data.struct_decl.skip = true;
-        node->data.struct_decl.generic_fn_type = g->builtin_types.entry_invalid;
-        return;
-    }
-
-    node->data.struct_decl.generic_fn_type = get_generic_fn_type(g, node);
-}
-
-static bool get_is_generic_fn(AstNode *proto_node) {
+static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
+    ImportTableEntry *import = tld_fn->base.import;
+    AstNode *proto_node = tld_fn->base.source_node;
     assert(proto_node->type == NodeTypeFnProto);
-    return proto_node->data.fn_proto.inline_or_var_type_arg_count > 0;
-}
+    AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-static void preview_fn_proto_instance(CodeGen *g, ImportTableEntry *import, AstNode *proto_node,
-        Scope *containing_scope)
-{
-    assert(proto_node->type == NodeTypeFnProto);
+    AstNode *fn_def_node = fn_proto->fn_def_node;
 
-    if (proto_node->data.fn_proto.skip) {
-        return;
-    }
-
-    bool is_generic_instance = proto_node->data.fn_proto.generic_proto_node;
-    bool is_generic_fn = get_is_generic_fn(proto_node);
-    assert(!is_generic_instance || !is_generic_fn);
-
-    AstNode *parent_decl = proto_node->data.fn_proto.top_level_decl.parent_decl;
-    Buf *proto_name = proto_node->data.fn_proto.name;
-
-    AstNode *fn_def_node = proto_node->data.fn_proto.fn_def_node;
-    bool is_extern = proto_node->data.fn_proto.is_extern;
-
-    assert(!is_extern || !is_generic_instance);
-
-    if (fn_def_node && proto_node->data.fn_proto.is_var_args) {
+    if (fn_def_node && fn_proto->is_var_args) {
         add_node_error(g, proto_node,
                 buf_sprintf("variadic arguments only allowed in extern function declarations"));
+        tld_fn->base.resolution = TldResolutionInvalid;
+        return;
     }
 
     FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
     fn_table_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
+    fn_table_entry->ir_executable.fn_entry = fn_table_entry;
+    fn_table_entry->analyzed_executable.fn_entry = fn_table_entry;
     fn_table_entry->import_entry = import;
     fn_table_entry->proto_node = proto_node;
     fn_table_entry->fn_def_node = fn_def_node;
-    fn_table_entry->is_extern = is_extern;
+    fn_table_entry->fn_inline = fn_proto->is_inline ? FnInlineAlways : FnInlineAuto;
+    fn_table_entry->internal_linkage = (fn_proto->visib_mod != VisibModExport);
 
-    get_fully_qualified_decl_name(&fn_table_entry->symbol_name, proto_node, '_');
+    get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
 
-    proto_node->data.fn_proto.fn_table_entry = fn_table_entry;
+    tld_fn->fn_entry = fn_table_entry;
 
-    if (is_generic_fn) {
-        fn_table_entry->type_entry = get_generic_fn_type(g, proto_node);
-
-        if (is_extern || proto_node->data.fn_proto.top_level_decl.visib_mod == VisibModExport) {
-            for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
-                AstNode *param_decl_node = proto_node->data.fn_proto.params.at(i);
-                if (param_decl_node->data.param_decl.is_inline) {
-                    proto_node->data.fn_proto.skip = true;
-                    add_node_error(g, param_decl_node,
-                            buf_sprintf("inline parameter not allowed in extern function"));
-                }
-            }
-        }
-
-
-    } else {
-        resolve_function_proto(g, proto_node, fn_table_entry, import, containing_scope);
-
-        if (!fn_wants_full_static_eval(fn_table_entry)) {
-            g->fn_protos.append(fn_table_entry);
-
-            if (fn_def_node) {
-                g->fn_defs.append(fn_table_entry);
-            }
-
-            bool is_main_fn = !is_generic_instance &&
-                !parent_decl && (import == g->root_import) &&
-                !proto_node->data.fn_proto.skip &&
-                buf_eql_str(proto_name, "main");
-            if (is_main_fn) {
-                g->main_fn = fn_table_entry;
-            }
-
-            if (is_main_fn && !g->link_libc) {
-                TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
-                TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
-                if (actual_return_type != err_void) {
-                    AstNode *return_type_node = fn_table_entry->proto_node->data.fn_proto.return_type;
-                    add_node_error(g, return_type_node,
-                            buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
-                                buf_ptr(&actual_return_type->name)));
-                }
-            }
-        }
-    }
-}
-
-static void add_top_level_decl(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope,
-        AstNode *node, Buf *name)
-{
-    assert(import);
-
-    TopLevelDecl *tld = get_as_top_level_decl(node);
-    tld->import = import;
-    tld->name = name;
-
-    bool want_to_resolve = (g->check_unused || g->is_test_build || tld->visib_mod == VisibModExport);
-    bool is_generic_container = (node->type == NodeTypeContainerDecl &&
-            node->data.struct_decl.generic_params.length > 0);
-    if (want_to_resolve && !is_generic_container) {
-        g->resolve_queue.append(node);
+    if (fn_table_entry->fn_def_node) {
+        fn_table_entry->fndef_scope = create_fndef_scope(
+            fn_table_entry->fn_def_node, tld_fn->base.parent_scope, fn_table_entry);
     }
 
-    node->scope = &decls_scope->base;
+    fn_table_entry->type_entry = analyze_fn_type(g, tld_fn);
 
-    auto entry = decls_scope->decl_table.put_unique(name, node);
-    if (entry) {
-        AstNode *other_decl_node = entry->value;
-        ErrorMsg *msg = add_node_error(g, node, buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-        add_error_note(g, msg, other_decl_node, buf_sprintf("previous definition is here"));
-    }
-}
-
-static void scan_struct_decl(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, AstNode *node) {
-    assert(node->type == NodeTypeContainerDecl);
-
-    if (node->data.struct_decl.type_entry) {
-        // already scanned; we can ignore. This can happen from importing from an .h file.
+    if (fn_table_entry->type_entry->id == TypeTableEntryIdInvalid) {
+        tld_fn->base.resolution = TldResolutionInvalid;
         return;
     }
 
-    Buf *name = node->data.struct_decl.name;
-    TypeTableEntry *container_type = get_partial_container_type(g, import, &decls_scope->base,
-            node->data.struct_decl.kind, node, buf_ptr(name));
-    node->data.struct_decl.type_entry = container_type;
+    if (!fn_table_entry->type_entry->data.fn.is_generic) {
+        g->fn_protos.append(fn_table_entry);
 
-    // handle the member function definitions independently
-    for (size_t i = 0; i < node->data.struct_decl.decls.length; i += 1) {
-        AstNode *child_node = node->data.struct_decl.decls.at(i);
-        get_as_top_level_decl(child_node)->parent_decl = node;
-        ScopeDecls *child_scope = get_container_scope(container_type);
-        scan_decls(g, import, child_scope, child_node);
+        if (fn_def_node)
+            g->fn_defs.append(fn_table_entry);
+
+        Tld *parent_tld = tld_fn->base.parent_tld;
+        bool is_main_fn = !parent_tld && (import == g->root_import) &&
+            buf_eql_str(&fn_table_entry->symbol_name, "main");
+        if (is_main_fn)
+            g->main_fn = fn_table_entry;
+
+        if (is_main_fn && !g->link_libc) {
+            TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
+            TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
+            if (actual_return_type != err_void) {
+                add_node_error(g, fn_proto->return_type,
+                        buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
+                            buf_ptr(&actual_return_type->name)));
+            }
+        }
     }
 }
 
-static void count_inline_and_var_args(AstNode *proto_node) {
-    assert(proto_node->type == NodeTypeFnProto);
+static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
+    bool want_to_resolve = (g->check_unused || g->is_test_build || tld->visib_mod == VisibModExport);
+    if (want_to_resolve)
+        g->resolve_queue.append(tld);
 
-    size_t *inline_arg_count = &proto_node->data.fn_proto.inline_arg_count;
-    size_t *inline_or_var_type_arg_count = &proto_node->data.fn_proto.inline_or_var_type_arg_count;
+    auto entry = decls_scope->decl_table.put_unique(tld->name, tld);
+    if (entry) {
+        Tld *other_tld = entry->value;
+        ErrorMsg *msg = add_node_error(g, tld->source_node, buf_sprintf("redefinition of '%s'", buf_ptr(tld->name)));
+        add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition is here"));
+        return;
+    }
+}
 
-    *inline_arg_count = 0;
-    *inline_or_var_type_arg_count = 0;
+static void scan_struct_decl(CodeGen *g, ScopeDecls *decls_scope, TldContainer *tld_container) {
+    assert(!tld_container->type_entry);
 
-    // TODO run these nodes through the type analysis system rather than looking for
-    // specialized ast nodes. this would get fooled by `{var}` instead of `var` which
-    // is supposed to be equivalent
-    for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
-        AstNode *param_node = proto_node->data.fn_proto.params.at(i);
-        assert(param_node->type == NodeTypeParamDecl);
-        if (param_node->data.param_decl.is_inline) {
-            *inline_arg_count += 1;
-            *inline_or_var_type_arg_count += 1;
-        } else if (param_node->data.param_decl.type->type == NodeTypeVarLiteral) {
-            *inline_or_var_type_arg_count += 1;
-        }
+    AstNode *container_node = tld_container->base.source_node;
+    assert(container_node->type == NodeTypeContainerDecl);
+
+    TypeTableEntry *container_type = get_partial_container_type_tld(g, &decls_scope->base, tld_container);
+    tld_container->type_entry = container_type;
+
+    // handle the member function definitions independently
+    for (size_t i = 0; i < container_node->data.struct_decl.decls.length; i += 1) {
+        AstNode *child_node = container_node->data.struct_decl.decls.at(i);
+        ScopeDecls *child_scope = get_container_scope(container_type);
+        scan_decls(g, tld_container->base.import, child_scope, child_node, &tld_container->base);
     }
 }
 
 static void preview_error_value_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeErrorValueDecl);
+
+    if (node->data.error_value_decl.visib_mod != VisibModPrivate) {
+        add_node_error(g, node, buf_sprintf("error values require no visibility modifier"));
+    }
 
     ErrorTableEntry *err = allocate<ErrorTableEntry>(1);
 
@@ -1620,40 +1508,61 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
     }
 
     node->data.error_value_decl.err = err;
-    node->data.error_value_decl.top_level_decl.resolution = TldResolutionOk;
 }
 
-void scan_decls(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, AstNode *node) {
+void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node,
+    Scope *parent_scope, Tld *parent_tld)
+{
+    tld->id = id;
+    tld->name = name;
+    tld->visib_mod = visib_mod;
+    tld->source_node = source_node;
+    tld->import = source_node->owner;
+    tld->parent_scope = parent_scope;
+    tld->parent_tld = parent_tld;
+}
+
+void scan_decls(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, AstNode *node, Tld *parent_tld) {
     switch (node->type) {
         case NodeTypeRoot:
             for (size_t i = 0; i < import->root->data.root.top_level_decls.length; i += 1) {
                 AstNode *child = import->root->data.root.top_level_decls.at(i);
-                scan_decls(g, import, decls_scope, child);
+                scan_decls(g, import, decls_scope, child, parent_tld);
             }
             break;
         case NodeTypeContainerDecl:
             {
                 Buf *name = node->data.struct_decl.name;
-                add_top_level_decl(g, import, decls_scope, node, name);
+                VisibMod visib_mod = node->data.struct_decl.visib_mod;
+                TldContainer *tld_container = allocate<TldContainer>(1);
+                init_tld(&tld_container->base, TldIdContainer, name, visib_mod, node, &decls_scope->base, parent_tld);
+                add_top_level_decl(g, decls_scope, &tld_container->base);
                 if (node->data.struct_decl.generic_params.length == 0) {
-                    scan_struct_decl(g, import, decls_scope, node);
+                    scan_struct_decl(g, decls_scope, tld_container);
+                } else {
+                    zig_panic("TODO all structs anonymous?");
                 }
             }
             break;
         case NodeTypeFnDef:
-            node->data.fn_def.fn_proto->data.fn_proto.fn_def_node = node;
-            scan_decls(g, import, decls_scope, node->data.fn_def.fn_proto);
+            scan_decls(g, import, decls_scope, node->data.fn_def.fn_proto, parent_tld);
             break;
         case NodeTypeVariableDeclaration:
             {
                 Buf *name = node->data.variable_declaration.symbol;
-                add_top_level_decl(g, import, decls_scope, node, name);
+                VisibMod visib_mod = node->data.variable_declaration.visib_mod;
+                TldVar *tld_var = allocate<TldVar>(1);
+                init_tld(&tld_var->base, TldIdVar, name, visib_mod, node, &decls_scope->base, parent_tld);
+                add_top_level_decl(g, decls_scope, &tld_var->base);
                 break;
             }
         case NodeTypeTypeDecl:
             {
                 Buf *name = node->data.type_decl.symbol;
-                add_top_level_decl(g, import, decls_scope, node, name);
+                VisibMod visib_mod = node->data.type_decl.visib_mod;
+                TldTypeDef *tld_typedef = allocate<TldTypeDef>(1);
+                init_tld(&tld_typedef->base, TldIdTypeDef, name, visib_mod, node, &decls_scope->base, parent_tld);
+                add_top_level_decl(g, decls_scope, &tld_typedef->base);
                 break;
             }
         case NodeTypeFnProto:
@@ -1661,22 +1570,20 @@ void scan_decls(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, A
                 // if the name is missing, we immediately announce an error
                 Buf *fn_name = node->data.fn_proto.name;
                 if (buf_len(fn_name) == 0) {
-                    node->data.fn_proto.skip = true;
                     add_node_error(g, node, buf_sprintf("missing function name"));
                     break;
                 }
-                count_inline_and_var_args(node);
 
-                add_top_level_decl(g, import, decls_scope, node, fn_name);
+                VisibMod visib_mod = node->data.fn_proto.visib_mod;
+                TldFn *tld_fn = allocate<TldFn>(1);
+                init_tld(&tld_fn->base, TldIdFn, fn_name, visib_mod, node, &decls_scope->base, parent_tld);
+                add_top_level_decl(g, decls_scope, &tld_fn->base);
                 break;
             }
         case NodeTypeUse:
             {
-                TopLevelDecl *tld = get_as_top_level_decl(node);
-                tld->import = import;
-                node->scope = &decls_scope->base;
                 g->use_queue.append(node);
-                tld->import->use_decls.append(node);
+                import->use_decls.append(node);
                 break;
             }
         case NodeTypeErrorValueDecl:
@@ -1727,30 +1634,22 @@ void scan_decls(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, A
     }
 }
 
-static void resolve_struct_instance(CodeGen *g, ImportTableEntry *import, AstNode *node) {
-    TypeTableEntry *type_entry = node->data.struct_decl.type_entry;
+static void resolve_decl_container(CodeGen *g, TldContainer *tld_container) {
+    TypeTableEntry *type_entry = tld_container->type_entry;
     assert(type_entry);
 
-    // struct/enum member fns will get resolved independently
-
-    switch (node->data.struct_decl.kind) {
-        case ContainerKindStruct:
-            resolve_struct_type(g, import, type_entry);
-            break;
+    switch (type_entry->id) {
+        case TypeTableEntryIdStruct:
+            resolve_struct_type(g, tld_container->type_entry);
+            return;
         case ContainerKindEnum:
-            resolve_enum_type(g, import, type_entry);
-            break;
+            resolve_enum_type(g, tld_container->type_entry);
+            return;
         case ContainerKindUnion:
-            resolve_union_type(g, import, type_entry);
-            break;
-    }
-}
-
-static void resolve_struct_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
-    if (node->data.struct_decl.generic_params.length > 0) {
-        return preview_generic_fn_proto(g, import, node);
-    } else {
-        return resolve_struct_instance(g, import, node);
+            resolve_union_type(g, tld_container->type_entry);
+            return;
+        default:
+            zig_unreachable();
     }
 }
 
@@ -1786,7 +1685,6 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdBoundFn:
             return type_entry;
     }
@@ -1795,15 +1693,16 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
 
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 // TODO merge with definition of add_local_var in ir.cpp
-static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, ImportTableEntry *import,
-        Scope *parent_scope, Buf *name, TypeTableEntry *type_entry, bool is_const, AstNode *val_node)
+VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
+    TypeTableEntry *type_entry, bool is_const, ConstExprValue *init_value)
 {
     VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
     variable_entry->type = type_entry;
     variable_entry->parent_scope = parent_scope;
-    variable_entry->import = import;
     variable_entry->shadowable = false;
     variable_entry->mem_slot_index = SIZE_MAX;
+    variable_entry->value = init_value;
+    variable_entry->src_arg_index = SIZE_MAX;
 
     assert(name);
 
@@ -1824,11 +1723,11 @@ static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, Impor
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
                 variable_entry->type = g->builtin_types.entry_invalid;
             } else {
-                AstNode *decl_node = find_decl(parent_scope, name);
-                if (decl_node && decl_node->type != NodeTypeVariableDeclaration) {
+                Tld *tld = find_decl(parent_scope, name);
+                if (tld && tld->id != TldIdVar) {
                     ErrorMsg *msg = add_node_error(g, source_node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-                    add_error_note(g, msg, decl_node, buf_sprintf("previous definition is here"));
+                    add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
                     variable_entry->type = g->builtin_types.entry_invalid;
                 }
             }
@@ -1847,78 +1746,84 @@ static VariableTableEntry *add_local_var(CodeGen *g, AstNode *source_node, Impor
     variable_entry->src_is_const = is_const;
     variable_entry->gen_is_const = is_const;
     variable_entry->decl_node = source_node;
-    variable_entry->val_node = val_node;
     variable_entry->child_scope = child_scope;
 
 
     return variable_entry;
 }
 
-static void resolve_var_decl(CodeGen *g, ImportTableEntry *import, AstNode *node) {
-    assert(node->type == NodeTypeVariableDeclaration);
+static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
+    AstNodeVariableDeclaration *var_decl = &tld_var->base.source_node->data.variable_declaration;
 
-    AstNodeVariableDeclaration *var_decl = &node->data.variable_declaration;
-    Scope *scope = node->scope;
     bool is_const = var_decl->is_const;
-    bool is_export = (var_decl->top_level_decl.visib_mod == VisibModExport);
+    bool is_export = (tld_var->base.visib_mod == VisibModExport);
     bool is_extern = var_decl->is_extern;
 
     TypeTableEntry *explicit_type = nullptr;
     if (var_decl->type) {
-        TypeTableEntry *proposed_type = analyze_type_expr(g, import, scope, var_decl->type);
+        TypeTableEntry *proposed_type = analyze_type_expr(g, tld_var->base.parent_scope, var_decl->type);
         explicit_type = validate_var_type(g, var_decl->type, proposed_type);
     }
+
+    AstNode *source_node = tld_var->base.source_node;
+
+    IrInstruction *init_value = nullptr;
 
     TypeTableEntry *implicit_type = nullptr;
     if (explicit_type && explicit_type->id == TypeTableEntryIdInvalid) {
         implicit_type = explicit_type;
     } else if (var_decl->expr) {
-        IrInstruction *result = analyze_const_value(g, scope, var_decl->expr, explicit_type);
-        assert(result);
-        implicit_type = result->type_entry;
+        init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type);
+        assert(init_value);
+        implicit_type = init_value->type_entry;
 
         if (implicit_type->id == TypeTableEntryIdUnreachable) {
-            add_node_error(g, node, buf_sprintf("variable initialization is unreachable"));
+            add_node_error(g, source_node, buf_sprintf("variable initialization is unreachable"));
             implicit_type = g->builtin_types.entry_invalid;
         } else if ((!is_const || is_export) &&
                 (implicit_type->id == TypeTableEntryIdNumLitFloat ||
                 implicit_type->id == TypeTableEntryIdNumLitInt))
         {
-            add_node_error(g, node, buf_sprintf("unable to infer variable type"));
+            add_node_error(g, source_node, buf_sprintf("unable to infer variable type"));
             implicit_type = g->builtin_types.entry_invalid;
         } else if (implicit_type->id == TypeTableEntryIdNullLit) {
-            add_node_error(g, node, buf_sprintf("unable to infer variable type"));
+            add_node_error(g, source_node, buf_sprintf("unable to infer variable type"));
             implicit_type = g->builtin_types.entry_invalid;
         } else if (implicit_type->id == TypeTableEntryIdMetaType && !is_const) {
-            add_node_error(g, node, buf_sprintf("variable of type 'type' must be constant"));
+            add_node_error(g, source_node, buf_sprintf("variable of type 'type' must be constant"));
             implicit_type = g->builtin_types.entry_invalid;
         }
-        if (implicit_type->id != TypeTableEntryIdInvalid) {
-            assert(result->static_value.special != ConstValSpecialRuntime);
-            var_decl->top_level_decl.value = result;
-        }
+        assert(implicit_type->id == TypeTableEntryIdInvalid || init_value->static_value.special != ConstValSpecialRuntime);
     } else if (!is_extern) {
-        add_node_error(g, node, buf_sprintf("variables must be initialized"));
+        add_node_error(g, source_node, buf_sprintf("variables must be initialized"));
         implicit_type = g->builtin_types.entry_invalid;
     }
 
     TypeTableEntry *type = explicit_type ? explicit_type : implicit_type;
     assert(type != nullptr); // should have been caught by the parser
 
-    VariableTableEntry *var = add_local_var(g, node, import, scope,
-            var_decl->symbol, type, is_const, var_decl->expr);
+    tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope,
+            var_decl->symbol, type, is_const, &init_value->static_value);
 
-    var_decl->variable = var;
-
-    g->global_vars.append(var);
+    g->global_vars.append(tld_var->var);
 }
 
-void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only) {
-    TopLevelDecl *tld = get_as_top_level_decl(node);
-    if (tld->resolution != TldResolutionUnresolved) {
+static void resolve_decl_typedef(CodeGen *g, TldTypeDef *tld_typedef) {
+    AstNode *typedef_node = tld_typedef->base.source_node;
+    assert(typedef_node->type == NodeTypeTypeDecl);
+    AstNode *type_node = typedef_node->data.type_decl.child_type;
+    Buf *decl_name = typedef_node->data.type_decl.symbol;
+
+    TypeTableEntry *child_type = analyze_type_expr(g, tld_typedef->base.parent_scope, type_node);
+    tld_typedef->type_entry = (child_type->id == TypeTableEntryIdInvalid) ?
+        child_type : get_typedecl_type(g, buf_ptr(decl_name), child_type);
+}
+
+void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only) {
+    if (tld->resolution != TldResolutionUnresolved)
         return;
-    }
-    if (pointer_only && node->type == NodeTypeContainerDecl) {
+    if (pointer_only && tld->id == TldIdContainer) {
+        g->resolve_queue.append(tld);
         return;
     }
 
@@ -1926,90 +1831,38 @@ void resolve_top_level_decl(CodeGen *g, AstNode *node, bool pointer_only) {
     assert(import);
 
     if (tld->dep_loop_flag) {
-        add_node_error(g, node, buf_sprintf("'%s' depends on itself", buf_ptr(tld->name)));
+        add_node_error(g, tld->source_node, buf_sprintf("'%s' depends on itself", buf_ptr(tld->name)));
         tld->resolution = TldResolutionInvalid;
         return;
     } else {
         tld->dep_loop_flag = true;
     }
 
-    switch (node->type) {
-        case NodeTypeFnProto:
-            preview_fn_proto_instance(g, import, node, node->scope);
-            break;
-        case NodeTypeContainerDecl:
-            resolve_struct_decl(g, import, node);
-            break;
-        case NodeTypeVariableDeclaration:
-            resolve_var_decl(g, import, node);
-            break;
-        case NodeTypeTypeDecl:
+    switch (tld->id) {
+        case TldIdVar:
             {
-                AstNode *type_node = node->data.type_decl.child_type;
-                Buf *decl_name = node->data.type_decl.symbol;
-
-                TypeTableEntry *entry;
-                if (node->data.type_decl.override_type) {
-                    entry = node->data.type_decl.override_type;
-                } else {
-                    TypeTableEntry *child_type = analyze_type_expr(g, import, &import->decls_scope->base, type_node);
-                    if (child_type->id == TypeTableEntryIdInvalid) {
-                        entry = child_type;
-                    } else {
-                        entry = get_typedecl_type(g, buf_ptr(decl_name), child_type);
-                    }
-                }
-                node->data.type_decl.child_type_entry = entry;
+                TldVar *tld_var = (TldVar *)tld;
+                resolve_decl_var(g, tld_var);
                 break;
             }
-        case NodeTypeErrorValueDecl:
-            break;
-        case NodeTypeUse:
-            zig_panic("TODO resolve_top_level_decl NodeTypeUse");
-            break;
-        case NodeTypeFnDef:
-        case NodeTypeParamDecl:
-        case NodeTypeFnDecl:
-        case NodeTypeReturnExpr:
-        case NodeTypeDefer:
-        case NodeTypeRoot:
-        case NodeTypeBlock:
-        case NodeTypeBinOpExpr:
-        case NodeTypeUnwrapErrorExpr:
-        case NodeTypeFnCallExpr:
-        case NodeTypeArrayAccessExpr:
-        case NodeTypeSliceExpr:
-        case NodeTypeNumberLiteral:
-        case NodeTypeStringLiteral:
-        case NodeTypeCharLiteral:
-        case NodeTypeBoolLiteral:
-        case NodeTypeNullLiteral:
-        case NodeTypeUndefinedLiteral:
-        case NodeTypeZeroesLiteral:
-        case NodeTypeThisLiteral:
-        case NodeTypeSymbol:
-        case NodeTypePrefixOpExpr:
-        case NodeTypeIfBoolExpr:
-        case NodeTypeIfVarExpr:
-        case NodeTypeWhileExpr:
-        case NodeTypeForExpr:
-        case NodeTypeSwitchExpr:
-        case NodeTypeSwitchProng:
-        case NodeTypeSwitchRange:
-        case NodeTypeLabel:
-        case NodeTypeGoto:
-        case NodeTypeBreak:
-        case NodeTypeContinue:
-        case NodeTypeAsmExpr:
-        case NodeTypeFieldAccessExpr:
-        case NodeTypeStructField:
-        case NodeTypeStructValueField:
-        case NodeTypeContainerInitExpr:
-        case NodeTypeArrayType:
-        case NodeTypeErrorType:
-        case NodeTypeTypeLiteral:
-        case NodeTypeVarLiteral:
-            zig_unreachable();
+        case TldIdFn:
+            {
+                TldFn *tld_fn = (TldFn *)tld;
+                resolve_decl_fn(g, tld_fn);
+                break;
+            }
+        case TldIdContainer:
+            {
+                TldContainer *tld_container = (TldContainer *)tld;
+                resolve_decl_container(g, tld_container);
+                break;
+            }
+        case TldIdTypeDef:
+            {
+                TldTypeDef *tld_typedef = (TldTypeDef *)tld;
+                resolve_decl_typedef(g, tld_typedef);
+                break;
+            }
     }
 
     tld->resolution = TldResolutionOk;
@@ -2028,7 +1881,6 @@ static bool type_has_codegen_value(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
-        case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdBoundFn:
             return false;
 
@@ -2142,68 +1994,7 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
     return false;
 }
 
-ScopeDecls *create_decls_scope(AstNode *node, Scope *parent) {
-    assert(node->type == NodeTypeRoot || node->type == NodeTypeContainerDecl);
-    ScopeDecls *scope = allocate<ScopeDecls>(1);
-    scope->base.node = node;
-    scope->base.parent = parent;
-    scope->decl_table.init(4);
-    return scope;
-}
-
-Scope *create_block_scope(AstNode *node, Scope *parent) {
-    assert(node->type == NodeTypeBlock);
-    ScopeBlock *scope = allocate<ScopeBlock>(1);
-    scope->base.node = node;
-    scope->base.parent = parent;
-    scope->label_table.init(1);
-    return &scope->base;
-}
-
-Scope *create_defer_scope(AstNode *node, Scope *parent) {
-    assert(node->type == NodeTypeDefer);
-    ScopeDefer *scope = allocate<ScopeDefer>(1);
-    scope->base.node = node;
-    scope->base.parent = parent;
-    return &scope->base;
-}
-
-Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var) {
-    assert(node->type == NodeTypeVariableDeclaration || node->type == NodeTypeParamDecl);
-    ScopeVarDecl *scope = allocate<ScopeVarDecl>(1);
-    scope->base.node = node;
-    scope->base.parent = parent;
-    scope->var = var;
-    return &scope->base;
-}
-
-Scope *create_cimport_scope(AstNode *node, Scope *parent) {
-    assert(node->type == NodeTypeFnCallExpr);
-    ScopeCImport *scope = allocate<ScopeCImport>(1);
-    scope->base.node = node;
-    scope->base.parent = parent;
-    buf_resize(&scope->c_import_buf, 0);
-    return &scope->base;
-}
-
-Scope *create_loop_scope(AstNode *node, Scope *parent) {
-    assert(node->type == NodeTypeWhileExpr || node->type == NodeTypeForExpr);
-    ScopeLoop *scope = allocate<ScopeLoop>(1);
-    scope->base.node = node;
-    scope->base.parent = parent;
-    return &scope->base;
-}
-
-Scope *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry) {
-    assert(node->type == NodeTypeFnDef);
-    ScopeFnBody *scope = allocate<ScopeFnBody>(1);
-    scope->base.node = node;
-    scope->base.parent = parent;
-    scope->fn_entry = fn_entry;
-    return &scope->base;
-}
-
-AstNode *find_decl(Scope *scope, Buf *name) {
+Tld *find_decl(Scope *scope, Buf *name) {
     while (scope) {
         if (scope->node->type == NodeTypeRoot ||
             scope->node->type == NodeTypeContainerDecl)
@@ -2232,17 +2023,28 @@ VariableTableEntry *find_variable(CodeGen *g, Scope *scope, Buf *name) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;
             auto entry = decls_scope->decl_table.maybe_get(name);
             if (entry) {
-                AstNode *decl_node = entry->value;
-                if (decl_node->type == NodeTypeVariableDeclaration) {
-                    VariableTableEntry *var = decl_node->data.variable_declaration.variable;
-                    if (var)
-                        return var;
+                Tld *tld = entry->value;
+                if (tld->id == TldIdVar) {
+                    TldVar *tld_var = (TldVar *)tld;
+                    if (tld_var->var)
+                        return tld_var->var;
                 }
             }
         }
         scope = scope->parent;
     }
 
+    return nullptr;
+}
+
+FnTableEntry *scope_fn_entry(Scope *scope) {
+    while (scope) {
+        if (scope->node->type == NodeTypeFnDef) {
+            ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
+            return fn_scope->fn_entry;
+        }
+        scope = scope->parent;
+    }
     return nullptr;
 }
 
@@ -2296,7 +2098,6 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
-        case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdBoundFn:
             return false;
     }
@@ -2317,13 +2118,13 @@ TypeTableEntry *container_ref_type(TypeTableEntry *type_entry) {
 void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdStruct:
-            resolve_struct_type(g, type_entry->data.structure.decl_node->owner, type_entry);
+            resolve_struct_type(g, type_entry);
             break;
         case TypeTableEntryIdEnum:
-            resolve_enum_type(g, type_entry->data.enumeration.decl_node->owner, type_entry);
+            resolve_enum_type(g, type_entry);
             break;
         case TypeTableEntryIdUnion:
-            resolve_union_type(g, type_entry->data.unionation.decl_node->owner, type_entry);
+            resolve_union_type(g, type_entry);
             break;
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdMetaType:
@@ -2344,7 +2145,6 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
-        case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
@@ -2362,54 +2162,41 @@ bool type_is_codegen_pointer(TypeTableEntry *type) {
     return false;
 }
 
-
-
 static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
-    ImportTableEntry *import = fn_table_entry->import_entry;
-    AstNode *node = fn_table_entry->fn_def_node;
-    assert(node->type == NodeTypeFnDef);
-
-    AstNode *fn_proto_node = node->data.fn_def.fn_proto;
-    assert(fn_proto_node->type == NodeTypeFnProto);
-
-    if (fn_proto_node->data.fn_proto.skip) {
-        // we detected an error with this function definition which prevents us
-        // from further analyzing it.
-        fn_table_entry->anal_state = FnAnalStateSkipped;
+    assert(fn_table_entry->anal_state != FnAnalStateProbing);
+    if (fn_table_entry->anal_state != FnAnalStateReady)
         return;
-    }
+
     fn_table_entry->anal_state = FnAnalStateProbing;
 
-    Scope *child_scope = node->data.fn_def.containing_scope;
+    AstNodeFnProto *fn_proto = &fn_table_entry->proto_node->data.fn_proto;
 
+    Scope *child_scope = &fn_table_entry->fndef_scope->base;
+    assert(child_scope);
+
+    // define local variables for parameters
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
+    assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
-    AstNodeFnProto *fn_proto = &fn_proto_node->data.fn_proto;
-    for (size_t i = 0; i < fn_proto->params.length; i += 1) {
+    for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         AstNode *param_decl_node = fn_proto->params.at(i);
-        assert(param_decl_node->type == NodeTypeParamDecl);
-
-        // define local variables for parameters
         AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
-        TypeTableEntry *type = fn_type_id->param_info[i].type;
+        FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
 
-        if (param_decl->is_noalias && !type_is_codegen_pointer(type)) {
+        TypeTableEntry *param_type = param_info->type;
+        bool is_noalias = param_info->is_noalias;
+
+        if (is_noalias && !type_is_codegen_pointer(param_type)) {
             add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
         }
 
-        if (fn_type->data.fn.fn_type_id.is_extern && handle_is_ptr(type)) {
+        if (fn_type_id->is_extern && handle_is_ptr(param_type)) {
             add_node_error(g, param_decl_node,
                 buf_sprintf("byvalue types not yet supported on extern function parameters"));
         }
 
-        if (buf_len(param_decl->name) == 0) {
-            add_node_error(g, param_decl_node, buf_sprintf("missing parameter name"));
-        }
-
-        VariableTableEntry *var = add_local_var(g, param_decl_node, import, child_scope, param_decl->name,
-                type, true, nullptr);
+        VariableTableEntry *var = add_variable(g, param_decl_node, child_scope, param_decl->name, param_type, true, nullptr);
         var->src_arg_index = i;
-        param_decl_node->data.param_decl.variable = var;
         child_scope = var->child_scope;
         fn_table_entry->variable_list.append(var);
 
@@ -2418,19 +2205,18 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
         }
     }
 
-    node->data.fn_def.child_scope = child_scope;
+    fn_table_entry->child_scope = child_scope;
 
-    TypeTableEntry *expected_type = fn_type->data.fn.fn_type_id.return_type;
+    TypeTableEntry *expected_type = fn_type_id->return_type;
 
-    if (fn_type->data.fn.fn_type_id.is_extern && handle_is_ptr(expected_type)) {
-        add_node_error(g, fn_proto_node->data.fn_proto.return_type,
+    if (fn_type_id->is_extern && handle_is_ptr(expected_type)) {
+        add_node_error(g, fn_proto->return_type,
             buf_sprintf("byvalue types not yet supported on extern function return values"));
     }
 
     ir_gen_fn(g, fn_table_entry);
     if (fn_table_entry->ir_executable.invalid) {
-        fn_proto_node->data.fn_proto.skip = true;
-        fn_table_entry->anal_state = FnAnalStateSkipped;
+        fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }
     if (g->verbose) {
@@ -2443,9 +2229,16 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
 
     TypeTableEntry *block_return_type = ir_analyze(g, &fn_table_entry->ir_executable,
             &fn_table_entry->analyzed_executable, expected_type, fn_proto->return_type);
-    node->data.fn_def.implicit_return_type = block_return_type;
+    fn_table_entry->implicit_return_type = block_return_type;
 
-    if (block_return_type->id != TypeTableEntryIdInvalid && g->verbose) {
+    if (block_return_type->id == TypeTableEntryIdInvalid ||
+        fn_table_entry->analyzed_executable.invalid)
+    {
+        fn_table_entry->anal_state = FnAnalStateInvalid;
+        return;
+    }
+
+    if (g->verbose) {
         fprintf(stderr, "{ // (analyzed)\n");
         ir_print(stderr, &fn_table_entry->analyzed_executable, 4);
         fprintf(stderr, "}\n");
@@ -2454,16 +2247,14 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     fn_table_entry->anal_state = FnAnalStateComplete;
 }
 
-static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node) {
-    TopLevelDecl *tld = get_as_top_level_decl(dst_use_node);
-
-    IrInstruction *use_target_value = tld->value;
+static void add_symbols_from_import(CodeGen *g, AstNode *dst_use_node) {
+    IrInstruction *use_target_value = dst_use_node->data.use.value;
     if (use_target_value->type_entry->id == TypeTableEntryIdInvalid) {
-        tld->import->any_imports_failed = true;
+        dst_use_node->owner->any_imports_failed = true;
         return;
     }
 
-    tld->resolution = TldResolutionOk;
+    dst_use_node->data.use.resolution = TldResolutionOk;
 
     ConstExprValue *const_val = &use_target_value->static_value;
     assert(const_val->special != ConstValSpecialRuntime);
@@ -2472,59 +2263,60 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
     assert(target_import);
 
     if (target_import->any_imports_failed) {
-        tld->import->any_imports_failed = true;
+        dst_use_node->owner->any_imports_failed = true;
     }
 
-    for (size_t i = 0; i < target_import->root->data.root.top_level_decls.length; i += 1) {
-        AstNode *decl_node = target_import->root->data.root.top_level_decls.at(i);
-        if (decl_node->type == NodeTypeFnDef) {
-            decl_node = decl_node->data.fn_def.fn_proto;
-        }
-        TopLevelDecl *target_tld = get_as_top_level_decl(decl_node);
-        if (!target_tld->name) {
+    auto it = target_import->decls_scope->decl_table.entry_iterator();
+    for (;;) {
+        auto *entry = it.next();
+        if (!entry)
+            break;
+
+        Tld *target_tld = entry->value;
+        if (target_tld->import != target_import ||
+            target_tld->visib_mod == VisibModPrivate)
+        {
             continue;
         }
-        if (target_tld->visib_mod != VisibModPrivate) {
-            auto existing_entry = tld->import->decls_scope->decl_table.put_unique(target_tld->name, decl_node);
-            if (existing_entry) {
-                AstNode *existing_decl = existing_entry->value;
-                if (existing_decl != decl_node) {
-                    ErrorMsg *msg = add_node_error(g, dst_use_node,
-                            buf_sprintf("import of '%s' overrides existing definition",
-                                buf_ptr(target_tld->name)));
-                    add_error_note(g, msg, existing_decl, buf_sprintf("previous definition here"));
-                    add_error_note(g, msg, decl_node, buf_sprintf("imported definition here"));
-                }
+
+        auto existing_entry = dst_use_node->owner->decls_scope->decl_table.put_unique(target_tld->name, target_tld);
+        if (existing_entry) {
+            Tld *existing_decl = existing_entry->value;
+            if (existing_decl != target_tld) {
+                ErrorMsg *msg = add_node_error(g, dst_use_node,
+                        buf_sprintf("import of '%s' overrides existing definition",
+                            buf_ptr(target_tld->name)));
+                add_error_note(g, msg, existing_decl->source_node, buf_sprintf("previous definition here"));
+                add_error_note(g, msg, target_tld->source_node, buf_sprintf("imported definition here"));
             }
         }
     }
 
     for (size_t i = 0; i < target_import->use_decls.length; i += 1) {
         AstNode *use_decl_node = target_import->use_decls.at(i);
-        TopLevelDecl *target_tld = get_as_top_level_decl(use_decl_node);
-        if (target_tld->visib_mod != VisibModPrivate) {
-            add_symbols_from_import(g, use_decl_node, dst_use_node);
-        }
+        if (use_decl_node->data.use.visib_mod != VisibModPrivate)
+            add_symbols_from_import(g, dst_use_node);
     }
-
 }
 
 void resolve_use_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeUse);
-    if (get_as_top_level_decl(node)->resolution != TldResolutionUnresolved) {
+
+    if (node->data.use.resolution != TldResolutionUnresolved)
         return;
-    }
-    add_symbols_from_import(g, node, node);
+    add_symbols_from_import(g, node);
 }
 
 void preview_use_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeUse);
-    TopLevelDecl *tld = get_as_top_level_decl(node);
 
-    IrInstruction *result = analyze_const_value(g, &tld->import->decls_scope->base, node->data.use.expr,
-            g->builtin_types.entry_namespace);
+    IrInstruction *result = analyze_const_value(g, &node->owner->decls_scope->base,
+        node->data.use.expr, g->builtin_types.entry_namespace);
+
     if (result->type_entry->id == TypeTableEntryIdInvalid)
-        tld->import->any_imports_failed = true;
+        node->owner->any_imports_failed = true;
+
+    node->data.use.value = result;
 }
 
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
@@ -2580,7 +2372,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
     g->import_table.put(abs_full_path, import_entry);
     g->import_queue.append(import_entry);
 
-    import_entry->decls_scope = create_decls_scope(import_entry->root, nullptr);
+    import_entry->decls_scope = create_decls_scope(import_entry->root, nullptr, nullptr, import_entry);
 
 
     assert(import_entry->root->type == NodeTypeRoot);
@@ -2592,7 +2384,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
             assert(proto_node->type == NodeTypeFnProto);
             Buf *proto_name = proto_node->data.fn_proto.name;
 
-            bool is_private = (proto_node->data.fn_proto.top_level_decl.visib_mod == VisibModPrivate);
+            bool is_private = (proto_node->data.fn_proto.visib_mod == VisibModPrivate);
 
             if (buf_eql_str(proto_name, "main") && !is_private) {
                 g->have_exported_main = true;
@@ -2607,7 +2399,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
 void semantic_analyze(CodeGen *g) {
     for (; g->import_queue_index < g->import_queue.length; g->import_queue_index += 1) {
         ImportTableEntry *import = g->import_queue.at(g->import_queue_index);
-        scan_decls(g, import, import->decls_scope, import->root);
+        scan_decls(g, import, import->decls_scope, import->root, nullptr);
     }
 
     for (; g->use_queue_index < g->use_queue.length; g->use_queue_index += 1) {
@@ -2620,80 +2412,20 @@ void semantic_analyze(CodeGen *g) {
         resolve_use_decl(g, use_decl_node);
     }
 
-    for (; g->resolve_queue_index < g->resolve_queue.length; g->resolve_queue_index += 1) {
-        AstNode *decl_node = g->resolve_queue.at(g->resolve_queue_index);
-        bool pointer_only = false;
-        resolve_top_level_decl(g, decl_node, pointer_only);
-    }
+    while (g->resolve_queue_index < g->resolve_queue.length ||
+           g->fn_defs_index < g->fn_defs.length)
+    {
+        for (; g->resolve_queue_index < g->resolve_queue.length; g->resolve_queue_index += 1) {
+            Tld *tld = g->resolve_queue.at(g->resolve_queue_index);
+            bool pointer_only = false;
+            resolve_top_level_decl(g, tld, pointer_only);
+        }
 
-    for (size_t i = 0; i < g->fn_defs.length; i += 1) {
-        FnTableEntry *fn_entry = g->fn_defs.at(i);
-        if (fn_entry->anal_state == FnAnalStateReady) {
+        for (; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
+            FnTableEntry *fn_entry = g->fn_defs.at(g->fn_defs_index);
             analyze_fn_body(g, fn_entry);
         }
     }
-}
-
-TopLevelDecl *get_as_top_level_decl(AstNode *node) {
-    switch (node->type) {
-        case NodeTypeVariableDeclaration:
-            return &node->data.variable_declaration.top_level_decl;
-        case NodeTypeFnProto:
-            return &node->data.fn_proto.top_level_decl;
-        case NodeTypeFnDef:
-            return &node->data.fn_def.fn_proto->data.fn_proto.top_level_decl;
-        case NodeTypeContainerDecl:
-            return &node->data.struct_decl.top_level_decl;
-        case NodeTypeErrorValueDecl:
-            return &node->data.error_value_decl.top_level_decl;
-        case NodeTypeUse:
-            return &node->data.use.top_level_decl;
-        case NodeTypeTypeDecl:
-            return &node->data.type_decl.top_level_decl;
-        case NodeTypeNumberLiteral:
-        case NodeTypeReturnExpr:
-        case NodeTypeDefer:
-        case NodeTypeBinOpExpr:
-        case NodeTypeUnwrapErrorExpr:
-        case NodeTypePrefixOpExpr:
-        case NodeTypeFnCallExpr:
-        case NodeTypeArrayAccessExpr:
-        case NodeTypeSliceExpr:
-        case NodeTypeFieldAccessExpr:
-        case NodeTypeIfBoolExpr:
-        case NodeTypeIfVarExpr:
-        case NodeTypeWhileExpr:
-        case NodeTypeForExpr:
-        case NodeTypeSwitchExpr:
-        case NodeTypeSwitchProng:
-        case NodeTypeSwitchRange:
-        case NodeTypeAsmExpr:
-        case NodeTypeContainerInitExpr:
-        case NodeTypeRoot:
-        case NodeTypeFnDecl:
-        case NodeTypeParamDecl:
-        case NodeTypeBlock:
-        case NodeTypeStringLiteral:
-        case NodeTypeCharLiteral:
-        case NodeTypeSymbol:
-        case NodeTypeBoolLiteral:
-        case NodeTypeNullLiteral:
-        case NodeTypeUndefinedLiteral:
-        case NodeTypeZeroesLiteral:
-        case NodeTypeThisLiteral:
-        case NodeTypeLabel:
-        case NodeTypeGoto:
-        case NodeTypeBreak:
-        case NodeTypeContinue:
-        case NodeTypeStructField:
-        case NodeTypeStructValueField:
-        case NodeTypeArrayType:
-        case NodeTypeErrorType:
-        case NodeTypeTypeLiteral:
-        case NodeTypeVarLiteral:
-            zig_unreachable();
-    }
-    zig_unreachable();
 }
 
 bool is_node_void_expr(AstNode *node) {
@@ -2749,7 +2481,6 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
-        case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
              zig_unreachable();
@@ -2902,7 +2633,6 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
             return hash_ptr(const_val->data.x_import);
         case TypeTableEntryIdBlock:
             return hash_ptr(const_val->data.x_block);
-        case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
@@ -2910,45 +2640,6 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
             zig_unreachable();
     }
     zig_unreachable();
-}
-
-uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {
-    zig_panic("TODO generic_fn_type_id_hash");
-    //uint32_t result = 0;
-    //result += hash_ptr(id->decl_node);
-    //for (size_t i = 0; i < id->generic_param_count; i += 1) {
-    //    GenericParamValue *generic_param = &id->generic_params[i];
-    //    if (generic_param->node) {
-    //        ConstExprValue *const_val = &get_resolved_expr(generic_param->node)->instruction->static_value;
-    //        assert(const_val->special != ConstValSpecialRuntime);
-    //        result += hash_const_val(generic_param->type, const_val);
-    //    }
-    //    result += hash_ptr(generic_param->type);
-    //}
-    //return result;
-}
-
-bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
-    zig_panic("TODO generic_fn_type_id_eql");
-    //if (a->decl_node != b->decl_node) return false;
-    //assert(a->generic_param_count == b->generic_param_count);
-    //for (size_t i = 0; i < a->generic_param_count; i += 1) {
-    //    GenericParamValue *a_val = &a->generic_params[i];
-    //    GenericParamValue *b_val = &b->generic_params[i];
-    //    if (a_val->type != b_val->type) return false;
-    //    if (a_val->node && b_val->node) {
-    //        ConstExprValue *a_const_val = &get_resolved_expr(a_val->node)->instruction->static_value;
-    //        ConstExprValue *b_const_val = &get_resolved_expr(b_val->node)->instruction->static_value;
-    //        assert(a_const_val->special != ConstValSpecialRuntime);
-    //        assert(b_const_val->special != ConstValSpecialRuntime);
-    //        if (!const_values_equal(a_const_val, b_const_val, a_val->type)) {
-    //            return false;
-    //        }
-    //    } else {
-    //        assert(!a_val->node && !b_val->node);
-    //    }
-    //}
-    //return true;
 }
 
 bool type_has_bits(TypeTableEntry *type_entry) {
@@ -2981,7 +2672,6 @@ static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry)
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
-        case TypeTableEntryIdGenericFn:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
             zig_unreachable();

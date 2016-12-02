@@ -121,7 +121,7 @@ static AstNode *create_typed_var_decl_node(Context *c, bool is_const, const char
     AstNode *node = create_node(c, NodeTypeVariableDeclaration);
     node->data.variable_declaration.symbol = buf_create_from_str(var_name);
     node->data.variable_declaration.is_const = is_const;
-    node->data.variable_declaration.top_level_decl.visib_mod = c->visib_mod;
+    node->data.variable_declaration.visib_mod = c->visib_mod;
     node->data.variable_declaration.expr = init_node;
     node->data.variable_declaration.type = type_node;
     return node;
@@ -136,16 +136,6 @@ static AstNode *create_prefix_node(Context *c, PrefixOp op, AstNode *child_node)
     AstNode *node = create_node(c, NodeTypePrefixOpExpr);
     node->data.prefix_op_expr.prefix_op = op;
     node->data.prefix_op_expr.primary_expr = child_node;
-    return node;
-}
-
-static AstNode *create_struct_field_node(Context *c, const char *name, AstNode *type_node) {
-    assert(type_node);
-    AstNode *node = create_node(c, NodeTypeStructField);
-    node->data.struct_field.name = buf_create_from_str(name);
-    node->data.struct_field.top_level_decl.visib_mod = VisibModPub;
-    node->data.struct_field.type = type_node;
-
     return node;
 }
 
@@ -214,15 +204,6 @@ static AstNode *create_num_lit_signed(Context *c, int64_t x) {
     return create_prefix_node(c, PrefixOpNegation, num_lit_node);
 }
 
-static AstNode *create_type_decl_node(Context *c, const char *name, AstNode *child_type_node) {
-    AstNode *node = create_node(c, NodeTypeTypeDecl);
-    node->data.type_decl.symbol = buf_create_from_str(name);
-    node->data.type_decl.top_level_decl.visib_mod = c->visib_mod;
-    node->data.type_decl.child_type = child_type_node;
-
-    return node;
-}
-
 static AstNode *make_type_node(Context *c, TypeTableEntry *type_entry) {
     zig_panic("TODO bypass AST in parseh");
 }
@@ -231,7 +212,7 @@ static AstNode *create_fn_proto_node(Context *c, Buf *name, TypeTableEntry *fn_t
     assert(fn_type->id == TypeTableEntryIdFn);
     AstNode *node = create_node(c, NodeTypeFnProto);
     node->data.fn_proto.is_inline = true;
-    node->data.fn_proto.top_level_decl.visib_mod = c->visib_mod;
+    node->data.fn_proto.visib_mod = c->visib_mod;
     node->data.fn_proto.name = name;
     node->data.fn_proto.return_type = make_type_node(c, fn_type->data.fn.fn_type_id.return_type);
 
@@ -280,25 +261,40 @@ static const char *decl_name(const Decl *decl) {
     return (const char *)named_decl->getName().bytes_begin();
 }
 
-static AstNode *add_typedef_node(Context *c, TypeTableEntry *type_decl) {
+static void add_typedef_node(Context *c, TypeTableEntry *type_decl) {
     assert(type_decl);
     assert(type_decl->id == TypeTableEntryIdTypeDecl);
 
-    AstNode *node = create_type_decl_node(c, buf_ptr(&type_decl->name),
-            make_type_node(c, type_decl->data.type_decl.child_type));
-    node->data.type_decl.override_type = type_decl;
+    ScopeDecls *decls_scope = c->import->decls_scope;
+    TldTypeDef *tld_typedef = allocate<TldTypeDef>(1);
+    init_tld(&tld_typedef->base, TldIdTypeDef, &type_decl->name, c->visib_mod, c->source_node, &decls_scope->base, nullptr);
+    tld_typedef->type_entry = type_decl;
 
+    decls_scope->decl_table.put(&type_decl->name, &tld_typedef->base);
     c->global_type_table.put(&type_decl->name, type_decl);
-    c->root->data.root.top_level_decls.append(node);
-    return node;
 }
 
-static AstNode *add_const_var_node(Context *c, Buf *name, TypeTableEntry *type_entry) {
-    AstNode *node = create_var_decl_node(c, buf_ptr(name), make_type_node(c, type_entry));
+static void add_const_var_node(Context *c, Buf *name, TypeTableEntry *type_entry) {
+    ScopeDecls *decls_scope = c->import->decls_scope;
+    TldVar *tld_var = allocate<TldVar>(1);
+    init_tld(&tld_var->base, TldIdVar, name, c->visib_mod, c->source_node, &decls_scope->base, nullptr);
+    bool is_const = true;
+    ConstExprValue *init_value = allocate<ConstExprValue>(1);
+    init_value->special = ConstValSpecialStatic;
+    init_value->data.x_type = type_entry;
+    tld_var->var = add_variable(c->codegen, c->source_node, &decls_scope->base, name, type_entry, is_const, init_value);
 
+    decls_scope->decl_table.put(name, &tld_var->base);
     c->global_type_table.put(name, type_entry);
-    c->root->data.root.top_level_decls.append(node);
-    return node;
+}
+
+static void add_container_tld(Context *c, TypeTableEntry *type_entry) {
+    ScopeDecls *decls_scope = c->import->decls_scope;
+    TldContainer *tld_container = allocate<TldContainer>(1);
+    init_tld(&tld_container->base, TldIdContainer, &type_entry->name, c->visib_mod, c->source_node, &decls_scope->base, nullptr);
+    tld_container->type_entry = type_entry;
+
+    decls_scope->decl_table.put(&type_entry->name, &tld_container->base);
 }
 
 static AstNode *create_ap_num_lit_node(Context *c, const Decl *source_decl,
@@ -617,7 +613,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     param_info->is_noalias = qt.isRestrictQualified();
                 }
 
-                return get_fn_type(c->codegen, &fn_type_id, true);
+                return get_fn_type(c->codegen, &fn_type_id);
             }
         case Type::Record:
             {
@@ -724,7 +720,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     node->data.fn_proto.name = fn_name;
 
     node->data.fn_proto.is_extern = fn_type->data.fn.fn_type_id.is_extern;
-    node->data.fn_proto.top_level_decl.visib_mod = c->visib_mod;
+    node->data.fn_proto.visib_mod = c->visib_mod;
     node->data.fn_proto.is_var_args = fn_type->data.fn.fn_type_id.is_var_args;
     node->data.fn_proto.return_type = make_type_node(c, fn_type->data.fn.fn_type_id.return_type);
 
@@ -939,9 +935,8 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
 static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
     TypeTableEntry *enum_type = resolve_enum_decl(c, enum_decl);
 
-    if (enum_type->id == TypeTableEntryIdInvalid) {
+    if (enum_type->id == TypeTableEntryIdInvalid)
         return;
-    }
 
     // make an alias without the "enum_" prefix. this will get emitted at the
     // end if it doesn't conflict with anything else
@@ -951,21 +946,7 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
     if (enum_type->id == TypeTableEntryIdEnum) {
         if (enum_type->data.enumeration.complete) {
-            // now create top level decl for the type
-            AstNode *enum_node = create_node(c, NodeTypeContainerDecl);
-            enum_node->data.struct_decl.name = &enum_type->name;
-            enum_node->data.struct_decl.kind = ContainerKindEnum;
-            enum_node->data.struct_decl.top_level_decl.visib_mod = VisibModExport;
-            enum_node->data.struct_decl.type_entry = enum_type;
-
-            for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
-                TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
-                AstNode *type_node = make_type_node(c, type_enum_field->type_entry);
-                AstNode *field_node = create_struct_field_node(c, buf_ptr(type_enum_field->name), type_node);
-                enum_node->data.struct_decl.fields.append(field_node);
-            }
-
-            c->root->data.root.top_level_decls.append(enum_node);
+            add_container_tld(c, enum_type);
         } else {
             TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(&enum_type->name),
                     c->codegen->builtin_types.entry_u8);
@@ -1127,21 +1108,7 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
     }
 
     if (struct_type->data.structure.complete) {
-        // now create a top level decl node for the type
-        AstNode *struct_node = create_node(c, NodeTypeContainerDecl);
-        struct_node->data.struct_decl.name = &struct_type->name;
-        struct_node->data.struct_decl.kind = ContainerKindStruct;
-        struct_node->data.struct_decl.top_level_decl.visib_mod = VisibModExport;
-        struct_node->data.struct_decl.type_entry = struct_type;
-
-        for (uint32_t i = 0; i < struct_type->data.structure.src_field_count; i += 1) {
-            TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
-            AstNode *type_node = make_type_node(c, type_struct_field->type_entry);
-            AstNode *field_node = create_struct_field_node(c, buf_ptr(type_struct_field->name), type_node);
-            struct_node->data.struct_decl.fields.append(field_node);
-        }
-
-        c->root->data.root.top_level_decls.append(struct_node);
+        add_container_tld(c, struct_type);
     } else {
         TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(&struct_type->name),
                 c->codegen->builtin_types.entry_u8);

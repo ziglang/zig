@@ -140,14 +140,6 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
                 fprintf(irp->f, "(namespace: %s)", buf_ptr(import->path));
                 return;
             }
-        case TypeTableEntryIdGenericFn:
-            {
-                TypeTableEntry *type_entry = const_val->data.x_type;
-                AstNode *decl_node = type_entry->data.generic_fn.decl_node;
-                assert(decl_node->type == NodeTypeFnProto);
-                fprintf(irp->f, "%s", buf_ptr(decl_node->data.fn_proto.name));
-                return;
-            }
         case TypeTableEntryIdBoundFn:
             {
                 FnTableEntry *fn_entry = const_val->data.x_bound_fn.fn;

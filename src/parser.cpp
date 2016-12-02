@@ -1501,7 +1501,7 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
 
     node->data.variable_declaration.is_inline = is_inline;
     node->data.variable_declaration.is_const = is_const;
-    node->data.variable_declaration.top_level_decl.visib_mod = visib_mod;
+    node->data.variable_declaration.visib_mod = visib_mod;
 
     Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
     node->data.variable_declaration.symbol = token_buf(name_token);
@@ -2079,7 +2079,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
     }
 
     AstNode *node = ast_create_node(pc, NodeTypeFnProto, fn_token);
-    node->data.fn_proto.top_level_decl.visib_mod = visib_mod;
+    node->data.fn_proto.visib_mod = visib_mod;
     node->data.fn_proto.is_coldcc = is_coldcc;
     node->data.fn_proto.is_nakedcc = is_nakedcc;
 
@@ -2144,6 +2144,7 @@ static AstNode *ast_parse_fn_def(ParseContext *pc, size_t *token_index, bool man
     AstNode *node = ast_create_node(pc, NodeTypeFnDef, first_token);
     node->data.fn_def.fn_proto = fn_proto;
     node->data.fn_def.body = ast_parse_block(pc, token_index, true);
+    fn_proto->data.fn_proto.fn_def_node = node;
     return node;
 }
 
@@ -2193,7 +2194,7 @@ static AstNode *ast_parse_use(ParseContext *pc, size_t *token_index, VisibMod vi
     *token_index += 1;
 
     AstNode *node = ast_create_node(pc, NodeTypeUse, use_kw);
-    node->data.use.top_level_decl.visib_mod = visib_mod;
+    node->data.use.visib_mod = visib_mod;
     node->data.use.expr = ast_parse_expression(pc, token_index, true);
 
     ast_eat_token(pc, token_index, TokenIdSemicolon);
@@ -2227,7 +2228,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
     AstNode *node = ast_create_node(pc, NodeTypeContainerDecl, first_token);
     node->data.struct_decl.kind = kind;
     node->data.struct_decl.name = token_buf(struct_name);
-    node->data.struct_decl.top_level_decl.visib_mod = visib_mod;
+    node->data.struct_decl.visib_mod = visib_mod;
 
     Token *paren_or_brace = &pc->tokens->at(*token_index);
     if (paren_or_brace->id == TokenIdLParen) {
@@ -2281,7 +2282,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
             AstNode *field_node = ast_create_node(pc, NodeTypeStructField, token);
             *token_index += 1;
 
-            field_node->data.struct_field.top_level_decl.visib_mod = visib_mod;
+            field_node->data.struct_field.visib_mod = visib_mod;
             field_node->data.struct_field.name = token_buf(token);
 
             Token *expr_or_comma = &pc->tokens->at(*token_index);
@@ -2318,7 +2319,7 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, size_t *token_index
     ast_eat_token(pc, token_index, TokenIdSemicolon);
 
     AstNode *node = ast_create_node(pc, NodeTypeErrorValueDecl, first_token);
-    node->data.error_value_decl.top_level_decl.visib_mod = visib_mod;
+    node->data.error_value_decl.visib_mod = visib_mod;
     node->data.error_value_decl.name = token_buf(name_tok);
 
     return node;
@@ -2344,7 +2345,7 @@ static AstNode *ast_parse_type_decl(ParseContext *pc, size_t *token_index, Visib
 
     ast_eat_token(pc, token_index, TokenIdSemicolon);
 
-    node->data.type_decl.top_level_decl.visib_mod = visib_mod;
+    node->data.type_decl.visib_mod = visib_mod;
 
     return node;
 }
