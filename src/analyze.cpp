@@ -878,7 +878,7 @@ static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *nod
     return ir_eval_const_value(g, scope, node, type_entry, &backward_branch_count, default_backward_branch_quota);
 }
 
-static TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
+TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
     IrInstruction *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type);
     if (result->type_entry->id == TypeTableEntryIdInvalid)
         return g->builtin_types.entry_invalid;
@@ -889,6 +889,19 @@ static TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node
 
 static TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
+    buf_init_from_str(&fn_type->name, "fn(");
+    size_t i = 0;
+    for (; i < fn_type_id->next_param_index; i += 1) {
+        const char *comma_str = (i == 0) ? "" : ",";
+        buf_appendf(&fn_type->name, "%s%s", comma_str,
+            buf_ptr(&fn_type_id->param_info[i].type->name));
+    }
+    for (; i < fn_type_id->param_count; i += 1) {
+        const char *comma_str = (i == 0) ? "" : ",";
+        buf_appendf(&fn_type->name, "%svar", comma_str);
+    }
+    buf_appendf(&fn_type->name, ")->var");
+
     fn_type->data.fn.fn_type_id = *fn_type_id;
     fn_type->data.fn.is_generic = true;
     return fn_type;

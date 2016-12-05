@@ -69,6 +69,7 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
     Scope *parent_scope, Tld *parent_tld);
 VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
     TypeTableEntry *type_entry, bool is_const, ConstExprValue *init_value);
+TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 
 Scope *create_block_scope(AstNode *node, Scope *parent);
 Scope *create_defer_scope(AstNode *node, Scope *parent);
