@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2016 Andrew Kelley
+ *
+ * This file is part of zig, which is MIT licensed.
+ * See http://opensource.org/licenses/MIT
+ */
+
 #include "ast_render.hpp"
 
 #include <stdio.h>
