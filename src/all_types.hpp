@@ -46,7 +46,7 @@ struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
     size_t mem_slot_count;
     size_t next_debug_id;
-    size_t backward_branch_count;
+    size_t *backward_branch_count;
     size_t backward_branch_quota;
     bool invalid;
     ZigList<LabelTableEntry *> all_labels;
@@ -968,6 +968,7 @@ struct FnTableEntry {
     FnAnalState anal_state;
     IrExecutable ir_executable;
     IrExecutable analyzed_executable;
+    size_t prealloc_bbc;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_export_set_node;
@@ -1311,6 +1312,7 @@ struct IrBasicBlock {
     size_t debug_id;
     size_t ref_count;
     LLVMBasicBlockRef llvm_block;
+    LLVMBasicBlockRef llvm_exit_block;
 };
 
 enum IrInstructionId {

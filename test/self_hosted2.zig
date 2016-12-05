@@ -96,6 +96,22 @@ fn testStructStatic() {
     assert(result == 7);
 }
 
+const should_be_11 = FooA.add(5, 6);
+fn testStaticFnEval() {
+    assert(should_be_11 == 11);
+}
+
+fn fib(x: i32) -> i32 {
+    if (x < 2) x else fib(x - 1) + fib(x - 2)
+}
+
+const fib_7 = fib(7);
+
+fn testCompileTimeFib() {
+    assert(fib_7 == 13);
+}
+
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -111,6 +127,8 @@ fn runAllTests() {
     testNamespaceFnCall();
     gotoAndLabels();
     testStructStatic();
+    testStaticFnEval();
+    testCompileTimeFib();
 }
 
 export nakedcc fn _start() -> unreachable {

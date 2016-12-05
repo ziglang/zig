@@ -6,6 +6,7 @@
  */
 
 #include "analyze.hpp"
+#include "ast_render.hpp"
 #include "error.hpp"
 #include "eval.hpp"
 #include "ir.hpp"
@@ -2814,7 +2815,7 @@ IrInstruction *ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutabl
     return return_instruction;
 }
 
-IrInstruction *ir_gen_fn(CodeGen *codegn, FnTableEntry *fn_entry) {
+IrInstruction *ir_gen_fn(CodeGen *codegen, FnTableEntry *fn_entry) {
     assert(fn_entry);
 
     IrExecutable *ir_executable = &fn_entry->ir_executable;
@@ -2826,18 +2827,30 @@ IrInstruction *ir_gen_fn(CodeGen *codegn, FnTableEntry *fn_entry) {
     assert(fn_entry->child_scope);
     Scope *child_scope = fn_entry->child_scope;
 
-    return ir_gen(codegn, body_node, child_scope, ir_executable);
+    return ir_gen(codegen, body_node, child_scope, ir_executable);
 }
 
 static ErrorMsg *ir_add_error(IrAnalyze *ira, IrInstruction *source_instruction, Buf *msg) {
+    ira->new_irb.exec->invalid = true;
     return add_node_error(ira->codegen, source_instruction->source_node, msg);
 }
 
-static IrInstruction *ir_eval_fn(IrAnalyze *ira, IrInstruction *source_instruction,
-    size_t arg_count, IrInstruction **args)
-{
-    // TODO count this as part of the backward branch quota
-    zig_panic("TODO ir_eval_fn");
+static IrInstruction *ir_exec_const_result(IrExecutable *exec) {
+    if (exec->basic_block_list.length != 1)
+        return nullptr;
+
+    IrBasicBlock *bb = exec->basic_block_list.at(0);
+    if (bb->instruction_list.length != 1)
+        return nullptr;
+
+    IrInstruction *only_inst = bb->instruction_list.at(0);
+    if (only_inst->id != IrInstructionIdReturn)
+        return nullptr;
+
+    IrInstructionReturn *ret_inst = (IrInstructionReturn *)only_inst;
+    IrInstruction *value = ret_inst->value;
+    assert(value->static_value.special != ConstValSpecialRuntime);
+    return value;
 }
 
 static bool ir_emit_global_runtime_side_effect(IrAnalyze *ira, IrInstruction *source_instruction) {
@@ -3140,14 +3153,26 @@ static TypeTableEntry *ir_unreach_error(IrAnalyze *ira) {
     return ira->codegen->builtin_types.entry_unreachable;
 }
 
+static bool ir_emit_backward_branch(IrAnalyze *ira, IrInstruction *source_instruction) {
+    size_t *bbc = ira->new_irb.exec->backward_branch_count;
+    size_t quota = ira->new_irb.exec->backward_branch_quota;
+
+    // If we're already over quota, we've already given an error message for this.
+    if (*bbc > quota)
+        return false;
+
+    *bbc += 1;
+    if (*bbc > quota) {
+        ir_add_error(ira, source_instruction, buf_sprintf("evaluation exceeded %zu backwards branches", quota));
+        return false;
+    }
+    return true;
+}
+
 static TypeTableEntry *ir_inline_bb(IrAnalyze *ira, IrInstruction *source_instruction, IrBasicBlock *old_bb) {
     if (old_bb->debug_id <= ira->old_irb.current_basic_block->debug_id) {
-        ira->new_irb.exec->backward_branch_count += 1;
-        if (ira->new_irb.exec->backward_branch_count > ira->new_irb.exec->backward_branch_quota) {
-            add_node_error(ira->codegen, source_instruction->source_node,
-                    buf_sprintf("evaluation exceeded %zu backwards branches", ira->new_irb.exec->backward_branch_quota));
+        if (!ir_emit_backward_branch(ira, source_instruction))
             return ir_unreach_error(ira);
-        }
     }
 
     ir_start_bb(ira, old_bb, ira->old_irb.current_basic_block);
@@ -3216,11 +3241,88 @@ static TypeTableEntry *ir_analyze_const_usize(IrAnalyze *ira, IrInstruction *ins
 
 static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value) {
     if (value->static_value.special != ConstValSpecialStatic) {
-        add_node_error(ira->codegen, value->source_node,
-                buf_sprintf("unable to evaluate constant expression"));
+        ir_add_error(ira, value, buf_sprintf("unable to evaluate constant expression"));
         return nullptr;
     }
     return &value->static_value;
+}
+
+IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
+        TypeTableEntry *expected_type, size_t *backward_branch_count, size_t backward_branch_quota)
+{
+    IrExecutable ir_executable = {0};
+    ir_executable.is_inline = true;
+    ir_gen(codegen, node, scope, &ir_executable);
+
+    if (ir_executable.invalid)
+        return codegen->invalid_instruction;
+
+    if (codegen->verbose) {
+        fprintf(stderr, "\nSource: ");
+        ast_render(stderr, node, 4);
+        fprintf(stderr, "\n{ // (IR)\n");
+        ir_print(stderr, &ir_executable, 4);
+        fprintf(stderr, "}\n");
+    }
+    IrExecutable analyzed_executable = {0};
+    analyzed_executable.is_inline = true;
+    analyzed_executable.backward_branch_count = backward_branch_count;
+    analyzed_executable.backward_branch_quota = backward_branch_quota;
+    TypeTableEntry *result_type = ir_analyze(codegen, &ir_executable, &analyzed_executable, expected_type, node);
+    if (result_type->id == TypeTableEntryIdInvalid)
+        return codegen->invalid_instruction;
+
+    if (codegen->verbose) {
+        fprintf(stderr, "{ // (analyzed)\n");
+        ir_print(stderr, &analyzed_executable, 4);
+        fprintf(stderr, "}\n");
+    }
+
+    IrInstruction *result = ir_exec_const_result(&analyzed_executable);
+    if (!result) {
+        add_node_error(codegen, node, buf_sprintf("unable to evaluate constant expression"));
+        return codegen->invalid_instruction;
+    }
+
+    return result;
+}
+
+static IrInstruction *ir_eval_fn(IrAnalyze *ira, IrInstruction *source_instruction,
+    FnTableEntry *fn_entry, IrInstruction **args)
+{
+    if (!fn_entry) {
+        ir_add_error(ira, source_instruction,
+            buf_sprintf("unable to evaluate constant expression"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (!ir_emit_backward_branch(ira, source_instruction))
+        return ira->codegen->invalid_instruction;
+
+    TypeTableEntry *fn_type = fn_entry->type_entry;
+    FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
+
+    // Fork a scope of the function with known values for the parameters.
+
+    Scope *exec_scope = &fn_entry->fndef_scope->base;
+    for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
+        AstNode *param_decl_node = fn_entry->proto_node->data.fn_proto.params.at(i);
+        Buf *param_name = param_decl_node->data.param_decl.name;
+        IrInstruction *arg = args[i];
+        ConstExprValue *arg_val = ir_resolve_const(ira, arg);
+        if (!arg_val)
+            return ira->codegen->invalid_instruction;
+
+        VariableTableEntry *var = add_variable(ira->codegen, param_decl_node, exec_scope, param_name,
+                arg->type_entry, true, arg_val);
+        exec_scope = var->child_scope;
+    }
+
+    // Analyze the fn body block like any other constant expression.
+
+    AstNode *body_node = fn_entry->fn_def_node->data.fn_def.body;
+    return ir_eval_const_value(ira->codegen, exec_scope, body_node, fn_type_id->return_type,
+        ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota);
 }
 
 static TypeTableEntry *ir_resolve_type_lval(IrAnalyze *ira, IrInstruction *type_value, LValPurpose lval) {
@@ -4238,7 +4340,8 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         return ira->codegen->builtin_types.entry_invalid;
 
     if (is_inline) {
-        IrInstruction *result = ir_eval_fn(ira, &call_instruction->base, call_param_count, casted_args);
+        assert(call_param_count == fn_type_id->param_count);
+        IrInstruction *result = ir_eval_fn(ira, &call_instruction->base, fn_entry, casted_args);
         if (result->type_entry->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
@@ -4252,9 +4355,9 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             fn_entry, fn_ref, call_param_count, casted_args);
 
     if (type_has_bits(return_type) && handle_is_ptr(return_type)) {
-        FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
-        assert(fn_entry);
-        fn_entry->alloca_list.append(new_call_instruction);
+        FnTableEntry *owner_fn = exec_fn_entry(ira->new_irb.exec);
+        assert(owner_fn);
+        owner_fn->alloca_list.append(new_call_instruction);
     }
 
     return ir_finish_anal(ira, return_type);
@@ -4782,13 +4885,13 @@ static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruc
 
     ConstExprValue *mem_slot = nullptr;
     FnTableEntry *fn_entry = scope_fn_entry(var->parent_scope);
-    if (fn_entry) {
+    if (var->src_is_const && var->value) {
+        mem_slot = var->value;
+        assert(mem_slot->special != ConstValSpecialRuntime);
+    } else if (fn_entry) {
         // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
         if (var->mem_slot_index != SIZE_MAX)
             mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
-    } else if (var->src_is_const) {
-        mem_slot = var->value;
-        assert(mem_slot->special != ConstValSpecialRuntime);
     }
 
     if (mem_slot && mem_slot->special != ConstValSpecialRuntime) {
@@ -6479,24 +6582,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
             }
     }
     zig_unreachable();
-}
-
-IrInstruction *ir_exec_const_result(IrExecutable *exec) {
-    if (exec->basic_block_list.length != 1)
-        return nullptr;
-
-    IrBasicBlock *bb = exec->basic_block_list.at(0);
-    if (bb->instruction_list.length != 1)
-        return nullptr;
-
-    IrInstruction *only_inst = bb->instruction_list.at(0);
-    if (only_inst->id != IrInstructionIdReturn)
-        return nullptr;
-
-    IrInstructionReturn *ret_inst = (IrInstructionReturn *)only_inst;
-    IrInstruction *value = ret_inst->value;
-    assert(value->static_value.special != ConstValSpecialRuntime);
-    return value;
 }
 
 // TODO port over all this commented out code into new IR way of doing things

@@ -1758,7 +1758,7 @@ static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutable *executable, IrInstru
     LLVMBasicBlockRef *incoming_blocks = allocate<LLVMBasicBlockRef>(instruction->incoming_count);
     for (size_t i = 0; i < instruction->incoming_count; i += 1) {
         incoming_values[i] = ir_llvm_value(g, instruction->incoming_values[i]);
-        incoming_blocks[i] = instruction->incoming_blocks[i]->llvm_block;
+        incoming_blocks[i] = instruction->incoming_blocks[i]->llvm_exit_block;
     }
     LLVMAddIncoming(phi, incoming_values, incoming_blocks, instruction->incoming_count);
     return phi;
@@ -1877,6 +1877,7 @@ static void ir_render(CodeGen *g, FnTableEntry *fn_entry) {
                 continue;
             instruction->llvm_value = ir_render_instruction(g, executable, instruction);
         }
+        current_block->llvm_exit_block = LLVMGetInsertBlock(g->builder);
     }
 }
 

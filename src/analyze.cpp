@@ -873,43 +873,9 @@ TypeTableEntry *get_underlying_type(TypeTableEntry *type_entry) {
     }
 }
 
-static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node,
-        TypeTableEntry *expected_type)
-{
-    IrExecutable ir_executable = {0};
-    ir_executable.is_inline = true;
-    ir_gen(g, node, scope, &ir_executable);
-
-    if (ir_executable.invalid)
-        return g->invalid_instruction;
-
-    if (g->verbose) {
-        fprintf(stderr, "\nSource: ");
-        ast_render(stderr, node, 4);
-        fprintf(stderr, "\n{ // (IR)\n");
-        ir_print(stderr, &ir_executable, 4);
-        fprintf(stderr, "}\n");
-    }
-    IrExecutable analyzed_executable = {0};
-    analyzed_executable.is_inline = true;
-    analyzed_executable.backward_branch_quota = default_backward_branch_quota;
-    TypeTableEntry *result_type = ir_analyze(g, &ir_executable, &analyzed_executable, expected_type, node);
-    if (result_type->id == TypeTableEntryIdInvalid)
-        return g->invalid_instruction;
-
-    if (g->verbose) {
-        fprintf(stderr, "{ // (analyzed)\n");
-        ir_print(stderr, &analyzed_executable, 4);
-        fprintf(stderr, "}\n");
-    }
-
-    IrInstruction *result = ir_exec_const_result(&analyzed_executable);
-    if (!result) {
-        add_node_error(g, node, buf_sprintf("unable to evaluate constant expression"));
-        return g->invalid_instruction;
-    }
-
-    return result;
+static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, TypeTableEntry *type_entry) {
+    size_t backward_branch_count = 0;
+    return ir_eval_const_value(g, scope, node, type_entry, &backward_branch_count, default_backward_branch_quota);
 }
 
 static TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
@@ -1403,9 +1369,10 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     }
 
     FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
+    fn_table_entry->analyzed_executable.backward_branch_count = &fn_table_entry->prealloc_bbc;
     fn_table_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
-    fn_table_entry->ir_executable.fn_entry = fn_table_entry;
     fn_table_entry->analyzed_executable.fn_entry = fn_table_entry;
+    fn_table_entry->ir_executable.fn_entry = fn_table_entry;
     fn_table_entry->import_entry = import;
     fn_table_entry->proto_node = proto_node;
     fn_table_entry->fn_def_node = fn_def_node;
