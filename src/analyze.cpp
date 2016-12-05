@@ -907,22 +907,25 @@ static TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     return fn_type;
 }
 
-static TypeTableEntry *analyze_fn_type(CodeGen *g, TldFn *tld_fn) {
-    AstNode *proto_node = tld_fn->base.source_node;
+void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node) {
+    assert(proto_node->type == NodeTypeFnProto);
+    AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
+
+    fn_type_id->is_extern = fn_proto->is_extern || (fn_proto->visib_mod == VisibModExport);
+    fn_type_id->is_naked = fn_proto->is_nakedcc;
+    fn_type_id->is_cold = fn_proto->is_coldcc;
+    fn_type_id->param_count = fn_proto->params.length;
+    fn_type_id->param_info = allocate_nonzero<FnTypeParamInfo>(fn_type_id->param_count);
+    fn_type_id->next_param_index = 0;
+    fn_type_id->is_var_args = fn_proto->is_var_args;
+}
+
+static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
     FnTypeId fn_type_id = {0};
-    fn_type_id.is_extern = fn_proto->is_extern || (fn_proto->visib_mod == VisibModExport);
-    fn_type_id.is_naked = fn_proto->is_nakedcc;
-    fn_type_id.is_cold = fn_proto->is_coldcc;
-    fn_type_id.param_count = fn_proto->params.length;
-    fn_type_id.param_info = allocate_nonzero<FnTypeParamInfo>(fn_type_id.param_count);
-    fn_type_id.next_param_index = 0;
-    fn_type_id.is_var_args = fn_proto->is_var_args;
-
-    FnTableEntry *fn_entry = tld_fn->fn_entry;
-    Scope *child_scope = fn_entry->fndef_scope ? &fn_entry->fndef_scope->base : tld_fn->base.parent_scope;
+    init_fn_type_id(&fn_type_id, proto_node);
 
     for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
         AstNode *param_node = fn_proto->params.at(fn_type_id.next_param_index);
@@ -937,10 +940,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, TldFn *tld_fn) {
                 return g->builtin_types.entry_invalid;
             }
             return get_generic_fn_type(g, &fn_type_id);
-        }
-
-        if (fn_entry && buf_len(param_node->data.param_decl.name) == 0) {
-            add_node_error(g, param_node, buf_sprintf("missing parameter name"));
         }
 
         TypeTableEntry *type_entry = analyze_type_expr(g, child_scope, param_node->data.param_decl.type);
@@ -1366,6 +1365,23 @@ static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, uint8_t sep) {
     }
 }
 
+FnTableEntry *create_fn(CodeGen *g, AstNode *proto_node) {
+    assert(proto_node->type == NodeTypeFnProto);
+    AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
+
+    FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
+    fn_table_entry->analyzed_executable.backward_branch_count = &fn_table_entry->prealloc_bbc;
+    fn_table_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
+    fn_table_entry->analyzed_executable.fn_entry = fn_table_entry;
+    fn_table_entry->ir_executable.fn_entry = fn_table_entry;
+    fn_table_entry->proto_node = proto_node;
+    fn_table_entry->fn_def_node = proto_node->data.fn_proto.fn_def_node;
+    fn_table_entry->fn_inline = fn_proto->is_inline ? FnInlineAlways : FnInlineAuto;
+    fn_table_entry->internal_linkage = (fn_proto->visib_mod != VisibModExport);
+
+    return fn_table_entry;
+}
+
 static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     ImportTableEntry *import = tld_fn->base.import;
     AstNode *proto_node = tld_fn->base.source_node;
@@ -1381,17 +1397,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         return;
     }
 
-    FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
-    fn_table_entry->analyzed_executable.backward_branch_count = &fn_table_entry->prealloc_bbc;
-    fn_table_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
-    fn_table_entry->analyzed_executable.fn_entry = fn_table_entry;
-    fn_table_entry->ir_executable.fn_entry = fn_table_entry;
-    fn_table_entry->import_entry = import;
-    fn_table_entry->proto_node = proto_node;
-    fn_table_entry->fn_def_node = fn_def_node;
-    fn_table_entry->fn_inline = fn_proto->is_inline ? FnInlineAlways : FnInlineAuto;
-    fn_table_entry->internal_linkage = (fn_proto->visib_mod != VisibModExport);
-
+    FnTableEntry *fn_table_entry = create_fn(g, tld_fn->base.source_node);
     get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
 
     tld_fn->fn_entry = fn_table_entry;
@@ -1399,9 +1405,18 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     if (fn_table_entry->fn_def_node) {
         fn_table_entry->fndef_scope = create_fndef_scope(
             fn_table_entry->fn_def_node, tld_fn->base.parent_scope, fn_table_entry);
+
+        for (size_t i = 0; i < fn_proto->params.length; i += 1) {
+            AstNode *param_node = fn_proto->params.at(i);
+            assert(param_node->type == NodeTypeParamDecl);
+            if (buf_len(param_node->data.param_decl.name) == 0) {
+                add_node_error(g, param_node, buf_sprintf("missing parameter name"));
+            }
+        }
     }
 
-    fn_table_entry->type_entry = analyze_fn_type(g, tld_fn);
+    Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
+    fn_table_entry->type_entry = analyze_fn_type(g, proto_node, child_scope);
 
     if (fn_table_entry->type_entry->id == TypeTableEntryIdInvalid) {
         tld_fn->base.resolution = TldResolutionInvalid;
@@ -2142,6 +2157,13 @@ bool type_is_codegen_pointer(TypeTableEntry *type) {
     return false;
 }
 
+AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index) {
+    if (fn_entry->param_source_nodes)
+        return fn_entry->param_source_nodes[index];
+    else
+        return fn_entry->proto_node->data.fn_proto.params.at(index);
+}
+
 static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     assert(fn_table_entry->anal_state != FnAnalStateProbing);
     if (fn_table_entry->anal_state != FnAnalStateReady)
@@ -2151,17 +2173,19 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
 
     AstNodeFnProto *fn_proto = &fn_table_entry->proto_node->data.fn_proto;
 
-    Scope *child_scope = &fn_table_entry->fndef_scope->base;
-    assert(child_scope);
+    assert(fn_table_entry->fndef_scope);
+    if (!fn_table_entry->child_scope)
+        fn_table_entry->child_scope = &fn_table_entry->fndef_scope->base;
 
     // define local variables for parameters
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
-        AstNode *param_decl_node = fn_proto->params.at(i);
-        AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
+        AstNode *param_decl_node = get_param_decl_node(fn_table_entry, i);
+        AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
+        
 
         TypeTableEntry *param_type = param_info->type;
         bool is_noalias = param_info->is_noalias;
@@ -2175,17 +2199,15 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
                 buf_sprintf("byvalue types not yet supported on extern function parameters"));
         }
 
-        VariableTableEntry *var = add_variable(g, param_decl_node, child_scope, param_decl->name, param_type, true, nullptr);
+        VariableTableEntry *var = add_variable(g, param_decl_node, fn_table_entry->child_scope, param_decl->name, param_type, true, nullptr);
         var->src_arg_index = i;
-        child_scope = var->child_scope;
+        fn_table_entry->child_scope = var->child_scope;
         fn_table_entry->variable_list.append(var);
 
         if (fn_type->data.fn.gen_param_info) {
             var->gen_arg_index = fn_type->data.fn.gen_param_info[i].gen_index;
         }
     }
-
-    fn_table_entry->child_scope = child_scope;
 
     TypeTableEntry *expected_type = fn_type_id->return_type;
 
@@ -2620,6 +2642,40 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
             zig_unreachable();
     }
     zig_unreachable();
+}
+
+uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {
+    uint32_t result = 0;
+    result += hash_ptr(id->fn_entry);
+    for (size_t i = 0; i < id->param_count; i += 1) {
+        GenericParamValue *generic_param = &id->params[i];
+        if (generic_param->value) {
+            result += hash_const_val(generic_param->type, generic_param->value);
+            result += hash_ptr(generic_param->type);
+        }
+    }
+    return result;
+}
+
+bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
+    assert(a->fn_entry);
+    if (a->fn_entry != b->fn_entry) return false;
+    assert(a->param_count == b->param_count);
+    for (size_t i = 0; i < a->param_count; i += 1) {
+        GenericParamValue *a_val = &a->params[i];
+        GenericParamValue *b_val = &b->params[i];
+        if (a_val->type != b_val->type) return false;
+        if (a_val->value && b_val->value) {
+            assert(a_val->value->special == ConstValSpecialStatic);
+            assert(b_val->value->special == ConstValSpecialStatic);
+            if (!const_values_equal(a_val->value, b_val->value, a_val->type)) {
+                return false;
+            }
+        } else {
+            assert(!a_val->value && !b_val->value);
+        }
+    }
+    return true;
 }
 
 bool type_has_bits(TypeTableEntry *type_entry) {

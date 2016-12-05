@@ -397,7 +397,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     assert(param_decl->type == NodeTypeParamDecl);
                     if (buf_len(param_decl->data.param_decl.name) > 0) {
                         const char *noalias_str = param_decl->data.param_decl.is_noalias ? "noalias " : "";
-                        const char *inline_str = param_decl->data.param_decl.is_inline ? "inline  " : "";
+                        const char *inline_str = param_decl->data.param_decl.is_inline ? "inline " : "";
                         fprintf(ar->f, "%s%s", noalias_str, inline_str);
                         print_symbol(ar, param_decl->data.param_decl.name);
                         fprintf(ar->f, ": ");

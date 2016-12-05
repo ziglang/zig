@@ -2825,9 +2825,8 @@ IrInstruction *ir_gen_fn(CodeGen *codegen, FnTableEntry *fn_entry) {
     AstNode *body_node = fn_def_node->data.fn_def.body;
 
     assert(fn_entry->child_scope);
-    Scope *child_scope = fn_entry->child_scope;
 
-    return ir_gen(codegen, body_node, child_scope, ir_executable);
+    return ir_gen(codegen, body_node, fn_entry->child_scope, ir_executable);
 }
 
 static ErrorMsg *ir_add_error(IrAnalyze *ira, IrInstruction *source_instruction, Buf *msg) {
@@ -4220,9 +4219,9 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
 }
 
 static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node,
-    IrInstruction *arg, Scope **exec_scope, size_t *next_arg_index)
+    IrInstruction *arg, Scope **exec_scope, size_t *next_proto_i)
 {
-    AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(*next_arg_index);
+    AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(*next_proto_i);
     assert(param_decl_node->type == NodeTypeParamDecl);
     AstNode *param_type_node = param_decl_node->data.param_decl.type;
     TypeTableEntry *param_type = analyze_type_expr(ira->codegen, *exec_scope, param_type_node);
@@ -4241,14 +4240,66 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
     VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
         *exec_scope, param_name, param_type, true, first_arg_val);
     *exec_scope = var->child_scope;
-    *next_arg_index += 1;
+    *next_proto_i += 1;
 
+    return true;
+}
+
+static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_node,
+    IrInstruction *arg, Scope **child_scope, size_t *next_proto_i,
+    GenericFnTypeId *generic_id, FnTypeId *fn_type_id, IrInstruction **casted_args,
+    FnTableEntry *impl_fn)
+{
+    AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(*next_proto_i);
+    assert(param_decl_node->type == NodeTypeParamDecl);
+    AstNode *param_type_node = param_decl_node->data.param_decl.type;
+    TypeTableEntry *param_type = analyze_type_expr(ira->codegen, *child_scope, param_type_node);
+    if (param_type->id == TypeTableEntryIdInvalid)
+        return false;
+
+    bool is_var_type = (param_type->id == TypeTableEntryIdVar);
+    IrInstruction *casted_arg;
+    if (is_var_type) {
+        casted_arg = arg;
+    } else {
+        casted_arg = ir_get_casted_value(ira, arg, param_type);
+        if (casted_arg->type_entry->id == TypeTableEntryIdInvalid)
+            return false;
+    }
+
+    bool inline_arg = param_decl_node->data.param_decl.is_inline;
+    if (inline_arg || is_var_type) {
+        ConstExprValue *arg_val = ir_resolve_const(ira, casted_arg);
+        if (!arg_val)
+            return false;
+
+        Buf *param_name = param_decl_node->data.param_decl.name;
+        VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
+            *child_scope, param_name, param_type, true, arg_val);
+        *child_scope = var->child_scope;
+        // This generic function instance could be called with anything, so when this variable is read it
+        // needs to know that it depends on compile time variable data.
+        var->value->depends_on_compile_var = true;
+
+        GenericParamValue *generic_param = &generic_id->params[generic_id->param_count];
+        generic_param->type = casted_arg->type_entry;
+        generic_param->value = arg_val;
+        generic_id->param_count += 1;
+    } else {
+        casted_args[fn_type_id->param_count] = casted_arg;
+        FnTypeParamInfo *param_info = &fn_type_id->param_info[fn_type_id->param_count];
+        param_info->type = param_type;
+        param_info->is_noalias = param_decl_node->data.param_decl.is_noalias;
+        impl_fn->param_source_nodes[fn_type_id->param_count] = param_decl_node;
+        fn_type_id->param_count += 1;
+    }
+    *next_proto_i += 1;
     return true;
 }
 
 static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instruction,
     FnTableEntry *fn_entry, TypeTableEntry *fn_type, IrInstruction *fn_ref,
-    IrInstruction *first_arg_ptr, bool is_inline)
+    IrInstruction *first_arg_ptr, bool inline_fn_call)
 {
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     size_t first_arg_1_or_0 = first_arg_ptr ? 1 : 0;
@@ -4278,7 +4329,8 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (is_inline) {
+    if (inline_fn_call) {
+        // No special handling is needed for compile time evaluation of generic functions.
         if (!fn_entry) {
             ir_add_error(ira, fn_ref, buf_sprintf("unable to evaluate constant expression"));
             return ira->codegen->builtin_types.entry_invalid;
@@ -4290,13 +4342,13 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         // Fork a scope of the function with known values for the parameters.
         Scope *exec_scope = &fn_entry->fndef_scope->base;
 
-        size_t next_arg_index = 0;
+        size_t next_proto_i = 0;
         if (first_arg_ptr) {
             IrInstruction *first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
             if (first_arg->type_entry->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
-            if (!ir_analyze_fn_call_inline_arg(ira, fn_proto_node, first_arg, &exec_scope, &next_arg_index))
+            if (!ir_analyze_fn_call_inline_arg(ira, fn_proto_node, first_arg, &exec_scope, &next_proto_i))
                 return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -4305,7 +4357,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             if (old_arg->type_entry->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
-            if (!ir_analyze_fn_call_inline_arg(ira, fn_proto_node, old_arg, &exec_scope, &next_arg_index))
+            if (!ir_analyze_fn_call_inline_arg(ira, fn_proto_node, old_arg, &exec_scope, &next_proto_i))
                 return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -4327,9 +4379,89 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         return ir_finish_anal(ira, return_type);
     }
 
+    if (fn_type->data.fn.is_generic) {
+        assert(fn_entry);
+
+        IrInstruction **casted_args = allocate<IrInstruction *>(call_param_count);
+
+        // Fork a scope of the function with known values for the parameters.
+        Scope *parent_scope = fn_entry->fndef_scope->base.parent;
+        FnTableEntry *impl_fn = create_fn(ira->codegen, fn_proto_node);
+        impl_fn->param_source_nodes = allocate<AstNode *>(call_param_count);
+        buf_init_from_buf(&impl_fn->symbol_name, &fn_entry->symbol_name);
+        impl_fn->fndef_scope = create_fndef_scope(impl_fn->fn_def_node, parent_scope, impl_fn);
+        impl_fn->child_scope = &impl_fn->fndef_scope->base;
+        FnTypeId fn_type_id = {0};
+        init_fn_type_id(&fn_type_id, fn_proto_node);
+        fn_type_id.param_count = 0;
+
+        // TODO maybe GenericFnTypeId can be replaced with using the child_scope directly
+        // as the key in generic_table
+        GenericFnTypeId *generic_id = allocate<GenericFnTypeId>(1);
+        generic_id->fn_entry = fn_entry;
+        generic_id->param_count = 0;
+        generic_id->params = allocate<GenericParamValue>(src_param_count);
+        size_t next_proto_i = 0;
+
+        if (first_arg_ptr) {
+            IrInstruction *first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
+            if (first_arg->type_entry->id == TypeTableEntryIdInvalid)
+                return ira->codegen->builtin_types.entry_invalid;
+
+            if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, first_arg, &impl_fn->child_scope,
+                &next_proto_i, generic_id, &fn_type_id, casted_args, impl_fn))
+            {
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+        }
+        for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
+            IrInstruction *arg = call_instruction->args[call_i]->other;
+            if (arg->type_entry->id == TypeTableEntryIdInvalid)
+                return ira->codegen->builtin_types.entry_invalid;
+
+            if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg, &impl_fn->child_scope,
+                &next_proto_i, generic_id, &fn_type_id, casted_args, impl_fn))
+            {
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+        }
+
+        auto existing_entry = ira->codegen->generic_table.put_unique(generic_id, impl_fn);
+        if (existing_entry) {
+            // throw away all our work and use the existing function
+            impl_fn = existing_entry->value;
+        } else {
+            // finish instantiating the function
+            AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
+            TypeTableEntry *return_type = analyze_type_expr(ira->codegen, impl_fn->child_scope, return_type_node);
+            if (return_type->id == TypeTableEntryIdInvalid)
+                return ira->codegen->builtin_types.entry_invalid;
+            fn_type_id.return_type = return_type;
+
+            impl_fn->type_entry = get_fn_type(ira->codegen, &fn_type_id);
+            if (impl_fn->type_entry->id == TypeTableEntryIdInvalid)
+                return ira->codegen->builtin_types.entry_invalid;
+
+            ira->codegen->fn_protos.append(impl_fn);
+            ira->codegen->fn_defs.append(impl_fn);
+        }
+
+        size_t impl_param_count = impl_fn->type_entry->data.fn.fn_type_id.param_count;
+        IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
+                impl_fn, nullptr, impl_param_count, casted_args);
+
+        TypeTableEntry *return_type = impl_fn->type_entry->data.fn.fn_type_id.return_type;
+        if (type_has_bits(return_type) && handle_is_ptr(return_type)) {
+            FnTableEntry *callsite_fn = exec_fn_entry(ira->new_irb.exec);
+            assert(callsite_fn);
+            callsite_fn->alloca_list.append(new_call_instruction);
+        }
+
+        return ir_finish_anal(ira, return_type);
+    }
+
     IrInstruction **casted_args = allocate<IrInstruction *>(call_param_count);
     size_t next_arg_index = 0;
-
     if (first_arg_ptr) {
         IrInstruction *first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
         if (first_arg->type_entry->id == TypeTableEntryIdInvalid)

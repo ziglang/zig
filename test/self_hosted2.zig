@@ -111,6 +111,33 @@ fn testCompileTimeFib() {
     assert(fib_7 == 13);
 }
 
+fn max(inline T: type, a: T, b: T) -> T {
+   if (a > b) a else b
+}
+const the_max = max(u32, 1234, 5678);
+
+fn testCompileTimeGenericEval() {
+    assert(the_max == 5678);
+}
+
+fn gimmeTheBigOne(a: u32, b: u32) -> u32 {
+    max(u32, a, b)
+}
+
+fn shouldCallSameInstance(a: u32, b: u32) -> u32 {
+    max(u32, a, b)
+}
+
+fn sameButWithFloats(a: f64, b: f64) -> f64 {
+    max(f64, a, b)
+}
+
+fn testFnWithInlineArgs() {
+    assert(gimmeTheBigOne(1234, 5678) == 5678);
+    assert(shouldCallSameInstance(34, 12) == 34);
+    assert(sameButWithFloats(0.43, 0.49) == 0.49);
+}
+
 
 fn assert(ok: bool) {
     if (!ok)
@@ -129,6 +156,8 @@ fn runAllTests() {
     testStructStatic();
     testStaticFnEval();
     testCompileTimeFib();
+    testCompileTimeGenericEval();
+    testFnWithInlineArgs();
 }
 
 export nakedcc fn _start() -> unreachable {

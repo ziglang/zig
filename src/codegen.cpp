@@ -60,6 +60,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->primitive_type_table.init(32);
     g->fn_type_table.init(32);
     g->error_table.init(16);
+    g->generic_table.init(16);
     g->is_release_build = false;
     g->is_test_build = false;
     g->want_h_file = true;
@@ -2305,11 +2306,8 @@ static void do_code_gen(CodeGen *g) {
         if (should_skip_fn_codegen(g, fn_table_entry))
             continue;
 
-        AstNode *proto_node = fn_table_entry->proto_node;
-        assert(proto_node->type == NodeTypeFnProto);
-        AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
-
         TypeTableEntry *fn_type = fn_table_entry->type_entry;
+        FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
 
         LLVMValueRef fn_val = fn_llvm_value(g, fn_table_entry);
 
@@ -2327,22 +2325,20 @@ static void do_code_gen(CodeGen *g) {
 
 
         // set parameter attributes
-        for (size_t param_decl_i = 0; param_decl_i < fn_proto->params.length; param_decl_i += 1) {
-            AstNode *param_node = fn_proto->params.at(param_decl_i);
-            assert(param_node->type == NodeTypeParamDecl);
-
-            FnGenParamInfo *info = &fn_type->data.fn.gen_param_info[param_decl_i];
-            size_t gen_index = info->gen_index;
-            bool is_byval = info->is_byval;
+        for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
+            FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
+            size_t gen_index = gen_info->gen_index;
+            bool is_byval = gen_info->is_byval;
 
             if (gen_index == SIZE_MAX) {
                 continue;
             }
 
-            TypeTableEntry *param_type = info->type;
+            FnTypeParamInfo *param_info = &fn_type_id->param_info[param_i];
+
+            TypeTableEntry *param_type = gen_info->type;
             LLVMValueRef argument_val = LLVMGetParam(fn_val, gen_index);
-            bool param_is_noalias = param_node->data.param_decl.is_noalias;
-            if (param_is_noalias) {
+            if (param_info->is_noalias) {
                 LLVMAddAttribute(argument_val, LLVMNoAliasAttribute);
             }
             if ((param_type->id == TypeTableEntryIdPointer && param_type->data.pointer.is_const) || is_byval) {
@@ -2402,7 +2398,6 @@ static void do_code_gen(CodeGen *g) {
         if (should_skip_fn_codegen(g, fn_table_entry))
             continue;
 
-        ImportTableEntry *import = fn_table_entry->import_entry;
         LLVMValueRef fn = fn_llvm_value(g, fn_table_entry);
         g->cur_fn = fn_table_entry;
         g->cur_fn_val = fn;
@@ -2411,10 +2406,6 @@ static void do_code_gen(CodeGen *g) {
         } else {
             g->cur_ret_ptr = nullptr;
         }
-
-        AstNode *proto_node = fn_table_entry->proto_node;
-        assert(proto_node->type == NodeTypeFnProto);
-        AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
         build_all_basic_blocks(g, fn_table_entry);
         clear_debug_source_node(g);
@@ -2443,6 +2434,8 @@ static void do_code_gen(CodeGen *g) {
             }
             *slot = LLVMBuildAlloca(g->builder, instruction->type_entry->type_ref, "");
         }
+
+        ImportTableEntry *import = get_scope_import(&fn_table_entry->fndef_scope->base);
 
         // create debug variable declarations for variables and allocate all local variables
         for (size_t var_i = 0; var_i < fn_table_entry->variable_list.length; var_i += 1) {
@@ -2484,10 +2477,12 @@ static void do_code_gen(CodeGen *g) {
             }
         }
 
+        FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
+
         // create debug variable declarations for parameters
         // rely on the first variables in the variable_list being parameters.
         size_t next_var_i = 0;
-        for (size_t param_i = 0; param_i < fn_proto->params.length; param_i += 1) {
+        for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
             FnGenParamInfo *info = &fn_table_entry->type_entry->data.fn.gen_param_info[param_i];
             if (info->gen_index == SIZE_MAX)
                 continue;
@@ -3392,14 +3387,12 @@ void codegen_generate_h_file(CodeGen *g) {
     buf_resize(&h_buf, 0);
     for (size_t fn_def_i = 0; fn_def_i < g->fn_defs.length; fn_def_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_defs.at(fn_def_i);
-        AstNode *proto_node = fn_table_entry->proto_node;
-        assert(proto_node->type == NodeTypeFnProto);
-        AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-        if (fn_proto->visib_mod != VisibModExport)
+        if (fn_table_entry->internal_linkage)
             continue;
 
         FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
+
         Buf return_type_c = BUF_INIT;
         get_c_type(g, fn_type_id->return_type, &return_type_c);
 
@@ -3412,7 +3405,7 @@ void codegen_generate_h_file(CodeGen *g) {
         if (fn_type_id->param_count > 0) {
             for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
                 FnTypeParamInfo *param_info = &fn_type_id->param_info[param_i];
-                AstNode *param_decl_node = fn_proto->params.at(param_i);
+                AstNode *param_decl_node = get_param_decl_node(fn_table_entry, param_i);
                 Buf *param_name = param_decl_node->data.param_decl.name;
 
                 const char *comma_str = (param_i == 0) ? "" : ", ";

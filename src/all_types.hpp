@@ -726,6 +726,19 @@ struct FnTypeParamInfo {
     TypeTableEntry *type;
 };
 
+struct GenericParamValue {
+    TypeTableEntry *type;
+    ConstExprValue *value;
+};
+
+struct GenericFnTypeId {
+    FnTableEntry *fn_entry;
+    GenericParamValue *params;
+    size_t param_count;
+};
+
+uint32_t generic_fn_type_id_hash(GenericFnTypeId *id);
+bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b);
 
 struct FnTypeId {
     TypeTableEntry *return_type;
@@ -957,7 +970,6 @@ struct FnTableEntry {
     ScopeFnDef *fndef_scope; // parent should be the top level decls or container decls
     Scope *child_scope; // parent is scope for last parameter
     ScopeBlock *def_scope; // parent is child_scope
-    ImportTableEntry *import_entry;
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
     TypeTableEntry *implicit_return_type;
@@ -969,6 +981,7 @@ struct FnTableEntry {
     IrExecutable ir_executable;
     IrExecutable analyzed_executable;
     size_t prealloc_bbc;
+    AstNode **param_source_nodes;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_export_set_node;
@@ -1050,6 +1063,7 @@ struct CodeGen {
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
     HashMap<FnTypeId *, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
+    HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
 
     ZigList<ImportTableEntry *> import_queue;
     size_t import_queue_index;
@@ -1201,7 +1215,6 @@ struct VariableTableEntry {
     Scope *parent_scope;
     Scope *child_scope;
     LLVMValueRef param_value_ref;
-    bool force_depends_on_compile_var;
     bool shadowable;
     size_t mem_slot_index;
     size_t ref_count;
