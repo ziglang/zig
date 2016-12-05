@@ -364,6 +364,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
         case NodeTypeLabel:
+        case NodeTypeStructValueField:
             zig_unreachable();
         case NodeTypeRoot:
             for (size_t i = 0; i < node->data.root.top_level_decls.length; i += 1) {
@@ -602,9 +603,30 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeContainerInitExpr:
             render_node_ungrouped(ar, node->data.container_init_expr.type);
-            fprintf(ar->f, "{");
-            assert(node->data.container_init_expr.entries.length == 0);
+            if (node->data.container_init_expr.kind == ContainerInitKindStruct) {
+                fprintf(ar->f, "{\n");
+                ar->indent += ar->indent_size;
+            } else {
+                fprintf(ar->f, "{");
+            }
+            for (size_t i = 0; i < node->data.container_init_expr.entries.length; i += 1) {
+                AstNode *entry = node->data.container_init_expr.entries.at(i);
+                if (entry->type == NodeTypeStructValueField) {
+                    Buf *name = entry->data.struct_val_field.name;
+                    AstNode *expr = entry->data.struct_val_field.expr;
+                    fprintf(ar->f, ".%s = ", buf_ptr(name));
+                    render_node_grouped(ar, expr);
+                    fprintf(ar->f, ",\n");
+                } else {
+                    if (i != 0)
+                        fprintf(ar->f, ", ");
+                    render_node_grouped(ar, entry);
+                }
+            }
             fprintf(ar->f, "}");
+            if (node->data.container_init_expr.kind == ContainerInitKindStruct) {
+                ar->indent -= ar->indent_size;
+            }
             break;
         case NodeTypeArrayType:
             {
@@ -788,7 +810,40 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeGoto:
             {
-                fprintf(ar->f, "goto %s", buf_ptr(node->data.goto_expr.name));
+                const char *inline_str = node->data.goto_expr.is_inline ? "inline " : "";
+                fprintf(ar->f, "%sgoto %s", inline_str, buf_ptr(node->data.goto_expr.name));
+                break;
+            }
+        case NodeTypeForExpr:
+            {
+                const char *inline_str = node->data.for_expr.is_inline ? "inline " : "";
+                fprintf(ar->f, "%sfor (", inline_str);
+                render_node_grouped(ar, node->data.for_expr.array_expr);
+                fprintf(ar->f, ") ");
+                if (node->data.for_expr.elem_node) {
+                    fprintf(ar->f, "|");
+                    if (node->data.for_expr.elem_is_ptr)
+                        fprintf(ar->f, "*");
+                    render_node_grouped(ar, node->data.for_expr.elem_node);
+                    if (node->data.for_expr.index_node) {
+                        fprintf(ar->f, ", ");
+                        render_node_grouped(ar, node->data.for_expr.index_node);
+                    }
+                    fprintf(ar->f, "| ");
+                }
+                render_node_grouped(ar, node->data.for_expr.body);
+                break;
+            }
+        case NodeTypeBreak:
+            {
+                const char *inline_str = node->data.break_expr.is_inline ? "inline " : "";
+                fprintf(ar->f, "%sbreak", inline_str);
+                break;
+            }
+        case NodeTypeContinue:
+            {
+                const char *inline_str = node->data.continue_expr.is_inline ? "inline " : "";
+                fprintf(ar->f, "%scontinue", inline_str);
                 break;
             }
         case NodeTypeFnDecl:
@@ -797,12 +852,8 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeUnwrapErrorExpr:
         case NodeTypeSliceExpr:
         case NodeTypeStructField:
-        case NodeTypeStructValueField:
         case NodeTypeUse:
         case NodeTypeZeroesLiteral:
-        case NodeTypeForExpr:
-        case NodeTypeBreak:
-        case NodeTypeContinue:
             zig_panic("TODO more ast rendering");
     }
 }

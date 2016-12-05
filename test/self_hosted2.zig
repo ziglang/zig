@@ -139,6 +139,20 @@ fn testFnWithInlineArgs() {
 }
 
 
+fn testContinueInForLoop() {
+    const array = []i32 {1, 2, 3, 4, 5};
+    var sum : i32 = 0;
+    for (array) |x| {
+        sum += x;
+        if (x < 3) {
+            continue;
+        }
+        break;
+    }
+    assert(sum == 6);
+}
+
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -158,6 +172,7 @@ fn runAllTests() {
     testCompileTimeFib();
     testCompileTimeGenericEval();
     testFnWithInlineArgs();
+    testContinueInForLoop();
 }
 
 export nakedcc fn _start() -> unreachable {

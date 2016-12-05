@@ -104,7 +104,7 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
             }
         case TypeTableEntryIdBlock:
             {
-                AstNode *node = const_val->data.x_block->node;
+                AstNode *node = const_val->data.x_block->source_node;
                 fprintf(irp->f, "(scope:%zu:%zu)", node->line + 1, node->column + 1);
                 return;
             }

@@ -642,9 +642,11 @@ struct AstNodeBoolLiteral {
 };
 
 struct AstNodeBreakExpr {
+    bool is_inline; // TODO
 };
 
 struct AstNodeContinueExpr {
+    bool is_inline; // TODO
 };
 
 struct AstNodeArrayType {
@@ -1233,11 +1235,21 @@ struct LabelTableEntry {
     bool used;
 };
 
-struct Scope {
-    AstNode *node;
+enum ScopeId {
+    ScopeIdDecls,
+    ScopeIdBlock,
+    ScopeIdDefer,
+    ScopeIdVarDecl,
+    ScopeIdCImport,
+    ScopeIdLoop,
+    ScopeIdFnDef,
+};
 
-    // if the scope has a parent, this is it. Every scope has a parent except
-    // ScopeIdGlobal
+struct Scope {
+    ScopeId id;
+    AstNode *source_node;
+
+    // if the scope has a parent, this is it
     Scope *parent;
 
     ZigLLVMDIScope *di_scope;
@@ -1293,6 +1305,7 @@ struct ScopeCImport {
 // This scope is created for a loop such as for or while in order to
 // make break and continue statements work.
 // NodeTypeForExpr or NodeTypeWhileExpr
+// TODO I think we can get rid of this
 struct ScopeLoop {
     Scope base;
 };

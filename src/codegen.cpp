@@ -277,40 +277,55 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
     if (scope->di_scope)
         return scope->di_scope;
 
-    if (scope->node->type == NodeTypeFnDef) {
-        assert(scope->parent);
-        ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
-        FnTableEntry *fn_table_entry = fn_scope->fn_entry;
-        unsigned line_number = fn_table_entry->proto_node->line + 1;
-        unsigned scope_line = line_number;
-        bool is_definition = fn_table_entry->fn_def_node != nullptr;
-        unsigned flags = 0;
-        bool is_optimized = g->is_release_build;
-        ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
-            get_di_scope(g, scope->parent), buf_ptr(&fn_table_entry->symbol_name), "",
-            scope->node->owner->di_file, line_number,
-            fn_table_entry->type_entry->di_type, fn_table_entry->internal_linkage,
-            is_definition, scope_line, flags, is_optimized, nullptr);
+    ImportTableEntry *import = get_scope_import(scope);
+    switch (scope->id) {
+        case ScopeIdCImport:
+            zig_unreachable();
+        case ScopeIdFnDef:
+        {
+            assert(scope->parent);
+            ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
+            FnTableEntry *fn_table_entry = fn_scope->fn_entry;
+            unsigned line_number = fn_table_entry->proto_node->line + 1;
+            unsigned scope_line = line_number;
+            bool is_definition = fn_table_entry->fn_def_node != nullptr;
+            unsigned flags = 0;
+            bool is_optimized = g->is_release_build;
+            ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
+                get_di_scope(g, scope->parent), buf_ptr(&fn_table_entry->symbol_name), "",
+                import->di_file, line_number,
+                fn_table_entry->type_entry->di_type, fn_table_entry->internal_linkage,
+                is_definition, scope_line, flags, is_optimized, nullptr);
 
-        scope->di_scope = ZigLLVMSubprogramToScope(subprogram);
-        ZigLLVMFnSetSubprogram(fn_llvm_value(g, fn_table_entry), subprogram);
-    } else if (scope->node->type == NodeTypeRoot) {
-        scope->di_scope = ZigLLVMFileToScope(scope->node->owner->di_file);
-    } else if (scope->node->type == NodeTypeContainerDecl) {
-        ScopeDecls *decls_scope = (ScopeDecls *)scope;
-        assert(decls_scope->container_type);
-        scope->di_scope = ZigLLVMTypeToScope(decls_scope->container_type->di_type);
-    } else {
-        assert(scope->parent);
-        ZigLLVMDILexicalBlock *di_block = ZigLLVMCreateLexicalBlock(g->dbuilder,
-            get_di_scope(g, scope->parent),
-            scope->node->owner->di_file,
-            scope->node->line + 1,
-            scope->node->column + 1);
-        scope->di_scope = ZigLLVMLexicalBlockToScope(di_block);
+            scope->di_scope = ZigLLVMSubprogramToScope(subprogram);
+            ZigLLVMFnSetSubprogram(fn_llvm_value(g, fn_table_entry), subprogram);
+            return scope->di_scope;
+        }
+        case ScopeIdDecls:
+            if (scope->parent) {
+                ScopeDecls *decls_scope = (ScopeDecls *)scope;
+                assert(decls_scope->container_type);
+                scope->di_scope = ZigLLVMTypeToScope(decls_scope->container_type->di_type);
+            } else {
+                scope->di_scope = ZigLLVMFileToScope(import->di_file);
+            }
+            return scope->di_scope;
+        case ScopeIdBlock:
+        case ScopeIdDefer:
+        case ScopeIdVarDecl:
+        case ScopeIdLoop:
+        {
+            assert(scope->parent);
+            ZigLLVMDILexicalBlock *di_block = ZigLLVMCreateLexicalBlock(g->dbuilder,
+                get_di_scope(g, scope->parent),
+                import->di_file,
+                scope->source_node->line + 1,
+                scope->source_node->column + 1);
+            scope->di_scope = ZigLLVMLexicalBlockToScope(di_block);
+            return scope->di_scope;
+        }
     }
-
-    return scope->di_scope;
+    zig_unreachable();
 }
 
 static void clear_debug_source_node(CodeGen *g) {
@@ -400,11 +415,11 @@ static bool ir_want_debug_safety(CodeGen *g, IrInstruction *instruction) {
     // TODO memoize
     Scope *scope = instruction->scope;
     while (scope) {
-        if (scope->node->type == NodeTypeBlock) {
+        if (scope->id == ScopeIdBlock) {
             ScopeBlock *block_scope = (ScopeBlock *)scope;
             if (block_scope->safety_set_node)
                 return !block_scope->safety_off;
-        } else if (scope->node->type == NodeTypeRoot || scope->node->type == NodeTypeContainerDecl) {
+        } else if (scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;
             if (decls_scope->safety_set_node)
                 return !decls_scope->safety_off;

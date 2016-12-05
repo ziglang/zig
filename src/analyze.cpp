@@ -130,15 +130,16 @@ ScopeDecls *get_container_scope(TypeTableEntry *type_entry) {
     return *get_container_scope_ptr(type_entry);
 }
 
-void init_scope(Scope *dest, AstNode *node, Scope *parent) {
-    dest->node = node;
+void init_scope(Scope *dest, ScopeId id, AstNode *source_node, Scope *parent) {
+    dest->id = id;
+    dest->source_node = source_node;
     dest->parent = parent;
 }
 
 static ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEntry *container_type, ImportTableEntry *import) {
     assert(node->type == NodeTypeRoot || node->type == NodeTypeContainerDecl);
     ScopeDecls *scope = allocate<ScopeDecls>(1);
-    init_scope(&scope->base, node, parent);
+    init_scope(&scope->base, ScopeIdDecls, node, parent);
     scope->decl_table.init(4);
     scope->container_type = container_type;
     scope->import = import;
@@ -148,7 +149,7 @@ static ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEnt
 Scope *create_block_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeBlock);
     ScopeBlock *scope = allocate<ScopeBlock>(1);
-    init_scope(&scope->base, node, parent);
+    init_scope(&scope->base, ScopeIdBlock, node, parent);
     scope->label_table.init(1);
     return &scope->base;
 }
@@ -156,14 +157,13 @@ Scope *create_block_scope(AstNode *node, Scope *parent) {
 Scope *create_defer_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeDefer);
     ScopeDefer *scope = allocate<ScopeDefer>(1);
-    init_scope(&scope->base, node, parent);
+    init_scope(&scope->base, ScopeIdDefer, node, parent);
     return &scope->base;
 }
 
 Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var) {
-    assert(node->type == NodeTypeVariableDeclaration || node->type == NodeTypeParamDecl);
     ScopeVarDecl *scope = allocate<ScopeVarDecl>(1);
-    init_scope(&scope->base, node, parent);
+    init_scope(&scope->base, ScopeIdVarDecl, node, parent);
     scope->var = var;
     return &scope->base;
 }
@@ -171,7 +171,7 @@ Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var) {
 Scope *create_cimport_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeFnCallExpr);
     ScopeCImport *scope = allocate<ScopeCImport>(1);
-    init_scope(&scope->base, node, parent);
+    init_scope(&scope->base, ScopeIdCImport, node, parent);
     buf_resize(&scope->c_import_buf, 0);
     return &scope->base;
 }
@@ -179,21 +179,21 @@ Scope *create_cimport_scope(AstNode *node, Scope *parent) {
 Scope *create_loop_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeWhileExpr || node->type == NodeTypeForExpr);
     ScopeLoop *scope = allocate<ScopeLoop>(1);
-    init_scope(&scope->base, node, parent);
+    init_scope(&scope->base, ScopeIdLoop, node, parent);
     return &scope->base;
 }
 
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry) {
     assert(node->type == NodeTypeFnDef);
     ScopeFnDef *scope = allocate<ScopeFnDef>(1);
-    init_scope(&scope->base, node, parent);
+    init_scope(&scope->base, ScopeIdFnDef, node, parent);
     scope->fn_entry = fn_entry;
     return scope;
 }
 
 ImportTableEntry *get_scope_import(Scope *scope) {
     while (scope) {
-        if (scope->node->type == NodeTypeRoot || scope->node->type == NodeTypeContainerDecl) {
+        if (scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;
             assert(decls_scope->import);
             return decls_scope->import;
@@ -1991,9 +1991,7 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
 
 Tld *find_decl(Scope *scope, Buf *name) {
     while (scope) {
-        if (scope->node->type == NodeTypeRoot ||
-            scope->node->type == NodeTypeContainerDecl)
-        {
+        if (scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;
             auto entry = decls_scope->decl_table.maybe_get(name);
             if (entry)
@@ -2006,15 +2004,11 @@ Tld *find_decl(Scope *scope, Buf *name) {
 
 VariableTableEntry *find_variable(CodeGen *g, Scope *scope, Buf *name) {
     while (scope) {
-        if (scope->node->type == NodeTypeVariableDeclaration ||
-            scope->node->type == NodeTypeParamDecl)
-        {
+        if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
             if (buf_eql_buf(name, &var_scope->var->name))
                 return var_scope->var;
-        } else if (scope->node->type == NodeTypeRoot ||
-                   scope->node->type == NodeTypeContainerDecl)
-        {
+        } else if (scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;
             auto entry = decls_scope->decl_table.maybe_get(name);
             if (entry) {
@@ -2034,7 +2028,7 @@ VariableTableEntry *find_variable(CodeGen *g, Scope *scope, Buf *name) {
 
 FnTableEntry *scope_fn_entry(Scope *scope) {
     while (scope) {
-        if (scope->node->type == NodeTypeFnDef) {
+        if (scope->id == ScopeIdFnDef) {
             ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
             return fn_scope->fn_entry;
         }
