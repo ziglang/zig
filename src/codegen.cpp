@@ -3083,7 +3083,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn_with_arg_count(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdIntType, "intType", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdUnreachable, "unreachable", 0);
-    create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnTest, "setFnTest", 2);
+    create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnTest, "setFnTest", 1);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnVisible, "setFnVisible", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSetFnNoInline, "setFnNoInline", 2);
     create_builtin_fn_with_arg_count(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);

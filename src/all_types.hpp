@@ -987,7 +987,6 @@ struct FnTableEntry {
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_export_set_node;
-    AstNode *fn_test_set_node;
     AstNode *fn_static_eval_set_node;
 
     ZigList<IrInstruction *> alloca_list;
@@ -1674,7 +1673,6 @@ struct IrInstructionSetFnTest {
     IrInstruction base;
 
     IrInstruction *fn_value;
-    IrInstruction *is_test;
 };
 
 struct IrInstructionSetFnVisible {

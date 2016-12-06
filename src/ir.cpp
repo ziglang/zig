@@ -934,15 +934,13 @@ static IrInstruction *ir_build_ptr_type_child(IrBuilder *irb, Scope *scope, AstN
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_set_fn_test(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *fn_value,
-        IrInstruction *is_test)
+static IrInstruction *ir_build_set_fn_test(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *fn_value)
 {
     IrInstructionSetFnTest *instruction = ir_build_instruction<IrInstructionSetFnTest>(irb, scope, source_node);
     instruction->fn_value = fn_value;
-    instruction->is_test = is_test;
 
     ir_ref_instruction(fn_value);
-    ir_ref_instruction(is_test);
 
     return &instruction->base;
 }
@@ -1786,12 +1784,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
-                if (arg1_value == irb->codegen->invalid_instruction)
-                    return arg1_value;
-
-                return ir_build_set_fn_test(irb, scope, node, arg0_value, arg1_value);
+                return ir_build_set_fn_test(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdSetFnVisible:
             {
@@ -5680,26 +5673,15 @@ static TypeTableEntry *ir_analyze_instruction_set_fn_test(IrAnalyze *ira,
         IrInstructionSetFnTest *set_fn_test_instruction)
 {
     IrInstruction *fn_value = set_fn_test_instruction->fn_value->other;
-    IrInstruction *is_test_value = set_fn_test_instruction->is_test->other;
 
     FnTableEntry *fn_entry = ir_resolve_fn(ira, fn_value);
     if (!fn_entry)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (!ir_resolve_bool(ira, is_test_value, &fn_entry->is_test))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    AstNode *source_node = set_fn_test_instruction->base.source_node;
-    if (fn_entry->fn_test_set_node) {
-        ErrorMsg *msg = add_node_error(ira->codegen, source_node,
-                buf_sprintf("function test attribute set twice"));
-        add_error_note(ira->codegen, msg, fn_entry->fn_test_set_node, buf_sprintf("first set here"));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-    fn_entry->fn_test_set_node = source_node;
-
-    if (fn_entry->is_test)
+    if (!fn_entry->is_test) {
+        fn_entry->is_test = true;
         ira->codegen->test_fn_count += 1;
+    }
 
     ir_build_const_from(ira, &set_fn_test_instruction->base, false);
     return ira->codegen->builtin_types.entry_void;

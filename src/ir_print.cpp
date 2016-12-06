@@ -491,8 +491,6 @@ static void ir_print_enum_field_ptr(IrPrint *irp, IrInstructionEnumFieldPtr *ins
 static void ir_print_set_fn_test(IrPrint *irp, IrInstructionSetFnTest *instruction) {
     fprintf(irp->f, "@setFnTest(");
     ir_print_other_instruction(irp, instruction->fn_value);
-    fprintf(irp->f, ", ");
-    ir_print_other_instruction(irp, instruction->is_test);
     fprintf(irp->f, ")");
 }
 

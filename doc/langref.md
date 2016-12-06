@@ -616,3 +616,7 @@ or `switch` with compile time constants, and inline functions.
 ### @intType(inline is_signed: bool, inline bit_count: u8) -> type
 
 This function returns an integer type with the given signness and bit count.
+
+### @setFnTest(func)
+
+Makes the target function a test function.
