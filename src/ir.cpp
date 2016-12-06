@@ -1424,6 +1424,80 @@ static IrInstruction *ir_gen_assign_op(IrBuilder *irb, Scope *scope, AstNode *no
     return ir_build_const_void(irb, scope, node);
 }
 
+static IrInstruction *ir_gen_bool_or(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeBinOpExpr);
+
+    bool is_inline = ir_should_inline(irb);
+
+    IrInstruction *val1 = ir_gen_node(irb, node->data.bin_op_expr.op1, scope);
+    if (val1 == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+    IrBasicBlock *post_val1_block = irb->current_basic_block;
+
+    // block for when val1 == false
+    IrBasicBlock *false_block = ir_build_basic_block(irb, "BoolOrFalse");
+    // block for when val1 == true (don't even evaluate the second part)
+    IrBasicBlock *true_block = ir_build_basic_block(irb, "BoolOrTrue");
+
+    ir_build_cond_br(irb, scope, node, val1, true_block, false_block, is_inline);
+
+    ir_set_cursor_at_end(irb, false_block);
+    IrInstruction *val2 = ir_gen_node(irb, node->data.bin_op_expr.op2, scope);
+    if (val2 == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+    IrBasicBlock *post_val2_block = irb->current_basic_block;
+
+    ir_build_br(irb, scope, node, true_block, is_inline);
+
+    ir_set_cursor_at_end(irb, true_block);
+
+    IrInstruction **incoming_values = allocate<IrInstruction *>(2);
+    incoming_values[0] = val1;
+    incoming_values[1] = val2;
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    incoming_blocks[0] = post_val1_block;
+    incoming_blocks[1] = post_val2_block;
+
+    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+}
+
+static IrInstruction *ir_gen_bool_and(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeBinOpExpr);
+
+    bool is_inline = ir_should_inline(irb);
+
+    IrInstruction *val1 = ir_gen_node(irb, node->data.bin_op_expr.op1, scope);
+    if (val1 == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+    IrBasicBlock *post_val1_block = irb->current_basic_block;
+
+    // block for when val1 == true
+    IrBasicBlock *true_block = ir_build_basic_block(irb, "BoolAndTrue");
+    // block for when val1 == false (don't even evaluate the second part)
+    IrBasicBlock *false_block = ir_build_basic_block(irb, "BoolAndFalse");
+
+    ir_build_cond_br(irb, scope, node, val1, true_block, false_block, is_inline);
+
+    ir_set_cursor_at_end(irb, true_block);
+    IrInstruction *val2 = ir_gen_node(irb, node->data.bin_op_expr.op2, scope);
+    if (val2 == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+    IrBasicBlock *post_val2_block = irb->current_basic_block;
+
+    ir_build_br(irb, scope, node, false_block, is_inline);
+
+    ir_set_cursor_at_end(irb, false_block);
+
+    IrInstruction **incoming_values = allocate<IrInstruction *>(2);
+    incoming_values[0] = val1;
+    incoming_values[1] = val2;
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    incoming_blocks[0] = post_val1_block;
+    incoming_blocks[1] = post_val2_block;
+
+    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+}
+
 static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
@@ -1466,10 +1540,9 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
         case BinOpTypeAssignBoolOr:
             return ir_gen_assign_op(irb, scope, node, IrBinOpBoolOr);
         case BinOpTypeBoolOr:
+            return ir_gen_bool_or(irb, scope, node);
         case BinOpTypeBoolAnd:
-            // note: this is not a direct mapping to IrBinOpBoolOr/And
-            // because of the control flow
-            zig_panic("TODO gen IR for bool or/and");
+            return ir_gen_bool_and(irb, scope, node);
         case BinOpTypeCmpEq:
             return ir_gen_bin_op_id(irb, scope, node, IrBinOpCmpEq);
         case BinOpTypeCmpNotEq:
@@ -8262,63 +8335,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //}
 //
 //
-//
-//static LLVMValueRef gen_bool_and_expr(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeBinOpExpr);
-//
-//    LLVMValueRef val1 = gen_expr(g, node->data.bin_op_expr.op1);
-//    LLVMBasicBlockRef post_val1_block = LLVMGetInsertBlock(g->builder);
-//
-//    // block for when val1 == true
-//    LLVMBasicBlockRef true_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolAndTrue");
-//    // block for when val1 == false (don't even evaluate the second part)
-//    LLVMBasicBlockRef false_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolAndFalse");
-//
-//    LLVMBuildCondBr(g->builder, val1, true_block, false_block);
-//
-//    LLVMPositionBuilderAtEnd(g->builder, true_block);
-//    LLVMValueRef val2 = gen_expr(g, node->data.bin_op_expr.op2);
-//    LLVMBasicBlockRef post_val2_block = LLVMGetInsertBlock(g->builder);
-//
-//    LLVMBuildBr(g->builder, false_block);
-//
-//    LLVMPositionBuilderAtEnd(g->builder, false_block);
-//    LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMInt1Type(), "");
-//    LLVMValueRef incoming_values[2] = {val1, val2};
-//    LLVMBasicBlockRef incoming_blocks[2] = {post_val1_block, post_val2_block};
-//    LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
-//
-//    return phi;
-//}
-//
-//static LLVMValueRef gen_bool_or_expr(CodeGen *g, AstNode *expr_node) {
-//    assert(expr_node->type == NodeTypeBinOpExpr);
-//
-//    LLVMValueRef val1 = gen_expr(g, expr_node->data.bin_op_expr.op1);
-//    LLVMBasicBlockRef post_val1_block = LLVMGetInsertBlock(g->builder);
-//
-//    // block for when val1 == false
-//    LLVMBasicBlockRef false_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolOrFalse");
-//    // block for when val1 == true (don't even evaluate the second part)
-//    LLVMBasicBlockRef true_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "BoolOrTrue");
-//
-//    LLVMBuildCondBr(g->builder, val1, true_block, false_block);
-//
-//    LLVMPositionBuilderAtEnd(g->builder, false_block);
-//    LLVMValueRef val2 = gen_expr(g, expr_node->data.bin_op_expr.op2);
-//
-//    LLVMBasicBlockRef post_val2_block = LLVMGetInsertBlock(g->builder);
-//
-//    LLVMBuildBr(g->builder, true_block);
-//
-//    LLVMPositionBuilderAtEnd(g->builder, true_block);
-//    LLVMValueRef phi = LLVMBuildPhi(g->builder, LLVMInt1Type(), "");
-//    LLVMValueRef incoming_values[2] = {val1, val2};
-//    LLVMBasicBlockRef incoming_blocks[2] = {post_val1_block, post_val2_block};
-//    LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
-//
-//    return phi;
-//}
 //
 //static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeBinOpExpr);

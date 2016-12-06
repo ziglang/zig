@@ -152,6 +152,33 @@ fn testContinueInForLoop() {
     assert(sum == 6);
 }
 
+fn shortCircuit() {
+    var hit_1 = false;
+    var hit_2 = false;
+    var hit_3 = false;
+    var hit_4 = false;
+
+    if (true || {assert(false); false}) {
+        hit_1 = true;
+    }
+    if (false || { hit_2 = true; false }) {
+        assert(false);
+    }
+
+    if (true && { hit_3 = true; false }) {
+        assert(false);
+    }
+    if (false && {assert(false); false}) {
+        assert(false);
+    } else {
+        hit_4 = true;
+    }
+    assert(hit_1);
+    assert(hit_2);
+    assert(hit_3);
+    assert(hit_4);
+}
+
 
 fn assert(ok: bool) {
     if (!ok)
@@ -173,6 +200,7 @@ fn runAllTests() {
     testCompileTimeGenericEval();
     testFnWithInlineArgs();
     testContinueInForLoop();
+    shortCircuit();
 }
 
 export nakedcc fn _start() -> unreachable {
