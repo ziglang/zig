@@ -1049,8 +1049,6 @@ struct BuiltinFnEntry {
     BuiltinFnId id;
     Buf name;
     size_t param_count;
-    TypeTableEntry *return_type;
-    TypeTableEntry **param_types;
     uint32_t ref_count;
     LLVMValueRef fn_val;
 };
