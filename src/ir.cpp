@@ -3379,10 +3379,12 @@ static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value) {
 }
 
 IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
-        TypeTableEntry *expected_type, size_t *backward_branch_count, size_t backward_branch_quota)
+        TypeTableEntry *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,
+        FnTableEntry *fn_entry)
 {
     IrExecutable ir_executable = {0};
     ir_executable.is_inline = true;
+    ir_executable.fn_entry = fn_entry;
     ir_gen(codegen, node, scope, &ir_executable);
 
     if (ir_executable.invalid)
@@ -3397,6 +3399,7 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
     }
     IrExecutable analyzed_executable = {0};
     analyzed_executable.is_inline = true;
+    analyzed_executable.fn_entry = fn_entry;
     analyzed_executable.backward_branch_count = backward_branch_count;
     analyzed_executable.backward_branch_quota = backward_branch_quota;
     TypeTableEntry *result_type = ir_analyze(codegen, &ir_executable, &analyzed_executable, expected_type, node);
@@ -4501,7 +4504,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         // Analyze the fn body block like any other constant expression.
         AstNode *body_node = fn_entry->fn_def_node->data.fn_def.body;
         IrInstruction *result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
-            ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota);
+            ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry);
         if (result->type_entry->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
@@ -4926,7 +4929,16 @@ static TypeTableEntry *ir_analyze_unwrap_maybe(IrAnalyze *ira, IrInstructionUnOp
         return type_entry;
     } else if (type_entry->id == TypeTableEntryIdMaybe) {
         if (value->static_value.special != ConstValSpecialRuntime) {
-            zig_panic("TODO compile time eval unwrap maybe");
+            bool depends_on_compile_var = value->static_value.depends_on_compile_var;
+            ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base, depends_on_compile_var);
+            ConstExprValue *child_val = value->static_value.data.x_maybe;
+            if (!child_val) {
+                ir_add_error(ira, &un_op_instruction->base,
+                        buf_sprintf("unable to unwrap null"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+            *out_val = *child_val;
+            return type_entry->data.maybe.child_type;
         }
         ir_build_un_op_from(&ira->new_irb, &un_op_instruction->base, IrUnOpUnwrapMaybe, value);
         return type_entry->data.maybe.child_type;
@@ -6102,10 +6114,14 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
         assert(value->static_value.data.x_ptr.index == SIZE_MAX);
 
         if (maybe_val->special != ConstValSpecialRuntime) {
+            if (!maybe_val->data.x_maybe) {
+                ir_add_error(ira, &unwrap_maybe_instruction->base, buf_sprintf("unable to unwrap null"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
             bool depends_on_compile_var = maybe_val->depends_on_compile_var;
             ConstExprValue *out_val = ir_build_const_from(ira, &unwrap_maybe_instruction->base,
                     depends_on_compile_var);
-            out_val->data.x_ptr.base_ptr = maybe_val;
+            out_val->data.x_ptr.base_ptr = maybe_val->data.x_maybe;
             out_val->data.x_ptr.index = SIZE_MAX;
             return result_type;
         }

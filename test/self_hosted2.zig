@@ -194,6 +194,15 @@ entry:
     if (b) goto exit;
 }
 
+fn unwrapAndAddOne(blah: ?i32) -> i32 {
+    return ??blah + 1;
+}
+
+const should_be_1235 = unwrapAndAddOne(1234);
+
+fn testStaticAddOne() {
+    assert(should_be_1235 == 1235);
+}
 
 
 fn assert(ok: bool) {
@@ -218,6 +227,7 @@ fn runAllTests() {
     testContinueInForLoop();
     shortCircuit();
     testGotoLeaveDeferScope(true);
+    testStaticAddOne();
 }
 
 export nakedcc fn _start() -> unreachable {
