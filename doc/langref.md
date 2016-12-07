@@ -91,9 +91,9 @@ Defer = option("%" | "?") "defer" Expression
 
 IfExpression = IfVarExpression | IfBoolExpression
 
-IfBoolExpression = "if" "(" Expression ")" Expression option(Else)
+IfBoolExpression = option("inline") "if" "(" Expression ")" Expression option(Else)
 
-IfVarExpression = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
+IfVarExpression = option("inline") "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
 
 Else = "else" Expression
 

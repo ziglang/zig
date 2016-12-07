@@ -1306,25 +1306,40 @@ static AstNode *ast_parse_else(ParseContext *pc, size_t *token_index, bool manda
 
 /*
 IfExpression : IfVarExpression | IfBoolExpression
-IfBoolExpression : token(If) token(LParen) Expression token(RParen) Expression option(Else)
-IfVarExpression = "if" "(" ("const" | "var") option("*") "Symbol" option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
+IfBoolExpression = option("inline") "if" "(" Expression ")" Expression option(Else)
+IfVarExpression = option("inline") "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
 */
 static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *if_tok = &pc->tokens->at(*token_index);
-    if (if_tok->id != TokenIdKeywordIf) {
-        if (mandatory) {
+    Token *first_token = &pc->tokens->at(*token_index);
+    Token *if_tok;
+
+    bool is_inline;
+    if (first_token->id == TokenIdKeywordInline) {
+        if_tok = &pc->tokens->at(*token_index + 1);
+        if (if_tok->id == TokenIdKeywordIf) {
+            is_inline = true;
+            *token_index += 2;
+        } else if (mandatory) {
             ast_expect_token(pc, if_tok, TokenIdKeywordIf);
         } else {
             return nullptr;
         }
+    } else if (first_token->id == TokenIdKeywordIf) {
+        if_tok = first_token;
+        is_inline = false;
+        *token_index += 1;
+    } else if (mandatory) {
+        ast_expect_token(pc, first_token, TokenIdKeywordIf);
+    } else {
+        return nullptr;
     }
-    *token_index += 1;
 
     ast_eat_token(pc, token_index, TokenIdLParen);
 
     Token *token = &pc->tokens->at(*token_index);
     if (token->id == TokenIdKeywordConst || token->id == TokenIdKeywordVar) {
         AstNode *node = ast_create_node(pc, NodeTypeIfVarExpr, if_tok);
+        node->data.if_var_expr.is_inline = is_inline;
         node->data.if_var_expr.var_decl.is_const = (token->id == TokenIdKeywordConst);
         *token_index += 1;
 
@@ -1362,6 +1377,7 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool ma
         return node;
     } else {
         AstNode *node = ast_create_node(pc, NodeTypeIfBoolExpr, if_tok);
+        node->data.if_bool_expr.is_inline = is_inline;
         node->data.if_bool_expr.condition = ast_parse_expression(pc, token_index, true);
         ast_eat_token(pc, token_index, TokenIdRParen);
         node->data.if_bool_expr.then_block = ast_parse_expression(pc, token_index, true);
@@ -1561,12 +1577,12 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, size_t *token_index, bool
 
     bool is_inline;
     if (first_token->id == TokenIdKeywordInline) {
-        is_inline = true;
         while_token = &pc->tokens->at(*token_index + 1);
         if (while_token->id == TokenIdKeywordWhile) {
+            is_inline = true;
             *token_index += 2;
         } else if (mandatory) {
-            ast_expect_token(pc, first_token, TokenIdKeywordWhile);
+            ast_expect_token(pc, while_token, TokenIdKeywordWhile);
         } else {
             return nullptr;
         }

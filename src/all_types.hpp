@@ -78,15 +78,23 @@ struct ConstArrayValue {
     size_t size;
 };
 
+enum ConstPtrSpecial {
+    ConstPtrSpecialNone,
+    // This helps us preserve the null byte when performing compile-time
+    // concatenation on C strings.
+    ConstPtrSpecialCStr,
+    // This means that the pointer points to inline memory, so attempting
+    // to write a non-compile-time known value is an error
+    ConstPtrSpecialInline,
+};
+
 struct ConstPtrValue {
     ConstExprValue *base_ptr;
     // If index is SIZE_MAX, then base_ptr points directly to child type.
     // Otherwise base_ptr points to an array const val and index is offset
     // in object units from base_ptr into the block of memory pointed to
     size_t index;
-    // This flag helps us preserve the null byte when performing compile-time
-    // concatenation on C strings.
-    bool is_c_str;
+    ConstPtrSpecial special;
 };
 
 struct ConstErrValue {
@@ -472,7 +480,7 @@ struct AstNodeIfBoolExpr {
     AstNode *condition;
     AstNode *then_block;
     AstNode *else_node; // null, block node, or other if expr node
-    bool is_inline; // TODO parse inline if
+    bool is_inline;
 };
 
 struct AstNodeIfVarExpr {
@@ -480,7 +488,7 @@ struct AstNodeIfVarExpr {
     AstNode *then_block;
     AstNode *else_node; // null, block node, or other if expr node
     bool var_is_ptr;
-    bool is_inline; // TODO parse inline ?if?
+    bool is_inline;
 };
 
 struct AstNodeWhileExpr {

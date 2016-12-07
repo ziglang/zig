@@ -540,7 +540,7 @@ static IrInstruction *ir_build_const_c_str_lit(IrBuilder *irb, Scope *scope, Ast
     ptr_val->special = ConstValSpecialStatic;
     ptr_val->data.x_ptr.base_ptr = array_val;
     ptr_val->data.x_ptr.index = 0;
-    ptr_val->data.x_ptr.is_c_str = true;
+    ptr_val->data.x_ptr.special = ConstPtrSpecialCStr;
 
     return &const_instruction->base;
 }
@@ -3352,13 +3352,15 @@ static TypeTableEntry *ir_analyze_void(IrAnalyze *ira, IrInstruction *instructio
 }
 
 static TypeTableEntry *ir_analyze_const_ptr(IrAnalyze *ira, IrInstruction *instruction,
-        ConstExprValue *pointee, TypeTableEntry *pointee_type, bool depends_on_compile_var)
+        ConstExprValue *pointee, TypeTableEntry *pointee_type, bool depends_on_compile_var,
+        ConstPtrSpecial special)
 {
     TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, pointee_type, true);
     ConstExprValue *const_val = ir_build_const_from(ira, instruction,
             depends_on_compile_var || pointee->depends_on_compile_var);
     const_val->data.x_ptr.base_ptr = pointee;
     const_val->data.x_ptr.index = SIZE_MAX;
+    const_val->data.x_ptr.special = special;
     return ptr_type;
 }
 
@@ -3791,7 +3793,7 @@ static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_inst
         ConstExprValue *val = ir_resolve_const(ira, value);
         if (!val)
             return ira->codegen->builtin_types.entry_invalid;
-        return ir_analyze_const_ptr(ira, source_instruction, val, value->type_entry, false);
+        return ir_analyze_const_ptr(ira, source_instruction, val, value->type_entry, false, ConstPtrSpecialNone);
     }
 
     TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, value->type_entry, true);
@@ -4338,10 +4340,17 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     var->type = result_type;
     assert(var->type);
 
-    if (var->mem_slot_index != SIZE_MAX) {
-        assert(var->mem_slot_index < ira->exec_context.mem_slot_count);
-        ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
-        *mem_slot = casted_init_value->static_value;
+    if (casted_init_value->static_value.special == ConstValSpecialStatic) {
+        if (var->mem_slot_index != SIZE_MAX) {
+            assert(var->mem_slot_index < ira->exec_context.mem_slot_count);
+            ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
+            *mem_slot = casted_init_value->static_value;
+        }
+    } else if (var->is_inline) {
+        ir_add_error(ira, &decl_var_instruction->base,
+                buf_sprintf("cannot store runtime value in compile time variable"));
+        var->type = ira->codegen->builtin_types.entry_invalid;
+        return ira->codegen->builtin_types.entry_invalid;
     }
 
     ir_build_var_decl_from(&ira->new_irb, &decl_var_instruction->base, var, var_type, casted_init_value);
@@ -5192,7 +5201,8 @@ static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruc
     }
 
     if (mem_slot && mem_slot->special != ConstValSpecialRuntime) {
-        return ir_analyze_const_ptr(ira, instruction, mem_slot, var->type, false);
+        ConstPtrSpecial ptr_special = var->is_inline ? ConstPtrSpecialInline : ConstPtrSpecialNone;
+        return ir_analyze_const_ptr(ira, instruction, mem_slot, var->type, false, ptr_special);
     } else {
         ir_build_var_ptr_from(&ira->new_irb, instruction, var);
         return get_pointer_to_type(ira->codegen, var->type, false);
@@ -5407,7 +5417,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             const_val->special = ConstValSpecialStatic;
             const_val->data.x_fn = fn_entry;
 
-            return ir_analyze_const_ptr(ira, source_instruction, const_val, fn_entry->type_entry, depends_on_compile_var);
+            return ir_analyze_const_ptr(ira, source_instruction, const_val, fn_entry->type_entry, depends_on_compile_var, ConstPtrSpecialNone);
         }
         case TldIdContainer:
         {
@@ -5420,7 +5430,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             const_val->special = ConstValSpecialStatic;
             const_val->data.x_type = tld_container->type_entry;
 
-            return ir_analyze_const_ptr(ira, source_instruction, const_val, tld_container->type_entry, depends_on_compile_var);
+            return ir_analyze_const_ptr(ira, source_instruction, const_val, tld_container->type_entry, depends_on_compile_var, ConstPtrSpecialNone);
         }
         case TldIdTypeDef:
         {
@@ -5433,7 +5443,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             const_val->special = ConstValSpecialStatic;
             const_val->data.x_type = tld_typedef->type_entry;
 
-            return ir_analyze_const_ptr(ira, source_instruction, const_val, tld_typedef->type_entry, depends_on_compile_var);
+            return ir_analyze_const_ptr(ira, source_instruction, const_val, tld_typedef->type_entry, depends_on_compile_var, ConstPtrSpecialNone);
         }
     }
     zig_unreachable();
@@ -5461,7 +5471,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             bignum_init_unsigned(&len_val->data.x_bignum, container_type->data.array.len);
 
             TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
-            return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, len_val, usize, false);
+            return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, len_val, usize, false, ConstPtrSpecialNone);
         } else {
             add_node_error(ira->codegen, source_node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
@@ -5570,13 +5580,19 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
     if (casted_value == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (ptr->static_value.special != ConstValSpecialRuntime &&
-        casted_value->static_value.special != ConstValSpecialRuntime)
-    {
-        ConstExprValue *dest_val = const_ptr_pointee(&ptr->static_value);
-        if (dest_val->special != ConstValSpecialRuntime) {
-            *dest_val = casted_value->static_value;
-            return ir_analyze_void(ira, &store_ptr_instruction->base);
+    if (ptr->static_value.special != ConstValSpecialRuntime) {
+        bool is_inline = (ptr->static_value.data.x_ptr.special == ConstPtrSpecialInline);
+        if (casted_value->static_value.special != ConstValSpecialRuntime) {
+            ConstExprValue *dest_val = const_ptr_pointee(&ptr->static_value);
+            if (dest_val->special != ConstValSpecialRuntime) {
+                *dest_val = casted_value->static_value;
+                return ir_analyze_void(ira, &store_ptr_instruction->base);
+            }
+        }
+        if (is_inline) {
+            ir_add_error(ira, &store_ptr_instruction->base,
+                    buf_sprintf("cannot store runtime value in compile time variable"));
+            return ira->codegen->builtin_types.entry_invalid;
         }
     }
 
