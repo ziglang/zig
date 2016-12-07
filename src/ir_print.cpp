@@ -658,6 +658,18 @@ static void ir_print_ref(IrPrint *irp, IrInstructionRef *instruction) {
     ir_print_other_instruction(irp, instruction->value);
 }
 
+static void ir_print_min_value(IrPrint *irp, IrInstructionMinValue *instruction) {
+    fprintf(irp->f, "@minValue(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_max_value(IrPrint *irp, IrInstructionMaxValue *instruction) {
+    fprintf(irp->f, "@maxValue(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -794,6 +806,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdRef:
             ir_print_ref(irp, (IrInstructionRef *)instruction);
+            break;
+        case IrInstructionIdMinValue:
+            ir_print_min_value(irp, (IrInstructionMinValue *)instruction);
+            break;
+        case IrInstructionIdMaxValue:
+            ir_print_max_value(irp, (IrInstructionMaxValue *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

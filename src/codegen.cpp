@@ -1821,6 +1821,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdStaticEval:
         case IrInstructionIdImport:
         case IrInstructionIdContainerInitFields:
+        case IrInstructionIdMinValue:
+        case IrInstructionIdMaxValue:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);

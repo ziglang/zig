@@ -204,6 +204,39 @@ fn testStaticAddOne() {
     assert(should_be_1235 == 1235);
 }
 
+fn gimme1or2(inline a: bool) -> i32 {
+    const x: i32 = 1;
+    const y: i32 = 2;
+    inline var z: i32 = inline if (a) x else y;
+    return z;
+}
+
+fn testInlineVarsAgain() {
+    assert(gimme1or2(true) == 1);
+    assert(gimme1or2(false) == 2);
+}
+
+fn testMinValueAndMaxValue() {
+    assert(@maxValue(u8) == 255);
+    assert(@maxValue(u16) == 65535);
+    assert(@maxValue(u32) == 4294967295);
+    assert(@maxValue(u64) == 18446744073709551615);
+
+    assert(@maxValue(i8) == 127);
+    assert(@maxValue(i16) == 32767);
+    assert(@maxValue(i32) == 2147483647);
+    assert(@maxValue(i64) == 9223372036854775807);
+
+    assert(@minValue(u8) == 0);
+    assert(@minValue(u16) == 0);
+    assert(@minValue(u32) == 0);
+    assert(@minValue(u64) == 0);
+
+    assert(@minValue(i8) == -128);
+    assert(@minValue(i16) == -32768);
+    assert(@minValue(i32) == -2147483648);
+    assert(@minValue(i64) == -9223372036854775808);
+}
 
 fn assert(ok: bool) {
     if (!ok)
@@ -228,6 +261,8 @@ fn runAllTests() {
     shortCircuit();
     testGotoLeaveDeferScope(true);
     testStaticAddOne();
+    testInlineVarsAgain();
+    testMinValueAndMaxValue();
 }
 
 export nakedcc fn _start() -> unreachable {

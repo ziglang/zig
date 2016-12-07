@@ -1393,6 +1393,8 @@ enum IrInstructionId {
     IrInstructionIdImport,
     IrInstructionIdArrayLen,
     IrInstructionIdRef,
+    IrInstructionIdMinValue,
+    IrInstructionIdMaxValue,
 };
 
 struct IrInstruction {
@@ -1789,6 +1791,18 @@ struct IrInstructionRef {
 
     IrInstruction *value;
     LLVMValueRef tmp_ptr;
+};
+
+struct IrInstructionMinValue {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionMaxValue {
+    IrInstruction base;
+
+    IrInstruction *value;
 };
 
 enum LValPurpose {

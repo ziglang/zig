@@ -431,6 +431,8 @@ void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *
     } else if (type_entry->id == TypeTableEntryIdBool) {
         const_val->special = ConstValSpecialStatic;
         const_val->data.x_bool = is_max;
+    } else if (type_entry->id == TypeTableEntryIdVoid) {
+        // nothing to do
     } else {
         zig_unreachable();
     }

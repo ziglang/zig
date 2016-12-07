@@ -306,6 +306,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionStructInit *) {
     return IrInstructionIdStructInit;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionMinValue *) {
+    return IrInstructionIdMinValue;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionMaxValue *) {
+    return IrInstructionIdMaxValue;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1241,6 +1249,25 @@ static IrInstruction *ir_build_ref_from(IrBuilder *irb, IrInstruction *old_instr
     return new_instruction;
 }
 
+static IrInstruction *ir_build_min_value(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
+    IrInstructionMinValue *instruction = ir_build_instruction<IrInstructionMinValue>(irb, scope, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_max_value(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
+    IrInstructionMaxValue *instruction = ir_build_instruction<IrInstructionMaxValue>(irb, scope, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value);
+
+    return &instruction->base;
+}
+
+
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -1879,11 +1906,27 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_import(irb, scope, node, arg0_value);
             }
+        case BuiltinFnIdMaxValue:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_max_value(irb, scope, node, arg0_value);
+            }
+        case BuiltinFnIdMinValue:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_min_value(irb, scope, node, arg0_value);
+            }
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdAlignof:
-        case BuiltinFnIdMaxValue:
-        case BuiltinFnIdMinValue:
         case BuiltinFnIdMemberCount:
         case BuiltinFnIdAddWithOverflow:
         case BuiltinFnIdSubWithOverflow:
@@ -4670,7 +4713,7 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
     if (is_inline || fn_ref->static_value.special != ConstValSpecialRuntime) {
         if (fn_ref->type_entry->id == TypeTableEntryIdMetaType) {
             TypeTableEntry *dest_type = ir_resolve_type(ira, fn_ref);
-            if (!dest_type)
+            if (dest_type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
             size_t actual_param_count = call_instruction->arg_count;
@@ -4958,6 +5001,48 @@ static TypeTableEntry *ir_analyze_unwrap_maybe(IrAnalyze *ira, IrInstructionUnOp
     }
 }
 
+static TypeTableEntry *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
+    IrInstruction *value = un_op_instruction->value->other;
+    TypeTableEntry *expr_type = value->type_entry;
+    if (expr_type->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    bool is_wrap_op = (un_op_instruction->op_id == IrUnOpNegationWrap);
+
+    if ((expr_type->id == TypeTableEntryIdInt && expr_type->data.integral.is_signed) ||
+        expr_type->id == TypeTableEntryIdNumLitInt ||
+        ((expr_type->id == TypeTableEntryIdFloat || expr_type->id == TypeTableEntryIdNumLitFloat) &&
+        !is_wrap_op))
+    {
+        ConstExprValue *target_const_val = &value->static_value;
+        if (target_const_val->special != ConstValSpecialRuntime) {
+            bool depends_on_compile_var = value->static_value.depends_on_compile_var;
+            ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base, depends_on_compile_var);
+            bignum_negate(&out_val->data.x_bignum, &target_const_val->data.x_bignum);
+            if (expr_type->id == TypeTableEntryIdFloat ||
+                expr_type->id == TypeTableEntryIdNumLitFloat ||
+                expr_type->id == TypeTableEntryIdNumLitInt)
+            {
+                return expr_type;
+            }
+
+            bool overflow = !bignum_fits_in_bits(&out_val->data.x_bignum, expr_type->data.integral.bit_count, true);
+            if (is_wrap_op) {
+                if (overflow)
+                    out_val->data.x_bignum.is_negative = true;
+            } else if (overflow) {
+                ir_add_error(ira, &un_op_instruction->base, buf_sprintf("negation caused overflow"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+            return expr_type;
+        }
+    }
+
+    const char *fmt = is_wrap_op ? "invalid wrapping negation type: '%s'" : "invalid negation type: '%s'";
+    ir_add_error(ira, &un_op_instruction->base, buf_sprintf(fmt, buf_ptr(&expr_type->name)));
+    return ira->codegen->builtin_types.entry_invalid;
+}
+
 static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
     IrUnOp op_id = un_op_instruction->op_id;
     switch (op_id) {
@@ -4983,51 +5068,7 @@ static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructio
             //}
         case IrUnOpNegation:
         case IrUnOpNegationWrap:
-            zig_panic("TODO analyze PrefixOpNegation[Wrap]");
-            //{
-            //    TypeTableEntry *expr_type = analyze_expression(g, import, context, nullptr, *expr_node);
-            //    if (expr_type->id == TypeTableEntryIdInvalid) {
-            //        return expr_type;
-            //    } else if ((expr_type->id == TypeTableEntryIdInt &&
-            //                expr_type->data.integral.is_signed) ||
-            //                expr_type->id == TypeTableEntryIdNumLitInt ||
-            //                ((expr_type->id == TypeTableEntryIdFloat ||
-            //                expr_type->id == TypeTableEntryIdNumLitFloat) &&
-            //                prefix_op != PrefixOpNegationWrap))
-            //    {
-            //        ConstExprValue *target_const_val = &get_resolved_expr(*expr_node)->const_val;
-            //        if (!target_const_val->ok) {
-            //            return expr_type;
-            //        }
-            //        ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-            //        const_val->ok = true;
-            //        const_val->depends_on_compile_var = target_const_val->depends_on_compile_var;
-            //        bignum_negate(&const_val->data.x_bignum, &target_const_val->data.x_bignum);
-            //        if (expr_type->id == TypeTableEntryIdFloat ||
-            //            expr_type->id == TypeTableEntryIdNumLitFloat ||
-            //            expr_type->id == TypeTableEntryIdNumLitInt)
-            //        {
-            //            return expr_type;
-            //        }
-
-            //        bool overflow = !bignum_fits_in_bits(&const_val->data.x_bignum,
-            //                expr_type->data.integral.bit_count, expr_type->data.integral.is_signed);
-            //        if (prefix_op == PrefixOpNegationWrap) {
-            //            if (overflow) {
-            //                const_val->data.x_bignum.is_negative = true;
-            //            }
-            //        } else if (overflow) {
-            //            add_node_error(g, *expr_node, buf_sprintf("negation caused overflow"));
-            //            return g->builtin_types.entry_invalid;
-            //        }
-            //        return expr_type;
-            //    } else {
-            //        const char *fmt = (prefix_op == PrefixOpNegationWrap) ?
-            //            "invalid wrapping negation type: '%s'" : "invalid negation type: '%s'";
-            //        add_node_error(g, node, buf_sprintf(fmt, buf_ptr(&expr_type->name)));
-            //        return g->builtin_types.entry_invalid;
-            //    }
-            //}
+            return ir_analyze_negation(ira, un_op_instruction);
         case IrUnOpAddressOf:
         case IrUnOpConstAddressOf:
             return ir_analyze_unary_address_of(ira, un_op_instruction, op_id == IrUnOpConstAddressOf);
@@ -6575,7 +6616,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
 static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira, IrInstructionContainerInitList *instruction) {
     IrInstruction *container_type_value = instruction->container_type->other;
     TypeTableEntry *container_type = ir_resolve_type(ira, container_type_value);
-    if (!container_type)
+    if (container_type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     size_t elem_count = instruction->item_count;
@@ -6661,13 +6702,84 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
 static TypeTableEntry *ir_analyze_instruction_container_init_fields(IrAnalyze *ira, IrInstructionContainerInitFields *instruction) {
     IrInstruction *container_type_value = instruction->container_type->other;
     TypeTableEntry *container_type = ir_resolve_type(ira, container_type_value);
-    if (!container_type)
+    if (container_type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     bool depends_on_compile_var = container_type_value->static_value.depends_on_compile_var;
 
     return ir_analyze_container_init_fields(ira, &instruction->base, container_type,
         instruction->field_count, instruction->fields, depends_on_compile_var);
+}
+
+static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_instruction,
+        IrInstruction *target_type_value, bool is_max)
+{
+    TypeTableEntry *target_type = ir_resolve_type(ira, target_type_value);
+    bool depends_on_compile_var = target_type_value->static_value.depends_on_compile_var;
+    switch (target_type->id) {
+        case TypeTableEntryIdInvalid:
+            return ira->codegen->builtin_types.entry_invalid;
+        case TypeTableEntryIdInt:
+            {
+                ConstExprValue *out_val = ir_build_const_from(ira, source_instruction, depends_on_compile_var);
+                eval_min_max_value(ira->codegen, target_type, out_val, is_max);
+                return ira->codegen->builtin_types.entry_num_lit_int;
+            }
+        case TypeTableEntryIdFloat:
+            {
+                ConstExprValue *out_val = ir_build_const_from(ira, source_instruction, depends_on_compile_var);
+                eval_min_max_value(ira->codegen, target_type, out_val, is_max);
+                return ira->codegen->builtin_types.entry_num_lit_float;
+            }
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdVoid:
+            {
+                ConstExprValue *out_val = ir_build_const_from(ira, source_instruction, depends_on_compile_var);
+                eval_min_max_value(ira->codegen, target_type, out_val, is_max);
+                return target_type;
+            }
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdTypeDecl:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+            {
+                const char *err_format = is_max ?
+                    "no max value available for type '%s'" :
+                    "no min value available for type '%s'";
+                ir_add_error(ira, source_instruction,
+                        buf_sprintf(err_format, buf_ptr(&target_type->name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+    }
+    zig_unreachable();
+}
+
+static TypeTableEntry *ir_analyze_instruction_min_value(IrAnalyze *ira,
+        IrInstructionMinValue *instruction)
+{
+    return ir_analyze_min_max(ira, &instruction->base, instruction->value->other, false);
+}
+
+static TypeTableEntry *ir_analyze_instruction_max_value(IrAnalyze *ira,
+        IrInstructionMaxValue *instruction)
+{
+    return ir_analyze_min_max(ira, &instruction->base, instruction->value->other, true);
 }
 
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
@@ -6754,6 +6866,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_container_init_list(ira, (IrInstructionContainerInitList *)instruction);
         case IrInstructionIdContainerInitFields:
             return ir_analyze_instruction_container_init_fields(ira, (IrInstructionContainerInitFields *)instruction);
+        case IrInstructionIdMinValue:
+            return ir_analyze_instruction_min_value(ira, (IrInstructionMinValue *)instruction);
+        case IrInstructionIdMaxValue:
+            return ir_analyze_instruction_max_value(ira, (IrInstructionMaxValue *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -6880,6 +6996,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdEnumTag:
         case IrInstructionIdStaticEval:
         case IrInstructionIdRef:
+        case IrInstructionIdMinValue:
+        case IrInstructionIdMaxValue:
             return false;
         case IrInstructionIdAsm:
             {
@@ -6892,32 +7010,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 
 // TODO port over all this commented out code into new IR way of doing things
 
-//static TypeTableEntry *analyze_min_max_value(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-//        AstNode *node, const char *err_format, bool is_max)
-//{
-//    assert(node->type == NodeTypeFnCallExpr);
-//    assert(node->data.fn_call_expr.params.length == 1);
-//
-//    AstNode *type_node = node->data.fn_call_expr.params.at(0);
-//    TypeTableEntry *type_entry = analyze_type_expr(g, import, context, type_node);
-//
-//    if (type_entry->id == TypeTableEntryIdInvalid) {
-//        return g->builtin_types.entry_invalid;
-//    } else if (type_entry->id == TypeTableEntryIdInt) {
-//        eval_min_max_value(g, type_entry, &get_resolved_expr(node)->const_val, is_max);
-//        return g->builtin_types.entry_num_lit_int;
-//    } else if (type_entry->id == TypeTableEntryIdFloat) {
-//        eval_min_max_value(g, type_entry, &get_resolved_expr(node)->const_val, is_max);
-//        return g->builtin_types.entry_num_lit_float;
-//    } else if (type_entry->id == TypeTableEntryIdBool) {
-//        eval_min_max_value(g, type_entry, &get_resolved_expr(node)->const_val, is_max);
-//        return type_entry;
-//    } else {
-//        add_node_error(g, node,
-//                buf_sprintf(err_format, buf_ptr(&type_entry->name)));
-//        return g->builtin_types.entry_invalid;
-//    }
-//}
 
 //static TypeTableEntry *analyze_c_import(CodeGen *g, ImportTableEntry *parent_import,
 //        BlockContext *parent_context, AstNode *node)
@@ -7393,12 +7485,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //                            align_in_bytes, false);
 //                }
 //            }
-//        case BuiltinFnIdMaxValue:
-//            return analyze_min_max_value(g, import, context, node,
-//                    "no max value available for type '%s'", true);
-//        case BuiltinFnIdMinValue:
-//            return analyze_min_max_value(g, import, context, node,
-//                    "no min value available for type '%s'", false);
 //        case BuiltinFnIdMemberCount:
 //            {
 //                AstNode *type_node = node->data.fn_call_expr.params.at(0);
