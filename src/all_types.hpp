@@ -1041,7 +1041,6 @@ enum BuiltinFnId {
     BuiltinFnIdUnreachable,
     BuiltinFnIdSetFnTest,
     BuiltinFnIdSetFnVisible,
-    BuiltinFnIdSetFnNoInline,
     BuiltinFnIdSetDebugSafety,
 };
 
@@ -1395,6 +1394,7 @@ enum IrInstructionId {
     IrInstructionIdRef,
     IrInstructionIdMinValue,
     IrInstructionIdMaxValue,
+    IrInstructionIdCompileErr,
 };
 
 struct IrInstruction {
@@ -1803,6 +1803,12 @@ struct IrInstructionMaxValue {
     IrInstruction base;
 
     IrInstruction *value;
+};
+
+struct IrInstructionCompileErr {
+    IrInstruction base;
+
+    IrInstruction *msg;
 };
 
 enum LValPurpose {

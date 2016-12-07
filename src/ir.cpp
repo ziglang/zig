@@ -314,6 +314,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionMaxValue *) {
     return IrInstructionIdMaxValue;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCompileErr *) {
+    return IrInstructionIdCompileErr;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1267,6 +1271,15 @@ static IrInstruction *ir_build_max_value(IrBuilder *irb, Scope *scope, AstNode *
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_compile_err(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *msg) {
+    IrInstructionCompileErr *instruction = ir_build_instruction<IrInstructionCompileErr>(irb, scope, source_node);
+    instruction->msg = msg;
+
+    ir_ref_instruction(msg);
+
+    return &instruction->base;
+}
+
 
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
@@ -1924,6 +1937,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_min_value(irb, scope, node, arg0_value);
             }
+        case BuiltinFnIdCompileErr:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_compile_err(irb, scope, node, arg0_value);
+            }
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdAlignof:
@@ -1935,7 +1957,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdCInclude:
         case BuiltinFnIdCDefine:
         case BuiltinFnIdCUndef:
-        case BuiltinFnIdCompileErr:
         case BuiltinFnIdCImport:
         case BuiltinFnIdErrName:
         case BuiltinFnIdBreakpoint:
@@ -1947,7 +1968,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdDivExact:
         case BuiltinFnIdTruncate:
         case BuiltinFnIdIntType:
-        case BuiltinFnIdSetFnNoInline:
             zig_panic("TODO IR gen more builtin functions");
     }
     zig_unreachable();
@@ -6782,6 +6802,18 @@ static TypeTableEntry *ir_analyze_instruction_max_value(IrAnalyze *ira,
     return ir_analyze_min_max(ira, &instruction->base, instruction->value->other, true);
 }
 
+static TypeTableEntry *ir_analyze_instruction_compile_err(IrAnalyze *ira,
+        IrInstructionCompileErr *instruction)
+{
+    IrInstruction *msg_value = instruction->msg->other;
+    Buf *msg_buf = ir_resolve_str(ira, msg_value);
+    if (!msg_buf)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ir_add_error(ira, &instruction->base, msg_buf);
+    return ira->codegen->builtin_types.entry_invalid;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -6870,6 +6902,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_min_value(ira, (IrInstructionMinValue *)instruction);
         case IrInstructionIdMaxValue:
             return ir_analyze_instruction_max_value(ira, (IrInstructionMaxValue *)instruction);
+        case IrInstructionIdCompileErr:
+            return ir_analyze_instruction_compile_err(ira, (IrInstructionCompileErr *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -6964,6 +6998,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSetFnVisible:
         case IrInstructionIdSetDebugSafety:
         case IrInstructionIdImport:
+        case IrInstructionIdCompileErr:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
@@ -7291,20 +7326,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    return dest_type;
 //}
 //
-//static TypeTableEntry *analyze_compile_err(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *context, AstNode *node)
-//{
-//    AstNode *first_param_node = node->data.fn_call_expr.params.at(0);
-//    Buf *err_msg = resolve_const_expr_str(g, import, context, first_param_node->parent_field);
-//    if (!err_msg) {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    add_node_error(g, node, err_msg);
-//
-//    return g->builtin_types.entry_invalid;
-//}
-//
 //static TypeTableEntry *analyze_int_type(CodeGen *g, ImportTableEntry *import,
 //        BlockContext *context, AstNode *node)
 //{
@@ -7342,41 +7363,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //            bit_count_val->data.x_bignum.data.x_uint);
 //    return resolve_expr_const_val_as_type(g, node, int_type, depends_on_compile_var);
 //
-//}
-//
-//static TypeTableEntry *analyze_set_fn_no_inline(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *context, AstNode *node)
-//{
-//    AstNode **fn_node = &node->data.fn_call_expr.params.at(0);
-//    AstNode **value_node = &node->data.fn_call_expr.params.at(1);
-//
-//    FnTableEntry *fn_entry = resolve_const_expr_fn(g, import, context, fn_node);
-//    if (!fn_entry) {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    bool is_noinline;
-//    bool ok = resolve_const_expr_bool(g, import, context, value_node, &is_noinline);
-//    if (!ok) {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    if (fn_entry->fn_no_inline_set_node) {
-//        ErrorMsg *msg = add_node_error(g, node, buf_sprintf("function no inline attribute set twice"));
-//        add_error_note(g, msg, fn_entry->fn_no_inline_set_node, buf_sprintf("first set here"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//    fn_entry->fn_no_inline_set_node = node;
-//
-//    if (fn_entry->fn_inline == FnInlineAlways) {
-//        add_node_error(g, node, buf_sprintf("function is both inline and noinline"));
-//        fn_entry->proto_node->data.fn_proto.skip = true;
-//        return g->builtin_types.entry_invalid;
-//    } else if (is_noinline) {
-//        fn_entry->fn_inline = FnInlineNever;
-//    }
-//
-//    return g->builtin_types.entry_void;
 //}
 //
 //static TypeTableEntry *analyze_builtin_fn_call_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
@@ -7566,8 +7552,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //            return analyze_div_exact(g, import, context, node);
 //        case BuiltinFnIdTruncate:
 //            return analyze_truncate(g, import, context, node);
-//        case BuiltinFnIdCompileErr:
-//            return analyze_compile_err(g, import, context, node);
 //        case BuiltinFnIdIntType:
 //            return analyze_int_type(g, import, context, node);
 //        case BuiltinFnIdSetFnTest:

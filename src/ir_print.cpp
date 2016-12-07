@@ -670,6 +670,12 @@ static void ir_print_max_value(IrPrint *irp, IrInstructionMaxValue *instruction)
     fprintf(irp->f, ")");
 }
 
+static void ir_print_compile_err(IrPrint *irp, IrInstructionCompileErr *instruction) {
+    fprintf(irp->f, "@compileError(");
+    ir_print_other_instruction(irp, instruction->msg);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -812,6 +818,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdMaxValue:
             ir_print_max_value(irp, (IrInstructionMaxValue *)instruction);
+            break;
+        case IrInstructionIdCompileErr:
+            ir_print_compile_err(irp, (IrInstructionCompileErr *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

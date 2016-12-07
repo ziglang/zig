@@ -1823,6 +1823,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdMinValue:
         case IrInstructionIdMaxValue:
+        case IrInstructionIdCompileErr:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -3068,7 +3069,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdUnreachable, "unreachable", 0);
     create_builtin_fn(g, BuiltinFnIdSetFnTest, "setFnTest", 1);
     create_builtin_fn(g, BuiltinFnIdSetFnVisible, "setFnVisible", 2);
-    create_builtin_fn(g, BuiltinFnIdSetFnNoInline, "setFnNoInline", 2);
     create_builtin_fn(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
 }
 
