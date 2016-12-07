@@ -179,6 +179,22 @@ fn shortCircuit() {
     assert(hit_4);
 }
 
+fn testGotoLeaveDeferScope(b: bool) {
+    var it_worked = false;
+
+    goto entry;
+exit:
+    if (it_worked) {
+        return;
+    }
+    @unreachable();
+entry:
+    defer it_worked = true;
+    if (it_worked) @unreachable();
+    if (b) goto exit;
+}
+
+
 
 fn assert(ok: bool) {
     if (!ok)
@@ -201,6 +217,7 @@ fn runAllTests() {
     testFnWithInlineArgs();
     testContinueInForLoop();
     shortCircuit();
+    testGotoLeaveDeferScope(true);
 }
 
 export nakedcc fn _start() -> unreachable {

@@ -455,8 +455,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeReturnExpr:
             {
                 const char *return_str = return_string(node->data.return_expr.kind);
-                fprintf(ar->f, "%s ", return_str);
-                render_node_grouped(ar, node->data.return_expr.expr);
+                fprintf(ar->f, "%s", return_str);
+                if (node->data.return_expr.expr) {
+                    fprintf(ar->f, " ");
+                    render_node_grouped(ar, node->data.return_expr.expr);
+                }
                 break;
             }
         case NodeTypeDefer:

@@ -154,11 +154,11 @@ Scope *create_block_scope(AstNode *node, Scope *parent) {
     return &scope->base;
 }
 
-Scope *create_defer_scope(AstNode *node, Scope *parent) {
+ScopeDefer *create_defer_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeDefer);
     ScopeDefer *scope = allocate<ScopeDefer>(1);
     init_scope(&scope->base, ScopeIdDefer, node, parent);
-    return &scope->base;
+    return scope;
 }
 
 Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var) {

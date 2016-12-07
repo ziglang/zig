@@ -75,7 +75,7 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node);
 AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index);
 
 Scope *create_block_scope(AstNode *node, Scope *parent);
-Scope *create_defer_scope(AstNode *node, Scope *parent);
+ScopeDefer *create_defer_scope(AstNode *node, Scope *parent);
 Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var);
 Scope *create_cimport_scope(AstNode *node, Scope *parent);
 Scope *create_loop_scope(AstNode *node, Scope *parent);

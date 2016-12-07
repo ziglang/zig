@@ -87,7 +87,7 @@ BoolOrExpression = BoolAndExpression "||" BoolOrExpression | BoolAndExpression
 
 ReturnExpression = option("%" | "?") "return" option(Expression)
 
-Defer = option("%" | "?") "defer" option(Expression)
+Defer = option("%" | "?") "defer" Expression
 
 IfExpression = IfVarExpression | IfBoolExpression
 

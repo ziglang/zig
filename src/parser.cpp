@@ -1414,7 +1414,7 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index) {
 }
 
 /*
-Defer = option("%" | "?") "defer" option(Expression)
+Defer = option("%" | "?") "defer" Expression
 */
 static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1450,7 +1450,7 @@ static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
 
     AstNode *node = ast_create_node(pc, node_type, token);
     node->data.defer.kind = kind;
-    node->data.defer.expr = ast_parse_expression(pc, token_index, false);
+    node->data.defer.expr = ast_parse_expression(pc, token_index, true);
 
     return node;
 }

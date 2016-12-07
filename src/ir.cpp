@@ -110,21 +110,22 @@ static void ir_ref_var(VariableTableEntry *var) {
     var->ref_count += 1;
 }
 
-static IrBasicBlock *ir_build_basic_block_raw(IrBuilder *irb, const char *name_hint) {
+static IrBasicBlock *ir_create_basic_block(IrBuilder *irb, Scope *scope, const char *name_hint) {
     IrBasicBlock *result = allocate<IrBasicBlock>(1);
+    result->scope = scope;
     result->name_hint = name_hint;
     result->debug_id = exec_next_debug_id(irb->exec);
     return result;
 }
 
-static IrBasicBlock *ir_build_basic_block(IrBuilder *irb, const char *name_hint) {
-    IrBasicBlock *result = ir_build_basic_block_raw(irb, name_hint);
+static IrBasicBlock *ir_build_basic_block(IrBuilder *irb, Scope *scope, const char *name_hint) {
+    IrBasicBlock *result = ir_create_basic_block(irb, scope, name_hint);
     irb->exec->basic_block_list.append(result);
     return result;
 }
 
 static IrBasicBlock *ir_build_bb_from(IrBuilder *irb, IrBasicBlock *other_bb) {
-    IrBasicBlock *new_bb = ir_build_basic_block_raw(irb, other_bb->name_hint);
+    IrBasicBlock *new_bb = ir_create_basic_block(irb, other_bb->scope, other_bb->name_hint);
     ir_link_new_bb(new_bb, other_bb);
     return new_bb;
 }
@@ -1240,19 +1241,21 @@ static IrInstruction *ir_build_ref_from(IrBuilder *irb, IrInstruction *old_instr
     return new_instruction;
 }
 
-static void ir_gen_defers_for_block(IrBuilder *irb, Scope *parent_scope, Scope *inner_scope, Scope *outer_scope,
+static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
     while (inner_scope != outer_scope) {
+        assert(inner_scope);
         if (inner_scope->id == ScopeIdDefer) {
-            assert(inner_scope->source_node->type == NodeTypeDefer);
-            ReturnKind defer_kind = inner_scope->source_node->data.defer.kind;
+            AstNode *defer_node = inner_scope->source_node;
+            assert(defer_node->type == NodeTypeDefer);
+            ReturnKind defer_kind = defer_node->data.defer.kind;
             if (defer_kind == ReturnKindUnconditional ||
                 (gen_error_defers && defer_kind == ReturnKindError) ||
                 (gen_maybe_defers && defer_kind == ReturnKindMaybe))
             {
-                AstNode *defer_expr_node = inner_scope->source_node->data.defer.expr;
-                ir_gen_node(irb, defer_expr_node, parent_scope);
+                AstNode *defer_expr_node = defer_node->data.defer.expr;
+                ir_gen_node(irb, defer_expr_node, defer_node->data.defer.parent_scope);
             }
 
         }
@@ -1263,7 +1266,8 @@ static void ir_gen_defers_for_block(IrBuilder *irb, Scope *parent_scope, Scope *
 static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeReturnExpr);
 
-    if (!exec_fn_entry(irb->exec)) {
+    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
+    if (!fn_entry) {
         add_node_error(irb->codegen, node, buf_sprintf("return expression outside function definition"));
         return irb->codegen->invalid_instruction;
     }
@@ -1279,6 +1283,8 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node)
                     return_value = ir_build_const_void(irb, scope, node);
                 }
 
+                Scope *outer_scope = fn_entry->child_scope;
+                ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
                 return ir_build_return(irb, scope, node, return_value);
             }
         case ReturnKindError:
@@ -1385,7 +1391,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
     if (!return_value)
         return_value = ir_build_const_void(irb, child_scope, block_node);
 
-    ir_gen_defers_for_block(irb, parent_scope, child_scope, outer_block_scope, false, false);
+    ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false, false);
 
     return return_value;
 }
@@ -1433,9 +1439,9 @@ static IrInstruction *ir_gen_bool_or(IrBuilder *irb, Scope *scope, AstNode *node
     IrBasicBlock *post_val1_block = irb->current_basic_block;
 
     // block for when val1 == false
-    IrBasicBlock *false_block = ir_build_basic_block(irb, "BoolOrFalse");
+    IrBasicBlock *false_block = ir_build_basic_block(irb, scope, "BoolOrFalse");
     // block for when val1 == true (don't even evaluate the second part)
-    IrBasicBlock *true_block = ir_build_basic_block(irb, "BoolOrTrue");
+    IrBasicBlock *true_block = ir_build_basic_block(irb, scope, "BoolOrTrue");
 
     ir_build_cond_br(irb, scope, node, val1, true_block, false_block, is_inline);
 
@@ -1470,9 +1476,9 @@ static IrInstruction *ir_gen_bool_and(IrBuilder *irb, Scope *scope, AstNode *nod
     IrBasicBlock *post_val1_block = irb->current_basic_block;
 
     // block for when val1 == true
-    IrBasicBlock *true_block = ir_build_basic_block(irb, "BoolAndTrue");
+    IrBasicBlock *true_block = ir_build_basic_block(irb, scope, "BoolAndTrue");
     // block for when val1 == false (don't even evaluate the second part)
-    IrBasicBlock *false_block = ir_build_basic_block(irb, "BoolAndFalse");
+    IrBasicBlock *false_block = ir_build_basic_block(irb, scope, "BoolAndFalse");
 
     ir_build_cond_br(irb, scope, node, val1, true_block, false_block, is_inline);
 
@@ -1935,9 +1941,9 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
     AstNode *then_node = node->data.if_bool_expr.then_block;
     AstNode *else_node = node->data.if_bool_expr.else_node;
 
-    IrBasicBlock *then_block = ir_build_basic_block(irb, "Then");
-    IrBasicBlock *else_block = ir_build_basic_block(irb, "Else");
-    IrBasicBlock *endif_block = ir_build_basic_block(irb, "EndIf");
+    IrBasicBlock *then_block = ir_build_basic_block(irb, scope, "Then");
+    IrBasicBlock *else_block = ir_build_basic_block(irb, scope, "Else");
+    IrBasicBlock *endif_block = ir_build_basic_block(irb, scope, "EndIf");
 
     bool is_inline = ir_should_inline(irb) || node->data.if_bool_expr.is_inline;
     ir_build_cond_br(irb, scope, condition->source_node, condition, then_block, else_block, is_inline);
@@ -2124,11 +2130,11 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
     AstNode *continue_expr_node = node->data.while_expr.continue_expr;
 
-    IrBasicBlock *cond_block = ir_build_basic_block(irb, "WhileCond");
-    IrBasicBlock *body_block = ir_build_basic_block(irb, "WhileBody");
+    IrBasicBlock *cond_block = ir_build_basic_block(irb, scope, "WhileCond");
+    IrBasicBlock *body_block = ir_build_basic_block(irb, scope, "WhileBody");
     IrBasicBlock *continue_block = continue_expr_node ?
-        ir_build_basic_block(irb, "WhileContinue") : cond_block;
-    IrBasicBlock *end_block = ir_build_basic_block(irb, "WhileEnd");
+        ir_build_basic_block(irb, scope, "WhileContinue") : cond_block;
+    IrBasicBlock *end_block = ir_build_basic_block(irb, scope, "WhileEnd");
 
     bool is_inline = ir_should_inline(irb) || node->data.while_expr.is_inline;
     ir_build_br(irb, scope, node, cond_block, is_inline);
@@ -2219,10 +2225,10 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     IrInstruction *index_ptr = ir_build_var_ptr(irb, child_scope, node, index_var);
 
 
-    IrBasicBlock *cond_block = ir_build_basic_block(irb, "ForCond");
-    IrBasicBlock *body_block = ir_build_basic_block(irb, "ForBody");
-    IrBasicBlock *end_block = ir_build_basic_block(irb, "ForEnd");
-    IrBasicBlock *continue_block = ir_build_basic_block(irb, "ForContinue");
+    IrBasicBlock *cond_block = ir_build_basic_block(irb, child_scope, "ForCond");
+    IrBasicBlock *body_block = ir_build_basic_block(irb, child_scope, "ForBody");
+    IrBasicBlock *end_block = ir_build_basic_block(irb, child_scope, "ForEnd");
+    IrBasicBlock *continue_block = ir_build_basic_block(irb, child_scope, "ForContinue");
 
     IrInstruction *len_val = ir_build_array_len(irb, child_scope, node, array_val);
     ir_build_br(irb, child_scope, node, cond_block, is_inline);
@@ -2404,9 +2410,9 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     IrInstruction *is_nonnull_value = ir_build_test_null(irb, scope, node, expr_value);
 
-    IrBasicBlock *then_block = ir_build_basic_block(irb, "MaybeThen");
-    IrBasicBlock *else_block = ir_build_basic_block(irb, "MaybeElse");
-    IrBasicBlock *endif_block = ir_build_basic_block(irb, "MaybeEndIf");
+    IrBasicBlock *then_block = ir_build_basic_block(irb, scope, "MaybeThen");
+    IrBasicBlock *else_block = ir_build_basic_block(irb, scope, "MaybeElse");
+    IrBasicBlock *endif_block = ir_build_basic_block(irb, scope, "MaybeEndIf");
 
     bool is_inline = ir_should_inline(irb) || node->data.if_var_expr.is_inline;
     ir_build_cond_br(irb, scope, node, is_nonnull_value, then_block, else_block, is_inline);
@@ -2506,8 +2512,8 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         return target_value_ptr;
     IrInstruction *target_value = ir_build_switch_target(irb, scope, node, target_value_ptr);
 
-    IrBasicBlock *else_block = ir_build_basic_block(irb, "SwitchElse");
-    IrBasicBlock *end_block = ir_build_basic_block(irb, "SwitchEnd");
+    IrBasicBlock *else_block = ir_build_basic_block(irb, scope, "SwitchElse");
+    IrBasicBlock *end_block = ir_build_basic_block(irb, scope, "SwitchEnd");
 
     size_t prong_count = node->data.switch_expr.prongs.length;
     ZigList<IrInstructionSwitchBrCase> cases = {0};
@@ -2586,8 +2592,8 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                     }
                 }
 
-                IrBasicBlock *range_block_yes = ir_build_basic_block(irb, "SwitchRangeYes");
-                IrBasicBlock *range_block_no = ir_build_basic_block(irb, "SwitchRangeNo");
+                IrBasicBlock *range_block_yes = ir_build_basic_block(irb, scope, "SwitchRangeYes");
+                IrBasicBlock *range_block_no = ir_build_basic_block(irb, scope, "SwitchRangeNo");
 
                 assert(ok_bit);
                 assert(last_item_node);
@@ -2602,7 +2608,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
                 ir_set_cursor_at_end(irb, range_block_no);
             } else {
-                IrBasicBlock *prong_block = ir_build_basic_block(irb, "SwitchProng");
+                IrBasicBlock *prong_block = ir_build_basic_block(irb, scope, "SwitchProng");
                 IrInstruction *last_item_value = nullptr;
 
                 for (size_t item_i = 0; item_i < prong_item_count; item_i += 1) {
@@ -2678,7 +2684,7 @@ static IrInstruction *ir_gen_label(IrBuilder *irb, Scope *scope, AstNode *node) 
     assert(node->type == NodeTypeLabel);
 
     Buf *label_name = node->data.label.name;
-    IrBasicBlock *label_block = ir_build_basic_block(irb, buf_ptr(label_name));
+    IrBasicBlock *label_block = ir_build_basic_block(irb, scope, buf_ptr(label_name));
     LabelTableEntry *label = allocate<LabelTableEntry>(1);
     label->decl_node = node;
     label->bb = label_block;
@@ -2712,6 +2718,8 @@ static IrInstruction *ir_gen_goto(IrBuilder *irb, Scope *scope, AstNode *node) {
     goto_item->source_node = node;
     goto_item->scope = scope;
 
+    // we don't know if we need to generate defer expressions yet
+    // we do that later when we find out which label we're jumping to.
     return ir_build_unreachable(irb, scope, node);
 }
 
@@ -2727,6 +2735,7 @@ static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *scope, AstNode *node) 
     bool is_inline = ir_should_inline(irb) || node->data.break_expr.is_inline;
     LoopStackItem *loop_stack_item = &irb->loop_stack.last();
     IrBasicBlock *dest_block = loop_stack_item->break_block;
+    ir_gen_defers_for_block(irb, scope, dest_block->scope, false, false);
     return ir_build_br(irb, scope, node, dest_block, is_inline);
 }
 
@@ -2742,6 +2751,7 @@ static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *scope, AstNode *nod
     bool is_inline = ir_should_inline(irb) || node->data.continue_expr.is_inline;
     LoopStackItem *loop_stack_item = &irb->loop_stack.last();
     IrBasicBlock *dest_block = loop_stack_item->continue_block;
+    ir_gen_defers_for_block(irb, scope, dest_block->scope, false, false);
     return ir_build_br(irb, scope, node, dest_block, is_inline);
 }
 
@@ -2759,6 +2769,16 @@ static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *
 static IrInstruction *ir_gen_type_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeTypeLiteral);
     return ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_type);
+}
+
+static IrInstruction *ir_gen_defer(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeDefer);
+
+    ScopeDefer *defer_scope = create_defer_scope(node, parent_scope);
+    node->data.defer.child_scope = &defer_scope->base;
+    node->data.defer.parent_scope = parent_scope;
+
+    return ir_build_const_void(irb, parent_scope, node);
 }
 
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
@@ -2824,8 +2844,9 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_break(irb, scope, node), lval);
         case NodeTypeContinue:
             return ir_lval_wrap(irb, scope, ir_gen_continue(irb, scope, node), lval);
-        case NodeTypeUnwrapErrorExpr:
         case NodeTypeDefer:
+            return ir_lval_wrap(irb, scope, ir_gen_defer(irb, scope, node), lval);
+        case NodeTypeUnwrapErrorExpr:
         case NodeTypeSliceExpr:
         case NodeTypeCharLiteral:
         case NodeTypeZeroesLiteral:
@@ -2864,9 +2885,11 @@ static bool ir_goto_pass2(IrBuilder *irb) {
     for (size_t i = 0; i < irb->exec->goto_list.length; i += 1) {
         IrGotoItem *goto_item = &irb->exec->goto_list.at(i);
         AstNode *source_node = goto_item->source_node;
-        size_t instruction_index = goto_item->instruction_index;
-        IrInstruction **slot = &goto_item->bb->instruction_list.at(instruction_index);
-        IrInstruction *old_instruction = *slot;
+
+        // Since a goto will always end a basic block, we move the "current instruction"
+        // index back to over the placeholder unreachable instruction and begin overwriting
+        irb->current_basic_block = goto_item->bb;
+        irb->current_basic_block->instruction_list.resize(goto_item->instruction_index);
 
         Buf *label_name = source_node->data.goto_expr.name;
         LabelTableEntry *label = find_label(irb->exec, goto_item->scope, label_name);
@@ -2878,9 +2901,8 @@ static bool ir_goto_pass2(IrBuilder *irb) {
         label->used = true;
 
         bool is_inline = ir_should_inline(irb) || source_node->data.goto_expr.is_inline;
-        IrInstruction *new_instruction = ir_create_br(irb, goto_item->scope, source_node, label->bb, is_inline);
-        new_instruction->ref_count = old_instruction->ref_count;
-        *slot = new_instruction;
+        ir_gen_defers_for_block(irb, goto_item->scope, label->bb->scope, false, false);
+        ir_build_br(irb, goto_item->scope, source_node, label->bb, is_inline);
     }
 
     for (size_t i = 0; i < irb->exec->all_labels.length; i += 1) {
@@ -2905,7 +2927,7 @@ IrInstruction *ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutabl
     irb->codegen = codegen;
     irb->exec = ir_executable;
 
-    irb->current_basic_block = ir_build_basic_block(irb, "Entry");
+    irb->current_basic_block = ir_build_basic_block(irb, scope, "Entry");
     // Entry block gets a reference because we enter it to begin.
     ir_ref_bb(irb->current_basic_block);
 
@@ -7803,29 +7825,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    }
 //}
 //
-//static TypeTableEntry *analyze_defer(CodeGen *g, ImportTableEntry *import, BlockContext *parent_context,
-//        TypeTableEntry *expected_type, AstNode *node)
-//{
-//    if (!parent_context->fn_entry) {
-//        add_node_error(g, node, buf_sprintf("defer expression outside function definition"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    if (!node->data.defer.expr) {
-//        add_node_error(g, node, buf_sprintf("defer expects an expression"));
-//        return g->builtin_types.entry_void;
-//    }
-//
-//    node->data.defer.child_block = new_block_context(node, parent_context);
-//
-//    TypeTableEntry *resolved_type = analyze_expression(g, import, parent_context, nullptr,
-//            node->data.defer.expr);
-//    validate_voided_expr(g, node->data.defer.expr, resolved_type);
-//
-//    return g->builtin_types.entry_void;
-//}
-//
-//
 //static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
 //        BlockContext *context, AstNode *node, Buf *err_name)
 //{
@@ -7849,38 +7848,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    }
 //}
 //
-//static size_t get_conditional_defer_count(BlockContext *inner_block, BlockContext *outer_block) {
-//    size_t result = 0;
-//    while (inner_block != outer_block) {
-//        if (inner_block->node->type == NodeTypeDefer &&
-//           (inner_block->node->data.defer.kind == ReturnKindError ||
-//            inner_block->node->data.defer.kind == ReturnKindMaybe))
-//        {
-//            result += 1;
-//        }
-//        inner_block = inner_block->parent;
-//    }
-//    return result;
-//}
 
 
-//static IrInstruction *ir_gen_return(IrBuilder *irb, AstNode *source_node, IrInstruction *value, ReturnKnowledge rk) {
-//    BlockContext *defer_inner_block = source_node->block_context;
-//    BlockContext *defer_outer_block = irb->node->block_context;
-//    if (rk == ReturnKnowledgeUnknown) {
-//        if (get_conditional_defer_count(defer_inner_block, defer_outer_block) > 0) {
-//            // generate branching code that checks the return value and generates defers
-//            // if the return value is error
-//            zig_panic("TODO");
-//        }
-//    } else if (rk != ReturnKnowledgeSkipDefers) {
-//        ir_gen_defers_for_block(irb, defer_inner_block, defer_outer_block,
-//                rk == ReturnKnowledgeKnownError, rk == ReturnKnowledgeKnownNull);
-//    }
-//
-//    return ir_build_return(irb, source_node, value);
-//}
-//
 //static LLVMValueRef gen_err_name(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeFnCallExpr);
 //    assert(g->generate_error_name_table);
@@ -8400,21 +8369,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    return phi;
 //}
 //
-//static void gen_defers_for_block(CodeGen *g, BlockContext *inner_block, BlockContext *outer_block,
-//        bool gen_error_defers, bool gen_maybe_defers)
-//{
-//    while (inner_block != outer_block) {
-//        if (inner_block->node->type == NodeTypeDefer &&
-//           ((inner_block->node->data.defer.kind == ReturnKindUnconditional) ||
-//            (gen_error_defers && inner_block->node->data.defer.kind == ReturnKindError) ||
-//            (gen_maybe_defers && inner_block->node->data.defer.kind == ReturnKindMaybe)))
-//        {
-//            gen_expr(g, inner_block->node->data.defer.expr);
-//        }
-//        inner_block = inner_block->parent;
-//    }
-//}
-//
 //static LLVMValueRef gen_return_expr(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeReturnExpr);
 //    AstNode *param_node = node->data.return_expr.expr;
@@ -8527,30 +8481,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //            }
 //    }
 //    zig_unreachable();
-//}
-//
-//static LLVMValueRef gen_block(CodeGen *g, AstNode *block_node, TypeTableEntry *implicit_return_type) {
-//    assert(block_node->type == NodeTypeBlock);
-//
-//    LLVMValueRef return_value = nullptr;
-//    for (size_t i = 0; i < block_node->data.block.statements.length; i += 1) {
-//        AstNode *statement_node = block_node->data.block.statements.at(i);
-//        return_value = gen_expr(g, statement_node);
-//    }
-//
-//    bool end_unreachable = implicit_return_type && implicit_return_type->id == TypeTableEntryIdUnreachable;
-//    if (end_unreachable) {
-//        return nullptr;
-//    }
-//
-//    gen_defers_for_block(g, block_node->data.block.nested_block, block_node->data.block.child_block,
-//            false, false);
-//
-//    if (implicit_return_type) {
-//        return gen_return(g, block_node, return_value, ReturnKnowledgeSkipDefers);
-//    } else {
-//        return return_value;
-//    }
 //}
 //
 //static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVariableDeclaration *var_decl,
@@ -8691,37 +8621,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    }
 //}
 //
-//static LLVMValueRef gen_return(CodeGen *g, AstNode *source_node, LLVMValueRef value, ReturnKnowledge rk) {
-//    BlockContext *defer_inner_block = source_node->block_context;
-//    BlockContext *defer_outer_block = source_node->block_context->fn_entry->fn_def_node->block_context;
-//    if (rk == ReturnKnowledgeUnknown) {
-//        if (get_conditional_defer_count(defer_inner_block, defer_outer_block) > 0) {
-//            // generate branching code that checks the return value and generates defers
-//            // if the return value is error
-//            zig_panic("TODO");
-//        }
-//    } else if (rk != ReturnKnowledgeSkipDefers) {
-//        gen_defers_for_block(g, defer_inner_block, defer_outer_block,
-//                rk == ReturnKnowledgeKnownError, rk == ReturnKnowledgeKnownNull);
-//    }
-//
-//    TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
-//    bool is_extern = g->cur_fn->type_entry->data.fn.fn_type_id.is_extern;
-//    if (handle_is_ptr(return_type)) {
-//        if (is_extern) {
-//            LLVMValueRef by_val_value = LLVMBuildLoad(g->builder, value, "");
-//            LLVMBuildRet(g->builder, by_val_value);
-//        } else {
-//            assert(g->cur_ret_ptr);
-//            gen_assign_raw(g, source_node, BinOpTypeAssign, g->cur_ret_ptr, value, return_type, return_type);
-//            LLVMBuildRetVoid(g->builder);
-//        }
-//    } else {
-//        LLVMBuildRet(g->builder, value);
-//    }
-//    return nullptr;
-//}
-//
 //static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
 //    AstNode *init_expr = node->data.variable_declaration.expr;
 //    if (node->data.variable_declaration.is_const && init_expr) {
@@ -8762,18 +8661,4 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //        case AtomicOrderSeqCst: return LLVMAtomicOrderingSequentiallyConsistent;
 //    }
 //    zig_unreachable();
-//}
-//
-//static size_t get_conditional_defer_count(BlockContext *inner_block, BlockContext *outer_block) {
-//    size_t result = 0;
-//    while (inner_block != outer_block) {
-//        if (inner_block->node->type == NodeTypeDefer &&
-//           (inner_block->node->data.defer.kind == ReturnKindError ||
-//            inner_block->node->data.defer.kind == ReturnKindMaybe))
-//        {
-//            result += 1;
-//        }
-//        inner_block = inner_block->parent;
-//    }
-//    return result;
 //}

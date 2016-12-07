@@ -308,8 +308,8 @@ struct AstNodeDefer {
     AstNode *expr;
 
     // temporary data used in IR generation
-    // TODO populate during gen_defer
     Scope *child_scope;
+    Scope *parent_scope;
 };
 
 struct AstNodeVariableDeclaration {
@@ -1333,6 +1333,7 @@ enum AtomicOrder {
 struct IrBasicBlock {
     ZigList<IrInstruction *> instruction_list;
     IrBasicBlock *other;
+    Scope *scope;
     const char *name_hint;
     size_t debug_id;
     size_t ref_count;
