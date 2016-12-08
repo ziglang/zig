@@ -6572,8 +6572,7 @@ static TypeTableEntry *ir_analyze_instruction_array_len(IrAnalyze *ira,
                         len_val->data.x_bignum.data.x_uint, depends_on_compile_var);
             }
         }
-        TypeStructField *field = find_struct_type_field(canon_type, buf_create_from_str("len"));
-        assert(field);
+        TypeStructField *field = &canon_type->data.structure.fields[slice_len_index];
         IrInstruction *len_ptr = ir_build_struct_field_ptr(&ira->new_irb, array_len_instruction->base.scope,
                 array_len_instruction->base.source_node, array_value, field);
         len_ptr->type_entry = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_usize, true);
