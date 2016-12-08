@@ -128,7 +128,8 @@ struct ConstExprValue {
         ConstBoundFnValue x_bound_fn;
         TypeTableEntry *x_type;
         ConstExprValue *x_maybe;
-        ConstErrValue x_err;
+        ConstErrValue x_err_union;
+        ErrorTableEntry *x_pure_err;
         ConstEnumValue x_enum;
         ConstStructValue x_struct;
         ConstArrayValue x_array;
@@ -1395,6 +1396,7 @@ enum IrInstructionId {
     IrInstructionIdMinValue,
     IrInstructionIdMaxValue,
     IrInstructionIdCompileErr,
+    IrInstructionIdErrName,
 };
 
 struct IrInstruction {
@@ -1809,6 +1811,12 @@ struct IrInstructionCompileErr {
     IrInstruction base;
 
     IrInstruction *msg;
+};
+
+struct IrInstructionErrName {
+    IrInstruction base;
+
+    IrInstruction *value;
 };
 
 enum LValPurpose {

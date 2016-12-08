@@ -238,6 +238,26 @@ fn testMinValueAndMaxValue() {
     assert(@minValue(i64) == -9223372036854775808);
 }
 
+fn first4KeysOfHomeRow() -> []const u8 {
+    "aoeu"
+}
+
+fn testReturnStringFromFunction() {
+    assert(memeql(first4KeysOfHomeRow(), "aoeu"));
+}
+
+pub fn memeql(a: []const u8, b: []const u8) -> bool {
+    sliceEql(u8, a, b)
+}
+
+pub fn sliceEql(inline T: type, a: []const T, b: []const T) -> bool {
+    if (a.len != b.len) return false;
+    for (a) |item, index| {
+        if (b[index] != item) return false;
+    }
+    return true;
+}
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -263,6 +283,7 @@ fn runAllTests() {
     testStaticAddOne();
     testInlineVarsAgain();
     testMinValueAndMaxValue();
+    testReturnStringFromFunction();
 }
 
 export nakedcc fn _start() -> unreachable {

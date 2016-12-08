@@ -615,6 +615,9 @@ static LLVMValueRef gen_struct_memcpy(CodeGen *g, LLVMValueRef src, LLVMValueRef
 {
     assert(handle_is_ptr(type_entry));
 
+    assert(LLVMGetTypeKind(LLVMTypeOf(src)) == LLVMPointerTypeKind);
+    assert(LLVMGetTypeKind(LLVMTypeOf(dest)) == LLVMPointerTypeKind);
+
     LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
 
     LLVMValueRef src_ptr = LLVMBuildBitCast(g->builder, src, ptr_u8, "");
@@ -669,7 +672,12 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
         assert(instruction->static_value.special != ConstValSpecialRuntime);
         assert(instruction->type_entry);
         render_const_val(g, instruction->type_entry, &instruction->static_value);
-        instruction->llvm_value = instruction->static_value.llvm_value;
+        if (handle_is_ptr(instruction->type_entry)) {
+            render_const_val_global(g, instruction->type_entry, &instruction->static_value);
+            instruction->llvm_value = instruction->static_value.llvm_global;
+        } else {
+            instruction->llvm_value = instruction->static_value.llvm_value;
+        }
         assert(instruction->llvm_value);
     }
     if (instruction->static_value.special != ConstValSpecialRuntime) {
@@ -681,7 +689,22 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
 }
 
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
-    LLVMBuildRet(g->builder, ir_llvm_value(g, return_instruction->value));
+    LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
+    TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
+    bool is_extern = g->cur_fn->type_entry->data.fn.fn_type_id.is_extern;
+    if (handle_is_ptr(return_type)) {
+        if (is_extern) {
+            LLVMValueRef by_val_value = LLVMBuildLoad(g->builder, value, "");
+            LLVMBuildRet(g->builder, by_val_value);
+        } else {
+            assert(g->cur_ret_ptr);
+            gen_assign_raw(g, return_instruction->base.source_node, g->cur_ret_ptr, value,
+                    return_type, return_instruction->value->type_entry);
+            LLVMBuildRetVoid(g->builder);
+        }
+    } else {
+        LLVMBuildRet(g->builder, value);
+    }
     return nullptr;
 }
 
@@ -1790,6 +1813,28 @@ static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutable *executable, IrInstru
     }
 }
 
+static LLVMValueRef ir_render_err_name(CodeGen *g, IrExecutable *executable, IrInstructionErrName *instruction) {
+    assert(g->generate_error_name_table);
+
+    if (g->error_decls.length == 1) {
+        LLVMBuildUnreachable(g->builder);
+        return nullptr;
+    }
+
+    LLVMValueRef err_val = ir_llvm_value(g, instruction->value);
+    if (ir_want_debug_safety(g, &instruction->base)) {
+        LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(err_val));
+        LLVMValueRef end_val = LLVMConstInt(LLVMTypeOf(err_val), g->error_decls.length, false);
+        add_bounds_check(g, err_val, LLVMIntNE, zero, LLVMIntULT, end_val);
+    }
+
+    LLVMValueRef indices[] = {
+        LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+        err_val,
+    };
+    return LLVMBuildInBoundsGEP(g->builder, g->err_name_table, indices, 2, "");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -1824,6 +1869,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdMinValue:
         case IrInstructionIdMaxValue:
         case IrInstructionIdCompileErr:
+        case IrInstructionIdArrayLen:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -1871,11 +1917,12 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_phi(g, executable, (IrInstructionPhi *)instruction);
         case IrInstructionIdRef:
             return ir_render_ref(g, executable, (IrInstructionRef *)instruction);
+        case IrInstructionIdErrName:
+            return ir_render_err_name(g, executable, (IrInstructionErrName *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdStructInit:
         case IrInstructionIdEnumTag:
-        case IrInstructionIdArrayLen:
             zig_panic("TODO render more IR instructions to LLVM");
     }
     zig_unreachable();
@@ -1919,9 +1966,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
         case TypeTableEntryIdInt:
             return LLVMConstInt(type_entry->type_ref, bignum_to_twos_complement(&const_val->data.x_bignum), false);
         case TypeTableEntryIdPureError:
-            assert(const_val->data.x_err.err);
+            assert(const_val->data.x_pure_err);
             return LLVMConstInt(g->builtin_types.entry_pure_error->type_ref,
-                    const_val->data.x_err.err->value, false);
+                    const_val->data.x_pure_err->value, false);
         case TypeTableEntryIdFloat:
             if (const_val->data.x_bignum.kind == BigNumKindFloat) {
                 return LLVMConstReal(type_entry->type_ref, const_val->data.x_bignum.data.x_float);
@@ -2045,7 +2092,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
                 if (index == SIZE_MAX) {
                     render_const_val(g, child_type, const_val->data.x_ptr.base_ptr);
                     render_const_val_global(g, child_type, const_val->data.x_ptr.base_ptr);
-                    return const_val->data.x_ptr.base_ptr->llvm_global;
+                    const_val->llvm_value = const_val->data.x_ptr.base_ptr->llvm_global;
+                    render_const_val_global(g, type_entry, const_val);
+                    return const_val->llvm_value;
                 } else {
                     ConstExprValue *array_const_val = const_val->data.x_ptr.base_ptr;
                     TypeTableEntry *array_type = get_array_type(g, child_type,
@@ -2058,6 +2107,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
                         LLVMConstInt(usize->type_ref, index, false),
                     };
                     LLVMValueRef ptr_val = LLVMConstInBoundsGEP(array_const_val->llvm_global, indices, 2);
+                    const_val->llvm_value = ptr_val;
+                    render_const_val_global(g, type_entry, const_val);
                     return ptr_val;
                 }
             }
@@ -2065,17 +2116,17 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
             {
                 TypeTableEntry *child_type = type_entry->data.error.child_type;
                 if (!type_has_bits(child_type)) {
-                    uint64_t value = const_val->data.x_err.err ? const_val->data.x_err.err->value : 0;
+                    uint64_t value = const_val->data.x_err_union.err ? const_val->data.x_err_union.err->value : 0;
                     return LLVMConstInt(g->err_tag_type->type_ref, value, false);
                 } else {
                     LLVMValueRef err_tag_value;
                     LLVMValueRef err_payload_value;
-                    if (const_val->data.x_err.err) {
-                        err_tag_value = LLVMConstInt(g->err_tag_type->type_ref, const_val->data.x_err.err->value, false);
+                    if (const_val->data.x_err_union.err) {
+                        err_tag_value = LLVMConstInt(g->err_tag_type->type_ref, const_val->data.x_err_union.err->value, false);
                         err_payload_value = LLVMConstNull(child_type->type_ref);
                     } else {
                         err_tag_value = LLVMConstNull(g->err_tag_type->type_ref);
-                        err_payload_value = gen_const_val(g, child_type, const_val->data.x_err.payload);
+                        err_payload_value = gen_const_val(g, child_type, const_val->data.x_err_union.payload);
                     }
                     LLVMValueRef fields[] = {
                         err_tag_value,

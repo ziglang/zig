@@ -30,7 +30,7 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *ty
         case TypeTableEntryIdVoid:
             return true;
         case TypeTableEntryIdPureError:
-            return a->data.x_err.err == b->data.x_err.err;
+            return a->data.x_pure_err == b->data.x_pure_err;
         case TypeTableEntryIdFn:
             return a->data.x_fn == b->data.x_fn;
         case TypeTableEntryIdBool:
@@ -351,17 +351,24 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
             const_val->special = ConstValSpecialStatic;
             break;
         case CastOpErrorWrap:
-            const_val->data.x_err.err = nullptr;
-            const_val->data.x_err.payload = other_val;
+            const_val->data.x_err_union.err = nullptr;
+            const_val->data.x_err_union.payload = other_val;
             const_val->special = ConstValSpecialStatic;
             break;
         case CastOpPureErrorWrap:
-            const_val->data.x_err.err = other_val->data.x_err.err;
+            const_val->data.x_err_union.err = other_val->data.x_pure_err;
             const_val->special = ConstValSpecialStatic;
             break;
         case CastOpErrToInt:
             {
-                uint64_t value = other_val->data.x_err.err ? other_val->data.x_err.err->value : 0;
+                uint64_t value;
+                if (other_type->id == TypeTableEntryIdErrorUnion) {
+                    value = other_val->data.x_err_union.err ? other_val->data.x_err_union.err->value : 0;
+                } else if (other_type->id == TypeTableEntryIdPureError) {
+                    value = other_val->data.x_pure_err->value;
+                } else {
+                    zig_unreachable();
+                }
                 bignum_init_unsigned(&const_val->data.x_bignum, value);
                 const_val->special = ConstValSpecialStatic;
                 break;

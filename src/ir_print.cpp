@@ -676,6 +676,12 @@ static void ir_print_compile_err(IrPrint *irp, IrInstructionCompileErr *instruct
     fprintf(irp->f, ")");
 }
 
+static void ir_print_err_name(IrPrint *irp, IrInstructionErrName *instruction) {
+    fprintf(irp->f, "@errorName(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -821,6 +827,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCompileErr:
             ir_print_compile_err(irp, (IrInstructionCompileErr *)instruction);
+            break;
+        case IrInstructionIdErrName:
+            ir_print_err_name(irp, (IrInstructionErrName *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

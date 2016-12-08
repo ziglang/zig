@@ -318,6 +318,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCompileErr *) {
     return IrInstructionIdCompileErr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionErrName *) {
+    return IrInstructionIdErrName;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -508,8 +512,8 @@ static IrInstruction *ir_build_const_bound_fn(IrBuilder *irb, Scope *scope, AstN
     return &const_instruction->base;
 }
 
-static IrInstruction *ir_build_const_str_lit(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *str) {
-    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
+static IrInstruction *ir_create_const_str_lit(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *str) {
+    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb->exec, scope, source_node);
     TypeTableEntry *u8_type = irb->codegen->builtin_types.entry_u8;
     TypeTableEntry *type_entry = get_array_type(irb->codegen, u8_type, buf_len(str));
     const_instruction->base.type_entry = type_entry;
@@ -525,6 +529,11 @@ static IrInstruction *ir_build_const_str_lit(IrBuilder *irb, Scope *scope, AstNo
     }
 
     return &const_instruction->base;
+}
+static IrInstruction *ir_build_const_str_lit(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *str) {
+    IrInstruction *instruction = ir_create_const_str_lit(irb, scope, source_node, str);
+    ir_instruction_append(irb->current_basic_block, instruction);
+    return instruction;
 }
 
 static IrInstruction *ir_build_const_c_str_lit(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *str) {
@@ -1229,15 +1238,6 @@ static IrInstruction *ir_build_array_len(IrBuilder *irb, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_array_len_from(IrBuilder *irb, IrInstruction *old_instruction,
-        IrInstruction *array_value)
-{
-    IrInstruction *new_instruction = ir_build_array_len(irb, old_instruction->scope,
-            old_instruction->source_node, array_value);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
-}
-
 static IrInstruction *ir_build_ref(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
     IrInstructionRef *instruction = ir_build_instruction<IrInstructionRef>(irb, scope, source_node);
     instruction->value = value;
@@ -1278,6 +1278,22 @@ static IrInstruction *ir_build_compile_err(IrBuilder *irb, Scope *scope, AstNode
     ir_ref_instruction(msg);
 
     return &instruction->base;
+}
+
+static IrInstruction *ir_build_err_name(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
+    IrInstructionErrName *instruction = ir_build_instruction<IrInstructionErrName>(irb, scope, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_err_name_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *value) {
+    IrInstruction *new_instruction = ir_build_err_name(irb, old_instruction->scope,
+            old_instruction->source_node, value);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
 }
 
 
@@ -1946,6 +1962,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_compile_err(irb, scope, node, arg0_value);
             }
+        case BuiltinFnIdErrName:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_err_name(irb, scope, node, arg0_value);
+            }
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdAlignof:
@@ -1958,7 +1983,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdCDefine:
         case BuiltinFnIdCUndef:
         case BuiltinFnIdCImport:
-        case BuiltinFnIdErrName:
         case BuiltinFnIdBreakpoint:
         case BuiltinFnIdReturnAddress:
         case BuiltinFnIdFrameAddress:
@@ -2834,6 +2858,11 @@ static IrInstruction *ir_gen_type_literal(IrBuilder *irb, Scope *scope, AstNode 
     return ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_type);
 }
 
+static IrInstruction *ir_gen_error_type(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeErrorType);
+    return ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_pure_error);
+}
+
 static IrInstruction *ir_gen_defer(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeDefer);
 
@@ -2903,6 +2932,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_goto(irb, scope, node), lval);
         case NodeTypeTypeLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_type_literal(irb, scope, node), lval);
+        case NodeTypeErrorType:
+            return ir_lval_wrap(irb, scope, ir_gen_error_type(irb, scope, node), lval);
         case NodeTypeBreak:
             return ir_lval_wrap(irb, scope, ir_gen_break(irb, scope, node), lval);
         case NodeTypeContinue:
@@ -2913,7 +2944,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeSliceExpr:
         case NodeTypeCharLiteral:
         case NodeTypeZeroesLiteral:
-        case NodeTypeErrorType:
         case NodeTypeVarLiteral:
         case NodeTypeRoot:
         case NodeTypeFnProto:
@@ -5564,7 +5594,20 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 return ira->codegen->builtin_types.entry_invalid;
             }
         } else if (child_type->id == TypeTableEntryIdPureError) {
-            zig_panic("TODO error type field");
+            auto err_table_entry = ira->codegen->error_table.maybe_get(field_name);
+            if (err_table_entry) {
+                ConstExprValue *const_val = allocate<ConstExprValue>(1);
+                const_val->special = ConstValSpecialStatic;
+                const_val->data.x_pure_err = err_table_entry->value;
+
+                bool depends_on_compile_var = container_ptr->static_value.depends_on_compile_var;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, const_val,
+                        child_type, depends_on_compile_var, ConstPtrSpecialNone);
+            }
+
+            ir_add_error(ira, &field_ptr_instruction->base,
+                buf_sprintf("use of undeclared error value '%s'", buf_ptr(field_name)));
+            return ira->codegen->builtin_types.entry_invalid;
         } else if (child_type->id == TypeTableEntryIdInt) {
             zig_panic("TODO integer type field");
         } else {
@@ -6525,7 +6568,12 @@ static TypeTableEntry *ir_analyze_instruction_array_len(IrAnalyze *ira,
                         len_val->data.x_bignum.data.x_uint, depends_on_compile_var);
             }
         }
-        ir_build_array_len_from(&ira->new_irb, &array_len_instruction->base, array_value);
+        TypeStructField *field = find_struct_type_field(canon_type, buf_create_from_str("len"));
+        assert(field);
+        IrInstruction *len_ptr = ir_build_struct_field_ptr(&ira->new_irb, array_len_instruction->base.scope,
+                array_len_instruction->base.source_node, array_value, field);
+        len_ptr->type_entry = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_usize, true);
+        ir_build_load_ptr_from(&ira->new_irb, &array_len_instruction->base, len_ptr);
         return ira->codegen->builtin_types.entry_usize;
     } else {
         add_node_error(ira->codegen, array_len_instruction->base.source_node,
@@ -6814,6 +6862,31 @@ static TypeTableEntry *ir_analyze_instruction_compile_err(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_invalid;
 }
 
+static TypeTableEntry *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstructionErrName *instruction) {
+    IrInstruction *value = instruction->value->other;
+    if (value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_value = ir_get_casted_value(ira, value, value->type_entry);
+    if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *str_type = get_slice_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
+    if (casted_value->static_value.special == ConstValSpecialStatic) {
+        ErrorTableEntry *err = casted_value->static_value.data.x_pure_err;
+        IrInstruction *new_instruction = ir_create_const_str_lit(&ira->new_irb, instruction->base.scope,
+                instruction->base.source_node, &err->name);
+        ir_link_new_instruction(new_instruction, &instruction->base);
+        new_instruction->static_value.special = ConstValSpecialStatic;
+        new_instruction->static_value.depends_on_compile_var = casted_value->static_value.depends_on_compile_var;
+        return str_type;
+    }
+
+    ira->codegen->generate_error_name_table = true;
+    ir_build_err_name_from(&ira->new_irb, &instruction->base, value);
+    return str_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -6904,6 +6977,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_max_value(ira, (IrInstructionMaxValue *)instruction);
         case IrInstructionIdCompileErr:
             return ir_analyze_instruction_compile_err(ira, (IrInstructionCompileErr *)instruction);
+        case IrInstructionIdErrName:
+            return ir_analyze_instruction_err_name(ira, (IrInstructionErrName *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -7033,6 +7108,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdRef:
         case IrInstructionIdMinValue:
         case IrInstructionIdMaxValue:
+        case IrInstructionIdErrName:
             return false;
         case IrInstructionIdAsm:
             {
@@ -7101,25 +7177,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //
 //    scan_decls(g, child_import, child_import->block_context, child_import->root);
 //    return resolve_expr_const_val_as_import(g, node, child_import);
-//}
-//
-//static TypeTableEntry *analyze_err_name(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *context, AstNode *node)
-//{
-//    assert(node->type == NodeTypeFnCallExpr);
-//
-//    AstNode *err_value = node->data.fn_call_expr.params.at(0);
-//    TypeTableEntry *resolved_type = analyze_expression(g, import, context,
-//            g->builtin_types.entry_pure_error, err_value);
-//
-//    if (resolved_type->id == TypeTableEntryIdInvalid) {
-//        return resolved_type;
-//    }
-//
-//    g->generate_error_name_table = true;
-//
-//    TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
-//    return str_type;
 //}
 //
 //static TypeTableEntry *analyze_embed_file(CodeGen *g, ImportTableEntry *import,
@@ -7533,8 +7590,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //            return analyze_import(g, import, context, node);
 //        case BuiltinFnIdCImport:
 //            return analyze_c_import(g, import, context, node);
-//        case BuiltinFnIdErrName:
-//            return analyze_err_name(g, import, context, node);
 //        case BuiltinFnIdBreakpoint:
 //            mark_impure_fn(g, context, node);
 //            return g->builtin_types.entry_void;
@@ -7927,21 +7982,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    }
 //}
 //
-//static TypeTableEntry *analyze_error_literal_expr(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *context, AstNode *node, Buf *err_name)
-//{
-//    auto err_table_entry = g->error_table.maybe_get(err_name);
-//
-//    if (err_table_entry) {
-//        return resolve_expr_const_val_as_err(g, node, err_table_entry->value);
-//    }
-//
-//    add_node_error(g, node,
-//            buf_sprintf("use of undeclared error value '%s'", buf_ptr(err_name)));
-//
-//    return g->builtin_types.entry_invalid;
-//}
-//
 //static void validate_voided_expr(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry) {
 //    if (type_entry->id == TypeTableEntryIdMetaType) {
 //        add_node_error(g, first_executing_node(source_node), buf_sprintf("expected expression, found type"));
@@ -7952,32 +7992,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //
 
 
-//static LLVMValueRef gen_err_name(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeFnCallExpr);
-//    assert(g->generate_error_name_table);
-//
-//    if (g->error_decls.length == 1) {
-//        LLVMBuildUnreachable(g->builder);
-//        return nullptr;
-//    }
-//
-//
-//    AstNode *err_val_node = node->data.fn_call_expr.params.at(0);
-//    LLVMValueRef err_val = gen_expr(g, err_val_node);
-//
-//    if (want_debug_safety(g, node)) {
-//        LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(err_val));
-//        LLVMValueRef end_val = LLVMConstInt(LLVMTypeOf(err_val), g->error_decls.length, false);
-//        add_bounds_check(g, err_val, LLVMIntNE, zero, LLVMIntULT, end_val);
-//    }
-//
-//    LLVMValueRef indices[] = {
-//        LLVMConstNull(g->builtin_types.entry_usize->type_ref),
-//        err_val,
-//    };
-//    return LLVMBuildInBoundsGEP(g->builder, g->err_name_table, indices, 2, "");
-//}
-//
 //static LLVMValueRef gen_cmp_exchange(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeFnCallExpr);
 //
@@ -8179,8 +8193,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //            zig_unreachable();
 //        case BuiltinFnIdCompileVar:
 //            return nullptr;
-//        case BuiltinFnIdErrName:
-//            return gen_err_name(g, node);
 //        case BuiltinFnIdBreakpoint:
 //            return LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
 //        case BuiltinFnIdFrameAddress:
