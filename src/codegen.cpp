@@ -812,6 +812,9 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
 
     assert(op1->type_entry == op2->type_entry);
 
+    bool want_debug_safety = bin_op_instruction->safety_check_on &&
+        ir_want_debug_safety(g, &bin_op_instruction->base);
+
     LLVMValueRef op1_value = ir_llvm_value(g, op1);
     LLVMValueRef op2_value = ir_llvm_value(g, op2);
     switch (op_id) {
@@ -859,7 +862,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 bool is_wrapping = (op_id == IrBinOpAddWrap);
                 if (is_wrapping) {
                     return LLVMBuildAdd(g->builder, op1_value, op2_value, "");
-                } else if (ir_want_debug_safety(g, &bin_op_instruction->base)) {
+                } else if (want_debug_safety) {
                     return gen_overflow_op(g, op1->type_entry, AddSubMulAdd, op1_value, op2_value);
                 } else if (op1->type_entry->data.integral.is_signed) {
                     return LLVMBuildNSWAdd(g->builder, op1_value, op2_value, "");
@@ -882,7 +885,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 bool is_wrapping = (op_id == IrBinOpBitShiftLeftWrap);
                 if (is_wrapping) {
                     return LLVMBuildShl(g->builder, op1_value, op2_value, "");
-                } else if (ir_want_debug_safety(g, &bin_op_instruction->base)) {
+                } else if (want_debug_safety) {
                     return gen_overflow_shl_op(g, op1->type_entry, op1_value, op2_value);
                 } else if (op1->type_entry->data.integral.is_signed) {
                     return ZigLLVMBuildNSWShl(g->builder, op1_value, op2_value, "");
@@ -905,7 +908,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 bool is_wrapping = (op_id == IrBinOpSubWrap);
                 if (is_wrapping) {
                     return LLVMBuildSub(g->builder, op1_value, op2_value, "");
-                } else if (ir_want_debug_safety(g, &bin_op_instruction->base)) {
+                } else if (want_debug_safety) {
                     return gen_overflow_op(g, op1->type_entry, AddSubMulSub, op1_value, op2_value);
                 } else if (op1->type_entry->data.integral.is_signed) {
                     return LLVMBuildNSWSub(g->builder, op1_value, op2_value, "");
@@ -923,7 +926,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 bool is_wrapping = (op_id == IrBinOpMultWrap);
                 if (is_wrapping) {
                     return LLVMBuildMul(g->builder, op1_value, op2_value, "");
-                } else if (ir_want_debug_safety(g, &bin_op_instruction->base)) {
+                } else if (want_debug_safety) {
                     return gen_overflow_op(g, op1->type_entry, AddSubMulMul, op1_value, op2_value);
                 } else if (op1->type_entry->data.integral.is_signed) {
                     return LLVMBuildNSWMul(g->builder, op1_value, op2_value, "");
@@ -934,8 +937,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 zig_unreachable();
             }
         case IrBinOpDiv:
-            return gen_div(g, ir_want_debug_safety(g, &bin_op_instruction->base),
-                op1_value, op2_value, op1->type_entry, false);
+            return gen_div(g, want_debug_safety, op1_value, op2_value, op1->type_entry, false);
         case IrBinOpMod:
             if (op1->type_entry->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFRem(g->builder, op1_value, op2_value, "");

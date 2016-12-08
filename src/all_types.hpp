@@ -1523,6 +1523,7 @@ struct IrInstructionBinOp {
     IrInstruction *op1;
     IrBinOp op_id;
     IrInstruction *op2;
+    bool safety_check_on;
 };
 
 struct IrInstructionDeclVar {

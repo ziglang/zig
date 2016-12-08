@@ -567,12 +567,13 @@ static IrInstruction *ir_build_const_c_str_lit(IrBuilder *irb, Scope *scope, Ast
 }
 
 static IrInstruction *ir_build_bin_op(IrBuilder *irb, Scope *scope, AstNode *source_node, IrBinOp op_id,
-        IrInstruction *op1, IrInstruction *op2)
+        IrInstruction *op1, IrInstruction *op2, bool safety_check_on)
 {
     IrInstructionBinOp *bin_op_instruction = ir_build_instruction<IrInstructionBinOp>(irb, scope, source_node);
     bin_op_instruction->op_id = op_id;
     bin_op_instruction->op1 = op1;
     bin_op_instruction->op2 = op2;
+    bin_op_instruction->safety_check_on = safety_check_on;
 
     ir_ref_instruction(op1);
     ir_ref_instruction(op2);
@@ -581,10 +582,10 @@ static IrInstruction *ir_build_bin_op(IrBuilder *irb, Scope *scope, AstNode *sou
 }
 
 static IrInstruction *ir_build_bin_op_from(IrBuilder *irb, IrInstruction *old_instruction, IrBinOp op_id,
-        IrInstruction *op1, IrInstruction *op2)
+        IrInstruction *op1, IrInstruction *op2, bool safety_check_on)
 {
     IrInstruction *new_instruction = ir_build_bin_op(irb, old_instruction->scope,
-            old_instruction->source_node, op_id, op1, op2);
+            old_instruction->source_node, op_id, op1, op2, safety_check_on);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -1455,7 +1456,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
 static IrInstruction *ir_gen_bin_op_id(IrBuilder *irb, Scope *scope, AstNode *node, IrBinOp op_id) {
     IrInstruction *op1 = ir_gen_node(irb, node->data.bin_op_expr.op1, scope);
     IrInstruction *op2 = ir_gen_node(irb, node->data.bin_op_expr.op2, scope);
-    return ir_build_bin_op(irb, scope, node, op_id, op1, op2);
+    return ir_build_bin_op(irb, scope, node, op_id, op1, op2, true);
 }
 
 static IrInstruction *ir_gen_assign(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -1479,7 +1480,7 @@ static IrInstruction *ir_gen_assign_op(IrBuilder *irb, Scope *scope, AstNode *no
     IrInstruction *op2 = ir_gen_node(irb, node->data.bin_op_expr.op2, scope);
     if (op2 == irb->codegen->invalid_instruction)
         return op2;
-    IrInstruction *result = ir_build_bin_op(irb, scope, node, op_id, op1, op2);
+    IrInstruction *result = ir_build_bin_op(irb, scope, node, op_id, op1, op2, true);
     ir_build_store_ptr(irb, scope, node, lvalue, result);
     return ir_build_const_void(irb, scope, node);
 }
@@ -2322,11 +2323,11 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     ir_set_cursor_at_end(irb, cond_block);
     IrInstruction *index_val = ir_build_load_ptr(irb, child_scope, node, index_ptr);
-    IrInstruction *cond = ir_build_bin_op(irb, child_scope, node, IrBinOpCmpLessThan, index_val, len_val);
+    IrInstruction *cond = ir_build_bin_op(irb, child_scope, node, IrBinOpCmpLessThan, index_val, len_val, false);
     ir_build_cond_br(irb, child_scope, node, cond, body_block, end_block, is_inline);
 
     ir_set_cursor_at_end(irb, body_block);
-    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, child_scope, node, array_val_ptr, index_val, true);
+    IrInstruction *elem_ptr = ir_build_elem_ptr(irb, child_scope, node, array_val_ptr, index_val, false);
     IrInstruction *elem_val;
     if (node->data.for_expr.elem_is_ptr) {
         elem_val = elem_ptr;
@@ -2345,7 +2346,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     ir_build_br(irb, child_scope, node, continue_block, is_inline);
 
     ir_set_cursor_at_end(irb, continue_block);
-    IrInstruction *new_index_val = ir_build_bin_op(irb, child_scope, node, IrBinOpAdd, index_val, one);
+    IrInstruction *new_index_val = ir_build_bin_op(irb, child_scope, node, IrBinOpAdd, index_val, one, false);
     ir_build_store_ptr(irb, child_scope, node, index_ptr, new_index_val);
     ir_build_br(irb, child_scope, node, cond_block, is_inline);
 
@@ -2654,13 +2655,13 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                         IrInstruction *end_value_const = ir_build_static_eval(irb, scope, start_node, end_value);
 
                         IrInstruction *lower_range_ok = ir_build_bin_op(irb, scope, item_node, IrBinOpCmpGreaterOrEq,
-                                target_value, start_value_const);
+                                target_value, start_value_const, false);
                         IrInstruction *upper_range_ok = ir_build_bin_op(irb, scope, item_node, IrBinOpCmpLessOrEq,
-                                target_value, end_value_const);
+                                target_value, end_value_const, false);
                         IrInstruction *both_ok = ir_build_bin_op(irb, scope, item_node, IrBinOpBoolAnd,
-                                lower_range_ok, upper_range_ok);
+                                lower_range_ok, upper_range_ok, false);
                         if (ok_bit) {
-                            ok_bit = ir_build_bin_op(irb, scope, item_node, IrBinOpBoolOr, both_ok, ok_bit);
+                            ok_bit = ir_build_bin_op(irb, scope, item_node, IrBinOpBoolOr, both_ok, ok_bit, false);
                         } else {
                             ok_bit = both_ok;
                         }
@@ -2670,9 +2671,9 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                             return irb->codegen->invalid_instruction;
 
                         IrInstruction *cmp_ok = ir_build_bin_op(irb, scope, item_node, IrBinOpCmpEq,
-                                item_value, target_value);
+                                item_value, target_value, false);
                         if (ok_bit) {
-                            ok_bit = ir_build_bin_op(irb, scope, item_node, IrBinOpBoolOr, cmp_ok, ok_bit);
+                            ok_bit = ir_build_bin_op(irb, scope, item_node, IrBinOpBoolOr, cmp_ok, ok_bit, false);
                         } else {
                             ok_bit = cmp_ok;
                         }
@@ -4027,7 +4028,8 @@ static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp
         return bool_type;
     }
 
-    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, bin_op_instruction->op_id, casted_op1, casted_op2);
+    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, bin_op_instruction->op_id,
+            casted_op1, casted_op2, bin_op_instruction->safety_check_on);
     return bool_type;
 }
 
@@ -4145,7 +4147,8 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         return ira->codegen->builtin_types.entry_bool;
     }
 
-    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id, casted_op1, casted_op2);
+    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id,
+            casted_op1, casted_op2, bin_op_instruction->safety_check_on);
 
     return ira->codegen->builtin_types.entry_bool;
 }
@@ -4311,7 +4314,8 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
 
     }
 
-    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id, casted_op1, casted_op2);
+    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id,
+            casted_op1, casted_op2, bin_op_instruction->safety_check_on);
     return resolved_type;
 }
 
@@ -5345,7 +5349,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     if (casted_elem_index == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    bool safety_check_on = true;
+    bool safety_check_on = elem_ptr_instruction->safety_check_on;
     if (casted_elem_index->static_value.special != ConstValSpecialRuntime) {
         uint64_t index = casted_elem_index->static_value.data.x_bignum.data.x_uint;
         if (array_type->id == TypeTableEntryIdArray) {

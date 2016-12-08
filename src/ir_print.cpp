@@ -314,6 +314,9 @@ static void ir_print_bin_op(IrPrint *irp, IrInstructionBinOp *bin_op_instruction
     ir_print_other_instruction(irp, bin_op_instruction->op1);
     fprintf(irp->f, " %s ", ir_bin_op_id_str(bin_op_instruction->op_id));
     ir_print_other_instruction(irp, bin_op_instruction->op2);
+    if (!bin_op_instruction->safety_check_on) {
+        fprintf(irp->f, " // no safety");
+    }
 }
 
 static void ir_print_decl_var(IrPrint *irp, IrInstructionDeclVar *decl_var_instruction) {
