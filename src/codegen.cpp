@@ -680,11 +680,6 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
         }
         assert(instruction->llvm_value);
     }
-    if (instruction->static_value.special != ConstValSpecialRuntime) {
-        if (instruction->type_entry->id == TypeTableEntryIdPointer) {
-            return LLVMBuildLoad(g->builder, instruction->static_value.llvm_global, "");
-        }
-    }
     return instruction->llvm_value;
 }
 
@@ -1794,7 +1789,14 @@ static LLVMValueRef ir_render_switch_br(CodeGen *g, IrExecutable *executable, Ir
 }
 
 static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutable *executable, IrInstructionPhi *instruction) {
-    LLVMValueRef phi = LLVMBuildPhi(g->builder, instruction->base.type_entry->type_ref, "");
+    LLVMTypeRef phi_type;
+    if (handle_is_ptr(instruction->base.type_entry)) {
+        phi_type = LLVMPointerType(instruction->base.type_entry->type_ref, 0);
+    } else {
+        phi_type = instruction->base.type_entry->type_ref;
+    }
+
+    LLVMValueRef phi = LLVMBuildPhi(g->builder, phi_type, "");
     LLVMValueRef *incoming_values = allocate<LLVMValueRef>(instruction->incoming_count);
     LLVMBasicBlockRef *incoming_blocks = allocate<LLVMBasicBlockRef>(instruction->incoming_count);
     for (size_t i = 0; i < instruction->incoming_count; i += 1) {

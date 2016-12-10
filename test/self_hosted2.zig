@@ -267,6 +267,12 @@ fn testErrorName() {
     assert(memeql(@errorName(error.ItBroke), "ItBroke"));
 }
 
+//error One;
+//fn getAnErrorValue (b: bool) -> %i32 {
+//    const result = if (b) error.One else i32(1234);
+//    return result;
+//}
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();

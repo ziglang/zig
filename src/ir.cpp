@@ -3135,12 +3135,19 @@ static TypeTableEntry *ir_determine_peer_types(IrAnalyze *ira, AstNode *source_n
     if (prev_inst->type_entry->id == TypeTableEntryIdInvalid) {
         return ira->codegen->builtin_types.entry_invalid;
     }
+    bool any_are_pure_error = (prev_inst->type_entry->id == TypeTableEntryIdPureError);
     for (size_t i = 1; i < instruction_count; i += 1) {
         IrInstruction *cur_inst = instructions[i];
         TypeTableEntry *cur_type = cur_inst->type_entry;
         TypeTableEntry *prev_type = prev_inst->type_entry;
         if (cur_type->id == TypeTableEntryIdInvalid) {
             return cur_type;
+        } else if (prev_type->id == TypeTableEntryIdPureError) {
+            prev_inst = cur_inst;
+            continue;
+        } else if (cur_type->id == TypeTableEntryIdPureError) {
+            any_are_pure_error = true;
+            continue;
         } else if (types_match_const_cast_only(prev_type, cur_type)) {
             continue;
         } else if (types_match_const_cast_only(cur_type, prev_type)) {
@@ -3198,7 +3205,11 @@ static TypeTableEntry *ir_determine_peer_types(IrAnalyze *ira, AstNode *source_n
             return ira->codegen->builtin_types.entry_invalid;
         }
     }
-    return prev_inst->type_entry;
+    if (any_are_pure_error && prev_inst->type_entry->id != TypeTableEntryIdPureError) {
+        return get_error_type(ira->codegen, prev_inst->type_entry);
+    } else {
+        return prev_inst->type_entry;
+    }
 }
 
 enum ImplicitCastMatchResult {
@@ -3302,6 +3313,14 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         IrInstruction **instructions, size_t instruction_count)
 {
     return ir_determine_peer_types(ira, source_node, instructions, instruction_count);
+}
+
+static void ir_add_alloca(IrAnalyze *ira, IrInstruction *instruction, TypeTableEntry *type_entry) {
+    if (type_has_bits(type_entry) && handle_is_ptr(type_entry)) {
+        FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+        assert(fn_entry);
+        fn_entry->alloca_list.append(instruction);
+    }
 }
 
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
@@ -4696,11 +4715,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                 impl_fn, nullptr, impl_param_count, casted_args);
 
         TypeTableEntry *return_type = impl_fn->type_entry->data.fn.fn_type_id.return_type;
-        if (type_has_bits(return_type) && handle_is_ptr(return_type)) {
-            FnTableEntry *callsite_fn = exec_fn_entry(ira->new_irb.exec);
-            assert(callsite_fn);
-            callsite_fn->alloca_list.append(new_call_instruction);
-        }
+        ir_add_alloca(ira, new_call_instruction, return_type);
 
         return ir_finish_anal(ira, return_type);
     }
@@ -4752,12 +4767,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
             fn_entry, fn_ref, call_param_count, casted_args);
 
-    if (type_has_bits(return_type) && handle_is_ptr(return_type)) {
-        FnTableEntry *callsite_fn = exec_fn_entry(ira->new_irb.exec);
-        assert(callsite_fn);
-        callsite_fn->alloca_list.append(new_call_instruction);
-    }
-
+    ir_add_alloca(ira, new_call_instruction, return_type);
     return ir_finish_anal(ira, return_type);
 }
 
@@ -5280,6 +5290,7 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
 
     ir_build_phi_from(&ira->new_irb, &phi_instruction->base, new_incoming_blocks.length,
             new_incoming_blocks.items, new_incoming_values.items);
+
     return resolved_type;
 }
 
@@ -6684,7 +6695,8 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
 
     IrInstruction *new_instruction = ir_build_struct_init_from(&ira->new_irb, instruction,
         container_type, actual_field_count, new_fields);
-    fn_entry->alloca_list.append(new_instruction);
+
+    ir_add_alloca(ira, new_instruction, container_type);
     return container_type;
 }
 
@@ -6754,7 +6766,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
 
         IrInstruction *new_instruction = ir_build_container_init_list_from(&ira->new_irb, &instruction->base,
             container_type_value, elem_count, new_items);
-        fn_entry->alloca_list.append(new_instruction);
+        ir_add_alloca(ira, new_instruction, fixed_size_array_type);
         return fixed_size_array_type;
     } else if (container_type->id == TypeTableEntryIdArray) {
         // same as slice init but we make a compile error if the length is wrong
