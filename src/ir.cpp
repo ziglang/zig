@@ -512,12 +512,7 @@ static IrInstruction *ir_build_const_bound_fn(IrBuilder *irb, Scope *scope, AstN
     return &const_instruction->base;
 }
 
-static IrInstruction *ir_create_const_str_lit(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *str) {
-    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb->exec, scope, source_node);
-    TypeTableEntry *u8_type = irb->codegen->builtin_types.entry_u8;
-    TypeTableEntry *type_entry = get_array_type(irb->codegen, u8_type, buf_len(str));
-    const_instruction->base.type_entry = type_entry;
-    ConstExprValue *const_val = &const_instruction->base.static_value;
+static void init_const_str_lit(ConstExprValue *const_val, Buf *str) {
     const_val->special = ConstValSpecialStatic;
     const_val->data.x_array.elements = allocate<ConstExprValue>(buf_len(str));
     const_val->data.x_array.size = buf_len(str);
@@ -527,6 +522,15 @@ static IrInstruction *ir_create_const_str_lit(IrBuilder *irb, Scope *scope, AstN
         this_char->special = ConstValSpecialStatic;
         bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
     }
+}
+
+static IrInstruction *ir_create_const_str_lit(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *str) {
+    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb->exec, scope, source_node);
+    TypeTableEntry *u8_type = irb->codegen->builtin_types.entry_u8;
+    TypeTableEntry *type_entry = get_array_type(irb->codegen, u8_type, buf_len(str));
+    const_instruction->base.type_entry = type_entry;
+    ConstExprValue *const_val = &const_instruction->base.static_value;
+    init_const_str_lit(const_val, str);
 
     return &const_instruction->base;
 }
@@ -6877,11 +6881,26 @@ static TypeTableEntry *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstruc
     TypeTableEntry *str_type = get_slice_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
     if (casted_value->static_value.special == ConstValSpecialStatic) {
         ErrorTableEntry *err = casted_value->static_value.data.x_pure_err;
-        IrInstruction *new_instruction = ir_create_const_str_lit(&ira->new_irb, instruction->base.scope,
-                instruction->base.source_node, &err->name);
-        ir_link_new_instruction(new_instruction, &instruction->base);
-        new_instruction->static_value.special = ConstValSpecialStatic;
-        new_instruction->static_value.depends_on_compile_var = casted_value->static_value.depends_on_compile_var;
+        if (!err->cached_error_name_val) {
+            err->cached_error_name_val = allocate<ConstExprValue>(1);
+            err->cached_error_name_val->special = ConstValSpecialStatic;
+            err->cached_error_name_val->data.x_struct.fields = allocate<ConstExprValue>(2);
+
+            ConstExprValue *array_val = allocate<ConstExprValue>(1);
+            init_const_str_lit(array_val, &err->name);
+
+            ConstExprValue *ptr_val = &err->cached_error_name_val->data.x_struct.fields[slice_ptr_index];
+            ptr_val->special = ConstValSpecialStatic;
+            ptr_val->data.x_ptr.base_ptr = array_val;
+            ptr_val->data.x_ptr.index = 0;
+
+            ConstExprValue *len_val = &err->cached_error_name_val->data.x_struct.fields[slice_len_index];
+            len_val->special = ConstValSpecialStatic;
+            bignum_init_unsigned(&len_val->data.x_bignum, buf_len(&err->name));
+        }
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base,
+            casted_value->static_value.depends_on_compile_var);
+        *out_val = *err->cached_error_name_val;
         return str_type;
     }
 

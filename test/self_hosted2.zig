@@ -258,6 +258,15 @@ pub fn sliceEql(inline T: type, a: []const T, b: []const T) -> bool {
     return true;
 }
 
+error ItBroke;
+fn gimmeItBroke() -> []const u8 {
+    @errorName(error.ItBroke)
+}
+
+fn testErrorName() {
+    assert(memeql(@errorName(error.ItBroke), "ItBroke"));
+}
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -284,6 +293,7 @@ fn runAllTests() {
     testInlineVarsAgain();
     testMinValueAndMaxValue();
     testReturnStringFromFunction();
+    testErrorName();
 }
 
 export nakedcc fn _start() -> unreachable {

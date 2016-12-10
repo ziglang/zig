@@ -1232,6 +1232,9 @@ struct ErrorTableEntry {
     Buf name;
     uint32_t value;
     AstNode *decl_node;
+    // If we generate a constant error name value for this error, we memoize it here.
+    // The type of this is array
+    ConstExprValue *cached_error_name_val;
 };
 
 struct LabelTableEntry {
