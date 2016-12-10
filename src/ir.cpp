@@ -3206,7 +3206,15 @@ static TypeTableEntry *ir_determine_peer_types(IrAnalyze *ira, AstNode *source_n
         }
     }
     if (any_are_pure_error && prev_inst->type_entry->id != TypeTableEntryIdPureError) {
-        return get_error_type(ira->codegen, prev_inst->type_entry);
+        if (prev_inst->type_entry->id == TypeTableEntryIdNumLitInt ||
+            prev_inst->type_entry->id == TypeTableEntryIdNumLitFloat)
+        {
+            add_node_error(ira->codegen, source_node,
+                buf_sprintf("unable to make error union out of number literal"));
+            return ira->codegen->builtin_types.entry_invalid;
+        } else {
+            return get_error_type(ira->codegen, prev_inst->type_entry);
+        }
     } else {
         return prev_inst->type_entry;
     }
