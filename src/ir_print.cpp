@@ -279,8 +279,6 @@ static const char *ir_un_op_id_str(IrUnOp op_id) {
     switch (op_id) {
         case IrUnOpInvalid:
             zig_unreachable();
-        case IrUnOpBoolNot:
-            return "!";
         case IrUnOpBinNot:
             return "~";
         case IrUnOpNegation:
@@ -755,6 +753,19 @@ static void ir_print_truncate(IrPrint *irp, IrInstructionTruncate *instruction) 
     fprintf(irp->f, ")");
 }
 
+static void ir_print_int_type(IrPrint *irp, IrInstructionIntType *instruction) {
+    fprintf(irp->f, "@intType(");
+    ir_print_other_instruction(irp, instruction->is_signed);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->bit_count);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_bool_not(IrPrint *irp, IrInstructionBoolNot *instruction) {
+    fprintf(irp->f, "! ");
+    ir_print_other_instruction(irp, instruction->value);
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -930,6 +941,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTruncate:
             ir_print_truncate(irp, (IrInstructionTruncate *)instruction);
+            break;
+        case IrInstructionIdIntType:
+            ir_print_int_type(irp, (IrInstructionIntType *)instruction);
+            break;
+        case IrInstructionIdBoolNot:
+            ir_print_bool_not(irp, (IrInstructionBoolNot *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

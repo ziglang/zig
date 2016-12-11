@@ -2809,3 +2809,14 @@ ConstExprValue *create_const_enum_tag(uint64_t tag) {
     init_const_enum_tag(const_val, tag);
     return const_val;
 }
+
+void init_const_bool(ConstExprValue *const_val, bool value) {
+    const_val->special = ConstValSpecialStatic;
+    const_val->data.x_bool = value;
+}
+
+ConstExprValue *create_const_bool(bool value) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_bool(const_val, value);
+    return const_val;
+}

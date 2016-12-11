@@ -1230,11 +1230,6 @@ static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInst
                     zig_unreachable();
                 }
             }
-        case IrUnOpBoolNot:
-            {
-                LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(expr));
-                return LLVMBuildICmp(g->builder, LLVMIntEQ, expr, zero, "");
-            }
         case IrUnOpBinNot:
             return LLVMBuildNot(g->builder, expr, "");
         case IrUnOpAddressOf:
@@ -1337,6 +1332,12 @@ static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInst
     }
 
     zig_unreachable();
+}
+
+static LLVMValueRef ir_render_bool_not(CodeGen *g, IrExecutable *executable, IrInstructionBoolNot *instruction) {
+    LLVMValueRef value = ir_llvm_value(g, instruction->value);
+    LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(value));
+    return LLVMBuildICmp(g->builder, LLVMIntEQ, value, zero, "");
 }
 
 static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
@@ -1927,6 +1928,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCDefine:
         case IrInstructionIdCUndef:
         case IrInstructionIdEmbedFile:
+        case IrInstructionIdIntType:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -1984,6 +1986,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_div_exact(g, executable, (IrInstructionDivExact *)instruction);
         case IrInstructionIdTruncate:
             return ir_render_truncate(g, executable, (IrInstructionTruncate *)instruction);
+        case IrInstructionIdBoolNot:
+            return ir_render_bool_not(g, executable, (IrInstructionBoolNot *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdStructInit:

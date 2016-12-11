@@ -98,4 +98,7 @@ ConstExprValue *create_const_float(double value);
 void init_const_enum_tag(ConstExprValue *const_val, uint64_t tag);
 ConstExprValue *create_const_enum_tag(uint64_t tag);
 
+void init_const_bool(ConstExprValue *const_val, bool value);
+ConstExprValue *create_const_bool(bool value);
+
 #endif

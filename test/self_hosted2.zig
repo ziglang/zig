@@ -299,6 +299,35 @@ fn testTruncate(x: u32) -> u8 {
     @truncate(u8, x)
 }
 
+fn intTypeBuiltin() {
+    assert(@intType(true, 8) == i8);
+    assert(@intType(true, 16) == i16);
+    assert(@intType(true, 32) == i32);
+    assert(@intType(true, 64) == i64);
+
+    assert(@intType(false, 8) == u8);
+    assert(@intType(false, 16) == u16);
+    assert(@intType(false, 32) == u32);
+    assert(@intType(false, 64) == u64);
+
+    assert(i8.bit_count == 8);
+    assert(i16.bit_count == 16);
+    assert(i32.bit_count == 32);
+    assert(i64.bit_count == 64);
+
+    assert(i8.is_signed);
+    assert(i16.is_signed);
+    assert(i32.is_signed);
+    assert(i64.is_signed);
+    assert(isize.is_signed);
+
+    assert(!u8.is_signed);
+    assert(!u16.is_signed);
+    assert(!u32.is_signed);
+    assert(!u64.is_signed);
+    assert(!usize.is_signed);
+
+}
 
 fn assert(ok: bool) {
     if (!ok)
@@ -331,6 +360,7 @@ fn runAllTests() {
     fence();
     exactDivision();
     truncate();
+    intTypeBuiltin();
 }
 
 export nakedcc fn _start() -> unreachable {

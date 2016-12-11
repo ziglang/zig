@@ -1411,6 +1411,8 @@ enum IrInstructionId {
     IrInstructionIdFence,
     IrInstructionIdDivExact,
     IrInstructionIdTruncate,
+    IrInstructionIdIntType,
+    IrInstructionIdBoolNot,
 };
 
 struct IrInstruction {
@@ -1481,7 +1483,6 @@ struct IrInstructionPhi {
 
 enum IrUnOp {
     IrUnOpInvalid,
-    IrUnOpBoolNot,
     IrUnOpBinNot,
     IrUnOpNegation,
     IrUnOpNegationWrap,
@@ -1898,6 +1899,19 @@ struct IrInstructionTruncate {
 
     IrInstruction *dest_type;
     IrInstruction *target;
+};
+
+struct IrInstructionIntType {
+    IrInstruction base;
+
+    IrInstruction *is_signed;
+    IrInstruction *bit_count;
+};
+
+struct IrInstructionBoolNot {
+    IrInstruction base;
+
+    IrInstruction *value;
 };
 
 enum LValPurpose {
