@@ -4195,7 +4195,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     return ira->codegen->invalid_instruction;
 }
 
-static IrInstruction *ir_get_casted_value(IrAnalyze *ira, IrInstruction *value, TypeTableEntry *expected_type) {
+static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, TypeTableEntry *expected_type) {
     assert(value);
     assert(value != ira->codegen->invalid_instruction);
     assert(!expected_type || expected_type->id != TypeTableEntryIdInvalid);
@@ -4283,7 +4283,7 @@ static bool ir_resolve_usize(IrAnalyze *ira, IrInstruction *value, uint64_t *out
     if (value->type_entry->id == TypeTableEntryIdInvalid)
         return false;
 
-    IrInstruction *casted_value = ir_get_casted_value(ira, value, ira->codegen->builtin_types.entry_usize);
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_usize);
     if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
         return false;
 
@@ -4299,7 +4299,7 @@ static bool ir_resolve_bool(IrAnalyze *ira, IrInstruction *value, bool *out) {
     if (value->type_entry->id == TypeTableEntryIdInvalid)
         return false;
 
-    IrInstruction *casted_value = ir_get_casted_value(ira, value, ira->codegen->builtin_types.entry_bool);
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_bool);
     if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
         return false;
 
@@ -4315,7 +4315,7 @@ static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, Atomic
     if (value->type_entry->id == TypeTableEntryIdInvalid)
         return false;
 
-    IrInstruction *casted_value = ir_get_casted_value(ira, value, ira->codegen->builtin_types.entry_atomic_order_enum);
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_atomic_order_enum);
     if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
         return false;
 
@@ -4332,7 +4332,7 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
         return nullptr;
 
     TypeTableEntry *str_type = get_slice_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
-    IrInstruction *casted_value = ir_get_casted_value(ira, value, str_type);
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, str_type);
     if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
         return nullptr;
 
@@ -4366,7 +4366,7 @@ static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
         return ir_unreach_error(ira);
     ira->implicit_return_type_list.append(value);
 
-    IrInstruction *casted_value = ir_get_casted_value(ira, value, ira->explicit_return_type);
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->explicit_return_type);
     if (casted_value == ira->codegen->invalid_instruction)
         return ir_unreach_error(ira);
 
@@ -4392,11 +4392,11 @@ static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp
 
     TypeTableEntry *bool_type = ira->codegen->builtin_types.entry_bool;
 
-    IrInstruction *casted_op1 = ir_get_casted_value(ira, op1, bool_type);
+    IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, bool_type);
     if (casted_op1 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    IrInstruction *casted_op2 = ir_get_casted_value(ira, op2, bool_type);
+    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, bool_type);
     if (casted_op2 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -4485,11 +4485,11 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             zig_unreachable();
     }
 
-    IrInstruction *casted_op1 = ir_get_casted_value(ira, op1, resolved_type);
+    IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, resolved_type);
     if (casted_op1 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    IrInstruction *casted_op2 = ir_get_casted_value(ira, op2, resolved_type);
+    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, resolved_type);
     if (casted_op2 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -4669,11 +4669,11 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    IrInstruction *casted_op1 = ir_get_casted_value(ira, op1, resolved_type);
+    IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, resolved_type);
     if (casted_op1 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    IrInstruction *casted_op2 = ir_get_casted_value(ira, op2, resolved_type);
+    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, resolved_type);
     if (casted_op2 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -4709,6 +4709,165 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
     return resolved_type;
 }
 
+static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *instruction) {
+    IrInstruction *op1 = instruction->op1->other;
+    if (op1->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *op2 = instruction->op2->other;
+    if (op2->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+//                AstNode **op1 = node->data.bin_op_expr.op1->parent_field;
+//                AstNode **op2 = node->data.bin_op_expr.op2->parent_field;
+//
+//                TypeTableEntry *op1_type = analyze_expression(g, import, context, nullptr, *op1);
+//                TypeTableEntry *child_type;
+//                if (op1_type->id == TypeTableEntryIdInvalid) {
+//                    return g->builtin_types.entry_invalid;
+//                } else if (op1_type->id == TypeTableEntryIdArray) {
+//                    child_type = op1_type->data.array.child_type;
+//                } else if (op1_type->id == TypeTableEntryIdPointer &&
+//                           op1_type->data.pointer.child_type == g->builtin_types.entry_u8) {
+//                    child_type = op1_type->data.pointer.child_type;
+//                } else {
+//                    add_node_error(g, *op1, buf_sprintf("expected array or C string literal, found '%s'",
+//                                buf_ptr(&op1_type->name)));
+//                    return g->builtin_types.entry_invalid;
+//                }
+//
+//                TypeTableEntry *op2_type = analyze_expression(g, import, context, nullptr, *op2);
+//
+//                if (op2_type->id == TypeTableEntryIdInvalid) {
+//                    return g->builtin_types.entry_invalid;
+//                } else if (op2_type->id == TypeTableEntryIdArray) {
+//                    if (op2_type->data.array.child_type != child_type) {
+//                        add_node_error(g, *op2, buf_sprintf("expected array of type '%s', found '%s'",
+//                                    buf_ptr(&child_type->name),
+//                                    buf_ptr(&op2_type->name)));
+//                        return g->builtin_types.entry_invalid;
+//                    }
+//                } else if (op2_type->id == TypeTableEntryIdPointer &&
+//                        op2_type->data.pointer.child_type == g->builtin_types.entry_u8) {
+//                } else {
+//                    add_node_error(g, *op2, buf_sprintf("expected array or C string literal, found '%s'",
+//                                buf_ptr(&op2_type->name)));
+//                    return g->builtin_types.entry_invalid;
+//                }
+//
+//                ConstExprValue *op1_val = &get_resolved_expr(*op1)->const_val;
+//                ConstExprValue *op2_val = &get_resolved_expr(*op2)->const_val;
+//
+//                AstNode *bad_node;
+//                if (!op1_val->ok) {
+//                    bad_node = *op1;
+//                } else if (!op2_val->ok) {
+//                    bad_node = *op2;
+//                } else {
+//                    bad_node = nullptr;
+//                }
+//                if (bad_node) {
+//                    add_node_error(g, bad_node, buf_sprintf("array concatenation requires constant expression"));
+//                    return g->builtin_types.entry_invalid;
+//                }
+//
+//                ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
+//                const_val->ok = true;
+//                const_val->depends_on_compile_var = op1_val->depends_on_compile_var ||
+//                    op2_val->depends_on_compile_var;
+//
+//                if (op1_type->id == TypeTableEntryIdArray) {
+//                    uint64_t new_len = op1_type->data.array.len + op2_type->data.array.len;
+//                    const_val->data.x_array.fields = allocate<ConstExprValue*>(new_len);
+//                    uint64_t next_index = 0;
+//                    for (uint64_t i = 0; i < op1_type->data.array.len; i += 1, next_index += 1) {
+//                        const_val->data.x_array.fields[next_index] = op1_val->data.x_array.fields[i];
+//                    }
+//                    for (uint64_t i = 0; i < op2_type->data.array.len; i += 1, next_index += 1) {
+//                        const_val->data.x_array.fields[next_index] = op2_val->data.x_array.fields[i];
+//                    }
+//                    return get_array_type(g, child_type, new_len);
+//                } else if (op1_type->id == TypeTableEntryIdPointer) {
+//                    if (!op1_val->data.x_ptr.is_c_str) {
+//                        add_node_error(g, *op1,
+//                                buf_sprintf("expected array or C string literal, found '%s'",
+//                                    buf_ptr(&op1_type->name)));
+//                        return g->builtin_types.entry_invalid;
+//                    } else if (!op2_val->data.x_ptr.is_c_str) {
+//                        add_node_error(g, *op2,
+//                                buf_sprintf("expected array or C string literal, found '%s'",
+//                                    buf_ptr(&op2_type->name)));
+//                        return g->builtin_types.entry_invalid;
+//                    }
+//                    const_val->data.x_ptr.is_c_str = true;
+//                    const_val->data.x_ptr.len = op1_val->data.x_ptr.len + op2_val->data.x_ptr.len - 1;
+//                    const_val->data.x_ptr.ptr = allocate<ConstExprValue*>(const_val->data.x_ptr.len);
+//                    uint64_t next_index = 0;
+//                    for (uint64_t i = 0; i < op1_val->data.x_ptr.len - 1; i += 1, next_index += 1) {
+//                        const_val->data.x_ptr.ptr[next_index] = op1_val->data.x_ptr.ptr[i];
+//                    }
+//                    for (uint64_t i = 0; i < op2_val->data.x_ptr.len; i += 1, next_index += 1) {
+//                        const_val->data.x_ptr.ptr[next_index] = op2_val->data.x_ptr.ptr[i];
+//                    }
+//                    return op1_type;
+//                } else {
+//                    zig_unreachable();
+//                }
+    zig_panic("TODO");
+}
+
+static TypeTableEntry *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *instruction) {
+    IrInstruction *op1 = instruction->op1->other;
+    if (op1->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *op2 = instruction->op2->other;
+    if (op2->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ConstExprValue *array_val = ir_resolve_const(ira, op1);
+    if (!array_val)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    uint64_t mult_amt;
+    if (!ir_resolve_usize(ira, op2, &mult_amt))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *array_canon_type = get_underlying_type(op1->type_entry);
+    if (array_canon_type->id != TypeTableEntryIdArray) {
+        ir_add_error(ira, op1, buf_sprintf("expected array type, found '%s'", buf_ptr(&op1->type_entry->name)));
+        // TODO if meta_type is type decl, add note pointing to type decl declaration
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    uint64_t old_array_len = array_canon_type->data.array.len;
+
+    BigNum array_len;
+    bignum_init_unsigned(&array_len, old_array_len);
+    if (bignum_multiply_by_scalar(&array_len, mult_amt)) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("operation results in overflow"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    bool depends_on_compile_var = op1->static_value.depends_on_compile_var || op2->static_value.depends_on_compile_var;
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+
+    uint64_t new_array_len = array_len.data.x_uint;
+    out_val->data.x_array.size = new_array_len;
+    out_val->data.x_array.elements = allocate<ConstExprValue>(new_array_len);
+
+    uint64_t i = 0;
+    for (uint64_t x = 0; x < mult_amt; x += 1) {
+        for (uint64_t y = 0; y < old_array_len; y += 1) {
+            out_val->data.x_array.elements[i] = array_val->data.x_array.elements[y];
+            i += 1;
+        }
+    }
+    assert(i == new_array_len);
+
+    TypeTableEntry *child_type = array_canon_type->data.array.child_type;
+    return get_array_type(ira->codegen, child_type, new_array_len);
+}
 
 static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
     IrBinOp op_id = bin_op_instruction->op_id;
@@ -4741,8 +4900,9 @@ static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructi
         case IrBinOpMod:
             return ir_analyze_bin_op_math(ira, bin_op_instruction);
         case IrBinOpArrayCat:
+            return ir_analyze_array_cat(ira, bin_op_instruction);
         case IrBinOpArrayMult:
-            zig_panic("TODO analyze more binary operations");
+            return ir_analyze_array_mult(ira, bin_op_instruction);
     }
     zig_unreachable();
 }
@@ -4774,7 +4934,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
 
     AstNode *source_node = decl_var_instruction->base.source_node;
 
-    IrInstruction *casted_init_value = ir_get_casted_value(ira, init_value, explicit_type);
+    IrInstruction *casted_init_value = ir_implicit_cast(ira, init_value, explicit_type);
     TypeTableEntry *result_type = get_underlying_type(casted_init_value->type_entry);
     switch (result_type->id) {
         case TypeTableEntryIdTypeDecl:
@@ -4859,7 +5019,7 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
     if (param_type->id == TypeTableEntryIdInvalid)
         return false;
 
-    IrInstruction *casted_arg = ir_get_casted_value(ira, arg, param_type);
+    IrInstruction *casted_arg = ir_implicit_cast(ira, arg, param_type);
     if (casted_arg->type_entry->id == TypeTableEntryIdInvalid)
         return false;
 
@@ -4893,7 +5053,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     if (is_var_type) {
         casted_arg = arg;
     } else {
-        casted_arg = ir_get_casted_value(ira, arg, param_type);
+        casted_arg = ir_implicit_cast(ira, arg, param_type);
         if (casted_arg->type_entry->id == TypeTableEntryIdInvalid)
             return false;
     }
@@ -5098,7 +5258,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         if (param_type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
-        IrInstruction *casted_arg = ir_get_casted_value(ira, first_arg, param_type);
+        IrInstruction *casted_arg = ir_implicit_cast(ira, first_arg, param_type);
         if (casted_arg->type_entry->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
@@ -5114,7 +5274,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             TypeTableEntry *param_type = fn_type_id->param_info[next_arg_index].type;
             if (param_type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
-            casted_arg = ir_get_casted_value(ira, old_arg, param_type);
+            casted_arg = ir_implicit_cast(ira, old_arg, param_type);
             if (casted_arg->type_entry->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
         } else {
@@ -5541,7 +5701,7 @@ static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstruct
     }
 
     TypeTableEntry *bool_type = ira->codegen->builtin_types.entry_bool;
-    IrInstruction *casted_condition = ir_get_casted_value(ira, condition, bool_type);
+    IrInstruction *casted_condition = ir_implicit_cast(ira, condition, bool_type);
     if (casted_condition == ira->codegen->invalid_instruction)
         return ir_unreach_error(ira);
 
@@ -5624,7 +5784,7 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
     // cast all literal values to the resolved type
     for (size_t i = 0; i < new_incoming_values.length; i += 1) {
         IrInstruction *new_value = new_incoming_values.at(i);
-        IrInstruction *casted_value = ir_get_casted_value(ira, new_value, resolved_type);
+        IrInstruction *casted_value = ir_implicit_cast(ira, new_value, resolved_type);
         new_incoming_values.items[i] = casted_value;
     }
 
@@ -5700,7 +5860,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     }
 
     TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
-    IrInstruction *casted_elem_index = ir_get_casted_value(ira, elem_index, usize);
+    IrInstruction *casted_elem_index = ir_implicit_cast(ira, elem_index, usize);
     if (casted_elem_index == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -6076,7 +6236,7 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
         return value->type_entry;
 
     TypeTableEntry *child_type = ptr->type_entry->data.pointer.child_type;
-    IrInstruction *casted_value = ir_get_casted_value(ira, value, child_type);
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, child_type);
     if (casted_value == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -6717,7 +6877,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
             if (case_value->type_entry->id == TypeTableEntryIdInvalid)
                 return ir_unreach_error(ira);
 
-            IrInstruction *casted_case_value = ir_get_casted_value(ira, case_value, target_value->type_entry);
+            IrInstruction *casted_case_value = ir_implicit_cast(ira, case_value, target_value->type_entry);
             if (casted_case_value->type_entry->id == TypeTableEntryIdInvalid)
                 return ir_unreach_error(ira);
 
@@ -6751,7 +6911,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         if (new_value->type_entry->id == TypeTableEntryIdInvalid)
             continue;
 
-        IrInstruction *casted_new_value = ir_get_casted_value(ira, new_value, target_value->type_entry);
+        IrInstruction *casted_new_value = ir_implicit_cast(ira, new_value, target_value->type_entry);
         if (casted_new_value->type_entry->id == TypeTableEntryIdInvalid)
             continue;
 
@@ -7265,7 +7425,7 @@ static TypeTableEntry *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstruc
     if (value->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    IrInstruction *casted_value = ir_get_casted_value(ira, value, value->type_entry);
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, value->type_entry);
     if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -7493,11 +7653,11 @@ static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstruct
 
     TypeTableEntry *child_type = ptr->type_entry->data.pointer.child_type;
 
-    IrInstruction *casted_cmp_value = ir_get_casted_value(ira, cmp_value, child_type);
+    IrInstruction *casted_cmp_value = ir_implicit_cast(ira, cmp_value, child_type);
     if (casted_cmp_value->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    IrInstruction *casted_new_value = ir_get_casted_value(ira, new_value, child_type);
+    IrInstruction *casted_new_value = ir_implicit_cast(ira, new_value, child_type);
     if (casted_new_value->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -7567,11 +7727,11 @@ static TypeTableEntry *ir_analyze_instruction_div_exact(IrAnalyze *ira, IrInstru
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    IrInstruction *casted_op1 = ir_get_casted_value(ira, op1, result_type);
+    IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, result_type);
     if (casted_op1->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    IrInstruction *casted_op2 = ir_get_casted_value(ira, op2, result_type);
+    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, result_type);
     if (casted_op2->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -7690,7 +7850,7 @@ static TypeTableEntry *ir_analyze_instruction_bool_not(IrAnalyze *ira, IrInstruc
 
     TypeTableEntry *bool_type = ira->codegen->builtin_types.entry_bool;
 
-    IrInstruction *casted_value = ir_get_casted_value(ira, value, bool_type);
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, bool_type);
     if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -8263,89 +8423,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.array_access_expr.subscript);
 //
 //    return return_type;
-//}
-//
-//static TypeTableEntry *analyze_array_mult(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-//        TypeTableEntry *expected_type, AstNode *node)
-//{
-//    assert(node->type == NodeTypeBinOpExpr);
-//    assert(node->data.bin_op_expr.bin_op == BinOpTypeArrayMult);
-//
-//    AstNode **op1 = node->data.bin_op_expr.op1->parent_field;
-//    AstNode **op2 = node->data.bin_op_expr.op2->parent_field;
-//
-//    TypeTableEntry *op1_type = analyze_expression(g, import, context, nullptr, *op1);
-//    TypeTableEntry *op2_type = analyze_expression(g, import, context, nullptr, *op2);
-//
-//    if (op1_type->id == TypeTableEntryIdInvalid ||
-//        op2_type->id == TypeTableEntryIdInvalid)
-//    {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    ConstExprValue *op1_val = &get_resolved_expr(*op1)->const_val;
-//    ConstExprValue *op2_val = &get_resolved_expr(*op2)->const_val;
-//
-//    AstNode *bad_node;
-//    if (!op1_val->ok) {
-//        bad_node = *op1;
-//    } else if (!op2_val->ok) {
-//        bad_node = *op2;
-//    } else {
-//        bad_node = nullptr;
-//    }
-//    if (bad_node) {
-//        add_node_error(g, bad_node, buf_sprintf("array multiplication requires constant expression"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    if (op1_type->id != TypeTableEntryIdArray) {
-//        add_node_error(g, *op1,
-//            buf_sprintf("expected array type, found '%s'", buf_ptr(&op1_type->name)));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    if (op2_type->id != TypeTableEntryIdNumLitInt &&
-//        op2_type->id != TypeTableEntryIdInt)
-//    {
-//        add_node_error(g, *op2, buf_sprintf("expected integer type, found '%s'", buf_ptr(&op2_type->name)));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    if (op2_val->data.x_bignum.is_negative) {
-//        add_node_error(g, *op2, buf_sprintf("expected positive number"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-//    const_val->ok = true;
-//    const_val->depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
-//
-//    TypeTableEntry *child_type = op1_type->data.array.child_type;
-//    BigNum old_array_len;
-//    bignum_init_unsigned(&old_array_len, op1_type->data.array.len);
-//
-//    BigNum new_array_len;
-//    if (bignum_mul(&new_array_len, &old_array_len, &op2_val->data.x_bignum)) {
-//        add_node_error(g, node, buf_sprintf("operation results in overflow"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    uint64_t old_array_len_bare = op1_type->data.array.len;
-//    uint64_t operand_amt = op2_val->data.x_bignum.data.x_uint;
-//
-//    uint64_t new_array_len_bare = new_array_len.data.x_uint;
-//    const_val->data.x_array.fields = allocate<ConstExprValue*>(new_array_len_bare);
-//
-//    uint64_t i = 0;
-//    for (uint64_t x = 0; x < operand_amt; x += 1) {
-//        for (uint64_t y = 0; y < old_array_len_bare; y += 1) {
-//            const_val->data.x_array.fields[i] = op1_val->data.x_array.fields[y];
-//            i += 1;
-//        }
-//    }
-//
-//    return get_array_type(g, child_type, new_array_len_bare);
 //}
 //
 //static TypeTableEntry *analyze_unwrap_error_expr(CodeGen *g, ImportTableEntry *import,
