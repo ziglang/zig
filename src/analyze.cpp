@@ -2798,3 +2798,14 @@ ConstExprValue *create_const_float(double value) {
     init_const_float(const_val, value);
     return const_val;
 }
+
+void init_const_enum_tag(ConstExprValue *const_val, uint64_t tag) {
+    const_val->special = ConstValSpecialStatic;
+    const_val->data.x_enum.tag = tag;
+}
+
+ConstExprValue *create_const_enum_tag(uint64_t tag) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_enum_tag(const_val, tag);
+    return const_val;
+}

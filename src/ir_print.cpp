@@ -719,6 +719,26 @@ static void ir_print_embed_file(IrPrint *irp, IrInstructionEmbedFile *instructio
     fprintf(irp->f, ")");
 }
 
+static void ir_print_cmpxchg(IrPrint *irp, IrInstructionCmpxchg *instruction) {
+    fprintf(irp->f, "@cmpxchg(");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->cmp_value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->new_value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->success_order_value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->failure_order_value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_fence(IrPrint *irp, IrInstructionFence *instruction) {
+    fprintf(irp->f, "@fence(");
+    ir_print_other_instruction(irp, instruction->order_value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -882,6 +902,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdEmbedFile:
             ir_print_embed_file(irp, (IrInstructionEmbedFile *)instruction);
+            break;
+        case IrInstructionIdCmpxchg:
+            ir_print_cmpxchg(irp, (IrInstructionCmpxchg *)instruction);
+            break;
+        case IrInstructionIdFence:
+            ir_print_fence(irp, (IrInstructionFence *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

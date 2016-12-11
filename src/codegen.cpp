@@ -1839,6 +1839,38 @@ static LLVMValueRef ir_render_err_name(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildInBoundsGEP(g->builder, g->err_name_table, indices, 2, "");
 }
 
+static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
+    switch (atomic_order) {
+        case AtomicOrderUnordered: return LLVMAtomicOrderingUnordered;
+        case AtomicOrderMonotonic: return LLVMAtomicOrderingMonotonic;
+        case AtomicOrderAcquire: return LLVMAtomicOrderingAcquire;
+        case AtomicOrderRelease: return LLVMAtomicOrderingRelease;
+        case AtomicOrderAcqRel: return LLVMAtomicOrderingAcquireRelease;
+        case AtomicOrderSeqCst: return LLVMAtomicOrderingSequentiallyConsistent;
+    }
+    zig_unreachable();
+}
+
+static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrInstructionCmpxchg *instruction) {
+    LLVMValueRef ptr_val = ir_llvm_value(g, instruction->ptr);
+    LLVMValueRef cmp_val = ir_llvm_value(g, instruction->cmp_value);
+    LLVMValueRef new_val = ir_llvm_value(g, instruction->new_value);
+
+    LLVMAtomicOrdering success_order = to_LLVMAtomicOrdering(instruction->success_order);
+    LLVMAtomicOrdering failure_order = to_LLVMAtomicOrdering(instruction->failure_order);
+
+    LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
+            success_order, failure_order);
+
+    return LLVMBuildExtractValue(g->builder, result_val, 1, "");
+}
+
+static LLVMValueRef ir_render_fence(CodeGen *g, IrExecutable *executable, IrInstructionFence *instruction) {
+    LLVMAtomicOrdering atomic_order = to_LLVMAtomicOrdering(instruction->order);
+    LLVMBuildFence(g->builder, atomic_order, false, "");
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -1928,6 +1960,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_ref(g, executable, (IrInstructionRef *)instruction);
         case IrInstructionIdErrName:
             return ir_render_err_name(g, executable, (IrInstructionErrName *)instruction);
+        case IrInstructionIdCmpxchg:
+            return ir_render_cmpxchg(g, executable, (IrInstructionCmpxchg *)instruction);
+        case IrInstructionIdFence:
+            return ir_render_fence(g, executable, (IrInstructionFence *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdStructInit:
@@ -2989,6 +3025,7 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
+        entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "AtomicOrder");
         uint32_t field_count = 6;
         entry->data.enumeration.src_field_count = field_count;

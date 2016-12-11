@@ -347,6 +347,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionEmbedFile *) {
     return IrInstructionIdEmbedFile;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCmpxchg *) {
+    return IrInstructionIdCmpxchg;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFence *) {
+    return IrInstructionIdFence;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1357,6 +1365,54 @@ static IrInstruction *ir_build_embed_file(IrBuilder *irb, Scope *scope, AstNode 
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_cmpxchg(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *ptr,
+    IrInstruction *cmp_value, IrInstruction *new_value, IrInstruction *success_order_value, IrInstruction *failure_order_value,
+    AtomicOrder success_order, AtomicOrder failure_order)
+{
+    IrInstructionCmpxchg *instruction = ir_build_instruction<IrInstructionCmpxchg>(irb, scope, source_node);
+    instruction->ptr = ptr;
+    instruction->cmp_value = cmp_value;
+    instruction->new_value = new_value;
+    instruction->success_order_value = success_order_value;
+    instruction->failure_order_value = failure_order_value;
+    instruction->success_order = success_order;
+    instruction->failure_order = failure_order;
+
+    ir_ref_instruction(ptr);
+    ir_ref_instruction(cmp_value);
+    ir_ref_instruction(new_value);
+    ir_ref_instruction(success_order_value);
+    ir_ref_instruction(failure_order_value);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_cmpxchg_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *ptr,
+    IrInstruction *cmp_value, IrInstruction *new_value, IrInstruction *success_order_value, IrInstruction *failure_order_value,
+    AtomicOrder success_order, AtomicOrder failure_order)
+{
+    IrInstruction *new_instruction = ir_build_cmpxchg(irb, old_instruction->scope, old_instruction->source_node,
+        ptr, cmp_value, new_value, success_order_value, failure_order_value, success_order, failure_order);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
+static IrInstruction *ir_build_fence(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *order_value, AtomicOrder order) {
+    IrInstructionFence *instruction = ir_build_instruction<IrInstructionFence>(irb, scope, source_node);
+    instruction->order_value = order_value;
+    instruction->order = order;
+
+    ir_ref_instruction(order_value);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_fence_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *order_value, AtomicOrder order) {
+    IrInstruction *new_instruction = ir_build_fence(irb, old_instruction->scope, old_instruction->source_node, order_value, order);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -2096,6 +2152,46 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_embed_file(irb, scope, node, arg0_value);
             }
+        case BuiltinFnIdCmpExchange:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                IrInstruction *arg2_value = ir_gen_node(irb, arg2_node, scope);
+                if (arg2_value == irb->codegen->invalid_instruction)
+                    return arg2_value;
+
+                AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
+                IrInstruction *arg3_value = ir_gen_node(irb, arg3_node, scope);
+                if (arg3_value == irb->codegen->invalid_instruction)
+                    return arg3_value;
+
+                AstNode *arg4_node = node->data.fn_call_expr.params.at(4);
+                IrInstruction *arg4_value = ir_gen_node(irb, arg4_node, scope);
+                if (arg4_value == irb->codegen->invalid_instruction)
+                    return arg4_value;
+
+                return ir_build_cmpxchg(irb, scope, node, arg0_value, arg1_value,
+                    arg2_value, arg3_value, arg4_value,
+                    AtomicOrderUnordered, AtomicOrderUnordered);
+            }
+        case BuiltinFnIdFence:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_fence(irb, scope, node, arg0_value, AtomicOrderUnordered);
+            }
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdAlignof:
@@ -2107,8 +2203,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdBreakpoint:
         case BuiltinFnIdReturnAddress:
         case BuiltinFnIdFrameAddress:
-        case BuiltinFnIdCmpExchange:
-        case BuiltinFnIdFence:
         case BuiltinFnIdDivExact:
         case BuiltinFnIdTruncate:
         case BuiltinFnIdIntType:
@@ -3470,6 +3564,12 @@ static bool is_slice(TypeTableEntry *type) {
     return type->id == TypeTableEntryIdStruct && type->data.structure.is_slice;
 }
 
+static bool is_container(TypeTableEntry *type) {
+    return type->id == TypeTableEntryIdStruct ||
+        type->id == TypeTableEntryIdEnum ||
+        type->id == TypeTableEntryIdUnion;
+}
+
 static bool is_u8(TypeTableEntry *type) {
     return type->id == TypeTableEntryIdInt &&
         !type->data.integral.is_signed && type->data.integral.bit_count == 8;
@@ -4082,6 +4182,22 @@ static bool ir_resolve_bool(IrAnalyze *ira, IrInstruction *value, bool *out) {
         return false;
 
     *out = const_val->data.x_bool;
+    return true;
+}
+
+static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, AtomicOrder *out) {
+    if (value->type_entry->id == TypeTableEntryIdInvalid)
+        return false;
+
+    IrInstruction *casted_value = ir_get_casted_value(ira, value, ira->codegen->builtin_types.entry_atomic_order_enum);
+    if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
+        return false;
+
+    ConstExprValue *const_val = ir_resolve_const(ira, casted_value);
+    if (!const_val)
+        return false;
+
+    *out = (AtomicOrder)const_val->data.x_enum.tag;
     return true;
 }
 
@@ -5689,15 +5805,23 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
     if (container_ptr->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    assert(container_ptr->type_entry->id == TypeTableEntryIdPointer);
-    TypeTableEntry *container_type = container_ptr->type_entry->data.pointer.child_type;
+    TypeTableEntry *container_type;
+    if (container_ptr->type_entry->id == TypeTableEntryIdPointer) {
+        container_type = container_ptr->type_entry->data.pointer.child_type;
+    } else if (container_ptr->type_entry->id == TypeTableEntryIdMetaType) {
+        container_type = container_ptr->type_entry;
+    } else {
+        zig_unreachable();
+    }
 
+    bool depends_on_compile_var = container_ptr->static_value.depends_on_compile_var;
     Buf *field_name = field_ptr_instruction->field_name;
     AstNode *source_node = field_ptr_instruction->base.source_node;
 
     if (container_type->id == TypeTableEntryIdInvalid) {
         return container_type;
     } else if (is_container_ref(container_type)) {
+        assert(container_ptr->type_entry->id == TypeTableEntryIdPointer);
         return ir_analyze_container_field_ptr(ira, field_name, field_ptr_instruction, container_ptr, container_type);
     } else if (container_type->id == TypeTableEntryIdArray) {
         if (buf_eql_str(field_name, "len")) {
@@ -5717,26 +5841,43 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         ConstExprValue *container_ptr_val = ir_resolve_const(ira, container_ptr);
         if (!container_ptr_val)
             return ira->codegen->builtin_types.entry_invalid;
-        ConstExprValue *child_val = const_ptr_pointee(container_ptr_val);
-        TypeTableEntry *child_type = child_val->data.x_type;
+
+        TypeTableEntry *child_type;
+        if (container_ptr->type_entry->id == TypeTableEntryIdMetaType) {
+            TypeTableEntry *ptr_type = container_ptr_val->data.x_type;
+            assert(ptr_type->id == TypeTableEntryIdPointer);
+            child_type = ptr_type->data.pointer.child_type;
+        } else if (container_ptr->type_entry->id == TypeTableEntryIdPointer) {
+            ConstExprValue *child_val = const_ptr_pointee(container_ptr_val);
+            child_type = child_val->data.x_type;
+        } else {
+            zig_unreachable();
+        }
 
         if (child_type->id == TypeTableEntryIdInvalid) {
             return ira->codegen->builtin_types.entry_invalid;
-        } else if (child_type->id == TypeTableEntryIdEnum) {
-            zig_panic("TODO enum type field");
-        } else if (child_type->id == TypeTableEntryIdStruct) {
+        } else if (is_container(child_type)) {
+            if (child_type->id == TypeTableEntryIdEnum) {
+                TypeEnumField *field = find_enum_type_field(child_type, field_name);
+                if (field) {
+                    if (field->type_entry->id == TypeTableEntryIdVoid) {
+                        return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, create_const_enum_tag(field->value),
+                                child_type, depends_on_compile_var, ConstPtrSpecialNone);
+                    } else {
+                        zig_panic("TODO enum tag type");
+                    }
+                }
+            }
             ScopeDecls *container_scope = get_container_scope(child_type);
             auto entry = container_scope->decl_table.maybe_get(field_name);
             Tld *tld = entry ? entry->value : nullptr;
             if (tld) {
-                bool depends_on_compile_var = container_ptr->static_value.depends_on_compile_var;
                 return ir_analyze_decl_ref(ira, &field_ptr_instruction->base, tld, depends_on_compile_var);
-            } else {
-                add_node_error(ira->codegen, source_node,
-                    buf_sprintf("container '%s' has no member called '%s'",
-                        buf_ptr(&child_type->name), buf_ptr(field_name)));
-                return ira->codegen->builtin_types.entry_invalid;
             }
+            ir_add_error(ira, &field_ptr_instruction->base,
+                buf_sprintf("container '%s' has no member called '%s'",
+                    buf_ptr(&child_type->name), buf_ptr(field_name)));
+            return ira->codegen->builtin_types.entry_invalid;
         } else if (child_type->id == TypeTableEntryIdPureError) {
             auto err_table_entry = ira->codegen->error_table.maybe_get(field_name);
             if (err_table_entry) {
@@ -5744,7 +5885,6 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 const_val->special = ConstValSpecialStatic;
                 const_val->data.x_pure_err = err_table_entry->value;
 
-                bool depends_on_compile_var = container_ptr->static_value.depends_on_compile_var;
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, const_val,
                         child_type, depends_on_compile_var, ConstPtrSpecialNone);
             }
@@ -5760,6 +5900,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             return ira->codegen->builtin_types.entry_invalid;
         }
     } else if (container_type->id == TypeTableEntryIdNamespace) {
+        assert(container_ptr->type_entry->id == TypeTableEntryIdPointer);
         ConstExprValue *container_ptr_val = ir_resolve_const(ira, container_ptr);
         if (!container_ptr_val)
             return ira->codegen->builtin_types.entry_invalid;
@@ -5769,7 +5910,6 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
 
         ImportTableEntry *namespace_import = namespace_val->data.x_import;
 
-        bool depends_on_compile_var = container_ptr->static_value.depends_on_compile_var;
         Tld *tld = find_decl(&namespace_import->decls_scope->base, field_name);
         if (!tld) {
             // we must now resolve all the use decls
@@ -7184,10 +7324,10 @@ static TypeTableEntry *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstr
     int err;
     if ((err = os_fetch_file_path(&file_path, &file_contents))) {
         if (err == ErrorFileNotFound) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("unable to find '%s'", buf_ptr(&file_path)));
+            ir_add_error(ira, instruction->name, buf_sprintf("unable to find '%s'", buf_ptr(&file_path)));
             return ira->codegen->builtin_types.entry_invalid;
         } else {
-            ir_add_error(ira, &instruction->base, buf_sprintf("unable to open '%s': %s", buf_ptr(&file_path), err_str(err)));
+            ir_add_error(ira, instruction->name, buf_sprintf("unable to open '%s': %s", buf_ptr(&file_path), err_str(err)));
             return ira->codegen->builtin_types.entry_invalid;
         }
     }
@@ -7197,11 +7337,94 @@ static TypeTableEntry *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstr
 
     bool depends_on_compile_var = true;
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
-    init_const_str_lit(out_val,&file_contents);
+    init_const_str_lit(out_val, &file_contents);
 
     return get_array_type(ira->codegen, ira->codegen->builtin_types.entry_u8, buf_len(&file_contents));
 }
 
+static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructionCmpxchg *instruction) {
+    IrInstruction *ptr = instruction->ptr->other;
+    if (ptr->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *cmp_value = instruction->cmp_value->other;
+    if (cmp_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *new_value = instruction->new_value->other;
+    if (new_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *success_order_value = instruction->success_order_value->other;
+    if (success_order_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    AtomicOrder success_order;
+    if (!ir_resolve_atomic_order(ira, success_order_value, &success_order))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *failure_order_value = instruction->failure_order_value->other;
+    if (failure_order_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    AtomicOrder failure_order;
+    if (!ir_resolve_atomic_order(ira, failure_order_value, &failure_order))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (ptr->type_entry->id != TypeTableEntryIdPointer) {
+        ir_add_error(ira, instruction->ptr,
+            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&ptr->type_entry->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    TypeTableEntry *child_type = ptr->type_entry->data.pointer.child_type;
+
+    IrInstruction *casted_cmp_value = ir_get_casted_value(ira, cmp_value, child_type);
+    if (casted_cmp_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_new_value = ir_get_casted_value(ira, new_value, child_type);
+    if (casted_new_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (success_order < AtomicOrderMonotonic) {
+        ir_add_error(ira, success_order_value,
+                buf_sprintf("success atomic ordering must be Monotonic or stricter"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    if (failure_order < AtomicOrderMonotonic) {
+        ir_add_error(ira, failure_order_value,
+                buf_sprintf("failure atomic ordering must be Monotonic or stricter"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    if (failure_order > success_order) {
+        ir_add_error(ira, failure_order_value,
+                buf_sprintf("failure atomic ordering must be no stricter than success"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    if (failure_order == AtomicOrderRelease || failure_order == AtomicOrderAcqRel) {
+        ir_add_error(ira, failure_order_value,
+                buf_sprintf("failure atomic ordering must not be Release or AcqRel"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    ir_build_cmpxchg_from(&ira->new_irb, &instruction->base, ptr, casted_cmp_value, casted_new_value,
+        success_order_value, failure_order_value, success_order, failure_order);
+    return ira->codegen->builtin_types.entry_bool;
+}
+
+static TypeTableEntry *ir_analyze_instruction_fence(IrAnalyze *ira, IrInstructionFence *instruction) {
+    IrInstruction *order_value = instruction->order_value->other;
+    if (order_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    AtomicOrder order;
+    if (!ir_resolve_atomic_order(ira, order_value, &order))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ir_build_fence_from(&ira->new_irb, &instruction->base, order_value, order);
+    return ira->codegen->builtin_types.entry_void;
+}
 
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
@@ -7305,6 +7528,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_c_undef(ira, (IrInstructionCUndef *)instruction);
         case IrInstructionIdEmbedFile:
             return ir_analyze_instruction_embed_file(ira, (IrInstructionEmbedFile *)instruction);
+        case IrInstructionIdCmpxchg:
+            return ir_analyze_instruction_cmpxchg(ira, (IrInstructionCmpxchg *)instruction);
+        case IrInstructionIdFence:
+            return ir_analyze_instruction_fence(ira, (IrInstructionFence *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -7404,6 +7631,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCInclude:
         case IrInstructionIdCDefine:
         case IrInstructionIdCUndef:
+        case IrInstructionIdCmpxchg:
+        case IrInstructionIdFence:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
@@ -7453,102 +7682,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 // TODO port over all this commented out code into new IR way of doing things
 
 
-//static TypeTableEntry *analyze_cmpxchg(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *context, AstNode *node)
-//{
-//    assert(node->type == NodeTypeFnCallExpr);
-//
-//    AstNode **ptr_arg = &node->data.fn_call_expr.params.at(0);
-//    AstNode **cmp_arg = &node->data.fn_call_expr.params.at(1);
-//    AstNode **new_arg = &node->data.fn_call_expr.params.at(2);
-//    AstNode **success_order_arg = &node->data.fn_call_expr.params.at(3);
-//    AstNode **failure_order_arg = &node->data.fn_call_expr.params.at(4);
-//
-//    TypeTableEntry *ptr_type = analyze_expression(g, import, context, nullptr, *ptr_arg);
-//    if (ptr_type->id == TypeTableEntryIdInvalid) {
-//        return g->builtin_types.entry_invalid;
-//    } else if (ptr_type->id != TypeTableEntryIdPointer) {
-//        add_node_error(g, *ptr_arg,
-//            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&ptr_type->name)));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
-//    TypeTableEntry *cmp_type = analyze_expression(g, import, context, child_type, *cmp_arg);
-//    TypeTableEntry *new_type = analyze_expression(g, import, context, child_type, *new_arg);
-//
-//    TypeTableEntry *success_order_type = analyze_expression(g, import, context,
-//            g->builtin_types.entry_atomic_order_enum, *success_order_arg);
-//    TypeTableEntry *failure_order_type = analyze_expression(g, import, context,
-//            g->builtin_types.entry_atomic_order_enum, *failure_order_arg);
-//
-//    if (cmp_type->id == TypeTableEntryIdInvalid ||
-//        new_type->id == TypeTableEntryIdInvalid ||
-//        success_order_type->id == TypeTableEntryIdInvalid ||
-//        failure_order_type->id == TypeTableEntryIdInvalid)
-//    {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    ConstExprValue *success_order_val = &get_resolved_expr(*success_order_arg)->const_val;
-//    ConstExprValue *failure_order_val = &get_resolved_expr(*failure_order_arg)->const_val;
-//    if (!success_order_val->ok) {
-//        add_node_error(g, *success_order_arg, buf_sprintf("unable to evaluate constant expression"));
-//        return g->builtin_types.entry_invalid;
-//    } else if (!failure_order_val->ok) {
-//        add_node_error(g, *failure_order_arg, buf_sprintf("unable to evaluate constant expression"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    if (success_order_val->data.x_enum.tag < AtomicOrderMonotonic) {
-//        add_node_error(g, *success_order_arg,
-//                buf_sprintf("success atomic ordering must be Monotonic or stricter"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//    if (failure_order_val->data.x_enum.tag < AtomicOrderMonotonic) {
-//        add_node_error(g, *failure_order_arg,
-//                buf_sprintf("failure atomic ordering must be Monotonic or stricter"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//    if (failure_order_val->data.x_enum.tag > success_order_val->data.x_enum.tag) {
-//        add_node_error(g, *failure_order_arg,
-//                buf_sprintf("failure atomic ordering must be no stricter than success"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//    if (failure_order_val->data.x_enum.tag == AtomicOrderRelease ||
-//        failure_order_val->data.x_enum.tag == AtomicOrderAcqRel)
-//    {
-//        add_node_error(g, *failure_order_arg,
-//                buf_sprintf("failure atomic ordering must not be Release or AcqRel"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    return g->builtin_types.entry_bool;
-//}
-//
-//static TypeTableEntry *analyze_fence(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *context, AstNode *node)
-//{
-//    assert(node->type == NodeTypeFnCallExpr);
-//
-//    AstNode **atomic_order_arg = &node->data.fn_call_expr.params.at(0);
-//    TypeTableEntry *atomic_order_type = analyze_expression(g, import, context,
-//            g->builtin_types.entry_atomic_order_enum, *atomic_order_arg);
-//
-//    if (atomic_order_type->id == TypeTableEntryIdInvalid) {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    ConstExprValue *atomic_order_val = &get_resolved_expr(*atomic_order_arg)->const_val;
-//
-//    if (!atomic_order_val->ok) {
-//        add_node_error(g, *atomic_order_arg, buf_sprintf("unable to evaluate constant expression"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    return g->builtin_types.entry_void;
-//}
-//
 //static TypeTableEntry *analyze_div_exact(CodeGen *g, ImportTableEntry *import,
 //        BlockContext *context, AstNode *node)
 //{
@@ -7780,8 +7913,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //                    return g->builtin_types.entry_invalid;
 //                }
 //            }
-//        case BuiltinFnIdImport:
-//            return analyze_import(g, import, context, node);
 //        case BuiltinFnIdBreakpoint:
 //            mark_impure_fn(g, context, node);
 //            return g->builtin_types.entry_void;
@@ -7789,20 +7920,12 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //        case BuiltinFnIdFrameAddress:
 //            mark_impure_fn(g, context, node);
 //            return builtin_fn->return_type;
-//        case BuiltinFnIdCmpExchange:
-//            return analyze_cmpxchg(g, import, context, node);
-//        case BuiltinFnIdFence:
-//            return analyze_fence(g, import, context, node);
 //        case BuiltinFnIdDivExact:
 //            return analyze_div_exact(g, import, context, node);
 //        case BuiltinFnIdTruncate:
 //            return analyze_truncate(g, import, context, node);
 //        case BuiltinFnIdIntType:
 //            return analyze_int_type(g, import, context, node);
-//        case BuiltinFnIdSetFnTest:
-//            return analyze_set_fn_test(g, import, context, node);
-//        case BuiltinFnIdSetFnNoInline:
-//            return analyze_set_fn_no_inline(g, import, context, node);
 //    }
 //    zig_unreachable();
 //}
@@ -7881,68 +8004,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    }
 //    zig_unreachable();
 //}
-//static TypeTableEntry *analyze_enum_value_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-//        AstNode *field_access_node, AstNode *value_node, TypeTableEntry *enum_type, Buf *field_name,
-//        AstNode *out_node)
-//{
-//    assert(field_access_node->type == NodeTypeFieldAccessExpr);
-//
-//    TypeEnumField *type_enum_field = find_enum_type_field(enum_type, field_name);
-//    if (type_enum_field->type_entry->id == TypeTableEntryIdInvalid) {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    field_access_node->data.field_access_expr.type_enum_field = type_enum_field;
-//
-//    if (type_enum_field) {
-//        if (value_node) {
-//            AstNode **value_node_ptr = value_node->parent_field;
-//            TypeTableEntry *value_type = analyze_expression(g, import, context,
-//                    type_enum_field->type_entry, value_node);
-//
-//            if (value_type->id == TypeTableEntryIdInvalid) {
-//                return g->builtin_types.entry_invalid;
-//            }
-//
-//            StructValExprCodeGen *codegen = &field_access_node->data.field_access_expr.resolved_struct_val_expr;
-//            codegen->type_entry = enum_type;
-//            codegen->source_node = field_access_node;
-//
-//            ConstExprValue *value_const_val = &get_resolved_expr(*value_node_ptr)->const_val;
-//            if (value_const_val->ok) {
-//                ConstExprValue *const_val = &get_resolved_expr(out_node)->const_val;
-//                const_val->ok = true;
-//                const_val->data.x_enum.tag = type_enum_field->value;
-//                const_val->data.x_enum.payload = value_const_val;
-//            } else {
-//                if (context->fn_entry) {
-//                    context->fn_entry->struct_val_expr_alloca_list.append(codegen);
-//                } else {
-//                    add_node_error(g, *value_node_ptr, buf_sprintf("unable to evaluate constant expression"));
-//                    return g->builtin_types.entry_invalid;
-//                }
-//            }
-//        } else if (type_enum_field->type_entry->id != TypeTableEntryIdVoid) {
-//            add_node_error(g, field_access_node,
-//                buf_sprintf("enum value '%s.%s' requires parameter of type '%s'",
-//                    buf_ptr(&enum_type->name),
-//                    buf_ptr(field_name),
-//                    buf_ptr(&type_enum_field->type_entry->name)));
-//        } else {
-//            Expr *expr = get_resolved_expr(out_node);
-//            expr->const_val.ok = true;
-//            expr->const_val.data.x_enum.tag = type_enum_field->value;
-//            expr->const_val.data.x_enum.payload = nullptr;
-//        }
-//    } else {
-//        add_node_error(g, field_access_node,
-//            buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
-//                buf_ptr(&enum_type->name)));
-//    }
-//    return enum_type;
-//}
-//
-//
 //static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
 //        AstNode *node)
 //{
@@ -8182,34 +8243,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //
 
 
-//static LLVMValueRef gen_cmp_exchange(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeFnCallExpr);
-//
-//    AstNode *ptr_arg = node->data.fn_call_expr.params.at(0);
-//    AstNode *cmp_arg = node->data.fn_call_expr.params.at(1);
-//    AstNode *new_arg = node->data.fn_call_expr.params.at(2);
-//    AstNode *success_order_arg = node->data.fn_call_expr.params.at(3);
-//    AstNode *failure_order_arg = node->data.fn_call_expr.params.at(4);
-//
-//    LLVMValueRef ptr_val = gen_expr(g, ptr_arg);
-//    LLVMValueRef cmp_val = gen_expr(g, cmp_arg);
-//    LLVMValueRef new_val = gen_expr(g, new_arg);
-//
-//    ConstExprValue *success_order_val = &get_resolved_expr(success_order_arg)->const_val;
-//    ConstExprValue *failure_order_val = &get_resolved_expr(failure_order_arg)->const_val;
-//
-//    assert(success_order_val->ok);
-//    assert(failure_order_val->ok);
-//
-//    LLVMAtomicOrdering success_order = to_LLVMAtomicOrdering((AtomicOrder)success_order_val->data.x_enum.tag);
-//    LLVMAtomicOrdering failure_order = to_LLVMAtomicOrdering((AtomicOrder)failure_order_val->data.x_enum.tag);
-//
-//    LLVMValueRef result_val = ZigLLVMBuildCmpXchg(g->builder, ptr_val, cmp_val, new_val,
-//            success_order, failure_order);
-//
-//    return LLVMBuildExtractValue(g->builder, result_val, 1, "");
-//}
-//
 //static LLVMValueRef gen_div_exact(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeFnCallExpr);
 //
@@ -8269,9 +8302,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    switch (builtin_fn->id) {
 //        case BuiltinFnIdInvalid:
 //        case BuiltinFnIdTypeof:
-//        case BuiltinFnIdImport:
-//        case BuiltinFnIdCImport:
-//        case BuiltinFnIdCompileErr:
 //        case BuiltinFnIdIntType:
 //            zig_unreachable();
 //        case BuiltinFnIdAddWithOverflow:
@@ -8585,25 +8615,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    }
 //}
 //
-//
-//
-//static LLVMValueRef gen_assign_expr(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeBinOpExpr);
-//
-//    AstNode *lhs_node = node->data.bin_op_expr.op1;
-//
-//    TypeTableEntry *op1_type;
-//
-//    LLVMValueRef target_ref = gen_lvalue(g, node, lhs_node, &op1_type);
-//
-//    TypeTableEntry *op2_type = get_expr_type(node->data.bin_op_expr.op2);
-//
-//    LLVMValueRef value = gen_expr(g, node->data.bin_op_expr.op2);
-//
-//    gen_assign_raw(g, node, node->data.bin_op_expr.bin_op, target_ref, value, op1_type, op2_type);
-//    return nullptr;
-//}
-//
 //static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeUnwrapErrorExpr);
 //
@@ -8893,72 +8904,4 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //
 //    gen_var_debug_decl(g, variable);
 //    return nullptr;
-//}
-//
-//static LLVMValueRef gen_array_access_expr(CodeGen *g, AstNode *node, bool is_lvalue) {
-//    assert(node->type == NodeTypeArrayAccessExpr);
-//
-//    LLVMValueRef ptr = gen_array_ptr(g, node);
-//    TypeTableEntry *child_type;
-//    TypeTableEntry *array_type = get_expr_type(node->data.array_access_expr.array_ref_expr);
-//    if (array_type->id == TypeTableEntryIdPointer) {
-//        child_type = array_type->data.pointer.child_type;
-//    } else if (array_type->id == TypeTableEntryIdStruct) {
-//        assert(array_type->data.structure.is_slice);
-//        TypeTableEntry *child_ptr_type = array_type->data.structure.fields[0].type_entry;
-//        assert(child_ptr_type->id == TypeTableEntryIdPointer);
-//        child_type = child_ptr_type->data.pointer.child_type;
-//    } else if (array_type->id == TypeTableEntryIdArray) {
-//        child_type = array_type->data.array.child_type;
-//    } else {
-//        zig_unreachable();
-//    }
-//
-//    if (is_lvalue || !ptr || handle_is_ptr(child_type)) {
-//        return ptr;
-//    } else {
-//        return LLVMBuildLoad(g->builder, ptr, "");
-//    }
-//}
-//
-//static LLVMValueRef gen_var_decl_expr(CodeGen *g, AstNode *node) {
-//    AstNode *init_expr = node->data.variable_declaration.expr;
-//    if (node->data.variable_declaration.is_const && init_expr) {
-//        TypeTableEntry *init_expr_type = get_expr_type(init_expr);
-//        if (init_expr_type->id == TypeTableEntryIdNumLitFloat ||
-//            init_expr_type->id == TypeTableEntryIdNumLitInt)
-//        {
-//            return nullptr;
-//        }
-//    }
-//
-//    LLVMValueRef init_val = nullptr;
-//    TypeTableEntry *init_val_type;
-//    return gen_var_decl_raw(g, node, &node->data.variable_declaration, false, &init_val, &init_val_type, false);
-//}
-//
-//static LLVMValueRef gen_fence(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeFnCallExpr);
-//
-//    AstNode *atomic_order_arg = node->data.fn_call_expr.params.at(0);
-//    ConstExprValue *atomic_order_val = &get_resolved_expr(atomic_order_arg)->const_val;
-//
-//    assert(atomic_order_val->ok);
-//
-//    LLVMAtomicOrdering atomic_order = to_LLVMAtomicOrdering((AtomicOrder)atomic_order_val->data.x_enum.tag);
-//
-//    LLVMBuildFence(g->builder, atomic_order, false, "");
-//    return nullptr;
-//}
-//
-//static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
-//    switch (atomic_order) {
-//        case AtomicOrderUnordered: return LLVMAtomicOrderingUnordered;
-//        case AtomicOrderMonotonic: return LLVMAtomicOrderingMonotonic;
-//        case AtomicOrderAcquire: return LLVMAtomicOrderingAcquire;
-//        case AtomicOrderRelease: return LLVMAtomicOrderingRelease;
-//        case AtomicOrderAcqRel: return LLVMAtomicOrderingAcquireRelease;
-//        case AtomicOrderSeqCst: return LLVMAtomicOrderingSequentiallyConsistent;
-//    }
-//    zig_unreachable();
 //}

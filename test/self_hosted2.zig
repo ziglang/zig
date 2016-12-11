@@ -273,6 +273,18 @@ fn testErrorName() {
 //    return result;
 //}
 
+fn cmpxchg() {
+    var x: i32 = 1234;
+    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
+    assert(x == 5678);
+}
+
+fn fence() {
+    var x: i32 = 1234;
+    @fence(AtomicOrder.SeqCst);
+    x = 5678;
+}
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -300,6 +312,8 @@ fn runAllTests() {
     testMinValueAndMaxValue();
     testReturnStringFromFunction();
     testErrorName();
+    cmpxchg();
+    fence();
 }
 
 export nakedcc fn _start() -> unreachable {

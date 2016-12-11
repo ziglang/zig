@@ -1407,6 +1407,8 @@ enum IrInstructionId {
     IrInstructionIdCompileErr,
     IrInstructionIdErrName,
     IrInstructionIdEmbedFile,
+    IrInstructionIdCmpxchg,
+    IrInstructionIdFence,
 };
 
 struct IrInstruction {
@@ -1857,6 +1859,29 @@ struct IrInstructionEmbedFile {
     IrInstruction base;
 
     IrInstruction *name;
+};
+
+struct IrInstructionCmpxchg {
+    IrInstruction base;
+
+    IrInstruction *ptr;
+    IrInstruction *cmp_value;
+    IrInstruction *new_value;
+    IrInstruction *success_order_value;
+    IrInstruction *failure_order_value;
+
+    // if this instruction gets to runtime then we know these values:
+    AtomicOrder success_order;
+    AtomicOrder failure_order;
+};
+
+struct IrInstructionFence {
+    IrInstruction base;
+
+    IrInstruction *order_value;
+
+    // if this instruction gets to runtime then we know these values:
+    AtomicOrder order;
 };
 
 enum LValPurpose {
