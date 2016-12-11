@@ -739,6 +739,14 @@ static void ir_print_fence(IrPrint *irp, IrInstructionFence *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_div_exact(IrPrint *irp, IrInstructionDivExact *instruction) {
+    fprintf(irp->f, "@divExact(");
+    ir_print_other_instruction(irp, instruction->op1);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->op2);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -908,6 +916,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdFence:
             ir_print_fence(irp, (IrInstructionFence *)instruction);
+            break;
+        case IrInstructionIdDivExact:
+            ir_print_div_exact(irp, (IrInstructionDivExact *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

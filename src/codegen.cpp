@@ -1871,6 +1871,14 @@ static LLVMValueRef ir_render_fence(CodeGen *g, IrExecutable *executable, IrInst
     return nullptr;
 }
 
+static LLVMValueRef ir_render_div_exact(CodeGen *g, IrExecutable *executable, IrInstructionDivExact *instruction) {
+    LLVMValueRef op1_val = ir_llvm_value(g, instruction->op1);
+    LLVMValueRef op2_val = ir_llvm_value(g, instruction->op2);
+
+    bool want_debug_safety = ir_want_debug_safety(g, &instruction->base);
+    return gen_div(g, want_debug_safety, op1_val, op2_val, instruction->base.type_entry, true);
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -1964,6 +1972,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_cmpxchg(g, executable, (IrInstructionCmpxchg *)instruction);
         case IrInstructionIdFence:
             return ir_render_fence(g, executable, (IrInstructionFence *)instruction);
+        case IrInstructionIdDivExact:
+            return ir_render_div_exact(g, executable, (IrInstructionDivExact *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdStructInit:

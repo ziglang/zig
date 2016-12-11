@@ -285,6 +285,13 @@ fn fence() {
     x = 5678;
 }
 
+fn exactDivision() {
+    assert(divExact(55, 11) == 5);
+}
+fn divExact(a: u32, b: u32) -> u32 {
+    @divExact(a, b)
+}
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -314,6 +321,7 @@ fn runAllTests() {
     testErrorName();
     cmpxchg();
     fence();
+    exactDivision();
 }
 
 export nakedcc fn _start() -> unreachable {

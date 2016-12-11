@@ -1409,6 +1409,7 @@ enum IrInstructionId {
     IrInstructionIdEmbedFile,
     IrInstructionIdCmpxchg,
     IrInstructionIdFence,
+    IrInstructionIdDivExact,
 };
 
 struct IrInstruction {
@@ -1882,6 +1883,13 @@ struct IrInstructionFence {
 
     // if this instruction gets to runtime then we know these values:
     AtomicOrder order;
+};
+
+struct IrInstructionDivExact {
+    IrInstruction base;
+
+    IrInstruction *op1;
+    IrInstruction *op2;
 };
 
 enum LValPurpose {
