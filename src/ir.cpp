@@ -359,6 +359,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionDivExact *) {
     return IrInstructionIdDivExact;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTruncate *) {
+    return IrInstructionIdTruncate;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1434,6 +1438,23 @@ static IrInstruction *ir_build_div_exact_from(IrBuilder *irb, IrInstruction *old
     return new_instruction;
 }
 
+static IrInstruction *ir_build_truncate(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *dest_type, IrInstruction *target) {
+    IrInstructionTruncate *instruction = ir_build_instruction<IrInstructionTruncate>(irb, scope, source_node);
+    instruction->dest_type = dest_type;
+    instruction->target = target;
+
+    ir_ref_instruction(dest_type);
+    ir_ref_instruction(target);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_truncate_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *dest_type, IrInstruction *target) {
+    IrInstruction *new_instruction = ir_build_truncate(irb, old_instruction->scope, old_instruction->source_node, dest_type, target);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -2227,6 +2248,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_div_exact(irb, scope, node, arg0_value, arg1_value);
             }
+        case BuiltinFnIdTruncate:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_truncate(irb, scope, node, arg0_value, arg1_value);
+            }
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdAlignof:
@@ -2238,7 +2273,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdBreakpoint:
         case BuiltinFnIdReturnAddress:
         case BuiltinFnIdFrameAddress:
-        case BuiltinFnIdTruncate:
         case BuiltinFnIdIntType:
             zig_panic("TODO IR gen more builtin functions");
     }
@@ -7102,26 +7136,27 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
 {
     TypeTableEntry *target_type = ir_resolve_type(ira, target_type_value);
     bool depends_on_compile_var = target_type_value->static_value.depends_on_compile_var;
-    switch (target_type->id) {
+    TypeTableEntry *canon_type = get_underlying_type(target_type);
+    switch (canon_type->id) {
         case TypeTableEntryIdInvalid:
             return ira->codegen->builtin_types.entry_invalid;
         case TypeTableEntryIdInt:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, source_instruction, depends_on_compile_var);
-                eval_min_max_value(ira->codegen, target_type, out_val, is_max);
+                eval_min_max_value(ira->codegen, canon_type, out_val, is_max);
                 return ira->codegen->builtin_types.entry_num_lit_int;
             }
         case TypeTableEntryIdFloat:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, source_instruction, depends_on_compile_var);
-                eval_min_max_value(ira->codegen, target_type, out_val, is_max);
+                eval_min_max_value(ira->codegen, canon_type, out_val, is_max);
                 return ira->codegen->builtin_types.entry_num_lit_float;
             }
         case TypeTableEntryIdBool:
         case TypeTableEntryIdVoid:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, source_instruction, depends_on_compile_var);
-                eval_min_max_value(ira->codegen, target_type, out_val, is_max);
+                eval_min_max_value(ira->codegen, canon_type, out_val, is_max);
                 return target_type;
             }
         case TypeTableEntryIdVar:
@@ -7150,6 +7185,7 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
                     "no min value available for type '%s'";
                 ir_add_error(ira, source_instruction,
                         buf_sprintf(err_format, buf_ptr(&target_type->name)));
+                // TODO if this is a typedecl, add error note showing the declaration of the type decl
                 return ira->codegen->builtin_types.entry_invalid;
             }
     }
@@ -7530,6 +7566,60 @@ static TypeTableEntry *ir_analyze_instruction_div_exact(IrAnalyze *ira, IrInstru
     return result_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstructionTruncate *instruction) {
+    IrInstruction *dest_type_value = instruction->dest_type->other;
+    TypeTableEntry *dest_type = ir_resolve_type(ira, dest_type_value);
+    TypeTableEntry *canon_dest_type = get_underlying_type(dest_type);
+
+    if (canon_dest_type->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (canon_dest_type->id != TypeTableEntryIdInt &&
+        canon_dest_type->id != TypeTableEntryIdNumLitInt)
+    {
+        ir_add_error(ira, dest_type_value, buf_sprintf("expected integer type, found '%s'", buf_ptr(&dest_type->name)));
+        // TODO if meta_type is type decl, add note pointing to type decl declaration
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *target = instruction->target->other;
+    TypeTableEntry *src_type = target->type_entry;
+    TypeTableEntry *canon_src_type = get_underlying_type(src_type);
+    if (canon_src_type->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (canon_src_type->id != TypeTableEntryIdInt &&
+        canon_src_type->id != TypeTableEntryIdNumLitInt)
+    {
+        ir_add_error(ira, target, buf_sprintf("expected integer type, found '%s'", buf_ptr(&src_type->name)));
+        // TODO if meta_type is type decl, add note pointing to type decl declaration
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (canon_src_type->data.integral.is_signed != canon_dest_type->data.integral.is_signed) {
+        const char *sign_str = canon_dest_type->data.integral.is_signed ? "signed" : "unsigned";
+        ir_add_error(ira, target, buf_sprintf("expected %s integer type, found '%s'", sign_str, buf_ptr(&src_type->name)));
+        // TODO if meta_type is type decl, add note pointing to type decl declaration
+        return ira->codegen->builtin_types.entry_invalid;
+    } else if (canon_src_type->data.integral.bit_count <= canon_dest_type->data.integral.bit_count) {
+        ir_add_error(ira, target, buf_sprintf("type '%s' has same or fewer bits than destination type '%s'",
+                    buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
+        // TODO if meta_type is type decl, add note pointing to type decl declaration
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (target->static_value.special == ConstValSpecialStatic) {
+        bool depends_on_compile_var = dest_type_value->static_value.depends_on_compile_var || target->static_value.depends_on_compile_var;
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+        bignum_init_bignum(&out_val->data.x_bignum, &target->static_value.data.x_bignum);
+        bignum_truncate(&out_val->data.x_bignum, canon_dest_type->data.integral.bit_count);
+        return dest_type;
+    }
+
+    ir_build_truncate_from(&ira->new_irb, &instruction->base, dest_type_value, target);
+    return dest_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -7638,6 +7728,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_fence(ira, (IrInstructionFence *)instruction);
         case IrInstructionIdDivExact:
             return ir_analyze_instruction_div_exact(ira, (IrInstructionDivExact *)instruction);
+        case IrInstructionIdTruncate:
+            return ir_analyze_instruction_truncate(ira, (IrInstructionTruncate *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -7776,6 +7868,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdErrName:
         case IrInstructionIdEmbedFile:
         case IrInstructionIdDivExact:
+        case IrInstructionIdTruncate:
             return false;
         case IrInstructionIdAsm:
             {
@@ -7787,46 +7880,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 }
 
 // TODO port over all this commented out code into new IR way of doing things
-
-
-//static TypeTableEntry *analyze_truncate(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *context, AstNode *node)
-//{
-//    assert(node->type == NodeTypeFnCallExpr);
-//
-//    AstNode **op1 = &node->data.fn_call_expr.params.at(0);
-//    AstNode **op2 = &node->data.fn_call_expr.params.at(1);
-//
-//    TypeTableEntry *dest_type = analyze_type_expr(g, import, context, *op1);
-//    TypeTableEntry *src_type = analyze_expression(g, import, context, nullptr, *op2);
-//
-//    if (dest_type->id == TypeTableEntryIdInvalid || src_type->id == TypeTableEntryIdInvalid) {
-//        return g->builtin_types.entry_invalid;
-//    } else if (dest_type->id != TypeTableEntryIdInt) {
-//        add_node_error(g, *op1,
-//                buf_sprintf("expected integer type, found '%s'", buf_ptr(&dest_type->name)));
-//        return g->builtin_types.entry_invalid;
-//    } else if (src_type->id != TypeTableEntryIdInt) {
-//        add_node_error(g, *op2,
-//                buf_sprintf("expected integer type, found '%s'", buf_ptr(&src_type->name)));
-//        return g->builtin_types.entry_invalid;
-//    } else if (src_type->data.integral.is_signed != dest_type->data.integral.is_signed) {
-//        const char *sign_str = dest_type->data.integral.is_signed ? "signed" : "unsigned";
-//        add_node_error(g, *op2,
-//                buf_sprintf("expected %s integer type, found '%s'", sign_str, buf_ptr(&src_type->name)));
-//        return g->builtin_types.entry_invalid;
-//    } else if (src_type->data.integral.bit_count <= dest_type->data.integral.bit_count) {
-//        add_node_error(g, *op2,
-//                buf_sprintf("type '%s' has same or fewer bits than destination type '%s'",
-//                    buf_ptr(&src_type->name), buf_ptr(&dest_type->name)));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    // TODO const expr eval
-//
-//    return dest_type;
-//}
-//
 //static TypeTableEntry *analyze_int_type(CodeGen *g, ImportTableEntry *import,
 //        BlockContext *context, AstNode *node)
 //{
@@ -7996,8 +8049,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //        case BuiltinFnIdFrameAddress:
 //            mark_impure_fn(g, context, node);
 //            return builtin_fn->return_type;
-//        case BuiltinFnIdTruncate:
-//            return analyze_truncate(g, import, context, node);
 //        case BuiltinFnIdIntType:
 //            return analyze_int_type(g, import, context, node);
 //    }
@@ -8315,19 +8366,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    }
 //}
 //
-
-
-//static LLVMValueRef gen_truncate(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeFnCallExpr);
-//
-//    TypeTableEntry *dest_type = get_type_for_type_node(node->data.fn_call_expr.params.at(0));
-//    AstNode *src_node = node->data.fn_call_expr.params.at(1);
-//
-//    LLVMValueRef src_val = gen_expr(g, src_node);
-//
-//    return LLVMBuildTrunc(g->builder, src_val, dest_type->type_ref, "");
-//}
-//
 //static LLVMValueRef gen_shl_with_overflow(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeFnCallExpr);
 //
@@ -8483,8 +8521,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //            return gen_cmp_exchange(g, node);
 //        case BuiltinFnIdFence:
 //            return gen_fence(g, node);
-//        case BuiltinFnIdTruncate:
-//            return gen_truncate(g, node);
 //        case BuiltinFnIdUnreachable:
 //            zig_panic("moved to ir render");
 //        case BuiltinFnIdSetFnTest:

@@ -747,6 +747,14 @@ static void ir_print_div_exact(IrPrint *irp, IrInstructionDivExact *instruction)
     fprintf(irp->f, ")");
 }
 
+static void ir_print_truncate(IrPrint *irp, IrInstructionTruncate *instruction) {
+    fprintf(irp->f, "@truncate(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -919,6 +927,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdDivExact:
             ir_print_div_exact(irp, (IrInstructionDivExact *)instruction);
+            break;
+        case IrInstructionIdTruncate:
+            ir_print_truncate(irp, (IrInstructionTruncate *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

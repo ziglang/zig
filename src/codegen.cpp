@@ -1879,6 +1879,14 @@ static LLVMValueRef ir_render_div_exact(CodeGen *g, IrExecutable *executable, Ir
     return gen_div(g, want_debug_safety, op1_val, op2_val, instruction->base.type_entry, true);
 }
 
+static LLVMValueRef ir_render_truncate(CodeGen *g, IrExecutable *executable, IrInstructionTruncate *instruction) {
+    assert(instruction->dest_type->type_entry->id == TypeTableEntryIdMetaType);
+    TypeTableEntry *dest_type = get_underlying_type(instruction->dest_type->static_value.data.x_type);
+    assert(dest_type->id == TypeTableEntryIdInt);
+    LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+    return LLVMBuildTrunc(g->builder, target_val, dest_type->type_ref, "");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -1974,6 +1982,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_fence(g, executable, (IrInstructionFence *)instruction);
         case IrInstructionIdDivExact:
             return ir_render_div_exact(g, executable, (IrInstructionDivExact *)instruction);
+        case IrInstructionIdTruncate:
+            return ir_render_truncate(g, executable, (IrInstructionTruncate *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdStructInit:

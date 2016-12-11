@@ -292,6 +292,14 @@ fn divExact(a: u32, b: u32) -> u32 {
     @divExact(a, b)
 }
 
+fn truncate() {
+    assert(testTruncate(0x10fd) == 0xfd);
+}
+fn testTruncate(x: u32) -> u8 {
+    @truncate(u8, x)
+}
+
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -322,6 +330,7 @@ fn runAllTests() {
     cmpxchg();
     fence();
     exactDivision();
+    truncate();
 }
 
 export nakedcc fn _start() -> unreachable {

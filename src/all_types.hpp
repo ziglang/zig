@@ -1410,6 +1410,7 @@ enum IrInstructionId {
     IrInstructionIdCmpxchg,
     IrInstructionIdFence,
     IrInstructionIdDivExact,
+    IrInstructionIdTruncate,
 };
 
 struct IrInstruction {
@@ -1890,6 +1891,13 @@ struct IrInstructionDivExact {
 
     IrInstruction *op1;
     IrInstruction *op2;
+};
+
+struct IrInstructionTruncate {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *target;
 };
 
 enum LValPurpose {
