@@ -870,3 +870,4 @@ void ast_render(FILE *f, AstNode *node, int indent_size) {
 
     render_node_grouped(&ar, node);
 }
+

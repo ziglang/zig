@@ -12,6 +12,7 @@
 #include "ir.hpp"
 #include "ir_print.hpp"
 #include "os.hpp"
+#include "parseh.hpp"
 
 struct IrExecContext {
     ConstExprValue *mem_slot_list;
@@ -86,6 +87,10 @@ static size_t exec_next_mem_slot(IrExecutable *exec) {
 
 static FnTableEntry *exec_fn_entry(IrExecutable *exec) {
     return exec->fn_entry;
+}
+
+static Buf *exec_c_import_buf(IrExecutable *exec) {
+    return exec->c_import_buf;
 }
 
 static void ir_link_new_instruction(IrInstruction *new_instruction, IrInstruction *old_instruction) {
@@ -292,6 +297,22 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionStaticEval *) {
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionImport *) {
     return IrInstructionIdImport;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCImport *) {
+    return IrInstructionIdCImport;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCInclude *) {
+    return IrInstructionIdCInclude;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCDefine *) {
+    return IrInstructionIdCDefine;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCUndef *) {
+    return IrInstructionIdCUndef;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionArrayLen *) {
@@ -510,18 +531,6 @@ static IrInstruction *ir_build_const_bound_fn(IrBuilder *irb, Scope *scope, AstN
     const_instruction->base.static_value.data.x_bound_fn.fn = fn_entry;
     const_instruction->base.static_value.data.x_bound_fn.first_arg = first_arg;
     return &const_instruction->base;
-}
-
-static void init_const_str_lit(ConstExprValue *const_val, Buf *str) {
-    const_val->special = ConstValSpecialStatic;
-    const_val->data.x_array.elements = allocate<ConstExprValue>(buf_len(str));
-    const_val->data.x_array.size = buf_len(str);
-
-    for (size_t i = 0; i < buf_len(str); i += 1) {
-        ConstExprValue *this_char = &const_val->data.x_array.elements[i];
-        this_char->special = ConstValSpecialStatic;
-        bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
-    }
 }
 
 static IrInstruction *ir_create_const_str_lit(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *str) {
@@ -1301,6 +1310,39 @@ static IrInstruction *ir_build_err_name_from(IrBuilder *irb, IrInstruction *old_
     return new_instruction;
 }
 
+static IrInstruction *ir_build_c_import(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    IrInstructionCImport *instruction = ir_build_instruction<IrInstructionCImport>(irb, scope, source_node);
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_c_include(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *name) {
+    IrInstructionCInclude *instruction = ir_build_instruction<IrInstructionCInclude>(irb, scope, source_node);
+    instruction->name = name;
+
+    ir_ref_instruction(name);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_c_define(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *name, IrInstruction *value) {
+    IrInstructionCDefine *instruction = ir_build_instruction<IrInstructionCDefine>(irb, scope, source_node);
+    instruction->name = name;
+    instruction->value = value;
+
+    ir_ref_instruction(name);
+    ir_ref_instruction(value);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_c_undef(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *name) {
+    IrInstructionCUndef *instruction = ir_build_instruction<IrInstructionCUndef>(irb, scope, source_node);
+    instruction->name = name;
+
+    ir_ref_instruction(name);
+
+    return &instruction->base;
+}
 
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
@@ -1934,11 +1976,67 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 if (exec_fn_entry(irb->exec)) {
-                    add_node_error(irb->codegen, node, buf_sprintf("import valid only at top level scope"));
+                    add_node_error(irb->codegen, node, buf_sprintf("import valid only at global scope"));
                     return irb->codegen->invalid_instruction;
                 }
 
                 return ir_build_import(irb, scope, node, arg0_value);
+            }
+        case BuiltinFnIdCImport:
+            {
+                if (exec_fn_entry(irb->exec)) {
+                    add_node_error(irb->codegen, node, buf_sprintf("C import valid only at global scope"));
+                    return irb->codegen->invalid_instruction;
+                }
+
+                return ir_build_c_import(irb, scope, node);
+            }
+        case BuiltinFnIdCInclude:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                if (!exec_c_import_buf(irb->exec)) {
+                    add_node_error(irb->codegen, node, buf_sprintf("C include valid only inside C import block"));
+                    return irb->codegen->invalid_instruction;
+                }
+
+                return ir_build_c_include(irb, scope, node, arg0_value);
+            }
+        case BuiltinFnIdCDefine:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                if (!exec_c_import_buf(irb->exec)) {
+                    add_node_error(irb->codegen, node, buf_sprintf("C define valid only inside C import block"));
+                    return irb->codegen->invalid_instruction;
+                }
+
+                return ir_build_c_define(irb, scope, node, arg0_value, arg1_value);
+            }
+        case BuiltinFnIdCUndef:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                if (!exec_c_import_buf(irb->exec)) {
+                    add_node_error(irb->codegen, node, buf_sprintf("C undef valid only inside C import block"));
+                    return irb->codegen->invalid_instruction;
+                }
+
+                return ir_build_c_undef(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdMaxValue:
             {
@@ -1984,10 +2082,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdSubWithOverflow:
         case BuiltinFnIdMulWithOverflow:
         case BuiltinFnIdShlWithOverflow:
-        case BuiltinFnIdCInclude:
-        case BuiltinFnIdCDefine:
-        case BuiltinFnIdCUndef:
-        case BuiltinFnIdCImport:
         case BuiltinFnIdBreakpoint:
         case BuiltinFnIdReturnAddress:
         case BuiltinFnIdFrameAddress:
@@ -3507,11 +3601,12 @@ static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value) {
 
 IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         TypeTableEntry *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,
-        FnTableEntry *fn_entry)
+        FnTableEntry *fn_entry, Buf *c_import_buf)
 {
     IrExecutable ir_executable = {0};
     ir_executable.is_inline = true;
     ir_executable.fn_entry = fn_entry;
+    ir_executable.c_import_buf = c_import_buf;
     ir_gen(codegen, node, scope, &ir_executable);
 
     if (ir_executable.invalid)
@@ -3527,6 +3622,7 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
     IrExecutable analyzed_executable = {0};
     analyzed_executable.is_inline = true;
     analyzed_executable.fn_entry = fn_entry;
+    analyzed_executable.c_import_buf = c_import_buf;
     analyzed_executable.backward_branch_count = backward_branch_count;
     analyzed_executable.backward_branch_quota = backward_branch_quota;
     TypeTableEntry *result_type = ir_analyze(codegen, &ir_executable, &analyzed_executable, expected_type, node);
@@ -4641,7 +4737,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         // Analyze the fn body block like any other constant expression.
         AstNode *body_node = fn_entry->fn_def_node->data.fn_def.body;
         IrInstruction *result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
-            ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry);
+            ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry, nullptr);
         if (result->type_entry->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
@@ -4658,7 +4754,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         // Fork a scope of the function with known values for the parameters.
         Scope *parent_scope = fn_entry->fndef_scope->base.parent;
-        FnTableEntry *impl_fn = create_fn(ira->codegen, fn_proto_node);
+        FnTableEntry *impl_fn = create_fn(fn_proto_node);
         impl_fn->param_source_nodes = allocate<AstNode *>(call_param_count);
         buf_init_from_buf(&impl_fn->symbol_name, &fn_entry->symbol_name);
         impl_fn->fndef_scope = create_fndef_scope(impl_fn->fn_def_node, parent_scope, impl_fn);
@@ -6929,6 +7025,124 @@ static TypeTableEntry *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstruc
     return str_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstructionCImport *instruction) {
+    AstNode *node = instruction->base.source_node;
+    assert(node->type == NodeTypeFnCallExpr);
+    AstNode *block_node = node->data.fn_call_expr.params.at(0);
+
+    ScopeCImport *cimport_scope = create_cimport_scope(node, instruction->base.scope);
+
+    // Execute the C import block like an inline function
+    TypeTableEntry *void_type = ira->codegen->builtin_types.entry_void;
+    IrInstruction *result = ir_eval_const_value(ira->codegen, &cimport_scope->base, block_node, void_type,
+        ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, nullptr, &cimport_scope->buf);
+    if (result->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    find_libc_include_path(ira->codegen);
+
+    ImportTableEntry *child_import = allocate<ImportTableEntry>(1);
+    child_import->decls_scope = create_decls_scope(child_import->root, nullptr, nullptr, child_import);
+    child_import->c_import_node = node;
+
+    ZigList<ErrorMsg *> errors = {0};
+
+    int err;
+    if ((err = parse_h_buf(child_import, &errors, &cimport_scope->buf, ira->codegen, node))) {
+        zig_panic("unable to parse h file: %s\n", err_str(err));
+    }
+
+    if (errors.length > 0) {
+        ErrorMsg *parent_err_msg = add_node_error(ira->codegen, node, buf_sprintf("C import failed"));
+        for (size_t i = 0; i < errors.length; i += 1) {
+            ErrorMsg *err_msg = errors.at(i);
+            err_msg_add_note(parent_err_msg, err_msg);
+        }
+
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (ira->codegen->verbose) {
+        fprintf(stderr, "\nC imports:\n");
+        fprintf(stderr, "-----------\n");
+        ir_print_decls(stderr, child_import);
+    }
+
+    // TODO to get fewer false negatives on this, we would need to track this value in
+    // the ir executable
+    bool depends_on_compile_var = true;
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+    out_val->data.x_import = child_import;
+    return ira->codegen->builtin_types.entry_namespace;
+}
+
+static TypeTableEntry *ir_analyze_instruction_c_include(IrAnalyze *ira, IrInstructionCInclude *instruction) {
+    IrInstruction *name_value = instruction->name->other;
+    if (name_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    Buf *include_name = ir_resolve_str(ira, name_value);
+    if (!include_name)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    Buf *c_import_buf = exec_c_import_buf(ira->new_irb.exec);
+    // We check for this error in pass1
+    assert(c_import_buf);
+
+    buf_appendf(c_import_buf, "#include <%s>\n", buf_ptr(include_name));
+
+    ir_build_const_from(ira, &instruction->base, false);
+    return ira->codegen->builtin_types.entry_void;
+}
+
+static TypeTableEntry *ir_analyze_instruction_c_define(IrAnalyze *ira, IrInstructionCDefine *instruction) {
+    IrInstruction *name = instruction->name->other;
+    if (name->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    Buf *define_name = ir_resolve_str(ira, name);
+    if (!define_name)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *value = instruction->value->other;
+    if (value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    Buf *define_value = ir_resolve_str(ira, value);
+    if (!define_value)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    Buf *c_import_buf = exec_c_import_buf(ira->new_irb.exec);
+    // We check for this error in pass1
+    assert(c_import_buf);
+
+    buf_appendf(c_import_buf, "#define %s %s\n", buf_ptr(define_name), buf_ptr(define_value));
+
+    ir_build_const_from(ira, &instruction->base, false);
+    return ira->codegen->builtin_types.entry_void;
+}
+
+static TypeTableEntry *ir_analyze_instruction_c_undef(IrAnalyze *ira, IrInstructionCUndef *instruction) {
+    IrInstruction *name = instruction->name->other;
+    if (name->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    Buf *undef_name = ir_resolve_str(ira, name);
+    if (!undef_name)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    Buf *c_import_buf = exec_c_import_buf(ira->new_irb.exec);
+    // We check for this error in pass1
+    assert(c_import_buf);
+
+    buf_appendf(c_import_buf, "#undef %s\n", buf_ptr(undef_name));
+
+    ir_build_const_from(ira, &instruction->base, false);
+    return ira->codegen->builtin_types.entry_void;
+}
+
+
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -7021,6 +7235,14 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_compile_err(ira, (IrInstructionCompileErr *)instruction);
         case IrInstructionIdErrName:
             return ir_analyze_instruction_err_name(ira, (IrInstructionErrName *)instruction);
+        case IrInstructionIdCImport:
+            return ir_analyze_instruction_c_import(ira, (IrInstructionCImport *)instruction);
+        case IrInstructionIdCInclude:
+            return ir_analyze_instruction_c_include(ira, (IrInstructionCInclude *)instruction);
+        case IrInstructionIdCDefine:
+            return ir_analyze_instruction_c_define(ira, (IrInstructionCDefine *)instruction);
+        case IrInstructionIdCUndef:
+            return ir_analyze_instruction_c_undef(ira, (IrInstructionCUndef *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -7116,6 +7338,10 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSetDebugSafety:
         case IrInstructionIdImport:
         case IrInstructionIdCompileErr:
+        case IrInstructionIdCImport:
+        case IrInstructionIdCInclude:
+        case IrInstructionIdCDefine:
+        case IrInstructionIdCUndef:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
@@ -7164,63 +7390,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 // TODO port over all this commented out code into new IR way of doing things
 
 
-//static TypeTableEntry *analyze_c_import(CodeGen *g, ImportTableEntry *parent_import,
-//        BlockContext *parent_context, AstNode *node)
-//{
-//    assert(node->type == NodeTypeFnCallExpr);
-//
-//    if (parent_context->fn_entry) {
-//        add_node_error(g, node, buf_sprintf("@c_import invalid inside function bodies"));
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    AstNode *block_node = node->data.fn_call_expr.params.at(0);
-//
-//    BlockContext *child_context = new_block_context(node, parent_context);
-//    child_context->c_import_buf = buf_alloc();
-//
-//    TypeTableEntry *resolved_type = analyze_expression(g, parent_import, child_context,
-//            g->builtin_types.entry_void, block_node);
-//
-//    if (resolved_type->id == TypeTableEntryIdInvalid) {
-//        return resolved_type;
-//    }
-//
-//    find_libc_include_path(g);
-//
-//    ImportTableEntry *child_import = allocate<ImportTableEntry>(1);
-//    child_import->c_import_node = node;
-//
-//    ZigList<ErrorMsg *> errors = {0};
-//
-//    int err;
-//    if ((err = parse_h_buf(child_import, &errors, child_context->c_import_buf, g, node))) {
-//        zig_panic("unable to parse h file: %s\n", err_str(err));
-//    }
-//
-//    if (errors.length > 0) {
-//        ErrorMsg *parent_err_msg = add_node_error(g, node, buf_sprintf("C import failed"));
-//        for (size_t i = 0; i < errors.length; i += 1) {
-//            ErrorMsg *err_msg = errors.at(i);
-//            err_msg_add_note(parent_err_msg, err_msg);
-//        }
-//
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    if (g->verbose) {
-//        fprintf(stderr, "\nc_import:\n");
-//        fprintf(stderr, "-----------\n");
-//        ast_render(stderr, child_import->root, 4);
-//    }
-//
-//    child_import->di_file = parent_import->di_file;
-//    child_import->block_context = new_block_context(child_import->root, nullptr);
-//
-//    scan_decls(g, child_import, child_import->block_context, child_import->root);
-//    return resolve_expr_const_val_as_import(g, node, child_import);
-//}
-//
 //static TypeTableEntry *analyze_embed_file(CodeGen *g, ImportTableEntry *import,
 //        BlockContext *context, AstNode *node)
 //{
@@ -7587,51 +7756,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //                    return g->builtin_types.entry_invalid;
 //                }
 //            }
-//        case BuiltinFnIdCInclude:
-//            {
-//                if (!context->c_import_buf) {
-//                    add_node_error(g, node, buf_sprintf("@c_include valid only in c_import blocks"));
-//                    return g->builtin_types.entry_invalid;
-//                }
-//
-//                AstNode **str_node = node->data.fn_call_expr.params.at(0)->parent_field;
-//                TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
-//                TypeTableEntry *resolved_type = analyze_expression(g, import, context, str_type, *str_node);
-//
-//                if (resolved_type->id == TypeTableEntryIdInvalid) {
-//                    return resolved_type;
-//                }
-//
-//                ConstExprValue *const_str_val = &get_resolved_expr(*str_node)->const_val;
-//
-//                if (!const_str_val->ok) {
-//                    add_node_error(g, *str_node, buf_sprintf("@c_include requires constant expression"));
-//                    return g->builtin_types.entry_void;
-//                }
-//
-//                buf_appendf(context->c_import_buf, "#include <");
-//                ConstExprValue *ptr_field = const_str_val->data.x_struct.fields[0];
-//                uint64_t len = ptr_field->data.x_ptr.len;
-//                for (uint64_t i = 0; i < len; i += 1) {
-//                    ConstExprValue *char_val = ptr_field->data.x_ptr.ptr[i];
-//                    uint64_t big_c = char_val->data.x_bignum.data.x_uint;
-//                    assert(big_c <= UINT8_MAX);
-//                    uint8_t c = big_c;
-//                    buf_append_char(context->c_import_buf, c);
-//                }
-//                buf_appendf(context->c_import_buf, ">\n");
-//
-//                return g->builtin_types.entry_void;
-//            }
-//        case BuiltinFnIdCDefine:
-//            zig_panic("TODO");
-//        case BuiltinFnIdCUndef:
-//            zig_panic("TODO");
-//
 //        case BuiltinFnIdImport:
 //            return analyze_import(g, import, context, node);
-//        case BuiltinFnIdCImport:
-//            return analyze_c_import(g, import, context, node);
 //        case BuiltinFnIdBreakpoint:
 //            mark_impure_fn(g, context, node);
 //            return g->builtin_types.entry_void;
@@ -8121,9 +8247,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    switch (builtin_fn->id) {
 //        case BuiltinFnIdInvalid:
 //        case BuiltinFnIdTypeof:
-//        case BuiltinFnIdCInclude:
-//        case BuiltinFnIdCDefine:
-//        case BuiltinFnIdCUndef:
 //        case BuiltinFnIdImport:
 //        case BuiltinFnIdCImport:
 //        case BuiltinFnIdCompileErr:

@@ -31,27 +31,28 @@ struct GlobalValue {
     bool is_const;
 };
 
+struct Alias {
+    Buf *name;
+    Tld *tld;
+};
+
 struct Context {
     ImportTableEntry *import;
     ZigList<ErrorMsg *> *errors;
     bool warnings_on;
     VisibMod visib_mod;
-    AstNode *root;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> global_type_table;
-    HashMap<Buf *, GlobalValue, buf_hash, buf_eql_buf> global_value_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> struct_type_table;
-    HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> struct_decl_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> enum_type_table;
     HashMap<const void *, TypeTableEntry *, ptr_hash, ptr_eq> decl_table;
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> fn_table;
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
+    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> macro_table;
     SourceManager *source_manager;
-    ZigList<AstNode *> aliases;
+    ZigList<Alias> aliases;
     ZigList<MacroSymbol> macro_symbols;
     AstNode *source_node;
+    uint32_t next_anon_index;
 
     CodeGen *codegen;
-    bool transform_extern_fn_ptr;
 };
 
 static TypeTableEntry *resolve_qual_type_with_table(Context *c, QualType qt, const Decl *decl,
@@ -88,233 +89,132 @@ static void emit_warning(Context *c, const Decl *decl, const char *format, ...) 
     fprintf(stderr, "%s:%u:%u: warning: %s\n", buf_ptr(path), line, column, buf_ptr(msg));
 }
 
-static uint32_t get_next_node_index(Context *c) {
-    uint32_t result = c->codegen->next_node_index;
-    c->codegen->next_node_index += 1;
+static uint32_t get_next_anon_index(Context *c) {
+    uint32_t result = c->next_anon_index;
+    c->next_anon_index += 1;
     return result;
 }
 
-static AstNode *create_node(Context *c, NodeType type) {
-    AstNode *node = allocate<AstNode>(1);
-    node->type = type;
-    node->owner = c->import;
-    node->create_index = get_next_node_index(c);
-    return node;
+static void add_global_alias(Context *c, Buf *name, Tld *tld) {
+    c->import->decls_scope->decl_table.put(name, tld);
 }
 
-static AstNode *create_symbol_node(Context *c, const char *type_name) {
-    AstNode *node = create_node(c, NodeTypeSymbol);
-    node->data.symbol_expr.symbol = buf_create_from_str(type_name);
-    return node;
+static void add_global_weak_alias(Context *c, Buf *name, Tld *tld) {
+    Alias *alias = c->aliases.add_one();
+    alias->name = name;
+    alias->tld = tld;
 }
 
-static AstNode *create_field_access_node(Context *c, const char *lhs, const char *rhs) {
-    AstNode *node = create_node(c, NodeTypeFieldAccessExpr);
-    node->data.field_access_expr.struct_expr = create_symbol_node(c, lhs);
-    node->data.field_access_expr.field_name = buf_create_from_str(rhs);
-    return node;
+static void add_global(Context *c, Tld *tld) {
+    return add_global_alias(c, tld->name, tld);
 }
 
-static AstNode *create_typed_var_decl_node(Context *c, bool is_const, const char *var_name,
-        AstNode *type_node, AstNode *init_node)
-{
-    AstNode *node = create_node(c, NodeTypeVariableDeclaration);
-    node->data.variable_declaration.symbol = buf_create_from_str(var_name);
-    node->data.variable_declaration.is_const = is_const;
-    node->data.variable_declaration.visib_mod = c->visib_mod;
-    node->data.variable_declaration.expr = init_node;
-    node->data.variable_declaration.type = type_node;
-    return node;
+static Tld *get_global(Context *c, Buf *name) {
+    auto entry = c->import->decls_scope->decl_table.maybe_get(name);
+    return entry ? entry->value : nullptr;
 }
-
-static AstNode *create_var_decl_node(Context *c, const char *var_name, AstNode *expr_node) {
-    return create_typed_var_decl_node(c, true, var_name, nullptr, expr_node);
-}
-
-static AstNode *create_prefix_node(Context *c, PrefixOp op, AstNode *child_node) {
-    assert(child_node);
-    AstNode *node = create_node(c, NodeTypePrefixOpExpr);
-    node->data.prefix_op_expr.prefix_op = op;
-    node->data.prefix_op_expr.primary_expr = child_node;
-    return node;
-}
-
-static AstNode *create_param_decl_node(Context *c, const char *name, AstNode *type_node, bool is_noalias) {
-    assert(type_node);
-    AstNode *node = create_node(c, NodeTypeParamDecl);
-    node->data.param_decl.name = buf_create_from_str(name);
-    node->data.param_decl.type = type_node;
-    node->data.param_decl.is_noalias = is_noalias;
-
-    return node;
-}
-
-static AstNode *create_char_lit_node(Context *c, uint8_t value) {
-    AstNode *node = create_node(c, NodeTypeCharLiteral);
-    node->data.char_literal.value = value;
-    return node;
-}
-
-// accepts ownership of buf
-static AstNode *create_str_lit_node(Context *c, Buf *buf) {
-    AstNode *node = create_node(c, NodeTypeStringLiteral);
-    node->data.string_literal.buf = buf;
-    node->data.string_literal.c = true;
-    return node;
-}
-
-static AstNode *create_num_lit_float(Context *c, double x) {
-    AstNode *node = create_node(c, NodeTypeNumberLiteral);
-    node->data.number_literal.bignum = allocate_nonzero<BigNum>(1);
-    bignum_init_float(node->data.number_literal.bignum, x);
-    return node;
-}
-
-static AstNode *create_num_lit_float_negative(Context *c, double x, bool negative) {
-    AstNode *num_lit_node = create_num_lit_float(c, x);
-    if (!negative) return num_lit_node;
-    return create_prefix_node(c, PrefixOpNegation, num_lit_node);
-}
-
-static AstNode *create_num_lit_unsigned(Context *c, uint64_t x) {
-    AstNode *node = create_node(c, NodeTypeNumberLiteral);
-    node->data.number_literal.bignum = allocate_nonzero<BigNum>(1);
-    bignum_init_unsigned(node->data.number_literal.bignum, x);
-    return node;
-}
-
-static AstNode *create_num_lit_unsigned_negative(Context *c, uint64_t x, bool negative) {
-    AstNode *num_lit_node = create_num_lit_unsigned(c, x);
-    if (!negative) return num_lit_node;
-    return create_prefix_node(c, PrefixOpNegation, num_lit_node);
-}
-
-static AstNode *create_num_lit_signed(Context *c, int64_t x) {
-    if (x >= 0) {
-        return create_num_lit_unsigned(c, x);
-    }
-    BigNum bn_orig;
-    bignum_init_signed(&bn_orig, x);
-
-    BigNum bn_negated;
-    bignum_negate(&bn_negated, &bn_orig);
-
-    uint64_t uint = bignum_to_twos_complement(&bn_negated);
-    AstNode *num_lit_node = create_num_lit_unsigned(c, uint);
-    return create_prefix_node(c, PrefixOpNegation, num_lit_node);
-}
-
-static AstNode *make_type_node(Context *c, TypeTableEntry *type_entry) {
-    zig_panic("TODO bypass AST in parseh");
-}
-
-static AstNode *create_fn_proto_node(Context *c, Buf *name, TypeTableEntry *fn_type) {
-    assert(fn_type->id == TypeTableEntryIdFn);
-    AstNode *node = create_node(c, NodeTypeFnProto);
-    node->data.fn_proto.is_inline = true;
-    node->data.fn_proto.visib_mod = c->visib_mod;
-    node->data.fn_proto.name = name;
-    node->data.fn_proto.return_type = make_type_node(c, fn_type->data.fn.fn_type_id.return_type);
-
-    for (size_t i = 0; i < fn_type->data.fn.fn_type_id.param_count; i += 1) {
-        FnTypeParamInfo *info = &fn_type->data.fn.fn_type_id.param_info[i];
-        char arg_name[20];
-        sprintf(arg_name, "arg_%zu", i);
-        node->data.fn_proto.params.append(create_param_decl_node(c, arg_name,
-                    make_type_node(c, info->type), info->is_noalias));
-    }
-
-    return node;
-}
-
-static AstNode *create_one_statement_block(Context *c, AstNode *statement) {
-    AstNode *node = create_node(c, NodeTypeBlock);
-    node->data.block.statements.append(statement);
-
-    return node;
-}
-
-static AstNode *create_inline_fn_node(Context *c, Buf *fn_name, Buf *var_name, TypeTableEntry *fn_type) {
-    AstNode *node = create_node(c, NodeTypeFnDef);
-    node->data.fn_def.fn_proto = create_fn_proto_node(c, fn_name, fn_type);
-
-    AstNode *unwrap_node = create_prefix_node(c, PrefixOpUnwrapMaybe, create_symbol_node(c, buf_ptr(var_name)));
-
-    AstNode *fn_call_node = create_node(c, NodeTypeFnCallExpr);
-    fn_call_node->data.fn_call_expr.fn_ref_expr = unwrap_node;
-    for (size_t i = 0; i < fn_type->data.fn.fn_type_id.param_count; i += 1) {
-        AstNode *decl_node = node->data.fn_def.fn_proto->data.fn_proto.params.at(i);
-        Buf *param_name = decl_node->data.param_decl.name;
-        fn_call_node->data.fn_call_expr.params.append(create_symbol_node(c, buf_ptr(param_name)));
-    }
-
-
-    node->data.fn_def.body = create_one_statement_block(c, fn_call_node);
-
-    return node;
-}
-
-
 
 static const char *decl_name(const Decl *decl) {
     const NamedDecl *named_decl = static_cast<const NamedDecl *>(decl);
     return (const char *)named_decl->getName().bytes_begin();
 }
 
-static void add_typedef_node(Context *c, TypeTableEntry *type_decl) {
-    assert(type_decl);
-    assert(type_decl->id == TypeTableEntryIdTypeDecl);
-
-    ScopeDecls *decls_scope = c->import->decls_scope;
-    TldTypeDef *tld_typedef = allocate<TldTypeDef>(1);
-    init_tld(&tld_typedef->base, TldIdTypeDef, &type_decl->name, c->visib_mod, c->source_node, &decls_scope->base, nullptr);
-    tld_typedef->type_entry = type_decl;
-
-    decls_scope->decl_table.put(&type_decl->name, &tld_typedef->base);
-    c->global_type_table.put(&type_decl->name, type_decl);
+static void parseh_init_tld(Context *c, Tld *tld, TldId id, Buf *name) {
+    init_tld(tld, id, name, c->visib_mod, c->source_node, &c->import->decls_scope->base, nullptr);
+    tld->resolution = TldResolutionOk;
 }
 
-static void add_const_var_node(Context *c, Buf *name, TypeTableEntry *type_entry) {
-    ScopeDecls *decls_scope = c->import->decls_scope;
+static TldVar *create_global_var(Context *c, Buf *name, TypeTableEntry *var_type, ConstExprValue *var_value, bool is_const) {
     TldVar *tld_var = allocate<TldVar>(1);
-    init_tld(&tld_var->base, TldIdVar, name, c->visib_mod, c->source_node, &decls_scope->base, nullptr);
-    bool is_const = true;
-    ConstExprValue *init_value = allocate<ConstExprValue>(1);
-    init_value->special = ConstValSpecialStatic;
-    init_value->data.x_type = type_entry;
-    tld_var->var = add_variable(c->codegen, c->source_node, &decls_scope->base, name, type_entry, is_const, init_value);
-
-    decls_scope->decl_table.put(name, &tld_var->base);
-    c->global_type_table.put(name, type_entry);
+    parseh_init_tld(c, &tld_var->base, TldIdVar, name);
+    tld_var->var = add_variable(c->codegen, c->source_node, &c->import->decls_scope->base, name, var_type, is_const, var_value);
+    return tld_var;
 }
 
-static void add_container_tld(Context *c, TypeTableEntry *type_entry) {
-    ScopeDecls *decls_scope = c->import->decls_scope;
-    TldContainer *tld_container = allocate<TldContainer>(1);
-    init_tld(&tld_container->base, TldIdContainer, &type_entry->name, c->visib_mod, c->source_node, &decls_scope->base, nullptr);
-    tld_container->type_entry = type_entry;
-
-    decls_scope->decl_table.put(&type_entry->name, &tld_container->base);
+static Tld *create_global_char_lit_var(Context *c, Buf *name, uint8_t value) {
+    TldVar *tld_var = create_global_var(c, name, c->codegen->builtin_types.entry_u8,
+        create_const_unsigned_negative(value, false), true);
+    return &tld_var->base;
 }
 
-static AstNode *create_ap_num_lit_node(Context *c, const Decl *source_decl,
-        const llvm::APSInt &aps_int)
-{
+static Tld *create_global_str_lit_var(Context *c, Buf *name, Buf *value) {
+    TypeTableEntry *str_type = get_array_type(c->codegen, c->codegen->builtin_types.entry_u8, buf_len(value));
+    TldVar *tld_var = create_global_var(c, name, str_type, create_const_str_lit(value), true);
+    return &tld_var->base;
+}
+
+static Tld *create_global_num_lit_unsigned_negative(Context *c, Buf *name, uint64_t x, bool negative) {
+    TldVar *tld_var = create_global_var(c, name, c->codegen->builtin_types.entry_num_lit_int,
+        create_const_unsigned_negative(x, negative), true);
+    return &tld_var->base;
+}
+
+static Tld *create_global_num_lit_float(Context *c, Buf *name, double value) {
+    TldVar *tld_var = create_global_var(c, name, c->codegen->builtin_types.entry_num_lit_float,
+        create_const_float(value), true);
+    return &tld_var->base;
+}
+
+static ConstExprValue *create_const_num_lit_ap(Context *c, const Decl *source_decl, const llvm::APSInt &aps_int) {
     if (aps_int.isSigned()) {
         if (aps_int > INT64_MAX || aps_int < INT64_MIN) {
             emit_warning(c, source_decl, "integer overflow\n");
             return nullptr;
         } else {
-            return create_num_lit_signed(c, aps_int.getExtValue());
+            return create_const_signed(aps_int.getExtValue());
         }
     } else {
         if (aps_int > INT64_MAX) {
             emit_warning(c, source_decl, "integer overflow\n");
             return nullptr;
         } else {
-            return create_num_lit_unsigned(c, aps_int.getExtValue());
+            return create_const_unsigned_negative(aps_int.getExtValue(), false);
         }
     }
+}
+
+static Tld *create_global_num_lit_ap(Context *c, const Decl *source_decl, Buf *name,
+        const llvm::APSInt &aps_int)
+{
+    ConstExprValue *const_value = create_const_num_lit_ap(c, source_decl, aps_int);
+    if (!const_value)
+        return nullptr;
+    TldVar *tld_var = create_global_var(c, name, c->codegen->builtin_types.entry_num_lit_int, const_value, true);
+    return &tld_var->base;
+}
+
+
+static void add_const_type(Context *c, Buf *name, TypeTableEntry *type_entry) {
+    ConstExprValue *var_value = allocate<ConstExprValue>(1);
+    var_value->special = ConstValSpecialStatic;
+    var_value->data.x_type = type_entry;
+    TldVar *tld_var = create_global_var(c, name, c->codegen->builtin_types.entry_type, var_value, true);
+    add_global(c, &tld_var->base);
+
+    c->global_type_table.put(name, type_entry);
+}
+
+static Tld *add_container_tld(Context *c, TypeTableEntry *type_entry) {
+    TldContainer *tld_container = allocate<TldContainer>(1);
+    parseh_init_tld(c, &tld_container->base, TldIdContainer, &type_entry->name);
+    tld_container->type_entry = type_entry;
+
+    add_global(c, &tld_container->base);
+    return &tld_container->base;
+}
+
+static Tld *add_typedef_tld(Context *c, TypeTableEntry *type_decl) {
+    assert(type_decl);
+    assert(type_decl->id == TypeTableEntryIdTypeDecl);
+
+    TldTypeDef *tld_typedef = allocate<TldTypeDef>(1);
+    parseh_init_tld(c, &tld_typedef->base, TldIdTypeDef, &type_decl->name);
+    tld_typedef->type_entry = type_decl;
+
+    add_global(c, &tld_typedef->base);
+    c->global_type_table.put(&type_decl->name, type_decl);
+
+    return &tld_typedef->base;
 }
 
 static bool is_c_void_type(Context *c, TypeTableEntry *type_entry) {
@@ -702,7 +602,7 @@ static TypeTableEntry *resolve_qual_type(Context *c, QualType qt, const Decl *de
 static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     Buf *fn_name = buf_create_from_str(decl_name(fn_decl));
 
-    if (c->fn_table.maybe_get(fn_name)) {
+    if (get_global(c, fn_name)) {
         // we already saw this function
         return;
     }
@@ -715,36 +615,19 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     }
     assert(fn_type->id == TypeTableEntryIdFn);
 
-
-    AstNode *node = create_node(c, NodeTypeFnProto);
-    node->data.fn_proto.name = fn_name;
-
-    node->data.fn_proto.is_extern = fn_type->data.fn.fn_type_id.is_extern;
-    node->data.fn_proto.visib_mod = c->visib_mod;
-    node->data.fn_proto.is_var_args = fn_type->data.fn.fn_type_id.is_var_args;
-    node->data.fn_proto.return_type = make_type_node(c, fn_type->data.fn.fn_type_id.return_type);
+    bool internal_linkage = false;
+    FnTableEntry *fn_entry = create_fn_raw(FnInlineAuto, internal_linkage);
+    buf_init_from_buf(&fn_entry->symbol_name, fn_name);
+    fn_entry->type_entry = fn_type;
 
     assert(!fn_type->data.fn.fn_type_id.is_naked);
 
-    size_t arg_count = fn_type->data.fn.fn_type_id.param_count;
-    Buf name_buf = BUF_INIT;
-    for (size_t i = 0; i < arg_count; i += 1) {
-        FnTypeParamInfo *param_info = &fn_type->data.fn.fn_type_id.param_info[i];
-        AstNode *type_node = make_type_node(c, param_info->type);
-        const ParmVarDecl *param = fn_decl->getParamDecl(i);
-        const char *name = decl_name(param);
-        if (strlen(name) == 0) {
-            buf_resize(&name_buf, 0);
-            buf_appendf(&name_buf, "arg%zu", i);
-            name = buf_ptr(&name_buf);
-        }
+    TldFn *tld_fn = allocate<TldFn>(1);
+    parseh_init_tld(c, &tld_fn->base, TldIdFn, fn_name);
+    tld_fn->fn_entry = fn_entry;
+    add_global(c, &tld_fn->base);
 
-        node->data.fn_proto.params.append(create_param_decl_node(c, name, type_node, param_info->is_noalias));
-    }
-
-
-    c->fn_table.put(buf_create_from_buf(fn_name), true);
-    c->root->data.root.top_level_decls.append(node);
+    c->codegen->fn_protos.append(fn_entry);
 }
 
 static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) {
@@ -775,18 +658,13 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
         emit_warning(c, typedef_decl, "typedef %s - unresolved child type", buf_ptr(type_name));
         return;
     }
-    add_const_var_node(c, type_name, child_type);
-}
-
-static void add_alias(Context *c, const char *new_name, const char *target_name) {
-    AstNode *alias_node = create_var_decl_node(c, new_name, create_symbol_node(c, target_name));
-    c->aliases.append(alias_node);
+    add_const_type(c, type_name, child_type);
 }
 
 static void replace_with_fwd_decl(Context *c, TypeTableEntry *struct_type, Buf *full_type_name) {
     unsigned line = c->source_node ? c->source_node->line : 0;
     ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugForwardDeclType(c->codegen->dbuilder,
-        ZigLLVMTag_DW_structure_type(), buf_ptr(full_type_name), 
+        ZigLLVMTag_DW_structure_type(), buf_ptr(full_type_name),
         ZigLLVMFileToScope(c->import->di_file), c->import->di_file, line);
 
     ZigLLVMReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);
@@ -803,7 +681,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
 
     Buf *bare_name;
     if (raw_name[0] == 0) {
-        bare_name = buf_sprintf("anon_$%" PRIu32, get_next_node_index(c));
+        bare_name = buf_sprintf("anon_$%" PRIu32, get_next_anon_index(c));
     } else {
         bare_name = buf_create_from_str(raw_name);
     }
@@ -876,11 +754,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
 
             // in C each enum value is in the global namespace. so we put them there too.
             // at this point we can rely on the enum emitting successfully
-            AstNode *field_access_node = create_field_access_node(c, buf_ptr(full_type_name), buf_ptr(field_name));
-            AstNode *var_node = create_var_decl_node(c, buf_ptr(enum_val_name), field_access_node);
-            c->root->data.root.top_level_decls.append(var_node);
-
-            c->global_value_table.put(enum_val_name, {enum_type, true});
+            add_global(c, create_global_num_lit_unsigned_negative(c, enum_val_name, i, false));
         }
 
         // create llvm type for root struct
@@ -912,20 +786,14 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
                 it != it_end; ++it)
         {
             const EnumConstantDecl *enum_const = *it;
-            AstNode *num_lit_node = create_ap_num_lit_node(c, enum_decl, enum_const->getInitVal());
-            if (!num_lit_node) {
-                return c->codegen->builtin_types.entry_invalid;
-            }
 
             Buf *enum_val_name = buf_create_from_str(decl_name(enum_const));
 
-            AstNode *type_node = make_type_node(c, enum_type);
-            AstNode *var_decl_node = create_typed_var_decl_node(c, true, buf_ptr(enum_val_name),
-                    type_node, num_lit_node);
+            Tld *tld = create_global_num_lit_ap(c, enum_decl, enum_val_name, enum_const->getInitVal());
+            if (!tld)
+                return c->codegen->builtin_types.entry_invalid;
 
-            c->root->data.root.top_level_decls.append(var_decl_node);
-            c->global_value_table.put(enum_val_name, {enum_type, true});
-
+            add_global(c, tld);
         }
 
         return enum_type;
@@ -940,20 +808,25 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
     // make an alias without the "enum_" prefix. this will get emitted at the
     // end if it doesn't conflict with anything else
-    if (decl_name(enum_decl)[0] != 0) {
-        add_alias(c, decl_name(enum_decl), buf_ptr(&enum_type->name));
-    }
+    bool is_anonymous = (decl_name(enum_decl)[0] == 0);
+    if (is_anonymous)
+        return;
+
+    Buf *bare_name = buf_create_from_str(decl_name(enum_decl));
 
     if (enum_type->id == TypeTableEntryIdEnum) {
         if (enum_type->data.enumeration.complete) {
-            add_container_tld(c, enum_type);
+            Tld *tld = add_container_tld(c, enum_type);
+            add_global_weak_alias(c, bare_name, tld);
         } else {
             TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(&enum_type->name),
                     c->codegen->builtin_types.entry_u8);
-            add_typedef_node(c, typedecl_type);
+            Tld *tld = add_typedef_tld(c, typedecl_type);
+            add_global_weak_alias(c, bare_name, tld);
         }
     } else if (enum_type->id == TypeTableEntryIdTypeDecl) {
-        add_typedef_node(c, enum_type);
+        Tld *tld = add_typedef_tld(c, enum_type);
+        add_global_weak_alias(c, bare_name, tld);
     } else {
         zig_unreachable();
     }
@@ -974,7 +847,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
 
     Buf *bare_name;
     if (record_decl->isAnonymousStructOrUnion() || raw_name[0] == 0) {
-        bare_name = buf_sprintf("anon_$%" PRIu32, get_next_node_index(c));
+        bare_name = buf_sprintf("anon_$%" PRIu32, get_next_anon_index(c));
     } else {
         bare_name = buf_create_from_str(raw_name);
     }
@@ -1096,23 +969,20 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
 
     assert(struct_type->id == TypeTableEntryIdStruct);
 
-    if (c->struct_decl_table.maybe_get(&struct_type->name)) {
+    bool is_anonymous = (record_decl->isAnonymousStructOrUnion() || decl_name(record_decl)[0] == 0);
+    if (is_anonymous)
         return;
-    }
-    c->struct_decl_table.put(&struct_type->name, struct_type);
 
-    // make an alias without the "struct_" prefix. this will get emitted at the
-    // end if it doesn't conflict with anything else
-    if (decl_name(record_decl)[0] != 0) {
-        add_alias(c, decl_name(record_decl), buf_ptr(&struct_type->name));
-    }
+    Buf *bare_name = buf_create_from_str(decl_name(record_decl));
 
     if (struct_type->data.structure.complete) {
-        add_container_tld(c, struct_type);
+        Tld *tld = add_container_tld(c, struct_type);
+        add_global_weak_alias(c, bare_name, tld);
     } else {
         TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(&struct_type->name),
                 c->codegen->builtin_types.entry_u8);
-        add_typedef_node(c, typedecl_type);
+        Tld *tld = add_typedef_tld(c, typedecl_type);
+        add_global_weak_alias(c, bare_name, tld);
     }
 }
 
@@ -1151,7 +1021,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
             emit_warning(c, var_decl, "ignoring variable '%s' - unable to evaluate initializer\n", buf_ptr(name));
             return;
         }
-        AstNode *init_node = nullptr;
+        ConstExprValue *init_value = nullptr;
         switch (ap_value->getKind()) {
             case APValue::Int:
                 {
@@ -1161,10 +1031,10 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                             "ignoring variable '%s' - int initializer for non int type\n", buf_ptr(name));
                         return;
                     }
-                    init_node = create_ap_num_lit_node(c, var_decl, ap_value->getInt());
-                    if (!init_node) {
+                    init_value = create_const_num_lit_ap(c, var_decl, ap_value->getInt());
+                    if (!init_value)
                         return;
-                    }
+
                     break;
                 }
             case APValue::Uninitialized:
@@ -1183,19 +1053,15 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                 return;
         }
 
-        AstNode *type_node = make_type_node(c, var_type);
-        AstNode *var_node = create_typed_var_decl_node(c, true, buf_ptr(name), type_node, init_node);
-        c->root->data.root.top_level_decls.append(var_node);
-        c->global_value_table.put(name, {var_type, true});
+        TldVar *tld_var = create_global_var(c, name, var_type, init_value, true);
+        add_global(c, &tld_var->base);
         return;
     }
 
     if (is_extern) {
-        AstNode *type_node = make_type_node(c, var_type);
-        AstNode *var_node = create_typed_var_decl_node(c, is_const, buf_ptr(name), type_node, nullptr);
-        var_node->data.variable_declaration.is_extern = true;
-        c->root->data.root.top_level_decls.append(var_node);
-        c->global_value_table.put(name, {var_type, is_const});
+        TldVar *tld_var = create_global_var(c, name, var_type, nullptr, is_const);
+        tld_var->var->is_extern = true;
+        add_global(c, &tld_var->base);
         return;
     }
 
@@ -1233,43 +1099,22 @@ static bool name_exists(Context *c, Buf *name) {
     if (c->global_type_table.maybe_get(name)) {
         return true;
     }
-    if (c->global_value_table.maybe_get(name)) {
-        return true;
-    }
-    if (c->fn_table.maybe_get(name)) {
+    if (get_global(c, name)) {
         return true;
     }
     if (c->macro_table.maybe_get(name)) {
         return true;
-    }
-    return false;
-}
-
-static bool name_exists_and_const(Context *c, Buf *name) {
-    if (c->global_type_table.maybe_get(name)) {
-        return true;
-    }
-    if (c->fn_table.maybe_get(name)) {
-        return true;
-    }
-    if (c->macro_table.maybe_get(name)) {
-        return true;
-    }
-    if (auto entry = c->global_value_table.maybe_get(name)) {
-        return entry->value.is_const;
     }
     return false;
 }
 
 static void render_aliases(Context *c) {
     for (size_t i = 0; i < c->aliases.length; i += 1) {
-        AstNode *alias_node = c->aliases.at(i);
-        assert(alias_node->type == NodeTypeVariableDeclaration);
-        Buf *name = alias_node->data.variable_declaration.symbol;
-        if (name_exists(c, name)) {
+        Alias *alias = &c->aliases.at(i);
+        if (name_exists(c, alias->name))
             continue;
-        }
-        c->root->data.root.top_level_decls.append(alias_node);
+
+        add_global_alias(c, alias->name, alias->tld);
     }
 }
 
@@ -1280,8 +1125,8 @@ static void render_macros(Context *c) {
         if (!entry)
             break;
 
-        AstNode *var_node = entry->value;
-        c->root->data.root.top_level_decls.append(var_node);
+        Tld *var_tld = entry->value;
+        add_global(c, var_tld);
     }
 }
 
@@ -1300,30 +1145,27 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
         switch (tok->id) {
             case CTokIdCharLit:
                 if (is_last && is_first) {
-                    AstNode *var_node = create_var_decl_node(c, buf_ptr(name),
-                            create_char_lit_node(c, tok->data.char_lit));
-                    c->macro_table.put(name, var_node);
+                    Tld *tld = create_global_char_lit_var(c, name, tok->data.char_lit);
+                    c->macro_table.put(name, tld);
                 }
                 return;
             case CTokIdStrLit:
                 if (is_last && is_first) {
-                    AstNode *var_node = create_var_decl_node(c, buf_ptr(name),
-                            create_str_lit_node(c, buf_create_from_buf(&tok->data.str_lit)));
-                    c->macro_table.put(name, var_node);
+                    Tld *tld = create_global_str_lit_var(c, name, buf_create_from_buf(&tok->data.str_lit));
+                    c->macro_table.put(name, tld);
                 }
                 return;
             case CTokIdNumLitInt:
                 if (is_last) {
-                    AstNode *var_node = create_var_decl_node(c, buf_ptr(name),
-                            create_num_lit_unsigned_negative(c, tok->data.num_lit_int, negate));
-                    c->macro_table.put(name, var_node);
+                    Tld *tld = create_global_num_lit_unsigned_negative(c, name, tok->data.num_lit_int, negate);
+                    c->macro_table.put(name, tld);
                 }
                 return;
             case CTokIdNumLitFloat:
                 if (is_last) {
-                    AstNode *var_node = create_var_decl_node(c, buf_ptr(name),
-                            create_num_lit_float_negative(c, tok->data.num_lit_float, negate));
-                    c->macro_table.put(name, var_node);
+                    double value = negate ? -tok->data.num_lit_float : tok->data.num_lit_float;
+                    Tld *tld = create_global_num_lit_float(c, name, value);
+                    c->macro_table.put(name, tld);
                 }
                 return;
             case CTokIdSymbol:
@@ -1351,22 +1193,31 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
 static void process_symbol_macros(Context *c) {
     for (size_t i = 0; i < c->macro_symbols.length; i += 1) {
         MacroSymbol ms = c->macro_symbols.at(i);
-        if (name_exists_and_const(c, ms.value)) {
-            AstNode *var_node = create_var_decl_node(c, buf_ptr(ms.name),
-                    create_symbol_node(c, buf_ptr(ms.value)));
-            c->macro_table.put(ms.name, var_node);
-        } else if (c->transform_extern_fn_ptr || true) { // TODO take off the || true
-            if (auto entry = c->global_value_table.maybe_get(ms.value)) {
-                TypeTableEntry *maybe_type = entry->value.type;
-                if (maybe_type->id == TypeTableEntryIdMaybe) {
-                    TypeTableEntry *fn_type = maybe_type->data.maybe.child_type;
-                    if (fn_type->id == TypeTableEntryIdFn) {
-                        AstNode *fn_node = create_inline_fn_node(c, ms.name, ms.value, fn_type);
-                        c->macro_table.put(ms.name, fn_node);
-                    }
+
+        // If this macro aliases another top level declaration, we can make that happen by
+        // putting another entry in the decl table pointing to the same top level decl.
+        Tld *existing_tld = get_global(c, ms.value);
+        if (!existing_tld)
+            continue;
+
+        // If a macro aliases a global variable which is a function pointer, we conclude that
+        // the macro is intended to represent a function that assumes the function pointer
+        // variable is non-null and calls it.
+        if (existing_tld->id == TldIdVar) {
+            TldVar *tld_var = (TldVar *)existing_tld;
+            TypeTableEntry *var_type = tld_var->var->type;
+            if (var_type->id == TypeTableEntryIdMaybe && !tld_var->var->src_is_const) {
+                TypeTableEntry *child_type = var_type->data.maybe.child_type;
+                if (child_type->id == TypeTableEntryIdFn) {
+                    zig_panic("TODO");
+                    //Tld *fn_tld = create_inline_fn_alias(c, ms.name, tld_var->var);
+                    //c->macro_table.put(ms.name, fn_tld);
+                    continue;
                 }
             }
         }
+
+        add_global_alias(c, ms.value, existing_tld);
     }
 }
 
@@ -1430,12 +1281,9 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->errors = errors;
     c->visib_mod = VisibModPub;
     c->global_type_table.init(8);
-    c->global_value_table.init(8);
     c->enum_type_table.init(8);
     c->struct_type_table.init(8);
-    c->struct_decl_table.init(8);
     c->decl_table.init(8);
-    c->fn_table.init(8);
     c->macro_table.init(8);
     c->codegen = codegen;
     c->source_node = source_node;
@@ -1521,7 +1369,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
             err_unit = std::move(ast_unit);
         }
 
-        for (ASTUnit::stored_diag_iterator it = err_unit->stored_diag_begin(), 
+        for (ASTUnit::stored_diag_iterator it = err_unit->stored_diag_begin(),
                 it_end = err_unit->stored_diag_end();
                 it != it_end; ++it)
         {
@@ -1561,7 +1409,6 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 
     c->source_manager = &ast_unit->getSourceManager();
 
-    c->root = create_node(c, NodeTypeRoot);
     ast_unit->visitLocalTopLevelDecls(c, decl_visitor);
 
     process_preprocessor_entities(c, *ast_unit);
@@ -1570,8 +1417,6 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 
     render_macros(c);
     render_aliases(c);
-
-    import->root = c->root;
 
     return 0;
 }

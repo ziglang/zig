@@ -144,7 +144,11 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
         case TypeTableEntryIdNamespace:
             {
                 ImportTableEntry *import = const_val->data.x_import;
-                fprintf(irp->f, "(namespace: %s)", buf_ptr(import->path));
+                if (import->c_import_node) {
+                    fprintf(irp->f, "(namespace from C import)");
+                } else {
+                    fprintf(irp->f, "(namespace: %s)", buf_ptr(import->path));
+                }
                 return;
             }
         case TypeTableEntryIdBoundFn:
@@ -685,6 +689,30 @@ static void ir_print_err_name(IrPrint *irp, IrInstructionErrName *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_c_import(IrPrint *irp, IrInstructionCImport *instruction) {
+    fprintf(irp->f, "@cImport(...)");
+}
+
+static void ir_print_c_include(IrPrint *irp, IrInstructionCInclude *instruction) {
+    fprintf(irp->f, "@cInclude(");
+    ir_print_other_instruction(irp, instruction->name);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_c_define(IrPrint *irp, IrInstructionCDefine *instruction) {
+    fprintf(irp->f, "@cDefine(");
+    ir_print_other_instruction(irp, instruction->name);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_c_undef(IrPrint *irp, IrInstructionCUndef *instruction) {
+    fprintf(irp->f, "@cUndef(");
+    ir_print_other_instruction(irp, instruction->name);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -834,6 +862,18 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdErrName:
             ir_print_err_name(irp, (IrInstructionErrName *)instruction);
             break;
+        case IrInstructionIdCImport:
+            ir_print_c_import(irp, (IrInstructionCImport *)instruction);
+            break;
+        case IrInstructionIdCInclude:
+            ir_print_c_include(irp, (IrInstructionCInclude *)instruction);
+            break;
+        case IrInstructionIdCDefine:
+            ir_print_c_define(irp, (IrInstructionCDefine *)instruction);
+            break;
+        case IrInstructionIdCUndef:
+            ir_print_c_undef(irp, (IrInstructionCUndef *)instruction);
+            break;
     }
     fprintf(irp->f, "\n");
 }
@@ -852,5 +892,69 @@ void ir_print(FILE *f, IrExecutable *executable, int indent_size) {
             IrInstruction *instruction = current_block->instruction_list.at(instr_i);
             ir_print_instruction(irp, instruction);
         }
+    }
+}
+
+static void print_tld_var(IrPrint *irp, TldVar *tld_var) {
+    const char *const_or_var = tld_var->var->src_is_const ? "const" : "var";
+    fprintf(irp->f, "%s %s", const_or_var, buf_ptr(tld_var->base.name));
+    bool omit_type = (tld_var->var->type->id == TypeTableEntryIdNumLitFloat ||
+        tld_var->var->type->id == TypeTableEntryIdNumLitInt);
+    if (!omit_type) {
+        fprintf(irp->f, ": %s", buf_ptr(&tld_var->var->type->name));
+    }
+    if (tld_var->var->value) {
+        fprintf(irp->f, " = ");
+        ir_print_const_value(irp, tld_var->var->type, tld_var->var->value);
+    }
+    fprintf(irp->f, ";\n");
+}
+
+static void print_tld_fn(IrPrint *irp, TldFn *tld_fn) {
+    fprintf(irp->f, "// %s = TODO (function)\n", buf_ptr(tld_fn->base.name));
+}
+
+static void print_tld_container(IrPrint *irp, TldContainer *tld_container) {
+    fprintf(irp->f, "// %s = TODO (container)\n", buf_ptr(tld_container->base.name));
+}
+
+static void print_tld_typedef(IrPrint *irp, TldTypeDef *tld_typedef) {
+    fprintf(irp->f, "// %s = TODO (typedef)\n", buf_ptr(tld_typedef->base.name));
+}
+
+void ir_print_decls(FILE *f, ImportTableEntry *import) {
+    IrPrint ir_print = {};
+    IrPrint *irp = &ir_print;
+    irp->f = f;
+    irp->indent = 0;
+    irp->indent_size = 2;
+
+    auto it = import->decls_scope->decl_table.entry_iterator();
+    for (;;) {
+        auto *entry = it.next();
+        if (!entry)
+            break;
+
+        Tld *tld = entry->value;
+        if (!buf_eql_buf(entry->key, tld->name)) {
+            fprintf(f, "// alias: %s = %s\n", buf_ptr(entry->key), buf_ptr(tld->name));
+            continue;
+        }
+
+        switch (tld->id) {
+            case TldIdVar:
+                print_tld_var(irp, (TldVar *)tld);
+                continue;
+            case TldIdFn:
+                print_tld_fn(irp, (TldFn *)tld);
+                continue;
+            case TldIdContainer:
+                print_tld_container(irp, (TldContainer *)tld);
+                continue;
+            case TldIdTypeDef:
+                print_tld_typedef(irp, (TldTypeDef *)tld);
+                continue;
+        }
+        zig_unreachable();
     }
 }

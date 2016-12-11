@@ -53,6 +53,7 @@ struct IrExecutable {
     ZigList<IrGotoItem> goto_list;
     bool is_inline;
     FnTableEntry *fn_entry;
+    Buf *c_import_buf;
 };
 
 enum OutType {
@@ -1226,6 +1227,7 @@ struct VariableTableEntry {
     size_t mem_slot_index;
     size_t ref_count;
     ConstExprValue *value;
+    bool is_extern;
 };
 
 struct ErrorTableEntry {
@@ -1307,7 +1309,7 @@ struct ScopeVarDecl {
 struct ScopeCImport {
     Scope base;
 
-    Buf c_import_buf;
+    Buf buf;
 };
 
 // This scope is created for a loop such as for or while in order to
@@ -1394,6 +1396,10 @@ enum IrInstructionId {
     IrInstructionIdCtz,
     IrInstructionIdStaticEval,
     IrInstructionIdImport,
+    IrInstructionIdCImport,
+    IrInstructionIdCInclude,
+    IrInstructionIdCDefine,
+    IrInstructionIdCUndef,
     IrInstructionIdArrayLen,
     IrInstructionIdRef,
     IrInstructionIdMinValue,
@@ -1821,6 +1827,29 @@ struct IrInstructionErrName {
     IrInstruction base;
 
     IrInstruction *value;
+};
+
+struct IrInstructionCImport {
+    IrInstruction base;
+};
+
+struct IrInstructionCInclude {
+    IrInstruction base;
+
+    IrInstruction *name;
+};
+
+struct IrInstructionCDefine {
+    IrInstruction base;
+
+    IrInstruction *name;
+    IrInstruction *value;
+};
+
+struct IrInstructionCUndef {
+    IrInstruction base;
+
+    IrInstruction *name;
 };
 
 enum LValPurpose {

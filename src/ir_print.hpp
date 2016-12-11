@@ -14,4 +14,7 @@
 
 void ir_print(FILE *f, IrExecutable *executable, int indent_size);
 
+void ir_print_decls(FILE *f, ImportTableEntry *import);
+
+
 #endif

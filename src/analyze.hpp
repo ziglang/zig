@@ -70,15 +70,29 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
 VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
     TypeTableEntry *type_entry, bool is_const, ConstExprValue *init_value);
 TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
-FnTableEntry *create_fn(CodeGen *g, AstNode *proto_node);
+FnTableEntry *create_fn(AstNode *proto_node);
+FnTableEntry *create_fn_raw(FnInline inline_value, bool internal_linkage);
 void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node);
 AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index);
 
 Scope *create_block_scope(AstNode *node, Scope *parent);
 ScopeDefer *create_defer_scope(AstNode *node, Scope *parent);
 Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var);
-Scope *create_cimport_scope(AstNode *node, Scope *parent);
+ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent);
 Scope *create_loop_scope(AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry);
+ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEntry *container_type, ImportTableEntry *import);
+
+void init_const_str_lit(ConstExprValue *const_val, Buf *str);
+ConstExprValue *create_const_str_lit(Buf *str);
+
+void init_const_unsigned_negative(ConstExprValue *const_val, uint64_t x, bool negative);
+ConstExprValue *create_const_unsigned_negative(uint64_t x, bool negative);
+
+void init_const_signed(ConstExprValue *const_val, int64_t x);
+ConstExprValue *create_const_signed(int64_t x);
+
+void init_const_float(ConstExprValue *const_val, double value);
+ConstExprValue *create_const_float(double value);
 
 #endif

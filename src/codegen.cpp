@@ -1868,12 +1868,16 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSizeOf:
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdStaticEval:
-        case IrInstructionIdImport:
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdMinValue:
         case IrInstructionIdMaxValue:
         case IrInstructionIdCompileErr:
         case IrInstructionIdArrayLen:
+        case IrInstructionIdImport:
+        case IrInstructionIdCImport:
+        case IrInstructionIdCInclude:
+        case IrInstructionIdCDefine:
+        case IrInstructionIdCUndef:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -2346,7 +2350,7 @@ static void do_code_gen(CodeGen *g) {
         assert(var->decl_node->type == NodeTypeVariableDeclaration);
 
         LLVMValueRef global_value;
-        if (var->decl_node->data.variable_declaration.is_extern) {
+        if (var->is_extern) {
             global_value = LLVMAddGlobal(g->module, var->type->type_ref, buf_ptr(&var->name));
 
             // TODO debug info for the extern variable

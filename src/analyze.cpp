@@ -13,7 +13,6 @@
 #include "ir.hpp"
 #include "ir_print.hpp"
 #include "os.hpp"
-#include "parseh.hpp"
 #include "parser.hpp"
 #include "zig_llvm.hpp"
 
@@ -136,8 +135,8 @@ void init_scope(Scope *dest, ScopeId id, AstNode *source_node, Scope *parent) {
     dest->parent = parent;
 }
 
-static ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEntry *container_type, ImportTableEntry *import) {
-    assert(node->type == NodeTypeRoot || node->type == NodeTypeContainerDecl);
+ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEntry *container_type, ImportTableEntry *import) {
+    assert(node == nullptr || node->type == NodeTypeRoot || node->type == NodeTypeContainerDecl || node->type == NodeTypeFnCallExpr);
     ScopeDecls *scope = allocate<ScopeDecls>(1);
     init_scope(&scope->base, ScopeIdDecls, node, parent);
     scope->decl_table.init(4);
@@ -168,12 +167,12 @@ Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var) {
     return &scope->base;
 }
 
-Scope *create_cimport_scope(AstNode *node, Scope *parent) {
+ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeFnCallExpr);
     ScopeCImport *scope = allocate<ScopeCImport>(1);
     init_scope(&scope->base, ScopeIdCImport, node, parent);
-    buf_resize(&scope->c_import_buf, 0);
-    return &scope->base;
+    buf_resize(&scope->buf, 0);
+    return scope;
 }
 
 Scope *create_loop_scope(AstNode *node, Scope *parent) {
@@ -877,7 +876,7 @@ static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *nod
     size_t backward_branch_count = 0;
     return ir_eval_const_value(g, scope, node, type_entry,
             &backward_branch_count, default_backward_branch_quota,
-            nullptr);
+            nullptr, nullptr);
 }
 
 TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
@@ -1367,21 +1366,31 @@ static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, uint8_t sep) {
     }
 }
 
-FnTableEntry *create_fn(CodeGen *g, AstNode *proto_node) {
+FnTableEntry *create_fn_raw(FnInline inline_value, bool internal_linkage) {
+    FnTableEntry *fn_entry = allocate<FnTableEntry>(1);
+
+    fn_entry->analyzed_executable.backward_branch_count = &fn_entry->prealloc_bbc;
+    fn_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
+    fn_entry->analyzed_executable.fn_entry = fn_entry;
+    fn_entry->ir_executable.fn_entry = fn_entry;
+    fn_entry->fn_inline = inline_value;
+    fn_entry->internal_linkage = internal_linkage;
+
+    return fn_entry;
+}
+
+FnTableEntry *create_fn(AstNode *proto_node) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-    FnTableEntry *fn_table_entry = allocate<FnTableEntry>(1);
-    fn_table_entry->analyzed_executable.backward_branch_count = &fn_table_entry->prealloc_bbc;
-    fn_table_entry->analyzed_executable.backward_branch_quota = default_backward_branch_quota;
-    fn_table_entry->analyzed_executable.fn_entry = fn_table_entry;
-    fn_table_entry->ir_executable.fn_entry = fn_table_entry;
-    fn_table_entry->proto_node = proto_node;
-    fn_table_entry->fn_def_node = proto_node->data.fn_proto.fn_def_node;
-    fn_table_entry->fn_inline = fn_proto->is_inline ? FnInlineAlways : FnInlineAuto;
-    fn_table_entry->internal_linkage = (fn_proto->visib_mod != VisibModExport);
+    FnInline inline_value = fn_proto->is_inline ? FnInlineAlways : FnInlineAuto;
+    bool internal_linkage = (fn_proto->visib_mod != VisibModExport);
+    FnTableEntry *fn_entry = create_fn_raw(inline_value, internal_linkage);
 
-    return fn_table_entry;
+    fn_entry->proto_node = proto_node;
+    fn_entry->fn_def_node = proto_node->data.fn_proto.fn_def_node;
+
+    return fn_entry;
 }
 
 static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
@@ -1399,7 +1408,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         return;
     }
 
-    FnTableEntry *fn_table_entry = create_fn(g, tld_fn->base.source_node);
+    FnTableEntry *fn_table_entry = create_fn(tld_fn->base.source_node);
     get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
 
     tld_fn->fn_entry = fn_table_entry;
@@ -1801,6 +1810,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
 
     tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope,
             var_decl->symbol, type, is_const, &init_value->static_value);
+    tld_var->var->is_extern = is_extern;
 
     g->global_vars.append(tld_var->var);
 }
@@ -2735,4 +2745,56 @@ static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry)
 uint64_t get_memcpy_align(CodeGen *g, TypeTableEntry *type_entry) {
     TypeTableEntry *first_type_in_mem = type_of_first_thing_in_memory(type_entry);
     return LLVMABISizeOfType(g->target_data_ref, first_type_in_mem->type_ref);
+}
+
+void init_const_str_lit(ConstExprValue *const_val, Buf *str) {
+    const_val->special = ConstValSpecialStatic;
+    const_val->data.x_array.elements = allocate<ConstExprValue>(buf_len(str));
+    const_val->data.x_array.size = buf_len(str);
+
+    for (size_t i = 0; i < buf_len(str); i += 1) {
+        ConstExprValue *this_char = &const_val->data.x_array.elements[i];
+        this_char->special = ConstValSpecialStatic;
+        bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
+    }
+}
+
+ConstExprValue *create_const_str_lit(Buf *str) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_str_lit(const_val, str);
+    return const_val;
+}
+
+void init_const_unsigned_negative(ConstExprValue *const_val, uint64_t x, bool negative) {
+    const_val->special = ConstValSpecialStatic;
+    bignum_init_unsigned(&const_val->data.x_bignum, x);
+    const_val->data.x_bignum.is_negative = negative;
+}
+
+ConstExprValue *create_const_unsigned_negative(uint64_t x, bool negative) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_unsigned_negative(const_val, x, negative);
+    return const_val;
+}
+
+void init_const_signed(ConstExprValue *const_val, int64_t x) {
+    const_val->special = ConstValSpecialStatic;
+    bignum_init_signed(&const_val->data.x_bignum, x);
+}
+
+ConstExprValue *create_const_signed(int64_t x) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_signed(const_val, x);
+    return const_val;
+}
+
+void init_const_float(ConstExprValue *const_val, double value) {
+    const_val->special = ConstValSpecialStatic;
+    bignum_init_float(&const_val->data.x_bignum, value);
+}
+
+ConstExprValue *create_const_float(double value) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_float(const_val, value);
+    return const_val;
 }
