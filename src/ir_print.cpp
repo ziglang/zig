@@ -713,6 +713,12 @@ static void ir_print_c_undef(IrPrint *irp, IrInstructionCUndef *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_embed_file(IrPrint *irp, IrInstructionEmbedFile *instruction) {
+    fprintf(irp->f, "@embedFile(");
+    ir_print_other_instruction(irp, instruction->name);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -873,6 +879,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCUndef:
             ir_print_c_undef(irp, (IrInstructionCUndef *)instruction);
+            break;
+        case IrInstructionIdEmbedFile:
+            ir_print_embed_file(irp, (IrInstructionEmbedFile *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -343,6 +343,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionErrName *) {
     return IrInstructionIdErrName;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionEmbedFile *) {
+    return IrInstructionIdEmbedFile;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1344,6 +1348,15 @@ static IrInstruction *ir_build_c_undef(IrBuilder *irb, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_embed_file(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *name) {
+    IrInstructionEmbedFile *instruction = ir_build_instruction<IrInstructionEmbedFile>(irb, scope, source_node);
+    instruction->name = name;
+
+    ir_ref_instruction(name);
+
+    return &instruction->base;
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -2074,6 +2087,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_err_name(irb, scope, node, arg0_value);
             }
+        case BuiltinFnIdEmbedFile:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_embed_file(irb, scope, node, arg0_value);
+            }
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
         case BuiltinFnIdAlignof:
@@ -2085,7 +2107,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdBreakpoint:
         case BuiltinFnIdReturnAddress:
         case BuiltinFnIdFrameAddress:
-        case BuiltinFnIdEmbedFile:
         case BuiltinFnIdCmpExchange:
         case BuiltinFnIdFence:
         case BuiltinFnIdDivExact:
@@ -7141,6 +7162,45 @@ static TypeTableEntry *ir_analyze_instruction_c_undef(IrAnalyze *ira, IrInstruct
     return ira->codegen->builtin_types.entry_void;
 }
 
+static TypeTableEntry *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstructionEmbedFile *instruction) {
+    IrInstruction *name = instruction->name->other;
+    if (name->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    Buf *rel_file_path = ir_resolve_str(ira, name);
+    if (!rel_file_path)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ImportTableEntry *import = get_scope_import(instruction->base.scope);
+    // figure out absolute path to resource
+    Buf source_dir_path = BUF_INIT;
+    os_path_dirname(import->path, &source_dir_path);
+
+    Buf file_path = BUF_INIT;
+    os_path_resolve(&source_dir_path, rel_file_path, &file_path);
+
+    // load from file system into const expr
+    Buf file_contents = BUF_INIT;
+    int err;
+    if ((err = os_fetch_file_path(&file_path, &file_contents))) {
+        if (err == ErrorFileNotFound) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("unable to find '%s'", buf_ptr(&file_path)));
+            return ira->codegen->builtin_types.entry_invalid;
+        } else {
+            ir_add_error(ira, &instruction->base, buf_sprintf("unable to open '%s': %s", buf_ptr(&file_path), err_str(err)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    }
+
+    // TODO add dependency on the file we embedded so that we know if it changes
+    // we'll have to invalidate the cache
+
+    bool depends_on_compile_var = true;
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+    init_const_str_lit(out_val,&file_contents);
+
+    return get_array_type(ira->codegen, ira->codegen->builtin_types.entry_u8, buf_len(&file_contents));
+}
 
 
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
@@ -7243,6 +7303,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_c_define(ira, (IrInstructionCDefine *)instruction);
         case IrInstructionIdCUndef:
             return ir_analyze_instruction_c_undef(ira, (IrInstructionCUndef *)instruction);
+        case IrInstructionIdEmbedFile:
+            return ir_analyze_instruction_embed_file(ira, (IrInstructionEmbedFile *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -7377,6 +7439,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdMinValue:
         case IrInstructionIdMaxValue:
         case IrInstructionIdErrName:
+        case IrInstructionIdEmbedFile:
             return false;
         case IrInstructionIdAsm:
             {
@@ -7390,45 +7453,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 // TODO port over all this commented out code into new IR way of doing things
 
 
-//static TypeTableEntry *analyze_embed_file(CodeGen *g, ImportTableEntry *import,
-//        BlockContext *context, AstNode *node)
-//{
-//    assert(node->type == NodeTypeFnCallExpr);
-//
-//    AstNode **first_param_node = &node->data.fn_call_expr.params.at(0);
-//    Buf *rel_file_path = resolve_const_expr_str(g, import, context, first_param_node);
-//    if (!rel_file_path) {
-//        return g->builtin_types.entry_invalid;
-//    }
-//
-//    // figure out absolute path to resource
-//    Buf source_dir_path = BUF_INIT;
-//    os_path_dirname(import->path, &source_dir_path);
-//
-//    Buf file_path = BUF_INIT;
-//    os_path_resolve(&source_dir_path, rel_file_path, &file_path);
-//
-//    // load from file system into const expr
-//    Buf file_contents = BUF_INIT;
-//    int err;
-//    if ((err = os_fetch_file_path(&file_path, &file_contents))) {
-//        if (err == ErrorFileNotFound) {
-//            add_node_error(g, node,
-//                    buf_sprintf("unable to find '%s'", buf_ptr(&file_path)));
-//            return g->builtin_types.entry_invalid;
-//        } else {
-//            add_node_error(g, node,
-//                    buf_sprintf("unable to open '%s': %s", buf_ptr(&file_path), err_str(err)));
-//            return g->builtin_types.entry_invalid;
-//        }
-//    }
-//
-//    // TODO add dependency on the file we embedded so that we know if it changes
-//    // we'll have to invalidate the cache
-//
-//    return resolve_expr_const_val_as_string_lit(g, node, &file_contents);
-//}
-//
 //static TypeTableEntry *analyze_cmpxchg(CodeGen *g, ImportTableEntry *import,
 //        BlockContext *context, AstNode *node)
 //{
@@ -7765,8 +7789,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //        case BuiltinFnIdFrameAddress:
 //            mark_impure_fn(g, context, node);
 //            return builtin_fn->return_type;
-//        case BuiltinFnIdEmbedFile:
-//            return analyze_embed_file(g, import, context, node);
 //        case BuiltinFnIdCmpExchange:
 //            return analyze_cmpxchg(g, import, context, node);
 //        case BuiltinFnIdFence:
@@ -8353,7 +8375,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //        case BuiltinFnIdMinValue:
 //        case BuiltinFnIdMaxValue:
 //        case BuiltinFnIdMemberCount:
-//        case BuiltinFnIdEmbedFile:
 //            // caught by constant expression eval codegen
 //            zig_unreachable();
 //        case BuiltinFnIdCompileVar:

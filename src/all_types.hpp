@@ -1406,6 +1406,7 @@ enum IrInstructionId {
     IrInstructionIdMaxValue,
     IrInstructionIdCompileErr,
     IrInstructionIdErrName,
+    IrInstructionIdEmbedFile,
 };
 
 struct IrInstruction {
@@ -1847,6 +1848,12 @@ struct IrInstructionCDefine {
 };
 
 struct IrInstructionCUndef {
+    IrInstruction base;
+
+    IrInstruction *name;
+};
+
+struct IrInstructionEmbedFile {
     IrInstruction base;
 
     IrInstruction *name;
