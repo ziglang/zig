@@ -4711,109 +4711,120 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
 
 static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *instruction) {
     IrInstruction *op1 = instruction->op1->other;
-    if (op1->type_entry->id == TypeTableEntryIdInvalid)
+    TypeTableEntry *op1_canon_type = get_underlying_type(op1->type_entry);
+    if (op1_canon_type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *op2 = instruction->op2->other;
-    if (op2->type_entry->id == TypeTableEntryIdInvalid)
+    TypeTableEntry *op2_canon_type = get_underlying_type(op2->type_entry);
+    if (op2_canon_type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-//                AstNode **op1 = node->data.bin_op_expr.op1->parent_field;
-//                AstNode **op2 = node->data.bin_op_expr.op2->parent_field;
-//
-//                TypeTableEntry *op1_type = analyze_expression(g, import, context, nullptr, *op1);
-//                TypeTableEntry *child_type;
-//                if (op1_type->id == TypeTableEntryIdInvalid) {
-//                    return g->builtin_types.entry_invalid;
-//                } else if (op1_type->id == TypeTableEntryIdArray) {
-//                    child_type = op1_type->data.array.child_type;
-//                } else if (op1_type->id == TypeTableEntryIdPointer &&
-//                           op1_type->data.pointer.child_type == g->builtin_types.entry_u8) {
-//                    child_type = op1_type->data.pointer.child_type;
-//                } else {
-//                    add_node_error(g, *op1, buf_sprintf("expected array or C string literal, found '%s'",
-//                                buf_ptr(&op1_type->name)));
-//                    return g->builtin_types.entry_invalid;
-//                }
-//
-//                TypeTableEntry *op2_type = analyze_expression(g, import, context, nullptr, *op2);
-//
-//                if (op2_type->id == TypeTableEntryIdInvalid) {
-//                    return g->builtin_types.entry_invalid;
-//                } else if (op2_type->id == TypeTableEntryIdArray) {
-//                    if (op2_type->data.array.child_type != child_type) {
-//                        add_node_error(g, *op2, buf_sprintf("expected array of type '%s', found '%s'",
-//                                    buf_ptr(&child_type->name),
-//                                    buf_ptr(&op2_type->name)));
-//                        return g->builtin_types.entry_invalid;
-//                    }
-//                } else if (op2_type->id == TypeTableEntryIdPointer &&
-//                        op2_type->data.pointer.child_type == g->builtin_types.entry_u8) {
-//                } else {
-//                    add_node_error(g, *op2, buf_sprintf("expected array or C string literal, found '%s'",
-//                                buf_ptr(&op2_type->name)));
-//                    return g->builtin_types.entry_invalid;
-//                }
-//
-//                ConstExprValue *op1_val = &get_resolved_expr(*op1)->const_val;
-//                ConstExprValue *op2_val = &get_resolved_expr(*op2)->const_val;
-//
-//                AstNode *bad_node;
-//                if (!op1_val->ok) {
-//                    bad_node = *op1;
-//                } else if (!op2_val->ok) {
-//                    bad_node = *op2;
-//                } else {
-//                    bad_node = nullptr;
-//                }
-//                if (bad_node) {
-//                    add_node_error(g, bad_node, buf_sprintf("array concatenation requires constant expression"));
-//                    return g->builtin_types.entry_invalid;
-//                }
-//
-//                ConstExprValue *const_val = &get_resolved_expr(node)->const_val;
-//                const_val->ok = true;
-//                const_val->depends_on_compile_var = op1_val->depends_on_compile_var ||
-//                    op2_val->depends_on_compile_var;
-//
-//                if (op1_type->id == TypeTableEntryIdArray) {
-//                    uint64_t new_len = op1_type->data.array.len + op2_type->data.array.len;
-//                    const_val->data.x_array.fields = allocate<ConstExprValue*>(new_len);
-//                    uint64_t next_index = 0;
-//                    for (uint64_t i = 0; i < op1_type->data.array.len; i += 1, next_index += 1) {
-//                        const_val->data.x_array.fields[next_index] = op1_val->data.x_array.fields[i];
-//                    }
-//                    for (uint64_t i = 0; i < op2_type->data.array.len; i += 1, next_index += 1) {
-//                        const_val->data.x_array.fields[next_index] = op2_val->data.x_array.fields[i];
-//                    }
-//                    return get_array_type(g, child_type, new_len);
-//                } else if (op1_type->id == TypeTableEntryIdPointer) {
-//                    if (!op1_val->data.x_ptr.is_c_str) {
-//                        add_node_error(g, *op1,
-//                                buf_sprintf("expected array or C string literal, found '%s'",
-//                                    buf_ptr(&op1_type->name)));
-//                        return g->builtin_types.entry_invalid;
-//                    } else if (!op2_val->data.x_ptr.is_c_str) {
-//                        add_node_error(g, *op2,
-//                                buf_sprintf("expected array or C string literal, found '%s'",
-//                                    buf_ptr(&op2_type->name)));
-//                        return g->builtin_types.entry_invalid;
-//                    }
-//                    const_val->data.x_ptr.is_c_str = true;
-//                    const_val->data.x_ptr.len = op1_val->data.x_ptr.len + op2_val->data.x_ptr.len - 1;
-//                    const_val->data.x_ptr.ptr = allocate<ConstExprValue*>(const_val->data.x_ptr.len);
-//                    uint64_t next_index = 0;
-//                    for (uint64_t i = 0; i < op1_val->data.x_ptr.len - 1; i += 1, next_index += 1) {
-//                        const_val->data.x_ptr.ptr[next_index] = op1_val->data.x_ptr.ptr[i];
-//                    }
-//                    for (uint64_t i = 0; i < op2_val->data.x_ptr.len; i += 1, next_index += 1) {
-//                        const_val->data.x_ptr.ptr[next_index] = op2_val->data.x_ptr.ptr[i];
-//                    }
-//                    return op1_type;
-//                } else {
-//                    zig_unreachable();
-//                }
-    zig_panic("TODO");
+    ConstExprValue *op1_val = ir_resolve_const(ira, op1);
+    if (!op1_val)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ConstExprValue *op2_val = ir_resolve_const(ira, op2);
+    if (!op2_val)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ConstExprValue *op1_array_val;
+    size_t op1_array_index;
+    size_t op1_array_end;
+    TypeTableEntry *child_type;
+    if (op1_canon_type->id == TypeTableEntryIdArray) {
+        child_type = op1_canon_type->data.array.child_type;
+        op1_array_val = op1_val;
+        op1_array_index = 0;
+        op1_array_end = op1_val->data.x_array.size;
+    } else if (op1_canon_type->id == TypeTableEntryIdPointer &&
+        op1_canon_type->data.pointer.child_type == ira->codegen->builtin_types.entry_u8 &&
+        op1_val->data.x_ptr.special == ConstPtrSpecialCStr)
+    {
+        child_type = op1_canon_type->data.pointer.child_type;
+        op1_array_val = op1_val->data.x_ptr.base_ptr;
+        op1_array_index = op1_val->data.x_ptr.index;
+        op1_array_end = op1_array_val->data.x_array.size - 1;
+    } else {
+        ir_add_error(ira, op1,
+            buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->type_entry->name)));
+        // TODO if meta_type is type decl, add note pointing to type decl declaration
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    ConstExprValue *op2_array_val;
+    size_t op2_array_index;
+    size_t op2_array_end;
+    if (op2_canon_type->id == TypeTableEntryIdArray) {
+        if (op2_canon_type->data.array.child_type != child_type) {
+            ir_add_error(ira, op2, buf_sprintf("expected array of type '%s', found '%s'",
+                        buf_ptr(&child_type->name),
+                        buf_ptr(&op2->type_entry->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        op2_array_val = op2_val;
+        op2_array_index = 0;
+        op2_array_end = op2_array_val->data.x_array.size;
+    } else if (op2_canon_type->id == TypeTableEntryIdPointer &&
+        op2_canon_type->data.pointer.child_type == ira->codegen->builtin_types.entry_u8 &&
+        op2_val->data.x_ptr.special == ConstPtrSpecialCStr)
+    {
+        if (child_type != ira->codegen->builtin_types.entry_u8) {
+            ir_add_error(ira, op2, buf_sprintf("expected array of type '%s', found '%s'",
+                        buf_ptr(&child_type->name),
+                        buf_ptr(&op2->type_entry->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        op2_array_val = op2_val->data.x_ptr.base_ptr;
+        op2_array_index = op2_val->data.x_ptr.index;
+        op2_array_end = op2_array_val->data.x_array.size - 1;
+    } else {
+        ir_add_error(ira, op2,
+            buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->type_entry->name)));
+        // TODO if meta_type is type decl, add note pointing to type decl declaration
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    bool depends_on_compile_var = op1->static_value.depends_on_compile_var || op2->static_value.depends_on_compile_var;
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+
+    TypeTableEntry *result_type;
+    ConstExprValue *out_array_val;
+    size_t new_len = (op1_array_end - op1_array_index) + (op2_array_end - op2_array_index);
+    if (op1_canon_type->id == TypeTableEntryIdArray || op2_canon_type->id == TypeTableEntryIdArray) {
+        result_type = get_array_type(ira->codegen, child_type, new_len);
+
+        out_array_val = out_val;
+    } else {
+        result_type = get_pointer_to_type(ira->codegen, child_type, true);
+
+        out_array_val = allocate<ConstExprValue>(1);
+        out_array_val->special = ConstValSpecialStatic;
+        out_val->data.x_ptr.base_ptr = out_array_val;
+        out_val->data.x_ptr.index = 0;
+        out_val->data.x_ptr.special = ConstPtrSpecialCStr;
+
+        new_len += 1; // null byte
+    }
+    out_array_val->data.x_array.elements = allocate<ConstExprValue>(new_len);
+    out_array_val->data.x_array.size = new_len;
+
+    size_t next_index = 0;
+    for (size_t i = op1_array_index; i < op1_array_end; i += 1, next_index += 1) {
+        out_array_val->data.x_array.elements[next_index] = op1_array_val->data.x_array.elements[i];
+    }
+    for (size_t i = op2_array_index; i < op2_array_end; i += 1, next_index += 1) {
+        out_array_val->data.x_array.elements[next_index] = op2_array_val->data.x_array.elements[i];
+    }
+    if (next_index < new_len) {
+        ConstExprValue *null_byte = &out_array_val->data.x_array.elements[next_index];
+        null_byte->special = ConstValSpecialStatic;
+        bignum_init_unsigned(&null_byte->data.x_bignum, 0);
+        next_index += 1;
+    }
+    assert(next_index == new_len);
+
+    return result_type;
 }
 
 static TypeTableEntry *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *instruction) {
