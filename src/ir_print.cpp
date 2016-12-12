@@ -806,6 +806,12 @@ static void ir_print_slice(IrPrint *irp, IrInstructionSlice *instruction) {
         fprintf(irp->f, "const");
 }
 
+static void ir_print_member_count(IrPrint *irp, IrInstructionMemberCount *instruction) {
+    fprintf(irp->f, "@memberCount(");
+    ir_print_other_instruction(irp, instruction->container);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -999,6 +1005,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSlice:
             ir_print_slice(irp, (IrInstructionSlice *)instruction);
+            break;
+        case IrInstructionIdMemberCount:
+            ir_print_member_count(irp, (IrInstructionMemberCount *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -1418,6 +1418,7 @@ enum IrInstructionId {
     IrInstructionIdMemset,
     IrInstructionIdMemcpy,
     IrInstructionIdSlice,
+    IrInstructionIdMemberCount,
 };
 
 struct IrInstruction {
@@ -1951,6 +1952,12 @@ struct IrInstructionSlice {
     IrInstruction *end;
     bool is_const;
     LLVMValueRef tmp_ptr;
+};
+
+struct IrInstructionMemberCount {
+    IrInstruction base;
+
+    IrInstruction *container;
 };
 
 enum LValPurpose {

@@ -1648,10 +1648,10 @@ static void resolve_decl_container(CodeGen *g, TldContainer *tld_container) {
         case TypeTableEntryIdStruct:
             resolve_struct_type(g, tld_container->type_entry);
             return;
-        case ContainerKindEnum:
+        case TypeTableEntryIdEnum:
             resolve_enum_type(g, tld_container->type_entry);
             return;
-        case ContainerKindUnion:
+        case TypeTableEntryIdUnion:
             resolve_union_type(g, tld_container->type_entry);
             return;
         default:

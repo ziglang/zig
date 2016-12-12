@@ -387,6 +387,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSlice *) {
     return IrInstructionIdSlice;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionMemberCount *) {
+    return IrInstructionIdMemberCount;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1596,6 +1600,15 @@ static IrInstruction *ir_build_slice_from(IrBuilder *irb, IrInstruction *old_ins
     return new_instruction;
 }
 
+static IrInstruction *ir_build_member_count(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *container) {
+    IrInstructionMemberCount *instruction = ir_build_instruction<IrInstructionMemberCount>(irb, scope, source_node);
+    instruction->container = container;
+
+    ir_ref_instruction(container);
+
+    return &instruction->base;
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -2469,8 +2482,16 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_memset(irb, scope, node, arg0_value, arg1_value, arg2_value);
             }
-        case BuiltinFnIdAlignof:
         case BuiltinFnIdMemberCount:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_member_count(irb, scope, node, arg0_value);
+            }
+        case BuiltinFnIdAlignof:
         case BuiltinFnIdAddWithOverflow:
         case BuiltinFnIdSubWithOverflow:
         case BuiltinFnIdMulWithOverflow:
@@ -8408,6 +8429,33 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
     return return_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_member_count(IrAnalyze *ira, IrInstructionMemberCount *instruction) {
+    IrInstruction *container = instruction->container->other;
+    if (container->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+    TypeTableEntry *container_type = ir_resolve_type(ira, container);
+    TypeTableEntry *canon_type = get_underlying_type(container_type);
+
+    uint64_t result;
+    if (canon_type->id == TypeTableEntryIdInvalid) {
+        return ira->codegen->builtin_types.entry_invalid;
+    } else if (canon_type->id == TypeTableEntryIdEnum) {
+        result = canon_type->data.enumeration.src_field_count;
+    } else if (canon_type->id == TypeTableEntryIdStruct) {
+        result = canon_type->data.structure.src_field_count;
+    } else if (canon_type->id == TypeTableEntryIdUnion) {
+        result = canon_type->data.unionation.src_field_count;
+    } else {
+        ir_add_error(ira, &instruction->base, buf_sprintf("no value count available for type '%s'", buf_ptr(&container_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    bool depends_on_compile_var = container->static_value.depends_on_compile_var;
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+    bignum_init_unsigned(&out_val->data.x_bignum, result);
+    return ira->codegen->builtin_types.entry_num_lit_int;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -8530,6 +8578,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_memcpy(ira, (IrInstructionMemcpy *)instruction);
         case IrInstructionIdSlice:
             return ir_analyze_instruction_slice(ira, (IrInstructionSlice *)instruction);
+        case IrInstructionIdMemberCount:
+            return ir_analyze_instruction_member_count(ira, (IrInstructionMemberCount *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -8675,6 +8725,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdBoolNot:
         case IrInstructionIdAlloca:
         case IrInstructionIdSlice:
+        case IrInstructionIdMemberCount:
             return false;
         case IrInstructionIdAsm:
             {
@@ -8734,23 +8785,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //                    uint64_t align_in_bytes = LLVMABISizeOfType(g->target_data_ref, type_entry->type_ref);
 //                    return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
 //                            align_in_bytes, false);
-//                }
-//            }
-//        case BuiltinFnIdMemberCount:
-//            {
-//                AstNode *type_node = node->data.fn_call_expr.params.at(0);
-//                TypeTableEntry *type_entry = analyze_type_expr(g, import, context, type_node);
-//
-//                if (type_entry->id == TypeTableEntryIdInvalid) {
-//                    return type_entry;
-//                } else if (type_entry->id == TypeTableEntryIdEnum) {
-//                    uint64_t value_count = type_entry->data.enumeration.src_field_count;
-//                    return resolve_expr_const_val_as_unsigned_num_lit(g, node, expected_type,
-//                            value_count, false);
-//                } else {
-//                    add_node_error(g, node,
-//                            buf_sprintf("no value count available for type '%s'", buf_ptr(&type_entry->name)));
-//                    return g->builtin_types.entry_invalid;
 //                }
 //            }
 //        case BuiltinFnIdBreakpoint:
@@ -8997,7 +9031,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //        case BuiltinFnIdAlignof:
 //        case BuiltinFnIdMinValue:
 //        case BuiltinFnIdMaxValue:
-//        case BuiltinFnIdMemberCount:
 //            // caught by constant expression eval codegen
 //            zig_unreachable();
 //        case BuiltinFnIdCompileVar:
