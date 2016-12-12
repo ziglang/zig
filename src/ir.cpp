@@ -371,6 +371,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionBoolNot *) {
     return IrInstructionIdBoolNot;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAlloca *) {
+    return IrInstructionIdAlloca;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1489,6 +1493,27 @@ static IrInstruction *ir_build_bool_not_from(IrBuilder *irb, IrInstruction *old_
     return new_instruction;
 }
 
+static IrInstruction *ir_build_alloca(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *type_value, IrInstruction *count)
+{
+    IrInstructionAlloca *instruction = ir_build_instruction<IrInstructionAlloca>(irb, scope, source_node);
+    instruction->type_value = type_value;
+    instruction->count = count;
+
+    ir_ref_instruction(type_value);
+    ir_ref_instruction(count);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_alloca_from(IrBuilder *irb, IrInstruction *old_instruction,
+    IrInstruction *type_value, IrInstruction *count)
+{
+    IrInstruction *new_instruction = ir_build_alloca(irb, old_instruction->scope, old_instruction->source_node, type_value, count);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -2309,6 +2334,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 return ir_build_int_type(irb, scope, node, arg0_value, arg1_value);
+            }
+        case BuiltinFnIdAlloca:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_alloca(irb, scope, node, arg0_value, arg1_value);
             }
         case BuiltinFnIdMemcpy:
         case BuiltinFnIdMemset:
@@ -7876,6 +7915,69 @@ static TypeTableEntry *ir_analyze_instruction_bool_not(IrAnalyze *ira, IrInstruc
     return bool_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructionAlloca *instruction) {
+    IrInstruction *type_value = instruction->type_value->other;
+    if (type_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *count_value = instruction->count->other;
+    if (count_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *child_type = ir_resolve_type(ira, type_value);
+    TypeTableEntry *canon_type = get_underlying_type(child_type);
+
+    if (count_value->static_value.special == ConstValSpecialStatic) {
+        // this should be the same as an array declaration
+
+        uint64_t count;
+        if (!ir_resolve_usize(ira, count_value, &count))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        zig_panic("TODO alloca with compile time known count");
+    }
+
+    switch (canon_type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdTypeDecl:
+            zig_unreachable();
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+            {
+                TypeTableEntry *slice_type = get_slice_type(ira->codegen, child_type, false);
+                IrInstruction *new_instruction = ir_build_alloca_from(&ira->new_irb, &instruction->base, type_value, count_value);
+                ir_add_alloca(ira, new_instruction, slice_type);
+                return slice_type;
+            }
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+            ir_add_error(ira, type_value,
+                buf_sprintf("invalid alloca type '%s'", buf_ptr(&child_type->name)));
+            // TODO if this is a typedecl, add error note showing the declaration of the type decl
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+    zig_unreachable();
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -7990,6 +8092,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_int_type(ira, (IrInstructionIntType *)instruction);
         case IrInstructionIdBoolNot:
             return ir_analyze_instruction_bool_not(ira, (IrInstructionBoolNot *)instruction);
+        case IrInstructionIdAlloca:
+            return ir_analyze_instruction_alloca(ira, (IrInstructionAlloca *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -8131,6 +8235,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTruncate:
         case IrInstructionIdIntType:
         case IrInstructionIdBoolNot:
+        case IrInstructionIdAlloca:
             return false;
         case IrInstructionIdAsm:
             {
@@ -8997,116 +9102,4 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //            }
 //    }
 //    zig_unreachable();
-//}
-//
-//static LLVMValueRef gen_var_decl_raw(CodeGen *g, AstNode *source_node, AstNodeVariableDeclaration *var_decl,
-//        bool unwrap_maybe, LLVMValueRef *init_value, TypeTableEntry **expr_type, bool var_is_ptr)
-//{
-//    VariableTableEntry *variable = var_decl->variable;
-//
-//    assert(variable);
-//
-//    if (var_decl->expr) {
-//        *init_value = gen_expr(g, var_decl->expr);
-//        *expr_type = get_expr_type(var_decl->expr);
-//    }
-//    if (!type_has_bits(variable->type)) {
-//        return nullptr;
-//    }
-//
-//    bool have_init_expr = false;
-//    bool want_zeroes = false;
-//    if (var_decl->expr) {
-//        ConstExprValue *const_val = &get_resolved_expr(var_decl->expr)->const_val;
-//        if (!const_val->ok || const_val->special == ConstValSpecialOther) {
-//            have_init_expr = true;
-//        }
-//        if (const_val->ok && const_val->special == ConstValSpecialZeroes) {
-//            want_zeroes = true;
-//        }
-//    }
-//    if (have_init_expr) {
-//        TypeTableEntry *expr_type = get_expr_type(var_decl->expr);
-//        LLVMValueRef value;
-//        if (unwrap_maybe) {
-//            assert(var_decl->expr);
-//            assert(expr_type->id == TypeTableEntryIdMaybe);
-//            value = gen_unwrap_maybe(g, var_decl->expr, *init_value);
-//            expr_type = expr_type->data.maybe.child_type;
-//        } else {
-//            value = *init_value;
-//        }
-//        gen_assign_raw(g, var_decl->expr, BinOpTypeAssign, variable->value_ref,
-//                value, variable->type, expr_type);
-//    } else {
-//        bool ignore_uninit = false;
-//        // handle runtime stack allocation
-//        if (var_decl->type) {
-//            TypeTableEntry *var_type = get_type_for_type_node(var_decl->type);
-//            if (var_type->id == TypeTableEntryIdStruct &&
-//                var_type->data.structure.is_slice)
-//            {
-//                assert(var_decl->type->type == NodeTypeArrayType);
-//                AstNode *size_node = var_decl->type->data.array_type.size;
-//                if (size_node) {
-//                    ConstExprValue *const_val = &get_resolved_expr(size_node)->const_val;
-//                    if (!const_val->ok) {
-//                        TypeTableEntry *ptr_type = var_type->data.structure.fields[0].type_entry;
-//                        assert(ptr_type->id == TypeTableEntryIdPointer);
-//                        TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
-//
-//                        LLVMValueRef size_val = gen_expr(g, size_node);
-//
-//                        set_debug_source_node(g, source_node);
-//                        LLVMValueRef ptr_val = LLVMBuildArrayAlloca(g->builder, child_type->type_ref,
-//                                size_val, "");
-//
-//                        size_t ptr_index = var_type->data.structure.fields[0].gen_index;
-//                        assert(ptr_index != SIZE_MAX);
-//                        size_t len_index = var_type->data.structure.fields[1].gen_index;
-//                        assert(len_index != SIZE_MAX);
-//
-//                        // store the freshly allocated pointer in the unknown size array struct
-//                        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder,
-//                                variable->value_ref, ptr_index, "");
-//                        LLVMBuildStore(g->builder, ptr_val, ptr_field_ptr);
-//
-//                        // store the size in the len field
-//                        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder,
-//                                variable->value_ref, len_index, "");
-//                        LLVMBuildStore(g->builder, size_val, len_field_ptr);
-//
-//                        // don't clobber what we just did with debug initialization
-//                        ignore_uninit = true;
-//                    }
-//                }
-//            }
-//        }
-//        bool want_safe = want_debug_safety(g, source_node);
-//        if (!ignore_uninit && (want_safe || want_zeroes)) {
-//            TypeTableEntry *usize = g->builtin_types.entry_usize;
-//            uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, variable->type->type_ref);
-//            uint64_t align_bytes = get_memcpy_align(g, variable->type);
-//
-//            // memset uninitialized memory to 0xa
-//            set_debug_source_node(g, source_node);
-//            LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-//            LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), want_zeroes ? 0x00 : 0xaa, false);
-//            LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, variable->value_ref, ptr_u8, "");
-//            LLVMValueRef byte_count = LLVMConstInt(usize->type_ref, size_bytes, false);
-//            LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(), align_bytes, false);
-//            LLVMValueRef params[] = {
-//                dest_ptr,
-//                fill_char,
-//                byte_count,
-//                align_in_bytes,
-//                LLVMConstNull(LLVMInt1Type()), // is volatile
-//            };
-//
-//            LLVMBuildCall(g->builder, g->memset_fn_val, params, 5, "");
-//        }
-//    }
-//
-//    gen_var_debug_decl(g, variable);
-//    return nullptr;
 //}

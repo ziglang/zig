@@ -1044,6 +1044,7 @@ enum BuiltinFnId {
     BuiltinFnIdSetFnTest,
     BuiltinFnIdSetFnVisible,
     BuiltinFnIdSetDebugSafety,
+    BuiltinFnIdAlloca,
 };
 
 struct BuiltinFnEntry {
@@ -1413,6 +1414,7 @@ enum IrInstructionId {
     IrInstructionIdTruncate,
     IrInstructionIdIntType,
     IrInstructionIdBoolNot,
+    IrInstructionIdAlloca,
 };
 
 struct IrInstruction {
@@ -1912,6 +1914,14 @@ struct IrInstructionBoolNot {
     IrInstruction base;
 
     IrInstruction *value;
+};
+
+struct IrInstructionAlloca {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+    IrInstruction *count;
+    LLVMValueRef tmp_ptr;
 };
 
 enum LValPurpose {

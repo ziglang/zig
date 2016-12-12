@@ -1881,11 +1881,29 @@ static LLVMValueRef ir_render_div_exact(CodeGen *g, IrExecutable *executable, Ir
 }
 
 static LLVMValueRef ir_render_truncate(CodeGen *g, IrExecutable *executable, IrInstructionTruncate *instruction) {
-    assert(instruction->dest_type->type_entry->id == TypeTableEntryIdMetaType);
-    TypeTableEntry *dest_type = get_underlying_type(instruction->dest_type->static_value.data.x_type);
-    assert(dest_type->id == TypeTableEntryIdInt);
+    TypeTableEntry *dest_type = get_underlying_type(instruction->base.type_entry);
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     return LLVMBuildTrunc(g->builder, target_val, dest_type->type_ref, "");
+}
+
+static LLVMValueRef ir_render_alloca(CodeGen *g, IrExecutable *executable, IrInstructionAlloca *instruction) {
+    TypeTableEntry *slice_type = get_underlying_type(instruction->base.type_entry);
+    TypeTableEntry *ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
+    TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
+    LLVMValueRef size_val = ir_llvm_value(g, instruction->count);
+    LLVMValueRef ptr_val = LLVMBuildArrayAlloca(g->builder, child_type->type_ref, size_val, "");
+
+    // TODO in debug mode, initialize all the bytes to 0xaa
+
+    // store the freshly allocated pointer in the slice
+    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, slice_ptr_index, "");
+    LLVMBuildStore(g->builder, ptr_val, ptr_field_ptr);
+
+    // store the size in the len field
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, slice_len_index, "");
+    LLVMBuildStore(g->builder, size_val, len_field_ptr);
+
+    return instruction->tmp_ptr;
 }
 
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
@@ -1988,6 +2006,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_truncate(g, executable, (IrInstructionTruncate *)instruction);
         case IrInstructionIdBoolNot:
             return ir_render_bool_not(g, executable, (IrInstructionBoolNot *)instruction);
+        case IrInstructionIdAlloca:
+            return ir_render_alloca(g, executable, (IrInstructionAlloca *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdStructInit:
@@ -2567,6 +2587,9 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdCall) {
                 IrInstructionCall *call_instruction = (IrInstructionCall *)instruction;
                 slot = &call_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdAlloca) {
+                IrInstructionAlloca *alloca_instruction = (IrInstructionAlloca *)instruction;
+                slot = &alloca_instruction->tmp_ptr;
             } else {
                 zig_unreachable();
             }
@@ -3191,6 +3214,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSetFnTest, "setFnTest", 1);
     create_builtin_fn(g, BuiltinFnIdSetFnVisible, "setFnVisible", 2);
     create_builtin_fn(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
+    create_builtin_fn(g, BuiltinFnIdAlloca, "alloca", 2);
 }
 
 static void init(CodeGen *g, Buf *source_path) {
