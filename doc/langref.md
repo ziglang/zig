@@ -417,7 +417,7 @@ Function                                                             Operation
 @shlWithOverflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a << b
 ```
 
-### @memset(dest: &T, c: u8, byte_count: usize)
+### @memset(dest: &u8, c: u8, byte_count: usize)
 
 This function sets a region of memory to `c`. `dest` is a pointer.
 
@@ -428,7 +428,9 @@ level code will not use this function, instead using something like this:
 for (destSlice) |*b| *b = c;
 ```
 
-### @memcpy(noalias dest: &T, noalias source: &const T, byte_count: usize)
+The optimizer is intelligent enough to turn the above snippet into a memset.
+
+### @memcpy(noalias dest: &u8, noalias source: &const u8, byte_count: usize)
 
 This function copies bytes from one region of memory to another. `dest` and
 `source` are both pointers and must not overlap.
@@ -440,6 +442,8 @@ level code will not use this function, instead using something like this:
 const mem = @import("std").mem;
 mem.copy(destSlice, sourceSlice);
 ```
+
+The optimizer is intelligent enough to turn the above snippet into a memcpy.
 
 ### @breakpoint()
 

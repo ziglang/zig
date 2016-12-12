@@ -1415,6 +1415,9 @@ enum IrInstructionId {
     IrInstructionIdIntType,
     IrInstructionIdBoolNot,
     IrInstructionIdAlloca,
+    IrInstructionIdMemset,
+    IrInstructionIdMemcpy,
+    IrInstructionIdSlice,
 };
 
 struct IrInstruction {
@@ -1921,6 +1924,32 @@ struct IrInstructionAlloca {
 
     IrInstruction *type_value;
     IrInstruction *count;
+    LLVMValueRef tmp_ptr;
+};
+
+struct IrInstructionMemset {
+    IrInstruction base;
+
+    IrInstruction *dest_ptr;
+    IrInstruction *byte;
+    IrInstruction *count;
+};
+
+struct IrInstructionMemcpy {
+    IrInstruction base;
+
+    IrInstruction *dest_ptr;
+    IrInstruction *src_ptr;
+    IrInstruction *count;
+};
+
+struct IrInstructionSlice {
+    IrInstruction base;
+
+    IrInstruction *ptr;
+    IrInstruction *start;
+    IrInstruction *end;
+    bool is_const;
     LLVMValueRef tmp_ptr;
 };
 

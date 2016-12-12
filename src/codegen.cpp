@@ -1906,6 +1906,153 @@ static LLVMValueRef ir_render_alloca(CodeGen *g, IrExecutable *executable, IrIns
     return instruction->tmp_ptr;
 }
 
+static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrInstructionMemset *instruction) {
+    LLVMValueRef dest_ptr = ir_llvm_value(g, instruction->dest_ptr);
+    LLVMValueRef char_val = ir_llvm_value(g, instruction->byte);
+    LLVMValueRef len_val = ir_llvm_value(g, instruction->count);
+
+    LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+
+    LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
+
+    LLVMValueRef params[] = {
+        dest_ptr_casted, // dest pointer
+        char_val, // source pointer
+        len_val, // byte count
+        LLVMConstInt(LLVMInt32Type(), 1, false), // align in bytes
+        LLVMConstNull(LLVMInt1Type()), // is volatile
+    };
+
+    LLVMBuildCall(g->builder, g->memset_fn_val, params, 5, "");
+    return nullptr;
+}
+
+static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrInstructionMemcpy *instruction) {
+    LLVMValueRef dest_ptr = ir_llvm_value(g, instruction->dest_ptr);
+    LLVMValueRef src_ptr = ir_llvm_value(g, instruction->src_ptr);
+    LLVMValueRef len_val = ir_llvm_value(g, instruction->count);
+
+    LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
+
+    LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
+    LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr, ptr_u8, "");
+
+    LLVMValueRef params[] = {
+        dest_ptr_casted, // dest pointer
+        src_ptr_casted, // source pointer
+        len_val, // byte count
+        LLVMConstInt(LLVMInt32Type(), 1, false), // align in bytes
+        LLVMConstNull(LLVMInt1Type()), // is volatile
+    };
+
+    LLVMBuildCall(g->builder, g->memcpy_fn_val, params, 5, "");
+    return nullptr;
+}
+
+static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInstructionSlice *instruction) {
+    TypeTableEntry *array_type = get_underlying_type(instruction->ptr->type_entry);
+
+    LLVMValueRef tmp_struct_ptr = instruction->tmp_ptr;
+    LLVMValueRef array_ptr = ir_llvm_value(g, instruction->ptr);
+
+    bool want_debug_safety = ir_want_debug_safety(g, &instruction->base);
+
+    if (array_type->id == TypeTableEntryIdArray) {
+        LLVMValueRef start_val = ir_llvm_value(g, instruction->start);
+        LLVMValueRef end_val;
+        if (instruction->end) {
+            end_val = ir_llvm_value(g, instruction->end);
+        } else {
+            end_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, array_type->data.array.len, false);
+        }
+
+        if (want_debug_safety) {
+            add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
+            if (instruction->end) {
+                LLVMValueRef array_end = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+                        array_type->data.array.len, false);
+                add_bounds_check(g, end_val, LLVMIntEQ, nullptr, LLVMIntULE, array_end);
+            }
+        }
+
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, slice_ptr_index, "");
+        LLVMValueRef indices[] = {
+            LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+            start_val,
+        };
+        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
+        LLVMBuildStore(g->builder, slice_start_ptr, ptr_field_ptr);
+
+        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, slice_len_index, "");
+        LLVMValueRef len_value = LLVMBuildNSWSub(g->builder, end_val, start_val, "");
+        LLVMBuildStore(g->builder, len_value, len_field_ptr);
+
+        return tmp_struct_ptr;
+    } else if (array_type->id == TypeTableEntryIdPointer) {
+        LLVMValueRef start_val = ir_llvm_value(g, instruction->start);
+        LLVMValueRef end_val = ir_llvm_value(g, instruction->end);
+
+        if (want_debug_safety) {
+            add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
+        }
+
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, slice_ptr_index, "");
+        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, &start_val, 1, "");
+        LLVMBuildStore(g->builder, slice_start_ptr, ptr_field_ptr);
+
+        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, slice_len_index, "");
+        LLVMValueRef len_value = LLVMBuildNSWSub(g->builder, end_val, start_val, "");
+        LLVMBuildStore(g->builder, len_value, len_field_ptr);
+
+        return tmp_struct_ptr;
+    } else if (array_type->id == TypeTableEntryIdStruct) {
+        assert(array_type->data.structure.is_slice);
+        assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
+        assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
+
+        size_t ptr_index = array_type->data.structure.fields[0].gen_index;
+        assert(ptr_index != SIZE_MAX);
+        size_t len_index = array_type->data.structure.fields[1].gen_index;
+        assert(len_index != SIZE_MAX);
+
+        LLVMValueRef prev_end = nullptr;
+        if (!instruction->end || want_debug_safety) {
+            LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, len_index, "");
+            prev_end = LLVMBuildLoad(g->builder, src_len_ptr, "");
+        }
+
+        LLVMValueRef start_val = ir_llvm_value(g, instruction->start);
+        LLVMValueRef end_val;
+        if (instruction->end) {
+            end_val = ir_llvm_value(g, instruction->end);
+        } else {
+            end_val = prev_end;
+        }
+
+        if (want_debug_safety) {
+            assert(prev_end);
+            add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
+            if (instruction->end) {
+                add_bounds_check(g, end_val, LLVMIntEQ, nullptr, LLVMIntULE, prev_end);
+            }
+        }
+
+        LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, ptr_index, "");
+        LLVMValueRef src_ptr = LLVMBuildLoad(g->builder, src_ptr_ptr, "");
+        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, ptr_index, "");
+        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr, &start_val, len_index, "");
+        LLVMBuildStore(g->builder, slice_start_ptr, ptr_field_ptr);
+
+        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, len_index, "");
+        LLVMValueRef len_value = LLVMBuildNSWSub(g->builder, end_val, start_val, "");
+        LLVMBuildStore(g->builder, len_value, len_field_ptr);
+
+        return tmp_struct_ptr;
+    } else {
+        zig_unreachable();
+    }
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -2008,6 +2155,12 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_bool_not(g, executable, (IrInstructionBoolNot *)instruction);
         case IrInstructionIdAlloca:
             return ir_render_alloca(g, executable, (IrInstructionAlloca *)instruction);
+        case IrInstructionIdMemset:
+            return ir_render_memset(g, executable, (IrInstructionMemset *)instruction);
+        case IrInstructionIdMemcpy:
+            return ir_render_memcpy(g, executable, (IrInstructionMemcpy *)instruction);
+        case IrInstructionIdSlice:
+            return ir_render_slice(g, executable, (IrInstructionSlice *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdStructInit:
@@ -2590,6 +2743,9 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdAlloca) {
                 IrInstructionAlloca *alloca_instruction = (IrInstructionAlloca *)instruction;
                 slot = &alloca_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdSlice) {
+                IrInstructionSlice *slice_instruction = (IrInstructionSlice *)instruction;
+                slot = &slice_instruction->tmp_ptr;
             } else {
                 zig_unreachable();
             }

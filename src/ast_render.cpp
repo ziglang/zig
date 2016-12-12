@@ -849,11 +849,23 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "%scontinue", inline_str);
                 break;
             }
+        case NodeTypeSliceExpr:
+            {
+                render_node_ungrouped(ar, node->data.slice_expr.array_ref_expr);
+                fprintf(ar->f, "[");
+                render_node_grouped(ar, node->data.slice_expr.start);
+                fprintf(ar->f, "...");
+                if (node->data.slice_expr.end)
+                    render_node_grouped(ar, node->data.slice_expr.end);
+                fprintf(ar->f, "]");
+                if (node->data.slice_expr.is_const)
+                    fprintf(ar->f, "const");
+                break;
+            }
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
         case NodeTypeUnwrapErrorExpr:
-        case NodeTypeSliceExpr:
         case NodeTypeStructField:
         case NodeTypeUse:
         case NodeTypeZeroesLiteral:

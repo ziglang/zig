@@ -44,8 +44,13 @@ pub struct Allocator {
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 pub fn copy(inline T: type, dest: []T, source: []const T) {
+    @setDebugSafety(this, false);
     assert(dest.len >= source.len);
-    @memcpy(dest.ptr, source.ptr, @sizeOf(T) * source.len);
+    for (source) |s, i| dest[i] = s;
+}
+
+pub fn set(inline T: type, dest: []T, value: T) {
+    for (dest) |*d| *d = value;
 }
 
 /// Return < 0, == 0, or > 0 if memory a is less than, equal to, or greater than,

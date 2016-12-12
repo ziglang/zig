@@ -774,6 +774,38 @@ static void ir_print_bool_not(IrPrint *irp, IrInstructionBoolNot *instruction) {
     ir_print_other_instruction(irp, instruction->value);
 }
 
+static void ir_print_memset(IrPrint *irp, IrInstructionMemset *instruction) {
+    fprintf(irp->f, "@memset(");
+    ir_print_other_instruction(irp, instruction->dest_ptr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->byte);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->count);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_memcpy(IrPrint *irp, IrInstructionMemcpy *instruction) {
+    fprintf(irp->f, "@memcpy(");
+    ir_print_other_instruction(irp, instruction->dest_ptr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->src_ptr);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->count);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_slice(IrPrint *irp, IrInstructionSlice *instruction) {
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, "[");
+    ir_print_other_instruction(irp, instruction->start);
+    fprintf(irp->f, "...");
+    if (instruction->end)
+        ir_print_other_instruction(irp, instruction->end);
+    fprintf(irp->f, "]");
+    if (instruction->is_const)
+        fprintf(irp->f, "const");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -958,6 +990,15 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdBoolNot:
             ir_print_bool_not(irp, (IrInstructionBoolNot *)instruction);
+            break;
+        case IrInstructionIdMemset:
+            ir_print_memset(irp, (IrInstructionMemset *)instruction);
+            break;
+        case IrInstructionIdMemcpy:
+            ir_print_memcpy(irp, (IrInstructionMemcpy *)instruction);
+            break;
+        case IrInstructionIdSlice:
+            ir_print_slice(irp, (IrInstructionSlice *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

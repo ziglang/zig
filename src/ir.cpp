@@ -375,6 +375,18 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAlloca *) {
     return IrInstructionIdAlloca;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionMemset *) {
+    return IrInstructionIdMemset;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionMemcpy *) {
+    return IrInstructionIdMemcpy;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSlice *) {
+    return IrInstructionIdSlice;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1514,6 +1526,76 @@ static IrInstruction *ir_build_alloca_from(IrBuilder *irb, IrInstruction *old_in
     return new_instruction;
 }
 
+static IrInstruction *ir_build_memset(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *dest_ptr, IrInstruction *byte, IrInstruction *count)
+{
+    IrInstructionMemset *instruction = ir_build_instruction<IrInstructionMemset>(irb, scope, source_node);
+    instruction->dest_ptr = dest_ptr;
+    instruction->byte = byte;
+    instruction->count = count;
+
+    ir_ref_instruction(dest_ptr);
+    ir_ref_instruction(byte);
+    ir_ref_instruction(count);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_memset_from(IrBuilder *irb, IrInstruction *old_instruction,
+    IrInstruction *dest_ptr, IrInstruction *byte, IrInstruction *count)
+{
+    IrInstruction *new_instruction = ir_build_memset(irb, old_instruction->scope, old_instruction->source_node, dest_ptr, byte, count);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
+static IrInstruction *ir_build_memcpy(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *dest_ptr, IrInstruction *src_ptr, IrInstruction *count)
+{
+    IrInstructionMemcpy *instruction = ir_build_instruction<IrInstructionMemcpy>(irb, scope, source_node);
+    instruction->dest_ptr = dest_ptr;
+    instruction->src_ptr = src_ptr;
+    instruction->count = count;
+
+    ir_ref_instruction(dest_ptr);
+    ir_ref_instruction(src_ptr);
+    ir_ref_instruction(count);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_memcpy_from(IrBuilder *irb, IrInstruction *old_instruction,
+    IrInstruction *dest_ptr, IrInstruction *src_ptr, IrInstruction *count)
+{
+    IrInstruction *new_instruction = ir_build_memcpy(irb, old_instruction->scope, old_instruction->source_node, dest_ptr, src_ptr, count);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
+static IrInstruction *ir_build_slice(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool is_const)
+{
+    IrInstructionSlice *instruction = ir_build_instruction<IrInstructionSlice>(irb, scope, source_node);
+    instruction->ptr = ptr;
+    instruction->start = start;
+    instruction->end = end;
+    instruction->is_const = is_const;
+
+    ir_ref_instruction(ptr);
+    ir_ref_instruction(start);
+    if (end) ir_ref_instruction(end);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_slice_from(IrBuilder *irb, IrInstruction *old_instruction,
+    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool is_const)
+{
+    IrInstruction *new_instruction = ir_build_slice(irb, old_instruction->scope, old_instruction->source_node, ptr, start, end, is_const);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -2350,7 +2432,43 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 return ir_build_alloca(irb, scope, node, arg0_value, arg1_value);
             }
         case BuiltinFnIdMemcpy:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                IrInstruction *arg2_value = ir_gen_node(irb, arg2_node, scope);
+                if (arg2_value == irb->codegen->invalid_instruction)
+                    return arg2_value;
+
+                return ir_build_memcpy(irb, scope, node, arg0_value, arg1_value, arg2_value);
+            }
         case BuiltinFnIdMemset:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                IrInstruction *arg2_value = ir_gen_node(irb, arg2_node, scope);
+                if (arg2_value == irb->codegen->invalid_instruction)
+                    return arg2_value;
+
+                return ir_build_memset(irb, scope, node, arg0_value, arg1_value, arg2_value);
+            }
         case BuiltinFnIdAlignof:
         case BuiltinFnIdMemberCount:
         case BuiltinFnIdAddWithOverflow:
@@ -3252,12 +3370,45 @@ static IrInstruction *ir_gen_defer(IrBuilder *irb, Scope *parent_scope, AstNode 
     return ir_build_const_void(irb, parent_scope, node);
 }
 
+static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeSliceExpr);
+
+    AstNodeSliceExpr *slice_expr = &node->data.slice_expr;
+    AstNode *array_node = slice_expr->array_ref_expr;
+    AstNode *start_node = slice_expr->start;
+    AstNode *end_node = slice_expr->end;
+
+    IrInstruction *ptr_value = ir_gen_node(irb, array_node, scope);
+    if (ptr_value == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    IrInstruction *start_value = ir_gen_node(irb, start_node, scope);
+    if (ptr_value == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    IrInstruction *end_value;
+    if (end_node) {
+        end_value = ir_gen_node(irb, end_node, scope);
+        if (end_value == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+    } else {
+        end_value = nullptr;
+    }
+
+    return ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, slice_expr->is_const);
+}
+
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
         LValPurpose lval)
 {
     assert(scope);
     switch (node->type) {
         case NodeTypeStructValueField:
+        case NodeTypeRoot:
+        case NodeTypeParamDecl:
+        case NodeTypeUse:
+        case NodeTypeSwitchProng:
+        case NodeTypeSwitchRange:
             zig_unreachable();
         case NodeTypeBlock:
             return ir_lval_wrap(irb, scope, ir_gen_block(irb, scope, node), lval);
@@ -3319,21 +3470,17 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_continue(irb, scope, node), lval);
         case NodeTypeDefer:
             return ir_lval_wrap(irb, scope, ir_gen_defer(irb, scope, node), lval);
-        case NodeTypeUnwrapErrorExpr:
         case NodeTypeSliceExpr:
+            return ir_lval_wrap(irb, scope, ir_gen_slice(irb, scope, node), lval);
+        case NodeTypeUnwrapErrorExpr:
         case NodeTypeCharLiteral:
         case NodeTypeZeroesLiteral:
         case NodeTypeVarLiteral:
-        case NodeTypeRoot:
         case NodeTypeFnProto:
         case NodeTypeFnDef:
         case NodeTypeFnDecl:
-        case NodeTypeParamDecl:
-        case NodeTypeUse:
         case NodeTypeContainerDecl:
         case NodeTypeStructField:
-        case NodeTypeSwitchProng:
-        case NodeTypeSwitchRange:
         case NodeTypeErrorValueDecl:
         case NodeTypeTypeDecl:
             zig_panic("TODO more IR gen for node types");
@@ -4304,17 +4451,11 @@ static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_inst
     }
 
     TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, value->type_entry, true);
-    if (handle_is_ptr(value->type_entry)) {
-        // this instruction is a noop - codegen can pass the pointer we already have as the result
-        ir_link_new_instruction(value, source_instruction);
-        return ptr_type;
-    } else {
-        FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
-        assert(fn_entry);
-        IrInstruction *new_instruction = ir_build_ref_from(&ira->new_irb, source_instruction, value);
-        fn_entry->alloca_list.append(new_instruction);
-        return ptr_type;
-    }
+    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    assert(fn_entry);
+    IrInstruction *new_instruction = ir_build_ref_from(&ira->new_irb, source_instruction, value);
+    fn_entry->alloca_list.append(new_instruction);
+    return ptr_type;
 }
 
 
@@ -7978,6 +8119,295 @@ static TypeTableEntry *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructi
     zig_unreachable();
 }
 
+static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructionMemset *instruction) {
+    IrInstruction *dest_ptr = instruction->dest_ptr->other;
+    if (dest_ptr->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *byte_value = instruction->byte->other;
+    if (byte_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *count_value = instruction->count->other;
+    if (count_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
+    TypeTableEntry *u8 = ira->codegen->builtin_types.entry_u8;
+    TypeTableEntry *u8_ptr = get_pointer_to_type(ira->codegen, u8, false);
+
+    IrInstruction *casted_dest_ptr = ir_implicit_cast(ira, dest_ptr, u8_ptr);
+    if (casted_dest_ptr->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_byte = ir_implicit_cast(ira, byte_value, u8);
+    if (casted_byte->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_count = ir_implicit_cast(ira, count_value, usize);
+    if (casted_count->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (casted_dest_ptr->static_value.special == ConstValSpecialStatic &&
+        casted_byte->static_value.special == ConstValSpecialStatic &&
+        casted_count->static_value.special == ConstValSpecialStatic)
+    {
+        ConstExprValue *dest_ptr_val = &casted_dest_ptr->static_value;
+
+        ConstExprValue *dest_elements;
+        size_t start;
+        size_t bound_end;
+        if (dest_ptr_val->data.x_ptr.index == SIZE_MAX) {
+            dest_elements = dest_ptr_val->data.x_ptr.base_ptr;
+            start = 0;
+            bound_end = 1;
+        } else {
+            ConstExprValue *array_val = dest_ptr_val->data.x_ptr.base_ptr;
+            dest_elements = array_val->data.x_array.elements;
+            start = dest_ptr_val->data.x_ptr.index;
+            bound_end = array_val->data.x_array.size;
+        }
+
+        size_t count = casted_count->static_value.data.x_bignum.data.x_uint;
+        size_t end = start + count;
+        if (end > bound_end) {
+            ir_add_error(ira, count_value, buf_sprintf("out of bounds pointer access"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        ConstExprValue *byte_val = &casted_byte->static_value;
+        for (size_t i = start; i < end; i += 1) {
+            dest_elements[i] = *byte_val;
+        }
+
+        ir_build_const_from(ira, &instruction->base, false);
+        return ira->codegen->builtin_types.entry_void;
+    }
+
+    ir_build_memset_from(&ira->new_irb, &instruction->base, casted_dest_ptr, casted_byte, casted_count);
+    return ira->codegen->builtin_types.entry_void;
+}
+
+static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructionMemcpy *instruction) {
+    IrInstruction *dest_ptr = instruction->dest_ptr->other;
+    if (dest_ptr->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *src_ptr = instruction->src_ptr->other;
+    if (src_ptr->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *count_value = instruction->count->other;
+    if (count_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
+    TypeTableEntry *u8 = ira->codegen->builtin_types.entry_u8;
+    TypeTableEntry *u8_ptr_mut = get_pointer_to_type(ira->codegen, u8, false);
+    TypeTableEntry *u8_ptr_const = get_pointer_to_type(ira->codegen, u8, true);
+
+    IrInstruction *casted_dest_ptr = ir_implicit_cast(ira, dest_ptr, u8_ptr_mut);
+    if (casted_dest_ptr->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_src_ptr = ir_implicit_cast(ira, src_ptr, u8_ptr_const);
+    if (casted_src_ptr->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_count = ir_implicit_cast(ira, count_value, usize);
+    if (casted_count->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (casted_dest_ptr->static_value.special == ConstValSpecialStatic &&
+        casted_src_ptr->static_value.special == ConstValSpecialStatic &&
+        casted_count->static_value.special == ConstValSpecialStatic)
+    {
+        size_t count = casted_count->static_value.data.x_bignum.data.x_uint;
+
+        ConstExprValue *dest_ptr_val = &casted_dest_ptr->static_value;
+        ConstExprValue *dest_elements;
+        size_t dest_start;
+        size_t dest_end;
+        if (dest_ptr_val->data.x_ptr.index == SIZE_MAX) {
+            dest_elements = dest_ptr_val->data.x_ptr.base_ptr;
+            dest_start = 0;
+            dest_end = 1;
+        } else {
+            ConstExprValue *array_val = dest_ptr_val->data.x_ptr.base_ptr;
+            dest_elements = array_val->data.x_array.elements;
+            dest_start = dest_ptr_val->data.x_ptr.index;
+            dest_end = array_val->data.x_array.size;
+        }
+
+        if (dest_start + count > dest_end) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds pointer access"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        ConstExprValue *src_ptr_val = &casted_src_ptr->static_value;
+        ConstExprValue *src_elements;
+        size_t src_start;
+        size_t src_end;
+        if (src_ptr_val->data.x_ptr.index == SIZE_MAX) {
+            src_elements = src_ptr_val->data.x_ptr.base_ptr;
+            src_start = 0;
+            src_end = 1;
+        } else {
+            ConstExprValue *array_val = src_ptr_val->data.x_ptr.base_ptr;
+            src_elements = array_val->data.x_array.elements;
+            src_start = src_ptr_val->data.x_ptr.index;
+            src_end = array_val->data.x_array.size;
+        }
+
+        if (src_start + count > src_end) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds pointer access"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        // TODO check for noalias violations - this should be generalized to work for any function
+
+        for (size_t i = 0; i < count; i += 1) {
+            dest_elements[dest_start + i] = src_elements[src_start + i];
+        }
+
+        ir_build_const_from(ira, &instruction->base, false);
+        return ira->codegen->builtin_types.entry_void;
+    }
+
+    ir_build_memcpy_from(&ira->new_irb, &instruction->base, casted_dest_ptr, casted_src_ptr, casted_count);
+    return ira->codegen->builtin_types.entry_void;
+}
+
+static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructionSlice *instruction) {
+    IrInstruction *ptr = instruction->ptr->other;
+    if (ptr->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *start = instruction->start->other;
+    if (start->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
+    IrInstruction *casted_start = ir_implicit_cast(ira, start, usize);
+    if (casted_start->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *end;
+    if (instruction->end) {
+        end = instruction->end->other;
+        if (end->type_entry->id == TypeTableEntryIdInvalid)
+            return ira->codegen->builtin_types.entry_invalid;
+        end = ir_implicit_cast(ira, end, usize);
+        if (end->type_entry->id == TypeTableEntryIdInvalid)
+            return ira->codegen->builtin_types.entry_invalid;
+    } else {
+        end = nullptr;
+    }
+
+    TypeTableEntry *array_type = get_underlying_type(ptr->type_entry);
+
+    TypeTableEntry *return_type;
+
+    if (array_type->id == TypeTableEntryIdArray) {
+        return_type = get_slice_type(ira->codegen, array_type->data.array.child_type, instruction->is_const);
+    } else if (array_type->id == TypeTableEntryIdPointer) {
+        return_type = get_slice_type(ira->codegen, array_type->data.pointer.child_type, instruction->is_const);
+        if (!end) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("slice of pointer must include end value"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    } else if (is_slice(array_type)) {
+        return_type = get_slice_type(ira->codegen,
+                array_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+                instruction->is_const);
+    } else {
+        ir_add_error(ira, &instruction->base,
+            buf_sprintf("slice of non-array type '%s'", buf_ptr(&ptr->type_entry->name)));
+        // TODO if this is a typedecl, add error note showing the declaration of the type decl
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (ptr->static_value.special == ConstValSpecialStatic &&
+        casted_start->static_value.special == ConstValSpecialStatic &&
+        (!end || end->static_value.special == ConstValSpecialStatic))
+    {
+        bool depends_on_compile_var =
+            ptr->static_value.depends_on_compile_var ||
+            casted_start->static_value.depends_on_compile_var ||
+            (end ? end->static_value.depends_on_compile_var : false);
+
+        ConstExprValue *base_ptr;
+        size_t abs_offset;
+        size_t rel_end;
+        if (array_type->id == TypeTableEntryIdArray) {
+            base_ptr = &ptr->static_value;
+            abs_offset = 0;
+            rel_end = array_type->data.array.len;
+        } else if (array_type->id == TypeTableEntryIdPointer) {
+            base_ptr = ptr->static_value.data.x_ptr.base_ptr;
+            abs_offset = ptr->static_value.data.x_ptr.index;
+            if (abs_offset == SIZE_MAX) {
+                rel_end = 1;
+            } else {
+                rel_end = base_ptr->data.x_array.size - abs_offset;
+            }
+        } else if (is_slice(array_type)) {
+            ConstExprValue *ptr_val = &ptr->static_value.data.x_struct.fields[slice_ptr_index];
+            ConstExprValue *len_val = &ptr->static_value.data.x_struct.fields[slice_len_index];
+            base_ptr = ptr_val->data.x_ptr.base_ptr;
+            abs_offset = ptr_val->data.x_ptr.index;
+
+            if (ptr_val->data.x_ptr.index == SIZE_MAX) {
+                rel_end = 1;
+            } else {
+                rel_end = len_val->data.x_bignum.data.x_uint;
+            }
+        } else {
+            zig_unreachable();
+        }
+
+        uint64_t start_scalar = casted_start->static_value.data.x_bignum.data.x_uint;
+        if (start_scalar > rel_end) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        uint64_t end_scalar;
+        if (end) {
+            end_scalar = end->static_value.data.x_bignum.data.x_uint;
+        } else {
+            end_scalar = rel_end;
+        }
+        if (end_scalar > rel_end) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (start_scalar > end_scalar) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("slice start is greater than end"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+        out_val->data.x_struct.fields = allocate<ConstExprValue>(2);
+
+        ConstExprValue *ptr_val = &out_val->data.x_struct.fields[slice_ptr_index];
+        ptr_val->special = ConstValSpecialStatic;
+        ptr_val->data.x_ptr.base_ptr = base_ptr;
+        ptr_val->data.x_ptr.index = (abs_offset != SIZE_MAX) ? (abs_offset + start_scalar) : SIZE_MAX;
+
+        ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];
+        len_val->special = ConstValSpecialStatic;
+        bignum_init_unsigned(&len_val->data.x_bignum, rel_end);
+
+        return return_type;
+    }
+
+    IrInstruction *new_instruction = ir_build_slice_from(&ira->new_irb, &instruction->base, ptr, casted_start, end, instruction->is_const);
+    ir_add_alloca(ira, new_instruction, return_type);
+
+    return return_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -8094,6 +8524,12 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_bool_not(ira, (IrInstructionBoolNot *)instruction);
         case IrInstructionIdAlloca:
             return ir_analyze_instruction_alloca(ira, (IrInstructionAlloca *)instruction);
+        case IrInstructionIdMemset:
+            return ir_analyze_instruction_memset(ira, (IrInstructionMemset *)instruction);
+        case IrInstructionIdMemcpy:
+            return ir_analyze_instruction_memcpy(ira, (IrInstructionMemcpy *)instruction);
+        case IrInstructionIdSlice:
+            return ir_analyze_instruction_slice(ira, (IrInstructionSlice *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -8195,6 +8631,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCUndef:
         case IrInstructionIdCmpxchg:
         case IrInstructionIdFence:
+        case IrInstructionIdMemset:
+        case IrInstructionIdMemcpy:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
@@ -8236,6 +8674,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdIntType:
         case IrInstructionIdBoolNot:
         case IrInstructionIdAlloca:
+        case IrInstructionIdSlice:
             return false;
         case IrInstructionIdAsm:
             {
@@ -8280,62 +8719,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //                // TODO constant expression evaluation
 //
 //                return g->builtin_types.entry_bool;
-//            }
-//        case BuiltinFnIdMemcpy:
-//            {
-//                AstNode *dest_node = node->data.fn_call_expr.params.at(0);
-//                AstNode *src_node = node->data.fn_call_expr.params.at(1);
-//                AstNode *len_node = node->data.fn_call_expr.params.at(2);
-//                TypeTableEntry *dest_type = analyze_expression(g, import, context, nullptr, dest_node);
-//                TypeTableEntry *src_type = analyze_expression(g, import, context, nullptr, src_node);
-//                analyze_expression(g, import, context, builtin_fn->param_types[2], len_node);
-//
-//                if (dest_type->id != TypeTableEntryIdInvalid &&
-//                    dest_type->id != TypeTableEntryIdPointer)
-//                {
-//                    add_node_error(g, dest_node,
-//                            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&dest_type->name)));
-//                }
-//
-//                if (src_type->id != TypeTableEntryIdInvalid &&
-//                    src_type->id != TypeTableEntryIdPointer)
-//                {
-//                    add_node_error(g, src_node,
-//                            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&src_type->name)));
-//                }
-//
-//                if (dest_type->id == TypeTableEntryIdPointer &&
-//                    src_type->id == TypeTableEntryIdPointer)
-//                {
-//                    uint64_t dest_align = get_memcpy_align(g, dest_type->data.pointer.child_type);
-//                    uint64_t src_align = get_memcpy_align(g, src_type->data.pointer.child_type);
-//                    if (dest_align != src_align) {
-//                        add_node_error(g, dest_node, buf_sprintf(
-//                            "misaligned memcpy, '%s' has alignment '%" PRIu64 ", '%s' has alignment %" PRIu64,
-//                                    buf_ptr(&dest_type->name), dest_align,
-//                                    buf_ptr(&src_type->name), src_align));
-//                    }
-//                }
-//
-//                return builtin_fn->return_type;
-//            }
-//        case BuiltinFnIdMemset:
-//            {
-//                AstNode *dest_node = node->data.fn_call_expr.params.at(0);
-//                AstNode *char_node = node->data.fn_call_expr.params.at(1);
-//                AstNode *len_node = node->data.fn_call_expr.params.at(2);
-//                TypeTableEntry *dest_type = analyze_expression(g, import, context, nullptr, dest_node);
-//                analyze_expression(g, import, context, builtin_fn->param_types[1], char_node);
-//                analyze_expression(g, import, context, builtin_fn->param_types[2], len_node);
-//
-//                if (dest_type->id != TypeTableEntryIdInvalid &&
-//                    dest_type->id != TypeTableEntryIdPointer)
-//                {
-//                    add_node_error(g, dest_node,
-//                            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&dest_type->name)));
-//                }
-//
-//                return builtin_fn->return_type;
 //            }
 //        case BuiltinFnIdAlignof:
 //            {
@@ -8455,51 +8838,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    }
 //    zig_unreachable();
 //}
-//static TypeTableEntry *analyze_slice_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-//        AstNode *node)
-//{
-//    assert(node->type == NodeTypeSliceExpr);
-//
-//    TypeTableEntry *array_type = analyze_expression(g, import, context, nullptr,
-//            node->data.slice_expr.array_ref_expr);
-//
-//    TypeTableEntry *return_type;
-//
-//    if (array_type->id == TypeTableEntryIdInvalid) {
-//        return_type = g->builtin_types.entry_invalid;
-//    } else if (array_type->id == TypeTableEntryIdArray) {
-//        return_type = get_slice_type(g, array_type->data.array.child_type,
-//                node->data.slice_expr.is_const);
-//    } else if (array_type->id == TypeTableEntryIdPointer) {
-//        return_type = get_slice_type(g, array_type->data.pointer.child_type,
-//                node->data.slice_expr.is_const);
-//    } else if (array_type->id == TypeTableEntryIdStruct &&
-//               array_type->data.structure.is_slice)
-//    {
-//        return_type = get_slice_type(g,
-//                array_type->data.structure.fields[0].type_entry->data.pointer.child_type,
-//                node->data.slice_expr.is_const);
-//    } else {
-//        add_node_error(g, node,
-//            buf_sprintf("slice of non-array type '%s'", buf_ptr(&array_type->name)));
-//        return_type = g->builtin_types.entry_invalid;
-//    }
-//
-//    if (return_type->id != TypeTableEntryIdInvalid) {
-//        node->data.slice_expr.resolved_struct_val_expr.type_entry = return_type;
-//        node->data.slice_expr.resolved_struct_val_expr.source_node = node;
-//        context->fn_entry->struct_val_expr_alloca_list.append(&node->data.slice_expr.resolved_struct_val_expr);
-//    }
-//
-//    analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.slice_expr.start);
-//
-//    if (node->data.slice_expr.end) {
-//        analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.slice_expr.end);
-//    }
-//
-//    return return_type;
-//}
-//
 //static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
 //        AstNode *node, LValPurpose purpose)
 //{
@@ -8656,65 +8994,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //            }
 //        case BuiltinFnIdShlWithOverflow:
 //            return gen_shl_with_overflow(g, node);
-//        case BuiltinFnIdMemcpy:
-//            {
-//                size_t fn_call_param_count = node->data.fn_call_expr.params.length;
-//                assert(fn_call_param_count == 3);
-//
-//                AstNode *dest_node = node->data.fn_call_expr.params.at(0);
-//                TypeTableEntry *dest_type = get_expr_type(dest_node);
-//
-//                LLVMValueRef dest_ptr = gen_expr(g, dest_node);
-//                LLVMValueRef src_ptr = gen_expr(g, node->data.fn_call_expr.params.at(1));
-//                LLVMValueRef len_val = gen_expr(g, node->data.fn_call_expr.params.at(2));
-//
-//                LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-//
-//                LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
-//                LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr, ptr_u8, "");
-//
-//                uint64_t align_in_bytes = get_memcpy_align(g, dest_type->data.pointer.child_type);
-//
-//                LLVMValueRef params[] = {
-//                    dest_ptr_casted, // dest pointer
-//                    src_ptr_casted, // source pointer
-//                    len_val, // byte count
-//                    LLVMConstInt(LLVMInt32Type(), align_in_bytes, false), // align in bytes
-//                    LLVMConstNull(LLVMInt1Type()), // is volatile
-//                };
-//
-//                LLVMBuildCall(g->builder, builtin_fn->fn_val, params, 5, "");
-//                return nullptr;
-//            }
-//        case BuiltinFnIdMemset:
-//            {
-//                size_t fn_call_param_count = node->data.fn_call_expr.params.length;
-//                assert(fn_call_param_count == 3);
-//
-//                AstNode *dest_node = node->data.fn_call_expr.params.at(0);
-//                TypeTableEntry *dest_type = get_expr_type(dest_node);
-//
-//                LLVMValueRef dest_ptr = gen_expr(g, dest_node);
-//                LLVMValueRef char_val = gen_expr(g, node->data.fn_call_expr.params.at(1));
-//                LLVMValueRef len_val = gen_expr(g, node->data.fn_call_expr.params.at(2));
-//
-//                LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-//
-//                LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
-//
-//                uint64_t align_in_bytes = get_memcpy_align(g, dest_type->data.pointer.child_type);
-//
-//                LLVMValueRef params[] = {
-//                    dest_ptr_casted, // dest pointer
-//                    char_val, // source pointer
-//                    len_val, // byte count
-//                    LLVMConstInt(LLVMInt32Type(), align_in_bytes, false), // align in bytes
-//                    LLVMConstNull(LLVMInt1Type()), // is volatile
-//                };
-//
-//                LLVMBuildCall(g->builder, builtin_fn->fn_val, params, 5, "");
-//                return nullptr;
-//            }
 //        case BuiltinFnIdAlignof:
 //        case BuiltinFnIdMinValue:
 //        case BuiltinFnIdMaxValue:
@@ -8789,25 +9068,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    }
 //}
 //
-//static LLVMValueRef gen_array_base_ptr(CodeGen *g, AstNode *node) {
-//    TypeTableEntry *type_entry = get_expr_type(node);
-//
-//    LLVMValueRef array_ptr;
-//    if (node->type == NodeTypeFieldAccessExpr) {
-//        array_ptr = gen_field_access_expr(g, node, true);
-//        if (type_entry->id == TypeTableEntryIdPointer) {
-//            // we have a double pointer so we must dereference it once
-//            array_ptr = LLVMBuildLoad(g->builder, array_ptr, "");
-//        }
-//    } else {
-//        array_ptr = gen_expr(g, node);
-//    }
-//
-//    assert(!array_ptr || LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
-//
-//    return array_ptr;
-//}
-//
 //static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
 //    assert(node->type == NodeTypeArrayAccessExpr);
 //
@@ -8818,111 +9078,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //
 //    LLVMValueRef subscript_value = gen_expr(g, node->data.array_access_expr.subscript);
 //    return gen_array_elem_ptr(g, node, array_ptr, array_type, subscript_value);
-//}
-//
-//static LLVMValueRef gen_slice_expr(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeSliceExpr);
-//
-//    AstNode *array_ref_node = node->data.slice_expr.array_ref_expr;
-//    TypeTableEntry *array_type = get_expr_type(array_ref_node);
-//
-//    LLVMValueRef tmp_struct_ptr = node->data.slice_expr.resolved_struct_val_expr.ptr;
-//    LLVMValueRef array_ptr = gen_array_base_ptr(g, array_ref_node);
-//
-//    if (array_type->id == TypeTableEntryIdArray) {
-//        LLVMValueRef start_val = gen_expr(g, node->data.slice_expr.start);
-//        LLVMValueRef end_val;
-//        if (node->data.slice_expr.end) {
-//            end_val = gen_expr(g, node->data.slice_expr.end);
-//        } else {
-//            end_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, array_type->data.array.len, false);
-//        }
-//
-//        if (want_debug_safety(g, node)) {
-//            add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
-//            if (node->data.slice_expr.end) {
-//                LLVMValueRef array_end = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
-//                        array_type->data.array.len, false);
-//                add_bounds_check(g, end_val, LLVMIntEQ, nullptr, LLVMIntULE, array_end);
-//            }
-//        }
-//
-//        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 0, "");
-//        LLVMValueRef indices[] = {
-//            LLVMConstNull(g->builtin_types.entry_usize->type_ref),
-//            start_val,
-//        };
-//        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, indices, 2, "");
-//        LLVMBuildStore(g->builder, slice_start_ptr, ptr_field_ptr);
-//
-//        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 1, "");
-//        LLVMValueRef len_value = LLVMBuildNSWSub(g->builder, end_val, start_val, "");
-//        LLVMBuildStore(g->builder, len_value, len_field_ptr);
-//
-//        return tmp_struct_ptr;
-//    } else if (array_type->id == TypeTableEntryIdPointer) {
-//        LLVMValueRef start_val = gen_expr(g, node->data.slice_expr.start);
-//        LLVMValueRef end_val = gen_expr(g, node->data.slice_expr.end);
-//
-//        if (want_debug_safety(g, node)) {
-//            add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
-//        }
-//
-//        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 0, "");
-//        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, array_ptr, &start_val, 1, "");
-//        LLVMBuildStore(g->builder, slice_start_ptr, ptr_field_ptr);
-//
-//        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, 1, "");
-//        LLVMValueRef len_value = LLVMBuildNSWSub(g->builder, end_val, start_val, "");
-//        LLVMBuildStore(g->builder, len_value, len_field_ptr);
-//
-//        return tmp_struct_ptr;
-//    } else if (array_type->id == TypeTableEntryIdStruct) {
-//        assert(array_type->data.structure.is_slice);
-//        assert(LLVMGetTypeKind(LLVMTypeOf(array_ptr)) == LLVMPointerTypeKind);
-//        assert(LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(array_ptr))) == LLVMStructTypeKind);
-//
-//        size_t ptr_index = array_type->data.structure.fields[0].gen_index;
-//        assert(ptr_index != SIZE_MAX);
-//        size_t len_index = array_type->data.structure.fields[1].gen_index;
-//        assert(len_index != SIZE_MAX);
-//
-//        LLVMValueRef prev_end = nullptr;
-//        if (!node->data.slice_expr.end || want_debug_safety(g, node)) {
-//            LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, len_index, "");
-//            prev_end = LLVMBuildLoad(g->builder, src_len_ptr, "");
-//        }
-//
-//        LLVMValueRef start_val = gen_expr(g, node->data.slice_expr.start);
-//        LLVMValueRef end_val;
-//        if (node->data.slice_expr.end) {
-//            end_val = gen_expr(g, node->data.slice_expr.end);
-//        } else {
-//            end_val = prev_end;
-//        }
-//
-//        if (want_debug_safety(g, node)) {
-//            assert(prev_end);
-//            add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
-//            if (node->data.slice_expr.end) {
-//                add_bounds_check(g, end_val, LLVMIntEQ, nullptr, LLVMIntULE, prev_end);
-//            }
-//        }
-//
-//        LLVMValueRef src_ptr_ptr = LLVMBuildStructGEP(g->builder, array_ptr, ptr_index, "");
-//        LLVMValueRef src_ptr = LLVMBuildLoad(g->builder, src_ptr_ptr, "");
-//        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, ptr_index, "");
-//        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, src_ptr, &start_val, len_index, "");
-//        LLVMBuildStore(g->builder, slice_start_ptr, ptr_field_ptr);
-//
-//        LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, len_index, "");
-//        LLVMValueRef len_value = LLVMBuildNSWSub(g->builder, end_val, start_val, "");
-//        LLVMBuildStore(g->builder, len_value, len_field_ptr);
-//
-//        return tmp_struct_ptr;
-//    } else {
-//        zig_unreachable();
-//    }
 //}
 //
 //static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
