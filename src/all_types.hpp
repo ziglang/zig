@@ -1419,6 +1419,7 @@ enum IrInstructionId {
     IrInstructionIdMemcpy,
     IrInstructionIdSlice,
     IrInstructionIdMemberCount,
+    IrInstructionIdBreakpoint,
 };
 
 struct IrInstruction {
@@ -1958,6 +1959,10 @@ struct IrInstructionMemberCount {
     IrInstruction base;
 
     IrInstruction *container;
+};
+
+struct IrInstructionBreakpoint {
+    IrInstruction base;
 };
 
 enum LValPurpose {

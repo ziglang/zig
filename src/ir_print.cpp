@@ -812,6 +812,10 @@ static void ir_print_member_count(IrPrint *irp, IrInstructionMemberCount *instru
     fprintf(irp->f, ")");
 }
 
+static void ir_print_breakpoint(IrPrint *irp, IrInstructionBreakpoint *instruction) {
+    fprintf(irp->f, "@breakpoint()");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1008,6 +1012,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdMemberCount:
             ir_print_member_count(irp, (IrInstructionMemberCount *)instruction);
+            break;
+        case IrInstructionIdBreakpoint:
+            ir_print_breakpoint(irp, (IrInstructionBreakpoint *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

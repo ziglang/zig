@@ -2053,6 +2053,11 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
     }
 }
 
+static LLVMValueRef ir_render_breakpoint(CodeGen *g, IrExecutable *executable, IrInstructionBreakpoint *instruction) {
+    LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -2162,6 +2167,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_memcpy(g, executable, (IrInstructionMemcpy *)instruction);
         case IrInstructionIdSlice:
             return ir_render_slice(g, executable, (IrInstructionSlice *)instruction);
+        case IrInstructionIdBreakpoint:
+            return ir_render_breakpoint(g, executable, (IrInstructionBreakpoint *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdStructInit:

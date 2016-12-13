@@ -391,6 +391,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionMemberCount *) {
     return IrInstructionIdMemberCount;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionBreakpoint *) {
+    return IrInstructionIdBreakpoint;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1609,6 +1613,17 @@ static IrInstruction *ir_build_member_count(IrBuilder *irb, Scope *scope, AstNod
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_breakpoint(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    IrInstructionBreakpoint *instruction = ir_build_instruction<IrInstructionBreakpoint>(irb, scope, source_node);
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_breakpoint_from(IrBuilder *irb, IrInstruction *old_instruction) {
+    IrInstruction *new_instruction = ir_build_breakpoint(irb, old_instruction->scope, old_instruction->source_node);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -2491,12 +2506,13 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_member_count(irb, scope, node, arg0_value);
             }
+        case BuiltinFnIdBreakpoint:
+            return ir_build_breakpoint(irb, scope, node);
         case BuiltinFnIdAlignof:
         case BuiltinFnIdAddWithOverflow:
         case BuiltinFnIdSubWithOverflow:
         case BuiltinFnIdMulWithOverflow:
         case BuiltinFnIdShlWithOverflow:
-        case BuiltinFnIdBreakpoint:
         case BuiltinFnIdReturnAddress:
         case BuiltinFnIdFrameAddress:
             zig_panic("TODO IR gen more builtin functions");
@@ -8456,6 +8472,11 @@ static TypeTableEntry *ir_analyze_instruction_member_count(IrAnalyze *ira, IrIns
     return ira->codegen->builtin_types.entry_num_lit_int;
 }
 
+static TypeTableEntry *ir_analyze_instruction_breakpoint(IrAnalyze *ira, IrInstructionBreakpoint *instruction) {
+    ir_build_breakpoint_from(&ira->new_irb, &instruction->base);
+    return ira->codegen->builtin_types.entry_void;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -8580,6 +8601,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_slice(ira, (IrInstructionSlice *)instruction);
         case IrInstructionIdMemberCount:
             return ir_analyze_instruction_member_count(ira, (IrInstructionMemberCount *)instruction);
+        case IrInstructionIdBreakpoint:
+            return ir_analyze_instruction_breakpoint(ira, (IrInstructionBreakpoint *)instruction);
         case IrInstructionIdCast:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -8683,6 +8706,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdFence:
         case IrInstructionIdMemset:
         case IrInstructionIdMemcpy:
+        case IrInstructionIdBreakpoint:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
@@ -8787,9 +8811,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //                            align_in_bytes, false);
 //                }
 //            }
-//        case BuiltinFnIdBreakpoint:
-//            mark_impure_fn(g, context, node);
-//            return g->builtin_types.entry_void;
 //        case BuiltinFnIdReturnAddress:
 //        case BuiltinFnIdFrameAddress:
 //            mark_impure_fn(g, context, node);
@@ -9035,8 +9056,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //            zig_unreachable();
 //        case BuiltinFnIdCompileVar:
 //            return nullptr;
-//        case BuiltinFnIdBreakpoint:
-//            return LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
 //        case BuiltinFnIdFrameAddress:
 //        case BuiltinFnIdReturnAddress:
 //            {
