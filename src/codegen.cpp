@@ -2058,6 +2058,80 @@ static LLVMValueRef ir_render_breakpoint(CodeGen *g, IrExecutable *executable, I
     return nullptr;
 }
 
+static LLVMValueRef ir_render_return_address(CodeGen *g, IrExecutable *executable,
+        IrInstructionReturnAddress *instruction)
+{
+    LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->type_ref);
+    return LLVMBuildCall(g->builder, g->return_address_fn_val, &zero, 1, "");
+}
+
+static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutable *executable,
+        IrInstructionFrameAddress *instruction)
+{
+    LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->type_ref);
+    return LLVMBuildCall(g->builder, g->frame_address_fn_val, &zero, 1, "");
+}
+
+static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp *instruction) {
+    TypeTableEntry *int_type = get_underlying_type(instruction->result_ptr_type);
+    assert(int_type->id == TypeTableEntryIdInt);
+
+    LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
+    LLVMValueRef op2 = ir_llvm_value(g, instruction->op2);
+    LLVMValueRef ptr_result = ir_llvm_value(g, instruction->result_ptr);
+
+    LLVMValueRef result = LLVMBuildShl(g->builder, op1, op2, "");
+    LLVMValueRef orig_val;
+    if (int_type->data.integral.is_signed) {
+        orig_val = LLVMBuildAShr(g->builder, result, op2, "");
+    } else {
+        orig_val = LLVMBuildLShr(g->builder, result, op2, "");
+    }
+    LLVMValueRef overflow_bit = LLVMBuildICmp(g->builder, LLVMIntNE, op1, orig_val, "");
+
+    LLVMBuildStore(g->builder, result, ptr_result);
+
+    return overflow_bit;
+}
+
+static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, IrInstructionOverflowOp *instruction) {
+    AddSubMul add_sub_mul;
+    switch (instruction->op) {
+        case IrOverflowOpAdd:
+            add_sub_mul = AddSubMulAdd;
+            break;
+        case IrOverflowOpSub:
+            add_sub_mul = AddSubMulAdd;
+            break;
+        case IrOverflowOpMul:
+            add_sub_mul = AddSubMulAdd;
+            break;
+        case IrOverflowOpShl:
+            return render_shl_with_overflow(g, instruction);
+    }
+
+    TypeTableEntry *int_type = get_underlying_type(instruction->result_ptr_type);
+    assert(int_type->id == TypeTableEntryIdInt);
+
+    LLVMValueRef fn_val = get_int_overflow_fn(g, int_type, add_sub_mul);
+
+    LLVMValueRef op1 = ir_llvm_value(g, instruction->op1);
+    LLVMValueRef op2 = ir_llvm_value(g, instruction->op2);
+    LLVMValueRef ptr_result = ir_llvm_value(g, instruction->result_ptr);
+
+    LLVMValueRef params[] = {
+        op1,
+        op2,
+    };
+
+    LLVMValueRef result_struct = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    LLVMValueRef result = LLVMBuildExtractValue(g->builder, result_struct, 0, "");
+    LLVMValueRef overflow_bit = LLVMBuildExtractValue(g->builder, result_struct, 1, "");
+    LLVMBuildStore(g->builder, result, ptr_result);
+
+    return overflow_bit;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -2100,6 +2174,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdEmbedFile:
         case IrInstructionIdIntType:
         case IrInstructionIdMemberCount:
+        case IrInstructionIdAlignOf:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -2169,6 +2244,12 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_slice(g, executable, (IrInstructionSlice *)instruction);
         case IrInstructionIdBreakpoint:
             return ir_render_breakpoint(g, executable, (IrInstructionBreakpoint *)instruction);
+        case IrInstructionIdReturnAddress:
+            return ir_render_return_address(g, executable, (IrInstructionReturnAddress *)instruction);
+        case IrInstructionIdFrameAddress:
+            return ir_render_frame_address(g, executable, (IrInstructionFrameAddress *)instruction);
+        case IrInstructionIdOverflowOp:
+            return ir_render_overflow_op(g, executable, (IrInstructionOverflowOp *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdStructInit:
@@ -3300,6 +3381,8 @@ static void define_builtin_fns(CodeGen *g) {
                 &g->builtin_types.entry_i32->type_ref, 1, false);
         builtin_fn->fn_val = LLVMAddFunction(g->module, "llvm.returnaddress", fn_type);
         assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
+
+        g->return_address_fn_val = builtin_fn->fn_val;
     }
     {
         BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdFrameAddress,
@@ -3310,6 +3393,8 @@ static void define_builtin_fns(CodeGen *g) {
                 &g->builtin_types.entry_i32->type_ref, 1, false);
         builtin_fn->fn_val = LLVMAddFunction(g->module, "llvm.frameaddress", fn_type);
         assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
+
+        g->frame_address_fn_val = builtin_fn->fn_val;
     }
     {
         BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy", 3);

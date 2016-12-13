@@ -1187,6 +1187,8 @@ struct CodeGen {
     LLVMValueRef memcpy_fn_val;
     LLVMValueRef memset_fn_val;
     LLVMValueRef trap_fn_val;
+    LLVMValueRef return_address_fn_val;
+    LLVMValueRef frame_address_fn_val;
     bool error_during_imports;
     uint32_t next_node_index;
     TypeTableEntry *err_tag_type;
@@ -1420,6 +1422,10 @@ enum IrInstructionId {
     IrInstructionIdSlice,
     IrInstructionIdMemberCount,
     IrInstructionIdBreakpoint,
+    IrInstructionIdReturnAddress,
+    IrInstructionIdFrameAddress,
+    IrInstructionIdAlignOf,
+    IrInstructionIdOverflowOp,
 };
 
 struct IrInstruction {
@@ -1963,6 +1969,39 @@ struct IrInstructionMemberCount {
 
 struct IrInstructionBreakpoint {
     IrInstruction base;
+};
+
+struct IrInstructionReturnAddress {
+    IrInstruction base;
+};
+
+struct IrInstructionFrameAddress {
+    IrInstruction base;
+};
+
+enum IrOverflowOp {
+    IrOverflowOpAdd,
+    IrOverflowOpSub,
+    IrOverflowOpMul,
+    IrOverflowOpShl,
+};
+
+struct IrInstructionOverflowOp {
+    IrInstruction base;
+
+    IrOverflowOp op;
+    IrInstruction *type_value;
+    IrInstruction *op1;
+    IrInstruction *op2;
+    IrInstruction *result_ptr;
+
+    TypeTableEntry *result_ptr_type;
+};
+
+struct IrInstructionAlignOf {
+    IrInstruction base;
+
+    IrInstruction *type_value;
 };
 
 enum LValPurpose {

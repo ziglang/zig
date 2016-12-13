@@ -329,6 +329,20 @@ fn intTypeBuiltin() {
 
 }
 
+fn overflowIntrinsics() {
+    var result: u8 = undefined;
+    assert(@addWithOverflow(u8, 250, 100, &result));
+    assert(!@addWithOverflow(u8, 100, 150, &result));
+    assert(result == 250);
+}
+
+fn shlWithOverflow() {
+    var result: u16 = undefined;
+    assert(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
+    assert(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
+    assert(result == 0b1011111111111100);
+}
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -361,6 +375,8 @@ fn runAllTests() {
     exactDivision();
     truncate();
     intTypeBuiltin();
+    overflowIntrinsics();
+    shlWithOverflow();
 }
 
 export nakedcc fn _start() -> unreachable {

@@ -15,7 +15,7 @@ IrInstruction *ir_gen_fn(CodeGen *g, FnTableEntry *fn_entry);
 
 IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         TypeTableEntry *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,
-        FnTableEntry *fn_entry, Buf *c_import_buf);
+        FnTableEntry *fn_entry, Buf *c_import_buf, AstNode *source_node);
 
 TypeTableEntry *ir_analyze(CodeGen *g, IrExecutable *old_executable, IrExecutable *new_executable,
         TypeTableEntry *expected_type, AstNode *expected_type_source_node);

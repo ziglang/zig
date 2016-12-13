@@ -816,6 +816,45 @@ static void ir_print_breakpoint(IrPrint *irp, IrInstructionBreakpoint *instructi
     fprintf(irp->f, "@breakpoint()");
 }
 
+static void ir_print_frame_address(IrPrint *irp, IrInstructionFrameAddress *instruction) {
+    fprintf(irp->f, "@frameAddress()");
+}
+
+static void ir_print_return_address(IrPrint *irp, IrInstructionReturnAddress *instruction) {
+    fprintf(irp->f, "@returnAddress()");
+}
+
+static void ir_print_alignof(IrPrint *irp, IrInstructionAlignOf *instruction) {
+    fprintf(irp->f, "@alignOf(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_overflow_op(IrPrint *irp, IrInstructionOverflowOp *instruction) {
+    switch (instruction->op) {
+        case IrOverflowOpAdd:
+            fprintf(irp->f, "@addWithOverflow(");
+            break;
+        case IrOverflowOpSub:
+            fprintf(irp->f, "@subWithOverflow(");
+            break;
+        case IrOverflowOpMul:
+            fprintf(irp->f, "@mulWithOverflow(");
+            break;
+        case IrOverflowOpShl:
+            fprintf(irp->f, "@shlWithOverflow(");
+            break;
+    }
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->op1);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->op2);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->result_ptr);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1015,6 +1054,18 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdBreakpoint:
             ir_print_breakpoint(irp, (IrInstructionBreakpoint *)instruction);
+            break;
+        case IrInstructionIdReturnAddress:
+            ir_print_return_address(irp, (IrInstructionReturnAddress *)instruction);
+            break;
+        case IrInstructionIdFrameAddress:
+            ir_print_frame_address(irp, (IrInstructionFrameAddress *)instruction);
+            break;
+        case IrInstructionIdAlignOf:
+            ir_print_alignof(irp, (IrInstructionAlignOf *)instruction);
+            break;
+        case IrInstructionIdOverflowOp:
+            ir_print_overflow_op(irp, (IrInstructionOverflowOp *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

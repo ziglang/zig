@@ -876,7 +876,7 @@ static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *nod
     size_t backward_branch_count = 0;
     return ir_eval_const_value(g, scope, node, type_entry,
             &backward_branch_count, default_backward_branch_quota,
-            nullptr, nullptr);
+            nullptr, nullptr, node);
 }
 
 TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
