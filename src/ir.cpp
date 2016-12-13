@@ -497,6 +497,14 @@ static IrInstruction *ir_build_const_undefined(IrBuilder *irb, Scope *scope, Ast
     return &const_instruction->base;
 }
 
+static IrInstruction *ir_build_const_uint(IrBuilder *irb, Scope *scope, AstNode *source_node, uint64_t value) {
+    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
+    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_num_lit_int;
+    const_instruction->base.static_value.special = ConstValSpecialStatic;
+    bignum_init_unsigned(&const_instruction->base.static_value.data.x_bignum, value);
+    return &const_instruction->base;
+}
+
 static IrInstruction *ir_build_const_bignum(IrBuilder *irb, Scope *scope, AstNode *source_node, BigNum *bignum) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.type_entry = (bignum->kind == BigNumKindInt) ?
@@ -1991,6 +1999,12 @@ static IrInstruction *ir_gen_num_lit(IrBuilder *irb, Scope *scope, AstNode *node
     return ir_build_const_bignum(irb, scope, node, node->data.number_literal.bignum);
 }
 
+static IrInstruction *ir_gen_char_lit(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeCharLiteral);
+
+    return ir_build_const_uint(irb, scope, node, node->data.char_literal.value);
+}
+
 static IrInstruction *ir_gen_null_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeNullLiteral);
 
@@ -3453,6 +3467,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_bin_op(irb, scope, node), lval);
         case NodeTypeNumberLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_num_lit(irb, scope, node), lval);
+        case NodeTypeCharLiteral:
+            return ir_lval_wrap(irb, scope, ir_gen_char_lit(irb, scope, node), lval);
         case NodeTypeSymbol:
             return ir_gen_symbol(irb, scope, node, lval);
         case NodeTypeFnCallExpr:
@@ -3510,7 +3526,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeSliceExpr:
             return ir_lval_wrap(irb, scope, ir_gen_slice(irb, scope, node), lval);
         case NodeTypeUnwrapErrorExpr:
-        case NodeTypeCharLiteral:
         case NodeTypeZeroesLiteral:
         case NodeTypeVarLiteral:
         case NodeTypeFnProto:
@@ -8893,47 +8908,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //    }
 //    zig_unreachable();
 //}
-//static TypeTableEntry *analyze_array_access_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
-//        AstNode *node, LValPurpose purpose)
-//{
-//    TypeTableEntry *array_type = analyze_expression(g, import, context, nullptr,
-//            node->data.array_access_expr.array_ref_expr);
-//
-//    TypeTableEntry *return_type;
-//
-//    if (array_type->id == TypeTableEntryIdInvalid) {
-//        return_type = g->builtin_types.entry_invalid;
-//    } else if (array_type->id == TypeTableEntryIdArray) {
-//        if (array_type->data.array.len == 0) {
-//            add_node_error(g, node, buf_sprintf("out of bounds array access"));
-//        }
-//        return_type = array_type->data.array.child_type;
-//    } else if (array_type->id == TypeTableEntryIdPointer) {
-//        if (array_type->data.pointer.is_const && purpose == LValPurposeAssign) {
-//            add_node_error(g, node, buf_sprintf("cannot assign to constant"));
-//            return g->builtin_types.entry_invalid;
-//        }
-//        return_type = array_type->data.pointer.child_type;
-//    } else if (array_type->id == TypeTableEntryIdStruct &&
-//               array_type->data.structure.is_slice)
-//    {
-//        TypeTableEntry *pointer_type = array_type->data.structure.fields[0].type_entry;
-//        if (pointer_type->data.pointer.is_const && purpose == LValPurposeAssign) {
-//            add_node_error(g, node, buf_sprintf("cannot assign to constant"));
-//            return g->builtin_types.entry_invalid;
-//        }
-//        return_type = pointer_type->data.pointer.child_type;
-//    } else {
-//        add_node_error(g, node,
-//                buf_sprintf("array access of non-array type '%s'", buf_ptr(&array_type->name)));
-//        return_type = g->builtin_types.entry_invalid;
-//    }
-//
-//    analyze_expression(g, import, context, g->builtin_types.entry_usize, node->data.array_access_expr.subscript);
-//
-//    return return_type;
-//}
-//
 //static TypeTableEntry *analyze_unwrap_error_expr(CodeGen *g, ImportTableEntry *import,
 //        BlockContext *parent_context, TypeTableEntry *expected_type, AstNode *node)
 //{
@@ -9118,18 +9092,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //
 //        return tmp_struct_ptr;
 //    }
-//}
-//
-//static LLVMValueRef gen_array_ptr(CodeGen *g, AstNode *node) {
-//    assert(node->type == NodeTypeArrayAccessExpr);
-//
-//    AstNode *array_expr_node = node->data.array_access_expr.array_ref_expr;
-//    TypeTableEntry *array_type = get_expr_type(array_expr_node);
-//
-//    LLVMValueRef array_ptr = gen_array_base_ptr(g, array_expr_node);
-//
-//    LLVMValueRef subscript_value = gen_expr(g, node->data.array_access_expr.subscript);
-//    return gen_array_elem_ptr(g, node, array_ptr, array_type, subscript_value);
 //}
 //
 //static LLVMValueRef gen_unwrap_err_expr(CodeGen *g, AstNode *node) {
