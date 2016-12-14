@@ -1709,6 +1709,24 @@ static IrInstruction *ir_build_alignof(IrBuilder *irb, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
+static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
+    results[ReturnKindUnconditional] = 0;
+    results[ReturnKindError] = 0;
+    results[ReturnKindMaybe] = 0;
+
+    while (inner_scope != outer_scope) {
+        assert(inner_scope);
+        if (inner_scope->id == ScopeIdDefer) {
+            AstNode *defer_node = inner_scope->source_node;
+            assert(defer_node->type == NodeTypeDefer);
+            ReturnKind defer_kind = defer_node->data.defer.kind;
+            results[defer_kind] += 1;
+
+        }
+        inner_scope = inner_scope->parent;
+    }
+}
+
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
@@ -1762,8 +1780,22 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     return_value = ir_build_const_void(irb, scope, node);
                 }
 
-                // TODO conditionally gen maybe defers and error defers
-                ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
+                size_t defer_counts[3];
+                ir_count_defers(irb, scope, outer_scope, defer_counts);
+                if (defer_counts[ReturnKindError] > 0) {
+                    // TODO in this situation we need to make a conditional
+                    // branch on the return value. we potentially must make multiple conditional branches,
+                    // if unconditional defers are interleaved with error defers.
+                    zig_panic("TODO handle error defers");
+                } else if (defer_counts[ReturnKindMaybe] > 0) {
+                    // TODO in this situation we need to make a conditional
+                    // branch on the maybe value. we potentially must make multiple conditional branches,
+                    // if unconditional defers are interleaved with error defers.
+                    zig_panic("TODO handle maybe defers");
+                } else {
+                    // generate unconditional defers
+                    ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
+                }
                 return ir_build_return(irb, scope, node, return_value);
             }
         case ReturnKindError:
