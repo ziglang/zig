@@ -585,7 +585,7 @@ static void ir_print_size_of(IrPrint *irp, IrInstructionSizeOf *instruction) {
 static void ir_print_test_null(IrPrint *irp, IrInstructionTestNull *instruction) {
     fprintf(irp->f, "*");
     ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, " == null");
+    fprintf(irp->f, " != null");
 }
 
 static void ir_print_unwrap_maybe(IrPrint *irp, IrInstructionUnwrapMaybe *instruction) {

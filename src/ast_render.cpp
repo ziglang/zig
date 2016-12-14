@@ -759,7 +759,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, ": ");
                     render_node_ungrouped(ar, var_decl->type);
                 }
-                fprintf(ar->f, " = ");
+                fprintf(ar->f, " ?= ");
                 render_node_grouped(ar, var_decl->expr);
                 fprintf(ar->f, ") ");
                 render_node_grouped(ar, node->data.if_var_expr.then_block);

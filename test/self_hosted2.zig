@@ -343,6 +343,18 @@ fn shlWithOverflow() {
     assert(result == 0b1011111111111100);
 }
 
+fn assignToIfVarPtr() {
+
+    var maybe_bool: ?bool = true;
+
+    if (const *b ?= maybe_bool) {
+        *b = false;
+    }
+
+    assert(??maybe_bool == false);
+}
+
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
@@ -377,6 +389,7 @@ fn runAllTests() {
     intTypeBuiltin();
     overflowIntrinsics();
     shlWithOverflow();
+    assignToIfVarPtr();
 }
 
 export nakedcc fn _start() -> unreachable {

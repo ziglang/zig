@@ -1731,7 +1731,13 @@ static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *o
     }
 }
 
-static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node) {
+static void ir_set_cursor_at_end(IrBuilder *irb, IrBasicBlock *basic_block) {
+    assert(basic_block);
+
+    irb->current_basic_block = basic_block;
+}
+
+static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node, LValPurpose lval) {
     assert(node->type == NodeTypeReturnExpr);
 
     FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
@@ -1740,6 +1746,9 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node)
         return irb->codegen->invalid_instruction;
     }
 
+    Scope *outer_scope = fn_entry->child_scope;
+    bool is_inline = ir_should_inline(irb);
+
     AstNode *expr_node = node->data.return_expr.expr;
     switch (node->data.return_expr.kind) {
         case ReturnKindUnconditional:
@@ -1747,26 +1756,44 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node)
                 IrInstruction *return_value;
                 if (expr_node) {
                     return_value = ir_gen_node(irb, expr_node, scope);
+                    if (return_value == irb->codegen->invalid_instruction)
+                        return irb->codegen->invalid_instruction;
                 } else {
                     return_value = ir_build_const_void(irb, scope, node);
                 }
 
-                Scope *outer_scope = fn_entry->child_scope;
+                // TODO conditionally gen maybe defers and error defers
                 ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
                 return ir_build_return(irb, scope, node, return_value);
             }
         case ReturnKindError:
             zig_panic("TODO gen IR for %%return");
         case ReturnKindMaybe:
-            zig_panic("TODO gen IR for ?return");
+            {
+                assert(expr_node);
+                IrInstruction *maybe_val_ptr = ir_gen_node_extra(irb, expr_node, scope, LValPurposeAddressOf);
+                if (maybe_val_ptr == irb->codegen->invalid_instruction)
+                    return irb->codegen->invalid_instruction;
+                IrInstruction *is_nonnull_val = ir_build_test_null(irb, scope, node, maybe_val_ptr);
+
+                IrBasicBlock *return_block = ir_build_basic_block(irb, scope, "MaybeRetReturn");
+                IrBasicBlock *continue_block = ir_build_basic_block(irb, scope, "MaybeRetContinue");
+                ir_build_cond_br(irb, scope, node, is_nonnull_val, continue_block, return_block, is_inline);
+
+                ir_set_cursor_at_end(irb, return_block);
+                ir_gen_defers_for_block(irb, scope, outer_scope, false, true);
+                IrInstruction *null = ir_build_const_null(irb, scope, node);
+                ir_build_return(irb, scope, node, null);
+
+                ir_set_cursor_at_end(irb, continue_block);
+                IrInstruction *unwrapped_ptr = ir_build_unwrap_maybe(irb, scope, node, maybe_val_ptr, false);
+                if (lval != LValPurposeNone)
+                    return unwrapped_ptr;
+                else
+                    return ir_build_load_ptr(irb, scope, node, unwrapped_ptr);
+            }
     }
     zig_unreachable();
-}
-
-static void ir_set_cursor_at_end(IrBuilder *irb, IrBasicBlock *basic_block) {
-    assert(basic_block);
-
-    irb->current_basic_block = basic_block;
 }
 
 static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Scope *parent_scope,
@@ -3606,7 +3633,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeArrayAccessExpr:
             return ir_gen_array_access(irb, scope, node, lval);
         case NodeTypeReturnExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_return(irb, scope, node), lval);
+            return ir_gen_return(irb, scope, node, lval);
         case NodeTypeFieldAccessExpr:
             return ir_gen_field_access(irb, scope, node, lval);
         case NodeTypeThisLiteral:
@@ -3827,6 +3854,7 @@ static TypeTableEntry *ir_determine_peer_types(IrAnalyze *ira, AstNode *source_n
         return ira->codegen->builtin_types.entry_invalid;
     }
     bool any_are_pure_error = (prev_inst->type_entry->id == TypeTableEntryIdPureError);
+    bool any_are_null = (prev_inst->type_entry->id == TypeTableEntryIdNullLit);
     for (size_t i = 1; i < instruction_count; i += 1) {
         IrInstruction *cur_inst = instructions[i];
         TypeTableEntry *cur_type = cur_inst->type_entry;
@@ -3836,8 +3864,14 @@ static TypeTableEntry *ir_determine_peer_types(IrAnalyze *ira, AstNode *source_n
         } else if (prev_type->id == TypeTableEntryIdPureError) {
             prev_inst = cur_inst;
             continue;
+        } else if (prev_type->id == TypeTableEntryIdNullLit) {
+            prev_inst = cur_inst;
+            continue;
         } else if (cur_type->id == TypeTableEntryIdPureError) {
             any_are_pure_error = true;
+            continue;
+        } else if (cur_type->id == TypeTableEntryIdNullLit) {
+            any_are_null = true;
             continue;
         } else if (types_match_const_cast_only(prev_type, cur_type)) {
             continue;
@@ -3889,9 +3923,13 @@ static TypeTableEntry *ir_determine_peer_types(IrAnalyze *ira, AstNode *source_n
                 return ira->codegen->builtin_types.entry_invalid;
             }
         } else {
-            add_node_error(ira->codegen, source_node,
+            ErrorMsg *msg = add_node_error(ira->codegen, source_node,
                 buf_sprintf("incompatible types: '%s' and '%s'",
                     buf_ptr(&prev_type->name), buf_ptr(&cur_type->name)));
+            add_error_note(ira->codegen, msg, prev_inst->source_node,
+                buf_sprintf("type '%s' here", buf_ptr(&prev_type->name)));
+            add_error_note(ira->codegen, msg, cur_inst->source_node,
+                buf_sprintf("type '%s' here", buf_ptr(&cur_type->name)));
 
             return ira->codegen->builtin_types.entry_invalid;
         }
@@ -3903,8 +3941,22 @@ static TypeTableEntry *ir_determine_peer_types(IrAnalyze *ira, AstNode *source_n
             add_node_error(ira->codegen, source_node,
                 buf_sprintf("unable to make error union out of number literal"));
             return ira->codegen->builtin_types.entry_invalid;
+        } else if (prev_inst->type_entry->id == TypeTableEntryIdNullLit) {
+            add_node_error(ira->codegen, source_node,
+                buf_sprintf("unable to make error union out of null literal"));
+            return ira->codegen->builtin_types.entry_invalid;
         } else {
             return get_error_type(ira->codegen, prev_inst->type_entry);
+        }
+    } else if (any_are_null && prev_inst->type_entry->id != TypeTableEntryIdNullLit) {
+        if (prev_inst->type_entry->id == TypeTableEntryIdNumLitInt ||
+            prev_inst->type_entry->id == TypeTableEntryIdNumLitFloat)
+        {
+            add_node_error(ira->codegen, source_node,
+                buf_sprintf("unable to make maybe out of number literal"));
+            return ira->codegen->builtin_types.entry_invalid;
+        } else {
+            return get_maybe_type(ira->codegen, prev_inst->type_entry);
         }
     } else {
         return prev_inst->type_entry;
@@ -9053,16 +9105,9 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //static TypeTableEntry *analyze_return_expr(CodeGen *g, ImportTableEntry *import, BlockContext *context,
 //        TypeTableEntry *expected_type, AstNode *node)
 //{
-//    if (!node->data.return_expr.expr) {
-//        node->data.return_expr.expr = create_ast_void_node(g, import, node);
-//        normalize_parent_ptrs(node);
-//    }
-//
 //    TypeTableEntry *expected_return_type = get_return_type(context);
 //
 //    switch (node->data.return_expr.kind) {
-//        case ReturnKindUnconditional:
-//            zig_panic("TODO moved to ir.cpp");
 //        case ReturnKindError:
 //            {
 //                TypeTableEntry *expected_err_type;
@@ -9090,34 +9135,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //                } else {
 //                    add_node_error(g, node->data.return_expr.expr,
 //                        buf_sprintf("expected error type, found '%s'", buf_ptr(&resolved_type->name)));
-//                    return g->builtin_types.entry_invalid;
-//                }
-//            }
-//        case ReturnKindMaybe:
-//            {
-//                TypeTableEntry *expected_maybe_type;
-//                if (expected_type) {
-//                    expected_maybe_type = get_maybe_type(g, expected_type);
-//                } else {
-//                    expected_maybe_type = nullptr;
-//                }
-//                TypeTableEntry *resolved_type = analyze_expression(g, import, context, expected_maybe_type,
-//                        node->data.return_expr.expr);
-//                if (resolved_type->id == TypeTableEntryIdInvalid) {
-//                    return resolved_type;
-//                } else if (resolved_type->id == TypeTableEntryIdMaybe) {
-//                    if (expected_return_type->id != TypeTableEntryIdMaybe) {
-//                        ErrorMsg *msg = add_node_error(g, node,
-//                            buf_sprintf("?return statement in function with return type '%s'",
-//                                buf_ptr(&expected_return_type->name)));
-//                        AstNode *return_type_node = context->fn_entry->fn_def_node->data.fn_def.fn_proto->data.fn_proto.return_type;
-//                        add_error_note(g, msg, return_type_node, buf_sprintf("function return type here"));
-//                    }
-//
-//                    return resolved_type->data.maybe.child_type;
-//                } else {
-//                    add_node_error(g, node->data.return_expr.expr,
-//                        buf_sprintf("expected maybe type, found '%s'", buf_ptr(&resolved_type->name)));
 //                    return g->builtin_types.entry_invalid;
 //                }
 //            }
@@ -9339,43 +9356,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
 //                LLVMPositionBuilderAtEnd(g->builder, continue_block);
 //                if (type_has_bits(child_type)) {
 //                    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, value, 1, "");
-//                    return get_handle_value(g, val_ptr, child_type);
-//                } else {
-//                    return nullptr;
-//                }
-//            }
-//        case ReturnKindMaybe:
-//            {
-//                assert(value_type->id == TypeTableEntryIdMaybe);
-//                TypeTableEntry *child_type = value_type->data.maybe.child_type;
-//
-//                LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeRetReturn");
-//                LLVMBasicBlockRef continue_block = LLVMAppendBasicBlock(g->cur_fn->fn_value, "MaybeRetContinue");
-//
-//                LLVMValueRef maybe_val_ptr = LLVMBuildStructGEP(g->builder, value, 1, "");
-//                LLVMValueRef is_non_null = LLVMBuildLoad(g->builder, maybe_val_ptr, "");
-//
-//                LLVMValueRef zero = LLVMConstNull(LLVMInt1Type());
-//                LLVMValueRef cond_val = LLVMBuildICmp(g->builder, LLVMIntNE, is_non_null, zero, "");
-//                LLVMBuildCondBr(g->builder, cond_val, continue_block, return_block);
-//
-//                LLVMPositionBuilderAtEnd(g->builder, return_block);
-//                TypeTableEntry *return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
-//                assert(return_type->id == TypeTableEntryIdMaybe);
-//                if (handle_is_ptr(return_type)) {
-//                    assert(g->cur_ret_ptr);
-//
-//                    LLVMValueRef maybe_bit_ptr = LLVMBuildStructGEP(g->builder, g->cur_ret_ptr, 1, "");
-//                    LLVMBuildStore(g->builder, zero, maybe_bit_ptr);
-//                    LLVMBuildRetVoid(g->builder);
-//                } else {
-//                    LLVMValueRef ret_zero_value = LLVMConstNull(return_type->type_ref);
-//                    gen_return(g, node, ret_zero_value, ReturnKnowledgeKnownNull);
-//                }
-//
-//                LLVMPositionBuilderAtEnd(g->builder, continue_block);
-//                if (type_has_bits(child_type)) {
-//                    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, value, 0, "");
 //                    return get_handle_value(g, val_ptr, child_type);
 //                } else {
 //                    return nullptr;
