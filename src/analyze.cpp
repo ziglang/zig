@@ -1384,7 +1384,7 @@ FnTableEntry *create_fn(AstNode *proto_node) {
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
     FnInline inline_value = fn_proto->is_inline ? FnInlineAlways : FnInlineAuto;
-    bool internal_linkage = (fn_proto->visib_mod != VisibModExport);
+    bool internal_linkage = (fn_proto->visib_mod != VisibModExport && !proto_node->data.fn_proto.is_extern);
     FnTableEntry *fn_entry = create_fn_raw(inline_value, internal_linkage);
 
     fn_entry->proto_node = proto_node;
