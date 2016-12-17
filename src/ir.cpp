@@ -5690,8 +5690,10 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         var_type = decl_var_instruction->var_type->other;
         TypeTableEntry *proposed_type = ir_resolve_type(ira, var_type);
         explicit_type = validate_var_type(ira->codegen, var_type->source_node, proposed_type);
-        if (explicit_type->id == TypeTableEntryIdInvalid)
-            return explicit_type;
+        if (explicit_type->id == TypeTableEntryIdInvalid) {
+            var->type = ira->codegen->builtin_types.entry_invalid;
+            return var->type;
+        }
     }
 
     AstNode *source_node = decl_var_instruction->base.source_node;
@@ -7596,6 +7598,33 @@ static TypeTableEntry *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionC
     }
 }
 
+static IrInstruction *ir_analyze_enum_tag(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value) {
+    if (value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->invalid_instruction;
+
+    if (value->type_entry->id != TypeTableEntryIdEnum) {
+        ir_add_error(ira, source_instr,
+            buf_sprintf("expected enum type, found '%s'", buf_ptr(&value->type_entry->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (instr_is_comptime(value)) {
+        ConstExprValue *val = ir_resolve_const(ira, value);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
+                source_instr->scope, source_instr->source_node);
+        const_instruction->base.type_entry = value->type_entry->data.enumeration.tag_type;
+        const_instruction->base.static_value.special = ConstValSpecialStatic;
+        const_instruction->base.static_value.depends_on_compile_var = val->depends_on_compile_var;
+        bignum_init_unsigned(&const_instruction->base.static_value.data.x_bignum, val->data.x_enum.tag);
+        return &const_instruction->base;
+    }
+
+    zig_panic("TODO runtime enum tag instruction");
+}
+
 static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         IrInstructionSwitchBr *switch_br_instruction)
 {
@@ -7650,6 +7679,12 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         IrInstruction *new_value = old_value->other;
         if (new_value->type_entry->id == TypeTableEntryIdInvalid)
             continue;
+
+        if (new_value->type_entry->id == TypeTableEntryIdEnum) {
+            new_value = ir_analyze_enum_tag(ira, &switch_br_instruction->base, new_value);
+            if (new_value->type_entry->id == TypeTableEntryIdInvalid)
+                continue;
+        }
 
         IrInstruction *casted_new_value = ir_implicit_cast(ira, new_value, target_value->type_entry);
         if (casted_new_value->type_entry->id == TypeTableEntryIdInvalid)
@@ -7719,7 +7754,10 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                     return tag_type;
                 }
 
-                ir_build_enum_tag_from(&ira->new_irb, &switch_target_instruction->base, target_value_ptr);
+                IrInstruction *enum_value = ir_build_load_ptr(&ira->new_irb, switch_target_instruction->base.scope,
+                    switch_target_instruction->base.source_node, target_value_ptr);
+                enum_value->type_entry = target_type;
+                ir_build_enum_tag_from(&ira->new_irb, &switch_target_instruction->base, enum_value);
                 return tag_type;
             }
         case TypeTableEntryIdErrorUnion:
@@ -7748,10 +7786,11 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira,
     zig_panic("TODO switch var analyze");
 }
 
-static TypeTableEntry *ir_analyze_instruction_enum_tag(IrAnalyze *ira,
-        IrInstructionEnumTag *enum_tag_instruction)
-{
-    zig_panic("TODO ir_analyze_instruction_enum_tag");
+static TypeTableEntry *ir_analyze_instruction_enum_tag(IrAnalyze *ira, IrInstructionEnumTag *enum_tag_instruction) {
+    IrInstruction *value = enum_tag_instruction->value->other;
+    IrInstruction *new_instruction = ir_analyze_enum_tag(ira, &enum_tag_instruction->base, value);
+    ir_link_new_instruction(new_instruction, &enum_tag_instruction->base);
+    return new_instruction->type_entry;
 }
 
 static TypeTableEntry *ir_analyze_instruction_static_eval(IrAnalyze *ira,

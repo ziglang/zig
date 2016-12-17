@@ -34,31 +34,31 @@ pub var stderr = OutStream {
 
 /// The function received invalid input at runtime. An Invalid error means a
 /// bug in the program that called the function.
-pub error Invalid;
+error Invalid;
 
 /// When an Unexpected error occurs, code that emitted the error likely needs
 /// a patch to recognize the unexpected case so that it can handle it and emit
 /// a more specific error.
-pub error Unexpected;
+error Unexpected;
 
-pub error DiskQuota;
-pub error FileTooBig;
-pub error Io;
-pub error NoSpaceLeft;
-pub error BadPerm;
-pub error PipeFail;
-pub error BadFd;
-pub error IsDir;
-pub error NotDir;
-pub error SymLinkLoop;
-pub error ProcessFdQuotaExceeded;
-pub error SystemFdQuotaExceeded;
-pub error NameTooLong;
-pub error NoDevice;
-pub error PathNotFound;
-pub error NoMem;
-pub error Unseekable;
-pub error Eof;
+error DiskQuota;
+error FileTooBig;
+error Io;
+error NoSpaceLeft;
+error BadPerm;
+error PipeFail;
+error BadFd;
+error IsDir;
+error NotDir;
+error SymLinkLoop;
+error ProcessFdQuotaExceeded;
+error SystemFdQuotaExceeded;
+error NameTooLong;
+error NoDevice;
+error PathNotFound;
+error NoMem;
+error Unseekable;
+error Eof;
 
 const buffer_size = 4 * 1024;
 const max_u64_base10_digits = 20;
@@ -374,7 +374,7 @@ pub fn parseUnsigned(inline T: type, buf: []u8, radix: u8) -> %T {
     return x;
 }
 
-pub error InvalidChar;
+error InvalidChar;
 fn charToDigit(c: u8, radix: u8) -> %u8 {
     const value = if ('0' <= c && c <= '9') {
         c - '0'

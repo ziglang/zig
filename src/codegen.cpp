@@ -1420,12 +1420,12 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
 static LLVMValueRef ir_render_enum_field_ptr(CodeGen *g, IrExecutable *executable,
     IrInstructionEnumFieldPtr *instruction)
 {
-    LLVMValueRef enum_ptr = ir_llvm_value(g, instruction->enum_ptr);
     TypeEnumField *field = instruction->field;
 
     if (!type_has_bits(field->type_entry))
         return nullptr;
 
+    LLVMValueRef enum_ptr = ir_llvm_value(g, instruction->enum_ptr);
     LLVMTypeRef field_type_ref = LLVMPointerType(field->type_entry->type_ref, 0);
     LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, enum_ptr, enum_gen_union_index, "");
     LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr, field_type_ref, "");
@@ -2140,6 +2140,20 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executa
     return instruction->tmp_ptr;
 }
 
+static LLVMValueRef ir_render_enum_tag(CodeGen *g, IrExecutable *executable, IrInstructionEnumTag *instruction) {
+    TypeTableEntry *enum_type = instruction->value->type_entry;
+    TypeTableEntry *tag_type = enum_type->data.enumeration.tag_type;
+    if (!type_has_bits(tag_type))
+        return nullptr;
+
+    LLVMValueRef enum_val = ir_llvm_value(g, instruction->value);
+    if (enum_type->data.enumeration.gen_field_count == 0)
+        return enum_val;
+
+    LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, enum_val, enum_gen_tag_index, "");
+    return get_handle_value(g, tag_field_ptr, tag_type);
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -2271,10 +2285,11 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_err_wrap_code(g, executable, (IrInstructionErrWrapCode *)instruction);
         case IrInstructionIdErrWrapPayload:
             return ir_render_err_wrap_payload(g, executable, (IrInstructionErrWrapPayload *)instruction);
+        case IrInstructionIdEnumTag:
+            return ir_render_enum_tag(g, executable, (IrInstructionEnumTag *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdStructInit:
-        case IrInstructionIdEnumTag:
             zig_panic("TODO render more IR instructions to LLVM");
     }
     zig_unreachable();
@@ -3240,7 +3255,7 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
         entry->zero_bits = true; // only allowed at compile time
-        buf_init_from_str(&entry->name, "@OS");
+        buf_init_from_str(&entry->name, "Os");
         uint32_t field_count = target_os_count();
         entry->data.enumeration.src_field_count = field_count;
         entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
@@ -3249,6 +3264,7 @@ static void define_builtin_types(CodeGen *g) {
             ZigLLVM_OSType os_type = get_target_os(i);
             type_enum_field->name = buf_create_from_str(get_target_os_name(os_type));
             type_enum_field->value = i;
+            type_enum_field->type_entry = g->builtin_types.entry_void;
 
             if (os_type == g->zig_target.os) {
                 g->target_os_index = i;
@@ -3260,12 +3276,13 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.enumeration.tag_type = tag_type_entry;
 
         g->builtin_types.entry_os_enum = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
         entry->zero_bits = true; // only allowed at compile time
-        buf_init_from_str(&entry->name, "@Arch");
+        buf_init_from_str(&entry->name, "Arch");
         uint32_t field_count = target_arch_count();
         entry->data.enumeration.src_field_count = field_count;
         entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
@@ -3278,6 +3295,7 @@ static void define_builtin_types(CodeGen *g) {
             buf_resize(type_enum_field->name, strlen(buf_ptr(type_enum_field->name)));
 
             type_enum_field->value = i;
+            type_enum_field->type_entry = g->builtin_types.entry_void;
 
             if (arch_type->arch == g->zig_target.arch.arch &&
                 arch_type->sub_arch == g->zig_target.arch.sub_arch)
@@ -3291,12 +3309,13 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.enumeration.tag_type = tag_type_entry;
 
         g->builtin_types.entry_arch_enum = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
         entry->zero_bits = true; // only allowed at compile time
-        buf_init_from_str(&entry->name, "@Environ");
+        buf_init_from_str(&entry->name, "Environ");
         uint32_t field_count = target_environ_count();
         entry->data.enumeration.src_field_count = field_count;
         entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
@@ -3317,12 +3336,13 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.enumeration.tag_type = tag_type_entry;
 
         g->builtin_types.entry_environ_enum = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
         entry->zero_bits = true; // only allowed at compile time
-        buf_init_from_str(&entry->name, "@ObjectFormat");
+        buf_init_from_str(&entry->name, "ObjectFormat");
         uint32_t field_count = target_oformat_count();
         entry->data.enumeration.src_field_count = field_count;
         entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
@@ -3343,6 +3363,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.enumeration.tag_type = tag_type_entry;
 
         g->builtin_types.entry_oformat_enum = entry;
+        g->primitive_type_table.put(&entry->name, entry);
     }
 
     {

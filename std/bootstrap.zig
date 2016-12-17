@@ -5,7 +5,7 @@ const linux = @import("linux.zig");
 const cstr = @import("cstr.zig");
 
 const want_start_symbol = switch(@compileVar("os")) {
-    linux => true,
+    Os.linux => true,
     else => false,
 };
 const want_main_symbol = !want_start_symbol;
@@ -17,11 +17,11 @@ export nakedcc fn _start() -> unreachable {
     @setFnVisible(this, want_start_symbol);
 
     switch (@compileVar("arch")) {
-        x86_64 => {
+        Arch.x86_64 => {
             argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> usize));
             argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));
         },
-        i386 => {
+        Arch.i386 => {
             argc = asm("mov (%%esp), %[argc]": [argc] "=r" (-> usize));
             argv = asm("lea 0x4(%%esp), %[argv]": [argv] "=r" (-> &&u8));
         },
@@ -31,7 +31,7 @@ export nakedcc fn _start() -> unreachable {
 }
 
 fn callMain() -> %void {
-    var args: [argc][]u8 = undefined;
+    const args = @alloca([]u8, argc);
     for (args) |arg, i| {
         const ptr = argv[i];
         args[i] = ptr[0...cstr.len(ptr)];
