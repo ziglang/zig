@@ -7635,7 +7635,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
     size_t case_count = switch_br_instruction->case_count;
     bool is_inline = ir_should_inline(&ira->new_irb) || switch_br_instruction->is_inline;
 
-    if (is_inline || target_value->static_value.special != ConstValSpecialRuntime) {
+    if (is_inline || instr_is_comptime(target_value)) {
         ConstExprValue *target_val = ir_resolve_const(ira, target_value);
         if (!target_val)
             return ir_unreach_error(ira);
@@ -7645,6 +7645,12 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
             IrInstruction *case_value = old_case->value->other;
             if (case_value->type_entry->id == TypeTableEntryIdInvalid)
                 return ir_unreach_error(ira);
+
+            if (case_value->type_entry->id == TypeTableEntryIdEnum) {
+                case_value = ir_analyze_enum_tag(ira, &switch_br_instruction->base, case_value);
+                if (case_value->type_entry->id == TypeTableEntryIdInvalid)
+                    return ir_unreach_error(ira);
+            }
 
             IrInstruction *casted_case_value = ir_implicit_cast(ira, case_value, target_value->type_entry);
             if (casted_case_value->type_entry->id == TypeTableEntryIdInvalid)

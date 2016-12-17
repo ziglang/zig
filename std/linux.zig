@@ -1,6 +1,6 @@
 const arch = switch (@compileVar("arch")) {
-    x86_64 => @import("linux_x86_64.zig"),
-    i386 => @import("linux_i386.zig"),
+    Arch.x86_64 => @import("linux_x86_64.zig"),
+    Arch.i386 => @import("linux_i386.zig"),
     else => @compileError("unsupported arch"),
 };
 const errno = @import("errno.zig");
