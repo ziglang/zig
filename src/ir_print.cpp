@@ -295,14 +295,6 @@ static const char *ir_un_op_id_str(IrUnOp op_id) {
             return "?";
         case IrUnOpError:
             return "%";
-        case IrUnOpUnwrapError:
-            return "%%";
-        case IrUnOpUnwrapMaybe:
-            return "??";
-        case IrUnOpMaybeReturn:
-            return "?return";
-        case IrUnOpErrorReturn:
-            return "%return";
     }
     zig_unreachable();
 }
@@ -855,6 +847,51 @@ static void ir_print_overflow_op(IrPrint *irp, IrInstructionOverflowOp *instruct
     fprintf(irp->f, ")");
 }
 
+static void ir_print_test_err(IrPrint *irp, IrInstructionTestErr *instruction) {
+    fprintf(irp->f, "@testError(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_err_union_type_child(IrPrint *irp, IrInstructionErrUnionTypeChild *instruction) {
+    fprintf(irp->f, "@errorUnionTypeChild(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_unwrap_err_code(IrPrint *irp, IrInstructionUnwrapErrCode *instruction) {
+    fprintf(irp->f, "@unwrapErrorCode(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_unwrap_err_payload(IrPrint *irp, IrInstructionUnwrapErrPayload *instruction) {
+    fprintf(irp->f, "@unwrapErrorPayload(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+    if (!instruction->safety_check_on) {
+        fprintf(irp->f, " // no safety");
+    }
+}
+
+static void ir_print_maybe_wrap(IrPrint *irp, IrInstructionMaybeWrap *instruction) {
+    fprintf(irp->f, "@maybeWrap(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_err_wrap_code(IrPrint *irp, IrInstructionErrWrapCode *instruction) {
+    fprintf(irp->f, "@errWrapCode(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_err_wrap_payload(IrPrint *irp, IrInstructionErrWrapPayload *instruction) {
+    fprintf(irp->f, "@errWrapPayload(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1066,6 +1103,27 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdOverflowOp:
             ir_print_overflow_op(irp, (IrInstructionOverflowOp *)instruction);
+            break;
+        case IrInstructionIdTestErr:
+            ir_print_test_err(irp, (IrInstructionTestErr *)instruction);
+            break;
+        case IrInstructionIdUnwrapErrCode:
+            ir_print_unwrap_err_code(irp, (IrInstructionUnwrapErrCode *)instruction);
+            break;
+        case IrInstructionIdUnwrapErrPayload:
+            ir_print_unwrap_err_payload(irp, (IrInstructionUnwrapErrPayload *)instruction);
+            break;
+        case IrInstructionIdErrUnionTypeChild:
+            ir_print_err_union_type_child(irp, (IrInstructionErrUnionTypeChild *)instruction);
+            break;
+        case IrInstructionIdMaybeWrap:
+            ir_print_maybe_wrap(irp, (IrInstructionMaybeWrap *)instruction);
+            break;
+        case IrInstructionIdErrWrapCode:
+            ir_print_err_wrap_code(irp, (IrInstructionErrWrapCode *)instruction);
+            break;
+        case IrInstructionIdErrWrapPayload:
+            ir_print_err_wrap_payload(irp, (IrInstructionErrWrapPayload *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

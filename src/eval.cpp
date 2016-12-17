@@ -342,23 +342,6 @@ void eval_const_expr_implicit_cast(CastOp cast_op,
                 const_val->special = ConstValSpecialStatic;
                 break;
             }
-        case CastOpMaybeWrap:
-            const_val->data.x_maybe = other_val;
-            const_val->special = ConstValSpecialStatic;
-            break;
-        case CastOpNullToMaybe:
-            const_val->data.x_maybe = nullptr;
-            const_val->special = ConstValSpecialStatic;
-            break;
-        case CastOpErrorWrap:
-            const_val->data.x_err_union.err = nullptr;
-            const_val->data.x_err_union.payload = other_val;
-            const_val->special = ConstValSpecialStatic;
-            break;
-        case CastOpPureErrorWrap:
-            const_val->data.x_err_union.err = other_val->data.x_pure_err;
-            const_val->special = ConstValSpecialStatic;
-            break;
         case CastOpErrToInt:
             {
                 uint64_t value;

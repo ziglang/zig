@@ -969,63 +969,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             } else {
                 zig_panic("TODO");
             }
-        case CastOpMaybeWrap:
-            {
-                assert(cast_instruction->tmp_ptr);
-                assert(wanted_type->id == TypeTableEntryIdMaybe);
-                assert(actual_type);
-
-                TypeTableEntry *child_type = wanted_type->data.maybe.child_type;
-
-                if (child_type->id == TypeTableEntryIdPointer ||
-                    child_type->id == TypeTableEntryIdFn)
-                {
-                    return expr_val;
-                } else {
-                    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, 0, "");
-                    gen_assign_raw(g, cast_instruction->base.source_node,
-                            val_ptr, expr_val, child_type, actual_type);
-
-                    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, 1, "");
-                    LLVMBuildStore(g->builder, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr);
-                }
-
-                return cast_instruction->tmp_ptr;
-            }
-        case CastOpNullToMaybe:
-            // handled by constant expression evaluator
-            zig_unreachable();
-        case CastOpErrorWrap:
-            {
-                assert(wanted_type->id == TypeTableEntryIdErrorUnion);
-                TypeTableEntry *child_type = wanted_type->data.error.child_type;
-                LLVMValueRef ok_err_val = LLVMConstNull(g->err_tag_type->type_ref);
-
-                if (!type_has_bits(child_type)) {
-                    return ok_err_val;
-                } else {
-                    assert(cast_instruction->tmp_ptr);
-                    assert(wanted_type->id == TypeTableEntryIdErrorUnion);
-                    assert(actual_type);
-
-                    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, 0, "");
-                    LLVMBuildStore(g->builder, ok_err_val, err_tag_ptr);
-
-                    LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, cast_instruction->tmp_ptr, 1, "");
-                    gen_assign_raw(g, cast_instruction->base.source_node,
-                            payload_ptr, expr_val, child_type, actual_type);
-
-                    return cast_instruction->tmp_ptr;
-                }
-            }
-        case CastOpPureErrorWrap:
-            assert(wanted_type->id == TypeTableEntryIdErrorUnion);
-
-            if (!type_has_bits(wanted_type->data.error.child_type)) {
-                return expr_val;
-            } else {
-                zig_panic("TODO");
-            }
         case CastOpPtrToInt:
             return LLVMBuildPtrToInt(g->builder, expr_val, wanted_type->type_ref, "");
         case CastOpIntToPtr:
@@ -1257,78 +1200,6 @@ static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInst
             {
                 zig_panic("TODO codegen PrefixOpMaybe");
             }
-        case IrUnOpUnwrapError:
-            {
-                assert(expr_type->id == TypeTableEntryIdErrorUnion);
-                TypeTableEntry *child_type = expr_type->data.error.child_type;
-
-                if (ir_want_debug_safety(g, &un_op_instruction->base)) {
-                    LLVMValueRef err_val;
-                    if (type_has_bits(child_type)) {
-                        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, expr, 0, "");
-                        err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
-                    } else {
-                        err_val = expr;
-                    }
-                    LLVMValueRef zero = LLVMConstNull(g->err_tag_type->type_ref);
-                    LLVMValueRef cond_val = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, zero, "");
-                    LLVMBasicBlockRef err_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapErrError");
-                    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapErrOk");
-                    LLVMBuildCondBr(g->builder, cond_val, ok_block, err_block);
-
-                    LLVMPositionBuilderAtEnd(g->builder, err_block);
-                    gen_debug_safety_crash(g);
-
-                    LLVMPositionBuilderAtEnd(g->builder, ok_block);
-                }
-
-                if (type_has_bits(child_type)) {
-                    LLVMValueRef child_val_ptr = LLVMBuildStructGEP(g->builder, expr, 1, "");
-                    return get_handle_value(g, child_val_ptr, child_type);
-                } else {
-                    return nullptr;
-                }
-            }
-        case IrUnOpUnwrapMaybe:
-            {
-                assert(expr_type->id == TypeTableEntryIdMaybe);
-                TypeTableEntry *child_type = expr_type->data.maybe.child_type;
-
-                if (ir_want_debug_safety(g, &un_op_instruction->base)) {
-                    LLVMValueRef cond_val;
-                    if (child_type->id == TypeTableEntryIdPointer ||
-                        child_type->id == TypeTableEntryIdFn)
-                    {
-                        cond_val = LLVMBuildICmp(g->builder, LLVMIntNE, expr,
-                                LLVMConstNull(child_type->type_ref), "");
-                    } else {
-                        LLVMValueRef maybe_null_ptr = LLVMBuildStructGEP(g->builder, expr, 1, "");
-                        cond_val = LLVMBuildLoad(g->builder, maybe_null_ptr, "");
-                    }
-
-                    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapMaybeOk");
-                    LLVMBasicBlockRef null_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapMaybeNull");
-                    LLVMBuildCondBr(g->builder, cond_val, ok_block, null_block);
-
-                    LLVMPositionBuilderAtEnd(g->builder, null_block);
-                    gen_debug_safety_crash(g);
-
-                    LLVMPositionBuilderAtEnd(g->builder, ok_block);
-                }
-
-
-                if (child_type->id == TypeTableEntryIdPointer ||
-                    child_type->id == TypeTableEntryIdFn)
-                {
-                    return expr;
-                } else {
-                    LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, expr, 0, "");
-                    return get_handle_value(g, maybe_field_ptr, child_type);
-                }
-            }
-        case IrUnOpErrorReturn:
-        case IrUnOpMaybeReturn:
-            zig_panic("TODO codegen more un ops");
     }
 
     zig_unreachable();
@@ -2132,6 +2003,143 @@ static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, 
     return overflow_bit;
 }
 
+static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrInstructionTestErr *instruction) {
+    TypeTableEntry *ptr_type = get_underlying_type(instruction->value->type_entry);
+    TypeTableEntry *err_union_type = get_underlying_type(ptr_type->data.pointer.child_type);
+    TypeTableEntry *child_type = get_underlying_type(err_union_type->data.error.child_type);
+    LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
+    LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type);
+
+    LLVMValueRef err_val;
+    if (type_has_bits(child_type)) {
+        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
+        err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
+    } else {
+        err_val = err_union_handle;
+    }
+
+    LLVMValueRef zero = LLVMConstNull(g->err_tag_type->type_ref);
+    return LLVMBuildICmp(g->builder, LLVMIntNE, err_val, zero, "");
+}
+
+static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executable, IrInstructionUnwrapErrCode *instruction) {
+    TypeTableEntry *ptr_type = get_underlying_type(instruction->value->type_entry);
+    TypeTableEntry *err_union_type = get_underlying_type(ptr_type->data.pointer.child_type);
+    TypeTableEntry *child_type = get_underlying_type(err_union_type->data.error.child_type);
+    LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
+    LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type);
+
+    if (type_has_bits(child_type)) {
+        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
+        return LLVMBuildLoad(g->builder, err_val_ptr, "");
+    } else {
+        return err_union_handle;
+    }
+}
+
+static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *executable, IrInstructionUnwrapErrPayload *instruction) {
+    TypeTableEntry *ptr_type = get_underlying_type(instruction->value->type_entry);
+    TypeTableEntry *err_union_type = get_underlying_type(ptr_type->data.pointer.child_type);
+    TypeTableEntry *child_type = get_underlying_type(err_union_type->data.error.child_type);
+    LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
+    LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type);
+
+    if (ir_want_debug_safety(g, &instruction->base) && instruction->safety_check_on) {
+        LLVMValueRef err_val;
+        if (type_has_bits(child_type)) {
+            LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
+            err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
+        } else {
+            err_val = err_union_handle;
+        }
+        LLVMValueRef zero = LLVMConstNull(g->err_tag_type->type_ref);
+        LLVMValueRef cond_val = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, zero, "");
+        LLVMBasicBlockRef err_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapErrError");
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapErrOk");
+        LLVMBuildCondBr(g->builder, cond_val, ok_block, err_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, err_block);
+        gen_debug_safety_crash(g);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    }
+
+    if (type_has_bits(child_type)) {
+        return LLVMBuildStructGEP(g->builder, err_union_handle, err_union_payload_index, "");
+    } else {
+        return nullptr;
+    }
+}
+
+static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, IrInstructionMaybeWrap *instruction) {
+    TypeTableEntry *wanted_type = instruction->base.type_entry;
+
+    assert(wanted_type->id == TypeTableEntryIdMaybe);
+
+    TypeTableEntry *child_type = wanted_type->data.maybe.child_type;
+
+    LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
+    if (child_type->id == TypeTableEntryIdPointer ||
+        child_type->id == TypeTableEntryIdFn)
+    {
+        return payload_val;
+    }
+
+    assert(instruction->tmp_ptr);
+
+    LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_child_index, "");
+    gen_assign_raw(g, instruction->base.source_node, val_ptr, payload_val, child_type, instruction->value->type_entry);
+
+    LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_null_index, "");
+    LLVMBuildStore(g->builder, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr);
+
+    return instruction->tmp_ptr;
+}
+
+static LLVMValueRef ir_render_err_wrap_code(CodeGen *g, IrExecutable *executable, IrInstructionErrWrapCode *instruction) {
+    TypeTableEntry *wanted_type = instruction->base.type_entry;
+
+    assert(wanted_type->id == TypeTableEntryIdErrorUnion);
+
+    TypeTableEntry *child_type = wanted_type->data.error.child_type;
+    LLVMValueRef err_val = ir_llvm_value(g, instruction->value);
+
+    if (!type_has_bits(child_type))
+        return err_val;
+
+    assert(instruction->tmp_ptr);
+
+    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
+    LLVMBuildStore(g->builder, err_val, err_tag_ptr);
+
+    return instruction->tmp_ptr;
+}
+
+static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executable, IrInstructionErrWrapPayload *instruction) {
+    TypeTableEntry *wanted_type = instruction->base.type_entry;
+
+    assert(wanted_type->id == TypeTableEntryIdErrorUnion);
+
+    TypeTableEntry *child_type = wanted_type->data.error.child_type;
+
+    LLVMValueRef ok_err_val = LLVMConstNull(g->err_tag_type->type_ref);
+
+    if (!type_has_bits(child_type))
+        return ok_err_val;
+
+    assert(instruction->tmp_ptr);
+
+    LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
+
+    LLVMValueRef err_tag_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
+    LLVMBuildStore(g->builder, ok_err_val, err_tag_ptr);
+
+    LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_payload_index, "");
+    gen_assign_raw(g, instruction->base.source_node, payload_ptr, payload_val, child_type, instruction->value->type_entry);
+
+    return instruction->tmp_ptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -2175,6 +2183,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdIntType:
         case IrInstructionIdMemberCount:
         case IrInstructionIdAlignOf:
+        case IrInstructionIdErrUnionTypeChild:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -2250,6 +2259,18 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_frame_address(g, executable, (IrInstructionFrameAddress *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_render_overflow_op(g, executable, (IrInstructionOverflowOp *)instruction);
+        case IrInstructionIdTestErr:
+            return ir_render_test_err(g, executable, (IrInstructionTestErr *)instruction);
+        case IrInstructionIdUnwrapErrCode:
+            return ir_render_unwrap_err_code(g, executable, (IrInstructionUnwrapErrCode *)instruction);
+        case IrInstructionIdUnwrapErrPayload:
+            return ir_render_unwrap_err_payload(g, executable, (IrInstructionUnwrapErrPayload *)instruction);
+        case IrInstructionIdMaybeWrap:
+            return ir_render_maybe_wrap(g, executable, (IrInstructionMaybeWrap *)instruction);
+        case IrInstructionIdErrWrapCode:
+            return ir_render_err_wrap_code(g, executable, (IrInstructionErrWrapCode *)instruction);
+        case IrInstructionIdErrWrapPayload:
+            return ir_render_err_wrap_payload(g, executable, (IrInstructionErrWrapPayload *)instruction);
         case IrInstructionIdSwitchVar:
         case IrInstructionIdContainerInitList:
         case IrInstructionIdStructInit:
@@ -2835,6 +2856,15 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdSlice) {
                 IrInstructionSlice *slice_instruction = (IrInstructionSlice *)instruction;
                 slot = &slice_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdMaybeWrap) {
+                IrInstructionMaybeWrap *maybe_wrap_instruction = (IrInstructionMaybeWrap *)instruction;
+                slot = &maybe_wrap_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdErrWrapPayload) {
+                IrInstructionErrWrapPayload *err_wrap_payload_instruction = (IrInstructionErrWrapPayload *)instruction;
+                slot = &err_wrap_payload_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdErrWrapCode) {
+                IrInstructionErrWrapCode *err_wrap_code_instruction = (IrInstructionErrWrapCode *)instruction;
+                slot = &err_wrap_code_instruction->tmp_ptr;
             } else {
                 zig_unreachable();
             }

@@ -862,10 +862,20 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, "const");
                 break;
             }
+        case NodeTypeUnwrapErrorExpr:
+            {
+                render_node_ungrouped(ar, node->data.unwrap_err_expr.op1);
+                fprintf(ar->f, " %%%% ");
+                if (node->data.unwrap_err_expr.symbol) {
+                    Buf *var_name = node->data.unwrap_err_expr.symbol->data.symbol_expr.symbol;
+                    fprintf(ar->f, "|%s| ", buf_ptr(var_name));
+                }
+                render_node_ungrouped(ar, node->data.unwrap_err_expr.op2);
+                break;
+            }
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
-        case NodeTypeUnwrapErrorExpr:
         case NodeTypeStructField:
         case NodeTypeUse:
         case NodeTypeZeroesLiteral:

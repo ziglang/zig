@@ -1,4 +1,5 @@
 const case_namespace_fn_call = @import("cases/namespace_fn_call.zig");
+const case_err_wrapping = @import("cases/err_wrapping.zig");
 
 pub const SYS_write = 1;
 pub const SYS_exit = 60;
@@ -354,6 +355,9 @@ fn assignToIfVarPtr() {
     assert(??maybe_bool == false);
 }
 
+fn errorWrapping() {
+    assert(%%case_err_wrapping.baz() == 15);
+}
 
 fn assert(ok: bool) {
     if (!ok)
@@ -390,6 +394,7 @@ fn runAllTests() {
     overflowIntrinsics();
     shlWithOverflow();
     assignToIfVarPtr();
+    errorWrapping();
 }
 
 export nakedcc fn _start() -> unreachable {

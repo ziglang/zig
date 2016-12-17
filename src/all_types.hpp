@@ -115,14 +115,26 @@ enum ConstValSpecial {
     ConstValSpecialZeroes,
 };
 
+enum RuntimeHintErrorUnion {
+    RuntimeHintErrorUnionUnknown,
+    RuntimeHintErrorUnionError,
+    RuntimeHintErrorUnionNonError,
+};
+
+enum RuntimeHintMaybe {
+    RuntimeHintMaybeUnknown,
+    RuntimeHintMaybeNull, // TODO is this value even possible? if this is the case it might mean the const value is compile time known.
+    RuntimeHintMaybeNonNull,
+};
+
 struct ConstExprValue {
     ConstValSpecial special;
     bool depends_on_compile_var;
     LLVMValueRef llvm_value;
     LLVMValueRef llvm_global;
 
-    // populated if val_type == ConstValTypeOk
     union {
+        // populated if special == ConstValSpecialStatic
         BigNum x_bignum;
         bool x_bool;
         FnTableEntry *x_fn;
@@ -137,6 +149,10 @@ struct ConstExprValue {
         ConstPtrValue x_ptr;
         ImportTableEntry *x_import;
         Scope *x_block;
+
+        // populated if special == ConstValSpecialRuntime
+        RuntimeHintErrorUnion rh_error_union;
+        RuntimeHintMaybe rh_maybe;
     } data;
 };
 
@@ -412,10 +428,6 @@ enum CastOp {
     CastOpIntToPtr,
     CastOpWidenOrShorten,
     CastOpToUnknownSizeArray,
-    CastOpMaybeWrap,
-    CastOpNullToMaybe,
-    CastOpErrorWrap,
-    CastOpPureErrorWrap,
     CastOpPointerReinterpret,
     CastOpErrToInt,
     CastOpIntToFloat,
@@ -1394,6 +1406,7 @@ enum IrInstructionId {
     IrInstructionIdSizeOf,
     IrInstructionIdTestNull,
     IrInstructionIdUnwrapMaybe,
+    IrInstructionIdMaybeWrap,
     IrInstructionIdEnumTag,
     IrInstructionIdClz,
     IrInstructionIdCtz,
@@ -1426,6 +1439,12 @@ enum IrInstructionId {
     IrInstructionIdFrameAddress,
     IrInstructionIdAlignOf,
     IrInstructionIdOverflowOp,
+    IrInstructionIdTestErr,
+    IrInstructionIdUnwrapErrCode,
+    IrInstructionIdUnwrapErrPayload,
+    IrInstructionIdErrUnionTypeChild,
+    IrInstructionIdErrWrapCode,
+    IrInstructionIdErrWrapPayload,
 };
 
 struct IrInstruction {
@@ -1439,7 +1458,6 @@ struct IrInstruction {
     // if ref_count is zero, instruction can be omitted in codegen
     size_t ref_count;
     IrInstruction *other;
-    ReturnKnowledge return_knowledge;
 };
 
 struct IrInstructionCondBr {
@@ -1504,10 +1522,6 @@ enum IrUnOp {
     IrUnOpDereference,
     IrUnOpError,
     IrUnOpMaybe,
-    IrUnOpUnwrapError,
-    IrUnOpUnwrapMaybe,
-    IrUnOpErrorReturn,
-    IrUnOpMaybeReturn,
 };
 
 struct IrInstructionUnOp {
@@ -2004,6 +2018,53 @@ struct IrInstructionAlignOf {
     IrInstruction *type_value;
 };
 
+// returns true if error, returns false if not error
+struct IrInstructionTestErr {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionUnwrapErrCode {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionUnwrapErrPayload {
+    IrInstruction base;
+
+    IrInstruction *value;
+    bool safety_check_on;
+};
+
+struct IrInstructionErrUnionTypeChild {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+};
+
+struct IrInstructionMaybeWrap {
+    IrInstruction base;
+
+    IrInstruction *value;
+    LLVMValueRef tmp_ptr;
+};
+
+struct IrInstructionErrWrapPayload {
+    IrInstruction base;
+
+    IrInstruction *value;
+    LLVMValueRef tmp_ptr;
+};
+
+struct IrInstructionErrWrapCode {
+    IrInstruction base;
+
+    IrInstruction *value;
+    LLVMValueRef tmp_ptr;
+};
+
 enum LValPurpose {
     LValPurposeNone,
     LValPurposeAssign,
@@ -2018,5 +2079,8 @@ static const size_t maybe_null_index = 1;
 
 static const size_t enum_gen_tag_index = 0;
 static const size_t enum_gen_union_index = 1;
+
+static const size_t err_union_err_index = 0;
+static const size_t err_union_payload_index = 1;
 
 #endif
