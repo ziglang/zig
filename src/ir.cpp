@@ -6319,11 +6319,13 @@ static TypeTableEntry *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *un
 
     if ((expr_type->id == TypeTableEntryIdInt && expr_type->data.integral.is_signed) ||
         expr_type->id == TypeTableEntryIdNumLitInt ||
-        ((expr_type->id == TypeTableEntryIdFloat || expr_type->id == TypeTableEntryIdNumLitFloat) &&
-        !is_wrap_op))
+        ((expr_type->id == TypeTableEntryIdFloat || expr_type->id == TypeTableEntryIdNumLitFloat) && !is_wrap_op))
     {
-        ConstExprValue *target_const_val = &value->static_value;
-        if (target_const_val->special != ConstValSpecialRuntime) {
+        if (instr_is_comptime(value)) {
+            ConstExprValue *target_const_val = ir_resolve_const(ira, value, UndefBad);
+            if (!target_const_val)
+                return ira->codegen->builtin_types.entry_invalid;
+
             bool depends_on_compile_var = value->static_value.depends_on_compile_var;
             ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base, depends_on_compile_var);
             bignum_negate(&out_val->data.x_bignum, &target_const_val->data.x_bignum);
@@ -6344,6 +6346,9 @@ static TypeTableEntry *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *un
             }
             return expr_type;
         }
+
+        ir_build_un_op_from(&ira->new_irb, &un_op_instruction->base, un_op_instruction->op_id, value);
+        return expr_type;
     }
 
     const char *fmt = is_wrap_op ? "invalid wrapping negation type: '%s'" : "invalid negation type: '%s'";
