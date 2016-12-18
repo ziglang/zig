@@ -216,6 +216,7 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, 
 static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool mandatory, VisibMod visib_mod);
 static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index);
 static AstNode *ast_parse_grouped_expr(ParseContext *pc, size_t *token_index, bool mandatory);
+static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, bool mandatory);
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
     if (token->id == token_id) {
@@ -618,7 +619,7 @@ static AstNode *ast_parse_goto_expr(ParseContext *pc, size_t *token_index, bool 
     return node;
 }
 /*
-PrimaryExpression = "Number" | "String" | "CharLiteral" | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | "Symbol" | ("@" "Symbol" FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." "Symbol")
+PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
 KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "zeroes" | "error" | "type" | "this"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -736,6 +737,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
     if (asm_expr) {
         return asm_expr;
     }
+
+    AstNode *container_decl = ast_parse_container_decl(pc, token_index, false);
+    if (container_decl)
+        return container_decl;
 
     if (!mandatory)
         return nullptr;
@@ -2219,43 +2224,31 @@ static AstNode *ast_parse_use(ParseContext *pc, size_t *token_index, VisibMod vi
 }
 
 /*
-ContainerDecl = ("struct" | "enum" | "union") Symbol option(ParamDeclList) "{" many(StructMember) "}"
-StructMember = (StructField | FnDef | GlobalVarDecl | ContainerDecl)
+ContainerDecl = ("struct" | "enum" | "union") "{" many(StructMember) "}"
+StructMember = (StructField | FnDef | GlobalVarDecl)
 StructField = Symbol option(":" Expression) ",")
 */
-static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, VisibMod visib_mod) {
+static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *first_token = &pc->tokens->at(*token_index);
 
     ContainerKind kind;
-
     if (first_token->id == TokenIdKeywordStruct) {
         kind = ContainerKindStruct;
     } else if (first_token->id == TokenIdKeywordEnum) {
         kind = ContainerKindEnum;
     } else if (first_token->id == TokenIdKeywordUnion) {
         kind = ContainerKindUnion;
+    } else if (mandatory) {
+        ast_invalid_token_error(pc, first_token);
     } else {
         return nullptr;
     }
     *token_index += 1;
 
-    Token *struct_name = ast_eat_token(pc, token_index, TokenIdSymbol);
-
     AstNode *node = ast_create_node(pc, NodeTypeContainerDecl, first_token);
-    node->data.struct_decl.kind = kind;
-    node->data.struct_decl.name = token_buf(struct_name);
-    node->data.struct_decl.visib_mod = visib_mod;
+    node->data.container_decl.kind = kind;
 
-    Token *paren_or_brace = &pc->tokens->at(*token_index);
-    if (paren_or_brace->id == TokenIdLParen) {
-        ast_parse_param_decl_list(pc, token_index, &node->data.struct_decl.generic_params,
-                &node->data.struct_decl.generic_params_is_var_args);
-        ast_eat_token(pc, token_index, TokenIdLBrace);
-    } else if (paren_or_brace->id == TokenIdLBrace) {
-        *token_index += 1;
-    } else {
-        ast_invalid_token_error(pc, paren_or_brace);
-    }
+    ast_eat_token(pc, token_index, TokenIdLBrace);
 
     for (;;) {
         Token *visib_tok = &pc->tokens->at(*token_index);
@@ -2272,20 +2265,14 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
 
         AstNode *fn_def_node = ast_parse_fn_def(pc, token_index, false, visib_mod);
         if (fn_def_node) {
-            node->data.struct_decl.decls.append(fn_def_node);
+            node->data.container_decl.decls.append(fn_def_node);
             continue;
         }
 
         AstNode *var_decl_node = ast_parse_variable_declaration_expr(pc, token_index, false, visib_mod);
         if (var_decl_node) {
             ast_eat_token(pc, token_index, TokenIdSemicolon);
-            node->data.struct_decl.decls.append(var_decl_node);
-            continue;
-        }
-
-        AstNode *container_decl_node = ast_parse_container_decl(pc, token_index, visib_mod);
-        if (container_decl_node) {
-            node->data.struct_decl.decls.append(container_decl_node);
+            node->data.container_decl.decls.append(var_decl_node);
             continue;
         }
 
@@ -2311,7 +2298,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
                 ast_eat_token(pc, token_index, TokenIdComma);
             }
 
-            node->data.struct_decl.fields.append(field_node);
+            node->data.container_decl.fields.append(field_node);
         } else {
             ast_invalid_token_error(pc, token);
         }
@@ -2368,7 +2355,7 @@ static AstNode *ast_parse_type_decl(ParseContext *pc, size_t *token_index, Visib
 
 /*
 TopLevelItem = ErrorValueDecl | Block | TopLevelDecl
-TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | ContainerDecl | GlobalVarDecl | TypeDecl | UseDecl)
+TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | TypeDecl | UseDecl)
 */
 static void ast_parse_top_level_decls(ParseContext *pc, size_t *token_index, ZigList<AstNode *> *top_level_decls) {
     for (;;) {
@@ -2399,12 +2386,6 @@ static void ast_parse_top_level_decls(ParseContext *pc, size_t *token_index, Zig
         AstNode *use_node = ast_parse_use(pc, token_index, visib_mod);
         if (use_node) {
             top_level_decls->append(use_node);
-            continue;
-        }
-
-        AstNode *struct_node = ast_parse_container_decl(pc, token_index, visib_mod);
-        if (struct_node) {
-            top_level_decls->append(struct_node);
             continue;
         }
 
@@ -2630,8 +2611,8 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             }
             break;
         case NodeTypeContainerDecl:
-            visit_node_list(&node->data.struct_decl.fields, visit, context);
-            visit_node_list(&node->data.struct_decl.decls, visit, context);
+            visit_node_list(&node->data.container_decl.fields, visit, context);
+            visit_node_list(&node->data.container_decl.decls, visit, context);
             break;
         case NodeTypeStructField:
             visit_field(&node->data.struct_field.type, visit, context);

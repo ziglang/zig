@@ -44,6 +44,7 @@ struct IrGotoItem {
 
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
+    Buf *name;
     size_t mem_slot_count;
     size_t next_debug_id;
     size_t *backward_branch_count;
@@ -195,7 +196,6 @@ struct Tld {
     // set this flag temporarily to detect infinite loops
     bool dep_loop_flag;
     TldResolution resolution;
-    Tld *parent_tld;
 };
 
 struct TldVar {
@@ -594,12 +594,8 @@ enum ContainerKind {
     ContainerKindUnion,
 };
 
-struct AstNodeStructDecl {
-    VisibMod visib_mod;
-    Buf *name;
+struct AstNodeContainerDecl {
     ContainerKind kind;
-    ZigList<AstNode *> generic_params;
-    bool generic_params_is_var_args; // always an error but it can happen from parsing
     ZigList<AstNode *> fields;
     ZigList<AstNode *> decls;
 };
@@ -722,7 +718,7 @@ struct AstNode {
         AstNodeGoto goto_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
-        AstNodeStructDecl struct_decl;
+        AstNodeContainerDecl container_decl;
         AstNodeStructField struct_field;
         AstNodeStringLiteral string_literal;
         AstNodeCharLiteral char_literal;

@@ -2306,6 +2306,8 @@ static IrInstruction *ir_gen_decl_ref(IrBuilder *irb, AstNode *source_node, Tld 
         return irb->codegen->invalid_instruction;
 
     switch (tld->id) {
+        case TldIdContainer:
+            zig_unreachable();
         case TldIdVar:
         {
             TldVar *tld_var = (TldVar *)tld;
@@ -2322,16 +2324,6 @@ static IrInstruction *ir_gen_decl_ref(IrBuilder *irb, AstNode *source_node, Tld 
             FnTableEntry *fn_entry = tld_fn->fn_entry;
             assert(fn_entry->type_entry);
             IrInstruction *ref_instruction = ir_build_const_fn(irb, scope, source_node, fn_entry);
-            if (lval != LValPurposeNone)
-                return ir_build_ref(irb, scope, source_node, ref_instruction);
-            else
-                return ref_instruction;
-        }
-        case TldIdContainer:
-        {
-            TldContainer *tld_container = (TldContainer *)tld;
-
-            IrInstruction *ref_instruction = ir_build_const_type(irb, scope, source_node, tld_container->type_entry);
             if (lval != LValPurposeNone)
                 return ir_build_ref(irb, scope, source_node, ref_instruction);
             else
@@ -3861,6 +3853,52 @@ static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstN
     return ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
 }
 
+static const char *container_string(ContainerKind kind) {
+    switch (kind) {
+        case ContainerKindEnum: return "enum";
+        case ContainerKindStruct: return "struct";
+        case ContainerKindUnion: return "union";
+    }
+    zig_unreachable();
+}
+
+static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeContainerDecl);
+
+    ContainerKind kind = node->data.container_decl.kind;
+    Buf *name;
+    if (irb->exec->name) {
+        name = irb->exec->name;
+    } else {
+        FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
+        if (fn_entry) {
+            zig_panic("TODO name the container inside the function");
+        } else {
+            name = buf_sprintf("(anonymous %s at %s:%zu:%zu)", container_string(kind),
+                buf_ptr(node->owner->path), node->line + 1, node->column + 1);
+        }
+    }
+
+
+    VisibMod visib_mod = VisibModPub;
+    TldContainer *tld_container = allocate<TldContainer>(1);
+    init_tld(&tld_container->base, TldIdContainer, name, visib_mod, node, parent_scope);
+
+    TypeTableEntry *container_type = get_partial_container_type(irb->codegen, parent_scope, kind, node, buf_ptr(name));
+    ScopeDecls *child_scope = get_container_scope(container_type);
+
+    tld_container->type_entry = container_type;
+    tld_container->decls_scope = child_scope;
+
+    for (size_t i = 0; i < node->data.container_decl.decls.length; i += 1) {
+        AstNode *child_node = node->data.container_decl.decls.at(i);
+        scan_decls(irb->codegen, child_scope, child_node);
+    }
+    irb->codegen->resolve_queue.append(&tld_container->base);
+
+    return ir_build_const_type(irb, parent_scope, node, container_type);
+}
+
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
         LValPurpose lval)
 {
@@ -3872,6 +3910,7 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeUse:
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
+        case NodeTypeStructField:
             zig_unreachable();
         case NodeTypeBlock:
             return ir_lval_wrap(irb, scope, ir_gen_block(irb, scope, node), lval);
@@ -3941,11 +3980,11 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_slice(irb, scope, node), lval);
         case NodeTypeUnwrapErrorExpr:
             return ir_lval_wrap(irb, scope, ir_gen_err_ok_or(irb, scope, node), lval);
+        case NodeTypeContainerDecl:
+            return ir_lval_wrap(irb, scope, ir_gen_container_decl(irb, scope, node), lval);
         case NodeTypeFnProto:
         case NodeTypeFnDef:
         case NodeTypeFnDecl:
-        case NodeTypeContainerDecl:
-        case NodeTypeStructField:
         case NodeTypeErrorValueDecl:
         case NodeTypeTypeDecl:
             zig_panic("TODO more IR gen for node types");
@@ -4558,9 +4597,10 @@ static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, Un
 
 IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         TypeTableEntry *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,
-        FnTableEntry *fn_entry, Buf *c_import_buf, AstNode *source_node)
+        FnTableEntry *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name)
 {
     IrExecutable ir_executable = {0};
+    ir_executable.name = exec_name;
     ir_executable.is_inline = true;
     ir_executable.fn_entry = fn_entry;
     ir_executable.c_import_buf = c_import_buf;
@@ -4577,6 +4617,7 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
         fprintf(stderr, "}\n");
     }
     IrExecutable analyzed_executable = {0};
+    analyzed_executable.name = exec_name;
     analyzed_executable.is_inline = true;
     analyzed_executable.fn_entry = fn_entry;
     analyzed_executable.c_import_buf = c_import_buf;
@@ -6017,7 +6058,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         AstNode *body_node = fn_entry->fn_def_node->data.fn_def.body;
         IrInstruction *result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
             ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry,
-            nullptr, call_instruction->base.source_node);
+            nullptr, call_instruction->base.source_node, nullptr);
         if (result->type_entry->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
@@ -6772,6 +6813,8 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
         return ira->codegen->builtin_types.entry_invalid;
 
     switch (tld->id) {
+        case TldIdContainer:
+            zig_unreachable();
         case TldIdVar:
         {
             TldVar *tld_var = (TldVar *)tld;
@@ -6792,21 +6835,6 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
 
             bool ptr_is_const = true;
             return ir_analyze_const_ptr(ira, source_instruction, const_val, fn_entry->type_entry,
-                    depends_on_compile_var, ConstPtrSpecialNone, ptr_is_const);
-        }
-        case TldIdContainer:
-        {
-            TldContainer *tld_container = (TldContainer *)tld;
-            assert(tld_container->type_entry);
-
-            // TODO instead of allocating this every time, put it in the tld value and we can reference
-            // the same one every time
-            ConstExprValue *const_val = allocate<ConstExprValue>(1);
-            const_val->special = ConstValSpecialStatic;
-            const_val->data.x_type = tld_container->type_entry;
-
-            bool ptr_is_const = true;
-            return ir_analyze_const_ptr(ira, source_instruction, const_val, ira->codegen->builtin_types.entry_type,
                     depends_on_compile_var, ConstPtrSpecialNone, ptr_is_const);
         }
         case TldIdTypeDef:
@@ -7928,7 +7956,7 @@ static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructi
     ImportTableEntry *target_import = add_source_file(ira->codegen, target_package,
             abs_full_path, search_dir, import_target_path, import_code);
 
-    scan_decls(ira->codegen, target_import, target_import->decls_scope, target_import->root, nullptr);
+    scan_decls(ira->codegen, target_import->decls_scope, target_import->root);
 
     ConstExprValue *out_val = ir_build_const_from(ira, &import_instruction->base, depends_on_compile_var);
     out_val->data.x_import = target_import;
@@ -8303,7 +8331,7 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
     TypeTableEntry *void_type = ira->codegen->builtin_types.entry_void;
     IrInstruction *result = ir_eval_const_value(ira->codegen, &cimport_scope->base, block_node, void_type,
         ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, nullptr,
-        &cimport_scope->buf, block_node);
+        &cimport_scope->buf, block_node, nullptr);
     if (result->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 

@@ -120,7 +120,7 @@ static const char *decl_name(const Decl *decl) {
 }
 
 static void parseh_init_tld(Context *c, Tld *tld, TldId id, Buf *name) {
-    init_tld(tld, id, name, c->visib_mod, c->source_node, &c->import->decls_scope->base, nullptr);
+    init_tld(tld, id, name, c->visib_mod, c->source_node, &c->import->decls_scope->base);
     tld->resolution = TldResolutionOk;
 }
 
@@ -184,7 +184,7 @@ static Tld *create_global_num_lit_ap(Context *c, const Decl *source_decl, Buf *n
 }
 
 
-static void add_const_type(Context *c, Buf *name, TypeTableEntry *type_entry) {
+static Tld *add_const_type(Context *c, Buf *name, TypeTableEntry *type_entry) {
     ConstExprValue *var_value = allocate<ConstExprValue>(1);
     var_value->special = ConstValSpecialStatic;
     var_value->data.x_type = type_entry;
@@ -192,15 +192,11 @@ static void add_const_type(Context *c, Buf *name, TypeTableEntry *type_entry) {
     add_global(c, &tld_var->base);
 
     c->global_type_table.put(name, type_entry);
+    return &tld_var->base;
 }
 
 static Tld *add_container_tld(Context *c, TypeTableEntry *type_entry) {
-    TldContainer *tld_container = allocate<TldContainer>(1);
-    parseh_init_tld(c, &tld_container->base, TldIdContainer, &type_entry->name);
-    tld_container->type_entry = type_entry;
-
-    add_global(c, &tld_container->base);
-    return &tld_container->base;
+    return add_const_type(c, &type_entry->name, type_entry);
 }
 
 static Tld *add_typedef_tld(Context *c, TypeTableEntry *type_decl) {
@@ -690,8 +686,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
 
     const EnumDecl *enum_def = enum_decl->getDefinition();
     if (!enum_def) {
-        TypeTableEntry *enum_type = get_partial_container_type(c->codegen, c->import,
-                &c->import->decls_scope->base,
+        TypeTableEntry *enum_type = get_partial_container_type(c->codegen, &c->import->decls_scope->base,
                 ContainerKindEnum, c->source_node, buf_ptr(full_type_name));
         c->enum_type_table.put(bare_name, enum_type);
         c->decl_table.put(enum_decl, enum_type);
@@ -715,8 +710,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
     TypeTableEntry *tag_type_entry = resolve_qual_type(c, enum_decl->getIntegerType(), enum_decl);
 
     if (pure_enum) {
-        TypeTableEntry *enum_type = get_partial_container_type(c->codegen, c->import,
-                &c->import->decls_scope->base,
+        TypeTableEntry *enum_type = get_partial_container_type(c->codegen, &c->import->decls_scope->base,
                 ContainerKindEnum, c->source_node, buf_ptr(full_type_name));
         c->enum_type_table.put(bare_name, enum_type);
         c->decl_table.put(enum_decl, enum_type);
@@ -855,8 +849,8 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
     Buf *full_type_name = buf_sprintf("struct_%s", buf_ptr(bare_name));
 
 
-    TypeTableEntry *struct_type = get_partial_container_type(c->codegen, c->import,
-            &c->import->decls_scope->base, ContainerKindStruct, c->source_node, buf_ptr(full_type_name));
+    TypeTableEntry *struct_type = get_partial_container_type(c->codegen, &c->import->decls_scope->base,
+        ContainerKindStruct, c->source_node, buf_ptr(full_type_name));
 
     c->struct_type_table.put(bare_name, struct_type);
     c->decl_table.put(record_decl, struct_type);

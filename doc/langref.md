@@ -7,7 +7,7 @@ Root = many(TopLevelItem) "EOF"
 
 TopLevelItem = ErrorValueDecl | Block | TopLevelDecl
 
-TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | ContainerDecl | GlobalVarDecl | TypeDecl | UseDecl)
+TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | TypeDecl | UseDecl)
 
 TypeDecl = "type" Symbol "=" TypeExpr ";"
 
@@ -17,9 +17,7 @@ GlobalVarDecl = VariableDeclaration ";"
 
 VariableDeclaration = option("inline") ("var" | "const") Symbol option(":" TypeExpr) "=" Expression
 
-ContainerDecl = ("struct" | "enum" | "union") Symbol option(ParamDeclList) "{" many(StructMember) "}"
-
-StructMember = (StructField | FnDef | GlobalVarDecl | ContainerDecl)
+StructMember = (StructField | FnDef | GlobalVarDecl)
 
 StructField = Symbol option(":" Expression) ",")
 
@@ -143,7 +141,7 @@ StructLiteralField = "." Symbol "=" Expression
 
 PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%" | "??" | "-%"
 
-PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol)
+PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
 
 ArrayType = "[" option(Expression) "]" option("const") TypeExpr
 
@@ -152,6 +150,9 @@ GotoExpression = option("inline") "goto" Symbol
 GroupedExpression = "(" Expression ")"
 
 KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "zeroes" | "error" | "type" | "this"
+
+ContainerDecl = ("struct" | "enum" | "union") "{" many(StructMember) "}"
+
 ```
 
 ## Operator Precedence

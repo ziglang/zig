@@ -87,9 +87,9 @@ var goto_counter: i32 = 0;
 
 
 
-struct FooA {
+const FooA = struct {
     fn add(a: i32, b: i32) -> i32 { a + b }
-}
+};
 const foo_a = FooA {};
 
 fn testStructStatic() {

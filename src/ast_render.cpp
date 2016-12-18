@@ -585,13 +585,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             break;
         case NodeTypeContainerDecl:
             {
-                const char *struct_name = buf_ptr(node->data.struct_decl.name);
-                const char *pub_str = visib_mod_string(node->data.struct_decl.visib_mod);
-                const char *container_str = container_string(node->data.struct_decl.kind);
-                fprintf(ar->f, "%s%s %s {\n", pub_str, container_str, struct_name);
+                const char *container_str = container_string(node->data.container_decl.kind);
+                fprintf(ar->f, "%s {\n", container_str);
                 ar->indent += ar->indent_size;
-                for (size_t field_i = 0; field_i < node->data.struct_decl.fields.length; field_i += 1) {
-                    AstNode *field_node = node->data.struct_decl.fields.at(field_i);
+                for (size_t field_i = 0; field_i < node->data.container_decl.fields.length; field_i += 1) {
+                    AstNode *field_node = node->data.container_decl.fields.at(field_i);
                     assert(field_node->type == NodeTypeStructField);
                     print_indent(ar);
                     print_symbol(ar, field_node->data.struct_field.name);

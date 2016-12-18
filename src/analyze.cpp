@@ -831,10 +831,7 @@ static TypeTableEntryId container_to_type(ContainerKind kind) {
     zig_unreachable();
 }
 
-TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import, Scope *scope,
-        ContainerKind kind, AstNode *decl_node, const char *name)
-{
-
+TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind, AstNode *decl_node, const char *name) {
     TypeTableEntryId type_id = container_to_type(kind);
     TypeTableEntry *entry = new_container_type_entry(type_id, decl_node, scope);
 
@@ -852,6 +849,7 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import,
 
     unsigned line = decl_node->line;
 
+    ImportTableEntry *import = get_scope_import(scope);
     entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), name);
     entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
         ZigLLVMTag_DW_structure_type(), name,
@@ -862,15 +860,6 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, ImportTableEntry *import,
     return entry;
 }
 
-static TypeTableEntry *get_partial_container_type_tld(CodeGen *g, Scope *scope, TldContainer *tld_container) {
-    ImportTableEntry *import = tld_container->base.import;
-    AstNode *container_node = tld_container->base.source_node;
-    assert(container_node->type == NodeTypeContainerDecl);
-    ContainerKind kind = container_node->data.struct_decl.kind;
-    return get_partial_container_type(g, import, scope, kind, container_node, buf_ptr(tld_container->base.name));
-}
-
-
 TypeTableEntry *get_underlying_type(TypeTableEntry *type_entry) {
     if (type_entry->id == TypeTableEntryIdTypeDecl) {
         return type_entry->data.type_decl.canonical_type;
@@ -879,15 +868,15 @@ TypeTableEntry *get_underlying_type(TypeTableEntry *type_entry) {
     }
 }
 
-static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, TypeTableEntry *type_entry) {
+static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, TypeTableEntry *type_entry, Buf *type_name) {
     size_t backward_branch_count = 0;
     return ir_eval_const_value(g, scope, node, type_entry,
             &backward_branch_count, default_backward_branch_quota,
-            nullptr, nullptr, node);
+            nullptr, nullptr, node, type_name);
 }
 
 TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
-    IrInstruction *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type);
+    IrInstruction *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type, nullptr);
     if (result->type_entry->id == TypeTableEntryIdInvalid)
         return g->builtin_types.entry_invalid;
 
@@ -1069,7 +1058,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     assert(decl_node->type == NodeTypeContainerDecl);
     assert(enum_type->di_type);
 
-    uint32_t field_count = decl_node->data.struct_decl.fields.length;
+    uint32_t field_count = decl_node->data.container_decl.fields.length;
 
     enum_type->data.enumeration.src_field_count = field_count;
     enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
@@ -1091,7 +1080,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
 
     size_t gen_field_index = 0;
     for (uint32_t i = 0; i < field_count; i += 1) {
-        AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
+        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
         type_enum_field->name = field_node->data.struct_field.name;
         TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
@@ -1201,7 +1190,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, enum_type->type_ref);
             ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
                     ZigLLVMFileToScope(import->di_file),
-                    buf_ptr(decl_node->data.struct_decl.name),
+                    buf_ptr(&enum_type->name),
                     import->di_file, decl_node->line + 1,
                     debug_size_in_bits,
                     debug_align_in_bits,
@@ -1217,7 +1206,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
-                    ZigLLVMFileToScope(import->di_file), buf_ptr(decl_node->data.struct_decl.name),
+                    ZigLLVMFileToScope(import->di_file), buf_ptr(&enum_type->name),
                     import->di_file, decl_node->line + 1,
                     tag_debug_size_in_bits,
                     tag_debug_align_in_bits,
@@ -1257,7 +1246,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     assert(decl_node->type == NodeTypeContainerDecl);
     assert(struct_type->di_type);
 
-    size_t field_count = decl_node->data.struct_decl.fields.length;
+    size_t field_count = decl_node->data.container_decl.fields.length;
 
     struct_type->data.structure.src_field_count = field_count;
     struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
@@ -1274,7 +1263,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
 
     size_t gen_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
+        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         type_struct_field->name = field_node->data.struct_field.name;
         TypeTableEntry *field_type = analyze_type_expr(g, scope,
@@ -1316,7 +1305,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(gen_field_count);
 
     for (size_t i = 0; i < field_count; i += 1) {
-        AstNode *field_node = decl_node->data.struct_decl.fields.at(i);
+        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         gen_field_index = type_struct_field->gen_index;
         if (gen_field_index == SIZE_MAX) {
@@ -1348,7 +1337,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, struct_type->type_ref);
     ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
             ZigLLVMFileToScope(import->di_file),
-            buf_ptr(decl_node->data.struct_decl.name),
+            buf_ptr(&struct_type->name),
             import->di_file, decl_node->line + 1,
             debug_size_in_bits,
             debug_align_in_bits,
@@ -1364,14 +1353,28 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     zig_panic("TODO");
 }
 
-static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, uint8_t sep) {
-    if (tld->parent_tld) {
-        get_fully_qualified_decl_name(buf, tld->parent_tld, sep);
-        buf_append_char(buf, sep);
-        buf_append_buf(buf, tld->name);
-    } else {
-        buf_init_from_buf(buf, tld->name);
+static void get_fully_qualified_decl_name_internal(Buf *buf, Scope *scope, uint8_t sep) {
+    if (!scope)
+        return;
+
+    if (scope->id == ScopeIdDecls) {
+        get_fully_qualified_decl_name_internal(buf, scope->parent, sep);
+
+        ScopeDecls *scope_decls = (ScopeDecls *)scope;
+        if (scope_decls->container_type) {
+            buf_append_buf(buf, &scope_decls->container_type->name);
+            buf_append_char(buf, sep);
+        }
+        return;
     }
+
+    get_fully_qualified_decl_name_internal(buf, scope->parent, sep);
+}
+
+static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, uint8_t sep) {
+    buf_resize(buf, 0);
+    get_fully_qualified_decl_name_internal(buf, tld->parent_scope, sep);
+    buf_append_buf(buf, tld->name);
 }
 
 FnTableEntry *create_fn_raw(FnInline inline_value, bool internal_linkage) {
@@ -1399,6 +1402,17 @@ FnTableEntry *create_fn(AstNode *proto_node) {
     fn_entry->fn_def_node = proto_node->data.fn_proto.fn_def_node;
 
     return fn_entry;
+}
+
+static bool scope_is_root_decls(Scope *scope) {
+    while (scope) {
+        if (scope->id == ScopeIdDecls) {
+            ScopeDecls *scope_decls = (ScopeDecls *)scope;
+            return (scope_decls->container_type == nullptr);
+        }
+        scope = scope->parent;
+    }
+    zig_unreachable();
 }
 
 static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
@@ -1448,9 +1462,8 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         if (fn_def_node)
             g->fn_defs.append(fn_table_entry);
 
-        Tld *parent_tld = tld_fn->base.parent_tld;
-        bool is_main_fn = !parent_tld && (import == g->root_import) &&
-            buf_eql_str(&fn_table_entry->symbol_name, "main");
+        bool is_main_fn = scope_is_root_decls(tld_fn->base.parent_scope) &&
+            (import == g->root_import) && buf_eql_str(&fn_table_entry->symbol_name, "main");
         if (is_main_fn)
             g->main_fn = fn_table_entry;
 
@@ -1477,23 +1490,6 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
         ErrorMsg *msg = add_node_error(g, tld->source_node, buf_sprintf("redefinition of '%s'", buf_ptr(tld->name)));
         add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition is here"));
         return;
-    }
-}
-
-static void scan_struct_decl(CodeGen *g, ScopeDecls *decls_scope, TldContainer *tld_container) {
-    assert(!tld_container->type_entry);
-
-    AstNode *container_node = tld_container->base.source_node;
-    assert(container_node->type == NodeTypeContainerDecl);
-
-    TypeTableEntry *container_type = get_partial_container_type_tld(g, &decls_scope->base, tld_container);
-    tld_container->type_entry = container_type;
-
-    // handle the member function definitions independently
-    for (size_t i = 0; i < container_node->data.struct_decl.decls.length; i += 1) {
-        AstNode *child_node = container_node->data.struct_decl.decls.at(i);
-        ScopeDecls *child_scope = get_container_scope(container_type);
-        scan_decls(g, tld_container->base.import, child_scope, child_node, &tld_container->base);
     }
 }
 
@@ -1525,7 +1521,7 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
 }
 
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node,
-    Scope *parent_scope, Tld *parent_tld)
+    Scope *parent_scope)
 {
     tld->id = id;
     tld->name = name;
@@ -1533,40 +1529,25 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
     tld->source_node = source_node;
     tld->import = source_node->owner;
     tld->parent_scope = parent_scope;
-    tld->parent_tld = parent_tld;
 }
 
-void scan_decls(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, AstNode *node, Tld *parent_tld) {
+void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
     switch (node->type) {
         case NodeTypeRoot:
-            for (size_t i = 0; i < import->root->data.root.top_level_decls.length; i += 1) {
-                AstNode *child = import->root->data.root.top_level_decls.at(i);
-                scan_decls(g, import, decls_scope, child, parent_tld);
-            }
-            break;
-        case NodeTypeContainerDecl:
-            {
-                Buf *name = node->data.struct_decl.name;
-                VisibMod visib_mod = node->data.struct_decl.visib_mod;
-                TldContainer *tld_container = allocate<TldContainer>(1);
-                init_tld(&tld_container->base, TldIdContainer, name, visib_mod, node, &decls_scope->base, parent_tld);
-                add_top_level_decl(g, decls_scope, &tld_container->base);
-                if (node->data.struct_decl.generic_params.length == 0) {
-                    scan_struct_decl(g, decls_scope, tld_container);
-                } else {
-                    zig_panic("TODO all structs anonymous?");
-                }
+            for (size_t i = 0; i < node->data.root.top_level_decls.length; i += 1) {
+                AstNode *child = node->data.root.top_level_decls.at(i);
+                scan_decls(g, decls_scope, child);
             }
             break;
         case NodeTypeFnDef:
-            scan_decls(g, import, decls_scope, node->data.fn_def.fn_proto, parent_tld);
+            scan_decls(g, decls_scope, node->data.fn_def.fn_proto);
             break;
         case NodeTypeVariableDeclaration:
             {
                 Buf *name = node->data.variable_declaration.symbol;
                 VisibMod visib_mod = node->data.variable_declaration.visib_mod;
                 TldVar *tld_var = allocate<TldVar>(1);
-                init_tld(&tld_var->base, TldIdVar, name, visib_mod, node, &decls_scope->base, parent_tld);
+                init_tld(&tld_var->base, TldIdVar, name, visib_mod, node, &decls_scope->base);
                 add_top_level_decl(g, decls_scope, &tld_var->base);
                 break;
             }
@@ -1575,7 +1556,7 @@ void scan_decls(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, A
                 Buf *name = node->data.type_decl.symbol;
                 VisibMod visib_mod = node->data.type_decl.visib_mod;
                 TldTypeDef *tld_typedef = allocate<TldTypeDef>(1);
-                init_tld(&tld_typedef->base, TldIdTypeDef, name, visib_mod, node, &decls_scope->base, parent_tld);
+                init_tld(&tld_typedef->base, TldIdTypeDef, name, visib_mod, node, &decls_scope->base);
                 add_top_level_decl(g, decls_scope, &tld_typedef->base);
                 break;
             }
@@ -1590,13 +1571,14 @@ void scan_decls(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, A
 
                 VisibMod visib_mod = node->data.fn_proto.visib_mod;
                 TldFn *tld_fn = allocate<TldFn>(1);
-                init_tld(&tld_fn->base, TldIdFn, fn_name, visib_mod, node, &decls_scope->base, parent_tld);
+                init_tld(&tld_fn->base, TldIdFn, fn_name, visib_mod, node, &decls_scope->base);
                 add_top_level_decl(g, decls_scope, &tld_fn->base);
                 break;
             }
         case NodeTypeUse:
             {
                 g->use_queue.append(node);
+                ImportTableEntry *import = get_scope_import(&decls_scope->base);
                 import->use_decls.append(node);
                 break;
             }
@@ -1604,6 +1586,7 @@ void scan_decls(CodeGen *g, ImportTableEntry *import, ScopeDecls *decls_scope, A
             // error value declarations do not depend on other top level decls
             preview_error_value_decl(g, node);
             break;
+        case NodeTypeContainerDecl:
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
         case NodeTypeReturnExpr:
@@ -1787,7 +1770,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     if (explicit_type && explicit_type->id == TypeTableEntryIdInvalid) {
         implicit_type = explicit_type;
     } else if (var_decl->expr) {
-        init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type);
+        init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type, var_decl->symbol);
         assert(init_value);
         implicit_type = init_value->type_entry;
 
@@ -1837,13 +1820,6 @@ static void resolve_decl_typedef(CodeGen *g, TldTypeDef *tld_typedef) {
 void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only) {
     if (tld->resolution != TldResolutionUnresolved)
         return;
-    if (pointer_only && tld->id == TldIdContainer) {
-        g->resolve_queue.append(tld);
-        return;
-    }
-
-    ImportTableEntry *import = tld->import;
-    assert(import);
 
     if (tld->dep_loop_flag) {
         add_node_error(g, tld->source_node, buf_sprintf("'%s' depends on itself", buf_ptr(tld->name)));
@@ -2222,7 +2198,6 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
         AstNode *param_decl_node = get_param_decl_node(fn_table_entry, i);
         AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
-        
 
         TypeTableEntry *param_type = param_info->type;
         bool is_noalias = param_info->is_noalias;
@@ -2350,7 +2325,7 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeUse);
 
     IrInstruction *result = analyze_const_value(g, &node->owner->decls_scope->base,
-        node->data.use.expr, g->builtin_types.entry_namespace);
+        node->data.use.expr, g->builtin_types.entry_namespace, nullptr);
 
     if (result->type_entry->id == TypeTableEntryIdInvalid)
         node->owner->any_imports_failed = true;
@@ -2438,7 +2413,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
 void semantic_analyze(CodeGen *g) {
     for (; g->import_queue_index < g->import_queue.length; g->import_queue_index += 1) {
         ImportTableEntry *import = g->import_queue.at(g->import_queue_index);
-        scan_decls(g, import, import->decls_scope, import->root, nullptr);
+        scan_decls(g, import->decls_scope, import->root);
     }
 
     for (; g->use_queue_index < g->use_queue.length; g->use_queue_index += 1) {
