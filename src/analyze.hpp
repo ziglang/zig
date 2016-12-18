@@ -74,8 +74,9 @@ FnTableEntry *create_fn(AstNode *proto_node);
 FnTableEntry *create_fn_raw(FnInline inline_value, bool internal_linkage);
 void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node);
 AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index);
+FnTableEntry *scope_get_fn_if_root(Scope *scope);
 
-Scope *create_block_scope(AstNode *node, Scope *parent);
+ScopeBlock *create_block_scope(AstNode *node, Scope *parent);
 ScopeDefer *create_defer_scope(AstNode *node, Scope *parent);
 Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var);
 ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent);

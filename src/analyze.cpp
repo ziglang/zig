@@ -145,12 +145,12 @@ ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEntry *con
     return scope;
 }
 
-Scope *create_block_scope(AstNode *node, Scope *parent) {
+ScopeBlock *create_block_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeBlock);
     ScopeBlock *scope = allocate<ScopeBlock>(1);
     init_scope(&scope->base, ScopeIdBlock, node, parent);
     scope->label_table.init(1);
-    return &scope->base;
+    return scope;
 }
 
 ScopeDefer *create_defer_scope(AstNode *node, Scope *parent) {
@@ -1446,7 +1446,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         if (is_main_fn)
             g->main_fn = fn_table_entry;
 
-        if (is_main_fn && !g->link_libc) {
+        if (is_main_fn && !g->link_libc && tld_fn->base.visib_mod != VisibModExport) {
             TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
             TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
             if (actual_return_type != err_void) {
@@ -2049,6 +2049,29 @@ FnTableEntry *scope_fn_entry(Scope *scope) {
     return nullptr;
 }
 
+FnTableEntry *scope_get_fn_if_root(Scope *scope) {
+    assert(scope);
+    scope = scope->parent;
+    while (scope) {
+        switch (scope->id) {
+            case ScopeIdBlock:
+                return nullptr;
+            case ScopeIdDecls:
+            case ScopeIdDefer:
+            case ScopeIdVarDecl:
+            case ScopeIdCImport:
+            case ScopeIdLoop:
+                scope = scope->parent;
+                continue;
+            case ScopeIdFnDef:
+                ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
+                return fn_scope->fn_entry;
+        }
+        zig_unreachable();
+    }
+    return nullptr;
+}
+
 TypeEnumField *find_enum_type_field(TypeTableEntry *enum_type, Buf *name) {
     for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
@@ -2392,9 +2415,9 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
             assert(proto_node->type == NodeTypeFnProto);
             Buf *proto_name = proto_node->data.fn_proto.name;
 
-            bool is_private = (proto_node->data.fn_proto.visib_mod == VisibModPrivate);
+            bool is_pub = (proto_node->data.fn_proto.visib_mod == VisibModPub);
 
-            if (buf_eql_str(proto_name, "main") && !is_private) {
+            if (buf_eql_str(proto_name, "main") && is_pub) {
                 g->have_exported_main = true;
             }
         }

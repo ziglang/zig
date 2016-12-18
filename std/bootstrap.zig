@@ -16,7 +16,7 @@ var argv: &&u8 = undefined;
 export nakedcc fn _start() -> unreachable {
     @setFnVisible(this, want_start_symbol);
 
-    switch (@compileVar("arch")) {
+    inline switch (@compileVar("arch")) {
         Arch.x86_64 => {
             argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> usize));
             argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));
@@ -32,7 +32,7 @@ export nakedcc fn _start() -> unreachable {
 
 fn callMain() -> %void {
     const args = @alloca([]u8, argc);
-    for (args) |arg, i| {
+    for (args) |_, i| {
         const ptr = argv[i];
         args[i] = ptr[0...cstr.len(ptr)];
     }

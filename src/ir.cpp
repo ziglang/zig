@@ -2051,8 +2051,14 @@ static VariableTableEntry *ir_create_var(IrBuilder *irb, AstNode *node, Scope *s
 static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode *block_node) {
     assert(block_node->type == NodeTypeBlock);
 
-    Scope *outer_block_scope = create_block_scope(block_node, parent_scope);
+    ScopeBlock *scope_block = create_block_scope(block_node, parent_scope);
+    Scope *outer_block_scope = &scope_block->base;
     Scope *child_scope = outer_block_scope;
+
+    FnTableEntry *fn_entry = scope_fn_entry(parent_scope);
+    if (fn_entry && fn_entry->child_scope == parent_scope) {
+        fn_entry->def_scope = scope_block;
+    }
 
     IrInstruction *return_value = nullptr;
     for (size_t i = 0; i < block_node->data.block.statements.length; i += 1) {
@@ -3270,12 +3276,9 @@ static IrInstruction *ir_gen_this_literal(IrBuilder *irb, Scope *scope, AstNode 
     if (!scope->parent)
         return ir_build_const_import(irb, scope, node, node->owner);
 
-    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
-    if (fn_entry && scope->parent && scope->parent->parent &&
-        !scope_fn_entry(scope->parent->parent))
-    {
+    FnTableEntry *fn_entry = scope_get_fn_if_root(scope);
+    if (fn_entry)
         return ir_build_const_fn(irb, scope, node, fn_entry);
-    }
 
     if (scope->id == ScopeIdDecls) {
         ScopeDecls *decls_scope = (ScopeDecls *)scope;
@@ -4379,6 +4382,7 @@ static bool is_u8(TypeTableEntry *type) {
 static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
     if (old_bb->other)
         return old_bb->other;
+
     IrBasicBlock *new_bb = ir_build_bb_from(&ira->new_irb, old_bb);
 
     // We are about to enqueue old_bb for analysis. Before we do so, check old_bb
@@ -4391,7 +4395,8 @@ static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
         IrInstructionPhi *phi_instruction = (IrInstructionPhi *)instruction;
         for (size_t incoming_i = 0; incoming_i < phi_instruction->incoming_count; incoming_i += 1) {
             IrBasicBlock *predecessor = phi_instruction->incoming_blocks[incoming_i];
-            ir_get_new_bb(ira, predecessor);
+            IrBasicBlock *new_predecessor = ir_get_new_bb(ira, predecessor);
+            ir_ref_bb(new_predecessor);
         }
     }
     ira->old_bb_queue.append(old_bb);
@@ -4404,7 +4409,7 @@ static void ir_start_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrBasicBlock *cons
     ira->old_irb.current_basic_block = old_bb;
     ira->const_predecessor_bb = const_predecessor_bb;
 
-    if (old_bb->other)
+    if (!const_predecessor_bb && old_bb->other)
         ira->new_irb.exec->basic_block_list.append(old_bb->other);
 }
 
@@ -6478,7 +6483,7 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
         IrInstruction *old_value = phi_instruction->incoming_values[i];
         assert(old_value);
         IrInstruction *new_value = old_value->other;
-        if (new_value->type_entry->id == TypeTableEntryIdInvalid)
+        if (!new_value || new_value->type_entry->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
         new_incoming_values.append(new_value);
     }
@@ -7704,7 +7709,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
 
     IrBasicBlock *new_else_block = ir_get_new_bb(ira, switch_br_instruction->else_block);
     ir_build_switch_br_from(&ira->new_irb, &switch_br_instruction->base,
-            target_value, new_else_block, case_count, cases, is_inline);
+            target_value, new_else_block, case_count, cases, false);
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
 
