@@ -4230,6 +4230,13 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         return ImplicitCastMatchResultYes;
     }
 
+    // implicitly take a const pointer to something
+    {
+        TypeTableEntry *const_ptr_actual = get_pointer_to_type(ira->codegen, actual_type, true);
+        if (types_match_const_cast_only(expected_type, const_ptr_actual)) {
+            return ImplicitCastMatchResultYes;
+        }
+    }
 
     return ImplicitCastMatchResultNo;
 }
@@ -4721,6 +4728,30 @@ static IrInstruction *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInstruction *so
     return result;
 }
 
+static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value, TypeTableEntry *wanted_type) {
+    if (instr_is_comptime(value)) {
+        ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
+                source_instr->scope, source_instr->source_node);
+        const_instruction->base.type_entry = wanted_type;
+        const_instruction->base.static_value.special = ConstValSpecialStatic;
+        const_instruction->base.static_value.depends_on_compile_var = val->depends_on_compile_var;
+        const_instruction->base.static_value.data.x_ptr.base_ptr = val;
+        const_instruction->base.static_value.data.x_ptr.index = SIZE_MAX;
+        return &const_instruction->base;
+    }
+
+    if (value->id == IrInstructionIdLoadPtr) {
+        IrInstructionLoadPtr *load_ptr_inst = (IrInstructionLoadPtr *)value;
+        return load_ptr_inst->ptr;
+    } else {
+        zig_panic("TODO more ways to cast to const pointer");
+    }
+}
+
 static IrInstruction *ir_analyze_null_to_maybe(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value, TypeTableEntry *wanted_type) {
     assert(wanted_type->id == TypeTableEntryIdMaybe);
     assert(instr_is_comptime(value));
@@ -4972,6 +5003,14 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     // explicit cast from undefined to anything
     if (actual_type->id == TypeTableEntryIdUndefLit) {
         return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpNoop, false);
+    }
+
+    // explicit cast from something to const pointer of it
+    {
+        TypeTableEntry *const_ptr_actual = get_pointer_to_type(ira->codegen, actual_type, true);
+        if (types_match_const_cast_only(wanted_type, const_ptr_actual)) {
+            return ir_analyze_cast_ref(ira, source_instr, value, wanted_type);
+        }
     }
 
     add_node_error(ira->codegen, source_instr->source_node,

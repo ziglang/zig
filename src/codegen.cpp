@@ -1677,6 +1677,7 @@ static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutable *executable, IrInstru
     if (handle_is_ptr(instruction->value->type_entry)) {
         return value;
     } else {
+        assert(instruction->tmp_ptr);
         LLVMBuildStore(g->builder, value, instruction->tmp_ptr);
         return instruction->tmp_ptr;
     }
@@ -2843,6 +2844,7 @@ static void do_code_gen(CodeGen *g) {
         for (size_t alloca_i = 0; alloca_i < fn_table_entry->alloca_list.length; alloca_i += 1) {
             IrInstruction *instruction = fn_table_entry->alloca_list.at(alloca_i);
             LLVMValueRef *slot;
+            TypeTableEntry *slot_type = instruction->type_entry;
             if (instruction->id == IrInstructionIdCast) {
                 IrInstructionCast *cast_instruction = (IrInstructionCast *)instruction;
                 slot = &cast_instruction->tmp_ptr;
@@ -2876,7 +2878,7 @@ static void do_code_gen(CodeGen *g) {
             } else {
                 zig_unreachable();
             }
-            *slot = LLVMBuildAlloca(g->builder, instruction->type_entry->type_ref, "");
+            *slot = LLVMBuildAlloca(g->builder, slot_type->type_ref, "");
         }
 
         ImportTableEntry *import = get_scope_import(&fn_table_entry->fndef_scope->base);

@@ -82,7 +82,7 @@ pub struct OutStream {
 
     pub fn write(self: &OutStream, bytes: []const u8) -> %usize {
         var src_bytes_left = bytes.len;
-        var src_index: @typeOf(bytes.len) = 0;
+        var src_index: usize = 0;
         const dest_space_left = self.buffer.len - self.index;
 
         while (src_bytes_left > 0) {
