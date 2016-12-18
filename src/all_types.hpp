@@ -1442,7 +1442,6 @@ enum IrInstructionId {
     IrInstructionIdTestErr,
     IrInstructionIdUnwrapErrCode,
     IrInstructionIdUnwrapErrPayload,
-    IrInstructionIdErrUnionTypeChild,
     IrInstructionIdErrWrapCode,
     IrInstructionIdErrWrapPayload,
 };
@@ -2034,12 +2033,6 @@ struct IrInstructionUnwrapErrPayload {
 
     IrInstruction *value;
     bool safety_check_on;
-};
-
-struct IrInstructionErrUnionTypeChild {
-    IrInstruction base;
-
-    IrInstruction *type_value;
 };
 
 struct IrInstructionMaybeWrap {

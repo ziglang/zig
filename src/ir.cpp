@@ -427,10 +427,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionUnwrapErrPayload
     return IrInstructionIdUnwrapErrPayload;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionErrUnionTypeChild *) {
-    return IrInstructionIdErrUnionTypeChild;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionMaybeWrap *) {
     return IrInstructionIdMaybeWrap;
 }
@@ -1828,17 +1824,6 @@ static IrInstruction *ir_build_unwrap_err_payload_from(IrBuilder *irb, IrInstruc
         old_instruction->source_node, value, safety_check_on);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
-}
-
-static IrInstruction *ir_build_err_union_type_child(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *type_value)
-{
-    IrInstructionErrUnionTypeChild *instruction = ir_build_instruction<IrInstructionErrUnionTypeChild>(irb, scope, source_node);
-    instruction->type_value = type_value;
-
-    ir_ref_instruction(type_value);
-
-    return &instruction->base;
 }
 
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
@@ -3841,9 +3826,8 @@ static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstN
     Scope *err_scope;
     if (var_node) {
         assert(var_node->type == NodeTypeSymbol);
-        IrInstruction *err_union_ptr_type = ir_build_typeof(irb, parent_scope, var_node, err_union_ptr);
-        IrInstruction *err_union_type = ir_build_ptr_type_child(irb, parent_scope, var_node, err_union_ptr_type);
-        IrInstruction *var_type = ir_build_err_union_type_child(irb, parent_scope, var_node, err_union_type);
+        IrInstruction *var_type = ir_build_const_type(irb, parent_scope, node,
+            irb->codegen->builtin_types.entry_pure_error);
         Buf *var_name = var_node->data.symbol_expr.symbol;
         bool is_const = true;
         bool is_shadowable = false;
@@ -9339,27 +9323,6 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
 
 }
 
-static TypeTableEntry *ir_analyze_instruction_err_union_type_child(IrAnalyze *ira,
-    IrInstructionErrUnionTypeChild *instruction)
-{
-    IrInstruction *type_value = instruction->type_value->other;
-    TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
-    if (type_entry->id == TypeTableEntryIdInvalid)
-        return type_entry;
-
-    // TODO handle typedefs
-    if (type_entry->id != TypeTableEntryIdErrorUnion) {
-        add_node_error(ira->codegen, instruction->base.source_node,
-                buf_sprintf("expected error type, found '%s'", buf_ptr(&type_entry->name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-
-    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base,
-            type_value->static_value.depends_on_compile_var);
-    out_val->data.x_type = type_entry->data.error.child_type;
-    return ira->codegen->builtin_types.entry_type;
-}
-
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -9500,8 +9463,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_unwrap_err_code(ira, (IrInstructionUnwrapErrCode *)instruction);
         case IrInstructionIdUnwrapErrPayload:
             return ir_analyze_instruction_unwrap_err_payload(ira, (IrInstructionUnwrapErrPayload *)instruction);
-        case IrInstructionIdErrUnionTypeChild:
-            return ir_analyze_instruction_err_union_type_child(ira, (IrInstructionErrUnionTypeChild *)instruction);
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
@@ -9659,7 +9620,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTestErr:
         case IrInstructionIdUnwrapErrCode:
         case IrInstructionIdUnwrapErrPayload:
-        case IrInstructionIdErrUnionTypeChild:
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:

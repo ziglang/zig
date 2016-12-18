@@ -849,12 +849,6 @@ static void ir_print_test_err(IrPrint *irp, IrInstructionTestErr *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_err_union_type_child(IrPrint *irp, IrInstructionErrUnionTypeChild *instruction) {
-    fprintf(irp->f, "@errorUnionTypeChild(");
-    ir_print_other_instruction(irp, instruction->type_value);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_unwrap_err_code(IrPrint *irp, IrInstructionUnwrapErrCode *instruction) {
     fprintf(irp->f, "@unwrapErrorCode(");
     ir_print_other_instruction(irp, instruction->value);
@@ -1108,9 +1102,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdUnwrapErrPayload:
             ir_print_unwrap_err_payload(irp, (IrInstructionUnwrapErrPayload *)instruction);
-            break;
-        case IrInstructionIdErrUnionTypeChild:
-            ir_print_err_union_type_child(irp, (IrInstructionErrUnionTypeChild *)instruction);
             break;
         case IrInstructionIdMaybeWrap:
             ir_print_maybe_wrap(irp, (IrInstructionMaybeWrap *)instruction);
