@@ -401,10 +401,14 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, 
 }
 
 static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, TypeTableEntry *type) {
-    if (handle_is_ptr(type)) {
-        return ptr;
+    if (type_has_bits(type)) {
+        if (handle_is_ptr(type)) {
+            return ptr;
+        } else {
+            return LLVMBuildLoad(g->builder, ptr, "");
+        }
     } else {
-        return LLVMBuildLoad(g->builder, ptr, "");
+        return nullptr;
     }
 }
 
