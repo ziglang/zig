@@ -5057,7 +5057,7 @@ static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_inst
         return ira->codegen->builtin_types.entry_invalid;
 
     bool is_inline = ir_should_inline(&ira->new_irb);
-    if (is_inline || value->static_value.special != ConstValSpecialRuntime) {
+    if (is_inline || instr_is_comptime(value)) {
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
         if (!val)
             return ira->codegen->builtin_types.entry_invalid;
@@ -6770,7 +6770,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             const_val->data.x_type = tld_container->type_entry;
 
             bool ptr_is_const = true;
-            return ir_analyze_const_ptr(ira, source_instruction, const_val, tld_container->type_entry,
+            return ir_analyze_const_ptr(ira, source_instruction, const_val, ira->codegen->builtin_types.entry_type,
                     depends_on_compile_var, ConstPtrSpecialNone, ptr_is_const);
         }
         case TldIdTypeDef:
@@ -6785,7 +6785,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             const_val->data.x_type = tld_typedef->type_entry;
 
             bool ptr_is_const = true;
-            return ir_analyze_const_ptr(ira, source_instruction, const_val, tld_typedef->type_entry,
+            return ir_analyze_const_ptr(ira, source_instruction, const_val, ira->codegen->builtin_types.entry_type,
                     depends_on_compile_var, ConstPtrSpecialNone, ptr_is_const);
         }
     }
