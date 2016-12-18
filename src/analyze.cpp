@@ -912,6 +912,7 @@ static TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
     fn_type->data.fn.fn_type_id = *fn_type_id;
     fn_type->data.fn.is_generic = true;
+    fn_type->zero_bits = true;
     return fn_type;
 }
 
