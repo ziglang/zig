@@ -1,6 +1,6 @@
 const system = switch(@compileVar("os")) {
-    linux => @import("linux.zig"),
-    darwin => @import("darwin.zig"),
+    Os.linux => @import("linux.zig"),
+    Os.darwin => @import("darwin.zig"),
     else => @compileError("Unsupported OS"),
 };
 

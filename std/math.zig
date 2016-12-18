@@ -12,7 +12,7 @@ pub fn max(x: var, y: var) -> @typeOf(x + y) {
     if (x > y) x else y
 }
 
-pub error Overflow;
+error Overflow;
 pub fn mulOverflow(inline T: type, a: T, b: T) -> %T {
     var answer: T = undefined;
     if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer
