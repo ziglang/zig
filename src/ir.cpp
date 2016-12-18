@@ -3872,7 +3872,11 @@ static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope,
     } else {
         FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
         if (fn_entry) {
-            zig_panic("TODO name the container inside the function");
+            name = buf_alloc();
+            buf_append_buf(name, &fn_entry->symbol_name);
+            buf_appendf(name, "(");
+            // TODO render args
+            buf_appendf(name, ")");
         } else {
             name = buf_sprintf("(anonymous %s at %s:%zu:%zu)", container_string(kind),
                 buf_ptr(node->owner->path), node->line + 1, node->column + 1);
@@ -6115,18 +6119,25 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             }
         }
 
-        auto existing_entry = ira->codegen->generic_table.put_unique(generic_id, impl_fn);
-        if (existing_entry) {
-            // throw away all our work and use the existing function
-            impl_fn = existing_entry->value;
-        } else {
-            // finish instantiating the function
+        {
             AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
             TypeTableEntry *return_type = analyze_type_expr(ira->codegen, impl_fn->child_scope, return_type_node);
             if (return_type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
             fn_type_id.return_type = return_type;
 
+            if (type_requires_comptime(return_type)) {
+                // Throw out our work and call the function as if it were inline.
+                return ir_analyze_fn_call(ira, call_instruction, fn_entry, fn_type, fn_ref, first_arg_ptr, true);
+            }
+        }
+
+        auto existing_entry = ira->codegen->generic_table.put_unique(generic_id, impl_fn);
+        if (existing_entry) {
+            // throw away all our work and use the existing function
+            impl_fn = existing_entry->value;
+        } else {
+            // finish instantiating the function
             impl_fn->type_entry = get_fn_type(ira->codegen, &fn_type_id);
             if (impl_fn->type_entry->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
