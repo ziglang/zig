@@ -1,8 +1,8 @@
-pub enum Cmp {
+pub const Cmp = enum {
     Equal,
     Greater,
     Less,
-}
+};
 
 pub fn min(x: var, y: var) -> @typeOf(x + y) {
     if (x < y) x else y

@@ -69,7 +69,7 @@ pub const OpenWrite    = 0b0010;
 pub const OpenCreate   = 0b0100;
 pub const OpenTruncate = 0b1000;
 
-pub struct OutStream {
+pub const OutStream = struct {
     fd: i32,
     buffer: [buffer_size]u8,
     index: usize,
@@ -153,11 +153,11 @@ pub struct OutStream {
             return;
         }
     }
-}
+};
 
 // TODO created a BufferedInStream struct and move some of this code there
 // BufferedInStream API goes on top of minimal InStream API.
-pub struct InStream {
+pub const InStream = struct {
     fd: i32,
 
     /// Call close to clean up.
@@ -360,7 +360,7 @@ pub struct InStream {
 
         return usize(stat.size);
     }
-}
+};
 
 pub fn parseUnsigned(inline T: type, buf: []u8, radix: u8) -> %T {
     var x: T = 0;

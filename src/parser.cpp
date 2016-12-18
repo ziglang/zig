@@ -684,11 +684,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         AstNode *node = ast_create_node(pc, NodeTypeErrorType, token);
         *token_index += 1;
         return node;
-    } else if (token->id == TokenIdKeywordExtern) {
-        *token_index += 1;
-        AstNode *node = ast_parse_fn_proto(pc, token_index, true, VisibModPrivate);
-        node->data.fn_proto.is_extern = true;
-        return node;
     } else if (token->id == TokenIdAtSign) {
         *token_index += 1;
         Token *name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
@@ -741,6 +736,13 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
     AstNode *container_decl = ast_parse_container_decl(pc, token_index, false);
     if (container_decl)
         return container_decl;
+
+    if (token->id == TokenIdKeywordExtern) {
+        *token_index += 1;
+        AstNode *node = ast_parse_fn_proto(pc, token_index, true, VisibModPrivate);
+        node->data.fn_proto.is_extern = true;
+        return node;
+    }
 
     if (!mandatory)
         return nullptr;
@@ -2224,28 +2226,39 @@ static AstNode *ast_parse_use(ParseContext *pc, size_t *token_index, VisibMod vi
 }
 
 /*
-ContainerDecl = ("struct" | "enum" | "union") "{" many(StructMember) "}"
+ContainerDecl = option("extern") ("struct" | "enum" | "union") "{" many(StructMember) "}"
 StructMember = (StructField | FnDef | GlobalVarDecl)
 StructField = Symbol option(":" Expression) ",")
 */
 static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *first_token = &pc->tokens->at(*token_index);
+    Token *container_kind_token;
+
+    bool is_extern;
+    if (first_token->id == TokenIdKeywordExtern) {
+        container_kind_token = &pc->tokens->at(*token_index + 1);
+        is_extern = true;
+    } else {
+        container_kind_token = first_token;
+        is_extern = false;
+    }
 
     ContainerKind kind;
-    if (first_token->id == TokenIdKeywordStruct) {
+    if (container_kind_token->id == TokenIdKeywordStruct) {
         kind = ContainerKindStruct;
-    } else if (first_token->id == TokenIdKeywordEnum) {
+    } else if (container_kind_token->id == TokenIdKeywordEnum) {
         kind = ContainerKindEnum;
-    } else if (first_token->id == TokenIdKeywordUnion) {
+    } else if (container_kind_token->id == TokenIdKeywordUnion) {
         kind = ContainerKindUnion;
     } else if (mandatory) {
-        ast_invalid_token_error(pc, first_token);
+        ast_invalid_token_error(pc, container_kind_token);
     } else {
         return nullptr;
     }
-    *token_index += 1;
+    *token_index += is_extern ? 2 : 1;
 
     AstNode *node = ast_create_node(pc, NodeTypeContainerDecl, first_token);
+    node->data.container_decl.is_extern = is_extern;
     node->data.container_decl.kind = kind;
 
     ast_eat_token(pc, token_index, TokenIdLBrace);

@@ -598,6 +598,7 @@ struct AstNodeContainerDecl {
     ContainerKind kind;
     ZigList<AstNode *> fields;
     ZigList<AstNode *> decls;
+    bool is_extern;
 };
 
 struct AstNodeStructField {
@@ -801,6 +802,7 @@ struct TypeStructField {
 };
 struct TypeTableEntryStruct {
     AstNode *decl_node;
+    bool is_extern;
     bool is_packed;
     uint32_t src_field_count;
     uint32_t gen_field_count;
@@ -827,6 +829,7 @@ struct TypeTableEntryError {
 
 struct TypeTableEntryEnum {
     AstNode *decl_node;
+    bool is_extern;
     uint32_t src_field_count;
     uint32_t gen_field_count;
     TypeEnumField *fields;
@@ -845,6 +848,7 @@ struct TypeTableEntryEnum {
 
 struct TypeTableEntryUnion {
     AstNode *decl_node;
+    bool is_extern;
     uint32_t src_field_count;
     uint32_t gen_field_count;
     TypeStructField *fields;

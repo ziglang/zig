@@ -838,12 +838,15 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKi
     switch (kind) {
         case ContainerKindStruct:
             entry->data.structure.decl_node = decl_node;
+            entry->data.structure.is_extern = decl_node->data.container_decl.is_extern;
             break;
         case ContainerKindEnum:
             entry->data.enumeration.decl_node = decl_node;
+            entry->data.enumeration.is_extern = decl_node->data.container_decl.is_extern;
             break;
         case ContainerKindUnion:
             entry->data.unionation.decl_node = decl_node;
+            entry->data.unionation.is_extern = decl_node->data.container_decl.is_extern;
             break;
     }
 

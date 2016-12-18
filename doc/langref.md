@@ -151,7 +151,7 @@ GroupedExpression = "(" Expression ")"
 
 KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "zeroes" | "error" | "type" | "this"
 
-ContainerDecl = ("struct" | "enum" | "union") "{" many(StructMember) "}"
+ContainerDecl = option("extern") ("struct" | "enum" | "union") "{" many(StructMember) "}"
 
 ```
 

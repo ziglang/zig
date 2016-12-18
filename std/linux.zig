@@ -342,31 +342,31 @@ pub const socklen_t = u32;
 pub const in_addr = u32;
 pub const in6_addr = [16]u8;
 
-export struct sockaddr {
+pub const sockaddr = extern struct {
     family: sa_family_t,
     port: u16,
     data: [12]u8,
-}
+};
 
-export struct sockaddr_in {
+pub const sockaddr_in = extern struct {
     family: sa_family_t,
     port: u16,
     addr: in_addr,
     zero: [8]u8,
-}
+};
 
-export struct sockaddr_in6 {
+pub const sockaddr_in6 = extern struct {
     family: sa_family_t,
     port: u16,
     flowinfo: u32,
     addr: in6_addr,
     scope_id: u32,
-}
+};
 
-export struct iovec {
+pub const iovec = extern struct {
     iov_base: &u8,
     iov_len: usize,
-}
+};
 
 //
 //const IF_NAMESIZE = 16;

@@ -442,7 +442,7 @@ pub inline fn syscall6(number: usize, arg1: usize, arg2: usize, arg3: usize, arg
         : "rcx", "r11")
 }
 
-export struct msghdr {
+pub const msghdr = extern struct {
     msg_name: &u8,
     msg_namelen: socklen_t,
     msg_iov: &iovec,
@@ -452,9 +452,9 @@ export struct msghdr {
     msg_controllen: socklen_t,
     __pad2: socklen_t,
     msg_flags: i32,
-}
+};
 
-export struct stat {
+pub const stat = extern struct {
     dev: u64,
     ino: u64,
     nlink: usize,
@@ -472,9 +472,9 @@ export struct stat {
     mtim: timespec,
     ctim: timespec,
     __unused: [3]isize,
-}
+};
 
-export struct timespec {
+pub const timespec = extern struct {
     tv_sec: isize,
     tv_nsec: isize,
-}
+};

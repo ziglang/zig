@@ -8007,6 +8007,9 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
     TypeTableEntry *container_type, size_t instr_field_count, IrInstructionContainerInitFieldsField *fields,
     bool depends_on_compile_var)
 {
+    if (!type_is_complete(container_type))
+        resolve_container_type(ira->codegen, container_type);
+
     size_t actual_field_count = container_type->data.structure.src_field_count;
 
     IrInstruction *first_non_const_instruction = nullptr;

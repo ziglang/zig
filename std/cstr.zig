@@ -34,7 +34,7 @@ pub fn toSlice(str: &u8) -> []u8 {
 
 
 /// A buffer that allocates memory and maintains a null byte at the end.
-pub struct CBuf {
+pub const CBuf = struct {
     list: List(u8),
 
     /// Must deinitialize with deinit.
@@ -124,7 +124,7 @@ pub struct CBuf {
     pub fn startsWithCStr(self: &const CBuf, s: &const u8) -> bool {
         self.startsWithMem(s[0...strlen(s)])
     }
-}
+};
 
 fn testSimpleCBuf() {
     @setFnTest(this, true);
