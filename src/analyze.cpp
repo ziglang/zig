@@ -723,6 +723,8 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         fn_type->data.fn.calling_convention = LLVMFastCallConv;
     }
 
+    bool skip_debug_info = false;
+
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
     const char *extern_str = fn_type_id->is_extern ? "extern " : "";
@@ -736,6 +738,8 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         const char *comma = (i == 0) ? "" : ", ";
         const char *noalias_str = param_info->is_noalias ? "noalias " : "";
         buf_appendf(&fn_type->name, "%s%s%s", comma, noalias_str, buf_ptr(&param_type->name));
+
+        skip_debug_info = skip_debug_info || !param_type->di_type;
     }
 
     if (fn_type_id->is_var_args) {
@@ -746,66 +750,69 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (fn_type_id->return_type->id != TypeTableEntryIdVoid) {
         buf_appendf(&fn_type->name, " -> %s", buf_ptr(&fn_type_id->return_type->name));
     }
+    skip_debug_info = skip_debug_info || !fn_type_id->return_type->di_type;
 
     // next, loop over the parameters again and compute debug information
     // and codegen information
-    bool first_arg_return = !fn_type_id->is_extern && handle_is_ptr(fn_type_id->return_type);
-    // +1 for maybe making the first argument the return value
-    LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
-    // +1 because 0 is the return type and +1 for maybe making first arg ret val
-    ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(2 + fn_type_id->param_count);
-    param_di_types[0] = fn_type_id->return_type->di_type;
-    size_t gen_param_index = 0;
-    TypeTableEntry *gen_return_type;
-    if (!type_has_bits(fn_type_id->return_type)) {
-        gen_return_type = g->builtin_types.entry_void;
-    } else if (first_arg_return) {
-        TypeTableEntry *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
-        gen_param_types[gen_param_index] = gen_type->type_ref;
-        gen_param_index += 1;
-        // after the gen_param_index += 1 because 0 is the return type
-        param_di_types[gen_param_index] = gen_type->di_type;
-        gen_return_type = g->builtin_types.entry_void;
-    } else {
-        gen_return_type = fn_type_id->return_type;
-    }
-    fn_type->data.fn.gen_return_type = gen_return_type;
-
-    fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
-    for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
-        FnTypeParamInfo *src_param_info = &fn_type->data.fn.fn_type_id.param_info[i];
-        TypeTableEntry *type_entry = src_param_info->type;
-        FnGenParamInfo *gen_param_info = &fn_type->data.fn.gen_param_info[i];
-
-        gen_param_info->src_index = i;
-        gen_param_info->gen_index = SIZE_MAX;
-
-        assert(type_is_complete(type_entry));
-        if (type_has_bits(type_entry)) {
-            TypeTableEntry *gen_type;
-            if (handle_is_ptr(type_entry)) {
-                gen_type = get_pointer_to_type(g, type_entry, true);
-                gen_param_info->is_byval = true;
-            } else {
-                gen_type = type_entry;
-            }
+    if (!skip_debug_info) {
+        bool first_arg_return = !fn_type_id->is_extern && handle_is_ptr(fn_type_id->return_type);
+        // +1 for maybe making the first argument the return value
+        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
+        // +1 because 0 is the return type and +1 for maybe making first arg ret val
+        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(2 + fn_type_id->param_count);
+        param_di_types[0] = fn_type_id->return_type->di_type;
+        size_t gen_param_index = 0;
+        TypeTableEntry *gen_return_type;
+        if (!type_has_bits(fn_type_id->return_type)) {
+            gen_return_type = g->builtin_types.entry_void;
+        } else if (first_arg_return) {
+            TypeTableEntry *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
             gen_param_types[gen_param_index] = gen_type->type_ref;
-            gen_param_info->gen_index = gen_param_index;
-            gen_param_info->type = gen_type;
-
             gen_param_index += 1;
-
             // after the gen_param_index += 1 because 0 is the return type
             param_di_types[gen_param_index] = gen_type->di_type;
+            gen_return_type = g->builtin_types.entry_void;
+        } else {
+            gen_return_type = fn_type_id->return_type;
         }
+        fn_type->data.fn.gen_return_type = gen_return_type;
+
+        fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
+        for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
+            FnTypeParamInfo *src_param_info = &fn_type->data.fn.fn_type_id.param_info[i];
+            TypeTableEntry *type_entry = src_param_info->type;
+            FnGenParamInfo *gen_param_info = &fn_type->data.fn.gen_param_info[i];
+
+            gen_param_info->src_index = i;
+            gen_param_info->gen_index = SIZE_MAX;
+
+            assert(type_is_complete(type_entry));
+            if (type_has_bits(type_entry)) {
+                TypeTableEntry *gen_type;
+                if (handle_is_ptr(type_entry)) {
+                    gen_type = get_pointer_to_type(g, type_entry, true);
+                    gen_param_info->is_byval = true;
+                } else {
+                    gen_type = type_entry;
+                }
+                gen_param_types[gen_param_index] = gen_type->type_ref;
+                gen_param_info->gen_index = gen_param_index;
+                gen_param_info->type = gen_type;
+
+                gen_param_index += 1;
+
+                // after the gen_param_index += 1 because 0 is the return type
+                param_di_types[gen_param_index] = gen_type->di_type;
+            }
+        }
+
+        fn_type->data.fn.gen_param_count = gen_param_index;
+
+        fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
+                gen_param_types, gen_param_index, fn_type_id->is_var_args);
+        fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
+        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types, gen_param_index + 1, 0);
     }
-
-    fn_type->data.fn.gen_param_count = gen_param_index;
-
-    fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
-            gen_param_types, gen_param_index, fn_type_id->is_var_args);
-    fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
-    fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types, gen_param_index + 1, 0);
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);
 
@@ -2761,6 +2768,40 @@ static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry)
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdPointer:
             return type_entry;
+    }
+    zig_unreachable();
+}
+
+bool type_requires_comptime(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+            return true;
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdTypeDecl:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+            return false;
     }
     zig_unreachable();
 }
