@@ -2854,6 +2854,8 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdRef) {
                 IrInstructionRef *ref_instruction = (IrInstructionRef *)instruction;
                 slot = &ref_instruction->tmp_ptr;
+                assert(instruction->type_entry->id == TypeTableEntryIdPointer);
+                slot_type = instruction->type_entry->data.pointer.child_type;
             } else if (instruction->id == IrInstructionIdContainerInitList) {
                 IrInstructionContainerInitList *container_init_list_instruction = (IrInstructionContainerInitList *)instruction;
                 slot = &container_init_list_instruction->tmp_ptr;

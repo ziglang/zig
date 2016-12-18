@@ -4732,7 +4732,15 @@ static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_
         IrInstructionLoadPtr *load_ptr_inst = (IrInstructionLoadPtr *)value;
         return load_ptr_inst->ptr;
     } else {
-        zig_panic("TODO more ways to cast to const pointer");
+        IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
+
+        TypeTableEntry *child_type = wanted_type->data.pointer.child_type;
+        if (type_has_bits(child_type)) {
+            FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+            assert(fn_entry);
+            fn_entry->alloca_list.append(new_instruction);
+        }
+        return new_instruction;
     }
 }
 
