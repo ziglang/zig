@@ -5066,6 +5066,7 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
                 return result;
             }
         }
+        // TODO if the instruction is a get pointer instruction we can skip it
         IrInstruction *load_ptr_instruction = ir_build_load_ptr(&ira->new_irb, source_instruction->scope, source_instruction->source_node, ptr);
         load_ptr_instruction->type_entry = child_type;
         return load_ptr_instruction;
@@ -6853,7 +6854,13 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         return container_type;
     } else if (is_container_ref(container_type)) {
         assert(container_ptr->type_entry->id == TypeTableEntryIdPointer);
-        return ir_analyze_container_field_ptr(ira, field_name, field_ptr_instruction, container_ptr, container_type);
+        if (container_type->id == TypeTableEntryIdPointer) {
+            TypeTableEntry *bare_type = container_ref_type(container_type);
+            IrInstruction *container_child = ir_get_deref(ira, &field_ptr_instruction->base, container_ptr);
+            return ir_analyze_container_field_ptr(ira, field_name, field_ptr_instruction, container_child, bare_type);
+        } else {
+            return ir_analyze_container_field_ptr(ira, field_name, field_ptr_instruction, container_ptr, container_type);
+        }
     } else if (container_type->id == TypeTableEntryIdArray) {
         if (buf_eql_str(field_name, "len")) {
             ConstExprValue *len_val = allocate<ConstExprValue>(1);
