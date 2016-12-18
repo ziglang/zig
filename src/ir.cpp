@@ -4248,6 +4248,10 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         TypeTableEntry *prev_type = prev_inst->type_entry;
         if (cur_type->id == TypeTableEntryIdInvalid) {
             return cur_type;
+        } else if (prev_type->id == TypeTableEntryIdUnreachable) {
+            prev_inst = cur_inst;
+        } else if (cur_type->id == TypeTableEntryIdUnreachable) {
+            continue;
         } else if (prev_type->id == TypeTableEntryIdPureError) {
             prev_inst = cur_inst;
             continue;
@@ -4264,10 +4268,6 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             continue;
         } else if (types_match_const_cast_only(cur_type, prev_type)) {
             prev_inst = cur_inst;
-            continue;
-        } else if (prev_type->id == TypeTableEntryIdUnreachable) {
-            prev_inst = cur_inst;
-        } else if (cur_type->id == TypeTableEntryIdUnreachable) {
             continue;
         } else if (prev_type->id == TypeTableEntryIdInt &&
                    cur_type->id == TypeTableEntryIdInt &&
