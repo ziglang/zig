@@ -285,10 +285,6 @@ static const char *ir_un_op_id_str(IrUnOp op_id) {
             return "-";
         case IrUnOpNegationWrap:
             return "-%";
-        case IrUnOpAddressOf:
-            return "&";
-        case IrUnOpConstAddressOf:
-            return "&const";
         case IrUnOpDereference:
             return "*";
         case IrUnOpMaybe:

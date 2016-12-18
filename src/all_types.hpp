@@ -1517,8 +1517,6 @@ enum IrUnOp {
     IrUnOpBinNot,
     IrUnOpNegation,
     IrUnOpNegationWrap,
-    IrUnOpAddressOf,
-    IrUnOpConstAddressOf,
     IrUnOpDereference,
     IrUnOpError,
     IrUnOpMaybe,

@@ -1175,13 +1175,6 @@ static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInst
             }
         case IrUnOpBinNot:
             return LLVMBuildNot(g->builder, expr, "");
-        case IrUnOpAddressOf:
-        case IrUnOpConstAddressOf:
-            zig_panic("TODO address of codegen");
-            //{
-            //    TypeTableEntry *lvalue_type;
-            //    return gen_lvalue(g, node, expr_node, &lvalue_type);
-            //}
         case IrUnOpDereference:
             {
                 assert(expr_type->id == TypeTableEntryIdPointer);

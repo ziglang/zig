@@ -2368,8 +2368,8 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
     auto primitive_table_entry = irb->codegen->primitive_type_table.maybe_get(variable_name);
     if (primitive_table_entry) {
         IrInstruction *value = ir_build_const_type(irb, scope, node, primitive_table_entry->value);
-        if (lval == LValPurposeAddressOf) {
-            return ir_build_un_op(irb, scope, node, IrUnOpAddressOf, value);
+        if (lval != LValPurposeNone) {
+            return ir_build_ref(irb, scope, node, value);
         } else {
             return value;
         }
@@ -2947,15 +2947,34 @@ static IrInstruction *ir_gen_prefix_op_id_lval(IrBuilder *irb, Scope *scope, Ast
     if (value == irb->codegen->invalid_instruction)
         return value;
 
-    if (lval == LValPurposeAddressOf && (op_id == IrUnOpAddressOf || op_id == IrUnOpConstAddressOf)) {
-        return value;
-    }
-
     return ir_build_un_op(irb, scope, node, op_id, value);
 }
 
 static IrInstruction *ir_gen_prefix_op_id(IrBuilder *irb, Scope *scope, AstNode *node, IrUnOp op_id) {
     return ir_gen_prefix_op_id_lval(irb, scope, node, op_id, LValPurposeNone);
+}
+
+static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *value, LValPurpose lval) {
+    if (lval == LValPurposeNone)
+        return value;
+    if (value == irb->codegen->invalid_instruction)
+        return value;
+
+    // We needed a pointer to a value, but we got a value. So we create
+    // an instruction which just makes a const pointer of it.
+    return ir_build_ref(irb, scope, value->source_node, value);
+}
+
+static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *node, bool is_const, LValPurpose lval) {
+    assert(node->type == NodeTypePrefixOpExpr);
+    AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
+
+    IrInstruction *value = ir_gen_node_extra(irb, expr_node, scope, LValPurposeAddressOf);
+    if (value == irb->codegen->invalid_instruction)
+        return value;
+
+
+    return ir_lval_wrap(irb, scope, value, lval);
 }
 
 static IrInstruction *ir_gen_err_assert_ok(IrBuilder *irb, Scope *scope, AstNode *node, LValPurpose lval) {
@@ -3002,17 +3021,6 @@ static IrInstruction *ir_gen_bool_not(IrBuilder *irb, Scope *scope, AstNode *nod
     return ir_build_bool_not(irb, scope, node, value);
 }
 
-static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *value, LValPurpose lval) {
-    if (lval == LValPurposeNone)
-        return value;
-    if (value == irb->codegen->invalid_instruction)
-        return value;
-
-    // We needed a pointer to a value, but we got a value. So we create
-    // an instruction which just makes a const pointer of it.
-    return ir_build_ref(irb, scope, value->source_node, value);
-}
-
 static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNode *node, LValPurpose lval) {
     assert(node->type == NodeTypePrefixOpExpr);
 
@@ -3024,21 +3032,21 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
         case PrefixOpBoolNot:
             return ir_lval_wrap(irb, scope, ir_gen_bool_not(irb, scope, node), lval);
         case PrefixOpBinNot:
-            return ir_gen_prefix_op_id(irb, scope, node, IrUnOpBinNot);
+            return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpBinNot), lval);
         case PrefixOpNegation:
-            return ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegation);
+            return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegation), lval);
         case PrefixOpNegationWrap:
-            return ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegationWrap);
+            return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegationWrap), lval);
         case PrefixOpAddressOf:
-            return ir_gen_prefix_op_id_lval(irb, scope, node, IrUnOpAddressOf, LValPurposeAddressOf);
+            return ir_gen_address_of(irb, scope, node, false, lval);
         case PrefixOpConstAddressOf:
-            return ir_gen_prefix_op_id_lval(irb, scope, node, IrUnOpConstAddressOf, LValPurposeAddressOf);
+            return ir_gen_address_of(irb, scope, node, true, lval);
         case PrefixOpDereference:
             return ir_gen_prefix_op_id_lval(irb, scope, node, IrUnOpDereference, lval);
         case PrefixOpMaybe:
-            return ir_gen_prefix_op_id(irb, scope, node, IrUnOpMaybe);
+            return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpMaybe), lval);
         case PrefixOpError:
-            return ir_gen_prefix_op_id(irb, scope, node, IrUnOpError);
+            return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpError), lval);
         case PrefixOpUnwrapError:
             return ir_gen_err_assert_ok(irb, scope, node, lval);
         case PrefixOpUnwrapMaybe:
@@ -4501,13 +4509,20 @@ static TypeTableEntry *ir_analyze_const_ptr(IrAnalyze *ira, IrInstruction *instr
         ConstExprValue *pointee, TypeTableEntry *pointee_type, bool depends_on_compile_var,
         ConstPtrSpecial special, bool ptr_is_const)
 {
-    TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, pointee_type, ptr_is_const);
-    ConstExprValue *const_val = ir_build_const_from(ira, instruction,
-            depends_on_compile_var || pointee->depends_on_compile_var);
-    const_val->data.x_ptr.base_ptr = pointee;
-    const_val->data.x_ptr.index = SIZE_MAX;
-    const_val->data.x_ptr.special = special;
-    return ptr_type;
+    if (pointee_type->id == TypeTableEntryIdMetaType) {
+        TypeTableEntry *type_entry = pointee->data.x_type;
+        ConstExprValue *const_val = ir_build_const_from(ira, instruction, depends_on_compile_var || pointee->depends_on_compile_var);
+        const_val->data.x_type = get_pointer_to_type(ira->codegen, type_entry, ptr_is_const);
+        return pointee_type;
+    } else {
+        TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, pointee_type, ptr_is_const);
+        ConstExprValue *const_val = ir_build_const_from(ira, instruction,
+                depends_on_compile_var || pointee->depends_on_compile_var);
+        const_val->data.x_ptr.base_ptr = pointee;
+        const_val->data.x_ptr.index = SIZE_MAX;
+        const_val->data.x_ptr.special = special;
+        return ptr_type;
+    }
 }
 
 static TypeTableEntry *ir_analyze_const_usize(IrAnalyze *ira, IrInstruction *instruction, uint64_t value,
@@ -5004,6 +5019,20 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
         IrInstruction *load_ptr_instruction = ir_build_load_ptr(&ira->new_irb, source_instruction->scope, source_instruction->source_node, ptr);
         load_ptr_instruction->type_entry = child_type;
         return load_ptr_instruction;
+    } else if (type_entry->id == TypeTableEntryIdMetaType) {
+        ConstExprValue *ptr_val = ir_resolve_const(ira, ptr);
+        if (!ptr_val)
+            return ira->codegen->invalid_instruction;
+
+        TypeTableEntry *ptr_type = ptr_val->data.x_type;
+        if (ptr_type->id == TypeTableEntryIdPointer) {
+            TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
+            return ir_create_const_type(&ira->new_irb, source_instruction->scope, source_instruction->source_node, child_type);
+        } else {
+            ir_add_error(ira, source_instruction,
+                buf_sprintf("attempt to dereference non pointer type '%s'", buf_ptr(&ptr_type->name)));
+            return ira->codegen->invalid_instruction;
+        }
     } else {
         add_node_error(ira->codegen, source_instruction->source_node,
             buf_sprintf("attempt to dereference non pointer type '%s'",
@@ -5033,7 +5062,6 @@ static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_inst
     fn_entry->alloca_list.append(new_instruction);
     return ptr_type;
 }
-
 
 static bool ir_resolve_usize(IrAnalyze *ira, IrInstruction *value, uint64_t *out) {
     if (value->type_entry->id == TypeTableEntryIdInvalid)
@@ -6182,66 +6210,6 @@ static TypeTableEntry *ir_analyze_unary_prefix_op_err(IrAnalyze *ira, IrInstruct
     zig_unreachable();
 }
 
-static TypeTableEntry *ir_analyze_unary_address_of(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction,
-        bool is_const)
-{
-    IrInstruction *value = un_op_instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
-        return ira->codegen->builtin_types.entry_invalid;
-
-    TypeTableEntry *target_type = value->type_entry;
-    TypeTableEntry *canon_target_type = get_underlying_type(target_type);
-    switch (canon_target_type->id) {
-        case TypeTableEntryIdTypeDecl:
-            // impossible because we look at the canonicalized type
-            zig_unreachable();
-        case TypeTableEntryIdInvalid:
-            return ira->codegen->builtin_types.entry_invalid;
-        case TypeTableEntryIdNumLitFloat:
-        case TypeTableEntryIdNumLitInt:
-        case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
-        case TypeTableEntryIdNamespace:
-        case TypeTableEntryIdBlock:
-        case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdVar:
-        case TypeTableEntryIdBoundFn:
-            add_node_error(ira->codegen, un_op_instruction->base.source_node,
-                    buf_sprintf("unable to get address of type '%s'", buf_ptr(&target_type->name)));
-            // TODO if type decl, add note pointing to type decl declaration
-            return ira->codegen->builtin_types.entry_invalid;
-        case TypeTableEntryIdMetaType:
-            {
-                ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base,
-                        value->static_value.depends_on_compile_var);
-                assert(value->static_value.special != ConstValSpecialRuntime);
-                TypeTableEntry *child_type = value->static_value.data.x_type;
-                out_val->data.x_type = get_pointer_to_type(ira->codegen, child_type, is_const);
-                return ira->codegen->builtin_types.entry_type;
-            }
-        case TypeTableEntryIdPointer:
-            {
-                // this instruction is a noop - we solved this in IR gen by passing
-                // LValPurposeAddressOf which caused the loadptr to not do the load.
-                ir_link_new_instruction(value, &un_op_instruction->base);
-                return ir_finish_anal(ira, target_type);
-            }
-        case TypeTableEntryIdVoid:
-        case TypeTableEntryIdBool:
-        case TypeTableEntryIdInt:
-        case TypeTableEntryIdFloat:
-        case TypeTableEntryIdArray:
-        case TypeTableEntryIdStruct:
-        case TypeTableEntryIdMaybe:
-        case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
-        case TypeTableEntryIdEnum:
-        case TypeTableEntryIdUnion:
-        case TypeTableEntryIdFn:
-            zig_unreachable();
-    }
-    zig_unreachable();
-}
 
 static TypeTableEntry *ir_analyze_dereference(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
     IrInstruction *value = un_op_instruction->value->other;
@@ -6385,9 +6353,6 @@ static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructio
         case IrUnOpNegation:
         case IrUnOpNegationWrap:
             return ir_analyze_negation(ira, un_op_instruction);
-        case IrUnOpAddressOf:
-        case IrUnOpConstAddressOf:
-            return ir_analyze_unary_address_of(ira, un_op_instruction, op_id == IrUnOpConstAddressOf);
         case IrUnOpDereference:
             return ir_analyze_dereference(ira, un_op_instruction);
         case IrUnOpMaybe:
