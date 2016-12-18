@@ -61,6 +61,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->fn_type_table.init(32);
     g->error_table.init(16);
     g->generic_table.init(16);
+    g->memoized_fn_eval_table.init(16);
     g->is_release_build = false;
     g->is_test_build = false;
     g->want_h_file = true;

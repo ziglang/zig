@@ -2693,6 +2693,54 @@ bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
     return true;
 }
 
+uint32_t fn_eval_hash(Scope* scope) {
+    uint32_t result = 0;
+    while (scope) {
+        if (scope->id == ScopeIdVarDecl) {
+            ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
+            result += hash_const_val(var_scope->var->type, var_scope->var->value);
+        } else if (scope->id == ScopeIdFnDef) {
+            ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
+            result += hash_ptr(fn_scope->fn_entry);
+            return result;
+        } else {
+            zig_unreachable();
+        }
+
+        scope = scope->parent;
+    }
+    zig_unreachable();
+}
+
+bool fn_eval_eql(Scope *a, Scope *b) {
+    while (a && b) {
+        if (a->id != b->id)
+            return false;
+
+        if (a->id == ScopeIdVarDecl) {
+            ScopeVarDecl *a_var_scope = (ScopeVarDecl *)a;
+            ScopeVarDecl *b_var_scope = (ScopeVarDecl *)b;
+            if (a_var_scope->var->type != b_var_scope->var->type)
+                return false;
+            if (!const_values_equal(a_var_scope->var->value, b_var_scope->var->value, a_var_scope->var->type))
+                return false;
+        } else if (a->id == ScopeIdFnDef) {
+            ScopeFnDef *a_fn_scope = (ScopeFnDef *)a;
+            ScopeFnDef *b_fn_scope = (ScopeFnDef *)b;
+            if (a_fn_scope->fn_entry != b_fn_scope->fn_entry)
+                return false;
+
+            return true;
+        } else {
+            zig_unreachable();
+        }
+
+        a = a->parent;
+        b = b->parent;
+    }
+    return false;
+}
+
 bool type_has_bits(TypeTableEntry *type_entry) {
     assert(type_entry);
     assert(type_entry->id != TypeTableEntryIdInvalid);

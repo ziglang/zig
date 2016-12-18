@@ -1067,6 +1067,9 @@ struct BuiltinFnEntry {
     LLVMValueRef fn_val;
 };
 
+uint32_t fn_eval_hash(Scope*);
+bool fn_eval_eql(Scope *a, Scope *b);
+
 struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -1085,6 +1088,7 @@ struct CodeGen {
     HashMap<FnTypeId *, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
     HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
+    HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
 
     ZigList<ImportTableEntry *> import_queue;
     size_t import_queue_index;

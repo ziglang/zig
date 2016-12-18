@@ -6049,13 +6049,22 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         if (return_type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
-        // Analyze the fn body block like any other constant expression.
-        AstNode *body_node = fn_entry->fn_def_node->data.fn_def.body;
-        IrInstruction *result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
-            ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry,
-            nullptr, call_instruction->base.source_node, nullptr);
-        if (result->type_entry->id == TypeTableEntryIdInvalid)
-            return ira->codegen->builtin_types.entry_invalid;
+        IrInstruction *result;
+
+        auto entry = ira->codegen->memoized_fn_eval_table.maybe_get(exec_scope);
+        if (entry) {
+            result = entry->value;
+        } else {
+            // Analyze the fn body block like any other constant expression.
+            AstNode *body_node = fn_entry->fn_def_node->data.fn_def.body;
+            result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
+                ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry,
+                nullptr, call_instruction->base.source_node, nullptr);
+            if (result->type_entry->id == TypeTableEntryIdInvalid)
+                return ira->codegen->builtin_types.entry_invalid;
+
+            ira->codegen->memoized_fn_eval_table.put(exec_scope, result);
+        }
 
         ConstExprValue *out_val = ir_build_const_from(ira, &call_instruction->base,
                 result->static_value.depends_on_compile_var);
