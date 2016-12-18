@@ -3853,15 +3853,6 @@ static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstN
     return ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
 }
 
-static const char *container_string(ContainerKind kind) {
-    switch (kind) {
-        case ContainerKindEnum: return "enum";
-        case ContainerKindStruct: return "struct";
-        case ContainerKindUnion: return "union";
-    }
-    zig_unreachable();
-}
-
 static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeContainerDecl);
 

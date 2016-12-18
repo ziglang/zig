@@ -115,7 +115,7 @@ static const char *const_or_var_string(bool is_const) {
     return is_const ? "const" : "var";
 }
 
-static const char *container_string(ContainerKind kind) {
+const char *container_string(ContainerKind kind) {
     switch (kind) {
         case ContainerKindEnum: return "enum";
         case ContainerKindStruct: return "struct";
