@@ -2,7 +2,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const str = std.str;
 const cstr = std.cstr;
-// TODO '_' identifier for unused variable bindings
 const test_return_type_type = @import("cases/return_type_type.zig");
 const test_zeroes = @import("cases/zeroes.zig");
 const test_sizeof_and_typeof = @import("cases/sizeof_and_typeof.zig");
@@ -16,12 +15,6 @@ const test_enum_with_members = @import("cases/enum_with_members.zig");
 const test_struct_contains_slice_of_itself = @import("cases/struct_contains_slice_of_itself.zig");
 const test_this = @import("cases/this.zig");
 
-// normal comment
-/// this is a documentation comment
-/// doc comment line 2
-fn emptyFunctionWithComments() {
-    @setFnTest(this, true);
-}
 
 
 
@@ -127,41 +120,6 @@ fn arrays() {
 }
 fn getArrayLen(a: []u32) -> usize {
     a.len
-}
-
-fn shortCircuit() {
-    @setFnTest(this, true);
-
-    var hit_1 = false;
-    var hit_2 = false;
-    var hit_3 = false;
-    var hit_4 = false;
-
-    if (true || {assertRuntime(false); false}) {
-        hit_1 = true;
-    }
-    if (false || { hit_2 = true; false }) {
-        assertRuntime(false);
-    }
-
-    if (true && { hit_3 = true; false }) {
-        assertRuntime(false);
-    }
-    if (false && {assertRuntime(false); false}) {
-        assertRuntime(false);
-    } else {
-        hit_4 = true;
-    }
-    assert(hit_1);
-    assert(hit_2);
-    assert(hit_3);
-    assert(hit_4);
-}
-
-fn assertRuntime(b: bool) {
-    @setFnStaticEval(this, false);
-
-    if (!b) @unreachable()
 }
 
 fn modifyOperators() {
@@ -505,22 +463,6 @@ enum AnEnumWithPayload {
 }
 
 
-fn continueInForLoop() {
-    @setFnTest(this, true);
-
-    const array = []i32 {1, 2, 3, 4, 5};
-    var sum : i32 = 0;
-    for (array) |x| {
-        sum += x;
-        if (x < 3) {
-            continue;
-        }
-        break;
-    }
-    if (sum != 6) @unreachable()
-}
-
-
 fn castBoolToInt() {
     @setFnTest(this, true);
 
@@ -727,23 +669,6 @@ struct ArrayDotLenConstExpr {
 const some_array = []u8 {0, 1, 2, 3};
 
 
-fn countLeadingZeroes() {
-    @setFnTest(this, true);
-
-    assert(@clz(u8, 0b00001010) == 4);
-    assert(@clz(u8, 0b10001010) == 0);
-    assert(@clz(u8, 0b00000000) == 8);
-}
-
-fn countTrailingZeroes() {
-    @setFnTest(this, true);
-
-    assert(@ctz(u8, 0b10100000) == 5);
-    assert(@ctz(u8, 0b10001010) == 1);
-    assert(@ctz(u8, 0b00000000) == 8);
-}
-
-
 fn multilineString() {
     @setFnTest(this, true);
 
@@ -768,23 +693,6 @@ fn multilineCString() {
     assert(cstr.cmp(s1, s2) == 0);
 }
 
-
-
-fn simpleGenericFn() {
-    @setFnTest(this, true);
-
-    assert(max(i32, 3, -1) == 3);
-    assert(max(f32, 0.123, 0.456) == 0.456);
-    assert(add(2, 3) == 5);
-}
-
-fn max(inline T: type, a: T, b: T) -> T {
-    return if (a > b) a else b;
-}
-
-fn add(inline a: i32, b: i32) -> i32 {
-    return @constEval(a) + b;
-}
 
 
 fn constantEqualFunctionPointers() {
@@ -835,49 +743,6 @@ fn errorNameString() {
 
     assert(str.eql(@errorName(error.AnError), "AnError"));
     assert(str.eql(@errorName(error.ALongerErrorName), "ALongerErrorName"));
-}
-
-
-fn gotoAndLabels() {
-    @setFnTest(this, true);
-
-    gotoLoop();
-    assert(goto_counter == 10);
-}
-fn gotoLoop() {
-    var i: i32 = 0;
-    goto cond;
-loop:
-    i += 1;
-cond:
-    if (!(i < 10)) goto end;
-    goto_counter += 1;
-    goto loop;
-end:
-}
-var goto_counter: i32 = 0;
-
-
-
-fn gotoLeaveDeferScope() {
-    @setFnTest(this, true);
-
-    testGotoLeaveDeferScope(true);
-}
-fn testGotoLeaveDeferScope(b: bool) {
-    @setFnStaticEval(this, false);
-
-    var it_worked = false;
-
-    goto entry;
-exit:
-    if (it_worked) {
-        return;
-    }
-    @unreachable();
-entry:
-    defer it_worked = true;
-    if (b) goto exit;
 }
 
 
@@ -1110,40 +975,6 @@ fn constantExpressions() {
     assert(@sizeOf(@typeOf(array)) == 20);
 }
 const array_size : u8 = 20;
-
-
-fn minValueAndMaxValue() {
-    @setFnTest(this, true);
-
-    assert(@maxValue(u8) == 255);
-    assert(@maxValue(u16) == 65535);
-    assert(@maxValue(u32) == 4294967295);
-    assert(@maxValue(u64) == 18446744073709551615);
-
-    assert(@maxValue(i8) == 127);
-    assert(@maxValue(i16) == 32767);
-    assert(@maxValue(i32) == 2147483647);
-    assert(@maxValue(i64) == 9223372036854775807);
-
-    assert(@minValue(u8) == 0);
-    assert(@minValue(u16) == 0);
-    assert(@minValue(u32) == 0);
-    assert(@minValue(u64) == 0);
-
-    assert(@minValue(i8) == -128);
-    assert(@minValue(i16) == -32768);
-    assert(@minValue(i32) == -2147483648);
-    assert(@minValue(i64) == -9223372036854775808);
-}
-
-fn overflowIntrinsics() {
-    @setFnTest(this, true);
-
-    var result: u8 = undefined;
-    assert(@addWithOverflow(u8, 250, 100, &result));
-    assert(!@addWithOverflow(u8, 100, 150, &result));
-    assert(result == 250);
-}
 
 
 fn nestedArrays() {
@@ -1554,22 +1385,6 @@ fn assignToIfVarPtr() {
     assert(??maybe_bool == false);
 }
 
-fn cmpxchg() {
-    @setFnTest(this, true);
-
-    var x: i32 = 1234;
-    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
-    assert(x == 5678);
-}
-
-fn fence() {
-    @setFnTest(this, true);
-
-    var x: i32 = 1234;
-    @fence(AtomicOrder.SeqCst);
-    x = 5678;
-}
-
 fn unsignedWrapping() {
     @setFnTest(this, true);
 
@@ -1648,15 +1463,6 @@ fn testShlWrappingNoeval(x: u16) {
     assert(shifted == 65534);
 }
 
-fn shlWithOverflow() {
-    @setFnTest(this, true);
-
-    var result: u16 = undefined;
-    assert(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
-    assert(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
-    assert(result == 0b1011111111111100);
-}
-
 fn cStringConcatenation() {
     @setFnTest(this, true);
 
@@ -1709,28 +1515,6 @@ fn castSliceToU8Slice() {
     assert(bytes[11] == @maxValue(u8));
 }
 
-fn floatDivision() {
-    @setFnTest(this, true);
-
-    assert(fdiv32(12.0, 3.0) == 4.0);
-}
-fn fdiv32(a: f32, b: f32) -> f32 {
-    @setFnStaticEval(this, false);
-
-    a / b
-}
-
-fn exactDivision() {
-    @setFnTest(this, true);
-
-    assert(divExact(55, 11) == 5);
-}
-fn divExact(a: u32, b: u32) -> u32 {
-    @setFnStaticEval(this, false);
-
-    @divExact(a, b)
-}
-
 fn nullLiteralOutsideFunction() {
     @setFnTest(this, true);
 
@@ -1743,17 +1527,6 @@ struct SillyStruct {
 const here_is_a_null_literal = SillyStruct {
     .context = null,
 };
-
-fn truncate() {
-    @setFnTest(this, true);
-
-    assert(testTruncate(0x10fd) == 0xfd);
-}
-fn testTruncate(x: u32) -> u8 {
-    @setFnStaticEval(this, false);
-
-    @truncate(u8, x)
-}
 
 fn constDeclsInStruct() {
     @setFnTest(this, true);
@@ -1792,38 +1565,6 @@ fn div(a: u64, b: u64) -> DivResult {
 struct DivResult {
     quotient: u64,
     remainder: u64,
-}
-
-fn intTypeBuiltin() {
-    @setFnTest(this, true);
-
-    assert(@intType(true, 8) == i8);
-    assert(@intType(true, 16) == i16);
-    assert(@intType(true, 32) == i32);
-    assert(@intType(true, 64) == i64);
-
-    assert(@intType(false, 8) == u8);
-    assert(@intType(false, 16) == u16);
-    assert(@intType(false, 32) == u32);
-    assert(@intType(false, 64) == u64);
-
-    assert(i8.bit_count == 8);
-    assert(i16.bit_count == 16);
-    assert(i32.bit_count == 32);
-    assert(i64.bit_count == 64);
-
-    assert(i8.is_signed);
-    assert(i16.is_signed);
-    assert(i32.is_signed);
-    assert(i64.is_signed);
-    assert(isize.is_signed);
-
-    assert(!u8.is_signed);
-    assert(!u16.is_signed);
-    assert(!u32.is_signed);
-    assert(!u64.is_signed);
-    assert(!usize.is_signed);
-
 }
 
 fn intToEnum() {

@@ -2286,9 +2286,11 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdEnumTag:
             return ir_render_enum_tag(g, executable, (IrInstructionEnumTag *)instruction);
         case IrInstructionIdSwitchVar:
+            zig_panic("TODO render switch var instruction to LLVM");
         case IrInstructionIdContainerInitList:
+            zig_panic("TODO render container init list instruction to LLVM");
         case IrInstructionIdStructInit:
-            zig_panic("TODO render more IR instructions to LLVM");
+            zig_panic("TODO render struct init to LLVM");
     }
     zig_unreachable();
 }
