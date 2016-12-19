@@ -2194,6 +2194,48 @@ static IrInstruction *ir_gen_bool_and(IrBuilder *irb, Scope *scope, AstNode *nod
     return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
 }
 
+static IrInstruction *ir_gen_maybe_ok_or(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeBinOpExpr);
+
+    AstNode *op1_node = node->data.bin_op_expr.op1;
+    AstNode *op2_node = node->data.bin_op_expr.op2;
+
+    bool is_inline = ir_should_inline(irb);
+
+    IrInstruction *maybe_ptr = ir_gen_node_extra(irb, op1_node, parent_scope, LValPurposeAddressOf);
+    if (maybe_ptr == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    IrInstruction *is_non_null = ir_build_test_null(irb, parent_scope, node, maybe_ptr);
+
+    IrBasicBlock *ok_block = ir_build_basic_block(irb, parent_scope, "MaybeNonNull");
+    IrBasicBlock *null_block = ir_build_basic_block(irb, parent_scope, "MaybeNull");
+    IrBasicBlock *end_block = ir_build_basic_block(irb, parent_scope, "MaybeEnd");
+    ir_build_cond_br(irb, parent_scope, node, is_non_null, ok_block, null_block, is_inline);
+
+    ir_set_cursor_at_end(irb, null_block);
+    IrInstruction *null_result = ir_gen_node(irb, op2_node, parent_scope);
+    if (null_result == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+    IrBasicBlock *after_null_block = irb->current_basic_block;
+    ir_build_br(irb, parent_scope, node, end_block, is_inline);
+
+    ir_set_cursor_at_end(irb, ok_block);
+    IrInstruction *unwrapped_ptr = ir_build_unwrap_maybe(irb, parent_scope, node, maybe_ptr, false);
+    IrInstruction *unwrapped_payload = ir_build_load_ptr(irb, parent_scope, node, unwrapped_ptr);
+    IrBasicBlock *after_ok_block = irb->current_basic_block;
+    ir_build_br(irb, parent_scope, node, end_block, is_inline);
+
+    ir_set_cursor_at_end(irb, end_block);
+    IrInstruction **incoming_values = allocate<IrInstruction *>(2);
+    incoming_values[0] = null_result;
+    incoming_values[1] = unwrapped_payload;
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    incoming_blocks[0] = after_null_block;
+    incoming_blocks[1] = after_ok_block;
+    return ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
+}
+
 static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeBinOpExpr);
 
@@ -2284,7 +2326,7 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
         case BinOpTypeArrayMult:
             return ir_gen_bin_op_id(irb, scope, node, IrBinOpArrayMult);
         case BinOpTypeUnwrapMaybe:
-            zig_panic("TODO gen IR for unwrap maybe binary operation");
+            return ir_gen_maybe_ok_or(irb, scope, node);
     }
     zig_unreachable();
 }
