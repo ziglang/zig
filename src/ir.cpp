@@ -1934,10 +1934,27 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 size_t defer_counts[3];
                 ir_count_defers(irb, scope, outer_scope, defer_counts);
                 if (defer_counts[ReturnKindError] > 0) {
-                    // TODO in this situation we need to make a conditional
-                    // branch on the return value. we potentially must make multiple conditional branches,
-                    // if unconditional defers are interleaved with error defers.
-                    zig_panic("TODO handle error defers");
+                    IrBasicBlock *err_block = ir_build_basic_block(irb, scope, "ErrRetErr");
+                    IrBasicBlock *ok_block = ir_build_basic_block(irb, scope, "ErrRetOk");
+
+                    IrInstruction *is_err = ir_build_test_err(irb, scope, node, return_value);
+
+                    IrInstruction *is_comptime;
+                    if (ir_should_inline(irb)) {
+                        is_comptime = ir_build_const_bool(irb, scope, node, true);
+                    } else {
+                        is_comptime = ir_build_test_comptime(irb, scope, node, is_err);
+                    }
+
+                    ir_build_cond_br(irb, scope, node, is_err, err_block, ok_block, is_comptime);
+
+                    ir_set_cursor_at_end(irb, err_block);
+                    ir_gen_defers_for_block(irb, scope, outer_scope, true, false);
+                    ir_build_return(irb, scope, node, return_value);
+
+                    ir_set_cursor_at_end(irb, ok_block);
+                    ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
+                    return ir_build_return(irb, scope, node, return_value);
                 } else if (defer_counts[ReturnKindMaybe] > 0) {
                     // TODO in this situation we need to make a conditional
                     // branch on the maybe value. we potentially must make multiple conditional branches,
@@ -1946,8 +1963,8 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 } else {
                     // generate unconditional defers
                     ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
+                    return ir_build_return(irb, scope, node, return_value);
                 }
-                return ir_build_return(irb, scope, node, return_value);
             }
         case ReturnKindError:
             {
@@ -1955,7 +1972,8 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 IrInstruction *err_union_ptr = ir_gen_node_extra(irb, expr_node, scope, LValPurposeAddressOf);
                 if (err_union_ptr == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
-                IrInstruction *is_err_val = ir_build_test_err(irb, scope, node, err_union_ptr);
+                IrInstruction *err_union_val = ir_build_load_ptr(irb, scope, node, err_union_ptr);
+                IrInstruction *is_err_val = ir_build_test_err(irb, scope, node, err_union_val);
 
                 IrBasicBlock *return_block = ir_build_basic_block(irb, scope, "ErrRetReturn");
                 IrBasicBlock *continue_block = ir_build_basic_block(irb, scope, "ErrRetContinue");
@@ -3932,7 +3950,8 @@ static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstN
     if (err_union_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    IrInstruction *is_err = ir_build_test_err(irb, parent_scope, node, err_union_ptr);
+    IrInstruction *err_union_val = ir_build_load_ptr(irb, parent_scope, node, err_union_ptr);
+    IrInstruction *is_err = ir_build_test_err(irb, parent_scope, node, err_union_val);
 
     IrInstruction *is_comptime;
     if (ir_should_inline(irb)) {
@@ -9443,26 +9462,20 @@ static TypeTableEntry *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruc
     if (value->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *ptr_type = value->type_entry;
+    TypeTableEntry *non_canon_type = value->type_entry;
 
-    // This will be a pointer type because unwrap err payload IR instruction operates on a pointer to a thing.
-    assert(ptr_type->id == TypeTableEntryIdPointer);
-
-    TypeTableEntry *non_canon_type = ptr_type->data.pointer.child_type;
     TypeTableEntry *canon_type = get_underlying_type(non_canon_type);
     if (canon_type->id == TypeTableEntryIdInvalid) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (canon_type->id == TypeTableEntryIdErrorUnion) {
         if (instr_is_comptime(value)) {
-            ConstExprValue *ptr_val = ir_resolve_const(ira, value, UndefBad);
-            if (!ptr_val)
+            ConstExprValue *err_union_val = ir_resolve_const(ira, value, UndefBad);
+            if (!err_union_val)
                 return ira->codegen->builtin_types.entry_invalid;
-            ConstExprValue *err_union_val = ptr_val->data.x_ptr.base_ptr;
-            assert(ptr_val->data.x_ptr.index == SIZE_MAX);
 
             if (err_union_val->special != ConstValSpecialRuntime) {
-                bool depends_on_compile_var = ptr_val->depends_on_compile_var || err_union_val->depends_on_compile_var;
-                ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+                ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base,
+                    err_union_val->depends_on_compile_var);
                 out_val->data.x_bool = (err_union_val->data.x_err_union.err != nullptr);
                 return ira->codegen->builtin_types.entry_bool;
             }
@@ -9470,11 +9483,14 @@ static TypeTableEntry *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstruc
 
         ir_build_test_err_from(&ira->new_irb, &instruction->base, value);
         return ira->codegen->builtin_types.entry_bool;
+    } else if (canon_type->id == TypeTableEntryIdPureError) {
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, false);
+        out_val->data.x_bool = true;
+        return ira->codegen->builtin_types.entry_bool;
     } else {
-        ir_add_error(ira, value,
-            buf_sprintf("expected error union type, found '%s'", buf_ptr(&non_canon_type->name)));
-        // TODO if this is a typedecl, add error note showing the declaration of the type decl
-        return ira->codegen->builtin_types.entry_invalid;
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, false);
+        out_val->data.x_bool = false;
+        return ira->codegen->builtin_types.entry_bool;
     }
 }
 

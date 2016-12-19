@@ -7,3 +7,4 @@ const test_atomics = @import("cases3/atomics.zig");
 const test_for = @import("cases3/for.zig");
 const test_math = @import("cases3/math.zig");
 const test_generics = @import("cases3/generics.zig");
+const test_defer = @import("cases3/defer.zig");

@@ -2001,11 +2001,9 @@ static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, 
 }
 
 static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrInstructionTestErr *instruction) {
-    TypeTableEntry *ptr_type = get_underlying_type(instruction->value->type_entry);
-    TypeTableEntry *err_union_type = get_underlying_type(ptr_type->data.pointer.child_type);
+    TypeTableEntry *err_union_type = get_underlying_type(instruction->value->type_entry);
     TypeTableEntry *child_type = get_underlying_type(err_union_type->data.error.child_type);
-    LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
-    LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type);
+    LLVMValueRef err_union_handle = ir_llvm_value(g, instruction->value);
 
     LLVMValueRef err_val;
     if (type_has_bits(child_type)) {
