@@ -4172,13 +4172,16 @@ IrInstruction *ir_gen_fn(CodeGen *codegen, FnTableEntry *fn_entry) {
 static void add_call_stack_errors(CodeGen *codegen, IrExecutable *exec, ErrorMsg *err_msg, int limit) {
     if (!exec || !exec->source_node || limit < 0) return;
     add_error_note(codegen, err_msg, exec->source_node, buf_sprintf("called from here"));
+
     add_call_stack_errors(codegen, exec->parent_exec, err_msg, limit - 1);
 }
 
 static ErrorMsg *ir_add_error(IrAnalyze *ira, IrInstruction *source_instruction, Buf *msg) {
     ira->new_irb.exec->invalid = true;
     ErrorMsg *err_msg = add_node_error(ira->codegen, source_instruction->source_node, msg);
-    add_call_stack_errors(ira->codegen, ira->new_irb.exec, err_msg, 10);
+    if (ira->new_irb.exec->parent_exec) {
+        add_call_stack_errors(ira->codegen, ira->new_irb.exec, err_msg, 10);
+    }
     return err_msg;
 }
 
@@ -6242,6 +6245,11 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             impl_fn->type_entry = get_fn_type(ira->codegen, &fn_type_id);
             if (impl_fn->type_entry->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
+
+            impl_fn->ir_executable.source_node = call_instruction->base.source_node;
+            impl_fn->ir_executable.parent_exec = ira->new_irb.exec;
+            impl_fn->analyzed_executable.source_node = call_instruction->base.source_node;
+            impl_fn->analyzed_executable.parent_exec = ira->new_irb.exec;
 
             ira->codegen->fn_protos.append(impl_fn);
             ira->codegen->fn_defs.append(impl_fn);
