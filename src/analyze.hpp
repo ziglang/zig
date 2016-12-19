@@ -76,6 +76,7 @@ FnTableEntry *scope_get_fn_if_root(Scope *scope);
 bool type_requires_comptime(TypeTableEntry *type_entry);
 void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry);
 void complete_enum(CodeGen *g, TypeTableEntry *enum_type);
+bool ir_get_var_is_comptime(VariableTableEntry *var);
 
 ScopeBlock *create_block_scope(AstNode *node, Scope *parent);
 ScopeDefer *create_defer_scope(AstNode *node, Scope *parent);

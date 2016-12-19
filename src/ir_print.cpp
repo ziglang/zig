@@ -310,17 +310,20 @@ static void ir_print_bin_op(IrPrint *irp, IrInstructionBinOp *bin_op_instruction
 }
 
 static void ir_print_decl_var(IrPrint *irp, IrInstructionDeclVar *decl_var_instruction) {
-    const char *inline_kw = decl_var_instruction->var->is_inline ? "inline " : "";
     const char *var_or_const = decl_var_instruction->var->gen_is_const ? "const" : "var";
     const char *name = buf_ptr(&decl_var_instruction->var->name);
     if (decl_var_instruction->var_type) {
-        fprintf(irp->f, "%s%s %s: ", inline_kw, var_or_const, name);
+        fprintf(irp->f, "%s %s: ", var_or_const, name);
         ir_print_other_instruction(irp, decl_var_instruction->var_type);
         fprintf(irp->f, " = ");
     } else {
-        fprintf(irp->f, "%s%s %s = ", inline_kw, var_or_const, name);
+        fprintf(irp->f, "%s %s = ", var_or_const, name);
     }
     ir_print_other_instruction(irp, decl_var_instruction->init_value);
+    if (decl_var_instruction->var->is_comptime != nullptr) {
+        fprintf(irp->f, " // comptime = ");
+        ir_print_other_instruction(irp, decl_var_instruction->var->is_comptime);
+    }
 }
 
 static void ir_print_cast(IrPrint *irp, IrInstructionCast *cast_instruction) {
@@ -347,19 +350,25 @@ static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
 }
 
 static void ir_print_cond_br(IrPrint *irp, IrInstructionCondBr *cond_br_instruction) {
-    const char *inline_kw = cond_br_instruction->is_inline ? "inline " : "";
-    fprintf(irp->f, "%sif (", inline_kw);
+    fprintf(irp->f, "if (");
     ir_print_other_instruction(irp, cond_br_instruction->condition);
     fprintf(irp->f, ") ");
     ir_print_other_block(irp, cond_br_instruction->then_block);
     fprintf(irp->f, " else ");
     ir_print_other_block(irp, cond_br_instruction->else_block);
+    if (cond_br_instruction->is_comptime != nullptr) {
+        fprintf(irp->f, " // comptime = ");
+        ir_print_other_instruction(irp, cond_br_instruction->is_comptime);
+    }
 }
 
 static void ir_print_br(IrPrint *irp, IrInstructionBr *br_instruction) {
-    const char *inline_kw = br_instruction->is_inline ? "inline " : "";
-    fprintf(irp->f, "%sgoto ", inline_kw);
+    fprintf(irp->f, "goto ");
     ir_print_other_block(irp, br_instruction->dest_block);
+    if (br_instruction->is_comptime != nullptr) {
+        fprintf(irp->f, " // comptime = ");
+        ir_print_other_instruction(irp, br_instruction->is_comptime);
+    }
 }
 
 static void ir_print_phi(IrPrint *irp, IrInstructionPhi *phi_instruction) {
@@ -597,8 +606,7 @@ static void ir_print_ctz(IrPrint *irp, IrInstructionCtz *instruction) {
 }
 
 static void ir_print_switch_br(IrPrint *irp, IrInstructionSwitchBr *instruction) {
-    const char *inline_kw = instruction->is_inline ? "inline " : "";
-    fprintf(irp->f, "%sswitch (", inline_kw);
+    fprintf(irp->f, "switch (");
     ir_print_other_instruction(irp, instruction->target_value);
     fprintf(irp->f, ") ");
     for (size_t i = 0; i < instruction->case_count; i += 1) {
@@ -610,6 +618,10 @@ static void ir_print_switch_br(IrPrint *irp, IrInstructionSwitchBr *instruction)
     }
     fprintf(irp->f, "else => ");
     ir_print_other_block(irp, instruction->else_block);
+    if (instruction->is_comptime != nullptr) {
+        fprintf(irp->f, " // comptime = ");
+        ir_print_other_instruction(irp, instruction->is_comptime);
+    }
 }
 
 static void ir_print_switch_var(IrPrint *irp, IrInstructionSwitchVar *instruction) {
@@ -893,6 +905,12 @@ static void ir_print_fn_proto(IrPrint *irp, IrInstructionFnProto *instruction) {
     ir_print_other_instruction(irp, instruction->return_type);
 }
 
+static void ir_print_test_comptime(IrPrint *irp, IrInstructionTestComptime *instruction) {
+    fprintf(irp->f, "@testComptime(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1125,6 +1143,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdFnProto:
             ir_print_fn_proto(irp, (IrInstructionFnProto *)instruction);
+            break;
+        case IrInstructionIdTestComptime:
+            ir_print_test_comptime(irp, (IrInstructionTestComptime *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

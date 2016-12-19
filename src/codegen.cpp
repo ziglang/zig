@@ -1646,8 +1646,6 @@ static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef ir_render_switch_br(CodeGen *g, IrExecutable *executable, IrInstructionSwitchBr *instruction) {
-    assert(!instruction->is_inline);
-
     LLVMValueRef target_value = ir_llvm_value(g, instruction->target_value);
     LLVMBasicBlockRef else_block = instruction->else_block->llvm_block;
     LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, target_value, else_block, instruction->case_count);
@@ -2197,6 +2195,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdMemberCount:
         case IrInstructionIdAlignOf:
         case IrInstructionIdFnProto:
+        case IrInstructionIdTestComptime:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -2897,7 +2896,7 @@ static void do_code_gen(CodeGen *g) {
             if (!type_has_bits(var->type)) {
                 continue;
             }
-            if (var->is_inline)
+            if (ir_get_var_is_comptime(var))
                 continue;
 
             if (var->src_arg_index == SIZE_MAX) {

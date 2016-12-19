@@ -2924,3 +2924,12 @@ void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry) {
             resolve_union_type(g, type_entry);
     }
 }
+
+bool ir_get_var_is_comptime(VariableTableEntry *var) {
+    if (!var->is_comptime)
+        return false;
+    if (var->is_comptime->other)
+        return var->is_comptime->other->static_value.data.x_bool;
+    return var->is_comptime->static_value.data.x_bool;
+}
+

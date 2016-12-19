@@ -1235,7 +1235,7 @@ struct VariableTableEntry {
     LLVMValueRef value_ref;
     bool src_is_const;
     bool gen_is_const;
-    bool is_inline;
+    IrInstruction *is_comptime;
     // which node is the declaration of the variable
     AstNode *decl_node;
     ZigLLVMDILocalVariable *di_loc_var;
@@ -1451,6 +1451,7 @@ enum IrInstructionId {
     IrInstructionIdErrWrapCode,
     IrInstructionIdErrWrapPayload,
     IrInstructionIdFnProto,
+    IrInstructionIdTestComptime,
 };
 
 struct IrInstruction {
@@ -1472,14 +1473,14 @@ struct IrInstructionCondBr {
     IrInstruction *condition;
     IrBasicBlock *then_block;
     IrBasicBlock *else_block;
-    bool is_inline;
+    IrInstruction *is_comptime;
 };
 
 struct IrInstructionBr {
     IrInstruction base;
 
     IrBasicBlock *dest_block;
-    bool is_inline;
+    IrInstruction *is_comptime;
 };
 
 struct IrInstructionSwitchBrCase {
@@ -1494,7 +1495,7 @@ struct IrInstructionSwitchBr {
     IrBasicBlock *else_block;
     size_t case_count;
     IrInstructionSwitchBrCase *cases;
-    bool is_inline;
+    IrInstruction *is_comptime;
 };
 
 struct IrInstructionSwitchVar {
@@ -2068,6 +2069,13 @@ struct IrInstructionFnProto {
 
     IrInstruction **param_types;
     IrInstruction *return_type;
+};
+
+// true if the target value is compile time known, false otherwise
+struct IrInstructionTestComptime {
+    IrInstruction base;
+
+    IrInstruction *value;
 };
 
 enum LValPurpose {
