@@ -4169,9 +4169,17 @@ IrInstruction *ir_gen_fn(CodeGen *codegen, FnTableEntry *fn_entry) {
     return ir_gen(codegen, body_node, fn_entry->child_scope, ir_executable);
 }
 
+static void add_call_stack_errors(CodeGen *codegen, IrExecutable *exec, ErrorMsg *err_msg, int limit) {
+    if (!exec || !exec->source_node || limit < 0) return;
+    add_error_note(codegen, err_msg, exec->source_node, buf_sprintf("called from here"));
+    add_call_stack_errors(codegen, exec->parent_exec, err_msg, limit - 1);
+}
+
 static ErrorMsg *ir_add_error(IrAnalyze *ira, IrInstruction *source_instruction, Buf *msg) {
     ira->new_irb.exec->invalid = true;
-    return add_node_error(ira->codegen, source_instruction->source_node, msg);
+    ErrorMsg *err_msg = add_node_error(ira->codegen, source_instruction->source_node, msg);
+    add_call_stack_errors(ira->codegen, ira->new_irb.exec, err_msg, 10);
+    return err_msg;
 }
 
 static IrInstruction *ir_exec_const_result(IrExecutable *exec) {
@@ -4680,9 +4688,12 @@ static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, Un
 
 IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         TypeTableEntry *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,
-        FnTableEntry *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name)
+        FnTableEntry *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
+        IrExecutable *parent_exec)
 {
     IrExecutable ir_executable = {0};
+    ir_executable.source_node = source_node;
+    ir_executable.parent_exec = parent_exec;
     ir_executable.name = exec_name;
     ir_executable.is_inline = true;
     ir_executable.fn_entry = fn_entry;
@@ -4700,6 +4711,8 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
         fprintf(stderr, "}\n");
     }
     IrExecutable analyzed_executable = {0};
+    analyzed_executable.source_node = source_node;
+    analyzed_executable.parent_exec = parent_exec;
     analyzed_executable.name = exec_name;
     analyzed_executable.is_inline = true;
     analyzed_executable.fn_entry = fn_entry;
@@ -4730,7 +4743,7 @@ static TypeTableEntry *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value
         return ira->codegen->builtin_types.entry_invalid;
 
     if (type_value->type_entry->id != TypeTableEntryIdMetaType) {
-        add_node_error(ira->codegen, type_value->source_node,
+        ir_add_error(ira, type_value,
                 buf_sprintf("expected type 'type', found '%s'", buf_ptr(&type_value->type_entry->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -5152,7 +5165,7 @@ static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, Typ
     ImplicitCastMatchResult result = ir_types_match_with_implicit_cast(ira, expected_type, value->type_entry, value);
     switch (result) {
         case ImplicitCastMatchResultNo:
-            add_node_error(ira->codegen, first_executing_node(value->source_node),
+            ir_add_error(ira, value,
                 buf_sprintf("expected type '%s', found '%s'",
                     buf_ptr(&expected_type->name),
                     buf_ptr(&value->type_entry->name)));
@@ -6147,7 +6160,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             AstNode *body_node = fn_entry->fn_def_node->data.fn_def.body;
             result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
                 ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry,
-                nullptr, call_instruction->base.source_node, nullptr);
+                nullptr, call_instruction->base.source_node, nullptr, ira->new_irb.exec);
             if (result->type_entry->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
@@ -8432,7 +8445,7 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
     TypeTableEntry *void_type = ira->codegen->builtin_types.entry_void;
     IrInstruction *result = ir_eval_const_value(ira->codegen, &cimport_scope->base, block_node, void_type,
         ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, nullptr,
-        &cimport_scope->buf, block_node, nullptr);
+        &cimport_scope->buf, block_node, nullptr, nullptr);
     if (result->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 

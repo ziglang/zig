@@ -1,9 +1,9 @@
 const io = @import("std").io;
 
-struct TestFn {
+const TestFn = struct {
     name: []u8,
     func: extern fn(),
-}
+};
 
 extern var zig_test_fn_list: []TestFn;
 

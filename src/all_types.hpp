@@ -55,6 +55,8 @@ struct IrExecutable {
     bool is_inline;
     FnTableEntry *fn_entry;
     Buf *c_import_buf;
+    AstNode *source_node;
+    IrExecutable *parent_exec;
 };
 
 enum OutType {
