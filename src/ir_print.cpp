@@ -579,7 +579,7 @@ static void ir_print_size_of(IrPrint *irp, IrInstructionSizeOf *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_test_null(IrPrint *irp, IrInstructionTestNull *instruction) {
+static void ir_print_test_null(IrPrint *irp, IrInstructionTestNonNull *instruction) {
     fprintf(irp->f, "*");
     ir_print_other_instruction(irp, instruction->value);
     fprintf(irp->f, " != null");
@@ -1012,8 +1012,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdSizeOf:
             ir_print_size_of(irp, (IrInstructionSizeOf *)instruction);
             break;
-        case IrInstructionIdTestNull:
-            ir_print_test_null(irp, (IrInstructionTestNull *)instruction);
+        case IrInstructionIdTestNonNull:
+            ir_print_test_null(irp, (IrInstructionTestNonNull *)instruction);
             break;
         case IrInstructionIdUnwrapMaybe:
             ir_print_unwrap_maybe(irp, (IrInstructionUnwrapMaybe *)instruction);

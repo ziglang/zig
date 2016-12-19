@@ -275,8 +275,8 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSizeOf *) {
     return IrInstructionIdSizeOf;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionTestNull *) {
-    return IrInstructionIdTestNull;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTestNonNull *) {
+    return IrInstructionIdTestNonNull;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionUnwrapMaybe *) {
@@ -1200,7 +1200,7 @@ static IrInstruction *ir_build_size_of(IrBuilder *irb, Scope *scope, AstNode *so
 }
 
 static IrInstruction *ir_build_test_null(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
-    IrInstructionTestNull *instruction = ir_build_instruction<IrInstructionTestNull>(irb, scope, source_node);
+    IrInstructionTestNonNull *instruction = ir_build_instruction<IrInstructionTestNonNull>(irb, scope, source_node);
     instruction->value = value;
 
     ir_ref_instruction(value);
@@ -1956,10 +1956,27 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
                     return ir_build_return(irb, scope, node, return_value);
                 } else if (defer_counts[ReturnKindMaybe] > 0) {
-                    // TODO in this situation we need to make a conditional
-                    // branch on the maybe value. we potentially must make multiple conditional branches,
-                    // if unconditional defers are interleaved with error defers.
-                    zig_panic("TODO handle maybe defers");
+                    IrBasicBlock *null_block = ir_build_basic_block(irb, scope, "MaybeRetNull");
+                    IrBasicBlock *ok_block = ir_build_basic_block(irb, scope, "MaybeRetOk");
+
+                    IrInstruction *is_non_null = ir_build_test_null(irb, scope, node, return_value);
+
+                    IrInstruction *is_comptime;
+                    if (ir_should_inline(irb)) {
+                        is_comptime = ir_build_const_bool(irb, scope, node, true);
+                    } else {
+                        is_comptime = ir_build_test_comptime(irb, scope, node, is_non_null);
+                    }
+
+                    ir_build_cond_br(irb, scope, node, is_non_null, ok_block, null_block, is_comptime);
+
+                    ir_set_cursor_at_end(irb, null_block);
+                    ir_gen_defers_for_block(irb, scope, outer_scope, false, true);
+                    ir_build_return(irb, scope, node, return_value);
+
+                    ir_set_cursor_at_end(irb, ok_block);
+                    ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
+                    return ir_build_return(irb, scope, node, return_value);
                 } else {
                     // generate unconditional defers
                     ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
@@ -1998,12 +2015,13 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 IrInstruction *maybe_val_ptr = ir_gen_node_extra(irb, expr_node, scope, LValPurposeAddressOf);
                 if (maybe_val_ptr == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
-                IrInstruction *is_nonnull_val = ir_build_test_null(irb, scope, node, maybe_val_ptr);
+                IrInstruction *maybe_val = ir_build_load_ptr(irb, scope, node, maybe_val_ptr);
+                IrInstruction *is_non_null = ir_build_test_null(irb, scope, node, maybe_val);
 
                 IrBasicBlock *return_block = ir_build_basic_block(irb, scope, "MaybeRetReturn");
                 IrBasicBlock *continue_block = ir_build_basic_block(irb, scope, "MaybeRetContinue");
                 IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, ir_should_inline(irb));
-                ir_build_cond_br(irb, scope, node, is_nonnull_val, continue_block, return_block, is_comptime);
+                ir_build_cond_br(irb, scope, node, is_non_null, continue_block, return_block, is_comptime);
 
                 ir_set_cursor_at_end(irb, return_block);
                 ir_gen_defers_for_block(irb, scope, outer_scope, false, true);
@@ -2247,7 +2265,8 @@ static IrInstruction *ir_gen_maybe_ok_or(IrBuilder *irb, Scope *parent_scope, As
     if (maybe_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    IrInstruction *is_non_null = ir_build_test_null(irb, parent_scope, node, maybe_ptr);
+    IrInstruction *maybe_val = ir_build_load_ptr(irb, parent_scope, node, maybe_ptr);
+    IrInstruction *is_non_null = ir_build_test_null(irb, parent_scope, node, maybe_val);
 
     IrInstruction *is_comptime;
     if (ir_should_inline(irb)) {
@@ -3514,11 +3533,12 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, Scope *scope, AstNode *
     AstNode *else_node = node->data.if_var_expr.else_node;
     bool var_is_ptr = node->data.if_var_expr.var_is_ptr;
 
-    IrInstruction *expr_value = ir_gen_node_extra(irb, expr_node, scope, LValPurposeAddressOf);
-    if (expr_value == irb->codegen->invalid_instruction)
-        return expr_value;
+    IrInstruction *maybe_val_ptr = ir_gen_node_extra(irb, expr_node, scope, LValPurposeAddressOf);
+    if (maybe_val_ptr == irb->codegen->invalid_instruction)
+        return maybe_val_ptr;
 
-    IrInstruction *is_nonnull_value = ir_build_test_null(irb, scope, node, expr_value);
+    IrInstruction *maybe_val = ir_build_load_ptr(irb, scope, node, maybe_val_ptr);
+    IrInstruction *is_non_null = ir_build_test_null(irb, scope, node, maybe_val);
 
     IrBasicBlock *then_block = ir_build_basic_block(irb, scope, "MaybeThen");
     IrBasicBlock *else_block = ir_build_basic_block(irb, scope, "MaybeElse");
@@ -3528,9 +3548,9 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, Scope *scope, AstNode *
     if (ir_should_inline(irb) || node->data.if_var_expr.is_inline) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
-        is_comptime = ir_build_test_comptime(irb, scope, node, is_nonnull_value);
+        is_comptime = ir_build_test_comptime(irb, scope, node, is_non_null);
     }
-    ir_build_cond_br(irb, scope, node, is_nonnull_value, then_block, else_block, is_comptime);
+    ir_build_cond_br(irb, scope, node, is_non_null, then_block, else_block, is_comptime);
 
     ir_set_cursor_at_end(irb, then_block);
     IrInstruction *var_type = nullptr;
@@ -3544,7 +3564,7 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, Scope *scope, AstNode *
     VariableTableEntry *var = ir_create_var(irb, node, scope,
             var_decl->symbol, is_const, is_const, is_shadowable, is_comptime);
 
-    IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, scope, node, expr_value, false);
+    IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, scope, node, maybe_val_ptr, false);
     IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, node, var_ptr_value);
     ir_build_var_decl(irb, scope, node, var, var_type, var_value);
     IrInstruction *then_expr_result = ir_gen_node(irb, then_node, var->child_scope);
@@ -4440,7 +4460,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // implicitly take a const pointer to something
-    {
+    if (!type_requires_comptime(actual_type)) {
         TypeTableEntry *const_ptr_actual = get_pointer_to_type(ira->codegen, actual_type, true);
         if (types_match_const_cast_only(expected_type, const_ptr_actual)) {
             return ImplicitCastMatchResultYes;
@@ -5230,7 +5250,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     }
 
     // explicit cast from something to const pointer of it
-    {
+    if (!type_requires_comptime(actual_type)) {
         TypeTableEntry *const_ptr_actual = get_pointer_to_type(ira->codegen, actual_type, true);
         if (types_match_const_cast_only(wanted_type, const_ptr_actual)) {
             return ir_analyze_cast_ref(ira, source_instr, value, wanted_type);
@@ -7763,39 +7783,36 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
     zig_unreachable();
 }
 
-static TypeTableEntry *ir_analyze_instruction_test_null(IrAnalyze *ira,
-        IrInstructionTestNull *test_null_instruction)
-{
-    IrInstruction *value = test_null_instruction->value->other;
+static TypeTableEntry *ir_analyze_instruction_test_non_null(IrAnalyze *ira, IrInstructionTestNonNull *instruction) {
+    IrInstruction *value = instruction->value->other;
     if (value->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    // This will be a pointer type because test null IR instruction operates on a pointer to a thing.
-    TypeTableEntry *ptr_type = value->type_entry;
-    assert(ptr_type->id == TypeTableEntryIdPointer);
+    TypeTableEntry *type_entry = value->type_entry;
 
-    TypeTableEntry *type_entry = ptr_type->data.pointer.child_type;
-    if (type_entry->id != TypeTableEntryIdMaybe) {
-        add_node_error(ira->codegen, test_null_instruction->base.source_node,
-                buf_sprintf("expected nullable type, found '%s'", buf_ptr(&type_entry->name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
+    if (type_entry->id == TypeTableEntryIdMaybe) {
+        if (instr_is_comptime(value)) {
+            ConstExprValue *maybe_val = ir_resolve_const(ira, value, UndefBad);
+            if (!maybe_val)
+                return ira->codegen->builtin_types.entry_invalid;
 
-    if (value->static_value.special != ConstValSpecialRuntime) {
-        ConstExprValue *maybe_val = value->static_value.data.x_ptr.base_ptr;
-        assert(value->static_value.data.x_ptr.index == SIZE_MAX);
-
-        if (maybe_val->special != ConstValSpecialRuntime) {
-            bool depends_on_compile_var = maybe_val->depends_on_compile_var;
-            ConstExprValue *out_val = ir_build_const_from(ira, &test_null_instruction->base,
-                    depends_on_compile_var);
-            out_val->data.x_bool = (maybe_val->data.x_maybe == nullptr);
+            ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base,
+                maybe_val->depends_on_compile_var);
+            out_val->data.x_bool = (maybe_val->data.x_maybe != nullptr);
             return ira->codegen->builtin_types.entry_bool;
         }
-    }
 
-    ir_build_test_null_from(&ira->new_irb, &test_null_instruction->base, value);
-    return ira->codegen->builtin_types.entry_bool;
+        ir_build_test_null_from(&ira->new_irb, &instruction->base, value);
+        return ira->codegen->builtin_types.entry_bool;
+    } else if (type_entry->id == TypeTableEntryIdNullLit) {
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, false);
+        out_val->data.x_bool = false;
+        return ira->codegen->builtin_types.entry_bool;
+    } else {
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, false);
+        out_val->data.x_bool = true;
+        return ira->codegen->builtin_types.entry_bool;
+    }
 }
 
 static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
@@ -9689,8 +9706,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_compile_var(ira, (IrInstructionCompileVar *)instruction);
         case IrInstructionIdSizeOf:
             return ir_analyze_instruction_size_of(ira, (IrInstructionSizeOf *)instruction);
-        case IrInstructionIdTestNull:
-            return ir_analyze_instruction_test_null(ira, (IrInstructionTestNull *)instruction);
+        case IrInstructionIdTestNonNull:
+            return ir_analyze_instruction_test_non_null(ira, (IrInstructionTestNonNull *)instruction);
         case IrInstructionIdUnwrapMaybe:
             return ir_analyze_instruction_unwrap_maybe(ira, (IrInstructionUnwrapMaybe *)instruction);
         case IrInstructionIdClz:
@@ -9908,7 +9925,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSliceType:
         case IrInstructionIdCompileVar:
         case IrInstructionIdSizeOf:
-        case IrInstructionIdTestNull:
+        case IrInstructionIdTestNonNull:
         case IrInstructionIdUnwrapMaybe:
         case IrInstructionIdClz:
         case IrInstructionIdCtz:

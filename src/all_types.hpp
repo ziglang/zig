@@ -1410,7 +1410,7 @@ enum IrInstructionId {
     IrInstructionIdAsm,
     IrInstructionIdCompileVar,
     IrInstructionIdSizeOf,
-    IrInstructionIdTestNull,
+    IrInstructionIdTestNonNull,
     IrInstructionIdUnwrapMaybe,
     IrInstructionIdMaybeWrap,
     IrInstructionIdEnumTag,
@@ -1787,7 +1787,7 @@ struct IrInstructionSizeOf {
 
 // returns true if nonnull, returns false if null
 // this is so that `zeroes` sets maybe values to null
-struct IrInstructionTestNull {
+struct IrInstructionTestNonNull {
     IrInstruction base;
 
     IrInstruction *value;

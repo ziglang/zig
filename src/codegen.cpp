@@ -1554,26 +1554,20 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
 }
 
-// 0 - null, 1 - non null
-static LLVMValueRef gen_null_bit(CodeGen *g, TypeTableEntry *ptr_type, LLVMValueRef maybe_ptr) {
-    assert(ptr_type->id == TypeTableEntryIdPointer);
-    TypeTableEntry *maybe_type = ptr_type->data.pointer.child_type;
-    assert(maybe_type->id == TypeTableEntryIdMaybe);
-    TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
-    LLVMValueRef maybe_struct_ref = get_handle_value(g, maybe_ptr, maybe_type);
-    bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
+static LLVMValueRef gen_non_null_bit(CodeGen *g, TypeTableEntry *maybe_type, LLVMValueRef maybe_handle) {
+    bool maybe_is_ptr = (maybe_type->id == TypeTableEntryIdPointer || maybe_type->id == TypeTableEntryIdFn);
     if (maybe_is_ptr) {
-        return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_struct_ref, LLVMConstNull(child_type->type_ref), "");
+        return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(maybe_type->type_ref), "");
     } else {
-        LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_struct_ref, maybe_null_index, "");
+        LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_handle, maybe_null_index, "");
         return LLVMBuildLoad(g->builder, maybe_field_ptr, "");
     }
 }
 
-static LLVMValueRef ir_render_test_null(CodeGen *g, IrExecutable *executable, IrInstructionTestNull *instruction) {
-    TypeTableEntry *ptr_type = instruction->value->type_entry;
-    assert(ptr_type->id == TypeTableEntryIdPointer);
-    return gen_null_bit(g, ptr_type, ir_llvm_value(g, instruction->value));
+static LLVMValueRef ir_render_test_non_null(CodeGen *g, IrExecutable *executable,
+    IrInstructionTestNonNull *instruction)
+{
+    return gen_non_null_bit(g, instruction->value->type_entry, ir_llvm_value(g, instruction->value));
 }
 
 static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
@@ -1586,11 +1580,12 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
     TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
     bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
     LLVMValueRef maybe_ptr = ir_llvm_value(g, instruction->value);
+    LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type);
     if (ir_want_debug_safety(g, &instruction->base) && instruction->safety_check_on) {
-        LLVMValueRef nonnull_bit = gen_null_bit(g, ptr_type, maybe_ptr);
+        LLVMValueRef non_null_bit = gen_non_null_bit(g, maybe_type, maybe_handle);
         LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapMaybeOk");
         LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapMaybeFail");
-        LLVMBuildCondBr(g->builder, nonnull_bit, ok_block, fail_block);
+        LLVMBuildCondBr(g->builder, non_null_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
         gen_debug_safety_crash(g);
@@ -2227,8 +2222,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_enum_field_ptr(g, executable, (IrInstructionEnumFieldPtr *)instruction);
         case IrInstructionIdAsm:
             return ir_render_asm(g, executable, (IrInstructionAsm *)instruction);
-        case IrInstructionIdTestNull:
-            return ir_render_test_null(g, executable, (IrInstructionTestNull *)instruction);
+        case IrInstructionIdTestNonNull:
+            return ir_render_test_non_null(g, executable, (IrInstructionTestNonNull *)instruction);
         case IrInstructionIdUnwrapMaybe:
             return ir_render_unwrap_maybe(g, executable, (IrInstructionUnwrapMaybe *)instruction);
         case IrInstructionIdClz:
