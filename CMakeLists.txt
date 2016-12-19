@@ -52,11 +52,11 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link.cpp"
     "${CMAKE_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/os.cpp"
-    "${CMAKE_SOURCE_DIR}/src/parseh.cpp"
     "${CMAKE_SOURCE_DIR}/src/parser.cpp"
     "${CMAKE_SOURCE_DIR}/src/target.cpp"
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
+    "${CMAKE_SOURCE_DIR}/src/parseh.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
 )
 

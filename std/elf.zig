@@ -30,14 +30,14 @@ pub const SHT_HIPROC = 0x7fffffff;
 pub const SHT_LOUSER = 0x80000000;
 pub const SHT_HIUSER = 0xffffffff;
 
-pub enum FileType {
+pub const FileType = enum {
     Relocatable,
     Executable,
     Shared,
     Core,
-}
+};
 
-pub enum Arch {
+pub const Arch = enum {
     Sparc,
     x86,
     Mips,
@@ -47,9 +47,9 @@ pub enum Arch {
     IA_64,
     x86_64,
     AArch64,
-}
+};
 
-pub struct SectionHeader {
+pub const SectionHeader = struct {
     name: u32,
     sh_type: u32,
     flags: u64,
@@ -60,9 +60,9 @@ pub struct SectionHeader {
     info: u32,
     addr_align: u64,
     ent_size: u64,
-}
+};
 
-pub struct Elf {
+pub const Elf = struct {
     in_stream: &io.InStream,
     auto_close_stream: bool,
     is_64: bool,
@@ -258,4 +258,4 @@ pub struct Elf {
     pub fn seekToSection(elf: &Elf, section: &SectionHeader) -> %void {
         %return elf.in_stream.seekTo(section.offset);
     }
-}
+};

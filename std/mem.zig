@@ -8,7 +8,7 @@ pub const Cmp = math.Cmp;
 pub error NoMem;
 
 pub type Context = u8;
-pub struct Allocator {
+pub const Allocator = struct {
     allocFn: fn (self: &Allocator, n: usize) -> %[]u8,
     reallocFn: fn (self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8,
     freeFn: fn (self: &Allocator, mem: []u8),
@@ -39,7 +39,7 @@ pub struct Allocator {
     fn free(self: &Allocator, inline T: type, mem: []T) {
         self.freeFn(self, ([]u8)(mem));
     }
-}
+};
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.

@@ -882,6 +882,17 @@ static void ir_print_err_wrap_payload(IrPrint *irp, IrInstructionErrWrapPayload 
     fprintf(irp->f, ")");
 }
 
+static void ir_print_fn_proto(IrPrint *irp, IrInstructionFnProto *instruction) {
+    fprintf(irp->f, "fn(");
+    for (size_t i = 0; i < instruction->base.source_node->data.fn_proto.params.length; i += 1) {
+        if (i != 0)
+            fprintf(irp->f, ",");
+        ir_print_other_instruction(irp, instruction->param_types[i]);
+    }
+    fprintf(irp->f, ")->");
+    ir_print_other_instruction(irp, instruction->return_type);
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1111,6 +1122,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdErrWrapPayload:
             ir_print_err_wrap_payload(irp, (IrInstructionErrWrapPayload *)instruction);
+            break;
+        case IrInstructionIdFnProto:
+            ir_print_fn_proto(irp, (IrInstructionFnProto *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -439,6 +439,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionErrWrapCode *) {
     return IrInstructionIdErrWrapCode;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionFnProto *) {
+    return IrInstructionIdFnProto;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1824,6 +1828,22 @@ static IrInstruction *ir_build_unwrap_err_payload_from(IrBuilder *irb, IrInstruc
         old_instruction->source_node, value, safety_check_on);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
+}
+
+static IrInstruction *ir_build_fn_proto(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction **param_types, IrInstruction *return_type)
+{
+    IrInstructionFnProto *instruction = ir_build_instruction<IrInstructionFnProto>(irb, scope, source_node);
+    instruction->param_types = param_types;
+    instruction->return_type = return_type;
+
+    assert(source_node->type == NodeTypeFnProto);
+    for (size_t i = 0; i < source_node->data.fn_proto.params.length; i += 1) {
+        ir_ref_instruction(param_types[i]);
+    }
+    ir_ref_instruction(return_type);
+
+    return &instruction->base;
 }
 
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
@@ -3894,6 +3914,28 @@ static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope,
     return ir_build_const_type(irb, parent_scope, node, container_type);
 }
 
+static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeFnProto);
+
+    size_t param_count = node->data.fn_proto.params.length;
+    IrInstruction **param_types = allocate<IrInstruction*>(param_count);
+
+    for (size_t i = 0; i < param_count; i += 1) {
+        AstNode *param_node = node->data.fn_proto.params.at(i);
+        AstNode *type_node = param_node->data.param_decl.type;
+        IrInstruction *type_value = ir_gen_node(irb, type_node, parent_scope);
+        if (type_value == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+        param_types[i] = type_value;
+    }
+
+    IrInstruction *return_type = ir_gen_node(irb, node->data.fn_proto.return_type, parent_scope);
+    if (return_type == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    return ir_build_fn_proto(irb, parent_scope, node, param_types, return_type);
+}
+
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
         LValPurpose lval)
 {
@@ -3978,11 +4020,15 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeContainerDecl:
             return ir_lval_wrap(irb, scope, ir_gen_container_decl(irb, scope, node), lval);
         case NodeTypeFnProto:
+            return ir_lval_wrap(irb, scope, ir_gen_fn_proto(irb, scope, node), lval);
         case NodeTypeFnDef:
+            zig_panic("TODO IR gen NodeTypeFnDef");
         case NodeTypeFnDecl:
+            zig_panic("TODO IR gen NodeTypeFnDecl");
         case NodeTypeErrorValueDecl:
+            zig_panic("TODO IR gen NodeTypeErrorValueDecl");
         case NodeTypeTypeDecl:
-            zig_panic("TODO more IR gen for node types");
+            zig_panic("TODO IR gen NodeTypeTypeDecl");
         case NodeTypeZeroesLiteral:
             zig_panic("TODO zeroes is deprecated");
     }
@@ -9377,6 +9423,41 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
 
 }
 
+static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstructionFnProto *instruction) {
+    AstNode *proto_node = instruction->base.source_node;
+    assert(proto_node->type == NodeTypeFnProto);
+
+    FnTypeId fn_type_id = {0};
+    init_fn_type_id(&fn_type_id, proto_node);
+
+    bool depends_on_compile_var = false;
+
+    for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
+        AstNode *param_node = proto_node->data.fn_proto.params.at(fn_type_id.next_param_index);
+        assert(param_node->type == NodeTypeParamDecl);
+
+        IrInstruction *param_type_value = instruction->param_types[fn_type_id.next_param_index]->other;
+
+        FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
+        param_info->is_noalias = param_node->data.param_decl.is_noalias;
+        param_info->type = ir_resolve_type(ira, param_type_value);
+        if (param_info->type->id == TypeTableEntryIdInvalid)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        depends_on_compile_var = depends_on_compile_var || param_type_value->static_value.depends_on_compile_var;
+    }
+
+    IrInstruction *return_type_value = instruction->return_type->other;
+    fn_type_id.return_type = ir_resolve_type(ira, return_type_value);
+    if (fn_type_id.return_type->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+    depends_on_compile_var = depends_on_compile_var || return_type_value->static_value.depends_on_compile_var;
+
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+    out_val->data.x_type = get_fn_type(ira->codegen, &fn_type_id);
+    return ira->codegen->builtin_types.entry_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -9517,6 +9598,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_unwrap_err_code(ira, (IrInstructionUnwrapErrCode *)instruction);
         case IrInstructionIdUnwrapErrPayload:
             return ir_analyze_instruction_unwrap_err_payload(ira, (IrInstructionUnwrapErrPayload *)instruction);
+        case IrInstructionIdFnProto:
+            return ir_analyze_instruction_fn_proto(ira, (IrInstructionFnProto *)instruction);
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
@@ -9677,6 +9760,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
+        case IrInstructionIdFnProto:
             return false;
         case IrInstructionIdAsm:
             {

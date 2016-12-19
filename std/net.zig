@@ -13,7 +13,7 @@ pub error NoMem;
 pub error NotSocket;
 pub error BadFd;
 
-struct Connection {
+const Connection = struct {
     socket_fd: i32,
 
     pub fn send(c: Connection, buf: []const u8) -> %usize {
@@ -56,14 +56,14 @@ struct Connection {
             else => return error.Unexpected,
         }
     }
-}
+};
 
-struct Address {
+const Address = struct {
     family: u16,
     scope_id: u32,
     addr: [16]u8,
     sort_key: i32,
-}
+};
 
 pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
     if (hostname.len == 0) {

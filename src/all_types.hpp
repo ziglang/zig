@@ -1448,6 +1448,7 @@ enum IrInstructionId {
     IrInstructionIdUnwrapErrPayload,
     IrInstructionIdErrWrapCode,
     IrInstructionIdErrWrapPayload,
+    IrInstructionIdFnProto,
 };
 
 struct IrInstruction {
@@ -2058,6 +2059,13 @@ struct IrInstructionErrWrapCode {
 
     IrInstruction *value;
     LLVMValueRef tmp_ptr;
+};
+
+struct IrInstructionFnProto {
+    IrInstruction base;
+
+    IrInstruction **param_types;
+    IrInstruction *return_type;
 };
 
 enum LValPurpose {

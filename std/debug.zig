@@ -69,7 +69,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
     }
 }
 
-struct ElfStackTrace {
+const ElfStackTrace = struct {
     self_exe_stream: io.InStream,
     elf: elf.Elf,
     debug_info: &elf.SectionHeader,
@@ -77,36 +77,36 @@ struct ElfStackTrace {
     debug_str: &elf.SectionHeader,
     abbrev_table_list: List(AbbrevTableHeader),
     compile_unit_list: List(CompileUnit),
-}
+};
 
-struct CompileUnit {
+const CompileUnit = struct {
     is_64: bool,
     die: &Die,
     pc_start: u64,
     pc_end: u64,
-}
+};
 
 const AbbrevTable = List(AbbrevTableEntry);
 
-struct AbbrevTableHeader {
+const AbbrevTableHeader = struct {
     // offset from .debug_abbrev
     offset: u64,
     table: AbbrevTable,
-}
+};
 
-struct AbbrevTableEntry {
+const AbbrevTableEntry = struct {
     has_children: bool,
     abbrev_code: u64,
     tag_id: u64,
     attrs: List(AbbrevAttr),
-}
+};
 
-struct AbbrevAttr {
+const AbbrevAttr = struct {
     attr_id: u64,
     form_id: u64,
-}
+};
 
-enum FormValue {
+const FormValue = enum {
     Address: u64,
     Block: []u8,
     Const: Constant,
@@ -118,9 +118,9 @@ enum FormValue {
     RefSig8: u64,
     String: []u8,
     StrPtr: u64,
-}
+};
 
-struct Constant {
+const Constant = struct {
     payload: []u8,
     signed: bool,
 
@@ -131,17 +131,17 @@ struct Constant {
             return error.InvalidDebugInfo;
         return mem.sliceAsInt(self.payload, false, u64);
     }
-}
+};
 
-struct Die {
+const Die = struct {
     tag_id: u64,
     has_children: bool,
     attrs: List(Attr),
 
-    struct Attr {
+    const Attr = struct {
         id: u64,
         value: FormValue,
-    }
+    };
 
     fn getAttr(self: &const Die, id: u64) -> ?&const FormValue {
         for (self.attrs.toSlice()) |*attr| {
@@ -175,7 +175,7 @@ struct Die {
             else => error.InvalidDebugInfo,
         }
     }
-}
+};
 
 fn readString(in_stream: &io.InStream) -> %[]u8 {
     var buf = List(u8).init(&global_allocator);

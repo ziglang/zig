@@ -18,7 +18,7 @@ pub const MT19937_64 = MersenneTwister(
     43, 6364136223846793005);
 
 /// Use `init` to initialize this state.
-pub struct Rand {
+pub const Rand = struct {
     const Rng = if (@sizeOf(usize) >= 8) MT19937_64 else MT19937_32;
 
     rng: Rng,
@@ -91,65 +91,67 @@ pub struct Rand {
         };
         return T(r.rangeUnsigned(int_type, 0, precision)) / T(precision);
     }
-}
+};
 
-struct MersenneTwister(
-    int: type, n: usize, m: usize, r: int,
-    a: int,
-    u: int, d: int,
-    s: int, b: int,
-    t: int, c: int,
-    l: int, f: int)
+fn MersenneTwister(
+    inline int: type, inline n: usize, inline m: usize, inline r: int,
+    inline a: int,
+    inline u: int, inline d: int,
+    inline s: int, inline b: int,
+    inline t: int, inline c: int,
+    inline l: int, inline f: int) -> type
 {
-    const Self = this;
+    struct {
+        const Self = this;
 
-    array: [n]int,
-    index: usize,
+        array: [n]int,
+        index: usize,
 
-    pub fn init(mt: &Self, seed: int) {
-        mt.index = n;
+        pub fn init(mt: &Self, seed: int) {
+            mt.index = n;
 
-        var prev_value = seed;
-        mt.array[0] = prev_value;
-        {var i: usize = 1; while (i < n; i += 1) {
-            prev_value = int(i) +% f *% (prev_value ^ (prev_value >> (int.bit_count - 2)));
-            mt.array[i] = prev_value;
-        }};
-    }
-
-    pub fn get(mt: &Self) -> int {
-        const mag01 = []int{0, a};
-        const LM: int = (1 << r) - 1;
-        const UM = ~LM;
-
-        if (mt.index >= n) {
-            var i: usize = 0;
-
-            while (i < n - m; i += 1) {
-                const x = (mt.array[i] & UM) | (mt.array[i + 1] & LM);
-                mt.array[i] = mt.array[i + m] ^ (x >> 1) ^ mag01[x & 0x1];
-            }
-
-            while (i < n - 1; i += 1) {
-                const x = (mt.array[i] & UM) | (mt.array[i + 1] & LM);
-                mt.array[i] = mt.array[i + m - n] ^ (x >> 1) ^ mag01[x & 0x1];
-
-            }
-            const x = (mt.array[i] & UM) | (mt.array[0] & LM);
-            mt.array[i] = mt.array[m - 1] ^ (x >> 1) ^ mag01[x & 0x1];
-
-            mt.index = 0;
+            var prev_value = seed;
+            mt.array[0] = prev_value;
+            {var i: usize = 1; while (i < n; i += 1) {
+                prev_value = int(i) +% f *% (prev_value ^ (prev_value >> (int.bit_count - 2)));
+                mt.array[i] = prev_value;
+            }};
         }
 
-        var x = mt.array[mt.index];
-        mt.index += 1;
+        pub fn get(mt: &Self) -> int {
+            const mag01 = []int{0, a};
+            const LM: int = (1 << r) - 1;
+            const UM = ~LM;
 
-        x ^= ((x >> u) & d);
-        x ^= ((x <<% s) & b);
-        x ^= ((x <<% t) & c);
-        x ^= (x >> l);
+            if (mt.index >= n) {
+                var i: usize = 0;
 
-        return x;
+                while (i < n - m; i += 1) {
+                    const x = (mt.array[i] & UM) | (mt.array[i + 1] & LM);
+                    mt.array[i] = mt.array[i + m] ^ (x >> 1) ^ mag01[x & 0x1];
+                }
+
+                while (i < n - 1; i += 1) {
+                    const x = (mt.array[i] & UM) | (mt.array[i + 1] & LM);
+                    mt.array[i] = mt.array[i + m - n] ^ (x >> 1) ^ mag01[x & 0x1];
+
+                }
+                const x = (mt.array[i] & UM) | (mt.array[0] & LM);
+                mt.array[i] = mt.array[m - 1] ^ (x >> 1) ^ mag01[x & 0x1];
+
+                mt.index = 0;
+            }
+
+            var x = mt.array[mt.index];
+            mt.index += 1;
+
+            x ^= ((x >> u) & d);
+            x ^= ((x <<% s) & b);
+            x ^= ((x <<% t) & c);
+            x ^= (x >> l);
+
+            return x;
+        }
     }
 }
 
