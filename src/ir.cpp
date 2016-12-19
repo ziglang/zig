@@ -6833,8 +6833,7 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
     IrInstructionFieldPtr *field_ptr_instruction, IrInstruction *container_ptr, TypeTableEntry *container_type)
 {
     TypeTableEntry *bare_type = container_ref_type(container_type);
-    if (!type_is_complete(bare_type))
-        resolve_container_type(ira->codegen, bare_type);
+    ensure_complete_type(ira->codegen, bare_type);
 
     if (bare_type->id == TypeTableEntryIdStruct) {
         TypeStructField *field = find_struct_type_field(bare_type, field_name);

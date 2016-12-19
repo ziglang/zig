@@ -37,7 +37,9 @@ pub const FileType = enum {
     Core,
 };
 
-pub const Arch = enum {
+// TODO rename this to Arch when the builtin Arch enum is namespaced
+// or make debug info work for builtin enums
+pub const ElfArch = enum {
     Sparc,
     x86,
     Mips,
@@ -68,7 +70,7 @@ pub const Elf = struct {
     is_64: bool,
     is_big_endian: bool,
     file_type: FileType,
-    arch: Arch,
+    arch: ElfArch,
     entry_addr: u64,
     program_header_offset: u64,
     section_header_offset: u64,
@@ -122,15 +124,15 @@ pub const Elf = struct {
         };
 
         elf.arch = switch (%return elf.in_stream.readInt(elf.is_big_endian, u16)) {
-            0x02 => Arch.Sparc,
-            0x03 => Arch.x86,
-            0x08 => Arch.Mips,
-            0x14 => Arch.PowerPc,
-            0x28 => Arch.Arm,
-            0x2A => Arch.SuperH,
-            0x32 => Arch.IA_64,
-            0x3E => Arch.x86_64,
-            0xb7 => Arch.AArch64,
+            0x02 => ElfArch.Sparc,
+            0x03 => ElfArch.x86,
+            0x08 => ElfArch.Mips,
+            0x14 => ElfArch.PowerPc,
+            0x28 => ElfArch.Arm,
+            0x2A => ElfArch.SuperH,
+            0x32 => ElfArch.IA_64,
+            0x3E => ElfArch.x86_64,
+            0xb7 => ElfArch.AArch64,
             else => return error.InvalidFormat,
         };
 

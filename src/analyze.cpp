@@ -786,7 +786,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_param_info->src_index = i;
             gen_param_info->gen_index = SIZE_MAX;
 
-            assert(type_is_complete(type_entry));
+            ensure_complete_type(g, type_entry);
             if (type_has_bits(type_entry)) {
                 TypeTableEntry *gen_type;
                 if (handle_is_ptr(type_entry)) {
@@ -2910,4 +2910,17 @@ ConstExprValue *create_const_bool(bool value) {
     ConstExprValue *const_val = allocate<ConstExprValue>(1);
     init_const_bool(const_val, value);
     return const_val;
+}
+
+void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry) {
+    if (type_entry->id == TypeTableEntryIdStruct) {
+        if (!type_entry->data.structure.complete)
+            resolve_struct_type(g, type_entry);
+    } else if (type_entry->id == TypeTableEntryIdEnum) {
+        if (!type_entry->data.enumeration.complete)
+            resolve_enum_type(g, type_entry);
+    } else if (type_entry->id == TypeTableEntryIdUnion) {
+        if (!type_entry->data.unionation.complete)
+            resolve_union_type(g, type_entry);
+    }
 }
