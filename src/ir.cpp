@@ -4286,15 +4286,17 @@ static void add_call_stack_errors(CodeGen *codegen, IrExecutable *exec, ErrorMsg
     add_call_stack_errors(codegen, exec->parent_exec, err_msg, limit - 1);
 }
 
-// TODO migrate the rest of the add_node_error errors to use this so that we get better
-// messages for generic instantiations
-static ErrorMsg *ir_add_error(IrAnalyze *ira, IrInstruction *source_instruction, Buf *msg) {
+static ErrorMsg *ir_add_error_node(IrAnalyze *ira, AstNode *source_node, Buf *msg) {
     ira->new_irb.exec->invalid = true;
-    ErrorMsg *err_msg = add_node_error(ira->codegen, source_instruction->source_node, msg);
+    ErrorMsg *err_msg = add_node_error(ira->codegen, source_node, msg);
     if (ira->new_irb.exec->parent_exec) {
         add_call_stack_errors(ira->codegen, ira->new_irb.exec, err_msg, 10);
     }
     return err_msg;
+}
+
+static ErrorMsg *ir_add_error(IrAnalyze *ira, IrInstruction *source_instruction, Buf *msg) {
+    return ir_add_error_node(ira, source_instruction->source_node, msg);
 }
 
 static IrInstruction *ir_exec_const_result(IrExecutable *exec) {
@@ -4546,7 +4548,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 return ira->codegen->builtin_types.entry_invalid;
             }
         } else {
-            ErrorMsg *msg = add_node_error(ira->codegen, source_node,
+            ErrorMsg *msg = ir_add_error_node(ira, source_node,
                 buf_sprintf("incompatible types: '%s' and '%s'",
                     buf_ptr(&prev_type->name), buf_ptr(&cur_type->name)));
             add_error_note(ira->codegen, msg, prev_inst->source_node,
@@ -4561,11 +4563,11 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         if (prev_inst->type_entry->id == TypeTableEntryIdNumLitInt ||
             prev_inst->type_entry->id == TypeTableEntryIdNumLitFloat)
         {
-            add_node_error(ira->codegen, source_node,
+            ir_add_error_node(ira, source_node,
                 buf_sprintf("unable to make error union out of number literal"));
             return ira->codegen->builtin_types.entry_invalid;
         } else if (prev_inst->type_entry->id == TypeTableEntryIdNullLit) {
-            add_node_error(ira->codegen, source_node,
+            ir_add_error_node(ira, source_node,
                 buf_sprintf("unable to make error union out of null literal"));
             return ira->codegen->builtin_types.entry_invalid;
         } else {
@@ -4575,7 +4577,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         if (prev_inst->type_entry->id == TypeTableEntryIdNumLitInt ||
             prev_inst->type_entry->id == TypeTableEntryIdNumLitFloat)
         {
-            add_node_error(ira->codegen, source_node,
+            ir_add_error_node(ira, source_node,
                 buf_sprintf("unable to make maybe out of number literal"));
             return ira->codegen->builtin_types.entry_invalid;
         } else {
@@ -4878,7 +4880,7 @@ static FnTableEntry *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value) {
         return nullptr;
 
     if (fn_value->type_entry->id != TypeTableEntryIdFn) {
-        add_node_error(ira->codegen, fn_value->source_node,
+        ir_add_error_node(ira, fn_value->source_node,
                 buf_sprintf("expected function type, found '%s'", buf_ptr(&fn_value->type_entry->name)));
         return nullptr;
     }
@@ -5114,7 +5116,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         if (actual_type->data.array.len % child_type_size == 0) {
             return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpBytesToSlice, true);
         } else {
-            add_node_error(ira->codegen, source_instr->source_node,
+            ir_add_error_node(ira, source_instr->source_node,
                     buf_sprintf("unable to convert %s to %s: size mismatch",
                         buf_ptr(&actual_type->name), buf_ptr(&wanted_type->name)));
             return ira->codegen->invalid_instruction;
@@ -5222,7 +5224,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         {
             return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpErrToInt, false);
         } else {
-            add_node_error(ira->codegen, source_instr->source_node,
+            ir_add_error_node(ira, source_instr->source_node,
                     buf_sprintf("too many error values to fit in '%s'", buf_ptr(&wanted_type->name)));
             return ira->codegen->invalid_instruction;
         }
@@ -5257,7 +5259,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    add_node_error(ira->codegen, source_instr->source_node,
+    ir_add_error_node(ira, source_instr->source_node,
         buf_sprintf("invalid cast from type '%s' to '%s'",
             buf_ptr(&actual_type->name),
             buf_ptr(&wanted_type->name)));
@@ -5329,7 +5331,7 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
             return ira->codegen->invalid_instruction;
         }
     } else {
-        add_node_error(ira->codegen, source_instruction->source_node,
+        ir_add_error_node(ira, source_instruction->source_node,
             buf_sprintf("attempt to dereference non pointer type '%s'",
                 buf_ptr(&type_entry->name)));
         return ira->codegen->invalid_instruction;
@@ -5534,7 +5536,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
             if (!is_equality_cmp) {
-                add_node_error(ira->codegen, source_node,
+                ir_add_error_node(ira, source_node,
                     buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
                 return ira->codegen->builtin_types.entry_invalid;
             }
@@ -5542,7 +5544,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
 
         case TypeTableEntryIdEnum:
             if (!is_equality_cmp || resolved_type->data.enumeration.gen_field_count != 0) {
-                add_node_error(ira->codegen, source_node,
+                ir_add_error_node(ira, source_node,
                     buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
                 return ira->codegen->builtin_types.entry_invalid;
             }
@@ -5556,7 +5558,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdUnion:
-            add_node_error(ira->codegen, source_node,
+            ir_add_error_node(ira, source_node,
                 buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
 
@@ -5741,7 +5743,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         // float
     } else {
         AstNode *source_node = bin_op_instruction->base.source_node;
-        add_node_error(ira->codegen, source_node,
+        ir_add_error_node(ira, source_node,
             buf_sprintf("invalid operands to binary expression: '%s' and '%s'",
                 buf_ptr(&op1->type_entry->name),
                 buf_ptr(&op2->type_entry->name)));
@@ -5767,11 +5769,11 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         int err;
         if ((err = ir_eval_math_op(op1_val, resolved_type, op_id, op2_val, resolved_type, out_val))) {
             if (err == ErrorDivByZero) {
-                add_node_error(ira->codegen, bin_op_instruction->base.source_node,
+                ir_add_error_node(ira, bin_op_instruction->base.source_node,
                         buf_sprintf("division by zero is undefined"));
                 return ira->codegen->builtin_types.entry_invalid;
             } else if (err == ErrorOverflow) {
-                add_node_error(ira->codegen, bin_op_instruction->base.source_node,
+                ir_add_error_node(ira, bin_op_instruction->base.source_node,
                         buf_sprintf("value cannot be represented in any integer type"));
                 return ira->codegen->builtin_types.entry_invalid;
             }
@@ -6037,7 +6039,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
             if (is_export || is_extern || casted_init_value->static_value.special == ConstValSpecialRuntime) {
-                add_node_error(ira->codegen, source_node, buf_sprintf("unable to infer variable type"));
+                ir_add_error_node(ira, source_node, buf_sprintf("unable to infer variable type"));
                 result_type = ira->codegen->builtin_types.entry_invalid;
             }
             break;
@@ -6045,14 +6047,14 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdVar:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdNullLit:
-            add_node_error(ira->codegen, source_node,
+            ir_add_error_node(ira, source_node,
                 buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
             result_type = ira->codegen->builtin_types.entry_invalid;
             break;
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdNamespace:
             if (casted_init_value->static_value.special == ConstValSpecialRuntime) {
-                add_node_error(ira->codegen, source_node,
+                ir_add_error_node(ira, source_node,
                     buf_sprintf("variable of type '%s' must be constant", buf_ptr(&result_type->name)));
                 result_type = ira->codegen->builtin_types.entry_invalid;
             }
@@ -6212,7 +6214,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
     if (fn_type_id->is_var_args) {
         if (call_param_count < src_param_count) {
-            ErrorMsg *msg = add_node_error(ira->codegen, source_node,
+            ErrorMsg *msg = ir_add_error_node(ira, source_node,
                 buf_sprintf("expected at least %zu arguments, found %zu", src_param_count, call_param_count));
             if (fn_proto_node) {
                 add_error_note(ira->codegen, msg, fn_proto_node,
@@ -6221,7 +6223,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             return ira->codegen->builtin_types.entry_invalid;
         }
     } else if (src_param_count != call_param_count) {
-        ErrorMsg *msg = add_node_error(ira->codegen, source_node,
+        ErrorMsg *msg = ir_add_error_node(ira, source_node,
             buf_sprintf("expected %zu arguments, found %zu", src_param_count, call_param_count));
         if (fn_proto_node) {
             add_error_note(ira->codegen, msg, fn_proto_node,
@@ -6446,7 +6448,7 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
             size_t actual_param_count = call_instruction->arg_count;
 
             if (actual_param_count != 1) {
-                add_node_error(ira->codegen, call_instruction->base.source_node,
+                ir_add_error_node(ira, call_instruction->base.source_node,
                         buf_sprintf("cast expression expects exactly one parameter"));
                 return ira->codegen->builtin_types.entry_invalid;
             }
@@ -6470,7 +6472,7 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
             return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_table_entry->type_entry,
                 nullptr, first_arg_ptr, is_inline);
         } else {
-            add_node_error(ira->codegen, fn_ref->source_node,
+            ir_add_error_node(ira, fn_ref->source_node,
                 buf_sprintf("type '%s' not a function", buf_ptr(&fn_ref->type_entry->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
@@ -6480,7 +6482,7 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
         return ir_analyze_fn_call(ira, call_instruction, nullptr, fn_ref->type_entry,
             fn_ref, nullptr, false);
     } else {
-        add_node_error(ira->codegen, fn_ref->source_node,
+        ir_add_error_node(ira, fn_ref->source_node,
             buf_sprintf("type '%s' not a function", buf_ptr(&fn_ref->type_entry->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -6531,7 +6533,7 @@ static TypeTableEntry *ir_analyze_unary_prefix_op_err(IrAnalyze *ira, IrInstruct
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVar:
-            add_node_error(ira->codegen, un_op_instruction->base.source_node,
+            ir_add_error_node(ira, un_op_instruction->base.source_node,
                     buf_sprintf("unable to wrap type '%s' in error type", buf_ptr(&meta_type->name)));
             // TODO if meta_type is type decl, add note pointing to type decl declaration
             return ira->codegen->builtin_types.entry_invalid;
@@ -6550,7 +6552,7 @@ static TypeTableEntry *ir_analyze_dereference(IrAnalyze *ira, IrInstructionUnOp 
     } else if (ptr_type->id == TypeTableEntryIdPointer) {
         child_type = ptr_type->data.pointer.child_type;
     } else {
-        add_node_error(ira->codegen, un_op_instruction->base.source_node,
+        ir_add_error_node(ira, un_op_instruction->base.source_node,
             buf_sprintf("attempt to dereference non-pointer type '%s'",
                 buf_ptr(&ptr_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
@@ -6608,7 +6610,7 @@ static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op
                 return ira->codegen->builtin_types.entry_type;
             }
         case TypeTableEntryIdUnreachable:
-            add_node_error(ira->codegen, un_op_instruction->base.source_node,
+            ir_add_error_node(ira, un_op_instruction->base.source_node,
                     buf_sprintf("type '%s' not nullable", buf_ptr(&type_entry->name)));
             // TODO if it's a type decl, put an error note here pointing to the decl
             return ira->codegen->builtin_types.entry_invalid;
@@ -6813,7 +6815,7 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
     if (resolved_type->id == TypeTableEntryIdNumLitFloat ||
         resolved_type->id == TypeTableEntryIdNumLitInt)
     {
-        add_node_error(ira->codegen, phi_instruction->base.source_node,
+        ir_add_error_node(ira, phi_instruction->base.source_node,
                 buf_sprintf("unable to infer expression type"));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -6891,7 +6893,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         return array_type;
     } else if (array_type->id == TypeTableEntryIdArray) {
         if (array_type->data.array.len == 0) {
-            add_node_error(ira->codegen, elem_ptr_instruction->base.source_node,
+            ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                     buf_sprintf("index 0 outside array of size 0"));
         }
         TypeTableEntry *child_type = array_type->data.array.child_type;
@@ -6901,7 +6903,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     } else if (is_slice(array_type)) {
         return_type = array_type->data.structure.fields[0].type_entry;
     } else {
-        add_node_error(ira->codegen, elem_ptr_instruction->base.source_node,
+        ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                 buf_sprintf("array access of non-array type '%s'", buf_ptr(&array_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -6917,7 +6919,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         if (array_type->id == TypeTableEntryIdArray) {
             uint64_t array_len = array_type->data.array.len;
             if (index >= array_len) {
-                add_node_error(ira->codegen, elem_ptr_instruction->base.source_node,
+                ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                     buf_sprintf("index %" PRIu64 " outside array of size %" PRIu64,
                             index, array_len));
                 return ira->codegen->builtin_types.entry_invalid;
@@ -6948,7 +6950,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                     old_size = mem_size - offset;
                 }
                 if (new_index >= mem_size) {
-                    add_node_error(ira->codegen, elem_ptr_instruction->base.source_node,
+                    ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                         buf_sprintf("index %" PRIu64 " outside pointer of size %" PRIu64, index, old_size));
                     return ira->codegen->builtin_types.entry_invalid;
                 }
@@ -6959,7 +6961,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                 ConstExprValue *len_field = &array_ptr_val->data.x_struct.fields[slice_len_index];
                 uint64_t slice_len = len_field->data.x_bignum.data.x_uint;
                 if (index >= slice_len) {
-                    add_node_error(ira->codegen, elem_ptr_instruction->base.source_node,
+                    ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                         buf_sprintf("index %" PRIu64 " outside slice of size %" PRIu64,
                             index, slice_len));
                     return ira->codegen->builtin_types.entry_invalid;
@@ -7009,7 +7011,7 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
             return ir_analyze_ref(ira, &field_ptr_instruction->base, bound_fn_value);
         }
     }
-    add_node_error(ira->codegen, field_ptr_instruction->base.source_node,
+    ir_add_error_node(ira, field_ptr_instruction->base.source_node,
         buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name), buf_ptr(&bare_struct_type->name)));
     return ira->codegen->builtin_types.entry_invalid;
 }
@@ -7138,7 +7140,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, len_val,
                     usize, false, ConstPtrSpecialNone, ptr_is_const);
         } else {
-            add_node_error(ira->codegen, source_node,
+            ir_add_error_node(ira, source_node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
                     buf_ptr(&container_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
@@ -7253,7 +7255,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             if (tld->visib_mod == VisibModPrivate &&
                 tld->import != source_node->owner)
             {
-                ErrorMsg *msg = add_node_error(ira->codegen, source_node,
+                ErrorMsg *msg = ir_add_error_node(ira, source_node,
                     buf_sprintf("'%s' is private", buf_ptr(field_name)));
                 add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
                 return ira->codegen->builtin_types.entry_invalid;
@@ -7261,12 +7263,12 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             return ir_analyze_decl_ref(ira, &field_ptr_instruction->base, tld, depends_on_compile_var);
         } else {
             const char *import_name = namespace_import->path ? buf_ptr(namespace_import->path) : "(C import)";
-            add_node_error(ira->codegen, source_node,
+            ir_add_error_node(ira, source_node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name), import_name));
             return ira->codegen->builtin_types.entry_invalid;
         }
     } else {
-        add_node_error(ira->codegen, field_ptr_instruction->base.source_node,
+        ir_add_error_node(ira, field_ptr_instruction->base.source_node,
             buf_sprintf("type '%s' does not support field access", buf_ptr(&container_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -7348,7 +7350,7 @@ static TypeTableEntry *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdInvalid:
             return type_entry;
         case TypeTableEntryIdVar:
-            add_node_error(ira->codegen, expr_value->source_node,
+            ir_add_error_node(ira, expr_value->source_node,
                     buf_sprintf("type '%s' not eligible for @typeOf", buf_ptr(&type_entry->name)));
             return ira->codegen->builtin_types.entry_invalid;
         case TypeTableEntryIdNumLitFloat:
@@ -7402,7 +7404,7 @@ static TypeTableEntry *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
     } else if (is_slice(type_entry)) {
         ptr_type = type_entry->data.structure.fields[0].type_entry;
     } else {
-        add_node_error(ira->codegen, to_ptr_type_instruction->base.source_node,
+        ir_add_error_node(ira, to_ptr_type_instruction->base.source_node,
                 buf_sprintf("expected array type, found '%s'", buf_ptr(&type_entry->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -7423,7 +7425,7 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type_child(IrAnalyze *ira,
 
     // TODO handle typedefs
     if (type_entry->id != TypeTableEntryIdPointer) {
-        add_node_error(ira->codegen, ptr_type_child_instruction->base.source_node,
+        ir_add_error_node(ira, ptr_type_child_instruction->base.source_node,
                 buf_sprintf("expected pointer type, found '%s'", buf_ptr(&type_entry->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -7468,7 +7470,7 @@ static TypeTableEntry *ir_analyze_instruction_set_fn_visible(IrAnalyze *ira,
 
     AstNode *source_node = set_fn_visible_instruction->base.source_node;
     if (fn_entry->fn_export_set_node) {
-        ErrorMsg *msg = add_node_error(ira->codegen, source_node,
+        ErrorMsg *msg = ir_add_error_node(ira, source_node,
                 buf_sprintf("function visibility set twice"));
         add_error_note(ira->codegen, msg, fn_entry->fn_export_set_node, buf_sprintf("first set here"));
         return ira->codegen->builtin_types.entry_invalid;
@@ -7477,7 +7479,7 @@ static TypeTableEntry *ir_analyze_instruction_set_fn_visible(IrAnalyze *ira,
 
     AstNodeFnProto *fn_proto = &fn_entry->proto_node->data.fn_proto;
     if (fn_proto->visib_mod != VisibModExport) {
-        ErrorMsg *msg = add_node_error(ira->codegen, source_node,
+        ErrorMsg *msg = ir_add_error_node(ira, source_node,
             buf_sprintf("function must be marked export to set function visibility"));
         add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("function declared here"));
         return ira->codegen->builtin_types.entry_invalid;
@@ -7520,14 +7522,14 @@ static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
         } else if (type_arg->id == TypeTableEntryIdUnion) {
             decls_scope = type_arg->data.unionation.decls_scope;
         } else {
-            add_node_error(ira->codegen, target_instruction->source_node,
+            ir_add_error_node(ira, target_instruction->source_node,
                 buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&type_arg->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
         safety_off_ptr = &decls_scope->safety_off;
         safety_set_node_ptr = &decls_scope->safety_set_node;
     } else {
-        add_node_error(ira->codegen, target_instruction->source_node,
+        ir_add_error_node(ira, target_instruction->source_node,
             buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&target_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -7539,7 +7541,7 @@ static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
 
     AstNode *source_node = set_debug_safety_instruction->base.source_node;
     if (*safety_set_node_ptr) {
-        ErrorMsg *msg = add_node_error(ira->codegen, source_node,
+        ErrorMsg *msg = ir_add_error_node(ira, source_node,
                 buf_sprintf("function test attribute set twice"));
         add_error_note(ira->codegen, msg, *safety_set_node_ptr, buf_sprintf("first set here"));
         return ira->codegen->builtin_types.entry_invalid;
@@ -7571,7 +7573,7 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdBlock:
-            add_node_error(ira->codegen, slice_type_instruction->base.source_node,
+            ir_add_error_node(ira, slice_type_instruction->base.source_node,
                     buf_sprintf("slice of type '%s' not allowed", buf_ptr(&resolved_child_type->name)));
             // TODO if this is a typedecl, add error note showing the declaration of the type decl
             return ira->codegen->builtin_types.entry_invalid;
@@ -7660,7 +7662,7 @@ static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdBlock:
-            add_node_error(ira->codegen, array_type_instruction->base.source_node,
+            ir_add_error_node(ira, array_type_instruction->base.source_node,
                     buf_sprintf("array of type '%s' not allowed", buf_ptr(&child_type->name)));
             // TODO if this is a typedecl, add error note showing the declaration of the type decl
             return ira->codegen->builtin_types.entry_invalid;
@@ -7726,7 +7728,7 @@ static TypeTableEntry *ir_analyze_instruction_compile_var(IrAnalyze *ira,
         out_val->data.x_enum.tag = ira->codegen->target_oformat_index;
         return ira->codegen->builtin_types.entry_oformat_enum;
     } else {
-        add_node_error(ira->codegen, name_value->source_node,
+        ir_add_error_node(ira, name_value->source_node,
             buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(var_name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -7755,7 +7757,7 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
-            add_node_error(ira->codegen, size_of_instruction->base.source_node,
+            ir_add_error_node(ira, size_of_instruction->base.source_node,
                     buf_sprintf("no size available for type '%s'", buf_ptr(&type_entry->name)));
             // TODO if this is a typedecl, add error note showing the declaration of the type decl
             return ira->codegen->builtin_types.entry_invalid;
@@ -7831,7 +7833,7 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
     if (type_entry->id == TypeTableEntryIdInvalid) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (type_entry->id != TypeTableEntryIdMaybe) {
-        add_node_error(ira->codegen, unwrap_maybe_instruction->base.source_node,
+        ir_add_error_node(ira, unwrap_maybe_instruction->base.source_node,
                 buf_sprintf("expected nullable type, found '%s'", buf_ptr(&type_entry->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -7882,7 +7884,7 @@ static TypeTableEntry *ir_analyze_instruction_ctz(IrAnalyze *ira, IrInstructionC
         ir_build_ctz_from(&ira->new_irb, &ctz_instruction->base, value);
         return value->type_entry;
     } else {
-        add_node_error(ira->codegen, ctz_instruction->base.source_node,
+        ir_add_error_node(ira, ctz_instruction->base.source_node,
             buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->type_entry->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -7906,7 +7908,7 @@ static TypeTableEntry *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionC
         ir_build_clz_from(&ira->new_irb, &clz_instruction->base, value);
         return value->type_entry;
     } else {
-        add_node_error(ira->codegen, clz_instruction->base.source_node,
+        ir_add_error_node(ira, clz_instruction->base.source_node,
             buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->type_entry->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -8095,7 +8097,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
-            add_node_error(ira->codegen, switch_target_instruction->base.source_node,
+            ir_add_error_node(ira, switch_target_instruction->base.source_node,
                 buf_sprintf("invalid switch target type '%s'", buf_ptr(&target_type->name)));
             // TODO if this is a typedecl, add error note showing the declaration of the type decl
             return ira->codegen->builtin_types.entry_invalid;
@@ -8166,12 +8168,12 @@ static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructi
     int err;
     if ((err = os_path_real(&full_path, abs_full_path))) {
         if (err == ErrorFileNotFound) {
-            add_node_error(ira->codegen, source_node,
+            ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
             return ira->codegen->builtin_types.entry_invalid;
         } else {
             ira->codegen->error_during_imports = true;
-            add_node_error(ira->codegen, source_node,
+            ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));
             return ira->codegen->builtin_types.entry_invalid;
         }
@@ -8186,11 +8188,11 @@ static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructi
 
     if ((err = os_fetch_file_path(abs_full_path, import_code))) {
         if (err == ErrorFileNotFound) {
-            add_node_error(ira->codegen, source_node,
+            ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
             return ira->codegen->builtin_types.entry_invalid;
         } else {
-            add_node_error(ira->codegen, source_node,
+            ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to open '%s': %s", buf_ptr(&full_path), err_str(err)));
             return ira->codegen->builtin_types.entry_invalid;
         }
@@ -8233,7 +8235,7 @@ static TypeTableEntry *ir_analyze_instruction_array_len(IrAnalyze *ira,
         ir_build_load_ptr_from(&ira->new_irb, &array_len_instruction->base, len_ptr);
         return ira->codegen->builtin_types.entry_usize;
     } else {
-        add_node_error(ira->codegen, array_len_instruction->base.source_node,
+        ir_add_error_node(ira, array_len_instruction->base.source_node,
             buf_sprintf("type '%s' has no field 'len'", buf_ptr(&array_value->type_entry->name)));
         // TODO if this is a typedecl, add error note showing the declaration of the type decl
         return ira->codegen->builtin_types.entry_invalid;
@@ -8276,7 +8278,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
 
         TypeStructField *type_field = find_struct_type_field(container_type, field->name);
         if (!type_field) {
-            add_node_error(ira->codegen, field->source_node,
+            ir_add_error_node(ira, field->source_node,
                 buf_sprintf("no member named '%s' in '%s'",
                     buf_ptr(field->name), buf_ptr(&container_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
@@ -8288,7 +8290,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
         size_t field_index = type_field->src_index;
         AstNode *existing_assign_node = field_assign_nodes[field_index];
         if (existing_assign_node) {
-            ErrorMsg *msg = add_node_error(ira->codegen, field->source_node, buf_sprintf("duplicate field"));
+            ErrorMsg *msg = ir_add_error_node(ira, field->source_node, buf_sprintf("duplicate field"));
             add_error_note(ira->codegen, msg, existing_assign_node, buf_sprintf("other field here"));
             continue;
         }
@@ -8315,7 +8317,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
     bool any_missing = false;
     for (size_t i = 0; i < actual_field_count; i += 1) {
         if (!field_assign_nodes[i]) {
-            add_node_error(ira->codegen, instruction->source_node,
+            ir_add_error_node(ira, instruction->source_node,
                 buf_sprintf("missing field: '%s'", buf_ptr(container_type->data.structure.fields[i].name)));
             any_missing = true;
         }
@@ -8330,7 +8332,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
     }
 
     if (outside_fn) {
-        add_node_error(ira->codegen, first_non_const_instruction->source_node,
+        ir_add_error_node(ira, first_non_const_instruction->source_node,
             buf_sprintf("unable to evaluate constant expression"));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -8401,7 +8403,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
         }
 
         if (outside_fn) {
-            add_node_error(ira->codegen, first_non_const_instruction->source_node,
+            ir_add_error_node(ira, first_non_const_instruction->source_node,
                 buf_sprintf("unable to evaluate constant expression"));
             return ira->codegen->builtin_types.entry_invalid;
         }
@@ -8415,13 +8417,13 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
         zig_panic("TODO array container init");
     } else if (container_type->id == TypeTableEntryIdVoid) {
         if (elem_count != 0) {
-            add_node_error(ira->codegen, instruction->base.source_node,
+            ir_add_error_node(ira, instruction->base.source_node,
                 buf_sprintf("void expression expects no arguments"));
             return ira->codegen->builtin_types.entry_invalid;
         }
         return ir_analyze_void(ira, &instruction->base);
     } else {
-        add_node_error(ira->codegen, instruction->base.source_node,
+        ir_add_error_node(ira, instruction->base.source_node,
             buf_sprintf("type '%s' does not support array initialization",
                 buf_ptr(&container_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
@@ -8594,7 +8596,7 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
     }
 
     if (errors.length > 0) {
-        ErrorMsg *parent_err_msg = add_node_error(ira->codegen, node, buf_sprintf("C import failed"));
+        ErrorMsg *parent_err_msg = ir_add_error_node(ira, node, buf_sprintf("C import failed"));
         for (size_t i = 0; i < errors.length; i += 1) {
             ErrorMsg *err_msg = errors.at(i);
             err_msg_add_note(parent_err_msg, err_msg);
@@ -9380,7 +9382,7 @@ static TypeTableEntry *ir_analyze_instruction_alignof(IrAnalyze *ira, IrInstruct
     if (type_entry->id == TypeTableEntryIdInvalid) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (type_entry->id == TypeTableEntryIdUnreachable) {
-        add_node_error(ira->codegen, first_executing_node(instruction->type_value->source_node),
+        ir_add_error(ira, instruction->type_value,
                 buf_sprintf("no align available for type '%s'", buf_ptr(&type_entry->name)));
         return ira->codegen->builtin_types.entry_invalid;
     } else {
