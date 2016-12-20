@@ -9,7 +9,6 @@
 #include "ast_render.hpp"
 #include "config.h"
 #include "error.hpp"
-#include "eval.hpp"
 #include "ir.hpp"
 #include "ir_print.hpp"
 #include "os.hpp"
@@ -252,6 +251,7 @@ bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdEnumTag:
             return true;
     }
     zig_unreachable();
@@ -677,14 +677,8 @@ TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *
     entry->type_ref = child_type->type_ref;
     entry->di_type = child_type->di_type;
     entry->zero_bits = child_type->zero_bits;
-
     entry->data.type_decl.child_type = child_type;
-
-    if (child_type->id == TypeTableEntryIdTypeDecl) {
-        entry->data.type_decl.canonical_type = child_type->data.type_decl.canonical_type;
-    } else {
-        entry->data.type_decl.canonical_type = child_type;
-    }
+    entry->data.type_decl.canonical_type = get_underlying_type(child_type);
 
     return entry;
 }
@@ -985,6 +979,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
             case TypeTableEntryIdTypeDecl:
+            case TypeTableEntryIdEnumTag:
                 break;
         }
         FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
@@ -1033,10 +1028,26 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdTypeDecl:
+        case TypeTableEntryIdEnumTag:
             break;
     }
 
     return get_fn_type(g, &fn_type_id);
+}
+
+static TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, TypeTableEntry *int_type) {
+    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnumTag);
+
+    buf_resize(&entry->name, 0);
+    buf_appendf(&entry->name, "@enumTagType(%s)", buf_ptr(&enum_type->name));
+
+    entry->data.enum_tag.enum_type = enum_type;
+    entry->data.enum_tag.int_type = int_type;
+    entry->type_ref = int_type->type_ref;
+    entry->di_type = int_type->di_type;
+    entry->zero_bits = int_type->zero_bits;
+
+    return entry;
 }
 
 static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
@@ -1134,7 +1145,8 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
         enum_type->data.enumeration.gen_field_count = gen_field_index;
         enum_type->data.enumeration.union_type = biggest_union_member;
 
-        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
+        TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count);
+        TypeTableEntry *tag_type_entry = create_enum_tag_type(g, enum_type, tag_int_type);
         enum_type->data.enumeration.tag_type = tag_type_entry;
 
         if (biggest_union_member) {
@@ -1686,6 +1698,7 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdEnumTag:
             return type_entry;
     }
     zig_unreachable();
@@ -1890,6 +1903,7 @@ static bool type_has_codegen_value(TypeTableEntry *type_entry) {
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
+        case TypeTableEntryIdEnumTag:
             return true;
 
         case TypeTableEntryIdTypeDecl:
@@ -2110,6 +2124,7 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdEnumTag:
             return false;
     }
     zig_unreachable();
@@ -2159,6 +2174,7 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
+        case TypeTableEntryIdEnumTag:
             zig_unreachable();
     }
 }
@@ -2509,6 +2525,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdFn:
+        case TypeTableEntryIdEnumTag:
              return false;
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
@@ -2650,6 +2667,8 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
             return hash_ptr(const_val->data.x_import);
         case TypeTableEntryIdBlock:
             return hash_ptr(const_val->data.x_block);
+        case TypeTableEntryIdEnumTag:
+            return 983996406 + hash_const_val(type->data.enum_tag.int_type, const_val);
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
@@ -2794,16 +2813,18 @@ static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry)
         case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdPointer:
+        case TypeTableEntryIdEnumTag:
             return type_entry;
     }
     zig_unreachable();
 }
 
 bool type_requires_comptime(TypeTableEntry *type_entry) {
-    switch (type_entry->id) {
+    switch (get_underlying_type(type_entry)->id) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVar:
+        case TypeTableEntryIdTypeDecl:
             zig_unreachable();
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
@@ -2820,7 +2841,6 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdFn:
@@ -2828,6 +2848,7 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdPointer:
+        case TypeTableEntryIdEnumTag:
             return false;
     }
     zig_unreachable();
@@ -2933,3 +2954,154 @@ bool ir_get_var_is_comptime(VariableTableEntry *var) {
     return var->is_comptime->static_value.data.x_bool;
 }
 
+bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdEnum:
+            {
+                ConstEnumValue *enum1 = &a->data.x_enum;
+                ConstEnumValue *enum2 = &b->data.x_enum;
+                if (enum1->tag == enum2->tag) {
+                    TypeEnumField *enum_field = &type_entry->data.enumeration.fields[enum1->tag];
+                    if (type_has_bits(enum_field->type_entry)) {
+                        zig_panic("TODO const expr analyze enum special value for equality");
+                    } else {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        case TypeTableEntryIdMetaType:
+            return a->data.x_type == b->data.x_type;
+        case TypeTableEntryIdVoid:
+            return true;
+        case TypeTableEntryIdPureError:
+            return a->data.x_pure_err == b->data.x_pure_err;
+        case TypeTableEntryIdFn:
+            return a->data.x_fn == b->data.x_fn;
+        case TypeTableEntryIdBool:
+            return a->data.x_bool == b->data.x_bool;
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+            return bignum_cmp_eq(&a->data.x_bignum, &b->data.x_bignum);
+        case TypeTableEntryIdEnumTag:
+            return const_values_equal(a, b, type_entry->data.enum_tag.int_type);
+        case TypeTableEntryIdPointer:
+            zig_panic("TODO");
+        case TypeTableEntryIdArray:
+            zig_panic("TODO");
+        case TypeTableEntryIdStruct:
+            zig_panic("TODO");
+        case TypeTableEntryIdUnion:
+            zig_panic("TODO");
+        case TypeTableEntryIdUndefLit:
+            zig_panic("TODO");
+        case TypeTableEntryIdNullLit:
+            zig_panic("TODO");
+        case TypeTableEntryIdMaybe:
+            zig_panic("TODO");
+        case TypeTableEntryIdErrorUnion:
+            zig_panic("TODO");
+        case TypeTableEntryIdTypeDecl:
+            zig_panic("TODO");
+        case TypeTableEntryIdNamespace:
+            zig_panic("TODO");
+        case TypeTableEntryIdBlock:
+            zig_panic("TODO");
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+    }
+    zig_unreachable();
+}
+
+static bool int_type_depends_on_compile_var(CodeGen *g, TypeTableEntry *int_type) {
+    assert(int_type->id == TypeTableEntryIdInt);
+
+    for (size_t i = 0; i < CIntTypeCount; i += 1) {
+        if (int_type == g->builtin_types.entry_c_int[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static uint64_t max_unsigned_val(TypeTableEntry *type_entry) {
+    assert(type_entry->id == TypeTableEntryIdInt);
+    if (type_entry->data.integral.bit_count == 64) {
+        return UINT64_MAX;
+    } else if (type_entry->data.integral.bit_count == 32) {
+        return UINT32_MAX;
+    } else if (type_entry->data.integral.bit_count == 16) {
+        return UINT16_MAX;
+    } else if (type_entry->data.integral.bit_count == 8) {
+        return UINT8_MAX;
+    } else {
+        zig_unreachable();
+    }
+}
+
+static int64_t max_signed_val(TypeTableEntry *type_entry) {
+    assert(type_entry->id == TypeTableEntryIdInt);
+    if (type_entry->data.integral.bit_count == 64) {
+        return INT64_MAX;
+    } else if (type_entry->data.integral.bit_count == 32) {
+        return INT32_MAX;
+    } else if (type_entry->data.integral.bit_count == 16) {
+        return INT16_MAX;
+    } else if (type_entry->data.integral.bit_count == 8) {
+        return INT8_MAX;
+    } else {
+        zig_unreachable();
+    }
+}
+
+static int64_t min_signed_val(TypeTableEntry *type_entry) {
+    assert(type_entry->id == TypeTableEntryIdInt);
+    if (type_entry->data.integral.bit_count == 64) {
+        return INT64_MIN;
+    } else if (type_entry->data.integral.bit_count == 32) {
+        return INT32_MIN;
+    } else if (type_entry->data.integral.bit_count == 16) {
+        return INT16_MIN;
+    } else if (type_entry->data.integral.bit_count == 8) {
+        return INT8_MIN;
+    } else {
+        zig_unreachable();
+    }
+}
+
+void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val, bool is_max) {
+    if (type_entry->id == TypeTableEntryIdInt) {
+        const_val->special = ConstValSpecialStatic;
+        const_val->depends_on_compile_var = int_type_depends_on_compile_var(g, type_entry);
+        if (is_max) {
+            if (type_entry->data.integral.is_signed) {
+                int64_t val = max_signed_val(type_entry);
+                bignum_init_signed(&const_val->data.x_bignum, val);
+            } else {
+                uint64_t val = max_unsigned_val(type_entry);
+                bignum_init_unsigned(&const_val->data.x_bignum, val);
+            }
+        } else {
+            if (type_entry->data.integral.is_signed) {
+                int64_t val = min_signed_val(type_entry);
+                bignum_init_signed(&const_val->data.x_bignum, val);
+            } else {
+                bignum_init_unsigned(&const_val->data.x_bignum, 0);
+            }
+        }
+    } else if (type_entry->id == TypeTableEntryIdFloat) {
+        zig_panic("TODO analyze_min_max_value float");
+    } else if (type_entry->id == TypeTableEntryIdBool) {
+        const_val->special = ConstValSpecialStatic;
+        const_val->data.x_bool = is_max;
+    } else if (type_entry->id == TypeTableEntryIdVoid) {
+        // nothing to do
+    } else {
+        zig_unreachable();
+    }
+}

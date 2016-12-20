@@ -183,6 +183,13 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
                 fprintf(irp->f, "(pure error constant)");
                 return;
             }
+        case TypeTableEntryIdEnumTag:
+            {
+                TypeTableEntry *enum_type = type_entry->data.enum_tag.enum_type;
+                TypeEnumField *field = &enum_type->data.enumeration.fields[const_val->data.x_bignum.data.x_uint];
+                fprintf(irp->f, "%s.%s", buf_ptr(&enum_type->name), buf_ptr(field->name));
+                return;
+            }
     }
     zig_unreachable();
 }
@@ -911,6 +918,12 @@ static void ir_print_test_comptime(IrPrint *irp, IrInstructionTestComptime *inst
     fprintf(irp->f, ")");
 }
 
+static void ir_print_init_enum(IrPrint *irp, IrInstructionInitEnum *instruction) {
+    fprintf(irp->f, "%s.%s { ", buf_ptr(&instruction->enum_type->name), buf_ptr(instruction->field->name));
+    ir_print_other_instruction(irp, instruction->init_value);
+    fprintf(irp->f, "{");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1146,6 +1159,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTestComptime:
             ir_print_test_comptime(irp, (IrInstructionTestComptime *)instruction);
+            break;
+        case IrInstructionIdInitEnum:
+            ir_print_init_enum(irp, (IrInstructionInitEnum *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

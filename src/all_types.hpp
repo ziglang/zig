@@ -848,6 +848,11 @@ struct TypeTableEntryEnum {
     bool complete;
 };
 
+struct TypeTableEntryEnumTag {
+    TypeTableEntry *enum_type;
+    TypeTableEntry *int_type;
+};
+
 struct TypeTableEntryUnion {
     AstNode *decl_node;
     bool is_extern;
@@ -914,6 +919,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdPureError,
     TypeTableEntryIdEnum,
+    TypeTableEntryIdEnumTag,
     TypeTableEntryIdUnion,
     TypeTableEntryIdFn,
     TypeTableEntryIdTypeDecl,
@@ -940,6 +946,7 @@ struct TypeTableEntry {
         TypeTableEntryMaybe maybe;
         TypeTableEntryError error;
         TypeTableEntryEnum enumeration;
+        TypeTableEntryEnumTag enum_tag;
         TypeTableEntryUnion unionation;
         TypeTableEntryFn fn;
         TypeTableEntryTypeDecl type_decl;
@@ -1452,6 +1459,7 @@ enum IrInstructionId {
     IrInstructionIdErrWrapPayload,
     IrInstructionIdFnProto,
     IrInstructionIdTestComptime,
+    IrInstructionIdInitEnum,
 };
 
 struct IrInstruction {
@@ -2076,6 +2084,15 @@ struct IrInstructionTestComptime {
     IrInstruction base;
 
     IrInstruction *value;
+};
+
+struct IrInstructionInitEnum {
+    IrInstruction base;
+
+    TypeTableEntry *enum_type;
+    TypeEnumField *field;
+    IrInstruction *init_value;
+    LLVMValueRef tmp_ptr;
 };
 
 enum LValPurpose {

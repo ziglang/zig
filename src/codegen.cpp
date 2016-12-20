@@ -2144,6 +2144,10 @@ static LLVMValueRef ir_render_enum_tag(CodeGen *g, IrExecutable *executable, IrI
     return get_handle_value(g, tag_field_ptr, tag_type);
 }
 
+static LLVMValueRef ir_render_init_enum(CodeGen *g, IrExecutable *executable, IrInstructionInitEnum *instruction) {
+    zig_panic("TODO ir_render_init_enum");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -2278,6 +2282,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_err_wrap_payload(g, executable, (IrInstructionErrWrapPayload *)instruction);
         case IrInstructionIdEnumTag:
             return ir_render_enum_tag(g, executable, (IrInstructionEnumTag *)instruction);
+        case IrInstructionIdInitEnum:
+            return ir_render_init_enum(g, executable, (IrInstructionInitEnum *)instruction);
         case IrInstructionIdSwitchVar:
             zig_panic("TODO render switch var instruction to LLVM");
         case IrInstructionIdContainerInitList:
@@ -2497,6 +2503,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, TypeTableEntry *type_entry, ConstE
             }
         case TypeTableEntryIdVoid:
             return nullptr;
+        case TypeTableEntryIdEnumTag:
+            return gen_const_val(g, type_entry->data.enum_tag.int_type, const_val);
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdUnreachable:
@@ -2876,6 +2884,9 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdErrWrapCode) {
                 IrInstructionErrWrapCode *err_wrap_code_instruction = (IrInstructionErrWrapCode *)instruction;
                 slot = &err_wrap_code_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdInitEnum) {
+                IrInstructionInitEnum *init_enum_instruction = (IrInstructionInitEnum *)instruction;
+                slot = &init_enum_instruction->tmp_ptr;
             } else {
                 zig_unreachable();
             }
@@ -3793,7 +3804,8 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdTypeDecl:
-            zig_panic("TODO");
+        case TypeTableEntryIdEnumTag:
+            zig_panic("TODO implement get_c_type for more types");
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdBoundFn:

@@ -77,6 +77,8 @@ bool type_requires_comptime(TypeTableEntry *type_entry);
 void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry);
 void complete_enum(CodeGen *g, TypeTableEntry *enum_type);
 bool ir_get_var_is_comptime(VariableTableEntry *var);
+bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *type_entry);
+void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val, bool is_max);
 
 ScopeBlock *create_block_scope(AstNode *node, Scope *parent);
 ScopeDefer *create_defer_scope(AstNode *node, Scope *parent);

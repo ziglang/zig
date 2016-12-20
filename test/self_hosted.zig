@@ -333,41 +333,6 @@ fn maybeType() {
 }
 
 
-fn enumType() {
-    @setFnTest(this, true);
-
-    const foo1 = EnumTypeFoo.One {13};
-    const foo2 = EnumTypeFoo.Two {EnumType { .x = 1234, .y = 5678, }};
-    const bar = EnumTypeBar.B;
-
-    assert(bar == EnumTypeBar.B);
-    assert(@memberCount(EnumTypeFoo) == 3);
-    assert(@memberCount(EnumTypeBar) == 4);
-    const expected_foo_size = switch (@compileVar("arch")) {
-        i386 => 20,
-        x86_64 => 24,
-        else => @unreachable(),
-    };
-    assert(@sizeOf(EnumTypeFoo) == expected_foo_size);
-    assert(@sizeOf(EnumTypeBar) == 1);
-}
-struct EnumType {
-    x: u64,
-    y: u64,
-}
-enum EnumTypeFoo {
-    One: i32,
-    Two: EnumType,
-    Three: void,
-}
-enum EnumTypeBar {
-    A,
-    B,
-    C,
-    D,
-}
-
-
 fn arrayLiteral() {
     @setFnTest(this, true);
 
