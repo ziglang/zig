@@ -456,9 +456,9 @@ pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags:
     arch.syscall4(arch.SYS_accept4, usize(fd), usize(addr), usize(len), flags)
 }
 
-// pub error NameTooLong;
-// pub error SystemResources;
-// pub error Io;
+// error NameTooLong;
+// error SystemResources;
+// error Io;
 // 
 // pub fn if_nametoindex(name: []u8) -> %u32 {
 //     var ifr: ifreq = undefined;

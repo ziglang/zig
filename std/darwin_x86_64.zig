@@ -57,7 +57,7 @@ pub inline fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> 
 
 
 
-export struct stat {
+pub const stat = extern struct {
     dev: u32,
     mode: u16,
     nlink: u16,
@@ -78,9 +78,9 @@ export struct stat {
     lspare: i32,
     qspare: [2]u64,
 
-}
+};
 
-export struct timespec {
+pub const timespec = extern struct {
     tv_sec: isize,
     tv_nsec: isize,
-}
+};

@@ -3,15 +3,15 @@ const errno = @import("errno.zig");
 const assert = @import("debug.zig").assert;
 const endian = @import("endian.zig");
 
-pub error SigInterrupt;
-pub error Unexpected;
-pub error Io;
-pub error TimedOut;
-pub error ConnectionReset;
-pub error ConnectionRefused;
-pub error NoMem;
-pub error NotSocket;
-pub error BadFd;
+error SigInterrupt;
+error Unexpected;
+error Io;
+error TimedOut;
+error ConnectionReset;
+error ConnectionRefused;
+error NoMem;
+error NotSocket;
+error BadFd;
 
 const Connection = struct {
     socket_fd: i32,
@@ -139,7 +139,7 @@ pub fn connect(hostname: []const u8, port: u16) -> %Connection {
     return connectAddr(main_addr, port);
 }
 
-pub error InvalidIpLiteral;
+error InvalidIpLiteral;
 
 pub fn parseIpLiteral(buf: []const u8) -> %Address {
     switch (parseIp4(buf)) {

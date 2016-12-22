@@ -10,11 +10,11 @@ pub const hash_map = @import("hash_map.zig");
 pub const mem = @import("mem.zig");
 pub const debug = @import("debug.zig");
 pub const linux = switch(@compileVar("os")) {
-    linux => @import("linux.zig"),
+    Os.linux => @import("linux.zig"),
     else => null_import,
 };
 pub const darwin = switch(@compileVar("os")) {
-    darwin => @import("darwin.zig"),
+    Os.darwin => @import("darwin.zig"),
     else => null_import,
 };
 const null_import = @import("empty.zig");

@@ -5,7 +5,7 @@ const io = @import("io.zig");
 
 pub const Cmp = math.Cmp;
 
-pub error NoMem;
+error NoMem;
 
 pub type Context = u8;
 pub const Allocator = struct {

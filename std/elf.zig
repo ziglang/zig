@@ -4,7 +4,7 @@ const math = @import("math.zig");
 const mem = @import("mem.zig");
 const debug = @import("debug.zig");
 
-pub error InvalidFormat;
+error InvalidFormat;
 
 pub const SHT_NULL = 0;
 pub const SHT_PROGBITS = 1;

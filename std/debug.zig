@@ -5,9 +5,9 @@ const elf = @import("elf.zig");
 const DW = @import("dwarf.zig");
 const List = @import("list.zig").List;
 
-pub error MissingDebugInfo;
-pub error InvalidDebugInfo;
-pub error UnsupportedDebugInfo;
+error MissingDebugInfo;
+error InvalidDebugInfo;
+error UnsupportedDebugInfo;
 
 pub fn assert(b: bool) {
     if (!b) @unreachable()
@@ -20,7 +20,7 @@ pub fn printStackTrace() -> %void {
 
 pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
     switch (@compileVar("object_format")) {
-        elf => {
+        ObjectFormat.elf => {
             var stack_trace = ElfStackTrace {
                 .self_exe_stream = undefined,
                 .elf = undefined,
@@ -57,13 +57,13 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
                 maybe_fp = *(&const ?&const u8)(fp);
             }
         },
-        coff => {
+        ObjectFormat.coff => {
             out_stream.write("(stack trace unavailable for COFF object format)\n");
         },
-        macho => {
+        ObjectFormat.macho => {
             %return out_stream.write("(stack trace unavailable for Mach-O object format)\n");
         },
-        unknown => {
+        ObjectFormat.unknown => {
             out_stream.write("(stack trace unavailable for unknown object format)\n");
         },
     }

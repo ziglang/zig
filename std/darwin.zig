@@ -1,7 +1,7 @@
 
 const arch = switch (@compileVar("arch")) {
-    x86_64 => @import("darwin_x86_64.zig"),
-    else => @compile_err("unsupported arch"),
+    Arch.x86_64 => @import("darwin_x86_64.zig"),
+    else => @compileError("unsupported arch"),
 };
 
 const errno = @import("errno.zig");
@@ -88,7 +88,7 @@ pub fn fstat(fd: i32, stat_buf: &stat) -> usize {
     arch.syscall2(arch.SYS_fstat, usize(fd), usize(stat_buf))
 }
 
-pub error Unexpected;
+error Unexpected;
 
 pub fn getrandom(buf: &u8, count: usize) -> usize {
     const rr = open_c(c"/dev/urandom", O_LARGEFILE | O_RDONLY, 0);
