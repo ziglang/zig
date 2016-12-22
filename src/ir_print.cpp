@@ -666,7 +666,8 @@ static void ir_print_array_len(IrPrint *irp, IrInstructionArrayLen *instruction)
 }
 
 static void ir_print_ref(IrPrint *irp, IrInstructionRef *instruction) {
-    fprintf(irp->f, "ref ");
+    const char *const_str = instruction->is_const ? "const " : "";
+    fprintf(irp->f, "%sref ", const_str);
     ir_print_other_instruction(irp, instruction->value);
 }
 

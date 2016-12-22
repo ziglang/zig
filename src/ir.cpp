@@ -1399,17 +1399,23 @@ static IrInstruction *ir_build_array_len(IrBuilder *irb, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_ref(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
+static IrInstruction *ir_build_ref(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value,
+        bool is_const)
+{
     IrInstructionRef *instruction = ir_build_instruction<IrInstructionRef>(irb, scope, source_node);
     instruction->value = value;
+    instruction->is_const = is_const;
 
     ir_ref_instruction(value);
 
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_ref_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *value) {
-    IrInstruction *new_instruction = ir_build_ref(irb, old_instruction->scope, old_instruction->source_node, value);
+static IrInstruction *ir_build_ref_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *value,
+        bool is_const)
+{
+    IrInstruction *new_instruction = ir_build_ref(irb, old_instruction->scope, old_instruction->source_node,
+            value, is_const);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -2479,7 +2485,7 @@ static IrInstruction *ir_gen_decl_ref(IrBuilder *irb, AstNode *source_node, Tld 
             assert(fn_entry->type_entry);
             IrInstruction *ref_instruction = ir_build_const_fn(irb, scope, source_node, fn_entry);
             if (lval != LValPurposeNone)
-                return ir_build_ref(irb, scope, source_node, ref_instruction);
+                return ir_build_ref(irb, scope, source_node, ref_instruction, true);
             else
                 return ref_instruction;
         }
@@ -2489,7 +2495,7 @@ static IrInstruction *ir_gen_decl_ref(IrBuilder *irb, AstNode *source_node, Tld 
             TypeTableEntry *typedef_type = tld_typedef->type_entry;
             IrInstruction *ref_instruction = ir_build_const_type(irb, scope, source_node, typedef_type);
             if (lval != LValPurposeNone)
-                return ir_build_ref(irb, scope, source_node, ref_instruction);
+                return ir_build_ref(irb, scope, source_node, ref_instruction, true);
             else
                 return ref_instruction;
         }
@@ -2506,7 +2512,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
     if (primitive_table_entry) {
         IrInstruction *value = ir_build_const_type(irb, scope, node, primitive_table_entry->value);
         if (lval != LValPurposeNone) {
-            return ir_build_ref(irb, scope, node, value);
+            return ir_build_ref(irb, scope, node, value, lval == LValPurposeAddressOfConst);
         } else {
             return value;
         }
@@ -3105,14 +3111,15 @@ static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *
 
     // We needed a pointer to a value, but we got a value. So we create
     // an instruction which just makes a const pointer of it.
-    return ir_build_ref(irb, scope, value->source_node, value);
+    return ir_build_ref(irb, scope, value->source_node, value, true);
 }
 
 static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *node, bool is_const, LValPurpose lval) {
     assert(node->type == NodeTypePrefixOpExpr);
     AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
 
-    IrInstruction *value = ir_gen_node_extra(irb, expr_node, scope, LValPurposeAddressOf);
+    IrInstruction *value = ir_gen_node_extra(irb, expr_node, scope,
+            is_const ? LValPurposeAddressOfConst : LValPurposeAddressOf);
     if (value == irb->codegen->invalid_instruction)
         return value;
 
@@ -5102,7 +5109,8 @@ static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_
         IrInstructionLoadPtr *load_ptr_inst = (IrInstructionLoadPtr *)value;
         return load_ptr_inst->ptr;
     } else {
-        IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
+        IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, value, true);
 
         TypeTableEntry *child_type = wanted_type->data.pointer.child_type;
         if (type_has_bits(child_type)) {
@@ -5454,7 +5462,9 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
     }
 }
 
-static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *value) {
+static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *value,
+        bool is_const)
+{
     if (value->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -5462,15 +5472,14 @@ static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_inst
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
         if (!val)
             return ira->codegen->builtin_types.entry_invalid;
-        bool ptr_is_const = false;
         return ir_analyze_const_ptr(ira, source_instruction, val, value->type_entry,
-                false, ConstPtrSpecialNone, ptr_is_const);
+                false, ConstPtrSpecialNone, is_const);
     }
 
     TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, value->type_entry, true);
     FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
     assert(fn_entry);
-    IrInstruction *new_instruction = ir_build_ref_from(&ira->new_irb, source_instruction, value);
+    IrInstruction *new_instruction = ir_build_ref_from(&ira->new_irb, source_instruction, value, is_const);
     fn_entry->alloca_list.append(new_instruction);
     return ptr_type;
 }
@@ -6986,7 +6995,7 @@ static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruc
         return ir_analyze_const_ptr(ira, instruction, mem_slot, var->type, false, ptr_special, var->src_is_const);
     } else {
         ir_build_var_ptr_from(&ira->new_irb, instruction, var);
-        return get_pointer_to_type(ira->codegen, var->type, false);
+        return get_pointer_to_type(ira->codegen, var->type, var->src_is_const);
     }
 }
 
@@ -7130,7 +7139,7 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
             bool depends_on_compile_var = container_ptr->static_value.depends_on_compile_var;
             IrInstruction *bound_fn_value = ir_build_const_bound_fn(&ira->new_irb, field_ptr_instruction->base.scope,
                 field_ptr_instruction->base.source_node, fn_entry, container_ptr, depends_on_compile_var);
-            return ir_analyze_ref(ira, &field_ptr_instruction->base, bound_fn_value);
+            return ir_analyze_ref(ira, &field_ptr_instruction->base, bound_fn_value, true);
         }
     }
     ir_add_error_node(ira, field_ptr_instruction->base.source_node,
@@ -8413,7 +8422,7 @@ static TypeTableEntry *ir_analyze_instruction_array_len(IrAnalyze *ira,
 
 static TypeTableEntry *ir_analyze_instruction_ref(IrAnalyze *ira, IrInstructionRef *ref_instruction) {
     IrInstruction *value = ref_instruction->value->other;
-    return ir_analyze_ref(ira, &ref_instruction->base, value);
+    return ir_analyze_ref(ira, &ref_instruction->base, value, ref_instruction->is_const);
 }
 
 static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruction *instruction,

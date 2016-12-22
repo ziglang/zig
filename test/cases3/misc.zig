@@ -242,6 +242,24 @@ fn multilineString() {
     assert(memeql(s1, s2));
 }
 
+fn multilineCString() {
+    @setFnTest(this);
+
+    const s1 =
+        c\\one
+        c\\two)
+        c\\three
+    ;
+    const s2 = c"one\ntwo)\nthree";
+    assert(cstrcmp(s1, s2) == 0);
+}
+
+
+fn typeEquality() {
+    @setFnTest(this);
+
+    assert(&const u8 != &u8);
+}
 
 // TODO import from std.str
 pub fn memeql(a: []const u8, b: []const u8) -> bool {
@@ -255,6 +273,19 @@ pub fn sliceEql(inline T: type, a: []const T, b: []const T) -> bool {
         if (b[index] != item) return false;
     }
     return true;
+}
+
+// TODO import from std.cstr
+pub fn cstrcmp(a: &const u8, b: &const u8) -> i8 {
+    var index: usize = 0;
+    while (a[index] == b[index] && a[index] != 0; index += 1) {}
+    return if (a[index] > b[index]) {
+        1
+    } else if (a[index] < b[index]) {
+        -1
+    } else {
+        i8(0)
+    };
 }
 
 

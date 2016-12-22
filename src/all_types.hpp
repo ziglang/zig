@@ -1849,6 +1849,7 @@ struct IrInstructionRef {
 
     IrInstruction *value;
     LLVMValueRef tmp_ptr;
+    bool is_const;
 };
 
 struct IrInstructionMinValue {
@@ -2099,6 +2100,7 @@ enum LValPurpose {
     LValPurposeNone,
     LValPurposeAssign,
     LValPurposeAddressOf,
+    LValPurposeAddressOfConst,
 };
 
 static const size_t slice_ptr_index = 0;
