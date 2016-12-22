@@ -4324,6 +4324,13 @@ static ErrorMsg *ir_add_error(IrAnalyze *ira, IrInstruction *source_instruction,
     return ir_add_error_node(ira, source_instruction->source_node, msg);
 }
 
+static void ir_add_typedef_err_note(IrAnalyze *ira, ErrorMsg *msg, TypeTableEntry *type_entry) {
+    if (type_entry->id == TypeTableEntryIdTypeDecl) {
+        // requires tracking source_node in the typedecl type
+        zig_panic("TODO add error note about typedecls");
+    }
+}
+
 static IrInstruction *ir_exec_const_result(IrExecutable *exec) {
     if (exec->basic_block_list.length != 1)
         return nullptr;
@@ -5451,8 +5458,7 @@ static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_inst
     if (value->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    bool is_inline = ir_should_inline(&ira->new_irb);
-    if (is_inline || instr_is_comptime(value)) {
+    if (instr_is_comptime(value)) {
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
         if (!val)
             return ira->codegen->builtin_types.entry_invalid;
@@ -8223,7 +8229,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
-            ir_add_error_node(ira, switch_target_instruction->base.source_node,
+            ir_add_error(ira, &switch_target_instruction->base,
                 buf_sprintf("invalid switch target type '%s'", buf_ptr(&target_type->name)));
             // TODO if this is a typedecl, add error note showing the declaration of the type decl
             return ira->codegen->builtin_types.entry_invalid;
@@ -8231,10 +8237,36 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
     zig_unreachable();
 }
 
-static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira,
-        IrInstructionSwitchVar *switch_var_instruction)
-{
-    zig_panic("TODO switch var analyze");
+static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstructionSwitchVar *instruction) {
+    IrInstruction *target_value_ptr = instruction->target_value_ptr->other;
+    if (target_value_ptr->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *prong_value = instruction->prong_value->other;
+    if (prong_value->type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    assert(target_value_ptr->type_entry->id == TypeTableEntryIdPointer);
+    TypeTableEntry *target_type = target_value_ptr->type_entry->data.pointer.child_type;
+    if (target_type->id == TypeTableEntryIdEnum) {
+        ConstExprValue *prong_val = ir_resolve_const(ira, prong_value, UndefBad);
+        if (!prong_val)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        TypeEnumField *field = &target_type->data.enumeration.fields[prong_val->data.x_bignum.data.x_uint];
+        if (instr_is_comptime(target_value_ptr)) {
+            zig_panic("TODO comptime switch var");
+        }
+
+        ir_build_enum_field_ptr_from(&ira->new_irb, &instruction->base, target_value_ptr, field);
+        return get_pointer_to_type(ira->codegen, field->type_entry,
+                target_value_ptr->type_entry->data.pointer.is_const);
+    } else {
+        ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+            buf_sprintf("switch on type '%s' provides no expression parameter", buf_ptr(&target_type->name)));
+        ir_add_typedef_err_note(ira, msg, target_type);
+        return ira->codegen->builtin_types.entry_invalid;
+    }
 }
 
 static TypeTableEntry *ir_analyze_instruction_enum_tag(IrAnalyze *ira, IrInstructionEnumTag *enum_tag_instruction) {

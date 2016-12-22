@@ -749,6 +749,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     // next, loop over the parameters again and compute debug information
     // and codegen information
     if (!skip_debug_info) {
+        ensure_complete_type(g, fn_type_id->return_type);
         bool first_arg_return = !fn_type_id->is_extern && handle_is_ptr(fn_type_id->return_type);
         // +1 for maybe making the first argument the return value
         LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
@@ -2534,6 +2535,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdErrorUnion:
              return type_has_bits(type_entry->data.error.child_type);
         case TypeTableEntryIdEnum:
+             assert(type_entry->data.enumeration.complete);
              return type_entry->data.enumeration.gen_field_count != 0;
         case TypeTableEntryIdMaybe:
              return type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&

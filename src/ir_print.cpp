@@ -919,9 +919,9 @@ static void ir_print_test_comptime(IrPrint *irp, IrInstructionTestComptime *inst
 }
 
 static void ir_print_init_enum(IrPrint *irp, IrInstructionInitEnum *instruction) {
-    fprintf(irp->f, "%s.%s { ", buf_ptr(&instruction->enum_type->name), buf_ptr(instruction->field->name));
+    fprintf(irp->f, "%s.%s {", buf_ptr(&instruction->enum_type->name), buf_ptr(instruction->field->name));
     ir_print_other_instruction(irp, instruction->init_value);
-    fprintf(irp->f, "{");
+    fprintf(irp->f, "}");
 }
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {

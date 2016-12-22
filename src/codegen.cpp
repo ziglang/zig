@@ -645,7 +645,7 @@ static LLVMValueRef gen_struct_memcpy(CodeGen *g, LLVMValueRef src, LLVMValueRef
     return LLVMBuildCall(g->builder, g->memcpy_fn_val, params, 5, "");
 }
 
-static LLVMValueRef gen_assign_raw(CodeGen *g, AstNode *source_node,
+static LLVMValueRef gen_assign_raw(CodeGen *g,
         LLVMValueRef target_ref, LLVMValueRef value,
         TypeTableEntry *op1_type, TypeTableEntry *op2_type)
 {
@@ -698,8 +698,7 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
             LLVMBuildRet(g->builder, by_val_value);
         } else {
             assert(g->cur_ret_ptr);
-            gen_assign_raw(g, return_instruction->base.source_node, g->cur_ret_ptr, value,
-                    return_type, return_instruction->value->type_entry);
+            gen_assign_raw(g, g->cur_ret_ptr, value, return_type, return_instruction->value->type_entry);
             LLVMBuildRetVoid(g->builder);
         }
     } else {
@@ -1232,8 +1231,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         want_zeroes = true;
 
     if (have_init_expr) {
-        gen_assign_raw(g, init_value->source_node, var->value_ref,
-                ir_llvm_value(g, init_value), var->type, init_value->type_entry);
+        gen_assign_raw(g, var->value_ref, ir_llvm_value(g, init_value), var->type, init_value->type_entry);
     } else {
         bool ignore_uninit = false;
         // handle runtime stack allocation
@@ -2078,8 +2076,7 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
     assert(instruction->tmp_ptr);
 
     LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_child_index, "");
-    gen_assign_raw(g, instruction->base.source_node, val_ptr, payload_val, child_type, instruction->value->type_entry);
-
+    gen_assign_raw(g, val_ptr, payload_val, child_type, instruction->value->type_entry);
     LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_null_index, "");
     LLVMBuildStore(g->builder, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr);
 
@@ -2125,7 +2122,7 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executa
     LLVMBuildStore(g->builder, ok_err_val, err_tag_ptr);
 
     LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_payload_index, "");
-    gen_assign_raw(g, instruction->base.source_node, payload_ptr, payload_val, child_type, instruction->value->type_entry);
+    gen_assign_raw(g, payload_ptr, payload_val, child_type, instruction->value->type_entry);
 
     return instruction->tmp_ptr;
 }
@@ -2145,7 +2142,30 @@ static LLVMValueRef ir_render_enum_tag(CodeGen *g, IrExecutable *executable, IrI
 }
 
 static LLVMValueRef ir_render_init_enum(CodeGen *g, IrExecutable *executable, IrInstructionInitEnum *instruction) {
-    zig_panic("TODO ir_render_init_enum");
+    TypeTableEntry *enum_type = instruction->enum_type;
+    uint32_t value = instruction->field->value;
+    LLVMTypeRef tag_type_ref = enum_type->data.enumeration.tag_type->type_ref;
+    LLVMValueRef tag_value = LLVMConstInt(tag_type_ref, value, false);
+
+    if (enum_type->data.enumeration.gen_field_count == 0)
+        return tag_value;
+
+    LLVMValueRef tmp_struct_ptr = instruction->tmp_ptr;
+
+    LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, enum_gen_tag_index, "");
+    LLVMBuildStore(g->builder, tag_value, tag_field_ptr);
+
+    TypeTableEntry *union_val_type = instruction->field->type_entry;
+    if (type_has_bits(union_val_type)) {
+        LLVMValueRef new_union_val = ir_llvm_value(g, instruction->init_value);
+        LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, enum_gen_union_index, "");
+        LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr,
+                LLVMPointerType(union_val_type->type_ref, 0), "");
+
+        gen_assign_raw(g, bitcasted_union_field_ptr, new_union_val, union_val_type, union_val_type);
+    }
+
+    return tmp_struct_ptr;
 }
 
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
@@ -2750,7 +2770,9 @@ static void do_code_gen(CodeGen *g) {
 
         if (!type_has_bits(fn_type->data.fn.fn_type_id.return_type)) {
             // nothing to do
-        } else if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdPointer) {
+        } else if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdPointer ||
+                   fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdFn)
+        {
             ZigLLVMAddNonNullAttr(fn_val, 0);
         } else if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type) &&
                 !fn_type->data.fn.fn_type_id.is_extern)

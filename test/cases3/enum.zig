@@ -12,6 +12,16 @@ fn enumType() {
     assert(@sizeOf(Foo) == expected_foo_size);
     assert(@sizeOf(Bar) == 1);
 }
+
+fn enumAsReturnValue () {
+    @setFnTest(this);
+
+    switch (returnAnInt(13)) {
+        Foo.One => |value| assert(value == 13),
+        else => @unreachable(),
+    }
+}
+
 const Point = struct {
     x: u64,
     y: u64,
@@ -27,6 +37,11 @@ const Bar = enum {
     C,
     D,
 };
+
+fn returnAnInt(x: i32) -> Foo {
+    Foo.One { x }
+}
+
 
 fn assert(ok: bool) {
     if (!ok)
