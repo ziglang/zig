@@ -83,6 +83,20 @@ fn unwrapSimpleValueFromError() {
 fn unwrapSimpleValueFromErrorDo() -> %isize { 13 }
 
 
+fn errReturnInAssignment() {
+    @setFnTest(this);
+
+    %%doErrReturnInAssignment();
+}
+
+fn doErrReturnInAssignment() -> %void {
+    var x : i32 = undefined;
+    x = %return makeANonErr();
+}
+
+fn makeANonErr() -> %i32 {
+    return 1;
+}
 
 
 

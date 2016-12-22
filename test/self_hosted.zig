@@ -13,25 +13,6 @@ const test_enum_with_members = @import("cases/enum_with_members.zig");
 const test_struct_contains_slice_of_itself = @import("cases/struct_contains_slice_of_itself.zig");
 
 
-fn errReturnInAssignment() {
-    @setFnTest(this, true);
-
-    %%doErrReturnInAssignment();
-}
-
-fn doErrReturnInAssignment() -> %void {
-    @setFnStaticEval(this, false);
-
-    var x : i32 = undefined;
-    x = %return makeANonErr();
-}
-
-fn makeANonErr() -> %i32 {
-    return 1;
-}
-
-
-
 fn rhsMaybeUnwrapReturn() {
     @setFnTest(this, true);
 
