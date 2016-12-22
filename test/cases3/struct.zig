@@ -123,6 +123,40 @@ fn callStructField(foo: Foo) -> i32 {
 }
 
 
+fn storeMemberFunctionInVariable() {
+    @setFnTest(this);
+
+    const instance = MemberFnTestFoo { .x = 1234, };
+    const memberFn = MemberFnTestFoo.member;
+    const result = memberFn(instance);
+    assert(result == 1234);
+}
+const MemberFnTestFoo = struct {
+    x: i32,
+    fn member(foo: MemberFnTestFoo) -> i32 { foo.x }
+};
+
+
+fn callMemberFunctionDirectly() {
+    @setFnTest(this);
+
+    const instance = MemberFnTestFoo { .x = 1234, };
+    const result = MemberFnTestFoo.member(instance);
+    assert(result == 1234);
+}
+
+fn memberFunctions() {
+    @setFnTest(this);
+
+    const r = MemberFnRand {.seed = 1234};
+    assert(r.getSeed() == 1234);
+}
+const MemberFnRand = struct {
+    seed: u32,
+    pub fn getSeed(r: MemberFnRand) -> u32 {
+        r.seed
+    }
+};
 
 
 // TODO const assert = @import("std").debug.assert;

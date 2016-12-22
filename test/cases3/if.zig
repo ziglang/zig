@@ -24,3 +24,23 @@ fn firstEqlThird(a: i32, b: i32, c: i32) {
 }
 
 
+fn elseIfExpression() {
+    @setFnTest(this);
+
+    assert(elseIfExpressionF(1) == 1);
+}
+fn elseIfExpressionF(c: u8) -> u8 {
+    if (c == 0) {
+        0
+    } else if (c == 1) {
+        1
+    } else {
+        u8(2)
+    }
+}
+
+// TODO const assert = @import("std").debug.assert;
+fn assert(ok: bool) {
+    if (!ok)
+        @unreachable();
+}

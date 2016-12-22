@@ -25,8 +25,11 @@ fn gimmeItBroke() -> []const u8 {
 
 fn errorName() {
     @setFnTest(this);
-    assert(memeql(@errorName(error.ItBroke), "ItBroke"));
+    assert(memeql(@errorName(error.AnError), "AnError"));
+    assert(memeql(@errorName(error.ALongerErrorName), "ALongerErrorName"));
 }
+error AnError;
+error ALongerErrorName;
 
 
 fn errorValues() {
@@ -52,6 +55,32 @@ fn shouldBeNotEqual(a: error, b: error) {
     if (a == b) @unreachable()
 }
 
+
+fn errBinaryOperator() {
+    @setFnTest(this);
+
+    const a = errBinaryOperatorG(true) %% 3;
+    const b = errBinaryOperatorG(false) %% 3;
+    assert(a == 3);
+    assert(b == 10);
+}
+error ItBroke;
+fn errBinaryOperatorG(x: bool) -> %isize {
+    if (x) {
+        error.ItBroke
+    } else {
+        isize(10)
+    }
+}
+
+
+fn unwrapSimpleValueFromError() {
+    @setFnTest(this);
+
+    const i = %%unwrapSimpleValueFromErrorDo();
+    assert(i == 13);
+}
+fn unwrapSimpleValueFromErrorDo() -> %isize { 13 }
 
 
 

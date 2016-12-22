@@ -20,6 +20,15 @@ fn nonConstCastBoolToInt(t: bool, f: bool) {
     assert(i32(f) == i32(0));
 }
 
+fn boolCmp() {
+    @setFnTest(this);
+
+    assert(testBoolCmp(true, false) == false);
+}
+fn testBoolCmp(a: bool, b: bool) -> bool {
+    a == b
+}
+
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
     if (!ok)

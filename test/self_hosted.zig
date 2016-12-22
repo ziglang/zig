@@ -107,55 +107,6 @@ fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) -> i32 {
 }
 
 
-fn builtinConstEval() {
-    @setFnTest(this, true);
-
-    const x : i32 = @constEval(1 + 2 + 3);
-    assert(x == @constEval(6));
-}
-
-fn slicing() {
-    @setFnTest(this, true);
-
-    var array : [20]i32 = undefined;
-
-    array[5] = 1234;
-
-    var slice = array[5...10];
-
-    if (slice.len != 5) @unreachable();
-
-    const ptr = &slice[0];
-    if (ptr[0] != 1234) @unreachable();
-
-    var slice_rest = array[10...];
-    if (slice_rest.len != 10) @unreachable();
-}
-
-
-fn memcpyAndMemsetIntrinsics() {
-    @setFnTest(this, true);
-
-    var foo : [20]u8 = undefined;
-    var bar : [20]u8 = undefined;
-
-    @memset(&foo[0], 'A', foo.len);
-    @memcpy(&bar[0], &foo[0], bar.len);
-
-    if (bar[11] != 'A') @unreachable();
-}
-
-
-fn arrayDotLenConstExpr() {
-    @setFnTest(this, true);
-}
-
-struct ArrayDotLenConstExpr {
-    y: [@constEval(some_array.len)]u8,
-}
-const some_array = []u8 {0, 1, 2, 3};
-
-
 fn multilineString() {
     @setFnTest(this, true);
 
@@ -182,16 +133,6 @@ fn multilineCString() {
 
 
 
-fn constantEqualFunctionPointers() {
-    @setFnTest(this, true);
-
-    const alias = emptyFn;
-    assert(@constEval(emptyFn == alias));
-}
-
-fn emptyFn() {}
-
-
 fn genericMallocFree() {
     @setFnTest(this, true);
 
@@ -205,32 +146,6 @@ fn memAlloc(inline T: type, n: usize) -> %[]T {
     return (&T)(&some_mem[0])[0...n];
 }
 fn memFree(inline T: type, mem: []T) { }
-
-
-fn callFnWithEmptyString() {
-    @setFnTest(this, true);
-
-    acceptsString("");
-}
-
-fn acceptsString(foo: []u8) { }
-
-
-fn hexEscape() {
-    @setFnTest(this, true);
-
-    assert(str.eql("\x68\x65\x6c\x6c\x6f", "hello"));
-}
-
-
-error AnError;
-error ALongerErrorName;
-fn errorNameString() {
-    @setFnTest(this, true);
-
-    assert(str.eql(@errorName(error.AnError), "AnError"));
-    assert(str.eql(@errorName(error.ALongerErrorName), "ALongerErrorName"));
-}
 
 
 fn castUndefined() {
@@ -264,90 +179,6 @@ fn outer() -> i64 {
 }
 
 
-fn elseIfExpression() {
-    @setFnTest(this, true);
-
-    assert(elseIfExpressionF(1) == 1);
-}
-fn elseIfExpressionF(c: u8) -> u8 {
-    if (c == 0) {
-        0
-    } else if (c == 1) {
-        1
-    } else {
-        2
-    }
-}
-
-fn errBinaryOperator() {
-    @setFnTest(this, true);
-
-    const a = errBinaryOperatorG(true) %% 3;
-    const b = errBinaryOperatorG(false) %% 3;
-    assert(a == 3);
-    assert(b == 10);
-}
-error ItBroke;
-fn errBinaryOperatorG(x: bool) -> %isize {
-    if (x) {
-        error.ItBroke
-    } else {
-        10
-    }
-}
-
-fn unwrapSimpleValueFromError() {
-    @setFnTest(this, true);
-
-    const i = %%unwrapSimpleValueFromErrorDo();
-    assert(i == 13);
-}
-fn unwrapSimpleValueFromErrorDo() -> %isize { 13 }
-
-
-fn storeMemberFunctionInVariable() {
-    @setFnTest(this, true);
-
-    const instance = MemberFnTestFoo { .x = 1234, };
-    const memberFn = MemberFnTestFoo.member;
-    const result = memberFn(instance);
-    assert(result == 1234);
-}
-struct MemberFnTestFoo {
-    x: i32,
-    fn member(foo: MemberFnTestFoo) -> i32 { foo.x }
-}
-
-fn callMemberFunctionDirectly() {
-    @setFnTest(this, true);
-
-    const instance = MemberFnTestFoo { .x = 1234, };
-    const result = MemberFnTestFoo.member(instance);
-    assert(result == 1234);
-}
-
-fn memberFunctions() {
-    @setFnTest(this, true);
-
-    const r = MemberFnRand {.seed = 1234};
-    assert(r.getSeed() == 1234);
-}
-struct MemberFnRand {
-    seed: u32,
-    pub fn getSeed(r: MemberFnRand) -> u32 {
-        r.seed
-    }
-}
-
-fn staticFunctionEvaluation() {
-    @setFnTest(this, true);
-
-    assert(statically_added_number == 3);
-}
-const statically_added_number = staticAdd(1, 2);
-fn staticAdd(a: i32, b: i32) -> i32 { a + b }
-
-
 fn staticallyInitalizedList() {
     @setFnTest(this, true);
 
@@ -368,17 +199,6 @@ fn makePoint(x: i32, y: i32) -> Point {
     };
 }
 
-
-fn staticEvalRecursive() {
-    @setFnTest(this, true);
-
-    assert(some_data.len == 21);
-}
-var some_data: [usize(fibbonaci(7))]u8 = undefined;
-fn fibbonaci(x: i32) -> i32 {
-    if (x <= 1) return 1;
-    return fibbonaci(x - 1) + fibbonaci(x - 2);
-}
 
 fn staticEvalListInit() {
     @setFnTest(this, true);
@@ -406,27 +226,6 @@ fn getByte(ptr: ?&u8) -> u8 {*??ptr}
 fn getFirstByte(inline T: type, mem: []T) -> u8 {
     getByte((&u8)(&mem[0]))
 }
-
-fn continueAndBreak() {
-    @setFnTest(this, true);
-
-    runContinueAndBreakTest();
-    assert(continue_and_break_counter == 8);
-}
-var continue_and_break_counter: i32 = 0;
-fn runContinueAndBreakTest() {
-    var i : i32 = 0;
-    while (true) {
-        continue_and_break_counter += 2;
-        i += 1;
-        if (i < 4) {
-            continue;
-        }
-        break;
-    }
-    assert(i == 4);
-}
-
 
 fn pointerDereferencing() {
     @setFnTest(this, true);
@@ -471,12 +270,6 @@ fn intToPtrCast() {
     assert(z == 13);
 }
 
-fn stringConcatenation() {
-    @setFnTest(this, true);
-
-    assert(str.eql("OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
-}
-
 fn constantStructWithNegation() {
     @setFnTest(this, true);
 
@@ -495,17 +288,6 @@ const vertices = []Vertex {
     Vertex { .x =  0.0, .y =  0.6, .r = 0.0, .g = 0.0, .b = 1.0 },
 };
 
-
-fn returnWithImplicitCastFromWhileLoop() {
-    @setFnTest(this, true);
-
-    %%returnWithImplicitCastFromWhileLoopTest();
-}
-fn returnWithImplicitCastFromWhileLoopTest() -> %void {
-    while (true) {
-        return;
-    }
-}
 
 fn returnStructByvalFromFunction() {
     @setFnTest(this, true);
@@ -641,18 +423,6 @@ fn test3_2(f: Test3Foo) {
 
 
 
-fn whileWithContinueExpr() {
-    @setFnTest(this, true);
-
-    var sum: i32 = 0;
-    {var i: i32 = 0; while (i < 10; i += 1) {
-        if (i == 5) continue;
-        sum += i;
-    }}
-    assert(sum == 40);
-}
-
-
 fn forLoopWithPointerElemVar() {
     @setFnTest(this, true);
 
@@ -685,9 +455,6 @@ struct EmptyStruct {
 }
 
 
-fn @"weird function name"() {
-    @setFnTest(this, true);
-}
 
 
 
@@ -771,20 +538,6 @@ fn returnsTen() -> %i32 {
     10
 }
 
-
-
-fn boolCmp() {
-    @setFnTest(this, true);
-
-    assert(testBoolCmp(true, false) == false);
-}
-fn testBoolCmp(a: bool, b: bool) -> bool {
-    @setFnStaticEval(this, false);
-    a == b
-}
-
-
-
 fn takeAddressOfParameter() {
     @setFnTest(this, true);
 
@@ -802,24 +555,6 @@ fn testTakeAddressOfParameterNoeval(f: f32) {
     assert(*f_ptr == 12.34);
 }
 
-
-fn arrayMultOperator() {
-    @setFnTest(this, true);
-
-    assert(str.eql("ab" ** 5, "ababababab"));
-}
-
-fn stringEscapes() {
-    @setFnTest(this, true);
-
-    assert(str.eql("\"", "\x22"));
-    assert(str.eql("\'", "\x27"));
-    assert(str.eql("\n", "\x0a"));
-    assert(str.eql("\r", "\x0d"));
-    assert(str.eql("\t", "\x09"));
-    assert(str.eql("\\", "\x5c"));
-    assert(str.eql("\u1234\u0069", "\xe1\x88\xb4\x69"));
-}
 
 fn ifVarMaybePointer() {
     @setFnTest(this, true);
@@ -843,18 +578,6 @@ struct Particle {
     b: u64,
     c: u64,
     d: u64,
-}
-
-fn assignToIfVarPtr() {
-    @setFnTest(this, true);
-
-    var maybe_bool: ?bool = true;
-
-    if (const *b ?= maybe_bool) {
-        *b = false;
-    }
-
-    assert(??maybe_bool == false);
 }
 
 fn unsignedWrapping() {

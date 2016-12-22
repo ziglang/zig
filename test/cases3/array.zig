@@ -43,6 +43,18 @@ fn arrayLiteral() {
     assert(hex_mult[1] == 256);
 }
 
+fn arrayDotLenConstExpr() {
+    @setFnTest(this);
+
+    assert(@staticEval(some_array.len) == 4);
+}
+
+const ArrayDotLenConstExpr = struct {
+    y: [some_array.len]u8,
+};
+const some_array = []u8 {0, 1, 2, 3};
+
+
 
 
 // TODO const assert = @import("std").debug.assert;

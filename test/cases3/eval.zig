@@ -1,11 +1,14 @@
-fn fib(x: i32) -> i32 {
-    if (x < 2) x else fib(x - 1) + fib(x - 2)
-}
-const fib_7 = fib(7);
-fn compileTimeFib() {
+fn compileTimeRecursion() {
     @setFnTest(this);
-    assert(fib_7 == 13);
+
+    assert(some_data.len == 21);
 }
+var some_data: [usize(fibbonaci(7))]u8 = undefined;
+fn fibbonaci(x: i32) -> i32 {
+    if (x <= 1) return 1;
+    return fibbonaci(x - 1) + fibbonaci(x - 2);
+}
+
 
 
 fn unwrapAndAddOne(blah: ?i32) -> i32 {
@@ -38,6 +41,17 @@ fn inlineVariableGetsResultOfConstIf() {
     assert(gimme1or2(true) == 1);
     assert(gimme1or2(false) == 2);
 }
+
+
+fn staticFunctionEvaluation() {
+    @setFnTest(this);
+
+    assert(statically_added_number == 3);
+}
+const statically_added_number = staticAdd(1, 2);
+fn staticAdd(a: i32, b: i32) -> i32 { a + b }
+
+
 
 
 

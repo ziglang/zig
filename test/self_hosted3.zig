@@ -2,6 +2,7 @@
 const test_array = @import("cases3/array.zig");
 const test_atomics = @import("cases3/atomics.zig");
 const test_bool = @import("cases3/bool.zig");
+const test_cast= @import("cases3/cast.zig");
 const test_defer = @import("cases3/defer.zig");
 const test_enum = @import("cases3/enum.zig");
 const test_error = @import("cases3/error.zig");

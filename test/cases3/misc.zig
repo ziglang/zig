@@ -152,6 +152,83 @@ fn globalVariables() {
 }
 
 
+fn memcpyAndMemsetIntrinsics() {
+    @setFnTest(this);
+
+    var foo : [20]u8 = undefined;
+    var bar : [20]u8 = undefined;
+
+    @memset(&foo[0], 'A', foo.len);
+    @memcpy(&bar[0], &foo[0], bar.len);
+
+    if (bar[11] != 'A') @unreachable();
+}
+
+fn builtinStaticEval() {
+    @setFnTest(this);
+
+    const x : i32 = @staticEval(1 + 2 + 3);
+    assert(x == @staticEval(6));
+}
+
+fn slicing() {
+    @setFnTest(this);
+
+    var array : [20]i32 = undefined;
+
+    array[5] = 1234;
+
+    var slice = array[5...10];
+
+    if (slice.len != 5) @unreachable();
+
+    const ptr = &slice[0];
+    if (ptr[0] != 1234) @unreachable();
+
+    var slice_rest = array[10...];
+    if (slice_rest.len != 10) @unreachable();
+}
+
+
+fn constantEqualFunctionPointers() {
+    @setFnTest(this);
+
+    const alias = emptyFn;
+    assert(@staticEval(emptyFn == alias));
+}
+
+fn emptyFn() {}
+
+
+fn hexEscape() {
+    @setFnTest(this);
+
+    assert(memeql("\x68\x65\x6c\x6c\x6f", "hello"));
+}
+
+fn stringConcatenation() {
+    @setFnTest(this);
+
+    assert(memeql("OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
+}
+
+fn arrayMultOperator() {
+    @setFnTest(this);
+
+    assert(memeql("ab" ** 5, "ababababab"));
+}
+
+fn stringEscapes() {
+    @setFnTest(this);
+
+    assert(memeql("\"", "\x22"));
+    assert(memeql("\'", "\x27"));
+    assert(memeql("\n", "\x0a"));
+    assert(memeql("\r", "\x0d"));
+    assert(memeql("\t", "\x09"));
+    assert(memeql("\\", "\x5c"));
+    assert(memeql("\u1234\u0069", "\xe1\x88\xb4\x69"));
+}
 
 
 // TODO import from std.str

@@ -60,6 +60,18 @@ fn separateBlockScopes() {
     assert(c == 10);
 }
 
+fn callFnWithEmptyString() {
+    @setFnTest(this);
+
+    acceptsString("");
+}
+
+fn acceptsString(foo: []u8) { }
+
+
+fn @"weird function name"() {
+    @setFnTest(this);
+}
 
 
 // TODO const assert = @import("std").debug.assert;
