@@ -20,3 +20,4 @@ const test_struct = @import("cases3/struct.zig");
 const test_switch = @import("cases3/switch.zig");
 const test_this = @import("cases3/this.zig");
 const test_while = @import("cases3/while.zig");
+const test_struct_contains_slice_of_itself = @import("cases3/struct_contains_slice_of_itself.zig");

@@ -2171,6 +2171,20 @@ static LLVMValueRef ir_render_init_enum(CodeGen *g, IrExecutable *executable, Ir
     return tmp_struct_ptr;
 }
 
+static LLVMValueRef ir_render_struct_init(CodeGen *g, IrExecutable *executable, IrInstructionStructInit *instruction) {
+    for (size_t i = 0; i < instruction->field_count; i += 1) {
+        IrInstructionStructInitField *field = &instruction->fields[i];
+        TypeStructField *type_struct_field = field->type_struct_field;
+        if (!type_has_bits(type_struct_field->type_entry))
+            continue;
+
+        LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, type_struct_field->gen_index, "");
+        LLVMValueRef value = ir_llvm_value(g, field->value);
+        gen_assign_raw(g, field_ptr, value, type_struct_field->type_entry, type_struct_field->type_entry);
+    }
+    return instruction->tmp_ptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -2307,12 +2321,12 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_enum_tag(g, executable, (IrInstructionEnumTag *)instruction);
         case IrInstructionIdInitEnum:
             return ir_render_init_enum(g, executable, (IrInstructionInitEnum *)instruction);
+        case IrInstructionIdStructInit:
+            return ir_render_struct_init(g, executable, (IrInstructionStructInit *)instruction);
         case IrInstructionIdSwitchVar:
             zig_panic("TODO render switch var instruction to LLVM");
         case IrInstructionIdContainerInitList:
             zig_panic("TODO render container init list instruction to LLVM");
-        case IrInstructionIdStructInit:
-            zig_panic("TODO render struct init to LLVM");
     }
     zig_unreachable();
 }

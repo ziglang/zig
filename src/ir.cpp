@@ -8431,8 +8431,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
 
     IrInstructionStructInitField *new_fields = allocate<IrInstructionStructInitField>(actual_field_count);
 
-    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
-    bool outside_fn = (fn_entry == nullptr);
+    bool is_comptime = ir_should_inline(&ira->new_irb);
 
     ConstExprValue const_val = {};
     const_val.special = ConstValSpecialStatic;
@@ -8456,6 +8455,10 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
         if (type_field->type_entry->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
+        IrInstruction *casted_field_value = ir_implicit_cast(ira, field_value, type_field->type_entry);
+        if (casted_field_value == ira->codegen->invalid_instruction)
+            return ira->codegen->builtin_types.entry_invalid;
+
         size_t field_index = type_field->src_index;
         AstNode *existing_assign_node = field_assign_nodes[field_index];
         if (existing_assign_node) {
@@ -8465,19 +8468,19 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
         }
         field_assign_nodes[field_index] = field->source_node;
 
-        new_fields[field_index].value = field_value;
+        new_fields[field_index].value = casted_field_value;
         new_fields[field_index].type_struct_field = type_field;
 
         if (const_val.special == ConstValSpecialStatic) {
-            if (outside_fn || field_value->static_value.special != ConstValSpecialRuntime) {
-                ConstExprValue *field_val = ir_resolve_const(ira, field_value, UndefOk);
+            if (is_comptime || casted_field_value->static_value.special != ConstValSpecialRuntime) {
+                ConstExprValue *field_val = ir_resolve_const(ira, casted_field_value, UndefOk);
                 if (!field_val)
                     return ira->codegen->builtin_types.entry_invalid;
 
                 const_val.data.x_struct.fields[field_index] = *field_val;
                 const_val.depends_on_compile_var = const_val.depends_on_compile_var || field_val->depends_on_compile_var;
             } else {
-                first_non_const_instruction = field_value;
+                first_non_const_instruction = casted_field_value;
                 const_val.special = ConstValSpecialRuntime;
             }
         }
@@ -8500,7 +8503,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
         return container_type;
     }
 
-    if (outside_fn) {
+    if (is_comptime) {
         ir_add_error_node(ira, first_non_const_instruction->source_node,
             buf_sprintf("unable to evaluate constant expression"));
         return ira->codegen->builtin_types.entry_invalid;
@@ -8513,7 +8516,9 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
     return container_type;
 }
 
-static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira, IrInstructionContainerInitList *instruction) {
+static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira,
+        IrInstructionContainerInitList *instruction)
+{
     IrInstruction *container_type_value = instruction->container_type->other;
     if (container_type_value->type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
@@ -8527,7 +8532,8 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
         bool depends_on_compile_var = container_type_value->static_value.depends_on_compile_var;
 
         if (container_type->id == TypeTableEntryIdStruct && !is_slice(container_type) && elem_count == 0) {
-            return ir_analyze_container_init_fields(ira, &instruction->base, container_type, 0, nullptr, depends_on_compile_var);
+            return ir_analyze_container_init_fields(ira, &instruction->base, container_type,
+                    0, nullptr, depends_on_compile_var);
         } else if (is_slice(container_type)) {
             TypeTableEntry *pointer_type = container_type->data.structure.fields[slice_ptr_index].type_entry;
             assert(pointer_type->id == TypeTableEntryIdPointer);
@@ -8539,8 +8545,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
             const_val.data.x_array.elements = allocate<ConstExprValue>(elem_count);
             const_val.data.x_array.size = elem_count;
 
-            FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
-            bool outside_fn = (fn_entry == nullptr);
+            bool is_comptime = ir_should_inline(&ira->new_irb);
 
             IrInstruction **new_items = allocate<IrInstruction *>(elem_count);
 
@@ -8551,18 +8556,22 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
                 if (arg_value->type_entry->id == TypeTableEntryIdInvalid)
                     return ira->codegen->builtin_types.entry_invalid;
 
-                new_items[i] = arg_value;
+                IrInstruction *casted_arg = ir_implicit_cast(ira, arg_value, child_type);
+                if (casted_arg == ira->codegen->invalid_instruction)
+                    return ira->codegen->builtin_types.entry_invalid;
+
+                new_items[i] = casted_arg;
 
                 if (const_val.special == ConstValSpecialStatic) {
-                    if (outside_fn || arg_value->static_value.special != ConstValSpecialRuntime) {
-                        ConstExprValue *elem_val = ir_resolve_const(ira, arg_value, UndefBad);
+                    if (is_comptime || casted_arg->static_value.special != ConstValSpecialRuntime) {
+                        ConstExprValue *elem_val = ir_resolve_const(ira, casted_arg, UndefBad);
                         if (!elem_val)
                             return ira->codegen->builtin_types.entry_invalid;
 
                         const_val.data.x_array.elements[i] = *elem_val;
                         const_val.depends_on_compile_var = const_val.depends_on_compile_var || elem_val->depends_on_compile_var;
                     } else {
-                        first_non_const_instruction = arg_value;
+                        first_non_const_instruction = casted_arg;
                         const_val.special = ConstValSpecialRuntime;
                     }
                 }
@@ -8575,7 +8584,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
                 return fixed_size_array_type;
             }
 
-            if (outside_fn) {
+            if (is_comptime) {
                 ir_add_error_node(ira, first_non_const_instruction->source_node,
                     buf_sprintf("unable to evaluate constant expression"));
                 return ira->codegen->builtin_types.entry_invalid;
@@ -8602,10 +8611,8 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
             return ira->codegen->builtin_types.entry_invalid;
         }
     } else if (container_type_value->type_entry->id == TypeTableEntryIdEnumTag) {
-        // TODO I wrote this commit message when I had some sake
-        // might be worth re-examining sober
         if (elem_count != 1) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("expected 1 elment"));
+            ir_add_error(ira, &instruction->base, buf_sprintf("enum initialization requires exactly one element"));
             return ira->codegen->builtin_types.entry_invalid;
         }
         ConstExprValue *tag_value = ir_resolve_const(ira, container_type_value, UndefBad);
