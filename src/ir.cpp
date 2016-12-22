@@ -8090,6 +8090,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         if (!target_val)
             return ir_unreach_error(ira);
 
+        IrBasicBlock *old_dest_block = switch_br_instruction->else_block;
         for (size_t i = 0; i < case_count; i += 1) {
             IrInstructionSwitchBrCase *old_case = &switch_br_instruction->cases[i];
             IrInstruction *case_value = old_case->value->other;
@@ -8111,17 +8112,18 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
                 return ir_unreach_error(ira);
 
             if (const_values_equal(target_val, case_val, target_value->type_entry)) {
-                IrBasicBlock *old_dest_block = old_case->block;
-                if (is_comptime || old_dest_block->ref_count == 1) {
-                    return ir_inline_bb(ira, &switch_br_instruction->base, old_dest_block);
-                } else {
-                    IrBasicBlock *new_dest_block = ir_get_new_bb(ira, old_dest_block);
-                    ir_build_br_from(&ira->new_irb, &switch_br_instruction->base, new_dest_block);
-                    return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
-                }
+                old_dest_block = old_case->block;
+                break;
             }
         }
 
+        if (is_comptime || old_dest_block->ref_count == 1) {
+            return ir_inline_bb(ira, &switch_br_instruction->base, old_dest_block);
+        } else {
+            IrBasicBlock *new_dest_block = ir_get_new_bb(ira, old_dest_block);
+            ir_build_br_from(&ira->new_irb, &switch_br_instruction->base, new_dest_block);
+            return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+        }
     }
 
     IrInstructionSwitchBrCase *cases = allocate<IrInstructionSwitchBrCase>(case_count);
