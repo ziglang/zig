@@ -1,14 +1,15 @@
-const assert = @import("std").debug.assert;
 const module = this;
 
-struct Point(inline T: type) {
-    const Self = this;
-    x: T,
-    y: T,
+fn Point(inline T: type) -> type {
+    struct {
+        const Self = this;
+        x: T,
+        y: T,
 
-    fn addOne(self: &Self) {
-        self.x += 1;
-        self.y += 1;
+        fn addOne(self: &Self) {
+            self.x += 1;
+            self.y += 1;
+        }
     }
 }
 
@@ -26,13 +27,13 @@ fn factorial(x: i32) -> i32 {
 }
 
 fn thisReferToModuleCallPrivateFn() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     assert(module.add(1, 2) == 3);
 }
 
 fn thisReferToContainer() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     var pt = Point(i32) {
         .x = 12,
@@ -44,7 +45,13 @@ fn thisReferToContainer() {
 }
 
 fn thisReferToFn() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     assert(factorial(5) == 120);
+}
+
+// TODO const assert = @import("std").debug.assert;
+fn assert(ok: bool) {
+    if (!ok)
+        @unreachable();
 }

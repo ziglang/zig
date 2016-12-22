@@ -29,6 +29,34 @@ fn errorName() {
 }
 
 
+fn errorValues() {
+    @setFnTest(this);
+
+    const a = i32(error.err1);
+    const b = i32(error.err2);
+    assert(a != b);
+}
+error err1;
+error err2;
+
+
+fn redefinitionOfErrorValuesAllowed() {
+    @setFnTest(this);
+
+    shouldBeNotEqual(error.AnError, error.SecondError);
+}
+error AnError;
+error AnError;
+error SecondError;
+fn shouldBeNotEqual(a: error, b: error) {
+    if (a == b) @unreachable()
+}
+
+
+
+
+
+
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
     if (!ok)

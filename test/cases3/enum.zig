@@ -43,6 +43,36 @@ fn returnAnInt(x: i32) -> Foo {
 }
 
 
+fn constantEnumWithPayload() {
+    @setFnTest(this);
+
+    var empty = AnEnumWithPayload.Empty;
+    var full = AnEnumWithPayload.Full {13};
+    shouldBeEmpty(empty);
+    shouldBeNotEmpty(full);
+}
+
+fn shouldBeEmpty(x: AnEnumWithPayload) {
+    switch (x) {
+        AnEnumWithPayload.Empty => {},
+        else => @unreachable(),
+    }
+}
+
+fn shouldBeNotEmpty(x: AnEnumWithPayload) {
+    switch (x) {
+        AnEnumWithPayload.Empty => @unreachable(),
+        else => {},
+    }
+}
+
+const AnEnumWithPayload = enum {
+    Empty,
+    Full: i32,
+};
+
+
+
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();

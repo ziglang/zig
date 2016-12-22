@@ -45,6 +45,50 @@ fn inlineSwitch() {
     assert(result + 1 == 14);
 }
 
+fn switchOnEnum() {
+    @setFnTest(this);
+
+    const fruit = Fruit.Orange;
+    nonConstSwitchOnEnum(fruit);
+}
+const Fruit = enum {
+    Apple,
+    Orange,
+    Banana,
+};
+fn nonConstSwitchOnEnum(fruit: Fruit) {
+    switch (fruit) {
+        Fruit.Apple => @unreachable(),
+        Fruit.Orange => {},
+        Fruit.Banana => @unreachable(),
+    }
+}
+
+
+fn switchStatement() {
+    @setFnTest(this);
+
+    nonConstSwitch(SwitchStatmentFoo.C);
+}
+fn nonConstSwitch(foo: SwitchStatmentFoo) {
+    const val = switch (foo) {
+        SwitchStatmentFoo.A => i32(1),
+        SwitchStatmentFoo.B => 2,
+        SwitchStatmentFoo.C => 3,
+        SwitchStatmentFoo.D => 4,
+    };
+    if (val != 3) @unreachable();
+}
+const SwitchStatmentFoo = enum {
+    A,
+    B,
+    C,
+    D,
+};
+
+
+
+
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
     if (!ok)

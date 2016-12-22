@@ -70,6 +70,16 @@ fn minValueAndMaxValue() {
     assert(@minValue(i64) == -9223372036854775808);
 }
 
+fn maxValueType() {
+    @setFnTest(this);
+
+    // If the type of @maxValue(i32) was i32 then this implicit cast to
+    // u32 would not work. But since the value is a number literal,
+    // it works fine.
+    const x: u32 = @maxValue(i32);
+    assert(x == 2147483647);
+}
+
 fn shortCircuit() {
     @setFnTest(this);
 
@@ -130,12 +140,18 @@ fn ReturnStringFromFunction() {
     assert(memeql(first4KeysOfHomeRow(), "aoeu"));
 }
 
-fn boolLiterals() {
+const g1 : i32 = 1233 + 1;
+var g2 : i32 = 0;
+
+fn globalVariables() {
     @setFnTest(this);
 
-    assert(true);
-    assert(!false);
+    assert(g2 == 0);
+    g2 = g1;
+    assert(g2 == 1234);
 }
+
+
 
 
 // TODO import from std.str

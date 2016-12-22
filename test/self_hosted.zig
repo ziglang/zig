@@ -3,334 +3,37 @@ const assert = std.debug.assert;
 const str = std.str;
 const cstr = std.cstr;
 const test_return_type_type = @import("cases/return_type_type.zig");
-const test_zeroes = @import("cases/zeroes.zig");
 const test_sizeof_and_typeof = @import("cases/sizeof_and_typeof.zig");
 const test_maybe_return = @import("cases/maybe_return.zig");
-const test_max_value_type = @import("cases/max_value_type.zig");
 const test_var_params = @import("cases/var_params.zig");
 const test_const_slice_child = @import("cases/const_slice_child.zig");
 const test_switch_prong_implicit_cast = @import("cases/switch_prong_implicit_cast.zig");
 const test_switch_prong_err_enum = @import("cases/switch_prong_err_enum.zig");
 const test_enum_with_members = @import("cases/enum_with_members.zig");
 const test_struct_contains_slice_of_itself = @import("cases/struct_contains_slice_of_itself.zig");
-const test_this = @import("cases/this.zig");
-
-
-
-struct Node {
-    val: Val,
-    next: &Node,
-}
-
-struct Val {
-    x: i32,
-}
-
-fn structPointToSelf() {
-    @setFnTest(this, true);
-
-    var root : Node = undefined;
-    root.val.x = 1;
-
-    var node : Node = undefined;
-    node.next = &root;
-    node.val.x = 2;
-
-    root.next = &node;
-
-    assert(node.next.next.next.val.x == 1);
-}
-
-fn structByvalAssign() {
-    @setFnTest(this, true);
-
-    var foo1 : StructFoo = undefined;
-    var foo2 : StructFoo = undefined;
-
-    foo1.a = 1234;
-    foo2.a = 0;
-    assert(foo2.a == 0);
-    foo2 = foo1;
-    assert(foo2.a == 1234);
-}
-
-fn structInitializer() {
-    const val = Val { .x = 42 };
-    assert(val.x == 42);
-}
-
-
-const g1 : i32 = 1233 + 1;
-var g2 : i32 = 0;
-
-fn globalVariables() {
-    @setFnTest(this, true);
-
-    assert(g2 == 0);
-    g2 = g1;
-    assert(g2 == 1234);
-}
-
-
-fn whileLoop() {
-    @setFnTest(this, true);
-
-    var i : i32 = 0;
-    while (i < 4) {
-        i += 1;
-    }
-    assert(i == 4);
-    assert(whileLoop1() == 1);
-}
-fn whileLoop1() -> i32 {
-    return whileLoop2();
-}
-fn whileLoop2() -> i32 {
-    while (true) {
-        return 1;
-    }
-}
-
-fn voidArrays() {
-    @setFnTest(this, true);
-
-    var array: [4]void = undefined;
-    array[0] = void{};
-    array[1] = array[2];
-    assert(@sizeOf(@typeOf(array)) == 0);
-    assert(array.len == 4);
-}
-
-
-fn threeExprInARow() {
-    @setFnTest(this, true);
-
-    assertFalse(false || false || false);
-    assertFalse(true && true && false);
-    assertFalse(1 | 2 | 4 != 7);
-    assertFalse(3 ^ 6 ^ 8 != 13);
-    assertFalse(7 & 14 & 28 != 4);
-    assertFalse(9  << 1 << 2 != 9  << 3);
-    assertFalse(90 >> 1 >> 2 != 90 >> 3);
-    assertFalse(100 - 1 + 1000 != 1099);
-    assertFalse(5 * 4 / 2 % 3 != 1);
-    assertFalse(i32(i32(5)) != 5);
-    assertFalse(!!false);
-    assertFalse(i32(7) != --(i32(7)));
-}
-fn assertFalse(b: bool) {
-    assert(!b);
-}
-
-
-fn maybeType() {
-    @setFnTest(this, true);
-
-    const x : ?bool = true;
-
-    if (const y ?= x) {
-        if (y) {
-            // OK
-        } else {
-            @unreachable();
-        }
-    } else {
-        @unreachable();
-    }
-
-    const next_x : ?i32 = null;
-
-    const z = next_x ?? 1234;
-
-    assert(z == 1234);
-
-    const final_x : ?i32 = 13;
-
-    const num = final_x ?? @unreachable();
-
-    assert(num == 13);
-}
-
-
-fn arrayLiteral() {
-    @setFnTest(this, true);
-
-    const hex_mult = []u16{4096, 256, 16, 1};
-
-    assert(hex_mult.len == 4);
-    assert(hex_mult[1] == 256);
-}
-
-
-fn constNumberLiteral() {
-    @setFnTest(this, true);
-
-    const one = 1;
-    const eleven = ten + one;
-
-    assert(eleven == 11);
-}
-const ten = 10;
-
-
-fn errorValues() {
-    @setFnTest(this, true);
-
-    const a = i32(error.err1);
-    const b = i32(error.err2);
-    assert(a != b);
-}
-error err1;
-error err2;
-
-
-
-fn fnCallOfStructField() {
-    @setFnTest(this, true);
-
-    assert(callStructField(Foo {.ptr = aFunc,}) == 13);
-}
-
-struct Foo {
-    ptr: fn() -> i32,
-}
-
-fn aFunc() -> i32 { 13 }
-
-fn callStructField(foo: Foo) -> i32 {
-    return foo.ptr();
-}
-
-
-
-fn redefinitionOfErrorValuesAllowed() {
-    @setFnTest(this, true);
-
-    shouldBeNotEqual(error.AnError, error.SecondError);
-}
-error AnError;
-error AnError;
-error SecondError;
-fn shouldBeNotEqual(a: error, b: error) {
-    if (a == b) @unreachable()
-}
-
-
-
-
-fn constantEnumWithPayload() {
-    @setFnTest(this, true);
-
-    var empty = AnEnumWithPayload.Empty;
-    var full = AnEnumWithPayload.Full {13};
-    shouldBeEmpty(empty);
-    shouldBeNotEmpty(full);
-}
-
-fn shouldBeEmpty(x: AnEnumWithPayload) {
-    switch (x) {
-        Empty => {},
-        else => @unreachable(),
-    }
-}
-
-fn shouldBeNotEmpty(x: AnEnumWithPayload) {
-    switch (x) {
-        Empty => @unreachable(),
-        else => {},
-    }
-}
-
-enum AnEnumWithPayload {
-    Empty,
-    Full: i32,
-}
-
-
-fn castBoolToInt() {
-    @setFnTest(this, true);
-
-    const t = true;
-    const f = false;
-    assert(i32(t) == i32(1));
-    assert(i32(f) == i32(0));
-    nonConstCastBoolToInt(t, f);
-}
-
-fn nonConstCastBoolToInt(t: bool, f: bool) {
-    assert(i32(t) == i32(1));
-    assert(i32(f) == i32(0));
-}
-
-
-fn switchOnEnum() {
-    @setFnTest(this, true);
-
-    const fruit = Fruit.Orange;
-    nonConstSwitchOnEnum(fruit);
-}
-enum Fruit {
-    Apple,
-    Orange,
-    Banana,
-}
-fn nonConstSwitchOnEnum(fruit: Fruit) {
-    @setFnStaticEval(this, false);
-
-    switch (fruit) {
-        Apple => @unreachable(),
-        Orange => {},
-        Banana => @unreachable(),
-    }
-}
-
-fn switchStatement() {
-    @setFnTest(this, true);
-
-    nonConstSwitch(SwitchStatmentFoo.C);
-}
-fn nonConstSwitch(foo: SwitchStatmentFoo) {
-    @setFnStaticEval(this, false);
-
-    const val: i32 = switch (foo) {
-        A => 1,
-        B => 2,
-        C => 3,
-        D => 4,
-    };
-    if (val != 3) @unreachable();
-}
-enum SwitchStatmentFoo {
-    A,
-    B,
-    C,
-    D,
-}
 
 
 fn switchProngWithVar() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     switchProngWithVarFn(SwitchProngWithVarEnum.One {13});
     switchProngWithVarFn(SwitchProngWithVarEnum.Two {13.0});
     switchProngWithVarFn(SwitchProngWithVarEnum.Meh);
 }
-enum SwitchProngWithVarEnum {
+const SwitchProngWithVarEnum = enum {
     One: i32,
     Two: f32,
     Meh,
-}
+};
 fn switchProngWithVarFn(a: SwitchProngWithVarEnum) {
-    @setFnStaticEval(this, false);
-
     switch(a) {
-        One => |x| {
+        SwitchProngWithVarEnum.One => |x| {
             if (x != 13) @unreachable();
         },
-        Two => |x| {
+        SwitchProngWithVarEnum.Two => |x| {
             if (x != 13.0) @unreachable();
         },
-        Meh => |x| {
+        SwitchProngWithVarEnum.Meh => |x| {
             const v: void = x;
         },
     }
@@ -675,21 +378,6 @@ var some_data: [usize(fibbonaci(7))]u8 = undefined;
 fn fibbonaci(x: i32) -> i32 {
     if (x <= 1) return 1;
     return fibbonaci(x - 1) + fibbonaci(x - 2);
-}
-
-fn staticEvalWhile() {
-    @setFnTest(this, true);
-
-    assert(static_eval_while_number == 1);
-}
-const static_eval_while_number = staticWhileLoop1();
-fn staticWhileLoop1() -> i32 {
-    return whileLoop2();
-}
-fn staticWhileLoop2() -> i32 {
-    while (true) {
-        return 1;
-    }
 }
 
 fn staticEvalListInit() {

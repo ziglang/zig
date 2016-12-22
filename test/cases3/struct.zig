@@ -63,6 +63,67 @@ fn testMutation(foo : &StructFoo) {
 }
 
 
+const Node = struct {
+    val: Val,
+    next: &Node,
+};
+
+const Val = struct {
+    x: i32,
+};
+
+fn structPointToSelf() {
+    @setFnTest(this);
+
+    var root : Node = undefined;
+    root.val.x = 1;
+
+    var node : Node = undefined;
+    node.next = &root;
+    node.val.x = 2;
+
+    root.next = &node;
+
+    assert(node.next.next.next.val.x == 1);
+}
+
+fn structByvalAssign() {
+    @setFnTest(this);
+
+    var foo1 : StructFoo = undefined;
+    var foo2 : StructFoo = undefined;
+
+    foo1.a = 1234;
+    foo2.a = 0;
+    assert(foo2.a == 0);
+    foo2 = foo1;
+    assert(foo2.a == 1234);
+}
+
+fn structInitializer() {
+    const val = Val { .x = 42 };
+    assert(val.x == 42);
+}
+
+
+fn fnCallOfStructField() {
+    @setFnTest(this);
+
+    assert(callStructField(Foo {.ptr = aFunc,}) == 13);
+}
+
+const Foo = struct {
+    ptr: fn() -> i32,
+};
+
+fn aFunc() -> i32 { 13 }
+
+fn callStructField(foo: Foo) -> i32 {
+    return foo.ptr();
+}
+
+
+
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {

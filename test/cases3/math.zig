@@ -68,6 +68,38 @@ fn modifyOperators() {
     i |= 3;  assert(i == 7);
 }
 
+fn threeExprInARow() {
+    @setFnTest(this);
+
+    assertFalse(false || false || false);
+    assertFalse(true && true && false);
+    assertFalse(1 | 2 | 4 != 7);
+    assertFalse(3 ^ 6 ^ 8 != 13);
+    assertFalse(7 & 14 & 28 != 4);
+    assertFalse(9  << 1 << 2 != 9  << 3);
+    assertFalse(90 >> 1 >> 2 != 90 >> 3);
+    assertFalse(100 - 1 + 1000 != 1099);
+    assertFalse(5 * 4 / 2 % 3 != 1);
+    assertFalse(i32(i32(5)) != 5);
+    assertFalse(!!false);
+    assertFalse(i32(7) != --(i32(7)));
+}
+fn assertFalse(b: bool) {
+    assert(!b);
+}
+
+
+fn constNumberLiteral() {
+    @setFnTest(this);
+
+    const one = 1;
+    const eleven = ten + one;
+
+    assert(eleven == 11);
+}
+const ten = 10;
+
+
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {

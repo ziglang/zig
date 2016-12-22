@@ -1,6 +1,7 @@
 // TODO '_' identifier for unused variable bindings
 const test_array = @import("cases3/array.zig");
 const test_atomics = @import("cases3/atomics.zig");
+const test_bool = @import("cases3/bool.zig");
 const test_defer = @import("cases3/defer.zig");
 const test_enum = @import("cases3/enum.zig");
 const test_error = @import("cases3/error.zig");
@@ -13,5 +14,8 @@ const test_if = @import("cases3/if.zig");
 const test_import = @import("cases3/import.zig");
 const test_math = @import("cases3/math.zig");
 const test_misc = @import("cases3/misc.zig");
+const test_null = @import("cases3/null.zig");
 const test_struct = @import("cases3/struct.zig");
 const test_switch = @import("cases3/switch.zig");
+const test_this = @import("cases3/this.zig");
+const test_while = @import("cases3/while.zig");
