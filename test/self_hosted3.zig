@@ -1,4 +1,5 @@
 // TODO '_' identifier for unused variable bindings
+const test_array = @import("cases3/array.zig");
 const test_atomics = @import("cases3/atomics.zig");
 const test_defer = @import("cases3/defer.zig");
 const test_enum = @import("cases3/enum.zig");

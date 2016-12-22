@@ -50,6 +50,25 @@ fn countTrailingZeroes() {
     assert(@ctz(u8(0b00000000)) == 8);
 }
 
+fn modifyOperators() {
+    @setFnTest(this);
+
+    var i : i32 = 0;
+    i += 5;  assert(i == 5);
+    i -= 2;  assert(i == 3);
+    i *= 20; assert(i == 60);
+    i /= 3;  assert(i == 20);
+    i %= 11; assert(i == 9);
+    i <<= 1; assert(i == 18);
+    i >>= 2; assert(i == 4);
+    i = 6;
+    i &= 5;  assert(i == 4);
+    i ^= 6;  assert(i == 2);
+    i = 6;
+    i |= 3;  assert(i == 7);
+}
+
+
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
     if (!ok)

@@ -5462,7 +5462,7 @@ static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_inst
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
         if (!val)
             return ira->codegen->builtin_types.entry_invalid;
-        bool ptr_is_const = true;
+        bool ptr_is_const = false;
         return ir_analyze_const_ptr(ira, source_instruction, val, value->type_entry,
                 false, ConstPtrSpecialNone, ptr_is_const);
     }

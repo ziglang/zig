@@ -32,6 +32,36 @@ fn voidFun(a: i32, b: void, c: i32, d: void) {
 }
 
 
+fn mutableLocalVariables() {
+    @setFnTest(this);
+
+    var zero : i32 = 0;
+    assert(zero == 0);
+
+    var i = i32(0);
+    while (i != 3) {
+        i += 1;
+    }
+    assert(i == 3);
+}
+
+fn separateBlockScopes() {
+    @setFnTest(this);
+
+    {
+        const no_conflict : i32 = 5;
+        assert(no_conflict == 5);
+    }
+
+    const c = {
+        const no_conflict = i32(10);
+        no_conflict
+    };
+    assert(c == 10);
+}
+
+
+
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
     if (!ok)
