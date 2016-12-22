@@ -130,6 +130,14 @@ fn ReturnStringFromFunction() {
     assert(memeql(first4KeysOfHomeRow(), "aoeu"));
 }
 
+fn boolLiterals() {
+    @setFnTest(this);
+
+    assert(true);
+    assert(!false);
+}
+
+
 // TODO import from std.str
 pub fn memeql(a: []const u8, b: []const u8) -> bool {
     sliceEql(u8, a, b)

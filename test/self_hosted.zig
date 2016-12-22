@@ -17,68 +17,14 @@ const test_this = @import("cases/this.zig");
 
 
 
-
-fn ifStatements() {
-    @setFnTest(this, true);
-
-    shouldBeEqual(1, 1);
-    firstEqlThird(2, 1, 2);
-}
-fn shouldBeEqual(a: i32, b: i32) {
-    if (a != b) {
-        @unreachable();
-    } else {
-        return;
-    }
-}
-fn firstEqlThird(a: i32, b: i32, c: i32) {
-    if (a == b) {
-        @unreachable();
-    } else if (b == c) {
-        @unreachable();
-    } else if (a == c) {
-        return;
-    } else {
-        @unreachable();
-    }
-}
-
-
-fn params() {
-    @setFnTest(this, true);
-
-    assert(testParamsAdd(22, 11) == 33);
-}
-fn testParamsAdd(a: i32, b: i32) -> i32 {
-    a + b
-}
-
-
-fn localVariables() {
-    @setFnTest(this, true);
-
-    testLocVars(2);
-}
-fn testLocVars(b: i32) {
-    const a: i32 = 1;
-    if (a + b != 3) @unreachable();
-}
-
-fn boolLiterals() {
-    @setFnTest(this, true);
-
-    assert(true);
-    assert(!false);
-}
-
 fn voidParameters() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     voidFun(1, void{}, 2, {});
 }
-fn voidFun(a : i32, b : void, c : i32, d : void) {
+fn voidFun(a: i32, b: void, c: i32, d: void) {
     const v = b;
-    const vv : void = if (a == 1) {v} else {};
+    const vv: void = if (a == 1) {v} else {};
     assert(a + c == 3);
     return vv;
 }
