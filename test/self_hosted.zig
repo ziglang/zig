@@ -13,33 +13,6 @@ const test_enum_with_members = @import("cases/enum_with_members.zig");
 const test_struct_contains_slice_of_itself = @import("cases/struct_contains_slice_of_itself.zig");
 
 
-fn switchProngWithVar() {
-    @setFnTest(this);
-
-    switchProngWithVarFn(SwitchProngWithVarEnum.One {13});
-    switchProngWithVarFn(SwitchProngWithVarEnum.Two {13.0});
-    switchProngWithVarFn(SwitchProngWithVarEnum.Meh);
-}
-const SwitchProngWithVarEnum = enum {
-    One: i32,
-    Two: f32,
-    Meh,
-};
-fn switchProngWithVarFn(a: SwitchProngWithVarEnum) {
-    switch(a) {
-        SwitchProngWithVarEnum.One => |x| {
-            if (x != 13) @unreachable();
-        },
-        SwitchProngWithVarEnum.Two => |x| {
-            if (x != 13.0) @unreachable();
-        },
-        SwitchProngWithVarEnum.Meh => |x| {
-            const v: void = x;
-        },
-    }
-}
-
-
 fn errReturnInAssignment() {
     @setFnTest(this, true);
 

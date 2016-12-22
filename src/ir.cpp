@@ -8257,6 +8257,14 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstr
             return ira->codegen->builtin_types.entry_invalid;
 
         TypeEnumField *field = &target_type->data.enumeration.fields[prong_val->data.x_bignum.data.x_uint];
+        if (prong_value->type_entry->id == TypeTableEntryIdEnumTag) {
+            field = &target_type->data.enumeration.fields[prong_val->data.x_bignum.data.x_uint];
+        } else if (prong_value->type_entry->id == TypeTableEntryIdEnum) {
+            field = &target_type->data.enumeration.fields[prong_val->data.x_enum.tag];
+        } else {
+            zig_unreachable();
+        }
+
         if (instr_is_comptime(target_value_ptr)) {
             zig_panic("TODO comptime switch var");
         }
