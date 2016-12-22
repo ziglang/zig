@@ -19,6 +19,17 @@ fn testLocVars(b: i32) {
 }
 
 
+fn voidParameters() {
+    @setFnTest(this);
+
+    voidFun(1, void{}, 2, {});
+}
+fn voidFun(a: i32, b: void, c: i32, d: void) {
+    const v = b;
+    const vv: void = if (a == 1) {v} else {};
+    assert(a + c == 3);
+    return vv;
+}
 
 
 // TODO const assert = @import("std").debug.assert;

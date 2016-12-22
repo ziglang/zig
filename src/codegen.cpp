@@ -1650,6 +1650,9 @@ static LLVMValueRef ir_render_switch_br(CodeGen *g, IrExecutable *executable, Ir
 }
 
 static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutable *executable, IrInstructionPhi *instruction) {
+    if (!type_has_bits(instruction->base.type_entry))
+        return nullptr;
+
     LLVMTypeRef phi_type;
     if (handle_is_ptr(instruction->base.type_entry)) {
         phi_type = LLVMPointerType(instruction->base.type_entry->type_ref, 0);

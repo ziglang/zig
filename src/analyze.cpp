@@ -2234,7 +2234,10 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
         VariableTableEntry *var = add_variable(g, param_decl_node, fn_table_entry->child_scope, param_decl->name, param_type, true, nullptr);
         var->src_arg_index = i;
         fn_table_entry->child_scope = var->child_scope;
-        fn_table_entry->variable_list.append(var);
+
+        if (type_has_bits(param_type)) {
+            fn_table_entry->variable_list.append(var);
+        }
 
         if (fn_type->data.fn.gen_param_info) {
             var->gen_arg_index = fn_type->data.fn.gen_param_info[i].gen_index;
