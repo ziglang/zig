@@ -2268,6 +2268,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (block_return_type->id == TypeTableEntryIdInvalid ||
         fn_table_entry->analyzed_executable.invalid)
     {
+        assert(g->errors.length > 0);
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }

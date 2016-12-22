@@ -6910,11 +6910,12 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
         IrInstruction *old_value = phi_instruction->incoming_values[i];
         assert(old_value);
         IrInstruction *new_value = old_value->other;
-        if (!new_value || new_value->type_entry->id == TypeTableEntryIdInvalid)
+        if (!new_value || new_value->type_entry->id == TypeTableEntryIdUnreachable)
+            continue;
+
+        if (new_value->type_entry->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
-        if (new_value->type_entry->id == TypeTableEntryIdUnreachable)
-            continue;
 
         assert(predecessor->other);
         new_incoming_blocks.append(predecessor->other);
