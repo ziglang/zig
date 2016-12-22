@@ -18,8 +18,34 @@ fn errorWrapping() {
     assert(%%baz() == 15);
 }
 
+error ItBroke;
+fn gimmeItBroke() -> []const u8 {
+    @errorName(error.ItBroke)
+}
+
+fn errorName() {
+    @setFnTest(this);
+    assert(memeql(@errorName(error.ItBroke), "ItBroke"));
+}
+
+
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
 }
+
+// TODO import from std.str
+pub fn memeql(a: []const u8, b: []const u8) -> bool {
+    sliceEql(u8, a, b)
+}
+
+// TODO import from std.str
+pub fn sliceEql(inline T: type, a: []const T, b: []const T) -> bool {
+    if (a.len != b.len) return false;
+    for (a) |item, index| {
+        if (b[index] != item) return false;
+    }
+    return true;
+}
+

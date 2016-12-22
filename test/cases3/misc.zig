@@ -120,6 +120,30 @@ fn assignToIfVarPtr() {
     assert(??maybe_bool == false);
 }
 
+fn first4KeysOfHomeRow() -> []const u8 {
+    "aoeu"
+}
+
+fn ReturnStringFromFunction() {
+    @setFnTest(this);
+
+    assert(memeql(first4KeysOfHomeRow(), "aoeu"));
+}
+
+// TODO import from std.str
+pub fn memeql(a: []const u8, b: []const u8) -> bool {
+    sliceEql(u8, a, b)
+}
+
+// TODO import from std.str
+pub fn sliceEql(inline T: type, a: []const T, b: []const T) -> bool {
+    if (a.len != b.len) return false;
+    for (a) |item, index| {
+        if (b[index] != item) return false;
+    }
+    return true;
+}
+
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
