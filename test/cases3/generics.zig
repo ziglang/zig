@@ -64,6 +64,30 @@ fn max_f64(a: f64, b: f64) -> f64 {
     max_var(a, b)
 }
 
+
+pub fn List(inline T: type) -> type {
+    SmallList(T, 8)
+}
+
+pub fn SmallList(inline T: type, inline STATIC_SIZE: usize) -> type {
+    struct {
+        items: []T,
+        length: usize,
+        prealloc_items: [STATIC_SIZE]T,
+    }
+}
+
+fn functionWithReturnTypeType() {
+    @setFnTest(this);
+
+    var list: List(i32) = undefined;
+    var list2: List(i32) = undefined;
+    list.length = 10;
+    list2.length = 10;
+    assert(list.prealloc_items.len == 8);
+    assert(list2.prealloc_items.len == 8);
+}
+
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
     if (!ok)

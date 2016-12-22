@@ -230,6 +230,18 @@ fn stringEscapes() {
     assert(memeql("\u1234\u0069", "\xe1\x88\xb4\x69"));
 }
 
+fn multilineString() {
+    @setFnTest(this);
+
+    const s1 =
+        \\one
+        \\two)
+        \\three
+    ;
+    const s2 = "one\ntwo)\nthree";
+    assert(memeql(s1, s2));
+}
+
 
 // TODO import from std.str
 pub fn memeql(a: []const u8, b: []const u8) -> bool {

@@ -2,36 +2,10 @@ const std = @import("std");
 const assert = std.debug.assert;
 const str = std.str;
 const cstr = std.cstr;
-const test_return_type_type = @import("cases/return_type_type.zig");
-const test_sizeof_and_typeof = @import("cases/sizeof_and_typeof.zig");
-const test_maybe_return = @import("cases/maybe_return.zig");
-const test_var_params = @import("cases/var_params.zig");
 const test_const_slice_child = @import("cases/const_slice_child.zig");
 const test_switch_prong_implicit_cast = @import("cases/switch_prong_implicit_cast.zig");
 const test_switch_prong_err_enum = @import("cases/switch_prong_err_enum.zig");
 const test_enum_with_members = @import("cases/enum_with_members.zig");
-const test_struct_contains_slice_of_itself = @import("cases/struct_contains_slice_of_itself.zig");
-
-
-fn rhsMaybeUnwrapReturn() {
-    @setFnTest(this, true);
-
-    const x = ?true;
-    const y = x ?? return;
-}
-
-
-fn implicitCastFnUnreachableReturn() {
-    @setFnTest(this, true);
-
-    wantsFnWithVoid(fnWithUnreachable);
-}
-
-fn wantsFnWithVoid(f: fn()) { }
-
-fn fnWithUnreachable() -> unreachable {
-    @unreachable()
-}
 
 
 fn explicitCastMaybePointers() {
@@ -42,39 +16,8 @@ fn explicitCastMaybePointers() {
 }
 
 
-fn constExprEvalOnSingleExprBlocks() {
-    @setFnTest(this, true);
-
-    assert(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
-}
-
-fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) -> i32 {
-    const literal = 3;
-
-    const result = if (b) {
-        literal
-    } else {
-        x
-    };
-
-    return result;
-}
-
-
-fn multilineString() {
-    @setFnTest(this, true);
-
-    const s1 =
-        \\one
-        \\two)
-        \\three
-    ;
-    const s2 = "one\ntwo)\nthree";
-    assert(str.eql(s1, s2));
-}
-
 fn multilineCString() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     const s1 =
         c\\one

@@ -73,6 +73,19 @@ fn @"weird function name"() {
     @setFnTest(this);
 }
 
+fn implicitCastFnUnreachableReturn() {
+    @setFnTest(this);
+
+    wantsFnWithVoid(fnWithUnreachable);
+}
+
+fn wantsFnWithVoid(f: fn()) { }
+
+fn fnWithUnreachable() -> unreachable {
+    @unreachable()
+}
+
+
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {

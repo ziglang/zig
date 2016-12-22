@@ -38,6 +38,27 @@ fn assignToIfVarPtr() {
     assert(??maybe_bool == false);
 }
 
+fn rhsMaybeUnwrapReturn() {
+    @setFnTest(this);
+
+    const x: ?bool = true;
+    const y = x ?? return;
+}
+
+
+fn maybeReturn() {
+    @setFnTest(this);
+
+    assert(??foo(1235));
+    assert(if (const _ ?= foo(null)) false else true);
+    assert(!??foo(1234));
+}
+
+// TODO test static eval maybe return
+fn foo(x: ?i32) -> ?bool {
+    const value = ?return x;
+    return value > 1234;
+}
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {

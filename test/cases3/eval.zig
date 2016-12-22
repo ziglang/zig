@@ -52,6 +52,25 @@ const statically_added_number = staticAdd(1, 2);
 fn staticAdd(a: i32, b: i32) -> i32 { a + b }
 
 
+fn constExprEvalOnSingleExprBlocks() {
+    @setFnTest(this);
+
+    assert(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
+}
+
+fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) -> i32 {
+    const literal = 3;
+
+    const result = if (b) {
+        literal
+    } else {
+        x
+    };
+
+    return result;
+}
+
+
 
 
 
