@@ -1,15 +1,11 @@
-const assert = @import("std").debug.assert;
-
-enum FormValue {
+const FormValue = enum {
     One,
     Two: bool,
-}
+};
 
 error Whatever;
 
 fn foo(id: u64) -> %FormValue {
-    @setFnStaticEval(this, false);
-
     switch (id) {
         2 => FormValue.Two { true },
         1 => FormValue.One,
@@ -18,11 +14,17 @@ fn foo(id: u64) -> %FormValue {
 }
 
 fn switchProngImplicitCast() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     const result = switch (%%foo(2)) {
-        One => false,
-        Two => |x| x,
+        FormValue.One => false,
+        FormValue.Two => |x| x,
     };
     assert(result);
+}
+
+// TODO const assert = @import("std").debug.assert;
+fn assert(ok: bool) {
+    if (!ok)
+        @unreachable();
 }
