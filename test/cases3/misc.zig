@@ -261,6 +261,16 @@ fn typeEquality() {
     assert(&const u8 != &u8);
 }
 
+
+const global_a: i32 = 1234;
+const global_b: &const i32 = &global_a;
+const global_c: &const f32 = (&const f32)(global_b);
+fn compileTimeGlobalReinterpret() {
+    @setFnTest(this);
+    const d = (&const i32)(global_c);
+    assert(*d == 1234);
+}
+
 // TODO import from std.str
 pub fn memeql(a: []const u8, b: []const u8) -> bool {
     sliceEql(u8, a, b)
@@ -287,7 +297,6 @@ pub fn cstrcmp(a: &const u8, b: &const u8) -> i8 {
         i8(0)
     };
 }
-
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {

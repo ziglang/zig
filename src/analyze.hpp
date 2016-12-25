@@ -66,7 +66,7 @@ FnTableEntry *scope_fn_entry(Scope *scope);
 ImportTableEntry *get_scope_import(Scope *scope);
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node, Scope *parent_scope);
 VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    TypeTableEntry *type_entry, bool is_const, ConstExprValue *init_value);
+    bool is_const, ConstExprValue *init_value);
 TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 FnTableEntry *create_fn(AstNode *proto_node);
 FnTableEntry *create_fn_raw(FnInline inline_value, bool internal_linkage);
@@ -77,7 +77,7 @@ bool type_requires_comptime(TypeTableEntry *type_entry);
 void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry);
 void complete_enum(CodeGen *g, TypeTableEntry *enum_type);
 bool ir_get_var_is_comptime(VariableTableEntry *var);
-bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *type_entry);
+bool const_values_equal(ConstExprValue *a, ConstExprValue *b);
 void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val, bool is_max);
 
 ScopeBlock *create_block_scope(AstNode *node, Scope *parent);
@@ -88,22 +88,42 @@ Scope *create_loop_scope(AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry);
 ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEntry *container_type, ImportTableEntry *import);
 
-void init_const_str_lit(ConstExprValue *const_val, Buf *str);
-ConstExprValue *create_const_str_lit(Buf *str);
+void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str);
+ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str);
 
-void init_const_unsigned_negative(ConstExprValue *const_val, uint64_t x, bool negative);
-ConstExprValue *create_const_unsigned_negative(uint64_t x, bool negative);
+void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *c_str);
+ConstExprValue *create_const_c_str_lit(CodeGen *g, Buf *c_str);
 
-void init_const_signed(ConstExprValue *const_val, int64_t x);
-ConstExprValue *create_const_signed(int64_t x);
+void init_const_unsigned_negative(ConstExprValue *const_val, TypeTableEntry *type, uint64_t x, bool negative);
+ConstExprValue *create_const_unsigned_negative(TypeTableEntry *type, uint64_t x, bool negative);
 
-void init_const_float(ConstExprValue *const_val, double value);
-ConstExprValue *create_const_float(double value);
+void init_const_signed(ConstExprValue *const_val, TypeTableEntry *type, int64_t x);
+ConstExprValue *create_const_signed(TypeTableEntry *type, int64_t x);
 
-void init_const_enum_tag(ConstExprValue *const_val, uint64_t tag);
-ConstExprValue *create_const_enum_tag(uint64_t tag);
+void init_const_usize(CodeGen *g, ConstExprValue *const_val, uint64_t x);
+ConstExprValue *create_const_usize(CodeGen *g, uint64_t x);
 
-void init_const_bool(ConstExprValue *const_val, bool value);
-ConstExprValue *create_const_bool(bool value);
+void init_const_float(ConstExprValue *const_val, TypeTableEntry *type, double value);
+ConstExprValue *create_const_float(TypeTableEntry *type, double value);
+
+void init_const_enum_tag(ConstExprValue *const_val, TypeTableEntry *type, uint64_t tag);
+ConstExprValue *create_const_enum_tag(TypeTableEntry *type, uint64_t tag);
+
+void init_const_bool(CodeGen *g, ConstExprValue *const_val, bool value);
+ConstExprValue *create_const_bool(CodeGen *g, bool value);
+
+void init_const_type(CodeGen *g, ConstExprValue *const_val, TypeTableEntry *type_value);
+ConstExprValue *create_const_type(CodeGen *g, TypeTableEntry *type_value);
+
+void init_const_runtime(ConstExprValue *const_val, TypeTableEntry *type);
+ConstExprValue *create_const_runtime(TypeTableEntry *type);
+
+void init_const_ptr(CodeGen *g, ConstExprValue *const_val, ConstExprValue *base_ptr, size_t index, bool is_const);
+ConstExprValue *create_const_ptr(CodeGen *g, ConstExprValue *const_val, ConstExprValue *base_ptr,
+        size_t index, bool is_const);
+
+void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
+        size_t start, size_t len, bool is_const);
+ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t start, size_t len, bool is_const);
 
 #endif

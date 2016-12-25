@@ -5,6 +5,7 @@
  * See http://opensource.org/licenses/MIT
  */
 
+#include "analyze.hpp"
 #include "ir.hpp"
 #include "ir_print.hpp"
 
@@ -24,13 +25,13 @@ static void ir_print_indent(IrPrint *irp) {
 
 static void ir_print_prefix(IrPrint *irp, IrInstruction *instruction) {
     ir_print_indent(irp);
-    const char *type_name = instruction->type_entry ? buf_ptr(&instruction->type_entry->name) : "(unknown)";
+    const char *type_name = instruction->value.type ? buf_ptr(&instruction->value.type->name) : "(unknown)";
     const char *ref_count = ir_has_side_effects(instruction) ?
         "-" : buf_ptr(buf_sprintf("%zu", instruction->ref_count));
     fprintf(irp->f, "#%-3zu| %-12s| %-2s| ", instruction->debug_id, type_name, ref_count);
 }
 
-static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, ConstExprValue *const_val) {
+static void ir_print_const_value(IrPrint *irp, ConstExprValue *const_val) {
     switch (const_val->special) {
         case ConstValSpecialRuntime:
             zig_unreachable();
@@ -43,9 +44,12 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
         case ConstValSpecialStatic:
             break;
     }
-    switch (type_entry->id) {
+    assert(const_val->type);
+
+    TypeTableEntry *canon_type = get_underlying_type(const_val->type);
+    switch (canon_type->id) {
         case TypeTableEntryIdTypeDecl:
-            return ir_print_const_value(irp, type_entry->data.type_decl.canonical_type, const_val);
+            zig_unreachable();
         case TypeTableEntryIdInvalid:
             fprintf(irp->f, "(invalid)");
             return;
@@ -94,7 +98,7 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
             }
         case TypeTableEntryIdPointer:
             fprintf(irp->f, "&");
-            ir_print_const_value(irp, type_entry->data.pointer.child_type, const_ptr_pointee(const_val));
+            ir_print_const_value(irp, const_ptr_pointee(const_val));
             return;
         case TypeTableEntryIdFn:
             {
@@ -110,14 +114,13 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
             }
         case TypeTableEntryIdArray:
             {
-                uint64_t len = type_entry->data.array.len;
-                fprintf(irp->f, "%s{", buf_ptr(&type_entry->name));
+                uint64_t len = canon_type->data.array.len;
+                fprintf(irp->f, "%s{", buf_ptr(&canon_type->name));
                 for (uint64_t i = 0; i < len; i += 1) {
                     if (i != 0)
                         fprintf(irp->f, ",");
                     ConstExprValue *child_value = &const_val->data.x_array.elements[i];
-                    TypeTableEntry *child_type = type_entry->data.array.child_type;
-                    ir_print_const_value(irp, child_type, child_value);
+                    ir_print_const_value(irp, child_value);
                 }
                 fprintf(irp->f, "}");
                 return;
@@ -135,7 +138,7 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
         case TypeTableEntryIdMaybe:
             {
                 if (const_val->data.x_maybe) {
-                    ir_print_const_value(irp, type_entry->data.maybe.child_type, const_val->data.x_maybe);
+                    ir_print_const_value(irp, const_val->data.x_maybe);
                 } else {
                     fprintf(irp->f, "null");
                 }
@@ -160,22 +163,22 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
             }
         case TypeTableEntryIdStruct:
             {
-                fprintf(irp->f, "(struct %s constant)", buf_ptr(&type_entry->name));
+                fprintf(irp->f, "(struct %s constant)", buf_ptr(&canon_type->name));
                 return;
             }
         case TypeTableEntryIdEnum:
             {
-                fprintf(irp->f, "(enum %s constant)", buf_ptr(&type_entry->name));
+                fprintf(irp->f, "(enum %s constant)", buf_ptr(&canon_type->name));
                 return;
             }
         case TypeTableEntryIdErrorUnion:
             {
-                fprintf(irp->f, "(error union %s constant)", buf_ptr(&type_entry->name));
+                fprintf(irp->f, "(error union %s constant)", buf_ptr(&canon_type->name));
                 return;
             }
         case TypeTableEntryIdUnion:
             {
-                fprintf(irp->f, "(union %s constant)", buf_ptr(&type_entry->name));
+                fprintf(irp->f, "(union %s constant)", buf_ptr(&canon_type->name));
                 return;
             }
         case TypeTableEntryIdPureError:
@@ -185,7 +188,7 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
             }
         case TypeTableEntryIdEnumTag:
             {
-                TypeTableEntry *enum_type = type_entry->data.enum_tag.enum_type;
+                TypeTableEntry *enum_type = canon_type->data.enum_tag.enum_type;
                 TypeEnumField *field = &enum_type->data.enumeration.fields[const_val->data.x_bignum.data.x_uint];
                 fprintf(irp->f, "%s.%s", buf_ptr(&enum_type->name), buf_ptr(field->name));
                 return;
@@ -194,19 +197,13 @@ static void ir_print_const_value(IrPrint *irp, TypeTableEntry *type_entry, Const
     zig_unreachable();
 }
 
-static void ir_print_const_instruction(IrPrint *irp, IrInstruction *instruction) {
-    TypeTableEntry *type_entry = instruction->type_entry;
-    ConstExprValue *const_val = &instruction->static_value;
-    ir_print_const_value(irp, type_entry, const_val);
-}
-
 static void ir_print_var_instruction(IrPrint *irp, IrInstruction *instruction) {
     fprintf(irp->f, "#%zu", instruction->debug_id);
 }
 
 static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction) {
-    if (instruction->static_value.special != ConstValSpecialRuntime) {
-        ir_print_const_instruction(irp, instruction);
+    if (instruction->value.special != ConstValSpecialRuntime) {
+        ir_print_const_value(irp, &instruction->value);
     } else {
         ir_print_var_instruction(irp, instruction);
     }
@@ -223,7 +220,7 @@ static void ir_print_return(IrPrint *irp, IrInstructionReturn *return_instructio
 }
 
 static void ir_print_const(IrPrint *irp, IrInstructionConst *const_instruction) {
-    ir_print_const_instruction(irp, &const_instruction->base);
+    ir_print_const_value(irp, &const_instruction->base.value);
 }
 
 static const char *ir_bin_op_id_str(IrBinOp op_id) {
@@ -925,6 +922,12 @@ static void ir_print_init_enum(IrPrint *irp, IrInstructionInitEnum *instruction)
     fprintf(irp->f, "}");
 }
 
+static void ir_print_pointer_reinterpret(IrPrint *irp, IrInstructionPointerReinterpret *instruction) {
+    fprintf(irp->f, "(%s)(", buf_ptr(&instruction->base.value.type->name));
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1164,6 +1167,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdInitEnum:
             ir_print_init_enum(irp, (IrInstructionInitEnum *)instruction);
             break;
+        case IrInstructionIdPointerReinterpret:
+            ir_print_pointer_reinterpret(irp, (IrInstructionPointerReinterpret *)instruction);
+            break;
     }
     fprintf(irp->f, "\n");
 }
@@ -1188,14 +1194,14 @@ void ir_print(FILE *f, IrExecutable *executable, int indent_size) {
 static void print_tld_var(IrPrint *irp, TldVar *tld_var) {
     const char *const_or_var = tld_var->var->src_is_const ? "const" : "var";
     fprintf(irp->f, "%s %s", const_or_var, buf_ptr(tld_var->base.name));
-    bool omit_type = (tld_var->var->type->id == TypeTableEntryIdNumLitFloat ||
-        tld_var->var->type->id == TypeTableEntryIdNumLitInt);
+    bool omit_type = (tld_var->var->value.type->id == TypeTableEntryIdNumLitFloat ||
+        tld_var->var->value.type->id == TypeTableEntryIdNumLitInt);
     if (!omit_type) {
-        fprintf(irp->f, ": %s", buf_ptr(&tld_var->var->type->name));
+        fprintf(irp->f, ": %s", buf_ptr(&tld_var->var->value.type->name));
     }
-    if (tld_var->var->value) {
+    if (tld_var->var->value.special != ConstValSpecialRuntime) {
         fprintf(irp->f, " = ");
-        ir_print_const_value(irp, tld_var->var->type, tld_var->var->value);
+        ir_print_const_value(irp, &tld_var->var->value);
     }
     fprintf(irp->f, ";\n");
 }

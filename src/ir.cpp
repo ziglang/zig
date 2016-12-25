@@ -48,6 +48,7 @@ static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, Scope *scope);
 static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *scope,
         LValPurpose lval);
 static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *instruction);
+static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, TypeTableEntry *expected_type);
 
 ConstExprValue *const_ptr_pointee(ConstExprValue *const_val) {
     assert(const_val->special == ConstValSpecialStatic);
@@ -93,7 +94,7 @@ static Buf *exec_c_import_buf(IrExecutable *exec) {
 }
 
 static bool instr_is_comptime(IrInstruction *instruction) {
-    return instruction->static_value.special != ConstValSpecialRuntime;
+    return instruction->value.special != ConstValSpecialRuntime;
 }
 
 static void ir_link_new_instruction(IrInstruction *new_instruction, IrInstruction *old_instruction) {
@@ -450,6 +451,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionInitEnum *) {
     return IrInstructionIdInitEnum;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionPointerReinterpret *) {
+    return IrInstructionIdPointerReinterpret;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -485,8 +490,8 @@ static IrInstruction *ir_build_cond_br(IrBuilder *irb, Scope *scope, AstNode *so
         IrBasicBlock *then_block, IrBasicBlock *else_block, IrInstruction *is_comptime)
 {
     IrInstructionCondBr *cond_br_instruction = ir_build_instruction<IrInstructionCondBr>(irb, scope, source_node);
-    cond_br_instruction->base.type_entry = irb->codegen->builtin_types.entry_unreachable;
-    cond_br_instruction->base.static_value.special = ConstValSpecialStatic;
+    cond_br_instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
+    cond_br_instruction->base.value.special = ConstValSpecialStatic;
     cond_br_instruction->condition = condition;
     cond_br_instruction->then_block = then_block;
     cond_br_instruction->else_block = else_block;
@@ -511,8 +516,8 @@ static IrInstruction *ir_build_cond_br_from(IrBuilder *irb, IrInstruction *old_i
 
 static IrInstruction *ir_build_return(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *return_value) {
     IrInstructionReturn *return_instruction = ir_build_instruction<IrInstructionReturn>(irb, scope, source_node);
-    return_instruction->base.type_entry = irb->codegen->builtin_types.entry_unreachable;
-    return_instruction->base.static_value.special = ConstValSpecialStatic;
+    return_instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
+    return_instruction->base.value.special = ConstValSpecialStatic;
     return_instruction->value = return_value;
 
     ir_ref_instruction(return_value);
@@ -533,55 +538,55 @@ static IrInstruction *ir_create_const(IrBuilder *irb, Scope *scope, AstNode *sou
 {
     assert(type_entry);
     IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb->exec, scope, source_node);
-    const_instruction->base.type_entry = type_entry;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
-    const_instruction->base.static_value.depends_on_compile_var = depends_on_compile_var;
+    const_instruction->base.value.type = type_entry;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    const_instruction->base.value.depends_on_compile_var = depends_on_compile_var;
     return &const_instruction->base;
 }
 
 static IrInstruction *ir_build_const_void(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_void;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_void;
+    const_instruction->base.value.special = ConstValSpecialStatic;
     return &const_instruction->base;
 }
 
 static IrInstruction *ir_build_const_undefined(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.static_value.special = ConstValSpecialUndef;
-    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_undef;
+    const_instruction->base.value.special = ConstValSpecialUndef;
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_undef;
     return &const_instruction->base;
 }
 
 static IrInstruction *ir_build_const_uint(IrBuilder *irb, Scope *scope, AstNode *source_node, uint64_t value) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_num_lit_int;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
-    bignum_init_unsigned(&const_instruction->base.static_value.data.x_bignum, value);
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_num_lit_int;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    bignum_init_unsigned(&const_instruction->base.value.data.x_bignum, value);
     return &const_instruction->base;
 }
 
 static IrInstruction *ir_build_const_bignum(IrBuilder *irb, Scope *scope, AstNode *source_node, BigNum *bignum) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.type_entry = (bignum->kind == BigNumKindInt) ?
+    const_instruction->base.value.type = (bignum->kind == BigNumKindInt) ?
         irb->codegen->builtin_types.entry_num_lit_int : irb->codegen->builtin_types.entry_num_lit_float;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
-    const_instruction->base.static_value.data.x_bignum = *bignum;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    const_instruction->base.value.data.x_bignum = *bignum;
     return &const_instruction->base;
 }
 
 static IrInstruction *ir_build_const_null(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_null;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_null;
+    const_instruction->base.value.special = ConstValSpecialStatic;
     return &const_instruction->base;
 }
 
 static IrInstruction *ir_build_const_usize(IrBuilder *irb, Scope *scope, AstNode *source_node, uint64_t value) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_usize;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
-    bignum_init_unsigned(&const_instruction->base.static_value.data.x_bignum, value);
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_usize;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    bignum_init_unsigned(&const_instruction->base.value.data.x_bignum, value);
     return &const_instruction->base;
 }
 
@@ -589,9 +594,9 @@ static IrInstruction *ir_create_const_type(IrBuilder *irb, Scope *scope, AstNode
         TypeTableEntry *type_entry)
 {
     IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb->exec, scope, source_node);
-    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_type;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
-    const_instruction->base.static_value.data.x_type = type_entry;
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_type;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    const_instruction->base.value.data.x_type = type_entry;
     return &const_instruction->base;
 }
 
@@ -605,17 +610,17 @@ static IrInstruction *ir_build_const_type(IrBuilder *irb, Scope *scope, AstNode 
 
 static IrInstruction *ir_build_const_fn(IrBuilder *irb, Scope *scope, AstNode *source_node, FnTableEntry *fn_entry) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.type_entry = fn_entry->type_entry;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
-    const_instruction->base.static_value.data.x_fn = fn_entry;
+    const_instruction->base.value.type = fn_entry->type_entry;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    const_instruction->base.value.data.x_fn = fn_entry;
     return &const_instruction->base;
 }
 
 static IrInstruction *ir_build_const_import(IrBuilder *irb, Scope *scope, AstNode *source_node, ImportTableEntry *import) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_namespace;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
-    const_instruction->base.static_value.data.x_import = import;
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_namespace;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    const_instruction->base.value.data.x_import = import;
     return &const_instruction->base;
 }
 
@@ -623,17 +628,17 @@ static IrInstruction *ir_build_const_scope(IrBuilder *irb, Scope *parent_scope, 
         Scope *target_scope)
 {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, parent_scope, source_node);
-    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_block;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
-    const_instruction->base.static_value.data.x_block = target_scope;
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_block;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    const_instruction->base.value.data.x_block = target_scope;
     return &const_instruction->base;
 }
 
 static IrInstruction *ir_build_const_bool(IrBuilder *irb, Scope *scope, AstNode *source_node, bool value) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.type_entry = irb->codegen->builtin_types.entry_bool;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
-    const_instruction->base.static_value.data.x_bool = value;
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_bool;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    const_instruction->base.value.data.x_bool = value;
     return &const_instruction->base;
 }
 
@@ -641,21 +646,17 @@ static IrInstruction *ir_build_const_bound_fn(IrBuilder *irb, Scope *scope, AstN
     FnTableEntry *fn_entry, IrInstruction *first_arg, bool depends_on_compile_var)
 {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.type_entry = get_bound_fn_type(irb->codegen, fn_entry);
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
-    const_instruction->base.static_value.depends_on_compile_var = depends_on_compile_var;
-    const_instruction->base.static_value.data.x_bound_fn.fn = fn_entry;
-    const_instruction->base.static_value.data.x_bound_fn.first_arg = first_arg;
+    const_instruction->base.value.type = get_bound_fn_type(irb->codegen, fn_entry);
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    const_instruction->base.value.depends_on_compile_var = depends_on_compile_var;
+    const_instruction->base.value.data.x_bound_fn.fn = fn_entry;
+    const_instruction->base.value.data.x_bound_fn.first_arg = first_arg;
     return &const_instruction->base;
 }
 
 static IrInstruction *ir_create_const_str_lit(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *str) {
     IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb->exec, scope, source_node);
-    TypeTableEntry *u8_type = irb->codegen->builtin_types.entry_u8;
-    TypeTableEntry *type_entry = get_array_type(irb->codegen, u8_type, buf_len(str));
-    const_instruction->base.type_entry = type_entry;
-    ConstExprValue *const_val = &const_instruction->base.static_value;
-    init_const_str_lit(const_val, str);
+    init_const_str_lit(irb->codegen, &const_instruction->base.value, str);
 
     return &const_instruction->base;
 }
@@ -666,32 +667,8 @@ static IrInstruction *ir_build_const_str_lit(IrBuilder *irb, Scope *scope, AstNo
 }
 
 static IrInstruction *ir_build_const_c_str_lit(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *str) {
-    // first we build the underlying array
-    size_t len_with_null = buf_len(str) + 1;
-    ConstExprValue *array_val = allocate<ConstExprValue>(1);
-    array_val->special = ConstValSpecialStatic;
-    array_val->data.x_array.elements = allocate<ConstExprValue>(len_with_null);
-    array_val->data.x_array.size = len_with_null;
-    for (size_t i = 0; i < buf_len(str); i += 1) {
-        ConstExprValue *this_char = &array_val->data.x_array.elements[i];
-        this_char->special = ConstValSpecialStatic;
-        bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
-    }
-    ConstExprValue *null_char = &array_val->data.x_array.elements[len_with_null - 1];
-    null_char->special = ConstValSpecialStatic;
-    bignum_init_unsigned(&null_char->data.x_bignum, 0);
-
-    // then make the pointer point to it
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    TypeTableEntry *u8_type = irb->codegen->builtin_types.entry_u8;
-    TypeTableEntry *type_entry = get_pointer_to_type(irb->codegen, u8_type, true);
-    const_instruction->base.type_entry = type_entry;
-    ConstExprValue *ptr_val = &const_instruction->base.static_value;
-    ptr_val->special = ConstValSpecialStatic;
-    ptr_val->data.x_ptr.base_ptr = array_val;
-    ptr_val->data.x_ptr.index = 0;
-    ptr_val->data.x_ptr.special = ConstPtrSpecialCStr;
-
+    init_const_c_str_lit(irb->codegen, &const_instruction->base.value, str);
     return &const_instruction->base;
 }
 
@@ -870,8 +847,8 @@ static IrInstruction *ir_create_br(IrBuilder *irb, Scope *scope, AstNode *source
         IrBasicBlock *dest_block, IrInstruction *is_comptime)
 {
     IrInstructionBr *br_instruction = ir_create_instruction<IrInstructionBr>(irb->exec, scope, source_node);
-    br_instruction->base.type_entry = irb->codegen->builtin_types.entry_unreachable;
-    br_instruction->base.static_value.special = ConstValSpecialStatic;
+    br_instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
+    br_instruction->base.value.special = ConstValSpecialStatic;
     br_instruction->dest_block = dest_block;
     br_instruction->is_comptime = is_comptime;
 
@@ -983,8 +960,8 @@ static IrInstruction *ir_build_struct_init_from(IrBuilder *irb, IrInstruction *o
 static IrInstruction *ir_build_unreachable(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     IrInstructionUnreachable *unreachable_instruction =
         ir_build_instruction<IrInstructionUnreachable>(irb, scope, source_node);
-    unreachable_instruction->base.static_value.special = ConstValSpecialStatic;
-    unreachable_instruction->base.type_entry = irb->codegen->builtin_types.entry_unreachable;
+    unreachable_instruction->base.value.special = ConstValSpecialStatic;
+    unreachable_instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
     return &unreachable_instruction->base;
 }
 
@@ -998,8 +975,8 @@ static IrInstruction *ir_build_store_ptr(IrBuilder *irb, Scope *scope, AstNode *
         IrInstruction *ptr, IrInstruction *value)
 {
     IrInstructionStorePtr *instruction = ir_build_instruction<IrInstructionStorePtr>(irb, scope, source_node);
-    instruction->base.static_value.special = ConstValSpecialStatic;
-    instruction->base.type_entry = irb->codegen->builtin_types.entry_void;
+    instruction->base.value.special = ConstValSpecialStatic;
+    instruction->base.value.type = irb->codegen->builtin_types.entry_void;
     instruction->ptr = ptr;
     instruction->value = value;
 
@@ -1022,8 +999,8 @@ static IrInstruction *ir_build_var_decl(IrBuilder *irb, Scope *scope, AstNode *s
         VariableTableEntry *var, IrInstruction *var_type, IrInstruction *init_value)
 {
     IrInstructionDeclVar *decl_var_instruction = ir_build_instruction<IrInstructionDeclVar>(irb, scope, source_node);
-    decl_var_instruction->base.static_value.special = ConstValSpecialStatic;
-    decl_var_instruction->base.type_entry = irb->codegen->builtin_types.entry_void;
+    decl_var_instruction->base.value.special = ConstValSpecialStatic;
+    decl_var_instruction->base.value.type = irb->codegen->builtin_types.entry_void;
     decl_var_instruction->var = var;
     decl_var_instruction->var_type = var_type;
     decl_var_instruction->init_value = init_value;
@@ -1302,8 +1279,8 @@ static IrInstruction *ir_build_switch_br(IrBuilder *irb, Scope *scope, AstNode *
         IrBasicBlock *else_block, size_t case_count, IrInstructionSwitchBrCase *cases, IrInstruction *is_comptime)
 {
     IrInstructionSwitchBr *instruction = ir_build_instruction<IrInstructionSwitchBr>(irb, scope, source_node);
-    instruction->base.type_entry = irb->codegen->builtin_types.entry_unreachable;
-    instruction->base.static_value.special = ConstValSpecialStatic;
+    instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
+    instruction->base.value.special = ConstValSpecialStatic;
     instruction->target_value = target_value;
     instruction->else_block = else_block;
     instruction->case_count = case_count;
@@ -1682,13 +1659,14 @@ static IrInstruction *ir_build_memcpy_from(IrBuilder *irb, IrInstruction *old_in
 }
 
 static IrInstruction *ir_build_slice(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool is_const)
+    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool is_const, bool safety_check_on)
 {
     IrInstructionSlice *instruction = ir_build_instruction<IrInstructionSlice>(irb, scope, source_node);
     instruction->ptr = ptr;
     instruction->start = start;
     instruction->end = end;
     instruction->is_const = is_const;
+    instruction->safety_check_on = safety_check_on;
 
     ir_ref_instruction(ptr);
     ir_ref_instruction(start);
@@ -1698,9 +1676,10 @@ static IrInstruction *ir_build_slice(IrBuilder *irb, Scope *scope, AstNode *sour
 }
 
 static IrInstruction *ir_build_slice_from(IrBuilder *irb, IrInstruction *old_instruction,
-    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool is_const)
+    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool is_const, bool safety_check_on)
 {
-    IrInstruction *new_instruction = ir_build_slice(irb, old_instruction->scope, old_instruction->source_node, ptr, start, end, is_const);
+    IrInstruction *new_instruction = ir_build_slice(irb, old_instruction->scope,
+            old_instruction->source_node, ptr, start, end, is_const, safety_check_on);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -1890,6 +1869,18 @@ static IrInstruction *ir_build_init_enum_from(IrBuilder *irb, IrInstruction *old
             enum_type, field, init_value);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
+}
+
+static IrInstruction *ir_build_pointer_reinterpret(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *ptr)
+{
+    IrInstructionPointerReinterpret *instruction = ir_build_instruction<IrInstructionPointerReinterpret>(
+            irb, scope, source_node);
+    instruction->ptr = ptr;
+
+    ir_ref_instruction(ptr);
+
+    return &instruction->base;
 }
 
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
@@ -2088,21 +2079,21 @@ static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Sco
             ErrorMsg *msg = add_node_error(codegen, node,
                     buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
             add_error_note(codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
-            variable_entry->type = codegen->builtin_types.entry_invalid;
+            variable_entry->value.type = codegen->builtin_types.entry_invalid;
         } else {
             auto primitive_table_entry = codegen->primitive_type_table.maybe_get(name);
             if (primitive_table_entry) {
                 TypeTableEntry *type = primitive_table_entry->value;
                 add_node_error(codegen, node,
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
-                variable_entry->type = codegen->builtin_types.entry_invalid;
+                variable_entry->value.type = codegen->builtin_types.entry_invalid;
             } else {
                 Tld *tld = find_decl(parent_scope, name);
                 if (tld && tld->id != TldIdVar) {
                     ErrorMsg *msg = add_node_error(codegen, node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                     add_error_note(codegen, msg, tld->source_node, buf_sprintf("previous definition is here"));
-                    variable_entry->type = codegen->builtin_types.entry_invalid;
+                    variable_entry->value.type = codegen->builtin_types.entry_invalid;
                 }
             }
         }
@@ -3275,7 +3266,7 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     // is inside var->child_scope
 
     if (!is_extern && !variable_declaration->expr) {
-        var->type = irb->codegen->builtin_types.entry_invalid;
+        var->value.type = irb->codegen->builtin_types.entry_invalid;
         add_node_error(irb->codegen, node, buf_sprintf("variables must be initialized"));
         return irb->codegen->invalid_instruction;
     }
@@ -3988,7 +3979,7 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node) 
         end_value = nullptr;
     }
 
-    return ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, slice_expr->is_const);
+    return ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, slice_expr->is_const, true);
 }
 
 static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
@@ -4348,7 +4339,7 @@ static IrInstruction *ir_exec_const_result(IrExecutable *exec) {
         if (instruction->id == IrInstructionIdReturn) {
             IrInstructionReturn *ret_inst = (IrInstructionReturn *)instruction;
             IrInstruction *value = ret_inst->value;
-            assert(value->static_value.special != ConstValSpecialRuntime);
+            assert(value->value.special != ConstValSpecialRuntime);
             return value;
         } else if (ir_has_side_effects(instruction)) {
             return nullptr;
@@ -4372,7 +4363,7 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
         return false;
     }
 
-    ConstExprValue *const_val = &instruction->static_value;
+    ConstExprValue *const_val = &instruction->value;
     assert(const_val->special != ConstValSpecialRuntime);
     if (other_type_underlying->id == TypeTableEntryIdFloat) {
         return true;
@@ -4514,15 +4505,15 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
 static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, IrInstruction **instructions, size_t instruction_count) {
     assert(instruction_count >= 1);
     IrInstruction *prev_inst = instructions[0];
-    if (prev_inst->type_entry->id == TypeTableEntryIdInvalid) {
+    if (prev_inst->value.type->id == TypeTableEntryIdInvalid) {
         return ira->codegen->builtin_types.entry_invalid;
     }
-    bool any_are_pure_error = (prev_inst->type_entry->id == TypeTableEntryIdPureError);
-    bool any_are_null = (prev_inst->type_entry->id == TypeTableEntryIdNullLit);
+    bool any_are_pure_error = (prev_inst->value.type->id == TypeTableEntryIdPureError);
+    bool any_are_null = (prev_inst->value.type->id == TypeTableEntryIdNullLit);
     for (size_t i = 1; i < instruction_count; i += 1) {
         IrInstruction *cur_inst = instructions[i];
-        TypeTableEntry *cur_type = cur_inst->type_entry;
-        TypeTableEntry *prev_type = prev_inst->type_entry;
+        TypeTableEntry *cur_type = cur_inst->value.type;
+        TypeTableEntry *prev_type = prev_inst->value.type;
         if (cur_type->id == TypeTableEntryIdInvalid) {
             return cur_type;
         } else if (prev_type->id == TypeTableEntryIdUnreachable) {
@@ -4598,32 +4589,32 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             return ira->codegen->builtin_types.entry_invalid;
         }
     }
-    if (any_are_pure_error && prev_inst->type_entry->id != TypeTableEntryIdPureError) {
-        if (prev_inst->type_entry->id == TypeTableEntryIdNumLitInt ||
-            prev_inst->type_entry->id == TypeTableEntryIdNumLitFloat)
+    if (any_are_pure_error && prev_inst->value.type->id != TypeTableEntryIdPureError) {
+        if (prev_inst->value.type->id == TypeTableEntryIdNumLitInt ||
+            prev_inst->value.type->id == TypeTableEntryIdNumLitFloat)
         {
             ir_add_error_node(ira, source_node,
                 buf_sprintf("unable to make error union out of number literal"));
             return ira->codegen->builtin_types.entry_invalid;
-        } else if (prev_inst->type_entry->id == TypeTableEntryIdNullLit) {
+        } else if (prev_inst->value.type->id == TypeTableEntryIdNullLit) {
             ir_add_error_node(ira, source_node,
                 buf_sprintf("unable to make error union out of null literal"));
             return ira->codegen->builtin_types.entry_invalid;
         } else {
-            return get_error_type(ira->codegen, prev_inst->type_entry);
+            return get_error_type(ira->codegen, prev_inst->value.type);
         }
-    } else if (any_are_null && prev_inst->type_entry->id != TypeTableEntryIdNullLit) {
-        if (prev_inst->type_entry->id == TypeTableEntryIdNumLitInt ||
-            prev_inst->type_entry->id == TypeTableEntryIdNumLitFloat)
+    } else if (any_are_null && prev_inst->value.type->id != TypeTableEntryIdNullLit) {
+        if (prev_inst->value.type->id == TypeTableEntryIdNumLitInt ||
+            prev_inst->value.type->id == TypeTableEntryIdNumLitFloat)
         {
             ir_add_error_node(ira, source_node,
                 buf_sprintf("unable to make maybe out of number literal"));
             return ira->codegen->builtin_types.entry_invalid;
         } else {
-            return get_maybe_type(ira->codegen, prev_inst->type_entry);
+            return get_maybe_type(ira->codegen, prev_inst->value.type);
         }
     } else {
-        return prev_inst->type_entry;
+        return prev_inst->value.type;
     }
 }
 
@@ -4649,9 +4640,7 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
         case CastOpNoop:
         case CastOpWidenOrShorten:
             *const_val = *other_val;
-            break;
-        case CastOpPointerReinterpret:
-            zig_panic("TODO compile time pointer reinterpret");
+            const_val->type = new_type;
             break;
         case CastOpPtrToInt:
         case CastOpIntToPtr:
@@ -4659,24 +4648,6 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
         case CastOpBytesToSlice:
             // can't do it
             break;
-        case CastOpToUnknownSizeArray:
-            {
-                assert(other_type->id == TypeTableEntryIdArray);
-                assert(other_val->data.x_array.size == other_type->data.array.len);
-
-                const_val->data.x_struct.fields = allocate<ConstExprValue>(2);
-                ConstExprValue *ptr_field = &const_val->data.x_struct.fields[slice_ptr_index];
-                ConstExprValue *len_field = &const_val->data.x_struct.fields[slice_len_index];
-
-                ptr_field->special = ConstValSpecialStatic;
-                ptr_field->data.x_ptr.base_ptr = other_val;
-
-                len_field->special = ConstValSpecialStatic;
-                bignum_init_unsigned(&len_field->data.x_bignum, other_type->data.array.len);
-
-                const_val->special = ConstValSpecialStatic;
-                break;
-            }
         case CastOpErrToInt:
             {
                 uint64_t value;
@@ -4722,14 +4693,15 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         TypeTableEntry *wanted_type, CastOp cast_op, bool need_alloca)
 {
-    if (value->static_value.special != ConstValSpecialRuntime) {
-        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope, source_instr->source_node, wanted_type, false);
-        eval_const_expr_implicit_cast(cast_op, &value->static_value, value->type_entry,
-                &result->static_value, wanted_type);
+    if (value->value.special != ConstValSpecialRuntime) {
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, wanted_type, false);
+        eval_const_expr_implicit_cast(cast_op, &value->value, value->value.type,
+                &result->value, wanted_type);
         return result;
     } else {
         IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node, wanted_type, value, cast_op);
-        result->type_entry = wanted_type;
+        result->value.type = wanted_type;
         if (need_alloca) {
             FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
             if (fn_entry)
@@ -4861,7 +4833,7 @@ static ConstExprValue *ir_build_const_from(IrAnalyze *ira, IrInstruction *old_in
         new_instruction = &const_instruction->base;
     }
     ir_link_new_instruction(new_instruction, old_instruction);
-    ConstExprValue *const_val = &new_instruction->static_value;
+    ConstExprValue *const_val = &new_instruction->value;
     const_val->special = ConstValSpecialStatic;
     const_val->depends_on_compile_var = depends_on_compile_var;
     return const_val;
@@ -4906,15 +4878,15 @@ enum UndefAllowed {
 };
 
 static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, UndefAllowed undef_allowed) {
-    switch (value->static_value.special) {
+    switch (value->value.special) {
         case ConstValSpecialStatic:
-            return &value->static_value;
+            return &value->value;
         case ConstValSpecialRuntime:
             ir_add_error(ira, value, buf_sprintf("unable to evaluate constant expression"));
             return nullptr;
         case ConstValSpecialUndef:
             if (undef_allowed == UndefOk) {
-                return &value->static_value;
+                return &value->value;
             } else {
                 ir_add_error(ira, value, buf_sprintf("use of undefined value"));
                 return nullptr;
@@ -4979,12 +4951,12 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
 }
 
 static TypeTableEntry *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value) {
-    if (type_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (type_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (type_value->type_entry->id != TypeTableEntryIdMetaType) {
+    if (type_value->value.type->id != TypeTableEntryIdMetaType) {
         ir_add_error(ira, type_value,
-                buf_sprintf("expected type 'type', found '%s'", buf_ptr(&type_value->type_entry->name)));
+                buf_sprintf("expected type 'type', found '%s'", buf_ptr(&type_value->value.type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -4999,12 +4971,12 @@ static FnTableEntry *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value) {
     if (fn_value == ira->codegen->invalid_instruction)
         return nullptr;
 
-    if (fn_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (fn_value->value.type->id == TypeTableEntryIdInvalid)
         return nullptr;
 
-    if (fn_value->type_entry->id != TypeTableEntryIdFn) {
+    if (fn_value->value.type->id != TypeTableEntryIdFn) {
         ir_add_error_node(ira, fn_value->source_node,
-                buf_sprintf("expected function type, found '%s'", buf_ptr(&fn_value->type_entry->name)));
+                buf_sprintf("expected function type, found '%s'", buf_ptr(&fn_value->value.type->name)));
         return nullptr;
     }
 
@@ -5019,47 +4991,88 @@ static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *sourc
     assert(wanted_type->id == TypeTableEntryIdMaybe);
 
     if (instr_is_comptime(value)) {
-        ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
+        TypeTableEntry *payload_type = wanted_type->data.maybe.child_type;
+        IrInstruction *casted_payload = ir_implicit_cast(ira, value, payload_type);
+        if (casted_payload->value.type->id == TypeTableEntryIdInvalid)
+            return ira->codegen->invalid_instruction;
+
+        ConstExprValue *val = ir_resolve_const(ira, casted_payload, UndefBad);
         if (!val)
             return ira->codegen->invalid_instruction;
 
         IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
                 source_instr->scope, source_instr->source_node);
-        const_instruction->base.type_entry = wanted_type;
-        const_instruction->base.static_value.special = ConstValSpecialStatic;
-        const_instruction->base.static_value.depends_on_compile_var = val->depends_on_compile_var;
-        const_instruction->base.static_value.data.x_maybe = &value->static_value;
+        const_instruction->base.value.type = wanted_type;
+        const_instruction->base.value.special = ConstValSpecialStatic;
+        const_instruction->base.value.depends_on_compile_var = val->depends_on_compile_var;
+        const_instruction->base.value.data.x_maybe = val;
         return &const_instruction->base;
     }
 
     IrInstruction *result = ir_build_maybe_wrap(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
-    result->type_entry = wanted_type;
-    result->static_value.data.rh_maybe = RuntimeHintMaybeNonNull;
+    result->value.type = wanted_type;
+    result->value.data.rh_maybe = RuntimeHintMaybeNonNull;
     ir_add_alloca(ira, result, wanted_type);
     return result;
 }
 
-static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value, TypeTableEntry *wanted_type) {
-    assert(wanted_type->id == TypeTableEntryIdErrorUnion);
+static IrInstruction *ir_analyze_pointer_reinterpret(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *ptr, TypeTableEntry *wanted_type)
+{
+    assert(wanted_type->id == TypeTableEntryIdPointer);
 
-    if (instr_is_comptime(value)) {
-        ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
+    if (ptr->value.type->id != TypeTableEntryIdPointer) {
+        ir_add_error(ira, ptr,
+            buf_sprintf("expected pointer, found '%s'", buf_ptr(&ptr->value.type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (instr_is_comptime(ptr)) {
+        ConstExprValue *val = ir_resolve_const(ira, ptr, UndefOk);
         if (!val)
             return ira->codegen->invalid_instruction;
 
         IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
                 source_instr->scope, source_instr->source_node);
-        const_instruction->base.type_entry = wanted_type;
-        const_instruction->base.static_value.special = ConstValSpecialStatic;
-        const_instruction->base.static_value.depends_on_compile_var = val->depends_on_compile_var;
-        const_instruction->base.static_value.data.x_err_union.err = nullptr;
-        const_instruction->base.static_value.data.x_err_union.payload = val;
+        const_instruction->base.value = *val;
+        const_instruction->base.value.type = wanted_type;
+        return &const_instruction->base;
+    }
+
+    IrInstruction *result = ir_build_pointer_reinterpret(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, ptr);
+    result->value.type = wanted_type;
+    return result;
+}
+
+static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *value, TypeTableEntry *wanted_type)
+{
+    assert(wanted_type->id == TypeTableEntryIdErrorUnion);
+
+    if (instr_is_comptime(value)) {
+        TypeTableEntry *payload_type = wanted_type->data.error.child_type;
+        IrInstruction *casted_payload = ir_implicit_cast(ira, value, payload_type);
+        if (casted_payload->value.type->id == TypeTableEntryIdInvalid)
+            return ira->codegen->invalid_instruction;
+
+        ConstExprValue *val = ir_resolve_const(ira, casted_payload, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
+                source_instr->scope, source_instr->source_node);
+        const_instruction->base.value.type = wanted_type;
+        const_instruction->base.value.special = ConstValSpecialStatic;
+        const_instruction->base.value.depends_on_compile_var = val->depends_on_compile_var;
+        const_instruction->base.value.data.x_err_union.err = nullptr;
+        const_instruction->base.value.data.x_err_union.payload = val;
         return &const_instruction->base;
     }
 
     IrInstruction *result = ir_build_err_wrap_payload(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
-    result->type_entry = wanted_type;
-    result->static_value.data.rh_error_union = RuntimeHintErrorUnionNonError;
+    result->value.type = wanted_type;
+    result->value.data.rh_error_union = RuntimeHintErrorUnionNonError;
     ir_add_alloca(ira, result, wanted_type);
     return result;
 }
@@ -5074,17 +5087,17 @@ static IrInstruction *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInstruction *so
 
         IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
                 source_instr->scope, source_instr->source_node);
-        const_instruction->base.type_entry = wanted_type;
-        const_instruction->base.static_value.special = ConstValSpecialStatic;
-        const_instruction->base.static_value.depends_on_compile_var = val->depends_on_compile_var;
-        const_instruction->base.static_value.data.x_err_union.err = val->data.x_pure_err;
-        const_instruction->base.static_value.data.x_err_union.payload = nullptr;
+        const_instruction->base.value.type = wanted_type;
+        const_instruction->base.value.special = ConstValSpecialStatic;
+        const_instruction->base.value.depends_on_compile_var = val->depends_on_compile_var;
+        const_instruction->base.value.data.x_err_union.err = val->data.x_pure_err;
+        const_instruction->base.value.data.x_err_union.payload = nullptr;
         return &const_instruction->base;
     }
 
     IrInstruction *result = ir_build_err_wrap_code(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
-    result->type_entry = wanted_type;
-    result->static_value.data.rh_error_union = RuntimeHintErrorUnionError;
+    result->value.type = wanted_type;
+    result->value.data.rh_error_union = RuntimeHintErrorUnionError;
     ir_add_alloca(ira, result, wanted_type);
     return result;
 }
@@ -5097,11 +5110,11 @@ static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_
 
         IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
                 source_instr->scope, source_instr->source_node);
-        const_instruction->base.type_entry = wanted_type;
-        const_instruction->base.static_value.special = ConstValSpecialStatic;
-        const_instruction->base.static_value.depends_on_compile_var = val->depends_on_compile_var;
-        const_instruction->base.static_value.data.x_ptr.base_ptr = val;
-        const_instruction->base.static_value.data.x_ptr.index = SIZE_MAX;
+        const_instruction->base.value.type = wanted_type;
+        const_instruction->base.value.special = ConstValSpecialStatic;
+        const_instruction->base.value.depends_on_compile_var = val->depends_on_compile_var;
+        const_instruction->base.value.data.x_ptr.base_ptr = val;
+        const_instruction->base.value.data.x_ptr.index = SIZE_MAX;
         return &const_instruction->base;
     }
 
@@ -5130,17 +5143,48 @@ static IrInstruction *ir_analyze_null_to_maybe(IrAnalyze *ira, IrInstruction *so
     assert(val);
 
     IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec, source_instr->scope, source_instr->source_node);
-    const_instruction->base.type_entry = wanted_type;
-    const_instruction->base.static_value.special = ConstValSpecialStatic;
-    const_instruction->base.static_value.depends_on_compile_var = val->depends_on_compile_var;
-    const_instruction->base.static_value.data.x_maybe = nullptr;
+    const_instruction->base.value.type = wanted_type;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    const_instruction->base.value.depends_on_compile_var = val->depends_on_compile_var;
+    const_instruction->base.value.data.x_maybe = nullptr;
     return &const_instruction->base;
+}
+
+static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *array, TypeTableEntry *wanted_type)
+{
+    assert(is_slice(wanted_type));
+
+    TypeTableEntry *array_type = array->value.type;
+    assert(array_type->id == TypeTableEntryIdArray);
+
+    if (instr_is_comptime(array)) {
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, wanted_type, false);
+        init_const_slice(ira->codegen, &result->value, &array->value, 0, array_type->data.array.len, true);
+        return result;
+    }
+
+    IrInstruction *start = ir_create_const(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, ira->codegen->builtin_types.entry_usize, false);
+    init_const_usize(ira->codegen, &start->value, 0);
+
+    IrInstruction *end = ir_create_const(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, ira->codegen->builtin_types.entry_usize, false);
+    init_const_usize(ira->codegen, &end->value, array_type->data.array.len);
+
+    IrInstruction *result = ir_build_slice(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, array, start, end, true, false);
+    TypeTableEntry *child_type = array_type->data.array.child_type;
+    result->value.type = get_slice_type(ira->codegen, child_type, true);
+    ir_add_alloca(ira, result, result->value.type);
+    return result;
 }
 
 static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_instr,
     TypeTableEntry *wanted_type, IrInstruction *value)
 {
-    TypeTableEntry *actual_type = value->type_entry;
+    TypeTableEntry *actual_type = value->value.type;
     TypeTableEntry *wanted_type_canon = get_underlying_type(wanted_type);
     TypeTableEntry *actual_type_canon = get_underlying_type(actual_type);
 
@@ -5213,7 +5257,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type,
             actual_type->data.array.child_type))
     {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpToUnknownSizeArray, true);
+        return ir_analyze_array_to_slice(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from []T to []u8 or []u8 to []T
@@ -5251,7 +5295,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     if ((actual_type->id == TypeTableEntryIdPointer || actual_type->id == TypeTableEntryIdFn) &&
         (wanted_type->id == TypeTableEntryIdPointer || wanted_type->id == TypeTableEntryIdFn))
     {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpPointerReinterpret, false);
+        return ir_analyze_pointer_reinterpret(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from maybe pointer to another maybe pointer
@@ -5262,7 +5306,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         (wanted_type->data.maybe.child_type->id == TypeTableEntryIdPointer ||
             wanted_type->data.maybe.child_type->id == TypeTableEntryIdFn))
     {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpPointerReinterpret, false);
+        return ir_analyze_pointer_reinterpret(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from child type of maybe type to maybe type
@@ -5394,22 +5438,22 @@ static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, Typ
     assert(value);
     assert(value != ira->codegen->invalid_instruction);
     assert(!expected_type || expected_type->id != TypeTableEntryIdInvalid);
-    assert(value->type_entry);
-    assert(value->type_entry->id != TypeTableEntryIdInvalid);
+    assert(value->value.type);
+    assert(value->value.type->id != TypeTableEntryIdInvalid);
     if (expected_type == nullptr)
         return value; // anything will do
-    if (expected_type == value->type_entry)
+    if (expected_type == value->value.type)
         return value; // match
-    if (value->type_entry->id == TypeTableEntryIdUnreachable)
+    if (value->value.type->id == TypeTableEntryIdUnreachable)
         return value;
 
-    ImplicitCastMatchResult result = ir_types_match_with_implicit_cast(ira, expected_type, value->type_entry, value);
+    ImplicitCastMatchResult result = ir_types_match_with_implicit_cast(ira, expected_type, value->value.type, value);
     switch (result) {
         case ImplicitCastMatchResultNo:
             ir_add_error(ira, value,
                 buf_sprintf("expected type '%s', found '%s'",
                     buf_ptr(&expected_type->name),
-                    buf_ptr(&value->type_entry->name)));
+                    buf_ptr(&value->value.type->name)));
             return ira->codegen->invalid_instruction;
 
         case ImplicitCastMatchResultYes:
@@ -5422,23 +5466,23 @@ static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, Typ
 }
 
 static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr) {
-    TypeTableEntry *type_entry = ptr->type_entry;
+    TypeTableEntry *type_entry = ptr->value.type;
     if (type_entry->id == TypeTableEntryIdInvalid) {
         return ira->codegen->invalid_instruction;
     } else if (type_entry->id == TypeTableEntryIdPointer) {
         TypeTableEntry *child_type = type_entry->data.pointer.child_type;
-        if (ptr->static_value.special != ConstValSpecialRuntime) {
-            ConstExprValue *pointee = const_ptr_pointee(&ptr->static_value);
+        if (ptr->value.special != ConstValSpecialRuntime) {
+            ConstExprValue *pointee = const_ptr_pointee(&ptr->value);
             if (pointee->special != ConstValSpecialRuntime) {
                 IrInstruction *result = ir_create_const(&ira->new_irb, source_instruction->scope,
                     source_instruction->source_node, child_type, pointee->depends_on_compile_var);
-                result->static_value = *pointee;
+                result->value = *pointee;
                 return result;
             }
         }
         // TODO if the instruction is a get pointer instruction we can skip it
         IrInstruction *load_ptr_instruction = ir_build_load_ptr(&ira->new_irb, source_instruction->scope, source_instruction->source_node, ptr);
-        load_ptr_instruction->type_entry = child_type;
+        load_ptr_instruction->value.type = child_type;
         return load_ptr_instruction;
     } else if (type_entry->id == TypeTableEntryIdMetaType) {
         ConstExprValue *ptr_val = ir_resolve_const(ira, ptr, UndefBad);
@@ -5465,18 +5509,18 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
 static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *value,
         bool is_const)
 {
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     if (instr_is_comptime(value)) {
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
         if (!val)
             return ira->codegen->builtin_types.entry_invalid;
-        return ir_analyze_const_ptr(ira, source_instruction, val, value->type_entry,
+        return ir_analyze_const_ptr(ira, source_instruction, val, value->value.type,
                 false, ConstPtrSpecialNone, is_const);
     }
 
-    TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, value->type_entry, true);
+    TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, value->value.type, true);
     FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
     assert(fn_entry);
     IrInstruction *new_instruction = ir_build_ref_from(&ira->new_irb, source_instruction, value, is_const);
@@ -5485,11 +5529,11 @@ static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_inst
 }
 
 static bool ir_resolve_usize(IrAnalyze *ira, IrInstruction *value, uint64_t *out) {
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return false;
 
     IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_usize);
-    if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_value->value.type->id == TypeTableEntryIdInvalid)
         return false;
 
     ConstExprValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
@@ -5501,11 +5545,11 @@ static bool ir_resolve_usize(IrAnalyze *ira, IrInstruction *value, uint64_t *out
 }
 
 static bool ir_resolve_bool(IrAnalyze *ira, IrInstruction *value, bool *out) {
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return false;
 
     IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_bool);
-    if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_value->value.type->id == TypeTableEntryIdInvalid)
         return false;
 
     ConstExprValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
@@ -5517,11 +5561,11 @@ static bool ir_resolve_bool(IrAnalyze *ira, IrInstruction *value, bool *out) {
 }
 
 static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, AtomicOrder *out) {
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return false;
 
     IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_atomic_order_enum);
-    if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_value->value.type->id == TypeTableEntryIdInvalid)
         return false;
 
     ConstExprValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
@@ -5533,12 +5577,12 @@ static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, Atomic
 }
 
 static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return nullptr;
 
     TypeTableEntry *str_type = get_slice_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
     IrInstruction *casted_value = ir_implicit_cast(ira, value, str_type);
-    if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_value->value.type->id == TypeTableEntryIdInvalid)
         return nullptr;
 
     ConstExprValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
@@ -5567,7 +5611,7 @@ static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
     IrInstructionReturn *return_instruction)
 {
     IrInstruction *value = return_instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ir_unreach_error(ira);
     ira->implicit_return_type_list.append(value);
 
@@ -5580,19 +5624,19 @@ static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
 }
 
 static TypeTableEntry *ir_analyze_instruction_const(IrAnalyze *ira, IrInstructionConst *const_instruction) {
-    bool depends_on_compile_var = const_instruction->base.static_value.depends_on_compile_var;
+    bool depends_on_compile_var = const_instruction->base.value.depends_on_compile_var;
     ConstExprValue *out_val = ir_build_const_from(ira, &const_instruction->base, depends_on_compile_var);
-    *out_val = const_instruction->base.static_value;
-    return const_instruction->base.type_entry;
+    *out_val = const_instruction->base.value;
+    return const_instruction->base.value.type;
 }
 
 static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
     IrInstruction *op1 = bin_op_instruction->op1->other;
-    if (op1->type_entry->id == TypeTableEntryIdInvalid)
+    if (op1->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *op2 = bin_op_instruction->op2->other;
-    if (op2->type_entry->id == TypeTableEntryIdInvalid)
+    if (op2->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *bool_type = ira->codegen->builtin_types.entry_bool;
@@ -5605,14 +5649,14 @@ static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp
     if (casted_op2 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    ConstExprValue *op1_val = &casted_op1->static_value;
-    ConstExprValue *op2_val = &casted_op2->static_value;
+    ConstExprValue *op1_val = &casted_op1->value;
+    ConstExprValue *op2_val = &casted_op2->value;
     if (op1_val->special != ConstValSpecialRuntime && op2_val->special != ConstValSpecialRuntime) {
         bool depends_on_compile_var = op1_val->depends_on_compile_var || op2_val->depends_on_compile_var;
         ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base, depends_on_compile_var);
 
-        assert(casted_op1->type_entry->id == TypeTableEntryIdBool);
-        assert(casted_op2->type_entry->id == TypeTableEntryIdBool);
+        assert(casted_op1->value.type->id == TypeTableEntryIdBool);
+        assert(casted_op2->value.type->id == TypeTableEntryIdBool);
         if (bin_op_instruction->op_id == IrBinOpBoolOr) {
             out_val->data.x_bool = op1_val->data.x_bool || op2_val->data.x_bool;
         } else if (bin_op_instruction->op_id == IrBinOpBoolAnd) {
@@ -5701,8 +5745,8 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     if (casted_op2 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    ConstExprValue *op1_val = &casted_op1->static_value;
-    ConstExprValue *op2_val = &casted_op2->static_value;
+    ConstExprValue *op1_val = &casted_op1->value;
+    ConstExprValue *op2_val = &casted_op2->value;
     if (op1_val->special != ConstValSpecialRuntime && op2_val->special != ConstValSpecialRuntime) {
         bool type_can_gt_lt_cmp = (resolved_type->id == TypeTableEntryIdNumLitFloat ||
                 resolved_type->id == TypeTableEntryIdNumLitInt ||
@@ -5729,7 +5773,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
 
             answer = bignum_cmp(&op1_val->data.x_bignum, &op2_val->data.x_bignum);
         } else {
-            bool are_equal = const_values_equal(op1_val, op2_val, resolved_type);
+            bool are_equal = const_values_equal(op1_val, op2_val);
             if (op_id == IrBinOpCmpEq) {
                 answer = are_equal;
             } else if (op_id == IrBinOpCmpNotEq) {
@@ -5872,8 +5916,8 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         AstNode *source_node = bin_op_instruction->base.source_node;
         ir_add_error_node(ira, source_node,
             buf_sprintf("invalid operands to binary expression: '%s' and '%s'",
-                buf_ptr(&op1->type_entry->name),
-                buf_ptr(&op2->type_entry->name)));
+                buf_ptr(&op1->value.type->name),
+                buf_ptr(&op2->value.type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -5886,10 +5930,10 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         return ira->codegen->builtin_types.entry_invalid;
 
 
-    if (casted_op1->static_value.special != ConstValSpecialRuntime && casted_op2->static_value.special != ConstValSpecialRuntime) {
-        ConstExprValue *op1_val = &casted_op1->static_value;
-        ConstExprValue *op2_val = &casted_op2->static_value;
-        ConstExprValue *out_val = &bin_op_instruction->base.static_value;
+    if (casted_op1->value.special != ConstValSpecialRuntime && casted_op2->value.special != ConstValSpecialRuntime) {
+        ConstExprValue *op1_val = &casted_op1->value;
+        ConstExprValue *op2_val = &casted_op2->value;
+        ConstExprValue *out_val = &bin_op_instruction->base.value;
 
         bin_op_instruction->base.other = &bin_op_instruction->base;
 
@@ -5919,12 +5963,12 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
 
 static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *instruction) {
     IrInstruction *op1 = instruction->op1->other;
-    TypeTableEntry *op1_canon_type = get_underlying_type(op1->type_entry);
+    TypeTableEntry *op1_canon_type = get_underlying_type(op1->value.type);
     if (op1_canon_type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *op2 = instruction->op2->other;
-    TypeTableEntry *op2_canon_type = get_underlying_type(op2->type_entry);
+    TypeTableEntry *op2_canon_type = get_underlying_type(op2->value.type);
     if (op2_canon_type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -5955,7 +5999,7 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         op1_array_end = op1_array_val->data.x_array.size - 1;
     } else {
         ir_add_error(ira, op1,
-            buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->type_entry->name)));
+            buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->value.type->name)));
         // TODO if meta_type is type decl, add note pointing to type decl declaration
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -5967,7 +6011,7 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         if (op2_canon_type->data.array.child_type != child_type) {
             ir_add_error(ira, op2, buf_sprintf("expected array of type '%s', found '%s'",
                         buf_ptr(&child_type->name),
-                        buf_ptr(&op2->type_entry->name)));
+                        buf_ptr(&op2->value.type->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
         op2_array_val = op2_val;
@@ -5980,7 +6024,7 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         if (child_type != ira->codegen->builtin_types.entry_u8) {
             ir_add_error(ira, op2, buf_sprintf("expected array of type '%s', found '%s'",
                         buf_ptr(&child_type->name),
-                        buf_ptr(&op2->type_entry->name)));
+                        buf_ptr(&op2->value.type->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
         op2_array_val = op2_val->data.x_ptr.base_ptr;
@@ -5988,12 +6032,12 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         op2_array_end = op2_array_val->data.x_array.size - 1;
     } else {
         ir_add_error(ira, op2,
-            buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->type_entry->name)));
+            buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->value.type->name)));
         // TODO if meta_type is type decl, add note pointing to type decl declaration
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    bool depends_on_compile_var = op1->static_value.depends_on_compile_var || op2->static_value.depends_on_compile_var;
+    bool depends_on_compile_var = op1->value.depends_on_compile_var || op2->value.depends_on_compile_var;
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
 
     TypeTableEntry *result_type;
@@ -6008,6 +6052,7 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
 
         out_array_val = allocate<ConstExprValue>(1);
         out_array_val->special = ConstValSpecialStatic;
+        out_array_val->type = result_type;
         out_val->data.x_ptr.base_ptr = out_array_val;
         out_val->data.x_ptr.index = 0;
         out_val->data.x_ptr.special = ConstPtrSpecialCStr;
@@ -6026,8 +6071,7 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
     }
     if (next_index < new_len) {
         ConstExprValue *null_byte = &out_array_val->data.x_array.elements[next_index];
-        null_byte->special = ConstValSpecialStatic;
-        bignum_init_unsigned(&null_byte->data.x_bignum, 0);
+        init_const_unsigned_negative(null_byte, child_type, 0, false);
         next_index += 1;
     }
     assert(next_index == new_len);
@@ -6037,11 +6081,11 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
 
 static TypeTableEntry *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp *instruction) {
     IrInstruction *op1 = instruction->op1->other;
-    if (op1->type_entry->id == TypeTableEntryIdInvalid)
+    if (op1->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *op2 = instruction->op2->other;
-    if (op2->type_entry->id == TypeTableEntryIdInvalid)
+    if (op2->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     ConstExprValue *array_val = ir_resolve_const(ira, op1, UndefBad);
@@ -6052,9 +6096,9 @@ static TypeTableEntry *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp 
     if (!ir_resolve_usize(ira, op2, &mult_amt))
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *array_canon_type = get_underlying_type(op1->type_entry);
+    TypeTableEntry *array_canon_type = get_underlying_type(op1->value.type);
     if (array_canon_type->id != TypeTableEntryIdArray) {
-        ir_add_error(ira, op1, buf_sprintf("expected array type, found '%s'", buf_ptr(&op1->type_entry->name)));
+        ir_add_error(ira, op1, buf_sprintf("expected array type, found '%s'", buf_ptr(&op1->value.type->name)));
         // TODO if meta_type is type decl, add note pointing to type decl declaration
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -6068,7 +6112,7 @@ static TypeTableEntry *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp 
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    bool depends_on_compile_var = op1->static_value.depends_on_compile_var || op2->static_value.depends_on_compile_var;
+    bool depends_on_compile_var = op1->value.depends_on_compile_var || op2->value.depends_on_compile_var;
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
 
     uint64_t new_array_len = array_len.data.x_uint;
@@ -6130,9 +6174,9 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     VariableTableEntry *var = decl_var_instruction->var;
 
     IrInstruction *init_value = decl_var_instruction->init_value->other;
-    if (init_value->type_entry->id == TypeTableEntryIdInvalid) {
-        var->type = ira->codegen->builtin_types.entry_invalid;
-        return var->type;
+    if (init_value->value.type->id == TypeTableEntryIdInvalid) {
+        var->value.type = ira->codegen->builtin_types.entry_invalid;
+        return var->value.type;
     }
 
     AstNodeVariableDeclaration *variable_declaration = &var->decl_node->data.variable_declaration;
@@ -6148,15 +6192,15 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         TypeTableEntry *proposed_type = ir_resolve_type(ira, var_type);
         explicit_type = validate_var_type(ira->codegen, var_type->source_node, proposed_type);
         if (explicit_type->id == TypeTableEntryIdInvalid) {
-            var->type = ira->codegen->builtin_types.entry_invalid;
-            return var->type;
+            var->value.type = ira->codegen->builtin_types.entry_invalid;
+            return var->value.type;
         }
     }
 
     AstNode *source_node = decl_var_instruction->base.source_node;
 
     IrInstruction *casted_init_value = ir_implicit_cast(ira, init_value, explicit_type);
-    TypeTableEntry *result_type = get_underlying_type(casted_init_value->type_entry);
+    TypeTableEntry *result_type = get_underlying_type(casted_init_value->value.type);
     switch (result_type->id) {
         case TypeTableEntryIdTypeDecl:
             zig_unreachable();
@@ -6165,7 +6209,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
             break;
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
-            if (is_export || is_extern || casted_init_value->static_value.special == ConstValSpecialRuntime) {
+            if (is_export || is_extern || casted_init_value->value.special == ConstValSpecialRuntime) {
                 ir_add_error_node(ira, source_node, buf_sprintf("unable to infer variable type"));
                 result_type = ira->codegen->builtin_types.entry_invalid;
             }
@@ -6180,7 +6224,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
             break;
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdNamespace:
-            if (casted_init_value->static_value.special == ConstValSpecialRuntime) {
+            if (casted_init_value->value.special == ConstValSpecialRuntime) {
                 ir_add_error_node(ira, source_node,
                     buf_sprintf("variable of type '%s' must be constant", buf_ptr(&result_type->name)));
                 result_type = ira->codegen->builtin_types.entry_invalid;
@@ -6206,16 +6250,16 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
             break;
     }
 
-    var->type = result_type;
-    assert(var->type);
+    var->value.type = result_type;
+    assert(var->value.type);
 
     bool is_comptime = ir_get_var_is_comptime(var);
 
-    if (casted_init_value->static_value.special != ConstValSpecialRuntime) {
+    if (casted_init_value->value.special != ConstValSpecialRuntime) {
         if (var->mem_slot_index != SIZE_MAX) {
             assert(var->mem_slot_index < ira->exec_context.mem_slot_count);
             ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
-            *mem_slot = casted_init_value->static_value;
+            *mem_slot = casted_init_value->value;
 
             if (is_comptime) {
                 ir_build_const_from(ira, &decl_var_instruction->base, false);
@@ -6225,7 +6269,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     } else if (is_comptime) {
         ir_add_error(ira, &decl_var_instruction->base,
                 buf_sprintf("cannot store runtime value in compile time variable"));
-        var->type = ira->codegen->builtin_types.entry_invalid;
+        var->value.type = ira->codegen->builtin_types.entry_invalid;
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -6249,7 +6293,7 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
         return false;
 
     IrInstruction *casted_arg = ir_implicit_cast(ira, arg, param_type);
-    if (casted_arg->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_arg->value.type->id == TypeTableEntryIdInvalid)
         return false;
 
     ConstExprValue *first_arg_val = ir_resolve_const(ira, casted_arg, UndefBad);
@@ -6258,7 +6302,7 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
 
     Buf *param_name = param_decl_node->data.param_decl.name;
     VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
-        *exec_scope, param_name, casted_arg->type_entry, true, first_arg_val);
+        *exec_scope, param_name, true, first_arg_val);
     *exec_scope = var->child_scope;
     *next_proto_i += 1;
 
@@ -6278,7 +6322,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         return false;
 
     IrInstruction *casted_arg = ir_implicit_cast(ira, arg, param_type);
-    if (casted_arg->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_arg->value.type->id == TypeTableEntryIdInvalid)
         return false;
 
     bool inline_arg = param_decl_node->data.param_decl.is_inline;
@@ -6294,24 +6338,22 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         // needs to know that it depends on compile time variable data.
         arg_val->depends_on_compile_var = true;
     } else {
-        arg_val = nullptr;
+        arg_val = create_const_runtime(casted_arg->value.type);
     }
 
     Buf *param_name = param_decl_node->data.param_decl.name;
     VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
-        *child_scope, param_name, casted_arg->type_entry, true, arg_val);
+        *child_scope, param_name, true, arg_val);
     *child_scope = var->child_scope;
 
     if (inline_arg || is_var_type) {
-        GenericParamValue *generic_param = &generic_id->params[generic_id->param_count];
-        generic_param->type = casted_arg->type_entry;
-        generic_param->value = arg_val;
+        generic_id->params[generic_id->param_count] = *arg_val;
         generic_id->param_count += 1;
     }
     if (!inline_arg) {
-        if (type_requires_comptime(var->type)) {
+        if (type_requires_comptime(var->value.type)) {
             ir_add_error(ira, arg,
-                buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&var->type->name)));
+                buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&var->value.type->name)));
             return false;
         }
 
@@ -6319,7 +6361,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
 
         casted_args[fn_type_id->param_count] = casted_arg;
         FnTypeParamInfo *param_info = &fn_type_id->param_info[fn_type_id->param_count];
-        param_info->type = casted_arg->type_entry;
+        param_info->type = casted_arg->value.type;
         param_info->is_noalias = param_decl_node->data.param_decl.is_noalias;
         impl_fn->param_source_nodes[fn_type_id->param_count] = param_decl_node;
         fn_type_id->param_count += 1;
@@ -6376,7 +6418,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         size_t next_proto_i = 0;
         if (first_arg_ptr) {
             IrInstruction *first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
-            if (first_arg->type_entry->id == TypeTableEntryIdInvalid)
+            if (first_arg->value.type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
             if (!ir_analyze_fn_call_inline_arg(ira, fn_proto_node, first_arg, &exec_scope, &next_proto_i))
@@ -6385,7 +6427,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
             IrInstruction *old_arg = call_instruction->args[call_i]->other;
-            if (old_arg->type_entry->id == TypeTableEntryIdInvalid)
+            if (old_arg->value.type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
             if (!ir_analyze_fn_call_inline_arg(ira, fn_proto_node, old_arg, &exec_scope, &next_proto_i))
@@ -6408,15 +6450,15 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
                 ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry,
                 nullptr, call_instruction->base.source_node, nullptr, ira->new_irb.exec);
-            if (result->type_entry->id == TypeTableEntryIdInvalid)
+            if (result->value.type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
             ira->codegen->memoized_fn_eval_table.put(exec_scope, result);
         }
 
         ConstExprValue *out_val = ir_build_const_from(ira, &call_instruction->base,
-                result->static_value.depends_on_compile_var);
-        *out_val = result->static_value;
+                result->value.depends_on_compile_var);
+        *out_val = result->value;
         return ir_finish_anal(ira, return_type);
     }
 
@@ -6441,12 +6483,12 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         GenericFnTypeId *generic_id = allocate<GenericFnTypeId>(1);
         generic_id->fn_entry = fn_entry;
         generic_id->param_count = 0;
-        generic_id->params = allocate<GenericParamValue>(src_param_count);
+        generic_id->params = allocate<ConstExprValue>(src_param_count);
         size_t next_proto_i = 0;
 
         if (first_arg_ptr) {
             IrInstruction *first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
-            if (first_arg->type_entry->id == TypeTableEntryIdInvalid)
+            if (first_arg->value.type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
             if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, first_arg, &impl_fn->child_scope,
@@ -6457,7 +6499,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         }
         for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
             IrInstruction *arg = call_instruction->args[call_i]->other;
-            if (arg->type_entry->id == TypeTableEntryIdInvalid)
+            if (arg->value.type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
             if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg, &impl_fn->child_scope,
@@ -6513,7 +6555,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     size_t next_arg_index = 0;
     if (first_arg_ptr) {
         IrInstruction *first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
-        if (first_arg->type_entry->id == TypeTableEntryIdInvalid)
+        if (first_arg->value.type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
         TypeTableEntry *param_type = fn_type_id->param_info[next_arg_index].type;
@@ -6521,7 +6563,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             return ira->codegen->builtin_types.entry_invalid;
 
         IrInstruction *casted_arg = ir_implicit_cast(ira, first_arg, param_type);
-        if (casted_arg->type_entry->id == TypeTableEntryIdInvalid)
+        if (casted_arg->value.type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
         casted_args[next_arg_index] = casted_arg;
@@ -6529,7 +6571,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     }
     for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
         IrInstruction *old_arg = call_instruction->args[call_i]->other;
-        if (old_arg->type_entry->id == TypeTableEntryIdInvalid)
+        if (old_arg->value.type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
         IrInstruction *casted_arg;
         if (next_arg_index < src_param_count) {
@@ -6537,7 +6579,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             if (param_type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
             casted_arg = ir_implicit_cast(ira, old_arg, param_type);
-            if (casted_arg->type_entry->id == TypeTableEntryIdInvalid)
+            if (casted_arg->value.type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
         } else {
             casted_arg = old_arg;
@@ -6562,13 +6604,13 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
 static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstructionCall *call_instruction) {
     IrInstruction *fn_ref = call_instruction->fn_ref->other;
-    if (fn_ref->type_entry->id == TypeTableEntryIdInvalid)
+    if (fn_ref->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     bool is_inline = call_instruction->is_inline || ir_should_inline(&ira->new_irb);
 
-    if (is_inline || fn_ref->static_value.special != ConstValSpecialRuntime) {
-        if (fn_ref->type_entry->id == TypeTableEntryIdMetaType) {
+    if (is_inline || fn_ref->value.special != ConstValSpecialRuntime) {
+        if (fn_ref->value.type->id == TypeTableEntryIdMetaType) {
             TypeTableEntry *dest_type = ir_resolve_type(ira, fn_ref);
             if (dest_type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
@@ -6584,34 +6626,34 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
             IrInstruction *arg = call_instruction->args[0]->other;
 
             IrInstruction *cast_instruction = ir_analyze_cast(ira, &call_instruction->base, dest_type, arg);
-            if (cast_instruction->type_entry->id == TypeTableEntryIdInvalid)
+            if (cast_instruction->value.type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
             ir_link_new_instruction(cast_instruction, &call_instruction->base);
-            return ir_finish_anal(ira, cast_instruction->type_entry);
-        } else if (fn_ref->type_entry->id == TypeTableEntryIdFn) {
+            return ir_finish_anal(ira, cast_instruction->value.type);
+        } else if (fn_ref->value.type->id == TypeTableEntryIdFn) {
             FnTableEntry *fn_table_entry = ir_resolve_fn(ira, fn_ref);
             return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_table_entry->type_entry,
                 fn_ref, nullptr, is_inline);
-        } else if (fn_ref->type_entry->id == TypeTableEntryIdBoundFn) {
-            assert(fn_ref->static_value.special == ConstValSpecialStatic);
-            FnTableEntry *fn_table_entry = fn_ref->static_value.data.x_bound_fn.fn;
-            IrInstruction *first_arg_ptr = fn_ref->static_value.data.x_bound_fn.first_arg;
+        } else if (fn_ref->value.type->id == TypeTableEntryIdBoundFn) {
+            assert(fn_ref->value.special == ConstValSpecialStatic);
+            FnTableEntry *fn_table_entry = fn_ref->value.data.x_bound_fn.fn;
+            IrInstruction *first_arg_ptr = fn_ref->value.data.x_bound_fn.first_arg;
             return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_table_entry->type_entry,
                 nullptr, first_arg_ptr, is_inline);
         } else {
             ir_add_error_node(ira, fn_ref->source_node,
-                buf_sprintf("type '%s' not a function", buf_ptr(&fn_ref->type_entry->name)));
+                buf_sprintf("type '%s' not a function", buf_ptr(&fn_ref->value.type->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
     }
 
-    if (fn_ref->type_entry->id == TypeTableEntryIdFn) {
-        return ir_analyze_fn_call(ira, call_instruction, nullptr, fn_ref->type_entry,
+    if (fn_ref->value.type->id == TypeTableEntryIdFn) {
+        return ir_analyze_fn_call(ira, call_instruction, nullptr, fn_ref->value.type,
             fn_ref, nullptr, false);
     } else {
         ir_add_error_node(ira, fn_ref->source_node,
-            buf_sprintf("type '%s' not a function", buf_ptr(&fn_ref->type_entry->name)));
+            buf_sprintf("type '%s' not a function", buf_ptr(&fn_ref->value.type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 }
@@ -6619,10 +6661,6 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
 static TypeTableEntry *ir_analyze_unary_prefix_op_err(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
     assert(un_op_instruction->op_id == IrUnOpError);
     IrInstruction *value = un_op_instruction->value->other;
-
-    TypeTableEntry *type_entry = value->type_entry;
-    if (type_entry->id == TypeTableEntryIdInvalid)
-        return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *meta_type = ir_resolve_type(ira, value);
     TypeTableEntry *underlying_meta_type = get_underlying_type(meta_type);
@@ -6648,7 +6686,7 @@ static TypeTableEntry *ir_analyze_unary_prefix_op_err(IrAnalyze *ira, IrInstruct
         case TypeTableEntryIdEnumTag:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base,
-                        value->static_value.depends_on_compile_var);
+                        value->value.depends_on_compile_var);
                 TypeTableEntry *result_type = get_error_type(ira->codegen, meta_type);
                 out_val->data.x_type = result_type;
                 return ira->codegen->builtin_types.entry_type;
@@ -6674,7 +6712,7 @@ static TypeTableEntry *ir_analyze_unary_prefix_op_err(IrAnalyze *ira, IrInstruct
 static TypeTableEntry *ir_analyze_dereference(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
     IrInstruction *value = un_op_instruction->value->other;
 
-    TypeTableEntry *ptr_type = value->type_entry;
+    TypeTableEntry *ptr_type = value->value.type;
     TypeTableEntry *child_type;
     if (ptr_type->id == TypeTableEntryIdInvalid) {
         return ira->codegen->builtin_types.entry_invalid;
@@ -6690,9 +6728,9 @@ static TypeTableEntry *ir_analyze_dereference(IrAnalyze *ira, IrInstructionUnOp 
     // this dereference is always an rvalue because in the IR gen we identify lvalue and emit
     // one of the ptr instructions
 
-    if (value->static_value.special != ConstValSpecialRuntime) {
+    if (value->value.special != ConstValSpecialRuntime) {
         ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base, false);
-        ConstExprValue *pointee = const_ptr_pointee(&value->static_value);
+        ConstExprValue *pointee = const_ptr_pointee(&value->value);
         *out_val = *pointee;
         return child_type;
     }
@@ -6735,7 +6773,7 @@ static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op
         case TypeTableEntryIdEnumTag:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base,
-                        value->static_value.depends_on_compile_var);
+                        value->value.depends_on_compile_var);
                 out_val->data.x_type = get_maybe_type(ira->codegen, type_entry);
                 return ira->codegen->builtin_types.entry_type;
             }
@@ -6750,7 +6788,7 @@ static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op
 
 static TypeTableEntry *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
     IrInstruction *value = un_op_instruction->value->other;
-    TypeTableEntry *expr_type = value->type_entry;
+    TypeTableEntry *expr_type = value->value.type;
     if (expr_type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -6765,7 +6803,7 @@ static TypeTableEntry *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *un
             if (!target_const_val)
                 return ira->codegen->builtin_types.entry_invalid;
 
-            bool depends_on_compile_var = value->static_value.depends_on_compile_var;
+            bool depends_on_compile_var = value->value.depends_on_compile_var;
             ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base, depends_on_compile_var);
             bignum_negate(&out_val->data.x_bignum, &target_const_val->data.x_bignum);
             if (expr_type->id == TypeTableEntryIdFloat ||
@@ -6846,7 +6884,7 @@ static TypeTableEntry *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr
 
 static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstructionCondBr *cond_br_instruction) {
     IrInstruction *condition = cond_br_instruction->condition->other;
-    if (condition->type_entry->id == TypeTableEntryIdInvalid)
+    if (condition->value.type->id == TypeTableEntryIdInvalid)
         return ir_unreach_error(ira);
 
     bool is_comptime;
@@ -6891,18 +6929,18 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
             if (predecessor != ira->const_predecessor_bb)
                 continue;
             IrInstruction *value = phi_instruction->incoming_values[i]->other;
-            assert(value->type_entry);
-            if (value->type_entry->id == TypeTableEntryIdInvalid)
+            assert(value->value.type);
+            if (value->value.type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
-            if (value->static_value.special != ConstValSpecialRuntime) {
+            if (value->value.special != ConstValSpecialRuntime) {
                 ConstExprValue *out_val = ir_build_const_from(ira, &phi_instruction->base,
-                        value->static_value.depends_on_compile_var);
-                *out_val = value->static_value;
+                        value->value.depends_on_compile_var);
+                *out_val = value->value;
             } else {
                 phi_instruction->base.other = value;
             }
-            return value->type_entry;
+            return value->value.type;
         }
         zig_unreachable();
     }
@@ -6919,10 +6957,10 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
         IrInstruction *old_value = phi_instruction->incoming_values[i];
         assert(old_value);
         IrInstruction *new_value = old_value->other;
-        if (!new_value || new_value->type_entry->id == TypeTableEntryIdUnreachable)
+        if (!new_value || new_value->value.type->id == TypeTableEntryIdUnreachable)
             continue;
 
-        if (new_value->type_entry->id == TypeTableEntryIdInvalid)
+        if (new_value->value.type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
 
@@ -6935,7 +6973,7 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
     if (new_incoming_blocks.length == 1) {
         IrInstruction *first_value = new_incoming_values.at(0);
         phi_instruction->base.other = first_value;
-        return first_value->type_entry;
+        return first_value->value.type;
     }
 
     TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, phi_instruction->base.source_node,
@@ -6973,16 +7011,16 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
 }
 
 static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruction, VariableTableEntry *var) {
-    assert(var->type);
-    if (var->type->id == TypeTableEntryIdInvalid)
-        return var->type;
+    assert(var->value.type);
+    if (var->value.type->id == TypeTableEntryIdInvalid)
+        return var->value.type;
 
     bool is_comptime = ir_get_var_is_comptime(var);
 
     ConstExprValue *mem_slot = nullptr;
     FnTableEntry *fn_entry = scope_fn_entry(var->parent_scope);
-    if (var->src_is_const && var->value) {
-        mem_slot = var->value;
+    if (var->src_is_const && var->value.special == ConstValSpecialStatic) {
+        mem_slot = &var->value;
         assert(mem_slot->special != ConstValSpecialRuntime);
     } else if (fn_entry) {
         // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
@@ -6992,10 +7030,10 @@ static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruc
 
     if (mem_slot && mem_slot->special != ConstValSpecialRuntime) {
         ConstPtrSpecial ptr_special = is_comptime ? ConstPtrSpecialInline : ConstPtrSpecialNone;
-        return ir_analyze_const_ptr(ira, instruction, mem_slot, var->type, false, ptr_special, var->src_is_const);
+        return ir_analyze_const_ptr(ira, instruction, mem_slot, var->value.type, false, ptr_special, var->src_is_const);
     } else {
         ir_build_var_ptr_from(&ira->new_irb, instruction, var);
-        return get_pointer_to_type(ira->codegen, var->type, var->src_is_const);
+        return get_pointer_to_type(ira->codegen, var->value.type, var->src_is_const);
     }
 }
 
@@ -7006,15 +7044,15 @@ static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstruct
 
 static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionElemPtr *elem_ptr_instruction) {
     IrInstruction *array_ptr = elem_ptr_instruction->array_ptr->other;
-    if (array_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (array_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *elem_index = elem_ptr_instruction->elem_index->other;
-    if (elem_index->type_entry->id == TypeTableEntryIdInvalid)
+    if (elem_index->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     // This will be a pointer type because elem ptr IR instruction operates on a pointer to a thing.
-    TypeTableEntry *ptr_type = array_ptr->type_entry;
+    TypeTableEntry *ptr_type = array_ptr->value.type;
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
     TypeTableEntry *array_type = ptr_type->data.pointer.child_type;
@@ -7045,8 +7083,8 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
 
     bool safety_check_on = elem_ptr_instruction->safety_check_on;
-    if (casted_elem_index->static_value.special != ConstValSpecialRuntime) {
-        uint64_t index = casted_elem_index->static_value.data.x_bignum.data.x_uint;
+    if (casted_elem_index->value.special != ConstValSpecialRuntime) {
+        uint64_t index = casted_elem_index->value.data.x_bignum.data.x_uint;
         if (array_type->id == TypeTableEntryIdArray) {
             uint64_t array_len = array_type->data.array.len;
             if (index >= array_len) {
@@ -7059,12 +7097,12 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         }
 
         ConstExprValue *array_ptr_val;
-        if (array_ptr->static_value.special != ConstValSpecialRuntime &&
-            (array_ptr_val = const_ptr_pointee(&array_ptr->static_value)) &&
+        if (array_ptr->value.special != ConstValSpecialRuntime &&
+            (array_ptr_val = const_ptr_pointee(&array_ptr->value)) &&
             array_ptr_val->special != ConstValSpecialRuntime)
         {
             bool depends_on_compile_var = array_ptr_val->depends_on_compile_var ||
-                casted_elem_index->static_value.depends_on_compile_var;
+                casted_elem_index->value.depends_on_compile_var;
             ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base, depends_on_compile_var);
             if (array_type->id == TypeTableEntryIdPointer) {
                 size_t offset = array_ptr_val->data.x_ptr.index;
@@ -7136,7 +7174,7 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
                 return ira->codegen->builtin_types.entry_invalid;
             TldFn *tld_fn = (TldFn *)tld;
             FnTableEntry *fn_entry = tld_fn->fn_entry;
-            bool depends_on_compile_var = container_ptr->static_value.depends_on_compile_var;
+            bool depends_on_compile_var = container_ptr->value.depends_on_compile_var;
             IrInstruction *bound_fn_value = ir_build_const_bound_fn(&ira->new_irb, field_ptr_instruction->base.scope,
                 field_ptr_instruction->base.source_node, fn_entry, container_ptr, depends_on_compile_var);
             return ir_analyze_ref(ira, &field_ptr_instruction->base, bound_fn_value, true);
@@ -7206,6 +7244,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             // the same one every time
             ConstExprValue *const_val = allocate<ConstExprValue>(1);
             const_val->special = ConstValSpecialStatic;
+            const_val->type = fn_entry->type_entry;
             const_val->data.x_fn = fn_entry;
 
             bool ptr_is_const = true;
@@ -7221,6 +7260,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             // the same one every time
             ConstExprValue *const_val = allocate<ConstExprValue>(1);
             const_val->special = ConstValSpecialStatic;
+            const_val->type = ira->codegen->builtin_types.entry_type;
             const_val->data.x_type = tld_typedef->type_entry;
 
             bool ptr_is_const = true;
@@ -7233,26 +7273,26 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
 
 static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstructionFieldPtr *field_ptr_instruction) {
     IrInstruction *container_ptr = field_ptr_instruction->container_ptr->other;
-    if (container_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (container_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *container_type;
-    if (container_ptr->type_entry->id == TypeTableEntryIdPointer) {
-        container_type = container_ptr->type_entry->data.pointer.child_type;
-    } else if (container_ptr->type_entry->id == TypeTableEntryIdMetaType) {
-        container_type = container_ptr->type_entry;
+    if (container_ptr->value.type->id == TypeTableEntryIdPointer) {
+        container_type = container_ptr->value.type->data.pointer.child_type;
+    } else if (container_ptr->value.type->id == TypeTableEntryIdMetaType) {
+        container_type = container_ptr->value.type;
     } else {
         zig_unreachable();
     }
 
-    bool depends_on_compile_var = container_ptr->static_value.depends_on_compile_var;
+    bool depends_on_compile_var = container_ptr->value.depends_on_compile_var;
     Buf *field_name = field_ptr_instruction->field_name;
     AstNode *source_node = field_ptr_instruction->base.source_node;
 
     if (container_type->id == TypeTableEntryIdInvalid) {
         return container_type;
     } else if (is_container_ref(container_type)) {
-        assert(container_ptr->type_entry->id == TypeTableEntryIdPointer);
+        assert(container_ptr->value.type->id == TypeTableEntryIdPointer);
         if (container_type->id == TypeTableEntryIdPointer) {
             TypeTableEntry *bare_type = container_ref_type(container_type);
             IrInstruction *container_child = ir_get_deref(ira, &field_ptr_instruction->base, container_ptr);
@@ -7263,8 +7303,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
     } else if (container_type->id == TypeTableEntryIdArray) {
         if (buf_eql_str(field_name, "len")) {
             ConstExprValue *len_val = allocate<ConstExprValue>(1);
-            len_val->special = ConstValSpecialStatic;
-            bignum_init_unsigned(&len_val->data.x_bignum, container_type->data.array.len);
+            init_const_usize(ira->codegen, len_val, container_type->data.array.len);
 
             TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
             bool ptr_is_const = true;
@@ -7282,11 +7321,11 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             return ira->codegen->builtin_types.entry_invalid;
 
         TypeTableEntry *child_type;
-        if (container_ptr->type_entry->id == TypeTableEntryIdMetaType) {
+        if (container_ptr->value.type->id == TypeTableEntryIdMetaType) {
             TypeTableEntry *ptr_type = container_ptr_val->data.x_type;
             assert(ptr_type->id == TypeTableEntryIdPointer);
             child_type = ptr_type->data.pointer.child_type;
-        } else if (container_ptr->type_entry->id == TypeTableEntryIdPointer) {
+        } else if (container_ptr->value.type->id == TypeTableEntryIdPointer) {
             ConstExprValue *child_val = const_ptr_pointee(container_ptr_val);
             child_type = child_val->data.x_type;
         } else {
@@ -7303,14 +7342,14 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                     if (field->type_entry->id == TypeTableEntryIdVoid) {
                         bool ptr_is_const = true;
                         return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
-                                create_const_enum_tag(field->value), child_type, depends_on_compile_var,
+                                create_const_enum_tag(child_type, field->value), child_type, depends_on_compile_var,
                                 ConstPtrSpecialNone, ptr_is_const);
                     } else {
                         bool ptr_is_const = true;
                         return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
-                                create_const_unsigned_negative(field->value, false),
-                                child_type->data.enumeration.tag_type, depends_on_compile_var,
-                                ConstPtrSpecialNone, ptr_is_const);
+                            create_const_unsigned_negative(child_type->data.enumeration.tag_type, field->value, false),
+                            child_type->data.enumeration.tag_type, depends_on_compile_var,
+                            ConstPtrSpecialNone, ptr_is_const);
                     }
                 }
             }
@@ -7329,6 +7368,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             if (err_table_entry) {
                 ConstExprValue *const_val = allocate<ConstExprValue>(1);
                 const_val->special = ConstValSpecialStatic;
+                const_val->type = child_type;
                 const_val->data.x_pure_err = err_table_entry->value;
 
                 bool ptr_is_const = true;
@@ -7343,13 +7383,14 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             if (buf_eql_str(field_name, "bit_count")) {
                 bool ptr_is_const = true;
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
-                    create_const_unsigned_negative(child_type->data.integral.bit_count, false),
+                    create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
+                        child_type->data.integral.bit_count, false),
                     ira->codegen->builtin_types.entry_num_lit_int, depends_on_compile_var,
                     ConstPtrSpecialNone, ptr_is_const);
             } else if (buf_eql_str(field_name, "is_signed")) {
                 bool ptr_is_const = true;
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
-                    create_const_bool(child_type->data.integral.is_signed),
+                    create_const_bool(ira->codegen, child_type->data.integral.is_signed),
                     ira->codegen->builtin_types.entry_bool, depends_on_compile_var,
                     ConstPtrSpecialNone, ptr_is_const);
             } else {
@@ -7364,7 +7405,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             return ira->codegen->builtin_types.entry_invalid;
         }
     } else if (container_type->id == TypeTableEntryIdNamespace) {
-        assert(container_ptr->type_entry->id == TypeTableEntryIdPointer);
+        assert(container_ptr->value.type->id == TypeTableEntryIdPointer);
         ConstExprValue *container_ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
         if (!container_ptr_val)
             return ira->codegen->builtin_types.entry_invalid;
@@ -7414,30 +7455,30 @@ static TypeTableEntry *ir_analyze_instruction_load_ptr(IrAnalyze *ira, IrInstruc
     IrInstruction *ptr = load_ptr_instruction->ptr->other;
     IrInstruction *result = ir_get_deref(ira, &load_ptr_instruction->base, ptr);
     ir_link_new_instruction(result, &load_ptr_instruction->base);
-    assert(result->type_entry);
-    return result->type_entry;
+    assert(result->value.type);
+    return result->value.type;
 }
 
 static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstructionStorePtr *store_ptr_instruction) {
     IrInstruction *ptr = store_ptr_instruction->ptr->other;
-    if (ptr->type_entry->id == TypeTableEntryIdInvalid)
-        return ptr->type_entry;
+    if (ptr->value.type->id == TypeTableEntryIdInvalid)
+        return ptr->value.type;
 
     IrInstruction *value = store_ptr_instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
-        return value->type_entry;
+    if (value->value.type->id == TypeTableEntryIdInvalid)
+        return value->value.type;
 
-    TypeTableEntry *child_type = ptr->type_entry->data.pointer.child_type;
+    TypeTableEntry *child_type = ptr->value.type->data.pointer.child_type;
     IrInstruction *casted_value = ir_implicit_cast(ira, value, child_type);
     if (casted_value == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (ptr->static_value.special != ConstValSpecialRuntime) {
-        bool is_inline = (ptr->static_value.data.x_ptr.special == ConstPtrSpecialInline);
-        if (casted_value->static_value.special != ConstValSpecialRuntime) {
-            ConstExprValue *dest_val = const_ptr_pointee(&ptr->static_value);
+    if (ptr->value.special != ConstValSpecialRuntime) {
+        bool is_inline = (ptr->value.data.x_ptr.special == ConstPtrSpecialInline);
+        if (casted_value->value.special != ConstValSpecialRuntime) {
+            ConstExprValue *dest_val = const_ptr_pointee(&ptr->value);
             if (dest_val->special != ConstValSpecialRuntime) {
-                *dest_val = casted_value->static_value;
+                *dest_val = casted_value->value;
                 return ir_analyze_void(ira, &store_ptr_instruction->base);
             }
         }
@@ -7448,11 +7489,11 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
         }
     }
 
-    if (ptr->static_value.special != ConstValSpecialRuntime) {
+    if (ptr->value.special != ConstValSpecialRuntime) {
         // This memory location is transforming from known at compile time to known at runtime.
         // We must emit our own var ptr instruction.
         // TODO can we delete this code now that we have inline var?
-        ptr->static_value.special = ConstValSpecialRuntime;
+        ptr->value.special = ConstValSpecialRuntime;
         IrInstruction *new_ptr_inst;
         if (ptr->id == IrInstructionIdVarPtr) {
             IrInstructionVarPtr *var_ptr_inst = (IrInstructionVarPtr *)ptr;
@@ -7469,7 +7510,7 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
         } else {
             zig_unreachable();
         }
-        new_ptr_inst->type_entry = ptr->type_entry;
+        new_ptr_inst->value.type = ptr->value.type;
         ir_build_store_ptr(&ira->new_irb, store_ptr_instruction->base.scope,
             store_ptr_instruction->base.source_node, new_ptr_inst, casted_value);
         return ir_analyze_void(ira, &store_ptr_instruction->base);
@@ -7481,7 +7522,7 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
 
 static TypeTableEntry *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructionTypeOf *typeof_instruction) {
     IrInstruction *expr_value = typeof_instruction->value->other;
-    TypeTableEntry *type_entry = expr_value->type_entry;
+    TypeTableEntry *type_entry = expr_value->value.type;
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
             return type_entry;
@@ -7547,7 +7588,7 @@ static TypeTableEntry *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
     }
 
     ConstExprValue *out_val = ir_build_const_from(ira, &to_ptr_type_instruction->base,
-            type_value->static_value.depends_on_compile_var);
+            type_value->value.depends_on_compile_var);
     out_val->data.x_type = ptr_type;
     return ira->codegen->builtin_types.entry_type;
 }
@@ -7568,7 +7609,7 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type_child(IrAnalyze *ira,
     }
 
     ConstExprValue *out_val = ir_build_const_from(ira, &ptr_type_child_instruction->base,
-            type_value->static_value.depends_on_compile_var);
+            type_value->value.depends_on_compile_var);
     out_val->data.x_type = type_entry->data.pointer.child_type;
     return ira->codegen->builtin_types.entry_type;
 }
@@ -7631,7 +7672,7 @@ static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
         IrInstructionSetDebugSafety *set_debug_safety_instruction)
 {
     IrInstruction *target_instruction = set_debug_safety_instruction->scope_value->other;
-    TypeTableEntry *target_type = target_instruction->type_entry;
+    TypeTableEntry *target_type = target_instruction->value.type;
     if (target_type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
     ConstExprValue *target_val = ir_resolve_const(ira, target_instruction, UndefBad);
@@ -7694,7 +7735,7 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         IrInstructionSliceType *slice_type_instruction)
 {
     IrInstruction *child_type = slice_type_instruction->child_type->other;
-    if (child_type->type_entry->id == TypeTableEntryIdInvalid)
+    if (child_type->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
     bool is_const = slice_type_instruction->is_const;
 
@@ -7736,7 +7777,7 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
             {
                 TypeTableEntry *result_type = get_slice_type(ira->codegen, resolved_child_type, is_const);
                 ConstExprValue *out_val = ir_build_const_from(ira, &slice_type_instruction->base,
-                        child_type->static_value.depends_on_compile_var);
+                        child_type->value.depends_on_compile_var);
                 out_val->data.x_type = result_type;
                 return ira->codegen->builtin_types.entry_type;
             }
@@ -7770,7 +7811,7 @@ static TypeTableEntry *ir_analyze_instruction_asm(IrAnalyze *ira, IrInstructionA
 
     for (size_t i = 0; i < asm_expr->input_list.length; i += 1) {
         input_list[i] = asm_instruction->input_list[i]->other;
-        if (input_list[i]->type_entry->id == TypeTableEntryIdInvalid)
+        if (input_list[i]->value.type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -7825,8 +7866,8 @@ static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case TypeTableEntryIdEnumTag:
             {
                 TypeTableEntry *result_type = get_array_type(ira->codegen, child_type, size);
-                bool depends_on_compile_var = child_type_value->static_value.depends_on_compile_var ||
-                    size_value->static_value.depends_on_compile_var;
+                bool depends_on_compile_var = child_type_value->value.depends_on_compile_var ||
+                    size_value->value.depends_on_compile_var;
                 ConstExprValue *out_val = ir_build_const_from(ira, &array_type_instruction->base,
                         depends_on_compile_var);
                 out_val->data.x_type = result_type;
@@ -7927,10 +7968,10 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
 
 static TypeTableEntry *ir_analyze_instruction_test_non_null(IrAnalyze *ira, IrInstructionTestNonNull *instruction) {
     IrInstruction *value = instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *type_entry = value->type_entry;
+    TypeTableEntry *type_entry = value->value.type;
 
     if (type_entry->id == TypeTableEntryIdMaybe) {
         if (instr_is_comptime(value)) {
@@ -7961,11 +8002,11 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
         IrInstructionUnwrapMaybe *unwrap_maybe_instruction)
 {
     IrInstruction *value = unwrap_maybe_instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     // This will be a pointer type because test null IR instruction operates on a pointer to a thing.
-    TypeTableEntry *ptr_type = value->type_entry;
+    TypeTableEntry *ptr_type = value->value.type;
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
     TypeTableEntry *type_entry = ptr_type->data.pointer.child_type;
@@ -8008,59 +8049,59 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
 
 static TypeTableEntry *ir_analyze_instruction_ctz(IrAnalyze *ira, IrInstructionCtz *ctz_instruction) {
     IrInstruction *value = ctz_instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid) {
+    if (value->value.type->id == TypeTableEntryIdInvalid) {
         return ira->codegen->builtin_types.entry_invalid;
-    } else if (value->type_entry->id == TypeTableEntryIdInt) {
-        if (value->static_value.special != ConstValSpecialRuntime) {
-            uint32_t result = bignum_ctz(&value->static_value.data.x_bignum,
-                    value->type_entry->data.integral.bit_count);
-            bool depends_on_compile_var = value->static_value.depends_on_compile_var;
+    } else if (value->value.type->id == TypeTableEntryIdInt) {
+        if (value->value.special != ConstValSpecialRuntime) {
+            uint32_t result = bignum_ctz(&value->value.data.x_bignum,
+                    value->value.type->data.integral.bit_count);
+            bool depends_on_compile_var = value->value.depends_on_compile_var;
             ConstExprValue *out_val = ir_build_const_from(ira, &ctz_instruction->base,
                     depends_on_compile_var);
             bignum_init_unsigned(&out_val->data.x_bignum, result);
-            return value->type_entry;
+            return value->value.type;
         }
 
         ir_build_ctz_from(&ira->new_irb, &ctz_instruction->base, value);
-        return value->type_entry;
+        return value->value.type;
     } else {
         ir_add_error_node(ira, ctz_instruction->base.source_node,
-            buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->type_entry->name)));
+            buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->value.type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 }
 
 static TypeTableEntry *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionClz *clz_instruction) {
     IrInstruction *value = clz_instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid) {
+    if (value->value.type->id == TypeTableEntryIdInvalid) {
         return ira->codegen->builtin_types.entry_invalid;
-    } else if (value->type_entry->id == TypeTableEntryIdInt) {
-        if (value->static_value.special != ConstValSpecialRuntime) {
-            uint32_t result = bignum_clz(&value->static_value.data.x_bignum,
-                    value->type_entry->data.integral.bit_count);
-            bool depends_on_compile_var = value->static_value.depends_on_compile_var;
+    } else if (value->value.type->id == TypeTableEntryIdInt) {
+        if (value->value.special != ConstValSpecialRuntime) {
+            uint32_t result = bignum_clz(&value->value.data.x_bignum,
+                    value->value.type->data.integral.bit_count);
+            bool depends_on_compile_var = value->value.depends_on_compile_var;
             ConstExprValue *out_val = ir_build_const_from(ira, &clz_instruction->base,
                     depends_on_compile_var);
             bignum_init_unsigned(&out_val->data.x_bignum, result);
-            return value->type_entry;
+            return value->value.type;
         }
 
         ir_build_clz_from(&ira->new_irb, &clz_instruction->base, value);
-        return value->type_entry;
+        return value->value.type;
     } else {
         ir_add_error_node(ira, clz_instruction->base.source_node,
-            buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->type_entry->name)));
+            buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->value.type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 }
 
 static IrInstruction *ir_analyze_enum_tag(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value) {
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->invalid_instruction;
 
-    if (value->type_entry->id != TypeTableEntryIdEnum) {
+    if (value->value.type->id != TypeTableEntryIdEnum) {
         ir_add_error(ira, source_instr,
-            buf_sprintf("expected enum type, found '%s'", buf_ptr(&value->type_entry->name)));
+            buf_sprintf("expected enum type, found '%s'", buf_ptr(&value->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
 
@@ -8071,10 +8112,10 @@ static IrInstruction *ir_analyze_enum_tag(IrAnalyze *ira, IrInstruction *source_
 
         IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
                 source_instr->scope, source_instr->source_node);
-        const_instruction->base.type_entry = value->type_entry->data.enumeration.tag_type;
-        const_instruction->base.static_value.special = ConstValSpecialStatic;
-        const_instruction->base.static_value.depends_on_compile_var = val->depends_on_compile_var;
-        bignum_init_unsigned(&const_instruction->base.static_value.data.x_bignum, val->data.x_enum.tag);
+        const_instruction->base.value.type = value->value.type->data.enumeration.tag_type;
+        const_instruction->base.value.special = ConstValSpecialStatic;
+        const_instruction->base.value.depends_on_compile_var = val->depends_on_compile_var;
+        bignum_init_unsigned(&const_instruction->base.value.data.x_bignum, val->data.x_enum.tag);
         return &const_instruction->base;
     }
 
@@ -8085,7 +8126,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         IrInstructionSwitchBr *switch_br_instruction)
 {
     IrInstruction *target_value = switch_br_instruction->target_value->other;
-    if (target_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (target_value->value.type->id == TypeTableEntryIdInvalid)
         return ir_unreach_error(ira);
 
     size_t case_count = switch_br_instruction->case_count;
@@ -8103,24 +8144,24 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         for (size_t i = 0; i < case_count; i += 1) {
             IrInstructionSwitchBrCase *old_case = &switch_br_instruction->cases[i];
             IrInstruction *case_value = old_case->value->other;
-            if (case_value->type_entry->id == TypeTableEntryIdInvalid)
+            if (case_value->value.type->id == TypeTableEntryIdInvalid)
                 return ir_unreach_error(ira);
 
-            if (case_value->type_entry->id == TypeTableEntryIdEnum) {
+            if (case_value->value.type->id == TypeTableEntryIdEnum) {
                 case_value = ir_analyze_enum_tag(ira, &switch_br_instruction->base, case_value);
-                if (case_value->type_entry->id == TypeTableEntryIdInvalid)
+                if (case_value->value.type->id == TypeTableEntryIdInvalid)
                     return ir_unreach_error(ira);
             }
 
-            IrInstruction *casted_case_value = ir_implicit_cast(ira, case_value, target_value->type_entry);
-            if (casted_case_value->type_entry->id == TypeTableEntryIdInvalid)
+            IrInstruction *casted_case_value = ir_implicit_cast(ira, case_value, target_value->value.type);
+            if (casted_case_value->value.type->id == TypeTableEntryIdInvalid)
                 return ir_unreach_error(ira);
 
             ConstExprValue *case_val = ir_resolve_const(ira, casted_case_value, UndefBad);
             if (!case_val)
                 return ir_unreach_error(ira);
 
-            if (const_values_equal(target_val, case_val, target_value->type_entry)) {
+            if (const_values_equal(target_val, case_val)) {
                 old_dest_block = old_case->block;
                 break;
             }
@@ -8144,17 +8185,17 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
 
         IrInstruction *old_value = old_case->value;
         IrInstruction *new_value = old_value->other;
-        if (new_value->type_entry->id == TypeTableEntryIdInvalid)
+        if (new_value->value.type->id == TypeTableEntryIdInvalid)
             continue;
 
-        if (new_value->type_entry->id == TypeTableEntryIdEnum) {
+        if (new_value->value.type->id == TypeTableEntryIdEnum) {
             new_value = ir_analyze_enum_tag(ira, &switch_br_instruction->base, new_value);
-            if (new_value->type_entry->id == TypeTableEntryIdInvalid)
+            if (new_value->value.type->id == TypeTableEntryIdInvalid)
                 continue;
         }
 
-        IrInstruction *casted_new_value = ir_implicit_cast(ira, new_value, target_value->type_entry);
-        if (casted_new_value->type_entry->id == TypeTableEntryIdInvalid)
+        IrInstruction *casted_new_value = ir_implicit_cast(ira, new_value, target_value->value.type);
+        if (casted_new_value->value.type->id == TypeTableEntryIdInvalid)
             continue;
 
         if (!ir_resolve_const(ira, casted_new_value, UndefBad))
@@ -8173,15 +8214,15 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         IrInstructionSwitchTarget *switch_target_instruction)
 {
     IrInstruction *target_value_ptr = switch_target_instruction->target_value_ptr->other;
-    if (target_value_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (target_value_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    assert(target_value_ptr->type_entry->id == TypeTableEntryIdPointer);
-    TypeTableEntry *target_type = target_value_ptr->type_entry->data.pointer.child_type;
-    bool depends_on_compile_var = target_value_ptr->static_value.depends_on_compile_var;
+    assert(target_value_ptr->value.type->id == TypeTableEntryIdPointer);
+    TypeTableEntry *target_type = target_value_ptr->value.type->data.pointer.child_type;
+    bool depends_on_compile_var = target_value_ptr->value.depends_on_compile_var;
     ConstExprValue *pointee_val = nullptr;
-    if (target_value_ptr->static_value.special != ConstValSpecialRuntime) {
-        pointee_val = const_ptr_pointee(&target_value_ptr->static_value);
+    if (target_value_ptr->value.special != ConstValSpecialRuntime) {
+        pointee_val = const_ptr_pointee(&target_value_ptr->value);
         if (pointee_val->special == ConstValSpecialRuntime)
             pointee_val = nullptr;
     }
@@ -8206,6 +8247,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base,
                         depends_on_compile_var);
                 *out_val = *pointee_val;
+                out_val->type = target_type;
                 return target_type;
             }
 
@@ -8223,7 +8265,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
 
                 IrInstruction *enum_value = ir_build_load_ptr(&ira->new_irb, switch_target_instruction->base.scope,
                     switch_target_instruction->base.source_node, target_value_ptr);
-                enum_value->type_entry = target_type;
+                enum_value->value.type = target_type;
                 ir_build_enum_tag_from(&ira->new_irb, &switch_target_instruction->base, enum_value);
                 return tag_type;
             }
@@ -8251,24 +8293,24 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
 
 static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstructionSwitchVar *instruction) {
     IrInstruction *target_value_ptr = instruction->target_value_ptr->other;
-    if (target_value_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (target_value_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *prong_value = instruction->prong_value->other;
-    if (prong_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (prong_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    assert(target_value_ptr->type_entry->id == TypeTableEntryIdPointer);
-    TypeTableEntry *target_type = target_value_ptr->type_entry->data.pointer.child_type;
+    assert(target_value_ptr->value.type->id == TypeTableEntryIdPointer);
+    TypeTableEntry *target_type = target_value_ptr->value.type->data.pointer.child_type;
     if (target_type->id == TypeTableEntryIdEnum) {
         ConstExprValue *prong_val = ir_resolve_const(ira, prong_value, UndefBad);
         if (!prong_val)
             return ira->codegen->builtin_types.entry_invalid;
 
         TypeEnumField *field = &target_type->data.enumeration.fields[prong_val->data.x_bignum.data.x_uint];
-        if (prong_value->type_entry->id == TypeTableEntryIdEnumTag) {
+        if (prong_value->value.type->id == TypeTableEntryIdEnumTag) {
             field = &target_type->data.enumeration.fields[prong_val->data.x_bignum.data.x_uint];
-        } else if (prong_value->type_entry->id == TypeTableEntryIdEnum) {
+        } else if (prong_value->value.type->id == TypeTableEntryIdEnum) {
             field = &target_type->data.enumeration.fields[prong_val->data.x_enum.tag];
         } else {
             zig_unreachable();
@@ -8280,7 +8322,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstr
 
         ir_build_enum_field_ptr_from(&ira->new_irb, &instruction->base, target_value_ptr, field);
         return get_pointer_to_type(ira->codegen, field->type_entry,
-                target_value_ptr->type_entry->data.pointer.is_const);
+                target_value_ptr->value.type->data.pointer.is_const);
     } else {
         ErrorMsg *msg = ir_add_error(ira, &instruction->base,
             buf_sprintf("switch on type '%s' provides no expression parameter", buf_ptr(&target_type->name)));
@@ -8293,14 +8335,14 @@ static TypeTableEntry *ir_analyze_instruction_enum_tag(IrAnalyze *ira, IrInstruc
     IrInstruction *value = enum_tag_instruction->value->other;
     IrInstruction *new_instruction = ir_analyze_enum_tag(ira, &enum_tag_instruction->base, value);
     ir_link_new_instruction(new_instruction, &enum_tag_instruction->base);
-    return new_instruction->type_entry;
+    return new_instruction->value.type;
 }
 
 static TypeTableEntry *ir_analyze_instruction_static_eval(IrAnalyze *ira,
         IrInstructionStaticEval *static_eval_instruction)
 {
     IrInstruction *value = static_eval_instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
@@ -8309,7 +8351,7 @@ static TypeTableEntry *ir_analyze_instruction_static_eval(IrAnalyze *ira,
 
     ConstExprValue *out_val = ir_build_const_from(ira, &static_eval_instruction->base, val->depends_on_compile_var);
     *out_val = *val;
-    return value->type_entry;
+    return value->value.type;
 }
 
 static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructionImport *import_instruction) {
@@ -8317,7 +8359,7 @@ static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructi
     Buf *import_target_str = ir_resolve_str(ira, name_value);
     if (!import_target_str)
         return ira->codegen->builtin_types.entry_invalid;
-    bool depends_on_compile_var = name_value->static_value.depends_on_compile_var;
+    bool depends_on_compile_var = name_value->value.depends_on_compile_var;
 
     AstNode *source_node = import_instruction->base.source_node;
     ImportTableEntry *import = source_node->owner;
@@ -8390,16 +8432,16 @@ static TypeTableEntry *ir_analyze_instruction_array_len(IrAnalyze *ira,
         IrInstructionArrayLen *array_len_instruction)
 {
     IrInstruction *array_value = array_len_instruction->array_value->other;
-    TypeTableEntry *canon_type = get_underlying_type(array_value->type_entry);
+    TypeTableEntry *canon_type = get_underlying_type(array_value->value.type);
     if (canon_type->id == TypeTableEntryIdInvalid) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (canon_type->id == TypeTableEntryIdArray) {
-        bool depends_on_compile_var = array_value->static_value.depends_on_compile_var;
+        bool depends_on_compile_var = array_value->value.depends_on_compile_var;
         return ir_analyze_const_usize(ira, &array_len_instruction->base,
                 canon_type->data.array.len, depends_on_compile_var);
     } else if (is_slice(canon_type)) {
-        if (array_value->static_value.special != ConstValSpecialRuntime) {
-            ConstExprValue *len_val = &array_value->static_value.data.x_struct.fields[slice_len_index];
+        if (array_value->value.special != ConstValSpecialRuntime) {
+            ConstExprValue *len_val = &array_value->value.data.x_struct.fields[slice_len_index];
             if (len_val->special != ConstValSpecialRuntime) {
                 bool depends_on_compile_var = len_val->depends_on_compile_var;
                 return ir_analyze_const_usize(ira, &array_len_instruction->base,
@@ -8409,12 +8451,12 @@ static TypeTableEntry *ir_analyze_instruction_array_len(IrAnalyze *ira,
         TypeStructField *field = &canon_type->data.structure.fields[slice_len_index];
         IrInstruction *len_ptr = ir_build_struct_field_ptr(&ira->new_irb, array_len_instruction->base.scope,
                 array_len_instruction->base.source_node, array_value, field);
-        len_ptr->type_entry = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_usize, true);
+        len_ptr->value.type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_usize, true);
         ir_build_load_ptr_from(&ira->new_irb, &array_len_instruction->base, len_ptr);
         return ira->codegen->builtin_types.entry_usize;
     } else {
         ir_add_error_node(ira, array_len_instruction->base.source_node,
-            buf_sprintf("type '%s' has no field 'len'", buf_ptr(&array_value->type_entry->name)));
+            buf_sprintf("type '%s' has no field 'len'", buf_ptr(&array_value->value.type->name)));
         // TODO if this is a typedecl, add error note showing the declaration of the type decl
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -8444,13 +8486,14 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
 
     ConstExprValue const_val = {};
     const_val.special = ConstValSpecialStatic;
+    const_val.type = container_type;
     const_val.depends_on_compile_var = depends_on_compile_var;
     const_val.data.x_struct.fields = allocate<ConstExprValue>(actual_field_count);
     for (size_t i = 0; i < instr_field_count; i += 1) {
         IrInstructionContainerInitFieldsField *field = &fields[i];
 
         IrInstruction *field_value = field->value->other;
-        if (field_value->type_entry->id == TypeTableEntryIdInvalid)
+        if (field_value->value.type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
         TypeStructField *type_field = find_struct_type_field(container_type, field->name);
@@ -8481,7 +8524,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
         new_fields[field_index].type_struct_field = type_field;
 
         if (const_val.special == ConstValSpecialStatic) {
-            if (is_comptime || casted_field_value->static_value.special != ConstValSpecialRuntime) {
+            if (is_comptime || casted_field_value->value.special != ConstValSpecialRuntime) {
                 ConstExprValue *field_val = ir_resolve_const(ira, casted_field_value, UndefOk);
                 if (!field_val)
                     return ira->codegen->builtin_types.entry_invalid;
@@ -8529,16 +8572,16 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
         IrInstructionContainerInitList *instruction)
 {
     IrInstruction *container_type_value = instruction->container_type->other;
-    if (container_type_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (container_type_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     size_t elem_count = instruction->item_count;
-    if (container_type_value->type_entry->id == TypeTableEntryIdMetaType) {
+    if (container_type_value->value.type->id == TypeTableEntryIdMetaType) {
         TypeTableEntry *container_type = ir_resolve_type(ira, container_type_value);
         if (container_type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
-        bool depends_on_compile_var = container_type_value->static_value.depends_on_compile_var;
+        bool depends_on_compile_var = container_type_value->value.depends_on_compile_var;
 
         if (container_type->id == TypeTableEntryIdStruct && !is_slice(container_type) && elem_count == 0) {
             return ir_analyze_container_init_fields(ira, &instruction->base, container_type,
@@ -8547,9 +8590,11 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
             TypeTableEntry *pointer_type = container_type->data.structure.fields[slice_ptr_index].type_entry;
             assert(pointer_type->id == TypeTableEntryIdPointer);
             TypeTableEntry *child_type = pointer_type->data.pointer.child_type;
+            TypeTableEntry *fixed_size_array_type = get_array_type(ira->codegen, child_type, elem_count);
 
             ConstExprValue const_val = {};
             const_val.special = ConstValSpecialStatic;
+            const_val.type = fixed_size_array_type;
             const_val.depends_on_compile_var = depends_on_compile_var;
             const_val.data.x_array.elements = allocate<ConstExprValue>(elem_count);
             const_val.data.x_array.size = elem_count;
@@ -8562,7 +8607,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
 
             for (size_t i = 0; i < elem_count; i += 1) {
                 IrInstruction *arg_value = instruction->items[i]->other;
-                if (arg_value->type_entry->id == TypeTableEntryIdInvalid)
+                if (arg_value->value.type->id == TypeTableEntryIdInvalid)
                     return ira->codegen->builtin_types.entry_invalid;
 
                 IrInstruction *casted_arg = ir_implicit_cast(ira, arg_value, child_type);
@@ -8572,7 +8617,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
                 new_items[i] = casted_arg;
 
                 if (const_val.special == ConstValSpecialStatic) {
-                    if (is_comptime || casted_arg->static_value.special != ConstValSpecialRuntime) {
+                    if (is_comptime || casted_arg->value.special != ConstValSpecialRuntime) {
                         ConstExprValue *elem_val = ir_resolve_const(ira, casted_arg, UndefBad);
                         if (!elem_val)
                             return ira->codegen->builtin_types.entry_invalid;
@@ -8586,7 +8631,6 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
                 }
             }
 
-            TypeTableEntry *fixed_size_array_type = get_array_type(ira->codegen, child_type, elem_count);
             if (const_val.special == ConstValSpecialStatic) {
                 ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, const_val.depends_on_compile_var);
                 *out_val = const_val;
@@ -8619,7 +8663,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
                     buf_ptr(&container_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
-    } else if (container_type_value->type_entry->id == TypeTableEntryIdEnumTag) {
+    } else if (container_type_value->value.type->id == TypeTableEntryIdEnumTag) {
         if (elem_count != 1) {
             ir_add_error(ira, &instruction->base, buf_sprintf("enum initialization requires exactly one element"));
             return ira->codegen->builtin_types.entry_invalid;
@@ -8628,7 +8672,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
         if (!tag_value)
             return ira->codegen->builtin_types.entry_invalid;
 
-        TypeTableEntry *enum_type = container_type_value->type_entry->data.enum_tag.enum_type;
+        TypeTableEntry *enum_type = container_type_value->value.type->data.enum_tag.enum_type;
 
         uint64_t tag_uint = tag_value->data.x_bignum.data.x_uint;
         TypeEnumField *field = &enum_type->data.enumeration.fields[tag_uint];
@@ -8645,7 +8689,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
             if (!init_val)
                 return ira->codegen->builtin_types.entry_invalid;
             ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base,
-                    casted_init_value->static_value.depends_on_compile_var);
+                    casted_init_value->value.depends_on_compile_var);
             out_val->data.x_enum.tag = tag_uint;
             out_val->data.x_enum.payload = init_val;
             return enum_type;
@@ -8657,7 +8701,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
         return enum_type;
     } else {
         ir_add_error(ira, container_type_value,
-            buf_sprintf("expected type, found '%s'", buf_ptr(&container_type_value->type_entry->name)));
+            buf_sprintf("expected type, found '%s'", buf_ptr(&container_type_value->value.type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 }
@@ -8668,7 +8712,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_fields(IrAnalyze *i
     if (container_type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    bool depends_on_compile_var = container_type_value->static_value.depends_on_compile_var;
+    bool depends_on_compile_var = container_type_value->value.depends_on_compile_var;
 
     return ir_analyze_container_init_fields(ira, &instruction->base, container_type,
         instruction->field_count, instruction->fields, depends_on_compile_var);
@@ -8678,7 +8722,7 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
         IrInstruction *target_type_value, bool is_max)
 {
     TypeTableEntry *target_type = ir_resolve_type(ira, target_type_value);
-    bool depends_on_compile_var = target_type_value->static_value.depends_on_compile_var;
+    bool depends_on_compile_var = target_type_value->value.depends_on_compile_var;
     TypeTableEntry *canon_type = get_underlying_type(target_type);
     switch (canon_type->id) {
         case TypeTableEntryIdInvalid:
@@ -8763,35 +8807,22 @@ static TypeTableEntry *ir_analyze_instruction_compile_err(IrAnalyze *ira,
 
 static TypeTableEntry *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstructionErrName *instruction) {
     IrInstruction *value = instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    IrInstruction *casted_value = ir_implicit_cast(ira, value, value->type_entry);
-    if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, value->value.type);
+    if (casted_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *str_type = get_slice_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
-    if (casted_value->static_value.special == ConstValSpecialStatic) {
-        ErrorTableEntry *err = casted_value->static_value.data.x_pure_err;
+    if (casted_value->value.special == ConstValSpecialStatic) {
+        ErrorTableEntry *err = casted_value->value.data.x_pure_err;
         if (!err->cached_error_name_val) {
-            err->cached_error_name_val = allocate<ConstExprValue>(1);
-            err->cached_error_name_val->special = ConstValSpecialStatic;
-            err->cached_error_name_val->data.x_struct.fields = allocate<ConstExprValue>(2);
-
-            ConstExprValue *array_val = allocate<ConstExprValue>(1);
-            init_const_str_lit(array_val, &err->name);
-
-            ConstExprValue *ptr_val = &err->cached_error_name_val->data.x_struct.fields[slice_ptr_index];
-            ptr_val->special = ConstValSpecialStatic;
-            ptr_val->data.x_ptr.base_ptr = array_val;
-            ptr_val->data.x_ptr.index = 0;
-
-            ConstExprValue *len_val = &err->cached_error_name_val->data.x_struct.fields[slice_len_index];
-            len_val->special = ConstValSpecialStatic;
-            bignum_init_unsigned(&len_val->data.x_bignum, buf_len(&err->name));
+            ConstExprValue *array_val = create_const_str_lit(ira->codegen, &err->name);
+            err->cached_error_name_val = create_const_slice(ira->codegen, array_val, 0, buf_len(&err->name), true);
         }
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base,
-            casted_value->static_value.depends_on_compile_var);
+            casted_value->value.depends_on_compile_var);
         *out_val = *err->cached_error_name_val;
         return str_type;
     }
@@ -8813,7 +8844,7 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
     IrInstruction *result = ir_eval_const_value(ira->codegen, &cimport_scope->base, block_node, void_type,
         ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, nullptr,
         &cimport_scope->buf, block_node, nullptr, nullptr);
-    if (result->type_entry->id == TypeTableEntryIdInvalid)
+    if (result->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     find_libc_include_path(ira->codegen);
@@ -8855,7 +8886,7 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
 
 static TypeTableEntry *ir_analyze_instruction_c_include(IrAnalyze *ira, IrInstructionCInclude *instruction) {
     IrInstruction *name_value = instruction->name->other;
-    if (name_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (name_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     Buf *include_name = ir_resolve_str(ira, name_value);
@@ -8874,7 +8905,7 @@ static TypeTableEntry *ir_analyze_instruction_c_include(IrAnalyze *ira, IrInstru
 
 static TypeTableEntry *ir_analyze_instruction_c_define(IrAnalyze *ira, IrInstructionCDefine *instruction) {
     IrInstruction *name = instruction->name->other;
-    if (name->type_entry->id == TypeTableEntryIdInvalid)
+    if (name->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     Buf *define_name = ir_resolve_str(ira, name);
@@ -8882,7 +8913,7 @@ static TypeTableEntry *ir_analyze_instruction_c_define(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *value = instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     Buf *define_value = ir_resolve_str(ira, value);
@@ -8901,7 +8932,7 @@ static TypeTableEntry *ir_analyze_instruction_c_define(IrAnalyze *ira, IrInstruc
 
 static TypeTableEntry *ir_analyze_instruction_c_undef(IrAnalyze *ira, IrInstructionCUndef *instruction) {
     IrInstruction *name = instruction->name->other;
-    if (name->type_entry->id == TypeTableEntryIdInvalid)
+    if (name->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     Buf *undef_name = ir_resolve_str(ira, name);
@@ -8920,7 +8951,7 @@ static TypeTableEntry *ir_analyze_instruction_c_undef(IrAnalyze *ira, IrInstruct
 
 static TypeTableEntry *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstructionEmbedFile *instruction) {
     IrInstruction *name = instruction->name->other;
-    if (name->type_entry->id == TypeTableEntryIdInvalid)
+    if (name->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     Buf *rel_file_path = ir_resolve_str(ira, name);
@@ -8953,26 +8984,26 @@ static TypeTableEntry *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstr
 
     bool depends_on_compile_var = true;
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
-    init_const_str_lit(out_val, &file_contents);
+    init_const_str_lit(ira->codegen, out_val, &file_contents);
 
     return get_array_type(ira->codegen, ira->codegen->builtin_types.entry_u8, buf_len(&file_contents));
 }
 
 static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructionCmpxchg *instruction) {
     IrInstruction *ptr = instruction->ptr->other;
-    if (ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *cmp_value = instruction->cmp_value->other;
-    if (cmp_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (cmp_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *new_value = instruction->new_value->other;
-    if (new_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (new_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *success_order_value = instruction->success_order_value->other;
-    if (success_order_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (success_order_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     AtomicOrder success_order;
@@ -8980,27 +9011,27 @@ static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstruct
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *failure_order_value = instruction->failure_order_value->other;
-    if (failure_order_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (failure_order_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     AtomicOrder failure_order;
     if (!ir_resolve_atomic_order(ira, failure_order_value, &failure_order))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (ptr->type_entry->id != TypeTableEntryIdPointer) {
+    if (ptr->value.type->id != TypeTableEntryIdPointer) {
         ir_add_error(ira, instruction->ptr,
-            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&ptr->type_entry->name)));
+            buf_sprintf("expected pointer argument, found '%s'", buf_ptr(&ptr->value.type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    TypeTableEntry *child_type = ptr->type_entry->data.pointer.child_type;
+    TypeTableEntry *child_type = ptr->value.type->data.pointer.child_type;
 
     IrInstruction *casted_cmp_value = ir_implicit_cast(ira, cmp_value, child_type);
-    if (casted_cmp_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_cmp_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *casted_new_value = ir_implicit_cast(ira, new_value, child_type);
-    if (casted_new_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_new_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     if (success_order < AtomicOrderMonotonic) {
@@ -9031,7 +9062,7 @@ static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstruct
 
 static TypeTableEntry *ir_analyze_instruction_fence(IrAnalyze *ira, IrInstructionFence *instruction) {
     IrInstruction *order_value = instruction->order_value->other;
-    if (order_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (order_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     AtomicOrder order;
@@ -9044,11 +9075,11 @@ static TypeTableEntry *ir_analyze_instruction_fence(IrAnalyze *ira, IrInstructio
 
 static TypeTableEntry *ir_analyze_instruction_div_exact(IrAnalyze *ira, IrInstructionDivExact *instruction) {
     IrInstruction *op1 = instruction->op1->other;
-    if (op1->type_entry->id == TypeTableEntryIdInvalid)
+    if (op1->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *op2 = instruction->op2->other;
-    if (op2->type_entry->id == TypeTableEntryIdInvalid)
+    if (op2->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
 
@@ -9070,15 +9101,15 @@ static TypeTableEntry *ir_analyze_instruction_div_exact(IrAnalyze *ira, IrInstru
     }
 
     IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, result_type);
-    if (casted_op1->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_op1->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, result_type);
-    if (casted_op2->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_op2->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (casted_op1->static_value.special == ConstValSpecialStatic &&
-        casted_op2->static_value.special == ConstValSpecialStatic)
+    if (casted_op1->value.special == ConstValSpecialStatic &&
+        casted_op2->value.special == ConstValSpecialStatic)
     {
         ConstExprValue *op1_val = ir_resolve_const(ira, casted_op1, UndefBad);
         ConstExprValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
@@ -9101,8 +9132,8 @@ static TypeTableEntry *ir_analyze_instruction_div_exact(IrAnalyze *ira, IrInstru
             return ira->codegen->builtin_types.entry_invalid;
         }
 
-        bool depends_on_compile_var = casted_op1->static_value.depends_on_compile_var ||
-            casted_op2->static_value.depends_on_compile_var;
+        bool depends_on_compile_var = casted_op1->value.depends_on_compile_var ||
+            casted_op2->value.depends_on_compile_var;
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
         bignum_div(&out_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum);
         return result_type;
@@ -9129,7 +9160,7 @@ static TypeTableEntry *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstruc
     }
 
     IrInstruction *target = instruction->target->other;
-    TypeTableEntry *src_type = target->type_entry;
+    TypeTableEntry *src_type = target->value.type;
     TypeTableEntry *canon_src_type = get_underlying_type(src_type);
     if (canon_src_type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
@@ -9154,10 +9185,10 @@ static TypeTableEntry *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (target->static_value.special == ConstValSpecialStatic) {
-        bool depends_on_compile_var = dest_type_value->static_value.depends_on_compile_var || target->static_value.depends_on_compile_var;
+    if (target->value.special == ConstValSpecialStatic) {
+        bool depends_on_compile_var = dest_type_value->value.depends_on_compile_var || target->value.depends_on_compile_var;
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
-        bignum_init_bignum(&out_val->data.x_bignum, &target->static_value.data.x_bignum);
+        bignum_init_bignum(&out_val->data.x_bignum, &target->value.data.x_bignum);
         bignum_truncate(&out_val->data.x_bignum, canon_dest_type->data.integral.bit_count);
         return dest_type;
     }
@@ -9177,8 +9208,8 @@ static TypeTableEntry *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstruc
     if (!ir_resolve_usize(ira, bit_count_value, &bit_count))
         return ira->codegen->builtin_types.entry_invalid;
 
-    bool depends_on_compile_var = is_signed_value->static_value.depends_on_compile_var ||
-        bit_count_value->static_value.depends_on_compile_var;
+    bool depends_on_compile_var = is_signed_value->value.depends_on_compile_var ||
+        bit_count_value->value.depends_on_compile_var;
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
     out_val->data.x_type = get_int_type(ira->codegen, is_signed, bit_count);
@@ -9187,19 +9218,19 @@ static TypeTableEntry *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstruc
 
 static TypeTableEntry *ir_analyze_instruction_bool_not(IrAnalyze *ira, IrInstructionBoolNot *instruction) {
     IrInstruction *value = instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *bool_type = ira->codegen->builtin_types.entry_bool;
 
     IrInstruction *casted_value = ir_implicit_cast(ira, value, bool_type);
-    if (casted_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (casted_value->static_value.special != ConstValSpecialRuntime) {
-        bool depends_on_compile_var = casted_value->static_value.depends_on_compile_var;
+    if (casted_value->value.special != ConstValSpecialRuntime) {
+        bool depends_on_compile_var = casted_value->value.depends_on_compile_var;
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
-        out_val->data.x_bool = !casted_value->static_value.data.x_bool;
+        out_val->data.x_bool = !casted_value->value.data.x_bool;
         return bool_type;
     }
 
@@ -9209,11 +9240,11 @@ static TypeTableEntry *ir_analyze_instruction_bool_not(IrAnalyze *ira, IrInstruc
 
 static TypeTableEntry *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructionAlloca *instruction) {
     IrInstruction *type_value = instruction->type_value->other;
-    if (type_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (type_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *count_value = instruction->count->other;
-    if (count_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (count_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *child_type = ir_resolve_type(ira, type_value);
@@ -9234,15 +9265,15 @@ static TypeTableEntry *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructi
 
 static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructionMemset *instruction) {
     IrInstruction *dest_ptr = instruction->dest_ptr->other;
-    if (dest_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (dest_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *byte_value = instruction->byte->other;
-    if (byte_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (byte_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *count_value = instruction->count->other;
-    if (count_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (count_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
@@ -9250,22 +9281,22 @@ static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructi
     TypeTableEntry *u8_ptr = get_pointer_to_type(ira->codegen, u8, false);
 
     IrInstruction *casted_dest_ptr = ir_implicit_cast(ira, dest_ptr, u8_ptr);
-    if (casted_dest_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_dest_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *casted_byte = ir_implicit_cast(ira, byte_value, u8);
-    if (casted_byte->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_byte->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *casted_count = ir_implicit_cast(ira, count_value, usize);
-    if (casted_count->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_count->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (casted_dest_ptr->static_value.special == ConstValSpecialStatic &&
-        casted_byte->static_value.special == ConstValSpecialStatic &&
-        casted_count->static_value.special == ConstValSpecialStatic)
+    if (casted_dest_ptr->value.special == ConstValSpecialStatic &&
+        casted_byte->value.special == ConstValSpecialStatic &&
+        casted_count->value.special == ConstValSpecialStatic)
     {
-        ConstExprValue *dest_ptr_val = &casted_dest_ptr->static_value;
+        ConstExprValue *dest_ptr_val = &casted_dest_ptr->value;
 
         ConstExprValue *dest_elements;
         size_t start;
@@ -9281,14 +9312,14 @@ static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructi
             bound_end = array_val->data.x_array.size;
         }
 
-        size_t count = casted_count->static_value.data.x_bignum.data.x_uint;
+        size_t count = casted_count->value.data.x_bignum.data.x_uint;
         size_t end = start + count;
         if (end > bound_end) {
             ir_add_error(ira, count_value, buf_sprintf("out of bounds pointer access"));
             return ira->codegen->builtin_types.entry_invalid;
         }
 
-        ConstExprValue *byte_val = &casted_byte->static_value;
+        ConstExprValue *byte_val = &casted_byte->value;
         for (size_t i = start; i < end; i += 1) {
             dest_elements[i] = *byte_val;
         }
@@ -9303,15 +9334,15 @@ static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructi
 
 static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructionMemcpy *instruction) {
     IrInstruction *dest_ptr = instruction->dest_ptr->other;
-    if (dest_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (dest_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *src_ptr = instruction->src_ptr->other;
-    if (src_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (src_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *count_value = instruction->count->other;
-    if (count_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (count_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
@@ -9320,24 +9351,24 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
     TypeTableEntry *u8_ptr_const = get_pointer_to_type(ira->codegen, u8, true);
 
     IrInstruction *casted_dest_ptr = ir_implicit_cast(ira, dest_ptr, u8_ptr_mut);
-    if (casted_dest_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_dest_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *casted_src_ptr = ir_implicit_cast(ira, src_ptr, u8_ptr_const);
-    if (casted_src_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_src_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *casted_count = ir_implicit_cast(ira, count_value, usize);
-    if (casted_count->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_count->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (casted_dest_ptr->static_value.special == ConstValSpecialStatic &&
-        casted_src_ptr->static_value.special == ConstValSpecialStatic &&
-        casted_count->static_value.special == ConstValSpecialStatic)
+    if (casted_dest_ptr->value.special == ConstValSpecialStatic &&
+        casted_src_ptr->value.special == ConstValSpecialStatic &&
+        casted_count->value.special == ConstValSpecialStatic)
     {
-        size_t count = casted_count->static_value.data.x_bignum.data.x_uint;
+        size_t count = casted_count->value.data.x_bignum.data.x_uint;
 
-        ConstExprValue *dest_ptr_val = &casted_dest_ptr->static_value;
+        ConstExprValue *dest_ptr_val = &casted_dest_ptr->value;
         ConstExprValue *dest_elements;
         size_t dest_start;
         size_t dest_end;
@@ -9357,7 +9388,7 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
             return ira->codegen->builtin_types.entry_invalid;
         }
 
-        ConstExprValue *src_ptr_val = &casted_src_ptr->static_value;
+        ConstExprValue *src_ptr_val = &casted_src_ptr->value;
         ConstExprValue *src_elements;
         size_t src_start;
         size_t src_end;
@@ -9393,31 +9424,31 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
 
 static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructionSlice *instruction) {
     IrInstruction *ptr = instruction->ptr->other;
-    if (ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *start = instruction->start->other;
-    if (start->type_entry->id == TypeTableEntryIdInvalid)
+    if (start->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
     IrInstruction *casted_start = ir_implicit_cast(ira, start, usize);
-    if (casted_start->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_start->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *end;
     if (instruction->end) {
         end = instruction->end->other;
-        if (end->type_entry->id == TypeTableEntryIdInvalid)
+        if (end->value.type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
         end = ir_implicit_cast(ira, end, usize);
-        if (end->type_entry->id == TypeTableEntryIdInvalid)
+        if (end->value.type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
     } else {
         end = nullptr;
     }
 
-    TypeTableEntry *array_type = get_underlying_type(ptr->type_entry);
+    TypeTableEntry *array_type = get_underlying_type(ptr->value.type);
 
     TypeTableEntry *return_type;
 
@@ -9435,38 +9466,38 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                 instruction->is_const);
     } else {
         ir_add_error(ira, &instruction->base,
-            buf_sprintf("slice of non-array type '%s'", buf_ptr(&ptr->type_entry->name)));
+            buf_sprintf("slice of non-array type '%s'", buf_ptr(&ptr->value.type->name)));
         // TODO if this is a typedecl, add error note showing the declaration of the type decl
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (ptr->static_value.special == ConstValSpecialStatic &&
-        casted_start->static_value.special == ConstValSpecialStatic &&
-        (!end || end->static_value.special == ConstValSpecialStatic))
+    if (ptr->value.special == ConstValSpecialStatic &&
+        casted_start->value.special == ConstValSpecialStatic &&
+        (!end || end->value.special == ConstValSpecialStatic))
     {
         bool depends_on_compile_var =
-            ptr->static_value.depends_on_compile_var ||
-            casted_start->static_value.depends_on_compile_var ||
-            (end ? end->static_value.depends_on_compile_var : false);
+            ptr->value.depends_on_compile_var ||
+            casted_start->value.depends_on_compile_var ||
+            (end ? end->value.depends_on_compile_var : false);
 
         ConstExprValue *base_ptr;
         size_t abs_offset;
         size_t rel_end;
         if (array_type->id == TypeTableEntryIdArray) {
-            base_ptr = &ptr->static_value;
+            base_ptr = &ptr->value;
             abs_offset = 0;
             rel_end = array_type->data.array.len;
         } else if (array_type->id == TypeTableEntryIdPointer) {
-            base_ptr = ptr->static_value.data.x_ptr.base_ptr;
-            abs_offset = ptr->static_value.data.x_ptr.index;
+            base_ptr = ptr->value.data.x_ptr.base_ptr;
+            abs_offset = ptr->value.data.x_ptr.index;
             if (abs_offset == SIZE_MAX) {
                 rel_end = 1;
             } else {
                 rel_end = base_ptr->data.x_array.size - abs_offset;
             }
         } else if (is_slice(array_type)) {
-            ConstExprValue *ptr_val = &ptr->static_value.data.x_struct.fields[slice_ptr_index];
-            ConstExprValue *len_val = &ptr->static_value.data.x_struct.fields[slice_len_index];
+            ConstExprValue *ptr_val = &ptr->value.data.x_struct.fields[slice_ptr_index];
+            ConstExprValue *len_val = &ptr->value.data.x_struct.fields[slice_len_index];
             base_ptr = ptr_val->data.x_ptr.base_ptr;
             abs_offset = ptr_val->data.x_ptr.index;
 
@@ -9479,7 +9510,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
             zig_unreachable();
         }
 
-        uint64_t start_scalar = casted_start->static_value.data.x_bignum.data.x_uint;
+        uint64_t start_scalar = casted_start->value.data.x_bignum.data.x_uint;
         if (start_scalar > rel_end) {
             ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
             return ira->codegen->builtin_types.entry_invalid;
@@ -9487,7 +9518,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
 
         uint64_t end_scalar;
         if (end) {
-            end_scalar = end->static_value.data.x_bignum.data.x_uint;
+            end_scalar = end->value.data.x_bignum.data.x_uint;
         } else {
             end_scalar = rel_end;
         }
@@ -9504,18 +9535,17 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
         out_val->data.x_struct.fields = allocate<ConstExprValue>(2);
 
         ConstExprValue *ptr_val = &out_val->data.x_struct.fields[slice_ptr_index];
-        ptr_val->special = ConstValSpecialStatic;
-        ptr_val->data.x_ptr.base_ptr = base_ptr;
-        ptr_val->data.x_ptr.index = (abs_offset != SIZE_MAX) ? (abs_offset + start_scalar) : SIZE_MAX;
+        size_t index = (abs_offset != SIZE_MAX) ? (abs_offset + start_scalar) : SIZE_MAX;
+        init_const_ptr(ira->codegen, ptr_val, base_ptr, index, instruction->is_const);
 
         ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];
-        len_val->special = ConstValSpecialStatic;
-        bignum_init_unsigned(&len_val->data.x_bignum, rel_end);
+        init_const_usize(ira->codegen, len_val, rel_end);
 
         return return_type;
     }
 
-    IrInstruction *new_instruction = ir_build_slice_from(&ira->new_irb, &instruction->base, ptr, casted_start, end, instruction->is_const);
+    IrInstruction *new_instruction = ir_build_slice_from(&ira->new_irb, &instruction->base, ptr,
+            casted_start, end, instruction->is_const, instruction->safety_check_on);
     ir_add_alloca(ira, new_instruction, return_type);
 
     return return_type;
@@ -9523,7 +9553,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
 
 static TypeTableEntry *ir_analyze_instruction_member_count(IrAnalyze *ira, IrInstructionMemberCount *instruction) {
     IrInstruction *container = instruction->container->other;
-    if (container->type_entry->id == TypeTableEntryIdInvalid)
+    if (container->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
     TypeTableEntry *container_type = ir_resolve_type(ira, container);
     TypeTableEntry *canon_type = get_underlying_type(container_type);
@@ -9542,7 +9572,7 @@ static TypeTableEntry *ir_analyze_instruction_member_count(IrAnalyze *ira, IrIns
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    bool depends_on_compile_var = container->static_value.depends_on_compile_var;
+    bool depends_on_compile_var = container->value.depends_on_compile_var;
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
     bignum_init_unsigned(&out_val->data.x_bignum, result);
     return ira->codegen->builtin_types.entry_num_lit_int;
@@ -9571,7 +9601,7 @@ static TypeTableEntry *ir_analyze_instruction_frame_address(IrAnalyze *ira, IrIn
 
 static TypeTableEntry *ir_analyze_instruction_alignof(IrAnalyze *ira, IrInstructionAlignOf *instruction) {
     IrInstruction *type_value = instruction->type_value->other;
-    if (type_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (type_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
     TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
 
@@ -9583,7 +9613,7 @@ static TypeTableEntry *ir_analyze_instruction_alignof(IrAnalyze *ira, IrInstruct
         return ira->codegen->builtin_types.entry_invalid;
     } else {
         uint64_t align_in_bytes = LLVMABISizeOfType(ira->codegen->target_data_ref, type_entry->type_ref);
-        bool depends_on_compile_var = type_value->static_value.depends_on_compile_var;
+        bool depends_on_compile_var = type_value->value.depends_on_compile_var;
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
         bignum_init_unsigned(&out_val->data.x_bignum, align_in_bytes);
         return ira->codegen->builtin_types.entry_num_lit_int;
@@ -9592,7 +9622,7 @@ static TypeTableEntry *ir_analyze_instruction_alignof(IrAnalyze *ira, IrInstruct
 
 static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstructionOverflowOp *instruction) {
     IrInstruction *type_value = instruction->type_value->other;
-    if (type_value->type_entry->id == TypeTableEntryIdInvalid)
+    if (type_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
     TypeTableEntry *dest_type = ir_resolve_type(ira, type_value);
     TypeTableEntry *canon_type = get_underlying_type(dest_type);
@@ -9607,41 +9637,41 @@ static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInst
     }
 
     IrInstruction *op1 = instruction->op1->other;
-    if (op1->type_entry->id == TypeTableEntryIdInvalid)
+    if (op1->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, dest_type);
-    if (casted_op1->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_op1->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *op2 = instruction->op2->other;
-    if (op2->type_entry->id == TypeTableEntryIdInvalid)
+    if (op2->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, dest_type);
-    if (casted_op2->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_op2->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *result_ptr = instruction->result_ptr->other;
-    if (result_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (result_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *expected_ptr_type = get_pointer_to_type(ira->codegen, dest_type, false);
     IrInstruction *casted_result_ptr = ir_implicit_cast(ira, result_ptr, expected_ptr_type);
-    if (casted_result_ptr->type_entry->id == TypeTableEntryIdInvalid)
+    if (casted_result_ptr->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (casted_op1->static_value.special == ConstValSpecialStatic &&
-        casted_op2->static_value.special == ConstValSpecialStatic &&
-        casted_result_ptr->static_value.special == ConstValSpecialStatic)
+    if (casted_op1->value.special == ConstValSpecialStatic &&
+        casted_op2->value.special == ConstValSpecialStatic &&
+        casted_result_ptr->value.special == ConstValSpecialStatic)
     {
-        bool depends_on_compile_var = type_value->static_value.depends_on_compile_var ||
-            casted_op1->static_value.depends_on_compile_var || casted_op2->static_value.depends_on_compile_var ||
-            casted_result_ptr->static_value.depends_on_compile_var;
+        bool depends_on_compile_var = type_value->value.depends_on_compile_var ||
+            casted_op1->value.depends_on_compile_var || casted_op2->value.depends_on_compile_var ||
+            casted_result_ptr->value.depends_on_compile_var;
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
-        BigNum *op1_bignum = &casted_op1->static_value.data.x_bignum;
-        BigNum *op2_bignum = &casted_op2->static_value.data.x_bignum;
-        ConstExprValue *pointee_val = const_ptr_pointee(&casted_result_ptr->static_value);
+        BigNum *op1_bignum = &casted_op1->value.data.x_bignum;
+        BigNum *op2_bignum = &casted_op2->value.data.x_bignum;
+        ConstExprValue *pointee_val = const_ptr_pointee(&casted_result_ptr->value);
         BigNum *dest_bignum = &pointee_val->data.x_bignum;
         switch (instruction->op) {
             case IrOverflowOpAdd:
@@ -9674,10 +9704,10 @@ static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInst
 
 static TypeTableEntry *ir_analyze_instruction_test_err(IrAnalyze *ira, IrInstructionTestErr *instruction) {
     IrInstruction *value = instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *non_canon_type = value->type_entry;
+    TypeTableEntry *non_canon_type = value->value.type;
 
     TypeTableEntry *canon_type = get_underlying_type(non_canon_type);
     if (canon_type->id == TypeTableEntryIdInvalid) {
@@ -9713,9 +9743,9 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_code(IrAnalyze *ira,
     IrInstructionUnwrapErrCode *instruction)
 {
     IrInstruction *value = instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
-    TypeTableEntry *ptr_type = value->type_entry;
+    TypeTableEntry *ptr_type = value->value.type;
 
     // This will be a pointer type because unwrap err payload IR instruction operates on a pointer to a thing.
     assert(ptr_type->id == TypeTableEntryIdPointer);
@@ -9756,9 +9786,9 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
     IrInstructionUnwrapErrPayload *instruction)
 {
     IrInstruction *value = instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
-    TypeTableEntry *ptr_type = value->type_entry;
+    TypeTableEntry *ptr_type = value->value.type;
 
     // This will be a pointer type because unwrap err payload IR instruction operates on a pointer to a thing.
     assert(ptr_type->id == TypeTableEntryIdPointer);
@@ -9824,14 +9854,14 @@ static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruc
         if (param_info->type->id == TypeTableEntryIdInvalid)
             return ira->codegen->builtin_types.entry_invalid;
 
-        depends_on_compile_var = depends_on_compile_var || param_type_value->static_value.depends_on_compile_var;
+        depends_on_compile_var = depends_on_compile_var || param_type_value->value.depends_on_compile_var;
     }
 
     IrInstruction *return_type_value = instruction->return_type->other;
     fn_type_id.return_type = ir_resolve_type(ira, return_type_value);
     if (fn_type_id.return_type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
-    depends_on_compile_var = depends_on_compile_var || return_type_value->static_value.depends_on_compile_var;
+    depends_on_compile_var = depends_on_compile_var || return_type_value->value.depends_on_compile_var;
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
     out_val->data.x_type = get_fn_type(ira->codegen, &fn_type_id);
@@ -9840,7 +9870,7 @@ static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruc
 
 static TypeTableEntry *ir_analyze_instruction_test_comptime(IrAnalyze *ira, IrInstructionTestComptime *instruction) {
     IrInstruction *value = instruction->value->other;
-    if (value->type_entry->id == TypeTableEntryIdInvalid)
+    if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, false);
@@ -9851,6 +9881,11 @@ static TypeTableEntry *ir_analyze_instruction_test_comptime(IrAnalyze *ira, IrIn
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
+        case IrInstructionIdPointerReinterpret:
+        case IrInstructionIdStructInit:
+        case IrInstructionIdStructFieldPtr:
+        case IrInstructionIdEnumFieldPtr:
+        case IrInstructionIdInitEnum:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_analyze_instruction_return(ira, (IrInstructionReturn *)instruction);
@@ -9996,10 +10031,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
         case IrInstructionIdCast:
-        case IrInstructionIdStructFieldPtr:
-        case IrInstructionIdEnumFieldPtr:
-        case IrInstructionIdStructInit:
-        case IrInstructionIdInitEnum:
             zig_panic("TODO analyze more instructions");
     }
     zig_unreachable();
@@ -10007,9 +10038,9 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
 
 static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *instruction) {
     TypeTableEntry *instruction_type = ir_analyze_instruction_nocast(ira, instruction);
-    instruction->type_entry = instruction_type;
+    instruction->value.type = instruction_type;
     if (instruction->other) {
-        instruction->other->type_entry = instruction_type;
+        instruction->other->value.type = instruction_type;
     } else {
         assert(instruction_type->id == TypeTableEntryIdInvalid ||
                instruction_type->id == TypeTableEntryIdUnreachable);
@@ -10156,6 +10187,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
         case IrInstructionIdInitEnum:
+        case IrInstructionIdPointerReinterpret:
             return false;
         case IrInstructionIdAsm:
             {

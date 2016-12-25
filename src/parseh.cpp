@@ -124,51 +124,52 @@ static void parseh_init_tld(Context *c, Tld *tld, TldId id, Buf *name) {
     tld->resolution = TldResolutionOk;
 }
 
-static TldVar *create_global_var(Context *c, Buf *name, TypeTableEntry *var_type, ConstExprValue *var_value, bool is_const) {
+static TldVar *create_global_var(Context *c, Buf *name, ConstExprValue *var_value, bool is_const) {
     TldVar *tld_var = allocate<TldVar>(1);
     parseh_init_tld(c, &tld_var->base, TldIdVar, name);
-    tld_var->var = add_variable(c->codegen, c->source_node, &c->import->decls_scope->base, name, var_type, is_const, var_value);
+    tld_var->var = add_variable(c->codegen, c->source_node, &c->import->decls_scope->base, name, is_const, var_value);
     return tld_var;
 }
 
 static Tld *create_global_char_lit_var(Context *c, Buf *name, uint8_t value) {
-    TldVar *tld_var = create_global_var(c, name, c->codegen->builtin_types.entry_u8,
-        create_const_unsigned_negative(value, false), true);
+    ConstExprValue *var_val = create_const_unsigned_negative(c->codegen->builtin_types.entry_u8, value, false);
+    TldVar *tld_var = create_global_var(c, name, var_val, true);
     return &tld_var->base;
 }
 
 static Tld *create_global_str_lit_var(Context *c, Buf *name, Buf *value) {
-    TypeTableEntry *str_type = get_array_type(c->codegen, c->codegen->builtin_types.entry_u8, buf_len(value));
-    TldVar *tld_var = create_global_var(c, name, str_type, create_const_str_lit(value), true);
+    TldVar *tld_var = create_global_var(c, name, create_const_str_lit(c->codegen, value), true);
     return &tld_var->base;
 }
 
 static Tld *create_global_num_lit_unsigned_negative(Context *c, Buf *name, uint64_t x, bool negative) {
-    TldVar *tld_var = create_global_var(c, name, c->codegen->builtin_types.entry_num_lit_int,
-        create_const_unsigned_negative(x, negative), true);
+    ConstExprValue *var_val = create_const_unsigned_negative(c->codegen->builtin_types.entry_num_lit_int, x, negative);
+    TldVar *tld_var = create_global_var(c, name, var_val, true);
     return &tld_var->base;
 }
 
 static Tld *create_global_num_lit_float(Context *c, Buf *name, double value) {
-    TldVar *tld_var = create_global_var(c, name, c->codegen->builtin_types.entry_num_lit_float,
-        create_const_float(value), true);
+    ConstExprValue *var_val = create_const_float(c->codegen->builtin_types.entry_num_lit_float, value);
+    TldVar *tld_var = create_global_var(c, name, var_val, true);
     return &tld_var->base;
 }
 
-static ConstExprValue *create_const_num_lit_ap(Context *c, const Decl *source_decl, const llvm::APSInt &aps_int) {
+static ConstExprValue *create_const_int_ap(Context *c, TypeTableEntry *type, const Decl *source_decl,
+        const llvm::APSInt &aps_int)
+{
     if (aps_int.isSigned()) {
         if (aps_int > INT64_MAX || aps_int < INT64_MIN) {
             emit_warning(c, source_decl, "integer overflow\n");
             return nullptr;
         } else {
-            return create_const_signed(aps_int.getExtValue());
+            return create_const_signed(type, aps_int.getExtValue());
         }
     } else {
         if (aps_int > INT64_MAX) {
             emit_warning(c, source_decl, "integer overflow\n");
             return nullptr;
         } else {
-            return create_const_unsigned_negative(aps_int.getExtValue(), false);
+            return create_const_unsigned_negative(type, aps_int.getExtValue(), false);
         }
     }
 }
@@ -176,19 +177,18 @@ static ConstExprValue *create_const_num_lit_ap(Context *c, const Decl *source_de
 static Tld *create_global_num_lit_ap(Context *c, const Decl *source_decl, Buf *name,
         const llvm::APSInt &aps_int)
 {
-    ConstExprValue *const_value = create_const_num_lit_ap(c, source_decl, aps_int);
+    ConstExprValue *const_value = create_const_int_ap(c, c->codegen->builtin_types.entry_num_lit_int,
+            source_decl, aps_int);
     if (!const_value)
         return nullptr;
-    TldVar *tld_var = create_global_var(c, name, c->codegen->builtin_types.entry_num_lit_int, const_value, true);
+    TldVar *tld_var = create_global_var(c, name, const_value, true);
     return &tld_var->base;
 }
 
 
 static Tld *add_const_type(Context *c, Buf *name, TypeTableEntry *type_entry) {
-    ConstExprValue *var_value = allocate<ConstExprValue>(1);
-    var_value->special = ConstValSpecialStatic;
-    var_value->data.x_type = type_entry;
-    TldVar *tld_var = create_global_var(c, name, c->codegen->builtin_types.entry_type, var_value, true);
+    ConstExprValue *var_value = create_const_type(c->codegen, type_entry);
+    TldVar *tld_var = create_global_var(c, name, var_value, true);
     add_global(c, &tld_var->base);
 
     c->global_type_table.put(name, type_entry);
@@ -1025,7 +1025,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                             "ignoring variable '%s' - int initializer for non int type\n", buf_ptr(name));
                         return;
                     }
-                    init_value = create_const_num_lit_ap(c, var_decl, ap_value->getInt());
+                    init_value = create_const_int_ap(c, var_type, var_decl, ap_value->getInt());
                     if (!init_value)
                         return;
 
@@ -1047,13 +1047,13 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                 return;
         }
 
-        TldVar *tld_var = create_global_var(c, name, var_type, init_value, true);
+        TldVar *tld_var = create_global_var(c, name, init_value, true);
         add_global(c, &tld_var->base);
         return;
     }
 
     if (is_extern) {
-        TldVar *tld_var = create_global_var(c, name, var_type, nullptr, is_const);
+        TldVar *tld_var = create_global_var(c, name, create_const_runtime(var_type), is_const);
         tld_var->var->is_extern = true;
         add_global(c, &tld_var->base);
         return;
@@ -1199,7 +1199,7 @@ static void process_symbol_macros(Context *c) {
         // variable is non-null and calls it.
         if (existing_tld->id == TldIdVar) {
             TldVar *tld_var = (TldVar *)existing_tld;
-            TypeTableEntry *var_type = tld_var->var->type;
+            TypeTableEntry *var_type = tld_var->var->value.type;
             if (var_type->id == TypeTableEntryIdMaybe && !tld_var->var->src_is_const) {
                 TypeTableEntry *child_type = var_type->data.maybe.child_type;
                 if (child_type->id == TypeTableEntryIdFn) {

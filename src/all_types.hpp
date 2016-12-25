@@ -131,6 +131,7 @@ enum RuntimeHintMaybe {
 };
 
 struct ConstExprValue {
+    TypeTableEntry *type;
     ConstValSpecial special;
     bool depends_on_compile_var;
     LLVMValueRef llvm_value;
@@ -429,8 +430,6 @@ enum CastOp {
     CastOpPtrToInt,
     CastOpIntToPtr,
     CastOpWidenOrShorten,
-    CastOpToUnknownSizeArray,
-    CastOpPointerReinterpret,
     CastOpErrToInt,
     CastOpIntToFloat,
     CastOpFloatToInt,
@@ -749,14 +748,9 @@ struct FnTypeParamInfo {
     TypeTableEntry *type;
 };
 
-struct GenericParamValue {
-    TypeTableEntry *type;
-    ConstExprValue *value;
-};
-
 struct GenericFnTypeId {
     FnTableEntry *fn_entry;
-    GenericParamValue *params;
+    ConstExprValue *params;
     size_t param_count;
 };
 
@@ -1238,7 +1232,7 @@ struct CodeGen {
 // TODO after merging IR branch, we can probably delete some of these fields
 struct VariableTableEntry {
     Buf name;
-    TypeTableEntry *type;
+    ConstExprValue value;
     LLVMValueRef value_ref;
     bool src_is_const;
     bool gen_is_const;
@@ -1254,7 +1248,6 @@ struct VariableTableEntry {
     bool shadowable;
     size_t mem_slot_index;
     size_t ref_count;
-    ConstExprValue *value;
     bool is_extern;
 };
 
@@ -1460,14 +1453,14 @@ enum IrInstructionId {
     IrInstructionIdFnProto,
     IrInstructionIdTestComptime,
     IrInstructionIdInitEnum,
+    IrInstructionIdPointerReinterpret,
 };
 
 struct IrInstruction {
     IrInstructionId id;
     Scope *scope;
     AstNode *source_node;
-    ConstExprValue static_value;
-    TypeTableEntry *type_entry;
+    ConstExprValue value;
     size_t debug_id;
     LLVMValueRef llvm_value;
     // if ref_count is zero, instruction can be omitted in codegen
@@ -1986,6 +1979,7 @@ struct IrInstructionSlice {
     IrInstruction *start;
     IrInstruction *end;
     bool is_const;
+    bool safety_check_on;
     LLVMValueRef tmp_ptr;
 };
 
@@ -2094,6 +2088,12 @@ struct IrInstructionInitEnum {
     TypeEnumField *field;
     IrInstruction *init_value;
     LLVMValueRef tmp_ptr;
+};
+
+struct IrInstructionPointerReinterpret {
+    IrInstruction base;
+
+    IrInstruction *ptr;
 };
 
 enum LValPurpose {

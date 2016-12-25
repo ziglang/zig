@@ -9,26 +9,11 @@ const test_enum_with_members = @import("cases/enum_with_members.zig");
 
 
 fn explicitCastMaybePointers() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     const a: ?&i32 = undefined;
     const b: ?&f32 = (?&f32)(a);
 }
-
-
-fn multilineCString() {
-    @setFnTest(this);
-
-    const s1 =
-        c\\one
-        c\\two)
-        c\\three
-    ;
-    const s2 = c"one\ntwo)\nthree";
-    assert(cstr.cmp(s1, s2) == 0);
-}
-
-
 
 fn genericMallocFree() {
     @setFnTest(this, true);

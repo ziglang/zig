@@ -876,11 +876,11 @@ static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *nod
 
 TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
     IrInstruction *result = analyze_const_value(g, scope, node, g->builtin_types.entry_type, nullptr);
-    if (result->type_entry->id == TypeTableEntryIdInvalid)
+    if (result->value.type->id == TypeTableEntryIdInvalid)
         return g->builtin_types.entry_invalid;
 
-    assert(result->static_value.special != ConstValSpecialRuntime);
-    return result->static_value.data.x_type;
+    assert(result->value.special != ConstValSpecialRuntime);
+    return result->value.data.x_type;
 }
 
 static TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
@@ -1708,41 +1708,42 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 // TODO merge with definition of add_local_var in ir.cpp
 VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    TypeTableEntry *type_entry, bool is_const, ConstExprValue *init_value)
+    bool is_const, ConstExprValue *value)
 {
+    assert(value);
+
     VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
-    variable_entry->type = type_entry;
+    variable_entry->value = *value;
     variable_entry->parent_scope = parent_scope;
     variable_entry->shadowable = false;
     variable_entry->mem_slot_index = SIZE_MAX;
-    variable_entry->value = init_value;
     variable_entry->src_arg_index = SIZE_MAX;
 
     assert(name);
 
     buf_init_from_buf(&variable_entry->name, name);
 
-    if (type_entry->id != TypeTableEntryIdInvalid) {
+    if (value->type->id != TypeTableEntryIdInvalid) {
         VariableTableEntry *existing_var = find_variable(g, parent_scope, name);
         if (existing_var && !existing_var->shadowable) {
             ErrorMsg *msg = add_node_error(g, source_node,
                     buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
             add_error_note(g, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
-            variable_entry->type = g->builtin_types.entry_invalid;
+            variable_entry->value.type = g->builtin_types.entry_invalid;
         } else {
             auto primitive_table_entry = g->primitive_type_table.maybe_get(name);
             if (primitive_table_entry) {
                 TypeTableEntry *type = primitive_table_entry->value;
                 add_node_error(g, source_node,
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
-                variable_entry->type = g->builtin_types.entry_invalid;
+                variable_entry->value.type = g->builtin_types.entry_invalid;
             } else {
                 Tld *tld = find_decl(parent_scope, name);
                 if (tld && tld->id != TldIdVar) {
                     ErrorMsg *msg = add_node_error(g, source_node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                     add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
-                    variable_entry->type = g->builtin_types.entry_invalid;
+                    variable_entry->value.type = g->builtin_types.entry_invalid;
                 }
             }
         }
@@ -1789,7 +1790,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     } else if (var_decl->expr) {
         init_value = analyze_const_value(g, tld_var->base.parent_scope, var_decl->expr, explicit_type, var_decl->symbol);
         assert(init_value);
-        implicit_type = init_value->type_entry;
+        implicit_type = init_value->value.type;
 
         if (implicit_type->id == TypeTableEntryIdUnreachable) {
             add_node_error(g, source_node, buf_sprintf("variable initialization is unreachable"));
@@ -1807,7 +1808,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
             add_node_error(g, source_node, buf_sprintf("variable of type 'type' must be constant"));
             implicit_type = g->builtin_types.entry_invalid;
         }
-        assert(implicit_type->id == TypeTableEntryIdInvalid || init_value->static_value.special != ConstValSpecialRuntime);
+        assert(implicit_type->id == TypeTableEntryIdInvalid || init_value->value.special != ConstValSpecialRuntime);
     } else if (!is_extern) {
         add_node_error(g, source_node, buf_sprintf("variables must be initialized"));
         implicit_type = g->builtin_types.entry_invalid;
@@ -1816,8 +1817,9 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     TypeTableEntry *type = explicit_type ? explicit_type : implicit_type;
     assert(type != nullptr); // should have been caught by the parser
 
-    tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope,
-            var_decl->symbol, type, is_const, &init_value->static_value);
+    ConstExprValue *init_val = init_value ? &init_value->value : create_const_runtime(type);
+
+    tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol, is_const, init_val);
     tld_var->var->is_extern = is_extern;
 
     g->global_vars.append(tld_var->var);
@@ -2231,7 +2233,8 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
                 buf_sprintf("byvalue types not yet supported on extern function parameters"));
         }
 
-        VariableTableEntry *var = add_variable(g, param_decl_node, fn_table_entry->child_scope, param_decl->name, param_type, true, nullptr);
+        VariableTableEntry *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
+                param_decl->name, true, create_const_runtime(param_type));
         var->src_arg_index = i;
         fn_table_entry->child_scope = var->child_scope;
 
@@ -2287,14 +2290,14 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
 
 static void add_symbols_from_import(CodeGen *g, AstNode *dst_use_node) {
     IrInstruction *use_target_value = dst_use_node->data.use.value;
-    if (use_target_value->type_entry->id == TypeTableEntryIdInvalid) {
+    if (use_target_value->value.type->id == TypeTableEntryIdInvalid) {
         dst_use_node->owner->any_imports_failed = true;
         return;
     }
 
     dst_use_node->data.use.resolution = TldResolutionOk;
 
-    ConstExprValue *const_val = &use_target_value->static_value;
+    ConstExprValue *const_val = &use_target_value->value;
     assert(const_val->special != ConstValSpecialRuntime);
 
     ImportTableEntry *target_import = const_val->data.x_import;
@@ -2351,7 +2354,7 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
     IrInstruction *result = analyze_const_value(g, &node->owner->decls_scope->base,
         node->data.use.expr, g->builtin_types.entry_namespace, nullptr);
 
-    if (result->type_entry->id == TypeTableEntryIdInvalid)
+    if (result->value.type->id == TypeTableEntryIdInvalid)
         node->owner->any_imports_failed = true;
 
     node->data.use.value = result;
@@ -2620,8 +2623,9 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
     return true;
 }
 
-static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) {
-    switch (type->id) {
+static uint32_t hash_const_val(ConstExprValue *const_val) {
+    assert(const_val->special == ConstValSpecialStatic);
+    switch (const_val->type->id) {
         case TypeTableEntryIdBool:
             return const_val->data.x_bool ? 127863866 : 215080464;
         case TypeTableEntryIdMetaType:
@@ -2630,6 +2634,7 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
             return 4149439618;
         case TypeTableEntryIdInt:
         case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdEnumTag:
             return ((uint32_t)(bignum_to_twos_complement(&const_val->data.x_bignum) % UINT32_MAX)) * 1331471175;
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdNumLitFloat:
@@ -2651,8 +2656,7 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
             return 2709806591;
         case TypeTableEntryIdMaybe:
             if (const_val->data.x_maybe) {
-                TypeTableEntry *child_type = type->data.maybe.child_type;
-                return hash_const_val(child_type, const_val->data.x_maybe) * 1992916303;
+                return hash_const_val(const_val->data.x_maybe) * 1992916303;
             } else {
                 return 4016830364;
             }
@@ -2673,8 +2677,6 @@ static uint32_t hash_const_val(TypeTableEntry *type, ConstExprValue *const_val) 
             return hash_ptr(const_val->data.x_import);
         case TypeTableEntryIdBlock:
             return hash_ptr(const_val->data.x_block);
-        case TypeTableEntryIdEnumTag:
-            return 983996406 + hash_const_val(type->data.enum_tag.int_type, const_val);
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
@@ -2688,9 +2690,9 @@ uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {
     uint32_t result = 0;
     result += hash_ptr(id->fn_entry);
     for (size_t i = 0; i < id->param_count; i += 1) {
-        GenericParamValue *generic_param = &id->params[i];
-        if (generic_param->value) {
-            result += hash_const_val(generic_param->type, generic_param->value);
+        ConstExprValue *generic_param = &id->params[i];
+        if (generic_param->special != ConstValSpecialRuntime) {
+            result += hash_const_val(generic_param);
             result += hash_ptr(generic_param->type);
         }
     }
@@ -2702,17 +2704,17 @@ bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
     if (a->fn_entry != b->fn_entry) return false;
     assert(a->param_count == b->param_count);
     for (size_t i = 0; i < a->param_count; i += 1) {
-        GenericParamValue *a_val = &a->params[i];
-        GenericParamValue *b_val = &b->params[i];
+        ConstExprValue *a_val = &a->params[i];
+        ConstExprValue *b_val = &b->params[i];
         if (a_val->type != b_val->type) return false;
-        if (a_val->value && b_val->value) {
-            assert(a_val->value->special == ConstValSpecialStatic);
-            assert(b_val->value->special == ConstValSpecialStatic);
-            if (!const_values_equal(a_val->value, b_val->value, a_val->type)) {
+        if (a_val->special != ConstValSpecialRuntime && b_val->special != ConstValSpecialRuntime) {
+            assert(a_val->special == ConstValSpecialStatic);
+            assert(b_val->special == ConstValSpecialStatic);
+            if (!const_values_equal(a_val, b_val)) {
                 return false;
             }
         } else {
-            assert(!a_val->value && !b_val->value);
+            assert(a_val->special == ConstValSpecialRuntime && b_val->special == ConstValSpecialRuntime);
         }
     }
     return true;
@@ -2723,7 +2725,7 @@ uint32_t fn_eval_hash(Scope* scope) {
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
-            result += hash_const_val(var_scope->var->type, var_scope->var->value);
+            result += hash_const_val(&var_scope->var->value);
         } else if (scope->id == ScopeIdFnDef) {
             ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
             result += hash_ptr(fn_scope->fn_entry);
@@ -2745,9 +2747,9 @@ bool fn_eval_eql(Scope *a, Scope *b) {
         if (a->id == ScopeIdVarDecl) {
             ScopeVarDecl *a_var_scope = (ScopeVarDecl *)a;
             ScopeVarDecl *b_var_scope = (ScopeVarDecl *)b;
-            if (a_var_scope->var->type != b_var_scope->var->type)
+            if (a_var_scope->var->value.type != b_var_scope->var->value.type)
                 return false;
-            if (!const_values_equal(a_var_scope->var->value, b_var_scope->var->value, a_var_scope->var->type))
+            if (!const_values_equal(&a_var_scope->var->value, &b_var_scope->var->value))
                 return false;
         } else if (a->id == ScopeIdFnDef) {
             ScopeFnDef *a_fn_scope = (ScopeFnDef *)a;
@@ -2865,77 +2867,187 @@ uint64_t get_memcpy_align(CodeGen *g, TypeTableEntry *type_entry) {
     return LLVMABISizeOfType(g->target_data_ref, first_type_in_mem->type_ref);
 }
 
-void init_const_str_lit(ConstExprValue *const_val, Buf *str) {
+void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     const_val->special = ConstValSpecialStatic;
+    const_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str));
     const_val->data.x_array.elements = allocate<ConstExprValue>(buf_len(str));
     const_val->data.x_array.size = buf_len(str);
 
     for (size_t i = 0; i < buf_len(str); i += 1) {
         ConstExprValue *this_char = &const_val->data.x_array.elements[i];
         this_char->special = ConstValSpecialStatic;
+        this_char->type = g->builtin_types.entry_u8;
         bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
     }
 }
 
-ConstExprValue *create_const_str_lit(Buf *str) {
+ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str) {
     ConstExprValue *const_val = allocate<ConstExprValue>(1);
-    init_const_str_lit(const_val, str);
+    init_const_str_lit(g, const_val, str);
     return const_val;
 }
 
-void init_const_unsigned_negative(ConstExprValue *const_val, uint64_t x, bool negative) {
+void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
+    // first we build the underlying array
+    size_t len_with_null = buf_len(str) + 1;
+    ConstExprValue *array_val = allocate<ConstExprValue>(1);
+    array_val->special = ConstValSpecialStatic;
+    array_val->type = get_array_type(g, g->builtin_types.entry_u8, len_with_null);
+    array_val->data.x_array.elements = allocate<ConstExprValue>(len_with_null);
+    array_val->data.x_array.size = len_with_null;
+    for (size_t i = 0; i < buf_len(str); i += 1) {
+        ConstExprValue *this_char = &array_val->data.x_array.elements[i];
+        this_char->special = ConstValSpecialStatic;
+        this_char->type = g->builtin_types.entry_u8;
+        bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
+    }
+    ConstExprValue *null_char = &array_val->data.x_array.elements[len_with_null - 1];
+    null_char->special = ConstValSpecialStatic;
+    null_char->type = g->builtin_types.entry_u8;
+    bignum_init_unsigned(&null_char->data.x_bignum, 0);
+
+    // then make the pointer point to it
     const_val->special = ConstValSpecialStatic;
+    const_val->type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    const_val->data.x_ptr.base_ptr = array_val;
+    const_val->data.x_ptr.index = 0;
+    const_val->data.x_ptr.special = ConstPtrSpecialCStr;
+}
+ConstExprValue *create_const_c_str_lit(CodeGen *g, Buf *str) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_c_str_lit(g, const_val, str);
+    return const_val;
+}
+
+void init_const_unsigned_negative(ConstExprValue *const_val, TypeTableEntry *type, uint64_t x, bool negative) {
+    const_val->special = ConstValSpecialStatic;
+    const_val->type = type;
     bignum_init_unsigned(&const_val->data.x_bignum, x);
     const_val->data.x_bignum.is_negative = negative;
 }
 
-ConstExprValue *create_const_unsigned_negative(uint64_t x, bool negative) {
+ConstExprValue *create_const_unsigned_negative(TypeTableEntry *type, uint64_t x, bool negative) {
     ConstExprValue *const_val = allocate<ConstExprValue>(1);
-    init_const_unsigned_negative(const_val, x, negative);
+    init_const_unsigned_negative(const_val, type, x, negative);
     return const_val;
 }
 
-void init_const_signed(ConstExprValue *const_val, int64_t x) {
+void init_const_usize(CodeGen *g, ConstExprValue *const_val, uint64_t x) {
+    return init_const_unsigned_negative(const_val, g->builtin_types.entry_usize, x, false);
+}
+
+ConstExprValue *create_const_usize(CodeGen *g, uint64_t x) {
+    return create_const_unsigned_negative(g->builtin_types.entry_usize, x, false);
+}
+
+void init_const_signed(ConstExprValue *const_val, TypeTableEntry *type, int64_t x) {
     const_val->special = ConstValSpecialStatic;
+    const_val->type = type;
     bignum_init_signed(&const_val->data.x_bignum, x);
 }
 
-ConstExprValue *create_const_signed(int64_t x) {
+ConstExprValue *create_const_signed(TypeTableEntry *type, int64_t x) {
     ConstExprValue *const_val = allocate<ConstExprValue>(1);
-    init_const_signed(const_val, x);
+    init_const_signed(const_val, type, x);
     return const_val;
 }
 
-void init_const_float(ConstExprValue *const_val, double value) {
+void init_const_float(ConstExprValue *const_val, TypeTableEntry *type, double value) {
     const_val->special = ConstValSpecialStatic;
+    const_val->type = type;
     bignum_init_float(&const_val->data.x_bignum, value);
 }
 
-ConstExprValue *create_const_float(double value) {
+ConstExprValue *create_const_float(TypeTableEntry *type, double value) {
     ConstExprValue *const_val = allocate<ConstExprValue>(1);
-    init_const_float(const_val, value);
+    init_const_float(const_val, type, value);
     return const_val;
 }
 
-void init_const_enum_tag(ConstExprValue *const_val, uint64_t tag) {
+void init_const_enum_tag(ConstExprValue *const_val, TypeTableEntry *type, uint64_t tag) {
     const_val->special = ConstValSpecialStatic;
+    const_val->type = type;
     const_val->data.x_enum.tag = tag;
 }
 
-ConstExprValue *create_const_enum_tag(uint64_t tag) {
+ConstExprValue *create_const_enum_tag(TypeTableEntry *type, uint64_t tag) {
     ConstExprValue *const_val = allocate<ConstExprValue>(1);
-    init_const_enum_tag(const_val, tag);
+    init_const_enum_tag(const_val, type, tag);
     return const_val;
 }
 
-void init_const_bool(ConstExprValue *const_val, bool value) {
+void init_const_bool(CodeGen *g, ConstExprValue *const_val, bool value) {
     const_val->special = ConstValSpecialStatic;
+    const_val->type = g->builtin_types.entry_bool;
     const_val->data.x_bool = value;
 }
 
-ConstExprValue *create_const_bool(bool value) {
+ConstExprValue *create_const_bool(CodeGen *g, bool value) {
     ConstExprValue *const_val = allocate<ConstExprValue>(1);
-    init_const_bool(const_val, value);
+    init_const_bool(g, const_val, value);
+    return const_val;
+}
+
+void init_const_runtime(ConstExprValue *const_val, TypeTableEntry *type) {
+    const_val->special = ConstValSpecialRuntime;
+    const_val->type = type;
+}
+
+ConstExprValue *create_const_runtime(TypeTableEntry *type) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_runtime(const_val, type);
+    return const_val;
+}
+
+void init_const_type(CodeGen *g, ConstExprValue *const_val, TypeTableEntry *type_value) {
+    const_val->special = ConstValSpecialStatic;
+    const_val->type = g->builtin_types.entry_type;
+    const_val->data.x_type = type_value;
+}
+
+ConstExprValue *create_const_type(CodeGen *g, TypeTableEntry *type_value) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_type(g, const_val, type_value);
+    return const_val;
+}
+
+void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
+        size_t start, size_t len, bool is_const)
+{
+    assert(array_val->type->id == TypeTableEntryIdArray);
+
+    const_val->special = ConstValSpecialStatic;
+    const_val->type = get_slice_type(g, array_val->type->data.array.child_type, is_const);
+    const_val->data.x_struct.fields = allocate<ConstExprValue>(2);
+
+    init_const_ptr(g, &const_val->data.x_struct.fields[slice_ptr_index], array_val, start, is_const);
+    init_const_usize(g, &const_val->data.x_struct.fields[slice_len_index], len);
+}
+
+ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t start, size_t len, bool is_const) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_slice(g, const_val, array_val, start, len, is_const);
+    return const_val;
+}
+
+void init_const_ptr(CodeGen *g, ConstExprValue *const_val, ConstExprValue *base_ptr, size_t index, bool is_const) {
+    TypeTableEntry *child_type;
+    if (index == SIZE_MAX) {
+        child_type = base_ptr->type;
+    } else {
+        assert(base_ptr->type->id == TypeTableEntryIdArray);
+        child_type = base_ptr->type->data.array.child_type;
+    }
+
+    const_val->special = ConstValSpecialStatic;
+    const_val->type = get_pointer_to_type(g, child_type, is_const);
+    const_val->data.x_ptr.base_ptr = base_ptr;
+    const_val->data.x_ptr.index = index;
+}
+
+ConstExprValue *create_const_ptr(CodeGen *g, ConstExprValue *base_ptr, size_t index, bool is_const) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_ptr(g, const_val, base_ptr, index, is_const);
     return const_val;
 }
 
@@ -2956,18 +3068,21 @@ bool ir_get_var_is_comptime(VariableTableEntry *var) {
     if (!var->is_comptime)
         return false;
     if (var->is_comptime->other)
-        return var->is_comptime->other->static_value.data.x_bool;
-    return var->is_comptime->static_value.data.x_bool;
+        return var->is_comptime->other->value.data.x_bool;
+    return var->is_comptime->value.data.x_bool;
 }
 
-bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *type_entry) {
-    switch (type_entry->id) {
+bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
+    assert(a->type == b->type);
+    assert(a->special == ConstValSpecialStatic);
+    assert(b->special == ConstValSpecialStatic);
+    switch (a->type->id) {
         case TypeTableEntryIdEnum:
             {
                 ConstEnumValue *enum1 = &a->data.x_enum;
                 ConstEnumValue *enum2 = &b->data.x_enum;
                 if (enum1->tag == enum2->tag) {
-                    TypeEnumField *enum_field = &type_entry->data.enumeration.fields[enum1->tag];
+                    TypeEnumField *enum_field = &a->type->data.enumeration.fields[enum1->tag];
                     if (type_has_bits(enum_field->type_entry)) {
                         zig_panic("TODO const expr analyze enum special value for equality");
                     } else {
@@ -2990,9 +3105,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b, TypeTableEntry *ty
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
-            return bignum_cmp_eq(&a->data.x_bignum, &b->data.x_bignum);
         case TypeTableEntryIdEnumTag:
-            return const_values_equal(a, b, type_entry->data.enum_tag.int_type);
+            return bignum_cmp_eq(&a->data.x_bignum, &b->data.x_bignum);
         case TypeTableEntryIdPointer:
             zig_panic("TODO");
         case TypeTableEntryIdArray:
