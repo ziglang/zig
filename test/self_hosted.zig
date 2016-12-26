@@ -4,73 +4,20 @@ const str = std.str;
 const cstr = std.cstr;
 
 
-fn castUndefined() {
-    @setFnTest(this, true);
-
-    const array: [100]u8 = undefined;
-    const slice = ([]u8)(array);
-    testCastUndefined(slice);
-}
-fn testCastUndefined(x: []u8) {}
-
-
-fn castSmallUnsignedToLargerSigned() {
-    @setFnTest(this, true);
-
-    assert(castSmallUnsignedToLargerSigned1(200) == i16(200));
-    assert(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
-}
-fn castSmallUnsignedToLargerSigned1(x: u8) -> i16 { x }
-fn castSmallUnsignedToLargerSigned2(x: u16) -> i64 { x }
-
-
-fn implicitCastAfterUnreachable() {
-    @setFnTest(this, true);
-
-    assert(outer() == 1234);
-}
-fn inner() -> i32 { 1234 }
-fn outer() -> i64 {
-    return inner();
-}
-
-
-fn staticallyInitalizedList() {
-    @setFnTest(this, true);
-
-    assert(static_point_list[0].x == 1);
-    assert(static_point_list[0].y == 2);
-    assert(static_point_list[1].x == 3);
-    assert(static_point_list[1].y == 4);
-}
-struct Point {
-    x: i32,
-    y: i32,
-}
-const static_point_list = []Point { makePoint(1, 2), makePoint(3, 4) };
-fn makePoint(x: i32, y: i32) -> Point {
-    return Point {
-        .x = x,
-        .y = y,
-    };
-}
-
-
 fn staticEvalListInit() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     assert(static_vec3.data[2] == 1.0);
 }
 const static_vec3 = vec3(0.0, 0.0, 1.0);
-pub struct Vec3 {
+pub const Vec3 = struct {
     data: [3]f32,
-}
+};
 pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
     Vec3 {
         .data = []f32 { x, y, z, },
     }
 }
-
 
 fn genericFnWithImplicitCast() {
     @setFnTest(this, true);

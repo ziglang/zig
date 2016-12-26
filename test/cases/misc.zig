@@ -291,6 +291,35 @@ fn memAlloc(inline T: type, n: usize) -> %[]T {
 fn memFree(inline T: type, mem: []T) { }
 
 
+fn castUndefined() {
+    @setFnTest(this);
+
+    const array: [100]u8 = undefined;
+    const slice = ([]u8)(array);
+    testCastUndefined(slice);
+}
+fn testCastUndefined(x: []const u8) {}
+
+
+fn castSmallUnsignedToLargerSigned() {
+    @setFnTest(this);
+
+    assert(castSmallUnsignedToLargerSigned1(200) == i16(200));
+    assert(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
+}
+fn castSmallUnsignedToLargerSigned1(x: u8) -> i16 { x }
+fn castSmallUnsignedToLargerSigned2(x: u16) -> i64 { x }
+
+
+fn implicitCastAfterUnreachable() {
+    @setFnTest(this);
+
+    assert(outer() == 1234);
+}
+fn inner() -> i32 { 1234 }
+fn outer() -> i64 {
+    return inner();
+}
 
 
 // TODO import from std.str

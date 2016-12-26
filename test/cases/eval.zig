@@ -73,6 +73,27 @@ fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) -> i32 {
 
 
 
+fn staticallyInitalizedList() {
+    @setFnTest(this);
+
+    assert(static_point_list[0].x == 1);
+    assert(static_point_list[0].y == 2);
+    assert(static_point_list[1].x == 3);
+    assert(static_point_list[1].y == 4);
+}
+const Point = struct {
+    x: i32,
+    y: i32,
+};
+const static_point_list = []Point { makePoint(1, 2), makePoint(3, 4) };
+fn makePoint(x: i32, y: i32) -> Point {
+    return Point {
+        .x = x,
+        .y = y,
+    };
+}
+
+
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
