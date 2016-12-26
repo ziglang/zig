@@ -5220,10 +5220,18 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
             source_instr->source_node, ira->codegen->builtin_types.entry_usize, false);
     init_const_usize(ira->codegen, &end->value, array_type->data.array.len);
 
+    bool is_const;
+    if (array->id == IrInstructionIdLoadPtr) {
+        IrInstructionLoadPtr *load_ptr_inst = (IrInstructionLoadPtr *) array;
+        is_const = load_ptr_inst->ptr->value.type->data.pointer.is_const;
+    } else {
+        is_const = true;
+    }
+
     IrInstruction *result = ir_build_slice(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, array, start, end, true, false);
+            source_instr->source_node, array, start, end, is_const, false);
     TypeTableEntry *child_type = array_type->data.array.child_type;
-    result->value.type = get_slice_type(ira->codegen, child_type, true);
+    result->value.type = get_slice_type(ira->codegen, child_type, is_const);
     ir_add_alloca(ira, result, result->value.type);
     return result;
 }

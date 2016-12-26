@@ -451,6 +451,28 @@ fn cStringConcatenation() {
     assert(b[len] == 0);
 }
 
+fn castSliceToU8Slice() {
+    @setFnTest(this);
+
+    assert(@sizeOf(i32) == 4);
+    var big_thing_array = []i32{1, 2, 3, 4};
+    const big_thing_slice: []i32 = big_thing_array;
+    const bytes = ([]u8)(big_thing_slice);
+    assert(bytes.len == 4 * 4);
+    bytes[4] = 0;
+    bytes[5] = 0;
+    bytes[6] = 0;
+    bytes[7] = 0;
+    assert(big_thing_slice[1] == 0);
+    const big_thing_again = ([]i32)(bytes);
+    assert(big_thing_again[2] == 3);
+    big_thing_again[2] = -1;
+    assert(bytes[8] == @maxValue(u8));
+    assert(bytes[9] == @maxValue(u8));
+    assert(bytes[10] == @maxValue(u8));
+    assert(bytes[11] == @maxValue(u8));
+}
+
 // TODO import from std.cstr
 pub fn cstrlen(ptr: &const u8) -> usize {
     var count: usize = 0;
