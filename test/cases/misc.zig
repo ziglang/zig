@@ -436,6 +436,28 @@ fn ptrEql(a: &[]const u8, b: &[]const u8) -> bool {
 }
 
 
+fn cStringConcatenation() {
+    @setFnTest(this);
+
+    const a = c"OK" ++ c" IT " ++ c"WORKED";
+    const b = c"OK IT WORKED";
+
+    const len = cstrlen(b);
+    const len_with_null = len + 1;
+    {var i: u32 = 0; while (i < len_with_null; i += 1) {
+        assert(a[i] == b[i]);
+    }}
+    assert(a[len] == 0);
+    assert(b[len] == 0);
+}
+
+// TODO import from std.cstr
+pub fn cstrlen(ptr: &const u8) -> usize {
+    var count: usize = 0;
+    while (ptr[count] != 0; count += 1) {}
+    return count;
+}
+
 // TODO import from std.str
 pub fn memeql(a: []const u8, b: []const u8) -> bool {
     sliceEql(u8, a, b)

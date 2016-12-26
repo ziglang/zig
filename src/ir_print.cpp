@@ -100,6 +100,8 @@ static void ir_print_const_value(IrPrint *irp, ConstExprValue *const_val) {
             fprintf(irp->f, "&");
             if (const_val->data.x_ptr.special == ConstPtrSpecialRuntime) {
                 fprintf(irp->f, "(runtime pointer value)");
+            } else if (const_val->data.x_ptr.special == ConstPtrSpecialCStr) {
+                fprintf(irp->f, "(c str lit)");
             } else {
                 ir_print_const_value(irp, const_ptr_pointee(const_val));
             }

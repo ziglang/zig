@@ -6173,8 +6173,9 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
     TypeTableEntry *result_type;
     ConstExprValue *out_array_val;
     size_t new_len = (op1_array_end - op1_array_index) + (op2_array_end - op2_array_index);
+    TypeTableEntry *out_array_type = get_array_type(ira->codegen, child_type, new_len);
     if (op1_canon_type->id == TypeTableEntryIdArray || op2_canon_type->id == TypeTableEntryIdArray) {
-        result_type = get_array_type(ira->codegen, child_type, new_len);
+        result_type = out_array_type;
 
         out_array_val = out_val;
     } else {
@@ -6182,7 +6183,7 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
 
         out_array_val = allocate<ConstExprValue>(1);
         out_array_val->special = ConstValSpecialStatic;
-        out_array_val->type = result_type;
+        out_array_val->type = out_array_type;
         out_val->data.x_ptr.base_ptr = out_array_val;
         out_val->data.x_ptr.index = 0;
         out_val->data.x_ptr.special = ConstPtrSpecialCStr;

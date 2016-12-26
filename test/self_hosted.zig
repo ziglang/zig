@@ -59,22 +59,6 @@ fn returnsTen() -> %i32 {
 }
 
 // TODO not passing
-fn cStringConcatenation() {
-    @setFnTest(this, true);
-
-    const a = c"OK" ++ c" IT " ++ c"WORKED";
-    const b = c"OK IT WORKED";
-
-    const len = cstrlen(b);
-    const len_with_null = len + 1;
-    {var i: u32 = 0; while (i < len_with_null; i += 1) {
-        assert(a[i] == b[i]);
-    }}
-    assert(a[len] == 0);
-    assert(b[len] == 0);
-}
-
-// TODO not passing
 fn castSliceToU8Slice() {
     @setFnTest(this);
 
