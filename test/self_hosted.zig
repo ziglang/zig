@@ -38,18 +38,6 @@ fn testPassSliceOfEmptyStructToFn(slice: []EmptyStruct2) -> usize {
 }
 
 
-// TODO not passing
-fn pointerComparison() {
-    @setFnTest(this, true);
-
-    const a = ([]u8)("a");
-    const b = &a;
-    assert(ptrEql(b, b));
-}
-fn ptrEql(a: &[]u8, b: &[]u8) -> bool {
-    a == b
-}
-
 // TODO change this test to an issue
 // we're going to change how this works
 fn switchOnErrorUnion() {

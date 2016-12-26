@@ -424,6 +424,16 @@ fn intToPtrCast() {
 }
 
 
+fn pointerComparison() {
+    @setFnTest(this);
+
+    const a = ([]u8)("a");
+    const b = &a;
+    assert(ptrEql(b, b));
+}
+fn ptrEql(a: &[]const u8, b: &[]const u8) -> bool {
+    a == b
+}
 
 
 // TODO import from std.str
