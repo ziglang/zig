@@ -429,14 +429,12 @@ enum CastOp {
     CastOpNoop, // fn call expr is a cast, but does nothing
     CastOpPtrToInt,
     CastOpIntToPtr,
-    CastOpWidenOrShorten,
     CastOpErrToInt,
     CastOpIntToFloat,
     CastOpFloatToInt,
     CastOpBoolToInt,
     CastOpResizeSlice,
     CastOpIntToEnum,
-    CastOpEnumToInt,
     CastOpBytesToSlice,
 };
 
@@ -1454,6 +1452,7 @@ enum IrInstructionId {
     IrInstructionIdTestComptime,
     IrInstructionIdInitEnum,
     IrInstructionIdPointerReinterpret,
+    IrInstructionIdWidenOrShorten,
 };
 
 struct IrInstruction {
@@ -2094,6 +2093,12 @@ struct IrInstructionPointerReinterpret {
     IrInstruction base;
 
     IrInstruction *ptr;
+};
+
+struct IrInstructionWidenOrShorten {
+    IrInstruction base;
+
+    IrInstruction *target;
 };
 
 enum LValPurpose {

@@ -973,9 +973,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             return LLVMBuildPtrToInt(g->builder, expr_val, wanted_type->type_ref, "");
         case CastOpIntToPtr:
             return LLVMBuildIntToPtr(g->builder, expr_val, wanted_type->type_ref, "");
-        case CastOpWidenOrShorten:
-            return gen_widen_or_shorten(g, ir_want_debug_safety(g, &cast_instruction->base),
-                actual_type, wanted_type, expr_val);
         case CastOpResizeSlice:
             {
                 assert(cast_instruction->tmp_ptr);
@@ -1086,9 +1083,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
         case CastOpIntToEnum:
             return gen_widen_or_shorten(g, ir_want_debug_safety(g, &cast_instruction->base),
                     actual_type, wanted_type->data.enumeration.tag_type, expr_val);
-        case CastOpEnumToInt:
-            return gen_widen_or_shorten(g, ir_want_debug_safety(g, &cast_instruction->base),
-                    actual_type->data.enumeration.tag_type, wanted_type, expr_val);
     }
     zig_unreachable();
 }
@@ -1101,6 +1095,24 @@ static LLVMValueRef ir_render_pointer_reinterpret(CodeGen *g, IrExecutable *exec
     return LLVMBuildBitCast(g->builder, ptr, wanted_type->type_ref, "");
 }
 
+static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executable,
+        IrInstructionWidenOrShorten *instruction)
+{
+    TypeTableEntry *actual_type = instruction->target->value.type;
+    // TODO instead of this logic, use the Noop instruction to change the type from
+    // enum_tag to the underlying int type
+    TypeTableEntry *int_type;
+    if (actual_type->id == TypeTableEntryIdEnum) {
+        TypeTableEntry *tag_type = actual_type->data.enumeration.tag_type;
+        assert(tag_type->id == TypeTableEntryIdEnumTag);
+        int_type = tag_type->data.enum_tag.int_type;
+    } else {
+        int_type = actual_type;
+    }
+    LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+    return gen_widen_or_shorten(g, ir_want_debug_safety(g, &instruction->base), int_type,
+            instruction->base.value.type, target_val);
+}
 
 static LLVMValueRef ir_render_unreachable(CodeGen *g, IrExecutable *executable,
         IrInstructionUnreachable *unreachable_instruction)
@@ -2309,6 +2321,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_struct_init(g, executable, (IrInstructionStructInit *)instruction);
         case IrInstructionIdPointerReinterpret:
             return ir_render_pointer_reinterpret(g, executable, (IrInstructionPointerReinterpret *)instruction);
+        case IrInstructionIdWidenOrShorten:
+            return ir_render_widen_or_shorten(g, executable, (IrInstructionWidenOrShorten *)instruction);
         case IrInstructionIdSwitchVar:
             zig_panic("TODO render switch var instruction to LLVM");
         case IrInstructionIdContainerInitList:

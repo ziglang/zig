@@ -455,6 +455,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPointerReinterpr
     return IrInstructionIdPointerReinterpret;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionWidenOrShorten *) {
+    return IrInstructionIdWidenOrShorten;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1879,6 +1883,18 @@ static IrInstruction *ir_build_pointer_reinterpret(IrBuilder *irb, Scope *scope,
     instruction->ptr = ptr;
 
     ir_ref_instruction(ptr);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_widen_or_shorten(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *target)
+{
+    IrInstructionWidenOrShorten *instruction = ir_build_instruction<IrInstructionWidenOrShorten>(
+            irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target);
 
     return &instruction->base;
 }
@@ -4638,7 +4654,6 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
         case CastOpNoCast:
             zig_unreachable();
         case CastOpNoop:
-        case CastOpWidenOrShorten:
             *const_val = *other_val;
             const_val->type = new_type;
             break;
@@ -4684,10 +4699,6 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
                 const_val->special = ConstValSpecialStatic;
                 break;
             }
-        case CastOpEnumToInt:
-            bignum_init_unsigned(&const_val->data.x_bignum, other_val->data.x_enum.tag);
-            const_val->special = ConstValSpecialStatic;
-            break;
     }
 }
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
@@ -5181,6 +5192,50 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
     return result;
 }
 
+static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *target, TypeTableEntry *wanted_type)
+{
+    assert(wanted_type->id == TypeTableEntryIdInt);
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, wanted_type, val->depends_on_compile_var);
+        init_const_unsigned_negative(&result->value, wanted_type, val->data.x_enum.tag, false);
+        return result;
+    }
+
+    IrInstruction *result = ir_build_widen_or_shorten(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, target);
+    result->value.type = wanted_type;
+    return result;
+}
+
+static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *target, TypeTableEntry *wanted_type)
+{
+    assert(wanted_type->id == TypeTableEntryIdInt || wanted_type->id == TypeTableEntryIdFloat);
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, wanted_type, val->depends_on_compile_var);
+        result->value = *val;
+        result->value.type = wanted_type;
+        return result;
+    }
+
+    IrInstruction *result = ir_build_widen_or_shorten(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, target);
+    result->value.type = wanted_type;
+    return result;
+}
+
+
 static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_instr,
     TypeTableEntry *wanted_type, IrInstruction *value)
 {
@@ -5233,7 +5288,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         (wanted_type_canon->id == TypeTableEntryIdFloat &&
         actual_type_canon->id == TypeTableEntryIdFloat))
     {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpWidenOrShorten, false);
+        return ir_analyze_widen_or_shorten(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from int to float
@@ -5411,7 +5466,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == TypeTableEntryIdEnum &&
         actual_type->data.enumeration.gen_field_count == 0)
     {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpEnumToInt, false);
+        return ir_analyze_enum_to_int(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from undefined to anything
@@ -9882,6 +9937,7 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
     switch (instruction->id) {
         case IrInstructionIdInvalid:
         case IrInstructionIdPointerReinterpret:
+        case IrInstructionIdWidenOrShorten:
         case IrInstructionIdStructInit:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -10188,6 +10244,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTestComptime:
         case IrInstructionIdInitEnum:
         case IrInstructionIdPointerReinterpret:
+        case IrInstructionIdWidenOrShorten:
             return false;
         case IrInstructionIdAsm:
             {

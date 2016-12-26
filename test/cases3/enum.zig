@@ -73,6 +73,29 @@ const AnEnumWithPayload = enum {
 
 
 
+const Number = enum {
+    Zero,
+    One,
+    Two,
+    Three,
+    Four,
+};
+
+fn enumToInt() {
+    @setFnTest(this);
+
+    shouldEqual(Number.Zero, 0);
+    shouldEqual(Number.One, 1);
+    shouldEqual(Number.Two, 2);
+    shouldEqual(Number.Three, 3);
+    shouldEqual(Number.Four, 4);
+}
+
+fn shouldEqual(n: Number, expected: usize) {
+    assert(usize(n) == expected);
+}
+
+// TODO import from std
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();

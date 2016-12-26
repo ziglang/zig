@@ -923,8 +923,14 @@ static void ir_print_init_enum(IrPrint *irp, IrInstructionInitEnum *instruction)
 }
 
 static void ir_print_pointer_reinterpret(IrPrint *irp, IrInstructionPointerReinterpret *instruction) {
-    fprintf(irp->f, "(%s)(", buf_ptr(&instruction->base.value.type->name));
+    fprintf(irp->f, "@pointerReinterpret(");
     ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_widen_or_shorten(IrPrint *irp, IrInstructionWidenOrShorten *instruction) {
+    fprintf(irp->f, "@widenOrShorten(");
+    ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
 }
 
@@ -1169,6 +1175,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdPointerReinterpret:
             ir_print_pointer_reinterpret(irp, (IrInstructionPointerReinterpret *)instruction);
+            break;
+        case IrInstructionIdWidenOrShorten:
+            ir_print_widen_or_shorten(irp, (IrInstructionWidenOrShorten *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
