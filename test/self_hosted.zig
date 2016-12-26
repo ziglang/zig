@@ -12,16 +12,6 @@ fn getFirstByte(inline T: type, mem: []T) -> u8 {
 
 
 // TODO not passing
-fn intToPtrCast() {
-    @setFnTest(this);
-
-    const x = isize(13);
-    const y = (&u8)(x);
-    const z = usize(y);
-    assert(z == 13);
-}
-
-// TODO not passing
 fn pointerToVoidReturnType() {
     @setFnTest(this);
 

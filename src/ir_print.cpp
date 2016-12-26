@@ -98,7 +98,11 @@ static void ir_print_const_value(IrPrint *irp, ConstExprValue *const_val) {
             }
         case TypeTableEntryIdPointer:
             fprintf(irp->f, "&");
-            ir_print_const_value(irp, const_ptr_pointee(const_val));
+            if (const_val->data.x_ptr.special == ConstPtrSpecialRuntime) {
+                fprintf(irp->f, "(runtime pointer value)");
+            } else {
+                ir_print_const_value(irp, const_ptr_pointee(const_val));
+            }
             return;
         case TypeTableEntryIdFn:
             {
@@ -934,6 +938,18 @@ static void ir_print_widen_or_shorten(IrPrint *irp, IrInstructionWidenOrShorten 
     fprintf(irp->f, ")");
 }
 
+static void ir_print_ptr_to_int(IrPrint *irp, IrInstructionPtrToInt *instruction) {
+    fprintf(irp->f, "@ptrToInt(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_int_to_ptr(IrPrint *irp, IrInstructionIntToPtr *instruction) {
+    fprintf(irp->f, "@intToPtr(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1178,6 +1194,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdWidenOrShorten:
             ir_print_widen_or_shorten(irp, (IrInstructionWidenOrShorten *)instruction);
+            break;
+        case IrInstructionIdPtrToInt:
+            ir_print_ptr_to_int(irp, (IrInstructionPtrToInt *)instruction);
+            break;
+        case IrInstructionIdIntToPtr:
+            ir_print_int_to_ptr(irp, (IrInstructionIntToPtr *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

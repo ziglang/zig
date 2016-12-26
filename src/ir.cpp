@@ -52,6 +52,7 @@ static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, Typ
 
 ConstExprValue *const_ptr_pointee(ConstExprValue *const_val) {
     assert(const_val->special == ConstValSpecialStatic);
+    assert(const_val->data.x_ptr.special != ConstPtrSpecialRuntime);
     ConstExprValue *base_ptr = const_val->data.x_ptr.base_ptr;
     size_t index = const_val->data.x_ptr.index;
 
@@ -457,6 +458,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPointerReinterpr
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionWidenOrShorten *) {
     return IrInstructionIdWidenOrShorten;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrToInt *) {
+    return IrInstructionIdPtrToInt;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionIntToPtr *) {
+    return IrInstructionIdIntToPtr;
 }
 
 template<typename T>
@@ -1891,6 +1900,30 @@ static IrInstruction *ir_build_widen_or_shorten(IrBuilder *irb, Scope *scope, As
         IrInstruction *target)
 {
     IrInstructionWidenOrShorten *instruction = ir_build_instruction<IrInstructionWidenOrShorten>(
+            irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_int_to_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *target)
+{
+    IrInstructionIntToPtr *instruction = ir_build_instruction<IrInstructionIntToPtr>(
+            irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_ptr_to_int(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *target)
+{
+    IrInstructionPtrToInt *instruction = ir_build_instruction<IrInstructionPtrToInt>(
             irb, scope, source_node);
     instruction->target = target;
 
@@ -4657,8 +4690,6 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
             *const_val = *other_val;
             const_val->type = new_type;
             break;
-        case CastOpPtrToInt:
-        case CastOpIntToPtr:
         case CastOpResizeSlice:
         case CastOpBytesToSlice:
             // can't do it
@@ -5234,6 +5265,51 @@ static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction 
     return result;
 }
 
+static IrInstruction *ir_analyze_ptr_to_int(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *target, TypeTableEntry *wanted_type)
+{
+    assert(wanted_type->id == TypeTableEntryIdInt);
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+        if (val->data.x_ptr.special == ConstPtrSpecialRuntime) {
+            IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                    source_instr->source_node, wanted_type, val->depends_on_compile_var);
+            bignum_init_unsigned(&result->value.data.x_bignum, val->data.x_ptr.index);
+            return result;
+        }
+    }
+
+    IrInstruction *result = ir_build_ptr_to_int(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, target);
+    result->value.type = wanted_type;
+    return result;
+}
+
+static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *target, TypeTableEntry *wanted_type)
+{
+    assert(wanted_type->id == TypeTableEntryIdPointer);
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, wanted_type, val->depends_on_compile_var);
+        result->value.data.x_ptr.base_ptr = nullptr;
+        result->value.data.x_ptr.index = bignum_to_twos_complement(&val->data.x_bignum);
+        result->value.data.x_ptr.special = ConstPtrSpecialRuntime;
+        return result;
+    }
+
+    IrInstruction *result = ir_build_int_to_ptr(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, target);
+    result->value.type = wanted_type;
+    return result;
+}
 
 static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_instr,
     TypeTableEntry *wanted_type, IrInstruction *value)
@@ -5270,7 +5346,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     if ((wanted_type_canon == isize_type || wanted_type_canon == usize_type) &&
         type_is_codegen_pointer(actual_type_canon))
     {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpPtrToInt, false);
+        return ir_analyze_ptr_to_int(ira, source_instr, value, wanted_type);
     }
 
 
@@ -5278,7 +5354,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     if (wanted_type_canon->id == TypeTableEntryIdPointer &&
         (actual_type_canon == isize_type || actual_type_canon == usize_type))
     {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpIntToPtr, false);
+        return ir_analyze_int_to_ptr(ira, source_instr, value, wanted_type);
     }
 
     // explicit widening or shortening cast
@@ -9937,6 +10013,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdInvalid:
         case IrInstructionIdPointerReinterpret:
         case IrInstructionIdWidenOrShorten:
+        case IrInstructionIdIntToPtr:
+        case IrInstructionIdPtrToInt:
         case IrInstructionIdStructInit:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -10244,6 +10322,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdInitEnum:
         case IrInstructionIdPointerReinterpret:
         case IrInstructionIdWidenOrShorten:
+        case IrInstructionIdPtrToInt:
+        case IrInstructionIdIntToPtr:
             return false;
         case IrInstructionIdAsm:
             {

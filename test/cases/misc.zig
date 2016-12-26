@@ -414,6 +414,14 @@ fn testTakeAddressOfParameter(f: f32) {
 }
 
 
+fn intToPtrCast() {
+    @setFnTest(this);
+
+    const x = isize(13);
+    const y = (&u8)(x);
+    const z = usize(y);
+    assert(z == 13);
+}
 
 
 

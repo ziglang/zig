@@ -90,6 +90,11 @@ enum ConstPtrSpecial {
     // This means that the pointer points to inline memory, so attempting
     // to write a non-compile-time known value is an error
     ConstPtrSpecialInline,
+    // This means that we did a compile-time pointer reinterpret and we cannot
+    // understand the value of pointee at compile time. However, we will still
+    // emit a binary with a compile time known address.
+    // In this case index is the numeric address value.
+    ConstPtrSpecialRuntime,
 };
 
 struct ConstPtrValue {
@@ -427,8 +432,6 @@ struct AstNodeUnwrapErrorExpr {
 enum CastOp {
     CastOpNoCast, // signifies the function call expression is not a cast
     CastOpNoop, // fn call expr is a cast, but does nothing
-    CastOpPtrToInt,
-    CastOpIntToPtr,
     CastOpErrToInt,
     CastOpIntToFloat,
     CastOpFloatToInt,
@@ -1453,6 +1456,8 @@ enum IrInstructionId {
     IrInstructionIdInitEnum,
     IrInstructionIdPointerReinterpret,
     IrInstructionIdWidenOrShorten,
+    IrInstructionIdIntToPtr,
+    IrInstructionIdPtrToInt,
 };
 
 struct IrInstruction {
@@ -2096,6 +2101,18 @@ struct IrInstructionPointerReinterpret {
 };
 
 struct IrInstructionWidenOrShorten {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionPtrToInt {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionIntToPtr {
     IrInstruction base;
 
     IrInstruction *target;

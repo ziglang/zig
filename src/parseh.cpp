@@ -1203,7 +1203,7 @@ static void process_symbol_macros(Context *c) {
             if (var_type->id == TypeTableEntryIdMaybe && !tld_var->var->src_is_const) {
                 TypeTableEntry *child_type = var_type->data.maybe.child_type;
                 if (child_type->id == TypeTableEntryIdFn) {
-                    zig_panic("TODO");
+                    zig_panic("TODO macro alias of function pointer in .h file");
                     //Tld *fn_tld = create_inline_fn_alias(c, ms.name, tld_var->var);
                     //c->macro_table.put(ms.name, fn_tld);
                     continue;

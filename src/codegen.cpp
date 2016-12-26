@@ -969,10 +969,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             } else {
                 zig_panic("TODO");
             }
-        case CastOpPtrToInt:
-            return LLVMBuildPtrToInt(g->builder, expr_val, wanted_type->type_ref, "");
-        case CastOpIntToPtr:
-            return LLVMBuildIntToPtr(g->builder, expr_val, wanted_type->type_ref, "");
         case CastOpResizeSlice:
             {
                 assert(cast_instruction->tmp_ptr);
@@ -1112,6 +1108,18 @@ static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executa
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     return gen_widen_or_shorten(g, ir_want_debug_safety(g, &instruction->base), int_type,
             instruction->base.value.type, target_val);
+}
+
+static LLVMValueRef ir_render_int_to_ptr(CodeGen *g, IrExecutable *executable, IrInstructionIntToPtr *instruction) {
+    TypeTableEntry *wanted_type = instruction->base.value.type;
+    LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+    return LLVMBuildIntToPtr(g->builder, target_val, wanted_type->type_ref, "");
+}
+
+static LLVMValueRef ir_render_ptr_to_int(CodeGen *g, IrExecutable *executable, IrInstructionPtrToInt *instruction) {
+    TypeTableEntry *wanted_type = instruction->base.value.type;
+    LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+    return LLVMBuildPtrToInt(g->builder, target_val, wanted_type->type_ref, "");
 }
 
 static LLVMValueRef ir_render_unreachable(CodeGen *g, IrExecutable *executable,
@@ -2347,6 +2355,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_pointer_reinterpret(g, executable, (IrInstructionPointerReinterpret *)instruction);
         case IrInstructionIdWidenOrShorten:
             return ir_render_widen_or_shorten(g, executable, (IrInstructionWidenOrShorten *)instruction);
+        case IrInstructionIdPtrToInt:
+            return ir_render_ptr_to_int(g, executable, (IrInstructionPtrToInt *)instruction);
+        case IrInstructionIdIntToPtr:
+            return ir_render_int_to_ptr(g, executable, (IrInstructionIntToPtr *)instruction);
         case IrInstructionIdContainerInitList:
             return ir_render_container_init_list(g, executable, (IrInstructionContainerInitList *)instruction);
         case IrInstructionIdSwitchVar:
