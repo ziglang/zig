@@ -2181,6 +2181,30 @@ static LLVMValueRef ir_render_struct_init(CodeGen *g, IrExecutable *executable, 
     return instruction->tmp_ptr;
 }
 
+static LLVMValueRef ir_render_container_init_list(CodeGen *g, IrExecutable *executable,
+        IrInstructionContainerInitList *instruction)
+{
+    TypeTableEntry *array_type = instruction->base.value.type;
+    assert(array_type->id == TypeTableEntryIdArray);
+    LLVMValueRef tmp_array_ptr = instruction->tmp_ptr;
+    assert(tmp_array_ptr);
+
+    size_t field_count = instruction->item_count;
+
+    TypeTableEntry *child_type = array_type->data.array.child_type;
+    for (size_t i = 0; i < field_count; i += 1) {
+        LLVMValueRef elem_val = ir_llvm_value(g, instruction->items[i]);
+        LLVMValueRef indices[] = {
+            LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+            LLVMConstInt(g->builtin_types.entry_usize->type_ref, i, false),
+        };
+        LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, tmp_array_ptr, indices, 2, "");
+        gen_assign_raw(g, elem_ptr, elem_val, child_type);
+    }
+
+    return tmp_array_ptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -2323,10 +2347,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_pointer_reinterpret(g, executable, (IrInstructionPointerReinterpret *)instruction);
         case IrInstructionIdWidenOrShorten:
             return ir_render_widen_or_shorten(g, executable, (IrInstructionWidenOrShorten *)instruction);
+        case IrInstructionIdContainerInitList:
+            return ir_render_container_init_list(g, executable, (IrInstructionContainerInitList *)instruction);
         case IrInstructionIdSwitchVar:
             zig_panic("TODO render switch var instruction to LLVM");
-        case IrInstructionIdContainerInitList:
-            zig_panic("TODO render container init list instruction to LLVM");
     }
     zig_unreachable();
 }

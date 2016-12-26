@@ -94,6 +94,21 @@ fn makePoint(x: i32, y: i32) -> Point {
 }
 
 
+fn staticEvalListInit() {
+    @setFnTest(this);
+
+    assert(static_vec3.data[2] == 1.0);
+    assert(vec3(0.0, 0.0, 3.0).data[2] == 3.0);
+}
+const static_vec3 = vec3(0.0, 0.0, 1.0);
+pub const Vec3 = struct {
+    data: [3]f32,
+};
+pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
+    Vec3 {
+        .data = []f32 { x, y, z, },
+    }
+}
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
