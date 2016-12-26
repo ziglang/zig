@@ -5030,11 +5030,10 @@ static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *sourc
 static IrInstruction *ir_analyze_pointer_reinterpret(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *ptr, TypeTableEntry *wanted_type)
 {
-    assert(wanted_type->id == TypeTableEntryIdPointer);
-
-    if (ptr->value.type->id != TypeTableEntryIdPointer) {
-        ir_add_error(ira, ptr,
-            buf_sprintf("expected pointer, found '%s'", buf_ptr(&ptr->value.type->name)));
+    if (ptr->value.type->id != TypeTableEntryIdPointer &&
+        ptr->value.type->id != TypeTableEntryIdMaybe)
+    {
+        ir_add_error(ira, ptr, buf_sprintf("expected pointer, found '%s'", buf_ptr(&ptr->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
 

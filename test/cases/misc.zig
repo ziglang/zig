@@ -271,6 +271,14 @@ fn compileTimeGlobalReinterpret() {
     assert(*d == 1234);
 }
 
+fn explicitCastMaybePointers() {
+    @setFnTest(this);
+
+    const a: ?&i32 = undefined;
+    const b: ?&f32 = (?&f32)(a);
+}
+
+
 // TODO import from std.str
 pub fn memeql(a: []const u8, b: []const u8) -> bool {
     sliceEql(u8, a, b)
