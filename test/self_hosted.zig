@@ -2,7 +2,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const str = std.str;
 const cstr = std.cstr;
-const test_enum_with_members = @import("cases/enum_with_members.zig");
 
 
 fn explicitCastMaybePointers() {

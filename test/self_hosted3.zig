@@ -6,6 +6,7 @@ const test_cast= @import("cases3/cast.zig");
 const test_const_slice_child = @import("cases3/const_slice_child.zig");
 const test_defer = @import("cases3/defer.zig");
 const test_enum = @import("cases3/enum.zig");
+const test_enum_with_members = @import("cases3/enum_with_members.zig");
 const test_error = @import("cases3/error.zig");
 const test_eval = @import("cases3/eval.zig");
 const test_fn = @import("cases3/fn.zig");
