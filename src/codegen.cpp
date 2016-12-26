@@ -1075,10 +1075,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             assert(wanted_type->id == TypeTableEntryIdInt);
             assert(actual_type->id == TypeTableEntryIdBool);
             return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
-
-        case CastOpIntToEnum:
-            return gen_widen_or_shorten(g, ir_want_debug_safety(g, &cast_instruction->base),
-                    actual_type, wanted_type->data.enumeration.tag_type, expr_val);
     }
     zig_unreachable();
 }
@@ -1120,6 +1116,24 @@ static LLVMValueRef ir_render_ptr_to_int(CodeGen *g, IrExecutable *executable, I
     TypeTableEntry *wanted_type = instruction->base.value.type;
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     return LLVMBuildPtrToInt(g->builder, target_val, wanted_type->type_ref, "");
+}
+
+static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutable *executable, IrInstructionIntToEnum *instruction) {
+    TypeTableEntry *wanted_type = instruction->base.value.type;
+    assert(wanted_type->id == TypeTableEntryIdEnum);
+    TypeTableEntry *tag_type = wanted_type->data.enumeration.tag_type;
+    TypeTableEntry *wanted_int_type;
+    if (tag_type->id == TypeTableEntryIdEnumTag) {
+        wanted_int_type = tag_type->data.enum_tag.int_type;
+    } else if (tag_type->id == TypeTableEntryIdInt) {
+        wanted_int_type = tag_type;
+    } else {
+        zig_unreachable();
+    }
+
+    LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+    return gen_widen_or_shorten(g, ir_want_debug_safety(g, &instruction->base),
+            instruction->target->value.type, wanted_int_type, target_val);
 }
 
 static LLVMValueRef ir_render_unreachable(CodeGen *g, IrExecutable *executable,
@@ -2359,6 +2373,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_ptr_to_int(g, executable, (IrInstructionPtrToInt *)instruction);
         case IrInstructionIdIntToPtr:
             return ir_render_int_to_ptr(g, executable, (IrInstructionIntToPtr *)instruction);
+        case IrInstructionIdIntToEnum:
+            return ir_render_int_to_enum(g, executable, (IrInstructionIntToEnum *)instruction);
         case IrInstructionIdContainerInitList:
             return ir_render_container_init_list(g, executable, (IrInstructionContainerInitList *)instruction);
         case IrInstructionIdSwitchVar:

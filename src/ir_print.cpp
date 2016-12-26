@@ -952,6 +952,12 @@ static void ir_print_int_to_ptr(IrPrint *irp, IrInstructionIntToPtr *instruction
     fprintf(irp->f, ")");
 }
 
+static void ir_print_int_to_enum(IrPrint *irp, IrInstructionIntToEnum *instruction) {
+    fprintf(irp->f, "@intToEnum(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1202,6 +1208,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdIntToPtr:
             ir_print_int_to_ptr(irp, (IrInstructionIntToPtr *)instruction);
+            break;
+        case IrInstructionIdIntToEnum:
+            ir_print_int_to_enum(irp, (IrInstructionIntToEnum *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -96,6 +96,23 @@ fn shouldEqual(n: Number, expected: usize) {
 }
 
 
+fn intToEnum() {
+    @setFnTest(this);
+
+    testIntToEnumEval(3);
+}
+fn testIntToEnumEval(x: i32) {
+    assert(IntToEnumNumber(x) == IntToEnumNumber.Three);
+}
+const IntToEnumNumber = enum {
+    Zero,
+    One,
+    Two,
+    Three,
+    Four,
+};
+
+
 // TODO import from std
 fn assert(ok: bool) {
     if (!ok)

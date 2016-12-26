@@ -468,6 +468,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionIntToPtr *) {
     return IrInstructionIdIntToPtr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionIntToEnum *) {
+    return IrInstructionIdIntToEnum;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1924,6 +1928,18 @@ static IrInstruction *ir_build_ptr_to_int(IrBuilder *irb, Scope *scope, AstNode 
         IrInstruction *target)
 {
     IrInstructionPtrToInt *instruction = ir_build_instruction<IrInstructionPtrToInt>(
+            irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_int_to_enum(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *target)
+{
+    IrInstructionIntToEnum *instruction = ir_build_instruction<IrInstructionIntToEnum>(
             irb, scope, source_node);
     instruction->target = target;
 
@@ -4720,16 +4736,6 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
             bignum_init_unsigned(&const_val->data.x_bignum, other_val->data.x_bool ? 1 : 0);
             const_val->special = ConstValSpecialStatic;
             break;
-        case CastOpIntToEnum:
-            {
-                uint64_t value = other_val->data.x_bignum.data.x_uint;
-                assert(new_type->id == TypeTableEntryIdEnum);
-                assert(value < new_type->data.enumeration.src_field_count);
-                const_val->data.x_enum.tag = value;
-                const_val->data.x_enum.payload = NULL;
-                const_val->special = ConstValSpecialStatic;
-                break;
-            }
     }
 }
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
@@ -5311,6 +5317,27 @@ static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *sourc
     return result;
 }
 
+static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *target, TypeTableEntry *wanted_type)
+{
+    assert(wanted_type->id == TypeTableEntryIdEnum);
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, wanted_type, val->depends_on_compile_var);
+        result->value.data.x_enum.tag = val->data.x_bignum.data.x_uint;
+        return result;
+    }
+
+    IrInstruction *result = ir_build_int_to_enum(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, target);
+    result->value.type = wanted_type;
+    return result;
+}
+
 static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_instr,
     TypeTableEntry *wanted_type, IrInstruction *value)
 {
@@ -5533,7 +5560,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         wanted_type->id == TypeTableEntryIdEnum &&
         wanted_type->data.enumeration.gen_field_count == 0)
     {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpIntToEnum, false);
+        return ir_analyze_int_to_enum(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from enum type with no payload to integer
@@ -10016,6 +10043,7 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdWidenOrShorten:
         case IrInstructionIdIntToPtr:
         case IrInstructionIdPtrToInt:
+        case IrInstructionIdIntToEnum:
         case IrInstructionIdStructInit:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -10325,6 +10353,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdWidenOrShorten:
         case IrInstructionIdPtrToInt:
         case IrInstructionIdIntToPtr:
+        case IrInstructionIdIntToEnum:
             return false;
         case IrInstructionIdAsm:
             {

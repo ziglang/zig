@@ -80,20 +80,3 @@ fn castSliceToU8Slice() {
     assert(bytes[10] == @maxValue(u8));
     assert(bytes[11] == @maxValue(u8));
 }
-
-// TODO not passing
-fn intToEnum() {
-    @setFnTest(this);
-
-    testIntToEnumEval(3);
-}
-fn testIntToEnumEval(x: i32) {
-    assert(IntToEnumNumber(x) == IntToEnumNumber.Three);
-}
-const IntToEnumNumber = enum {
-    Zero,
-    One,
-    Two,
-    Three,
-    Four,
-};

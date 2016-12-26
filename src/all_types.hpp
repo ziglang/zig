@@ -437,7 +437,6 @@ enum CastOp {
     CastOpFloatToInt,
     CastOpBoolToInt,
     CastOpResizeSlice,
-    CastOpIntToEnum,
     CastOpBytesToSlice,
 };
 
@@ -1458,6 +1457,7 @@ enum IrInstructionId {
     IrInstructionIdWidenOrShorten,
     IrInstructionIdIntToPtr,
     IrInstructionIdPtrToInt,
+    IrInstructionIdIntToEnum,
 };
 
 struct IrInstruction {
@@ -2113,6 +2113,12 @@ struct IrInstructionPtrToInt {
 };
 
 struct IrInstructionIntToPtr {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionIntToEnum {
     IrInstruction base;
 
     IrInstruction *target;
