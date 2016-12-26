@@ -86,6 +86,20 @@ fn fnWithUnreachable() -> unreachable {
 }
 
 
+fn functionPointers() {
+    @setFnTest(this);
+
+    const fns = []@typeOf(fn1) { fn1, fn2, fn3, fn4, };
+    for (fns) |f, i| {
+        assert(f() == u32(i) + 5);
+    }
+}
+fn fn1() -> u32 {5}
+fn fn2() -> u32 {6}
+fn fn3() -> u32 {7}
+fn fn4() -> u32 {8}
+
+
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {

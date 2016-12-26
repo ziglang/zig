@@ -55,10 +55,37 @@ const ArrayDotLenConstExpr = struct {
 const some_array = []u8 {0, 1, 2, 3};
 
 
+fn nestedArrays() {
+    @setFnTest(this);
+
+    const array_of_strings = [][]u8 {"hello", "this", "is", "my", "thing"};
+    for (array_of_strings) |s, i| {
+        if (i == 0) assert(memeql(s, "hello"));
+        if (i == 1) assert(memeql(s, "this"));
+        if (i == 2) assert(memeql(s, "is"));
+        if (i == 3) assert(memeql(s, "my"));
+        if (i == 4) assert(memeql(s, "thing"));
+    }
+}
+
 
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
     if (!ok)
         @unreachable();
+}
+
+// TODO import from std.str
+pub fn memeql(a: []const u8, b: []const u8) -> bool {
+    sliceEql(u8, a, b)
+}
+
+// TODO import from std.str
+pub fn sliceEql(inline T: type, a: []const T, b: []const T) -> bool {
+    if (a.len != b.len) return false;
+    for (a) |item, index| {
+        if (b[index] != item) return false;
+    }
+    return true;
 }

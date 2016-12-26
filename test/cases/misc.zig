@@ -322,6 +322,102 @@ fn outer() -> i64 {
 }
 
 
+fn pointerDereferencing() {
+    @setFnTest(this);
+
+    var x = i32(3);
+    const y = &x;
+
+    *y += 1;
+
+    assert(x == 4);
+    assert(*y == 4);
+}
+
+fn callResultOfIfElseExpression() {
+    @setFnTest(this);
+
+    assert(memeql(f2(true), "a"));
+    assert(memeql(f2(false), "b"));
+}
+fn f2(x: bool) -> []u8 {
+    return (if (x) fA else fB)();
+}
+fn fA() -> []u8 { "a" }
+fn fB() -> []u8 { "b" }
+
+
+fn constExpressionEvalHandlingOfVariables() {
+    @setFnTest(this);
+
+    var x = true;
+    while (x) {
+        x = false;
+    }
+}
+
+
+
+fn constantEnumInitializationWithDifferingSizes() {
+    @setFnTest(this);
+
+    test3_1(test3_foo);
+    test3_2(test3_bar);
+}
+const Test3Foo = enum {
+    One,
+    Two: f32,
+    Three: Test3Point,
+};
+const Test3Point = struct {
+    x: i32,
+    y: i32,
+};
+const test3_foo = Test3Foo.Three{Test3Point {.x = 3, .y = 4}};
+const test3_bar = Test3Foo.Two{13};
+fn test3_1(f: Test3Foo) {
+    switch (f) {
+        Test3Foo.Three => |pt| {
+            assert(pt.x == 3);
+            assert(pt.y == 4);
+        },
+        else => @unreachable(),
+    }
+}
+fn test3_2(f: Test3Foo) {
+    switch (f) {
+        Test3Foo.Two => |x| {
+            assert(x == 13);
+        },
+        else => @unreachable(),
+    }
+}
+
+
+fn characterLiterals() {
+    @setFnTest(this);
+
+    assert('\'' == single_quote);
+}
+const single_quote = '\'';
+
+
+
+fn takeAddressOfParameter() {
+    @setFnTest(this);
+
+    testTakeAddressOfParameter(12.34);
+}
+fn testTakeAddressOfParameter(f: f32) {
+    const f_ptr = &f;
+    assert(*f_ptr == 12.34);
+}
+
+
+
+
+
+
 // TODO import from std.str
 pub fn memeql(a: []const u8, b: []const u8) -> bool {
     sliceEql(u8, a, b)

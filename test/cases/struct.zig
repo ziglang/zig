@@ -158,6 +158,47 @@ const MemberFnRand = struct {
     }
 };
 
+fn returnStructByvalFromFunction() {
+    @setFnTest(this);
+
+    const bar = makeBar(1234, 5678);
+    assert(bar.y == 5678);
+}
+const Bar = struct {
+    x: i32,
+    y: i32,
+};
+fn makeBar(x: i32, y: i32) -> Bar {
+    Bar {
+        .x = x,
+        .y = y,
+    }
+}
+
+fn emptyStructMethodCall() {
+    @setFnTest(this);
+
+    const es = EmptyStruct{};
+    assert(es.method() == 1234);
+}
+const EmptyStruct = struct {
+    fn method(es: EmptyStruct) -> i32 {
+        1234
+    }
+};
+
+
+fn returnEmptyStructFromFn() {
+    @setFnTest(this);
+
+    testReturnEmptyStructFromFn();
+}
+const EmptyStruct2 = struct {};
+fn testReturnEmptyStructFromFn() -> EmptyStruct2 {
+    EmptyStruct2 {}
+}
+
+
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {

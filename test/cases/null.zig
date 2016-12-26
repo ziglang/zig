@@ -54,6 +54,44 @@ fn maybeReturn() {
     assert(!??foo(1234));
 }
 
+
+fn ifVarMaybePointer() {
+    @setFnTest(this);
+
+    assert(shouldBeAPlus1(Particle {.a = 14, .b = 1, .c = 1, .d = 1}) == 15);
+}
+fn shouldBeAPlus1(p: Particle) -> u64 {
+    var maybe_particle: ?Particle = p;
+    if (const *particle ?= maybe_particle) {
+        particle.a += 1;
+    }
+    if (const particle ?= maybe_particle) {
+        return particle.a;
+    }
+    return 0;
+}
+const Particle = struct {
+    a: u64,
+    b: u64,
+    c: u64,
+    d: u64,
+};
+
+
+fn nullLiteralOutsideFunction() {
+    @setFnTest(this);
+
+    const is_null = if (const _ ?= here_is_a_null_literal.context) false else true;
+    assert(is_null);
+}
+const SillyStruct = struct {
+    context: ?i32,
+};
+const here_is_a_null_literal = SillyStruct {
+    .context = null,
+};
+
+
 // TODO test static eval maybe return
 fn foo(x: ?i32) -> ?bool {
     const value = ?return x;

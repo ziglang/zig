@@ -110,6 +110,57 @@ pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
     }
 }
 
+
+fn constantExpressions() {
+    @setFnTest(this);
+
+    var array : [array_size]u8 = undefined;
+    assert(@sizeOf(@typeOf(array)) == 20);
+}
+const array_size : u8 = 20;
+
+
+fn constantStructWithNegation() {
+    @setFnTest(this);
+
+    assert(vertices[0].x == -0.6);
+}
+const Vertex = struct {
+    x: f32,
+    y: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+};
+const vertices = []Vertex {
+    Vertex { .x = -0.6, .y = -0.4, .r = 1.0, .g = 0.0, .b = 0.0 },
+    Vertex { .x =  0.6, .y = -0.4, .r = 0.0, .g = 1.0, .b = 0.0 },
+    Vertex { .x =  0.0, .y =  0.6, .r = 0.0, .g = 0.0, .b = 1.0 },
+};
+
+
+fn staticallyInitalizedStruct() {
+    @setFnTest(this);
+
+    st_init_str_foo.x += 1;
+    assert(st_init_str_foo.x == 14);
+}
+const StInitStrFoo = struct {
+    x: i32,
+    y: bool,
+};
+var st_init_str_foo = StInitStrFoo { .x = 13, .y = true, };
+
+
+fn staticallyInitializedArrayLiteral() {
+    @setFnTest(this);
+
+    const y : [4]u8 = st_init_arr_lit_x;
+    assert(y[3] == 4);
+}
+const st_init_arr_lit_x = []u8{1,2,3,4};
+
+
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
     if (!ok)

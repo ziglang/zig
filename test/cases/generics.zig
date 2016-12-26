@@ -88,6 +88,46 @@ fn functionWithReturnTypeType() {
     assert(list2.prealloc_items.len == 8);
 }
 
+
+fn genericStruct() {
+    @setFnTest(this);
+
+    var a1 = GenNode(i32) {.value = 13, .next = null,};
+    var b1 = GenNode(bool) {.value = true, .next = null,};
+    assert(a1.value == 13);
+    assert(a1.value == a1.getVal());
+    assert(b1.getVal());
+}
+fn GenNode(inline T: type) -> type {
+    struct {
+        value: T,
+        next: ?&GenNode(T),
+        fn getVal(n: &const GenNode(T)) -> T { n.value }
+    }
+}
+
+fn constDeclsInStruct() {
+    @setFnTest(this);
+
+    assert(GenericDataThing(3).count_plus_one == 4);
+}
+fn GenericDataThing(inline count: isize) -> type {
+    struct {
+        const count_plus_one = count + 1;
+    }
+}
+
+
+fn useGenericParamInGenericParam() {
+    @setFnTest(this);
+
+    assert(aGenericFn(i32, 3, 4) == 7);
+}
+fn aGenericFn(inline T: type, inline a: T, b: T) -> T {
+    return a + b;
+}
+
+
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
     if (!ok)

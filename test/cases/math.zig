@@ -101,6 +101,70 @@ const ten = 10;
 
 
 
+fn unsignedWrapping() {
+    @setFnTest(this);
+
+    testUnsignedWrappingEval(@maxValue(u32));
+}
+fn testUnsignedWrappingEval(x: u32) {
+    const zero = x +% 1;
+    assert(zero == 0);
+    const orig = zero -% 1;
+    assert(orig == @maxValue(u32));
+}
+
+fn signedWrapping() {
+    @setFnTest(this);
+
+    testSignedWrappingEval(@maxValue(i32));
+}
+fn testSignedWrappingEval(x: i32) {
+    const min_val = x +% 1;
+    assert(min_val == @minValue(i32));
+    const max_val = min_val -% 1;
+    assert(max_val == @maxValue(i32));
+}
+
+fn negationWrapping() {
+    @setFnTest(this);
+
+    testNegationWrappingEval(@minValue(i16));
+}
+fn testNegationWrappingEval(x: i16) {
+    assert(x == -32768);
+    const neg = -%x;
+    assert(neg == -32768);
+}
+
+fn shlWrapping() {
+    @setFnTest(this);
+
+    testShlWrappingEval(@maxValue(u16));
+}
+fn testShlWrappingEval(x: u16) {
+    const shifted = x <<% 1;
+    assert(shifted == 65534);
+}
+
+fn unsigned64BitDivision() {
+    @setFnTest(this);
+
+    const result = div(1152921504606846976, 34359738365);
+    assert(result.quotient == 33554432);
+    assert(result.remainder == 100663296);
+}
+fn div(a: u64, b: u64) -> DivResult {
+    DivResult {
+        .quotient = a / b,
+        .remainder = a % b,
+    }
+}
+const DivResult = struct {
+    quotient: u64,
+    remainder: u64,
+};
+
+
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {
     if (!ok)

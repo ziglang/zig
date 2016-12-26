@@ -95,6 +95,7 @@ fn shouldEqual(n: Number, expected: usize) {
     assert(usize(n) == expected);
 }
 
+
 // TODO import from std
 fn assert(ok: bool) {
     if (!ok)

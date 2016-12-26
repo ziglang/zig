@@ -114,6 +114,19 @@ fn switchProngWithVarFn(a: SwitchProngWithVarEnum) {
 }
 
 
+fn switchWithMultipleExpressions() {
+    @setFnTest(this);
+
+    const x = switch (returnsFive()) {
+        1, 2, 3 => 1,
+        4, 5, 6 => 2,
+        else => i32(3),
+    };
+    assert(x == 2);
+}
+fn returnsFive() -> i32 {
+    5
+}
 
 
 // TODO const assert = @import("std").debug.assert;
