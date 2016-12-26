@@ -8,8 +8,8 @@ fn namespaceDependsOnCompileVar() {
     }
 }
 const some_namespace = switch(@compileVar("os")) {
-    Os.linux => @import("cases3/namespace_depends_on_compile_var/a.zig"),
-    else => @import("cases3/namespace_depends_on_compile_var/b.zig"),
+    Os.linux => @import("cases/namespace_depends_on_compile_var/a.zig"),
+    else => @import("cases/namespace_depends_on_compile_var/b.zig"),
 };
 
 // TODO const assert = @import("std").debug.assert;

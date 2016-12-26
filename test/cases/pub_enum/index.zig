@@ -1,4 +1,4 @@
-const other = @import("cases3/pub_enum/other.zig");
+const other = @import("cases/pub_enum/other.zig");
 
 fn pubEnum() {
     @setFnTest(this);

@@ -1,4 +1,4 @@
-const a_namespace = @import("cases3/import/a_namespace.zig");
+const a_namespace = @import("cases/import/a_namespace.zig");
 
 fn callFnViaNamespaceLookup() {
     @setFnTest(this);
