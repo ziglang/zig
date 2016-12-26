@@ -2839,7 +2839,6 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMetaType:
-        case TypeTableEntryIdVoid:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -2857,6 +2856,7 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdVoid:
             return false;
     }
     zig_unreachable();

@@ -6350,13 +6350,13 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
     if (casted_arg->value.type->id == TypeTableEntryIdInvalid)
         return false;
 
-    ConstExprValue *first_arg_val = ir_resolve_const(ira, casted_arg, UndefBad);
-    if (!first_arg_val)
+    ConstExprValue *arg_val = ir_resolve_const(ira, casted_arg, UndefBad);
+    if (!arg_val)
         return false;
 
     Buf *param_name = param_decl_node->data.param_decl.name;
     VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
-        *exec_scope, param_name, true, first_arg_val);
+        *exec_scope, param_name, true, arg_val);
     *exec_scope = var->child_scope;
     *next_proto_i += 1;
 

@@ -278,6 +278,20 @@ fn explicitCastMaybePointers() {
     const b: ?&f32 = (?&f32)(a);
 }
 
+fn genericMallocFree() {
+    @setFnTest(this);
+
+    const a = %%memAlloc(u8, 10);
+    memFree(u8, a);
+}
+const some_mem : [100]u8 = undefined;
+fn memAlloc(inline T: type, n: usize) -> %[]T {
+    return (&T)(&some_mem[0])[0...n];
+}
+fn memFree(inline T: type, mem: []T) { }
+
+
+
 
 // TODO import from std.str
 pub fn memeql(a: []const u8, b: []const u8) -> bool {

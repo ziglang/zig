@@ -4,28 +4,6 @@ const str = std.str;
 const cstr = std.cstr;
 
 
-fn explicitCastMaybePointers() {
-    @setFnTest(this);
-
-    const a: ?&i32 = undefined;
-    const b: ?&f32 = (?&f32)(a);
-}
-
-fn genericMallocFree() {
-    @setFnTest(this, true);
-
-    const a = %%memAlloc(u8, 10);
-    memFree(u8, a);
-}
-const some_mem : [100]u8 = undefined;
-fn memAlloc(inline T: type, n: usize) -> %[]T {
-    @setFnStaticEval(this, false);
-
-    return (&T)(&some_mem[0])[0...n];
-}
-fn memFree(inline T: type, mem: []T) { }
-
-
 fn castUndefined() {
     @setFnTest(this, true);
 
