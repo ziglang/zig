@@ -1567,7 +1567,9 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef gen_non_null_bit(CodeGen *g, TypeTableEntry *maybe_type, LLVMValueRef maybe_handle) {
-    bool maybe_is_ptr = (maybe_type->id == TypeTableEntryIdPointer || maybe_type->id == TypeTableEntryIdFn);
+    assert(maybe_type->id == TypeTableEntryIdMaybe);
+    TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
+    bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
     if (maybe_is_ptr) {
         return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(maybe_type->type_ref), "");
     } else {
