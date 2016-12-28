@@ -325,6 +325,8 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             scope->di_scope = ZigLLVMLexicalBlockToScope(di_block);
             return scope->di_scope;
         }
+        case ScopeIdDeferExpr:
+            return get_di_scope(g, scope->parent);
     }
     zig_unreachable();
 }

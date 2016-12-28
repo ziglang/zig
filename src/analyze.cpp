@@ -163,6 +163,13 @@ ScopeDefer *create_defer_scope(AstNode *node, Scope *parent) {
     return scope;
 }
 
+ScopeDeferExpr *create_defer_expr_scope(AstNode *node, Scope *parent) {
+    assert(node->type == NodeTypeDefer);
+    ScopeDeferExpr *scope = allocate<ScopeDeferExpr>(1);
+    init_scope(&scope->base, ScopeIdDeferExpr, node, parent);
+    return scope;
+}
+
 Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var) {
     ScopeVarDecl *scope = allocate<ScopeVarDecl>(1);
     init_scope(&scope->base, ScopeIdVarDecl, node, parent);
@@ -2183,6 +2190,7 @@ FnTableEntry *scope_get_fn_if_root(Scope *scope) {
                 return nullptr;
             case ScopeIdDecls:
             case ScopeIdDefer:
+            case ScopeIdDeferExpr:
             case ScopeIdVarDecl:
             case ScopeIdCImport:
             case ScopeIdLoop:

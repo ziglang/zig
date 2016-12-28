@@ -1980,7 +1980,7 @@ static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *o
                 (gen_maybe_defers && defer_kind == ReturnKindMaybe))
             {
                 AstNode *defer_expr_node = defer_node->data.defer.expr;
-                ir_gen_node(irb, defer_expr_node, defer_node->data.defer.parent_scope);
+                ir_gen_node(irb, defer_expr_node, defer_node->data.defer.expr_scope);
             }
 
         }
@@ -1994,12 +1994,33 @@ static void ir_set_cursor_at_end(IrBuilder *irb, IrBasicBlock *basic_block) {
     irb->current_basic_block = basic_block;
 }
 
+static ScopeDeferExpr *get_scope_defer_expr(Scope *scope) {
+    while (scope) {
+        if (scope->id == ScopeIdDeferExpr)
+            return (ScopeDeferExpr *)scope;
+        if (scope->id == ScopeIdFnDef)
+            return nullptr;
+
+        scope = scope->parent;
+    }
+    return nullptr;
+}
+
 static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node, LValPurpose lval) {
     assert(node->type == NodeTypeReturnExpr);
 
     FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
     if (!fn_entry) {
         add_node_error(irb->codegen, node, buf_sprintf("return expression outside function definition"));
+        return irb->codegen->invalid_instruction;
+    }
+
+    ScopeDeferExpr *scope_defer_expr = get_scope_defer_expr(scope);
+    if (scope_defer_expr) {
+        if (!scope_defer_expr->reported_err) {
+            add_node_error(irb->codegen, node, buf_sprintf("cannot return from defer expression"));
+            scope_defer_expr->reported_err = true;
+        }
         return irb->codegen->invalid_instruction;
     }
 
@@ -2593,6 +2614,8 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
         return irb->codegen->invalid_instruction;
     }
 
+    // TODO put a variable of same name with invalid type in global scope
+    // so that future references to this same name will find a variable with an invalid type
     add_node_error(irb->codegen, node, buf_sprintf("use of undeclared identifier '%s'", buf_ptr(variable_name)));
     return irb->codegen->invalid_instruction;
 }
@@ -4012,9 +4035,11 @@ static IrInstruction *ir_gen_error_type(IrBuilder *irb, Scope *scope, AstNode *n
 static IrInstruction *ir_gen_defer(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeDefer);
 
-    ScopeDefer *defer_scope = create_defer_scope(node, parent_scope);
-    node->data.defer.child_scope = &defer_scope->base;
-    node->data.defer.parent_scope = parent_scope;
+    ScopeDefer *defer_child_scope = create_defer_scope(node, parent_scope);
+    node->data.defer.child_scope = &defer_child_scope->base;
+
+    ScopeDeferExpr *defer_expr_scope = create_defer_expr_scope(node, parent_scope);
+    node->data.defer.expr_scope = &defer_expr_scope->base;
 
     return ir_build_const_void(irb, parent_scope, node);
 }
@@ -4665,6 +4690,8 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             ir_add_error_node(ira, source_node,
                 buf_sprintf("unable to make error union out of null literal"));
             return ira->codegen->builtin_types.entry_invalid;
+        } else if (prev_inst->value.type->id == TypeTableEntryIdErrorUnion) {
+            return prev_inst->value.type;
         } else {
             return get_error_type(ira->codegen, prev_inst->value.type);
         }
@@ -4675,6 +4702,8 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             ir_add_error_node(ira, source_node,
                 buf_sprintf("unable to make maybe out of number literal"));
             return ira->codegen->builtin_types.entry_invalid;
+        } else if (prev_inst->value.type->id == TypeTableEntryIdMaybe) {
+            return prev_inst->value.type;
         } else {
             return get_maybe_type(ira->codegen, prev_inst->value.type);
         }
@@ -9955,6 +9984,7 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_code(IrAnalyze *ira,
 static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
     IrInstructionUnwrapErrPayload *instruction)
 {
+    assert(instruction->value->other);
     IrInstruction *value = instruction->value->other;
     if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;

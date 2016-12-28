@@ -84,6 +84,7 @@ void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *
 
 ScopeBlock *create_block_scope(AstNode *node, Scope *parent);
 ScopeDefer *create_defer_scope(AstNode *node, Scope *parent);
+ScopeDeferExpr *create_defer_expr_scope(AstNode *node, Scope *parent);
 Scope *create_var_scope(AstNode *node, Scope *parent, VariableTableEntry *var);
 ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent);
 Scope *create_loop_scope(AstNode *node, Scope *parent);

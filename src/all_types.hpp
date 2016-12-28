@@ -344,7 +344,7 @@ struct AstNodeDefer {
 
     // temporary data used in IR generation
     Scope *child_scope;
-    Scope *parent_scope;
+    Scope *expr_scope;
 };
 
 struct AstNodeVariableDeclaration {
@@ -1280,6 +1280,7 @@ enum ScopeId {
     ScopeIdDecls,
     ScopeIdBlock,
     ScopeIdDefer,
+    ScopeIdDeferExpr,
     ScopeIdVarDecl,
     ScopeIdCImport,
     ScopeIdLoop,
@@ -1321,9 +1322,19 @@ struct ScopeBlock {
 };
 
 // This scope is created from every defer expression.
+// It's the code following the defer statement.
 // NodeTypeDefer
 struct ScopeDefer {
     Scope base;
+};
+
+// This scope is created from every defer expression.
+// It's the parent of the defer expression itself.
+// NodeTypeDefer
+struct ScopeDeferExpr {
+    Scope base;
+
+    bool reported_err;
 };
 
 // This scope is created for every variable declaration inside an IrExecutable
