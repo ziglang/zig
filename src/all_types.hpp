@@ -235,6 +235,7 @@ struct TypeEnumField {
     Buf *name;
     TypeTableEntry *type_entry;
     uint32_t value;
+    uint32_t gen_index;
 };
 
 enum NodeType {
@@ -813,6 +814,9 @@ struct TypeTableEntryStruct {
     bool reported_infinite_err;
     // whether we've finished resolving it
     bool complete;
+
+    bool zero_bits_loop_flag;
+    bool zero_bits_known;
 };
 
 struct TypeTableEntryMaybe {
@@ -840,6 +844,9 @@ struct TypeTableEntryEnum {
     bool reported_infinite_err;
     // whether we've finished resolving it
     bool complete;
+
+    bool zero_bits_loop_flag;
+    bool zero_bits_known;
 };
 
 struct TypeTableEntryEnumTag {
@@ -862,6 +869,9 @@ struct TypeTableEntryUnion {
     bool reported_infinite_err;
     // whether we've finished resolving it
     bool complete;
+
+    bool zero_bits_loop_flag;
+    bool zero_bits_known;
 };
 
 struct FnGenParamInfo {

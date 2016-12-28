@@ -20,6 +20,10 @@ static const size_t default_backward_branch_quota = 1000;
 static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type);
 static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type);
 
+static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type);
+static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type);
+static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type);
+
 AstNode *first_executing_node(AstNode *node) {
     switch (node->type) {
         case NodeTypeFnCallExpr:
@@ -257,6 +261,44 @@ bool type_is_complete(TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
+bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+        case TypeTableEntryIdStruct:
+            return type_entry->data.structure.zero_bits_known;
+        case TypeTableEntryIdEnum:
+            return type_entry->data.enumeration.zero_bits_known;
+        case TypeTableEntryIdUnion:
+            return type_entry->data.unionation.zero_bits_known;
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdTypeDecl:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdEnumTag:
+            return true;
+    }
+    zig_unreachable();
+}
+
+
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry) {
     if (type_has_bits(type_entry)) {
         return LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
@@ -475,13 +517,14 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
         return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
-        entry->type_ref = child_type->type_ref ? LLVMArrayType(child_type->type_ref, array_size) : nullptr;
         entry->zero_bits = (array_size == 0) || child_type->zero_bits;
 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
 
         if (!entry->zero_bits) {
+            entry->type_ref = child_type->type_ref ? LLVMArrayType(child_type->type_ref, array_size) : nullptr;
+
             uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
             uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
 
@@ -507,14 +550,21 @@ static void slice_type_common_init(CodeGen *g, TypeTableEntry *child_type,
     entry->data.structure.src_field_count = element_count;
     entry->data.structure.gen_field_count = element_count;
     entry->data.structure.fields = allocate<TypeStructField>(element_count);
-    entry->data.structure.fields[0].name = buf_create_from_str("ptr");
-    entry->data.structure.fields[0].type_entry = pointer_type;
-    entry->data.structure.fields[0].src_index = 0;
-    entry->data.structure.fields[0].gen_index = 0;
-    entry->data.structure.fields[1].name = buf_create_from_str("len");
-    entry->data.structure.fields[1].type_entry = g->builtin_types.entry_usize;
-    entry->data.structure.fields[1].src_index = 1;
-    entry->data.structure.fields[1].gen_index = 1;
+    entry->data.structure.fields[slice_ptr_index].name = buf_create_from_str("ptr");
+    entry->data.structure.fields[slice_ptr_index].type_entry = pointer_type;
+    entry->data.structure.fields[slice_ptr_index].src_index = slice_ptr_index;
+    entry->data.structure.fields[slice_ptr_index].gen_index = 0;
+    entry->data.structure.fields[slice_len_index].name = buf_create_from_str("len");
+    entry->data.structure.fields[slice_len_index].type_entry = g->builtin_types.entry_usize;
+    entry->data.structure.fields[slice_len_index].src_index = slice_len_index;
+    entry->data.structure.fields[slice_len_index].gen_index = 1;
+
+    assert(type_has_zero_bits_known(child_type));
+    if (child_type->zero_bits) {
+        entry->data.structure.gen_field_count = 1;
+        entry->data.structure.fields[slice_ptr_index].gen_index = SIZE_MAX;
+        entry->data.structure.fields[slice_len_index].gen_index = 0;
+    }
 }
 
 TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
@@ -535,6 +585,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
         entry->type_ref = var_peer->type_ref;
         entry->di_type = var_peer->di_type;
         entry->data.structure.complete = true;
+        entry->data.structure.zero_bits_known = true;
 
         *parent_pointer = entry;
         return entry;
@@ -544,7 +595,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
         // If the child type is []const T then we need to make sure the type ref
         // and debug info is the same as if the child type were []T.
         if (is_slice(child_type)) {
-            TypeTableEntry *ptr_type = child_type->data.structure.fields[0].type_entry;
+            TypeTableEntry *ptr_type = child_type->data.structure.fields[slice_ptr_index].type_entry;
             assert(ptr_type->id == TypeTableEntryIdPointer);
             if (ptr_type->data.pointer.is_const) {
                 TypeTableEntry *non_const_child_type = get_slice_type(g,
@@ -560,11 +611,6 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
         buf_appendf(&entry->name, "[]%s", buf_ptr(&child_type->name));
 
         slice_type_common_init(g, child_type, is_const, entry);
-        if (child_type->zero_bits) {
-            entry->data.structure.gen_field_count = 1;
-            entry->data.structure.fields[0].gen_index = SIZE_MAX;
-            entry->data.structure.fields[1].gen_index = 0;
-        }
 
         if (!entry->type_ref) {
             entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), buf_ptr(&entry->name));
@@ -581,12 +627,6 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
                     g->builtin_types.entry_usize->type_ref,
                 };
                 LLVMStructSetBody(entry->type_ref, element_types, 1, false);
-
-                slice_type_common_init(g, child_type, is_const, entry);
-
-                entry->data.structure.gen_field_count = 1;
-                entry->data.structure.fields[0].gen_index = -1;
-                entry->data.structure.fields[1].gen_index = 0;
 
                 TypeTableEntry *usize_type = g->builtin_types.entry_usize;
                 uint64_t len_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, usize_type->type_ref);
@@ -621,8 +661,6 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
                     g->builtin_types.entry_usize->type_ref,
                 };
                 LLVMStructSetBody(entry->type_ref, element_types, element_count, false);
-
-                slice_type_common_init(g, child_type, is_const, entry);
 
 
                 uint64_t ptr_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, pointer_type->type_ref);
@@ -664,6 +702,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
 
 
         entry->data.structure.complete = true;
+        entry->data.structure.zero_bits_known = true;
 
         *parent_pointer = entry;
         return entry;
@@ -706,6 +745,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (table_entry) {
         return table_entry->value;
     }
+    ensure_complete_type(g, fn_type_id->return_type);
 
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
     fn_type->data.fn.fn_type_id = *fn_type_id;
@@ -750,7 +790,6 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     // next, loop over the parameters again and compute debug information
     // and codegen information
     if (!skip_debug_info) {
-        ensure_complete_type(g, fn_type_id->return_type);
         bool first_arg_return = !fn_type_id->is_extern && handle_is_ptr(fn_type_id->return_type);
         // +1 for maybe making the first argument the return value
         LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
@@ -1056,33 +1095,31 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     // if you change this logic you likely must also change similar logic in parseh.cpp
     assert(enum_type->id == TypeTableEntryIdEnum);
 
+    resolve_enum_zero_bits(g, enum_type);
+    if (enum_type->data.enumeration.is_invalid)
+        return;
+
     AstNode *decl_node = enum_type->data.enumeration.decl_node;
 
     if (enum_type->data.enumeration.embedded_in_current) {
         if (!enum_type->data.enumeration.reported_infinite_err) {
             enum_type->data.enumeration.reported_infinite_err = true;
-            add_node_error(g, decl_node, buf_sprintf("enum has infinite size"));
+            add_node_error(g, decl_node, buf_sprintf("enum contains itself"));
         }
         return;
     }
 
-    if (enum_type->data.enumeration.fields) {
-        // we already resolved this type. skip
-        return;
-    }
-
+    assert(!enum_type->data.enumeration.zero_bits_loop_flag);
     assert(decl_node->type == NodeTypeContainerDecl);
     assert(enum_type->di_type);
 
-    uint32_t field_count = decl_node->data.container_decl.fields.length;
+    uint32_t field_count = enum_type->data.enumeration.src_field_count;
 
-    enum_type->data.enumeration.src_field_count = field_count;
-    enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+    assert(enum_type->data.enumeration.fields);
     ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
 
-    // we possibly allocate too much here since gen_field_count can be lower than field_count.
-    // the only problem is potential wasted space though.
-    ZigLLVMDIType **union_inner_di_types = allocate<ZigLLVMDIType*>(field_count);
+    uint32_t gen_field_count = enum_type->data.enumeration.gen_field_count;
+    ZigLLVMDIType **union_inner_di_types = allocate<ZigLLVMDIType*>(gen_field_count);
 
     TypeTableEntry *biggest_union_member = nullptr;
     uint64_t biggest_align_in_bits = 0;
@@ -1094,14 +1131,10 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     // set temporary flag
     enum_type->data.enumeration.embedded_in_current = true;
 
-    size_t gen_field_index = 0;
     for (uint32_t i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(i);
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
-        type_enum_field->name = field_node->data.struct_field.name;
-        TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
-        type_enum_field->type_entry = field_type;
-        type_enum_field->value = i;
+        TypeTableEntry *field_type = type_enum_field->type_entry;
 
         di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(type_enum_field->name), i);
 
@@ -1120,7 +1153,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
         assert(debug_size_in_bits > 0);
         assert(debug_align_in_bits > 0);
 
-        union_inner_di_types[gen_field_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
+        union_inner_di_types[type_enum_field->gen_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
                 ZigLLVMTypeToScope(enum_type->di_type), buf_ptr(type_enum_field->name),
                 import->di_file, field_node->line + 1,
                 debug_size_in_bits,
@@ -1136,8 +1169,6 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             biggest_union_member = field_type;
             biggest_union_member_size_in_bits = debug_size_in_bits;
         }
-
-        gen_field_index += 1;
     }
 
     // unset temporary flag
@@ -1145,7 +1176,6 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     enum_type->data.enumeration.complete = true;
 
     if (!enum_type->data.enumeration.is_invalid) {
-        enum_type->data.enumeration.gen_field_count = gen_field_index;
         enum_type->data.enumeration.union_type = biggest_union_member;
 
         TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count);
@@ -1176,7 +1206,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             ZigLLVMDIType *union_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
                     ZigLLVMTypeToScope(enum_type->di_type), "AnonUnion", import->di_file, decl_node->line + 1,
                     biggest_union_member_size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
-                    gen_field_index, 0, "");
+                    gen_field_count, 0, "");
 
             // create debug types for members of root struct
             uint64_t tag_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, enum_type->type_ref, 0);
@@ -1233,9 +1263,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
 
             ZigLLVMReplaceTemporary(g->dbuilder, enum_type->di_type, tag_di_type);
             enum_type->di_type = tag_di_type;
-
         }
-
     }
 }
 
@@ -1244,51 +1272,38 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     // parseh.cpp
     assert(struct_type->id == TypeTableEntryIdStruct);
 
+    resolve_struct_zero_bits(g, struct_type);
+    if (struct_type->data.structure.is_invalid)
+        return;
+
     AstNode *decl_node = struct_type->data.structure.decl_node;
 
     if (struct_type->data.structure.embedded_in_current) {
         struct_type->data.structure.is_invalid = true;
         if (!struct_type->data.structure.reported_infinite_err) {
             struct_type->data.structure.reported_infinite_err = true;
-            add_node_error(g, decl_node,
-                    buf_sprintf("struct has infinite size"));
+            add_node_error(g, decl_node, buf_sprintf("struct contains itself"));
         }
         return;
     }
 
-    if (struct_type->data.structure.fields) {
-        // we already resolved this type. skip
-        return;
-    }
-
+    assert(!struct_type->data.structure.zero_bits_loop_flag);
+    assert(struct_type->data.enumeration.fields);
     assert(decl_node->type == NodeTypeContainerDecl);
-    assert(struct_type->di_type);
 
-    size_t field_count = decl_node->data.container_decl.fields.length;
+    size_t field_count = struct_type->data.structure.src_field_count;
 
-    struct_type->data.structure.src_field_count = field_count;
-    struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
-
-    // we possibly allocate too much here since gen_field_count can be lower than field_count.
-    // the only problem is potential wasted space though.
-    LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
+    size_t gen_field_count = struct_type->data.structure.gen_field_count;
+    LLVMTypeRef *element_types = allocate<LLVMTypeRef>(gen_field_count);
 
     // this field should be set to true only during the recursive calls to resolve_struct_type
     struct_type->data.structure.embedded_in_current = true;
 
     Scope *scope = &struct_type->data.structure.decls_scope->base;
-    ImportTableEntry *import = get_scope_import(scope);
 
-    size_t gen_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
-        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
-        type_struct_field->name = field_node->data.struct_field.name;
-        TypeTableEntry *field_type = analyze_type_expr(g, scope,
-                field_node->data.struct_field.type);
-        type_struct_field->type_entry = field_type;
-        type_struct_field->src_index = i;
-        type_struct_field->gen_index = SIZE_MAX;
+        TypeTableEntry *field_type = type_struct_field->type_entry;
 
         ensure_complete_type(g, field_type);
         if (field_type->id == TypeTableEntryIdInvalid) {
@@ -1299,31 +1314,31 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
         if (!type_has_bits(field_type))
             continue;
 
-        type_struct_field->gen_index = gen_field_index;
-
-        element_types[gen_field_index] = field_type->type_ref;
-        assert(element_types[gen_field_index]);
-
-        gen_field_index += 1;
+        element_types[type_struct_field->gen_index] = field_type->type_ref;
+        assert(element_types[type_struct_field->gen_index]);
     }
     struct_type->data.structure.embedded_in_current = false;
-
-    struct_type->data.structure.gen_field_count = gen_field_index;
     struct_type->data.structure.complete = true;
 
-    if (struct_type->data.structure.is_invalid) {
+    if (struct_type->data.structure.is_invalid)
+        return;
+
+    if (struct_type->zero_bits) {
+        struct_type->type_ref = LLVMVoidType();
+        struct_type->di_type = g->builtin_types.entry_void->di_type;
         return;
     }
+    assert(struct_type->di_type);
 
-    size_t gen_field_count = gen_field_index;
     LLVMStructSetBody(struct_type->type_ref, element_types, gen_field_count, false);
 
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(gen_field_count);
 
+    ImportTableEntry *import = get_scope_import(scope);
     for (size_t i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
-        gen_field_index = type_struct_field->gen_index;
+        size_t gen_field_index = type_struct_field->gen_index;
         if (gen_field_index == SIZE_MAX) {
             continue;
         }
@@ -1362,11 +1377,120 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
     struct_type->di_type = replacement_di_type;
 
-    struct_type->zero_bits = (debug_size_in_bits == 0);
+    assert((debug_size_in_bits == 0) == struct_type->zero_bits);
 }
 
 static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     zig_panic("TODO");
+}
+
+static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
+    assert(enum_type->id == TypeTableEntryIdEnum);
+
+    if (enum_type->data.enumeration.zero_bits_known)
+        return;
+
+    if (enum_type->data.enumeration.zero_bits_loop_flag) {
+        enum_type->data.enumeration.zero_bits_known = true;
+        return;
+    }
+
+    enum_type->data.enumeration.zero_bits_loop_flag = true;
+
+    AstNode *decl_node = enum_type->data.enumeration.decl_node;
+    assert(decl_node->type == NodeTypeContainerDecl);
+    assert(enum_type->di_type);
+
+    assert(!enum_type->data.enumeration.fields);
+    uint32_t field_count = decl_node->data.container_decl.fields.length;
+    enum_type->data.enumeration.src_field_count = field_count;
+    enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+
+    Scope *scope = &enum_type->data.enumeration.decls_scope->base;
+
+    uint32_t gen_field_index = 0;
+    for (uint32_t i = 0; i < field_count; i += 1) {
+        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
+        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
+        type_enum_field->name = field_node->data.struct_field.name;
+        TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
+        type_enum_field->type_entry = field_type;
+        type_enum_field->value = i;
+
+        type_ensure_zero_bits_known(g, field_type);
+        if (field_type->id == TypeTableEntryIdInvalid) {
+            enum_type->data.enumeration.is_invalid = true;
+            continue;
+        }
+
+        if (!type_has_bits(field_type))
+            continue;
+
+        type_enum_field->gen_index = gen_field_index;
+        gen_field_index += 1;
+    }
+
+    enum_type->data.enumeration.zero_bits_loop_flag = false;
+    enum_type->data.enumeration.gen_field_count = gen_field_index;
+    enum_type->zero_bits = (gen_field_index == 0 && field_count < 2);
+    enum_type->data.enumeration.zero_bits_known = true;
+}
+
+static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
+    assert(struct_type->id == TypeTableEntryIdStruct);
+
+    if (struct_type->data.structure.zero_bits_known)
+        return;
+
+    if (struct_type->data.structure.zero_bits_loop_flag) {
+        struct_type->data.structure.zero_bits_known = true;
+        return;
+    }
+
+    struct_type->data.structure.zero_bits_loop_flag = true;
+
+    AstNode *decl_node = struct_type->data.structure.decl_node;
+    assert(decl_node->type == NodeTypeContainerDecl);
+    assert(struct_type->di_type);
+
+    assert(!struct_type->data.structure.fields);
+    size_t field_count = decl_node->data.container_decl.fields.length;
+    struct_type->data.structure.src_field_count = field_count;
+    struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
+
+    Scope *scope = &struct_type->data.structure.decls_scope->base;
+
+    size_t gen_field_index = 0;
+    for (size_t i = 0; i < field_count; i += 1) {
+        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
+        TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+        type_struct_field->name = field_node->data.struct_field.name;
+        TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
+        type_struct_field->type_entry = field_type;
+        type_struct_field->src_index = i;
+        type_struct_field->gen_index = SIZE_MAX;
+
+        type_ensure_zero_bits_known(g, field_type);
+        if (field_type->id == TypeTableEntryIdInvalid) {
+            struct_type->data.structure.is_invalid = true;
+            continue;
+        }
+
+        if (!type_has_bits(field_type))
+            continue;
+
+        type_struct_field->gen_index = gen_field_index;
+        gen_field_index += 1;
+    }
+
+    struct_type->data.structure.zero_bits_loop_flag = false;
+    struct_type->data.structure.gen_field_count = gen_field_index;
+    struct_type->zero_bits = (gen_field_index == 0);
+    struct_type->data.structure.zero_bits_known = true;
+}
+
+static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
+    zig_panic("TODO resolve_union_zero_bits");
 }
 
 static void get_fully_qualified_decl_name_internal(Buf *buf, Scope *scope, uint8_t sep) {
@@ -3061,6 +3185,16 @@ void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry) {
     } else if (type_entry->id == TypeTableEntryIdUnion) {
         if (!type_entry->data.unionation.complete)
             resolve_union_type(g, type_entry);
+    }
+}
+
+void type_ensure_zero_bits_known(CodeGen *g, TypeTableEntry *type_entry) {
+    if (type_entry->id == TypeTableEntryIdStruct) {
+        resolve_struct_zero_bits(g, type_entry);
+    } else if (type_entry->id == TypeTableEntryIdEnum) {
+        resolve_enum_zero_bits(g, type_entry);
+    } else if (type_entry->id == TypeTableEntryIdUnion) {
+        resolve_union_zero_bits(g, type_entry);
     }
 }
 

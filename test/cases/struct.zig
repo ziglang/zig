@@ -198,6 +198,14 @@ fn testReturnEmptyStructFromFn() -> EmptyStruct2 {
     EmptyStruct2 {}
 }
 
+fn passSliceOfEmptyStructToFn() {
+    @setFnTest(this);
+
+    assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{ EmptyStruct2{} }) == 1);
+}
+fn testPassSliceOfEmptyStructToFn(slice: []EmptyStruct2) -> usize {
+    slice.len
+}
 
 
 // TODO const assert = @import("std").debug.assert;

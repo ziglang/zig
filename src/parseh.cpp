@@ -717,6 +717,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
 
         enum_type->data.enumeration.gen_field_count = 0;
         enum_type->data.enumeration.complete = true;
+        enum_type->data.enumeration.zero_bits_known = true;
         enum_type->data.enumeration.tag_type = tag_type_entry;
 
         enum_type->data.enumeration.src_field_count = field_count;
@@ -937,6 +938,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
 
     struct_type->data.structure.gen_field_count = field_count;
     struct_type->data.structure.complete = true;
+    struct_type->data.structure.zero_bits_known = true;
 
     uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, struct_type->type_ref);
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, struct_type->type_ref);

@@ -7941,6 +7941,7 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdEnumTag:
             {
+                type_ensure_zero_bits_known(ira->codegen, resolved_child_type);
                 TypeTableEntry *result_type = get_slice_type(ira->codegen, resolved_child_type, is_const);
                 ConstExprValue *out_val = ir_build_const_from(ira, &slice_type_instruction->base,
                         child_type->value.depends_on_compile_var);

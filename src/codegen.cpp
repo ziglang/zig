@@ -2404,6 +2404,7 @@ static void ir_render(CodeGen *g, FnTableEntry *fn_entry) {
 
 static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
     TypeTableEntry *canon_type = get_underlying_type(const_val->type);
+    assert(!canon_type->zero_bits);
 
     switch (const_val->special) {
         case ConstValSpecialRuntime:
@@ -2557,6 +2558,14 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                 } else {
                     ConstExprValue *array_const_val = const_val->data.x_ptr.base_ptr;
                     assert(array_const_val->type->id == TypeTableEntryIdArray);
+                    if (array_const_val->type->zero_bits) {
+                        // make this a null pointer
+                        TypeTableEntry *usize_type = g->builtin_types.entry_usize;
+                        const_val->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize_type->type_ref),
+                                const_val->type->type_ref);
+                        render_const_val_global(g, const_val);
+                        return const_val->llvm_value;
+                    }
                     render_const_val(g, array_const_val);
                     render_const_val_global(g, array_const_val);
                     TypeTableEntry *usize = g->builtin_types.entry_usize;
@@ -3369,6 +3378,7 @@ static void define_builtin_types(CodeGen *g) {
             }
         }
         entry->data.enumeration.complete = true;
+        entry->data.enumeration.zero_bits_known = true;
 
         TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
         entry->data.enumeration.tag_type = tag_type_entry;
@@ -3402,6 +3412,7 @@ static void define_builtin_types(CodeGen *g) {
             }
         }
         entry->data.enumeration.complete = true;
+        entry->data.enumeration.zero_bits_known = true;
 
         TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
         entry->data.enumeration.tag_type = tag_type_entry;
@@ -3429,6 +3440,7 @@ static void define_builtin_types(CodeGen *g) {
             }
         }
         entry->data.enumeration.complete = true;
+        entry->data.enumeration.zero_bits_known = true;
 
         TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
         entry->data.enumeration.tag_type = tag_type_entry;
@@ -3456,6 +3468,7 @@ static void define_builtin_types(CodeGen *g) {
             }
         }
         entry->data.enumeration.complete = true;
+        entry->data.enumeration.zero_bits_known = true;
 
         TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
         entry->data.enumeration.tag_type = tag_type_entry;
@@ -3491,6 +3504,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.enumeration.fields[5].type_entry = g->builtin_types.entry_void;
 
         entry->data.enumeration.complete = true;
+        entry->data.enumeration.zero_bits_known = true;
 
         TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
         entry->data.enumeration.tag_type = tag_type_entry;

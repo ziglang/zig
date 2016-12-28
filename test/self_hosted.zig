@@ -25,16 +25,3 @@ const test_pointer_to_void_return_type_x = void{};
 fn testPointerToVoidReturnType2() -> &const void {
     return &test_pointer_to_void_return_type_x;
 }
-
-
-// TODO not passing (goes in struct.zig)
-fn passSliceOfEmptyStructToFn() {
-    @setFnTest(this);
-
-    assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{ EmptyStruct2{} }) == 1);
-}
-fn testPassSliceOfEmptyStructToFn(slice: []EmptyStruct2) -> usize {
-    slice.len
-}
-
-
