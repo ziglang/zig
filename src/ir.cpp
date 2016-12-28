@@ -4898,7 +4898,9 @@ static TypeTableEntry *ir_analyze_const_ptr(IrAnalyze *ira, IrInstruction *instr
 {
     if (pointee_type->id == TypeTableEntryIdMetaType) {
         TypeTableEntry *type_entry = pointee->data.x_type;
-        ConstExprValue *const_val = ir_build_const_from(ira, instruction, depends_on_compile_var || pointee->depends_on_compile_var);
+        ConstExprValue *const_val = ir_build_const_from(ira, instruction,
+                depends_on_compile_var || pointee->depends_on_compile_var);
+        type_ensure_zero_bits_known(ira->codegen, type_entry);
         const_val->data.x_type = get_pointer_to_type(ira->codegen, type_entry, ptr_is_const);
         return pointee_type;
     } else {
@@ -7199,6 +7201,7 @@ static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruc
         return ir_analyze_const_ptr(ira, instruction, mem_slot, var->value.type, false, ptr_special, var->src_is_const);
     } else {
         ir_build_var_ptr_from(&ira->new_irb, instruction, var);
+        type_ensure_zero_bits_known(ira->codegen, var->value.type);
         return get_pointer_to_type(ira->codegen, var->value.type, var->src_is_const);
     }
 }

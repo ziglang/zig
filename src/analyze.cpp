@@ -330,12 +330,7 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
         TypeTableEntry *canon_child_type = get_underlying_type(child_type);
         assert(canon_child_type->id != TypeTableEntryIdInvalid);
 
-
-        if (type_is_complete(canon_child_type)) {
-            entry->zero_bits = !type_has_bits(canon_child_type);
-        } else {
-            entry->zero_bits = false;
-        }
+        entry->zero_bits = !type_has_bits(canon_child_type);
 
         if (!entry->zero_bits) {
             entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
@@ -345,6 +340,8 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
             assert(child_type->di_type);
             entry->di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, child_type->di_type,
                     debug_size_in_bits, debug_align_in_bits, buf_ptr(&entry->name));
+        } else {
+            entry->di_type = g->builtin_types.entry_void->di_type;
         }
 
         entry->data.pointer.child_type = child_type;
@@ -2895,6 +2892,7 @@ bool fn_eval_eql(Scope *a, Scope *b) {
 bool type_has_bits(TypeTableEntry *type_entry) {
     assert(type_entry);
     assert(type_entry->id != TypeTableEntryIdInvalid);
+    assert(type_has_zero_bits_known(type_entry));
     return !type_entry->zero_bits;
 }
 

@@ -473,6 +473,20 @@ fn castSliceToU8Slice() {
     assert(bytes[11] == @maxValue(u8));
 }
 
+fn pointerToVoidReturnType() {
+    @setFnTest(this);
+
+    %%testPointerToVoidReturnType();
+}
+fn testPointerToVoidReturnType() -> %void {
+    const a = testPointerToVoidReturnType2();
+    return *a;
+}
+const test_pointer_to_void_return_type_x = void{};
+fn testPointerToVoidReturnType2() -> &const void {
+    return &test_pointer_to_void_return_type_x;
+}
+
 // TODO import from std.cstr
 pub fn cstrlen(ptr: &const u8) -> usize {
     var count: usize = 0;
