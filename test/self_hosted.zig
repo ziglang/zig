@@ -15,6 +15,7 @@ const test_generics = @import("cases/generics.zig");
 const test_goto = @import("cases/goto.zig");
 const test_if = @import("cases/if.zig");
 const test_import = @import("cases/import.zig");
+const test_ir_block_deps = @import("cases/ir_block_deps.zig");
 const test_math = @import("cases/math.zig");
 const test_misc = @import("cases/misc.zig");
 const test_namespace_depends_on_compile_var = @import("cases/namespace_depends_on_compile_var/index.zig");

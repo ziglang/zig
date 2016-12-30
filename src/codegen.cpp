@@ -2393,7 +2393,7 @@ static void ir_render(CodeGen *g, FnTableEntry *fn_entry) {
     assert(executable->basic_block_list.length > 0);
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
         IrBasicBlock *current_block = executable->basic_block_list.at(block_i);
-        assert(current_block->ref_count > 0);
+        //assert(current_block->ref_count > 0);
         assert(current_block->llvm_block);
         LLVMPositionBuilderAtEnd(g->builder, current_block->llvm_block);
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {

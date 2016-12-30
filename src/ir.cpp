@@ -473,19 +473,20 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionIntToEnum *) {
 }
 
 template<typename T>
-static T *ir_create_instruction(IrExecutable *exec, Scope *scope, AstNode *source_node) {
+static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
     special_instruction->base.id = ir_instruction_id(special_instruction);
     special_instruction->base.scope = scope;
     special_instruction->base.source_node = source_node;
-    special_instruction->base.debug_id = exec_next_debug_id(exec);
+    special_instruction->base.debug_id = exec_next_debug_id(irb->exec);
+    special_instruction->base.owner_bb = irb->current_basic_block;
     return special_instruction;
 }
 
 template<typename T>
 static T *ir_build_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     assert(source_node);
-    T *special_instruction = ir_create_instruction<T>(irb->exec, scope, source_node);
+    T *special_instruction = ir_create_instruction<T>(irb, scope, source_node);
     ir_instruction_append(irb->current_basic_block, &special_instruction->base);
     return special_instruction;
 }
@@ -554,7 +555,7 @@ static IrInstruction *ir_create_const(IrBuilder *irb, Scope *scope, AstNode *sou
     TypeTableEntry *type_entry, bool depends_on_compile_var)
 {
     assert(type_entry);
-    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb->exec, scope, source_node);
+    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = type_entry;
     const_instruction->base.value.special = ConstValSpecialStatic;
     const_instruction->base.value.depends_on_compile_var = depends_on_compile_var;
@@ -610,7 +611,7 @@ static IrInstruction *ir_build_const_usize(IrBuilder *irb, Scope *scope, AstNode
 static IrInstruction *ir_create_const_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
         TypeTableEntry *type_entry)
 {
-    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb->exec, scope, source_node);
+    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = irb->codegen->builtin_types.entry_type;
     const_instruction->base.value.special = ConstValSpecialStatic;
     const_instruction->base.value.data.x_type = type_entry;
@@ -672,7 +673,7 @@ static IrInstruction *ir_build_const_bound_fn(IrBuilder *irb, Scope *scope, AstN
 }
 
 static IrInstruction *ir_create_const_str_lit(IrBuilder *irb, Scope *scope, AstNode *source_node, Buf *str) {
-    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb->exec, scope, source_node);
+    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb, scope, source_node);
     init_const_str_lit(irb->codegen, &const_instruction->base.value, str);
 
     return &const_instruction->base;
@@ -863,7 +864,7 @@ static IrInstruction *ir_build_phi_from(IrBuilder *irb, IrInstruction *old_instr
 static IrInstruction *ir_create_br(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrBasicBlock *dest_block, IrInstruction *is_comptime)
 {
-    IrInstructionBr *br_instruction = ir_create_instruction<IrInstructionBr>(irb->exec, scope, source_node);
+    IrInstructionBr *br_instruction = ir_create_instruction<IrInstructionBr>(irb, scope, source_node);
     br_instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
     br_instruction->base.value.special = ConstValSpecialStatic;
     br_instruction->dest_block = dest_block;
@@ -1946,6 +1947,777 @@ static IrInstruction *ir_build_int_to_enum(IrBuilder *irb, Scope *scope, AstNode
     ir_ref_instruction(target);
 
     return &instruction->base;
+}
+
+static IrInstruction *ir_instruction_br_get_dep(IrInstructionBr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->is_comptime;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_condbr_get_dep(IrInstructionCondBr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->condition;
+        case 1: return instruction->is_comptime;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_switchbr_get_dep(IrInstructionSwitchBr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target_value;
+        case 1: return instruction->is_comptime;
+    }
+    size_t case_index = index - 2;
+    if (case_index < instruction->case_count) return instruction->cases[case_index].value;
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_switchvar_get_dep(IrInstructionSwitchVar *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target_value_ptr;
+        case 1: return instruction->prong_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_switchtarget_get_dep(IrInstructionSwitchTarget *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target_value_ptr;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_phi_get_dep(IrInstructionPhi *instruction, size_t index) {
+    if (index < instruction->incoming_count) return instruction->incoming_values[index];
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_unop_get_dep(IrInstructionUnOp *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_binop_get_dep(IrInstructionBinOp *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->op1;
+        case 1: return instruction->op2;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_declvar_get_dep(IrInstructionDeclVar *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->var_type;
+        case 1: return instruction->init_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_loadptr_get_dep(IrInstructionLoadPtr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->ptr;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_storeptr_get_dep(IrInstructionStorePtr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->ptr;
+        case 1: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_fieldptr_get_dep(IrInstructionFieldPtr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->container_ptr;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_structfieldptr_get_dep(IrInstructionStructFieldPtr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->struct_ptr;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_enumfieldptr_get_dep(IrInstructionEnumFieldPtr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->enum_ptr;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_elemptr_get_dep(IrInstructionElemPtr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->array_ptr;
+        case 1: return instruction->elem_index;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_varptr_get_dep(IrInstructionVarPtr *instruction, size_t index) {
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_call_get_dep(IrInstructionCall *instruction, size_t index) {
+    if (index == 0) return instruction->fn_ref;
+    size_t arg_index = index - 1;
+    if (arg_index < instruction->arg_count) return instruction->args[arg_index];
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_const_get_dep(IrInstructionConst *instruction, size_t index) {
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_return_get_dep(IrInstructionReturn *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_cast_get_dep(IrInstructionCast *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_containerinitlist_get_dep(IrInstructionContainerInitList *instruction,
+        size_t index)
+{
+    if (index == 0) return instruction->container_type;
+    size_t item_index = index - 1;
+    if (item_index < instruction->item_count) return instruction->items[item_index];
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_containerinitfields_get_dep(IrInstructionContainerInitFields *instruction,
+        size_t index)
+{
+    if (index == 0) return instruction->container_type;
+    size_t field_index = index - 1;
+    if (field_index < instruction->field_count) return instruction->fields[field_index].value;
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_structinit_get_dep(IrInstructionStructInit *instruction, size_t index) {
+    if (index < instruction->field_count) return instruction->fields[index].value;
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_unreachable_get_dep(IrInstructionUnreachable *instruction, size_t index) {
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_typeof_get_dep(IrInstructionTypeOf *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_toptrtype_get_dep(IrInstructionToPtrType *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_ptrtypechild_get_dep(IrInstructionPtrTypeChild *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_setfntest_get_dep(IrInstructionSetFnTest *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->fn_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_setfnvisible_get_dep(IrInstructionSetFnVisible *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->fn_value;
+        case 1: return instruction->is_visible;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_setdebugsafety_get_dep(IrInstructionSetDebugSafety *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->scope_value;
+        case 1: return instruction->debug_safety_on;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_arraytype_get_dep(IrInstructionArrayType *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->size;
+        case 1: return instruction->child_type;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_slicetype_get_dep(IrInstructionSliceType *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->child_type;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_asm_get_dep(IrInstructionAsm *instruction, size_t index) {
+    AstNode *asm_node = instruction->base.source_node;
+    if (index < asm_node->data.asm_expr.output_list.length) return instruction->output_types[index];
+    size_t input_index = index - asm_node->data.asm_expr.output_list.length;
+    if (input_index < asm_node->data.asm_expr.input_list.length) return instruction->input_list[input_index];
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_compilevar_get_dep(IrInstructionCompileVar *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->name;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_sizeof_get_dep(IrInstructionSizeOf *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->type_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_testnonnull_get_dep(IrInstructionTestNonNull *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_unwrapmaybe_get_dep(IrInstructionUnwrapMaybe *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_maybewrap_get_dep(IrInstructionMaybeWrap *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_enumtag_get_dep(IrInstructionEnumTag *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_clz_get_dep(IrInstructionClz *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_ctz_get_dep(IrInstructionCtz *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_staticeval_get_dep(IrInstructionStaticEval *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_import_get_dep(IrInstructionImport *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->name;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_cimport_get_dep(IrInstructionCImport *instruction, size_t index) {
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_cinclude_get_dep(IrInstructionCInclude *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->name;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_cdefine_get_dep(IrInstructionCDefine *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->name;
+        case 1: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_cundef_get_dep(IrInstructionCUndef *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->name;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_arraylen_get_dep(IrInstructionArrayLen *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->array_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_ref_get_dep(IrInstructionRef *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_minvalue_get_dep(IrInstructionMinValue *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_maxvalue_get_dep(IrInstructionMaxValue *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_compileerr_get_dep(IrInstructionCompileErr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->msg;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_errname_get_dep(IrInstructionErrName *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_embedfile_get_dep(IrInstructionEmbedFile *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->name;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_cmpxchg_get_dep(IrInstructionCmpxchg *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->ptr;
+        case 1: return instruction->cmp_value;
+        case 2: return instruction->new_value;
+        case 3: return instruction->success_order_value;
+        case 4: return instruction->failure_order_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_fence_get_dep(IrInstructionFence *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->order_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_divexact_get_dep(IrInstructionDivExact *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->op1;
+        case 1: return instruction->op2;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_truncate_get_dep(IrInstructionTruncate *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->dest_type;
+        case 1: return instruction->target;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_inttype_get_dep(IrInstructionIntType *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->is_signed;
+        case 1: return instruction->bit_count;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_boolnot_get_dep(IrInstructionBoolNot *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_alloca_get_dep(IrInstructionAlloca *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->type_value;
+        case 1: return instruction->count;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_memset_get_dep(IrInstructionMemset *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->dest_ptr;
+        case 1: return instruction->byte;
+        case 2: return instruction->count;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_memcpy_get_dep(IrInstructionMemcpy *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->dest_ptr;
+        case 1: return instruction->src_ptr;
+        case 2: return instruction->count;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_slice_get_dep(IrInstructionSlice *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->ptr;
+        case 1: return instruction->start;
+        case 2: return instruction->end;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_membercount_get_dep(IrInstructionMemberCount *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->container;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_breakpoint_get_dep(IrInstructionBreakpoint *instruction, size_t index) {
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_returnaddress_get_dep(IrInstructionReturnAddress *instruction, size_t index) {
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_frameaddress_get_dep(IrInstructionFrameAddress *instruction, size_t index) {
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_alignof_get_dep(IrInstructionAlignOf *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->type_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_overflowop_get_dep(IrInstructionOverflowOp *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->type_value;
+        case 1: return instruction->op1;
+        case 2: return instruction->op2;
+        case 3: return instruction->result_ptr;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_testerr_get_dep(IrInstructionTestErr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_unwraperrcode_get_dep(IrInstructionUnwrapErrCode *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_unwraperrpayload_get_dep(IrInstructionUnwrapErrPayload *instruction,
+        size_t index)
+{
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_errwrapcode_get_dep(IrInstructionErrWrapCode *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_errwrappayload_get_dep(IrInstructionErrWrapPayload *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_fnproto_get_dep(IrInstructionFnProto *instruction, size_t index) {
+    if (index == 0) return instruction->return_type;
+    size_t param_index = index - 1;
+    if (param_index < instruction->base.source_node->data.fn_proto.params.length) {
+        return instruction->param_types[param_index];
+    }
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_testcomptime_get_dep(IrInstructionTestComptime *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_initenum_get_dep(IrInstructionInitEnum *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->init_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_pointerreinterpret_get_dep(IrInstructionPointerReinterpret *instruction,
+        size_t index)
+{
+    switch (index) {
+        case 0: return instruction->ptr;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_widenorshorten_get_dep(IrInstructionWidenOrShorten *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_inttoptr_get_dep(IrInstructionIntToPtr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_ptrtoint_get_dep(IrInstructionPtrToInt *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_inttoenum_get_dep(IrInstructionIntToEnum *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t index) {
+    switch (instruction->id) {
+        case IrInstructionIdInvalid:
+            zig_unreachable();
+        case IrInstructionIdBr:
+            return ir_instruction_br_get_dep((IrInstructionBr *) instruction, index);
+        case IrInstructionIdCondBr:
+            return ir_instruction_condbr_get_dep((IrInstructionCondBr *) instruction, index);
+        case IrInstructionIdSwitchBr:
+            return ir_instruction_switchbr_get_dep((IrInstructionSwitchBr *) instruction, index);
+        case IrInstructionIdSwitchVar:
+            return ir_instruction_switchvar_get_dep((IrInstructionSwitchVar *) instruction, index);
+        case IrInstructionIdSwitchTarget:
+            return ir_instruction_switchtarget_get_dep((IrInstructionSwitchTarget *) instruction, index);
+        case IrInstructionIdPhi:
+            return ir_instruction_phi_get_dep((IrInstructionPhi *) instruction, index);
+        case IrInstructionIdUnOp:
+            return ir_instruction_unop_get_dep((IrInstructionUnOp *) instruction, index);
+        case IrInstructionIdBinOp:
+            return ir_instruction_binop_get_dep((IrInstructionBinOp *) instruction, index);
+        case IrInstructionIdDeclVar:
+            return ir_instruction_declvar_get_dep((IrInstructionDeclVar *) instruction, index);
+        case IrInstructionIdLoadPtr:
+            return ir_instruction_loadptr_get_dep((IrInstructionLoadPtr *) instruction, index);
+        case IrInstructionIdStorePtr:
+            return ir_instruction_storeptr_get_dep((IrInstructionStorePtr *) instruction, index);
+        case IrInstructionIdFieldPtr:
+            return ir_instruction_fieldptr_get_dep((IrInstructionFieldPtr *) instruction, index);
+        case IrInstructionIdStructFieldPtr:
+            return ir_instruction_structfieldptr_get_dep((IrInstructionStructFieldPtr *) instruction, index);
+        case IrInstructionIdEnumFieldPtr:
+            return ir_instruction_enumfieldptr_get_dep((IrInstructionEnumFieldPtr *) instruction, index);
+        case IrInstructionIdElemPtr:
+            return ir_instruction_elemptr_get_dep((IrInstructionElemPtr *) instruction, index);
+        case IrInstructionIdVarPtr:
+            return ir_instruction_varptr_get_dep((IrInstructionVarPtr *) instruction, index);
+        case IrInstructionIdCall:
+            return ir_instruction_call_get_dep((IrInstructionCall *) instruction, index);
+        case IrInstructionIdConst:
+            return ir_instruction_const_get_dep((IrInstructionConst *) instruction, index);
+        case IrInstructionIdReturn:
+            return ir_instruction_return_get_dep((IrInstructionReturn *) instruction, index);
+        case IrInstructionIdCast:
+            return ir_instruction_cast_get_dep((IrInstructionCast *) instruction, index);
+        case IrInstructionIdContainerInitList:
+            return ir_instruction_containerinitlist_get_dep((IrInstructionContainerInitList *) instruction, index);
+        case IrInstructionIdContainerInitFields:
+            return ir_instruction_containerinitfields_get_dep((IrInstructionContainerInitFields *) instruction, index);
+        case IrInstructionIdStructInit:
+            return ir_instruction_structinit_get_dep((IrInstructionStructInit *) instruction, index);
+        case IrInstructionIdUnreachable:
+            return ir_instruction_unreachable_get_dep((IrInstructionUnreachable *) instruction, index);
+        case IrInstructionIdTypeOf:
+            return ir_instruction_typeof_get_dep((IrInstructionTypeOf *) instruction, index);
+        case IrInstructionIdToPtrType:
+            return ir_instruction_toptrtype_get_dep((IrInstructionToPtrType *) instruction, index);
+        case IrInstructionIdPtrTypeChild:
+            return ir_instruction_ptrtypechild_get_dep((IrInstructionPtrTypeChild *) instruction, index);
+        case IrInstructionIdSetFnTest:
+            return ir_instruction_setfntest_get_dep((IrInstructionSetFnTest *) instruction, index);
+        case IrInstructionIdSetFnVisible:
+            return ir_instruction_setfnvisible_get_dep((IrInstructionSetFnVisible *) instruction, index);
+        case IrInstructionIdSetDebugSafety:
+            return ir_instruction_setdebugsafety_get_dep((IrInstructionSetDebugSafety *) instruction, index);
+        case IrInstructionIdArrayType:
+            return ir_instruction_arraytype_get_dep((IrInstructionArrayType *) instruction, index);
+        case IrInstructionIdSliceType:
+            return ir_instruction_slicetype_get_dep((IrInstructionSliceType *) instruction, index);
+        case IrInstructionIdAsm:
+            return ir_instruction_asm_get_dep((IrInstructionAsm *) instruction, index);
+        case IrInstructionIdCompileVar:
+            return ir_instruction_compilevar_get_dep((IrInstructionCompileVar *) instruction, index);
+        case IrInstructionIdSizeOf:
+            return ir_instruction_sizeof_get_dep((IrInstructionSizeOf *) instruction, index);
+        case IrInstructionIdTestNonNull:
+            return ir_instruction_testnonnull_get_dep((IrInstructionTestNonNull *) instruction, index);
+        case IrInstructionIdUnwrapMaybe:
+            return ir_instruction_unwrapmaybe_get_dep((IrInstructionUnwrapMaybe *) instruction, index);
+        case IrInstructionIdMaybeWrap:
+            return ir_instruction_maybewrap_get_dep((IrInstructionMaybeWrap *) instruction, index);
+        case IrInstructionIdEnumTag:
+            return ir_instruction_enumtag_get_dep((IrInstructionEnumTag *) instruction, index);
+        case IrInstructionIdClz:
+            return ir_instruction_clz_get_dep((IrInstructionClz *) instruction, index);
+        case IrInstructionIdCtz:
+            return ir_instruction_ctz_get_dep((IrInstructionCtz *) instruction, index);
+        case IrInstructionIdStaticEval:
+            return ir_instruction_staticeval_get_dep((IrInstructionStaticEval *) instruction, index);
+        case IrInstructionIdImport:
+            return ir_instruction_import_get_dep((IrInstructionImport *) instruction, index);
+        case IrInstructionIdCImport:
+            return ir_instruction_cimport_get_dep((IrInstructionCImport *) instruction, index);
+        case IrInstructionIdCInclude:
+            return ir_instruction_cinclude_get_dep((IrInstructionCInclude *) instruction, index);
+        case IrInstructionIdCDefine:
+            return ir_instruction_cdefine_get_dep((IrInstructionCDefine *) instruction, index);
+        case IrInstructionIdCUndef:
+            return ir_instruction_cundef_get_dep((IrInstructionCUndef *) instruction, index);
+        case IrInstructionIdArrayLen:
+            return ir_instruction_arraylen_get_dep((IrInstructionArrayLen *) instruction, index);
+        case IrInstructionIdRef:
+            return ir_instruction_ref_get_dep((IrInstructionRef *) instruction, index);
+        case IrInstructionIdMinValue:
+            return ir_instruction_minvalue_get_dep((IrInstructionMinValue *) instruction, index);
+        case IrInstructionIdMaxValue:
+            return ir_instruction_maxvalue_get_dep((IrInstructionMaxValue *) instruction, index);
+        case IrInstructionIdCompileErr:
+            return ir_instruction_compileerr_get_dep((IrInstructionCompileErr *) instruction, index);
+        case IrInstructionIdErrName:
+            return ir_instruction_errname_get_dep((IrInstructionErrName *) instruction, index);
+        case IrInstructionIdEmbedFile:
+            return ir_instruction_embedfile_get_dep((IrInstructionEmbedFile *) instruction, index);
+        case IrInstructionIdCmpxchg:
+            return ir_instruction_cmpxchg_get_dep((IrInstructionCmpxchg *) instruction, index);
+        case IrInstructionIdFence:
+            return ir_instruction_fence_get_dep((IrInstructionFence *) instruction, index);
+        case IrInstructionIdDivExact:
+            return ir_instruction_divexact_get_dep((IrInstructionDivExact *) instruction, index);
+        case IrInstructionIdTruncate:
+            return ir_instruction_truncate_get_dep((IrInstructionTruncate *) instruction, index);
+        case IrInstructionIdIntType:
+            return ir_instruction_inttype_get_dep((IrInstructionIntType *) instruction, index);
+        case IrInstructionIdBoolNot:
+            return ir_instruction_boolnot_get_dep((IrInstructionBoolNot *) instruction, index);
+        case IrInstructionIdAlloca:
+            return ir_instruction_alloca_get_dep((IrInstructionAlloca *) instruction, index);
+        case IrInstructionIdMemset:
+            return ir_instruction_memset_get_dep((IrInstructionMemset *) instruction, index);
+        case IrInstructionIdMemcpy:
+            return ir_instruction_memcpy_get_dep((IrInstructionMemcpy *) instruction, index);
+        case IrInstructionIdSlice:
+            return ir_instruction_slice_get_dep((IrInstructionSlice *) instruction, index);
+        case IrInstructionIdMemberCount:
+            return ir_instruction_membercount_get_dep((IrInstructionMemberCount *) instruction, index);
+        case IrInstructionIdBreakpoint:
+            return ir_instruction_breakpoint_get_dep((IrInstructionBreakpoint *) instruction, index);
+        case IrInstructionIdReturnAddress:
+            return ir_instruction_returnaddress_get_dep((IrInstructionReturnAddress *) instruction, index);
+        case IrInstructionIdFrameAddress:
+            return ir_instruction_frameaddress_get_dep((IrInstructionFrameAddress *) instruction, index);
+        case IrInstructionIdAlignOf:
+            return ir_instruction_alignof_get_dep((IrInstructionAlignOf *) instruction, index);
+        case IrInstructionIdOverflowOp:
+            return ir_instruction_overflowop_get_dep((IrInstructionOverflowOp *) instruction, index);
+        case IrInstructionIdTestErr:
+            return ir_instruction_testerr_get_dep((IrInstructionTestErr *) instruction, index);
+        case IrInstructionIdUnwrapErrCode:
+            return ir_instruction_unwraperrcode_get_dep((IrInstructionUnwrapErrCode *) instruction, index);
+        case IrInstructionIdUnwrapErrPayload:
+            return ir_instruction_unwraperrpayload_get_dep((IrInstructionUnwrapErrPayload *) instruction, index);
+        case IrInstructionIdErrWrapCode:
+            return ir_instruction_errwrapcode_get_dep((IrInstructionErrWrapCode *) instruction, index);
+        case IrInstructionIdErrWrapPayload:
+            return ir_instruction_errwrappayload_get_dep((IrInstructionErrWrapPayload *) instruction, index);
+        case IrInstructionIdFnProto:
+            return ir_instruction_fnproto_get_dep((IrInstructionFnProto *) instruction, index);
+        case IrInstructionIdTestComptime:
+            return ir_instruction_testcomptime_get_dep((IrInstructionTestComptime *) instruction, index);
+        case IrInstructionIdInitEnum:
+            return ir_instruction_initenum_get_dep((IrInstructionInitEnum *) instruction, index);
+        case IrInstructionIdPointerReinterpret:
+            return ir_instruction_pointerreinterpret_get_dep((IrInstructionPointerReinterpret *) instruction, index);
+        case IrInstructionIdWidenOrShorten:
+            return ir_instruction_widenorshorten_get_dep((IrInstructionWidenOrShorten *) instruction, index);
+        case IrInstructionIdIntToPtr:
+            return ir_instruction_inttoptr_get_dep((IrInstructionIntToPtr *) instruction, index);
+        case IrInstructionIdPtrToInt:
+            return ir_instruction_ptrtoint_get_dep((IrInstructionPtrToInt *) instruction, index);
+        case IrInstructionIdIntToEnum:
+            return ir_instruction_inttoenum_get_dep((IrInstructionIntToEnum *) instruction, index);
+    }
+    zig_unreachable();
 }
 
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
@@ -4804,23 +5576,24 @@ static bool is_u8(TypeTableEntry *type) {
 }
 
 static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
+    assert(old_bb);
+
     if (old_bb->other)
         return old_bb->other;
 
     IrBasicBlock *new_bb = ir_build_bb_from(&ira->new_irb, old_bb);
 
-    // We are about to enqueue old_bb for analysis. Before we do so, check old_bb
-    // for phi instructions. Any incoming blocks in the phi instructions need to be
-    // queued first.
+    // We are about to enqueue old_bb for analysis. Before we do so, look over old_bb's
+    // instructions and make sure we have enqueued first the blocks which contain
+    // instructions old_bb depends on.
     for (size_t instr_i = 0; instr_i < old_bb->instruction_list.length; instr_i += 1) {
         IrInstruction *instruction = old_bb->instruction_list.at(instr_i);
-        if (instruction->id != IrInstructionIdPhi)
-            break;
-        IrInstructionPhi *phi_instruction = (IrInstructionPhi *)instruction;
-        for (size_t incoming_i = 0; incoming_i < phi_instruction->incoming_count; incoming_i += 1) {
-            IrBasicBlock *predecessor = phi_instruction->incoming_blocks[incoming_i];
-            IrBasicBlock *new_predecessor = ir_get_new_bb(ira, predecessor);
-            ir_ref_bb(new_predecessor);
+
+        for (size_t dep_i = 0; ; dep_i += 1) {
+            IrInstruction *dep_instruction = ir_instruction_get_dep(instruction, dep_i);
+            if (dep_instruction == nullptr)
+                break;
+            ir_get_new_bb(ira, dep_instruction->owner_bb);
         }
     }
     ira->old_bb_queue.append(old_bb);
@@ -4892,20 +5665,20 @@ static ConstExprValue *ir_build_const_from(IrAnalyze *ira, IrInstruction *old_in
     IrInstruction *new_instruction;
     if (old_instruction->id == IrInstructionIdVarPtr) {
         IrInstructionVarPtr *old_var_ptr_instruction = (IrInstructionVarPtr *)old_instruction;
-        IrInstructionVarPtr *var_ptr_instruction = ir_create_instruction<IrInstructionVarPtr>(ira->new_irb.exec,
+        IrInstructionVarPtr *var_ptr_instruction = ir_create_instruction<IrInstructionVarPtr>(&ira->new_irb,
                 old_instruction->scope, old_instruction->source_node);
         var_ptr_instruction->var = old_var_ptr_instruction->var;
         new_instruction = &var_ptr_instruction->base;
     } else if (old_instruction->id == IrInstructionIdFieldPtr) {
-        IrInstructionFieldPtr *field_ptr_instruction = ir_create_instruction<IrInstructionFieldPtr>(ira->new_irb.exec,
+        IrInstructionFieldPtr *field_ptr_instruction = ir_create_instruction<IrInstructionFieldPtr>(&ira->new_irb,
                 old_instruction->scope, old_instruction->source_node);
         new_instruction = &field_ptr_instruction->base;
     } else if (old_instruction->id == IrInstructionIdElemPtr) {
-        IrInstructionElemPtr *elem_ptr_instruction = ir_create_instruction<IrInstructionElemPtr>(ira->new_irb.exec,
+        IrInstructionElemPtr *elem_ptr_instruction = ir_create_instruction<IrInstructionElemPtr>(&ira->new_irb,
                 old_instruction->scope, old_instruction->source_node);
         new_instruction = &elem_ptr_instruction->base;
     } else {
-        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
+        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                 old_instruction->scope, old_instruction->source_node);
         new_instruction = &const_instruction->base;
     }
@@ -5079,7 +5852,7 @@ static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *sourc
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
+        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value.type = wanted_type;
         const_instruction->base.value.special = ConstValSpecialStatic;
@@ -5110,7 +5883,7 @@ static IrInstruction *ir_analyze_pointer_reinterpret(IrAnalyze *ira, IrInstructi
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
+        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value = *val;
         const_instruction->base.value.type = wanted_type;
@@ -5138,7 +5911,7 @@ static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction 
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
+        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value.type = wanted_type;
         const_instruction->base.value.special = ConstValSpecialStatic;
@@ -5163,7 +5936,7 @@ static IrInstruction *ir_analyze_err_wrap_code(IrAnalyze *ira, IrInstruction *so
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
+        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value.type = wanted_type;
         const_instruction->base.value.special = ConstValSpecialStatic;
@@ -5186,7 +5959,7 @@ static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
+        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value.type = wanted_type;
         const_instruction->base.value.special = ConstValSpecialStatic;
@@ -5220,7 +5993,7 @@ static IrInstruction *ir_analyze_null_to_maybe(IrAnalyze *ira, IrInstruction *so
     ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
     assert(val);
 
-    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec, source_instr->scope, source_instr->source_node);
+    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb, source_instr->scope, source_instr->source_node);
     const_instruction->base.value.type = wanted_type;
     const_instruction->base.value.special = ConstValSpecialStatic;
     const_instruction->base.value.depends_on_compile_var = val->depends_on_compile_var;
@@ -8309,7 +9082,7 @@ static IrInstruction *ir_analyze_enum_tag(IrAnalyze *ira, IrInstruction *source_
         if (!val)
             return ira->codegen->invalid_instruction;
 
-        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(ira->new_irb.exec,
+        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value.type = value->value.type->data.enumeration.tag_type;
         const_instruction->base.value.special = ConstValSpecialStatic;

@@ -1488,9 +1488,11 @@ struct IrInstruction {
     ConstExprValue value;
     size_t debug_id;
     LLVMValueRef llvm_value;
-    // if ref_count is zero, instruction can be omitted in codegen
+    // if ref_count is zero and the instruction has no side effects,
+    // the instruction can be omitted in codegen
     size_t ref_count;
     IrInstruction *other;
+    IrBasicBlock *owner_bb;
 };
 
 struct IrInstructionCondBr {
