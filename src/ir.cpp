@@ -7938,7 +7938,11 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
         new_incoming_blocks.append(predecessor->other);
         new_incoming_values.append(new_value);
     }
-    assert(new_incoming_blocks.length != 0);
+
+    if (new_incoming_blocks.length == 0) {
+        ir_build_const_from(ira, &phi_instruction->base, false);
+        return ira->codegen->builtin_types.entry_void;
+    }
 
     if (new_incoming_blocks.length == 1) {
         IrInstruction *first_value = new_incoming_values.at(0);
