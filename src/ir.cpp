@@ -2738,12 +2738,14 @@ static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_sco
     }
 }
 
-static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
+static bool ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
     Scope *scope = inner_scope;
     while (scope != outer_scope) {
-        assert(scope);
+        if (!scope)
+            return false;
+
         if (scope->id == ScopeIdDefer) {
             AstNode *defer_node = scope->source_node;
             assert(defer_node->type == NodeTypeDefer);
@@ -2759,6 +2761,7 @@ static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *o
         }
         scope = scope->parent;
     }
+    return true;
 }
 
 static void ir_set_cursor_at_end(IrBuilder *irb, IrBasicBlock *basic_block) {
@@ -5105,7 +5108,11 @@ static bool ir_goto_pass2(IrBuilder *irb) {
 
         IrInstruction *is_comptime = ir_build_const_bool(irb, goto_item->scope, source_node,
             ir_should_inline(irb) || source_node->data.goto_expr.is_inline);
-        ir_gen_defers_for_block(irb, goto_item->scope, label->bb->scope, false, false);
+        if (!ir_gen_defers_for_block(irb, goto_item->scope, label->bb->scope, false, false)) {
+            add_node_error(irb->codegen, source_node,
+                buf_sprintf("no label in scope named '%s'", buf_ptr(label_name)));
+            return false;
+        }
         ir_build_br(irb, goto_item->scope, source_node, label->bb, is_comptime);
     }
 

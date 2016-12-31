@@ -3008,6 +3008,8 @@ static void do_code_gen(CodeGen *g) {
             }
             if (ir_get_var_is_comptime(var))
                 continue;
+            if (type_requires_comptime(var->value.type))
+                continue;
 
             if (var->src_arg_index == SIZE_MAX) {
                 var->value_ref = LLVMBuildAlloca(g->builder, var->value.type->type_ref, buf_ptr(&var->name));
