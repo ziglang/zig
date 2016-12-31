@@ -2741,10 +2741,11 @@ static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_sco
 static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
         bool gen_error_defers, bool gen_maybe_defers)
 {
-    while (inner_scope != outer_scope) {
-        assert(inner_scope);
-        if (inner_scope->id == ScopeIdDefer) {
-            AstNode *defer_node = inner_scope->source_node;
+    Scope *scope = inner_scope;
+    while (scope != outer_scope) {
+        assert(scope);
+        if (scope->id == ScopeIdDefer) {
+            AstNode *defer_node = scope->source_node;
             assert(defer_node->type == NodeTypeDefer);
             ReturnKind defer_kind = defer_node->data.defer.kind;
             if (defer_kind == ReturnKindUnconditional ||
@@ -2756,7 +2757,7 @@ static void ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *o
             }
 
         }
-        inner_scope = inner_scope->parent;
+        scope = scope->parent;
     }
 }
 

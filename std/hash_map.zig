@@ -10,21 +10,11 @@ const debug_u32 = if (want_modification_safety) u32 else void;
 pub fn HashMap(inline K: type, inline V: type, inline hash: fn(key: K)->u32,
     inline eql: fn(a: K, b: K)->bool) -> type
 {
-    SmallHashMap(K, V, hash, eql, @sizeOf(usize))
-}
-
-pub fn SmallHashMap(inline K: type, inline V: type,
-    inline hash: fn(key: K)->u32, inline eql: fn(a: K, b: K)->bool,
-    inline static_size: usize) -> type
-{
     struct {
         entries: []Entry,
         size: usize,
         max_distance_from_start_index: usize,
         allocator: &Allocator,
-        // if the hash map is small enough, we use linear search through these
-        // entries instead of allocating memory
-        prealloc_entries: [static_size]Entry,
         // this is used to detect bugs where a hashtable is edited while an iterator is running.
         modification_count: debug_u32,
 
@@ -64,18 +54,16 @@ pub fn SmallHashMap(inline K: type, inline V: type,
         };
 
         pub fn init(hm: &Self, allocator: &Allocator) {
-            hm.entries = hm.prealloc_entries[0...];
+            hm.entries = []Entry{};
             hm.allocator = allocator;
             hm.size = 0;
             hm.max_distance_from_start_index = 0;
-            hm.prealloc_entries = zeroes; // sets used to false for all entries
-            hm.modification_count = zeroes;
+            // it doesn't actually matter what we set this to since we use wrapping integer arithmetic
+            hm.modification_count = undefined;
         }
 
         pub fn deinit(hm: &Self) {
-            if (hm.entries.ptr != &hm.prealloc_entries[0]) {
-                hm.allocator.free(Entry, hm.entries);
-            }
+            hm.allocator.free(Entry, hm.entries);
         }
 
         pub fn clear(hm: &Self) {
@@ -90,14 +78,8 @@ pub fn SmallHashMap(inline K: type, inline V: type,
         pub fn put(hm: &Self, key: K, value: V) -> %void {
             hm.incrementModificationCount();
 
-            const resize = if (hm.entries.ptr == &hm.prealloc_entries[0]) {
-                // preallocated entries table is full
-                hm.size == hm.entries.len
-            } else {
-                // if we get too full (60%), double the capacity
-                hm.size * 5 >= hm.entries.len * 3
-            };
-            if (resize) {
+            // if we get too full (60%), double the capacity
+            if (hm.size * 5 >= hm.entries.len * 3) {
                 const old_entries = hm.entries;
                 %return hm.initCapacity(hm.entries.len * 2);
                 // dump all of the old elements into the new table
@@ -106,9 +88,7 @@ pub fn SmallHashMap(inline K: type, inline V: type,
                         hm.internalPut(old_entry.key, old_entry.value);
                     }
                 }
-                if (old_entries.ptr != &hm.prealloc_entries[0]) {
-                    hm.allocator.free(Entry, old_entries);
-                }
+                hm.allocator.free(Entry, old_entries);
             }
 
             hm.internalPut(key, value);

@@ -13,7 +13,7 @@ pub fn List(inline T: type) -> type{
 
         pub fn init(allocator: &Allocator) -> Self {
             Self {
-                .items = zeroes,
+                .items = []T{},
                 .len = 0,
                 .allocator = allocator,
             }

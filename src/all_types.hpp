@@ -1382,7 +1382,7 @@ enum AtomicOrder {
 // A basic block contains no branching. Branches send control flow
 // to another basic block.
 // Phi instructions must be first in a basic block.
-// The last instruction in a basic block must be an expression of type unreachable.
+// The last instruction in a basic block must be of type unreachable.
 struct IrBasicBlock {
     ZigList<IrInstruction *> instruction_list;
     IrBasicBlock *other;
