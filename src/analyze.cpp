@@ -3248,7 +3248,9 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdEnumTag:
             return bignum_cmp_eq(&a->data.x_bignum, &b->data.x_bignum);
         case TypeTableEntryIdPointer:
-            zig_panic("TODO");
+            if (a->data.x_ptr.index != b->data.x_ptr.index)
+                return false;
+            return a->data.x_ptr.base_ptr == b->data.x_ptr.base_ptr;
         case TypeTableEntryIdArray:
             zig_panic("TODO");
         case TypeTableEntryIdStruct:
@@ -3266,9 +3268,9 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdTypeDecl:
             zig_panic("TODO");
         case TypeTableEntryIdNamespace:
-            zig_panic("TODO");
+            return a->data.x_import == b->data.x_import;
         case TypeTableEntryIdBlock:
-            zig_panic("TODO");
+            return a->data.x_block == b->data.x_block;
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:

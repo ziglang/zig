@@ -147,14 +147,18 @@ fn testSimpleCBuf() {
     assert(buf.startsWithCBuf(&buf2));
 }
 
+// TODO do this without globals
+
 fn testCompileTimeStrCmp() {
     @setFnTest(this);
 
-    assert(@staticEval(cmp(c"aoeu", c"aoez") == -1));
+    assert(test_compile_time_str_cmp_result);
 }
+const test_compile_time_str_cmp_result = (cmp(c"aoeu", c"aoez") == -1);
 
 fn testCompileTimeStrLen() {
     @setFnTest(this);
 
-    assert(@staticEval(len(c"123456789") == 9));
+    assert(test_comptime_str_len_result);
 }
+const test_comptime_str_len_result = (len(c"123456789") == 9);
