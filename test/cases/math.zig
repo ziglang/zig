@@ -164,6 +164,16 @@ const DivResult = struct {
     remainder: u64,
 };
 
+fn binaryNot() {
+    @setFnTest(this);
+
+    assert(~u16(0b1010101010101010) == 0b0101010101010101);
+    testBinaryNot(0b1010101010101010);
+}
+
+fn testBinaryNot(x: u16) {
+    assert(~x == 0b0101010101010101);
+}
 
 // TODO const assert = @import("std").debug.assert;
 fn assert(ok: bool) {

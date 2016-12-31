@@ -7811,27 +7811,40 @@ static TypeTableEntry *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *un
     return ira->codegen->builtin_types.entry_invalid;
 }
 
+static TypeTableEntry *ir_analyze_bin_not(IrAnalyze *ira, IrInstructionUnOp *instruction) {
+    IrInstruction *value = instruction->value->other;
+    TypeTableEntry *expr_type = value->value.type;
+    if (expr_type->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (expr_type->id == TypeTableEntryIdInt) {
+        if (instr_is_comptime(value)) {
+            ConstExprValue *target_const_val = ir_resolve_const(ira, value, UndefBad);
+            if (!target_const_val)
+                return ira->codegen->builtin_types.entry_invalid;
+
+            bool depends_on_compile_var = value->value.depends_on_compile_var;
+            ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+            bignum_not(&out_val->data.x_bignum, &target_const_val->data.x_bignum, expr_type->data.integral.bit_count);
+            return expr_type;
+        }
+
+        ir_build_un_op_from(&ira->new_irb, &instruction->base, IrUnOpBinNot, value);
+        return expr_type;
+    }
+
+    ir_add_error(ira, &instruction->base,
+            buf_sprintf("unable to perform binary not operation on type '%s'", buf_ptr(&expr_type->name)));
+    return ira->codegen->builtin_types.entry_invalid;
+}
+
 static TypeTableEntry *ir_analyze_instruction_un_op(IrAnalyze *ira, IrInstructionUnOp *un_op_instruction) {
     IrUnOp op_id = un_op_instruction->op_id;
     switch (op_id) {
         case IrUnOpInvalid:
             zig_unreachable();
         case IrUnOpBinNot:
-            zig_panic("TODO analyze PrefixOpBinNot");
-            //{
-            //    TypeTableEntry *expr_type = analyze_expression(g, import, context, expected_type,
-            //            *expr_node);
-            //    if (expr_type->id == TypeTableEntryIdInvalid) {
-            //        return expr_type;
-            //    } else if (expr_type->id == TypeTableEntryIdInt) {
-            //        return expr_type;
-            //    } else {
-            //        add_node_error(g, node, buf_sprintf("unable to perform binary not operation on type '%s'",
-            //                buf_ptr(&expr_type->name)));
-            //        return g->builtin_types.entry_invalid;
-            //    }
-            //    // TODO const expr eval
-            //}
+            return ir_analyze_bin_not(ira, un_op_instruction);
         case IrUnOpNegation:
         case IrUnOpNegationWrap:
             return ir_analyze_negation(ira, un_op_instruction);

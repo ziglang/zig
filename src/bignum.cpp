@@ -142,6 +142,13 @@ void bignum_negate(BigNum *dest, BigNum *op) {
     }
 }
 
+void bignum_not(BigNum *dest, BigNum *op, int bit_count) {
+    assert(op->kind == BigNumKindInt);
+    uint64_t bits = ~bignum_to_twos_complement(op);
+    bits &= (1LL << bit_count) - 1;
+    bignum_init_signed(dest, bits);
+}
+
 void bignum_cast_to_float(BigNum *dest, BigNum *op) {
     assert(op->kind == BigNumKindInt);
     dest->kind = BigNumKindFloat;

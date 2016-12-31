@@ -48,6 +48,7 @@ bool bignum_shr(BigNum *dest, BigNum *op1, BigNum *op2);
 void bignum_negate(BigNum *dest, BigNum *op);
 void bignum_cast_to_float(BigNum *dest, BigNum *op);
 void bignum_cast_to_int(BigNum *dest, BigNum *op);
+void bignum_not(BigNum *dest, BigNum *op, int bit_count);
 
 void bignum_truncate(BigNum *dest, int bit_count);
 
