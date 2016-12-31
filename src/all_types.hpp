@@ -445,6 +445,7 @@ struct AstNodeFnCallExpr {
     AstNode *fn_ref_expr;
     ZigList<AstNode *> params;
     bool is_builtin;
+    bool is_comptime;
 };
 
 struct AstNodeArrayAccessExpr {
@@ -1669,7 +1670,7 @@ struct IrInstructionCall {
     FnTableEntry *fn_entry;
     size_t arg_count;
     IrInstruction **args;
-    bool is_inline;
+    bool is_comptime;
     LLVMValueRef tmp_ptr;
 };
 

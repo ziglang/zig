@@ -137,19 +137,12 @@ pub const OutStream = struct {
         }
     }
 
-    pub fn close(self: &OutStream) -> %void {
+    pub fn close(self: &OutStream) {
         while (true) {
             const close_ret = system.close(self.fd);
             const close_err = system.getErrno(close_ret);
-            if (close_err > 0) {
-                return switch (close_err) {
-                    errno.EINTR => continue,
-
-                    errno.EIO   => error.Io,
-                    errno.EBADF => error.BadFd,
-                    else        => error.Unexpected,
-                }
-            }
+            if (close_err > 0 && close_err == errno.EINTR)
+                continue;
             return;
         }
     }
@@ -163,7 +156,7 @@ pub const InStream = struct {
     /// Call close to clean up.
     pub fn open(is: &InStream, path: []const u8) -> %void {
         switch (@compileVar("os")) {
-            linux, darwin => {
+            Os.linux, Os.darwin => {
                 while (true) {
                     const result = system.open(path, system.O_LARGEFILE|system.O_RDONLY, 0);
                     const err = system.getErrno(result);
@@ -202,7 +195,7 @@ pub const InStream = struct {
     /// you must use the open() function.
     pub fn close(is: &InStream) -> %void {
         switch (@compileVar("os")) {
-            linux, darwin => {
+            Os.linux, Os.darwin => {
                 while (true) {
                     const close_ret = system.close(is.fd);
                     const close_err = system.getErrno(close_ret);
@@ -226,7 +219,7 @@ pub const InStream = struct {
     /// the stream reached End Of File.
     pub fn read(is: &InStream, buf: []u8) -> %usize {
         switch (@compileVar("os")) {
-            linux, darwin => {
+            Os.linux, Os.darwin => {
                 var index: usize = 0;
                 while (index < buf.len) {
                     const amt_read = system.read(is.fd, &buf[index], buf.len - index);
@@ -288,7 +281,7 @@ pub const InStream = struct {
 
     pub fn seekForward(is: &InStream, amount: usize) -> %void {
         switch (@compileVar("os")) {
-            linux, darwin => {
+            Os.linux, Os.darwin => {
                 const result = system.lseek(is.fd, amount, system.SEEK_CUR);
                 const err = system.getErrno(result);
                 if (err > 0) {
@@ -308,7 +301,7 @@ pub const InStream = struct {
 
     pub fn seekTo(is: &InStream, pos: usize) -> %void {
         switch (@compileVar("os")) {
-            linux, darwin => {
+            Os.linux, Os.darwin => {
                 const result = system.lseek(is.fd, pos, system.SEEK_SET);
                 const err = system.getErrno(result);
                 if (err > 0) {
@@ -328,7 +321,7 @@ pub const InStream = struct {
 
     pub fn getPos(is: &InStream) -> %usize {
         switch (@compileVar("os")) {
-            linux, darwin => {
+            Os.linux, Os.darwin => {
                 const result = system.lseek(is.fd, 0, system.SEEK_CUR);
                 const err = system.getErrno(result);
                 if (err > 0) {
@@ -424,7 +417,7 @@ fn bufPrintUnsigned(inline T: type, out_buf: []u8, x: T) -> usize {
 }
 
 fn parseU64DigitTooBig() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     parseUnsigned(u64, "123a", 10) %% |err| {
         if (err == error.InvalidChar) return;
@@ -435,10 +428,10 @@ fn parseU64DigitTooBig() {
 
 pub fn openSelfExe(stream: &InStream) -> %void {
     switch (@compileVar("os")) {
-        linux => {
+        Os.linux => {
             %return stream.open("/proc/self/exe");
         },
-        darwin => {
+        Os.darwin => {
             %%stderr.printf("TODO: openSelfExe on Darwin\n");
             os.abort();
         },

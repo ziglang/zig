@@ -15,12 +15,12 @@ pub fn len(ptr: &const u8) -> usize {
 pub fn cmp(a: &const u8, b: &const u8) -> i8 {
     var index: usize = 0;
     while (a[index] == b[index] && a[index] != 0; index += 1) {}
-    return if (a[index] > b[index]) {
-        1
+    if (a[index] > b[index]) {
+        return 1;
     } else if (a[index] < b[index]) {
-        -1
+        return -1;
     } else {
-        0
+        return 0;
     };
 }
 
@@ -127,7 +127,7 @@ pub const CBuf = struct {
 };
 
 fn testSimpleCBuf() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     var buf = %%CBuf.initEmpty(&debug.global_allocator);
     assert(buf.len() == 0);
@@ -148,13 +148,13 @@ fn testSimpleCBuf() {
 }
 
 fn testCompileTimeStrCmp() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
-    assert(@constEval(cmp(c"aoeu", c"aoez") == -1));
+    assert(@staticEval(cmp(c"aoeu", c"aoez") == -1));
 }
 
 fn testCompileTimeStrLen() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
-    assert(@constEval(len(c"123456789") == 9));
+    assert(@staticEval(len(c"123456789") == 9));
 }

@@ -214,7 +214,7 @@
 //}
 //
 //fn test_umoddi3() {
-//    @setFnTest(this, true);
+//    @setFnTest(this);
 //
 //    test_one_umoddi3(0, 1, 0);
 //    test_one_umoddi3(2, 1, 0);
@@ -229,7 +229,7 @@
 //}
 //
 //fn test_udivmoddi4() {
-//    @setFnTest(this, true);
+//    @setFnTest(this);
 //
 //    const cases = [][4]du_int {
 //        []du_int{0x0000000000000000, 0x0000000000000001, 0x0000000000000000, 0x0000000000000000},

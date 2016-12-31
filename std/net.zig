@@ -181,8 +181,6 @@ error JunkAtEnd;
 error Incomplete;
 
 fn parseIp6(buf: []const u8) -> %Address {
-    @setFnStaticEval(this, false);
-
     var result: Address = undefined;
     result.family = linux.AF_INET6;
     result.scope_id = 0;
@@ -320,7 +318,7 @@ fn parseIp4(buf: []const u8) -> %u32 {
 
 
 fn testParseIp4() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     assert(%%parseIp4("127.0.0.1") == endian.swapIfLe(u32, 0x7f000001));
     switch (parseIp4("256.0.0.1")) { Overflow => {}, else => @unreachable(), }
@@ -331,7 +329,7 @@ fn testParseIp4() {
 }
 
 fn testParseIp6() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     {
         const addr = %%parseIp6("FF01:0:0:0:0:0:0:FB");
@@ -342,7 +340,7 @@ fn testParseIp6() {
 }
 
 fn testLookupSimpleIp() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     {
         var addrs_buf: [5]Address = undefined;

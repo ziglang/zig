@@ -87,7 +87,7 @@ pub const Rand = struct {
         } else if (T == f64) {
             9007199254740992
         } else {
-            @compileError("unknown floating point type" ++ @typeName(T))
+            @compileError("unknown floating point type")
         };
         return T(r.rangeUnsigned(int_type, 0, precision)) / T(precision);
     }
@@ -156,7 +156,7 @@ fn MersenneTwister(
 }
 
 fn testFloat32() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     var r: Rand = undefined;
     r.init(42);
@@ -169,7 +169,7 @@ fn testFloat32() {
 }
 
 fn testMT19937_64() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     var rng: MT19937_64 = undefined;
     rng.init(rand_test.mt64_seed);
@@ -179,7 +179,7 @@ fn testMT19937_64() {
 }
 
 fn testMT19937_32() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     var rng: MT19937_32 = undefined;
     rng.init(rand_test.mt32_seed);

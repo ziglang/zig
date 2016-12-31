@@ -230,9 +230,11 @@ pub const Elf = struct {
         }
     }
 
-    pub fn close(elf: &Elf) -> %void {
+    pub fn close(elf: &Elf) {
         elf.allocator.free(SectionHeader, elf.section_headers);
-        if (elf.auto_close_stream) %return elf.in_stream.close();
+
+        if (elf.auto_close_stream)
+            elf.in_stream.close();
     }
 
     pub fn findSection(elf: &Elf, name: []u8) -> %?&SectionHeader {
@@ -247,8 +249,10 @@ pub const Elf = struct {
                 if (target_c == 0 || expected_c != target_c) goto next_section;
             }
 
-            const null_byte = %return elf.in_stream.readByte();
-            if (null_byte == 0) return (?&SectionHeader)(section);
+            {
+                const null_byte = %return elf.in_stream.readByte();
+                if (null_byte == 0) return (?&SectionHeader)(section);
+            }
 
             next_section:
         }

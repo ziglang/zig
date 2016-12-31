@@ -837,7 +837,7 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_inde
 }
 
 /*
-SuffixOpExpression : PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = option("inline") PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 SliceExpression : token(LBracket) Expression token(Ellipsis) option(Expression) token(RBracket) option(token(Const))
@@ -845,8 +845,22 @@ FieldAccessExpression : token(Dot) token(Symbol)
 StructLiteralField : token(Dot) token(Symbol) token(Eq) Expression
 */
 static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
+    Token *inline_token = &pc->tokens->at(*token_index);
+    bool is_comptime;
+    if (inline_token->id == TokenIdKeywordInline) {
+        // TODO make it an error if something other than function call has the comptime keyword
+        is_comptime = true;
+        *token_index += 1;
+    } else {
+        is_comptime = false;
+    }
+
+
     AstNode *primary_expr = ast_parse_primary_expr(pc, token_index, mandatory);
     if (!primary_expr) {
+        if (is_comptime) {
+            *token_index -= 1;
+        }
         return nullptr;
     }
 
@@ -857,6 +871,7 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
 
             AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, first_token);
             node->data.fn_call_expr.fn_ref_expr = primary_expr;
+            node->data.fn_call_expr.is_comptime = is_comptime;
             ast_parse_fn_call_param_list(pc, token_index, &node->data.fn_call_expr.params);
 
             primary_expr = node;

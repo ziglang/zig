@@ -808,13 +808,15 @@ static IrInstruction *ir_build_enum_field_ptr_from(IrBuilder *irb, IrInstruction
 }
 
 static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args)
+        FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
+        bool is_comptime)
 {
     IrInstructionCall *call_instruction = ir_build_instruction<IrInstructionCall>(irb, scope, source_node);
     call_instruction->fn_entry = fn_entry;
     call_instruction->fn_ref = fn_ref;
-    call_instruction->arg_count = arg_count;
+    call_instruction->is_comptime = is_comptime;
     call_instruction->args = args;
+    call_instruction->arg_count = arg_count;
 
     if (fn_ref)
         ir_ref_instruction(fn_ref);
@@ -825,10 +827,11 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
 }
 
 static IrInstruction *ir_build_call_from(IrBuilder *irb, IrInstruction *old_instruction,
-        FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args)
+        FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
+        bool is_comptime)
 {
     IrInstruction *new_instruction = ir_build_call(irb, old_instruction->scope,
-            old_instruction->source_node, fn_entry, fn_ref, arg_count, args);
+            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -1950,16 +1953,12 @@ static IrInstruction *ir_build_int_to_enum(IrBuilder *irb, Scope *scope, AstNode
 }
 
 static IrInstruction *ir_instruction_br_get_dep(IrInstructionBr *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->is_comptime;
-        default: return nullptr;
-    }
+    return nullptr;
 }
 
 static IrInstruction *ir_instruction_condbr_get_dep(IrInstructionCondBr *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->condition;
-        case 1: return instruction->is_comptime;
         default: return nullptr;
     }
 }
@@ -1967,7 +1966,6 @@ static IrInstruction *ir_instruction_condbr_get_dep(IrInstructionCondBr *instruc
 static IrInstruction *ir_instruction_switchbr_get_dep(IrInstructionSwitchBr *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->target_value;
-        case 1: return instruction->is_comptime;
     }
     size_t case_index = index - 2;
     if (case_index < instruction->case_count) return instruction->cases[case_index].value;
@@ -3887,7 +3885,8 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
         args[i] = ir_gen_node(irb, arg_node, scope);
     }
 
-    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args);
+    bool is_comptime = node->data.fn_call_expr.is_comptime;
+    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, is_comptime);
 }
 
 static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -5601,6 +5600,8 @@ static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
             IrInstruction *dep_instruction = ir_instruction_get_dep(instruction, dep_i);
             if (dep_instruction == nullptr)
                 break;
+            if (dep_instruction->owner_bb == old_bb)
+                continue;
             ir_get_new_bb(ira, dep_instruction->owner_bb);
         }
     }
@@ -6535,6 +6536,14 @@ static bool ir_resolve_bool(IrAnalyze *ira, IrInstruction *value, bool *out) {
 
     *out = const_val->data.x_bool;
     return true;
+}
+
+static bool ir_resolve_comptime(IrAnalyze *ira, IrInstruction *value, bool *out) {
+    if (!value) {
+        *out = false;
+        return true;
+    }
+    return ir_resolve_bool(ira, value, out);
 }
 
 static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, AtomicOrder *out) {
@@ -7521,7 +7530,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         size_t impl_param_count = impl_fn->type_entry->data.fn.fn_type_id.param_count;
         IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-                impl_fn, nullptr, impl_param_count, casted_args);
+                impl_fn, nullptr, impl_param_count, casted_args, false);
 
         TypeTableEntry *return_type = impl_fn->type_entry->data.fn.fn_type_id.return_type;
         ir_add_alloca(ira, new_call_instruction, return_type);
@@ -7574,7 +7583,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-            fn_entry, fn_ref, call_param_count, casted_args);
+            fn_entry, fn_ref, call_param_count, casted_args, false);
 
     ir_add_alloca(ira, new_call_instruction, return_type);
     return ir_finish_anal(ira, return_type);
@@ -7585,7 +7594,7 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
     if (fn_ref->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    bool is_inline = call_instruction->is_inline || ir_should_inline(&ira->new_irb);
+    bool is_inline = call_instruction->is_comptime || ir_should_inline(&ira->new_irb);
 
     if (is_inline || fn_ref->value.special != ConstValSpecialRuntime) {
         if (fn_ref->value.type->id == TypeTableEntryIdMetaType) {
@@ -7862,7 +7871,7 @@ static TypeTableEntry *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr
     IrBasicBlock *old_dest_block = br_instruction->dest_block;
 
     bool is_comptime;
-    if (!ir_resolve_bool(ira, br_instruction->is_comptime->other, &is_comptime))
+    if (!ir_resolve_comptime(ira, br_instruction->is_comptime->other, &is_comptime))
         return ir_unreach_error(ira);
 
     if (is_comptime || old_dest_block->ref_count == 1)
@@ -7879,7 +7888,7 @@ static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstruct
         return ir_unreach_error(ira);
 
     bool is_comptime;
-    if (!ir_resolve_bool(ira, cond_br_instruction->is_comptime->other, &is_comptime))
+    if (!ir_resolve_comptime(ira, cond_br_instruction->is_comptime->other, &is_comptime))
         return ir_unreach_error(ira);
 
     if (is_comptime || instr_is_comptime(condition)) {
@@ -9129,7 +9138,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
     size_t case_count = switch_br_instruction->case_count;
 
     bool is_comptime;
-    if (!ir_resolve_bool(ira, switch_br_instruction->is_comptime->other, &is_comptime))
+    if (!ir_resolve_comptime(ira, switch_br_instruction->is_comptime->other, &is_comptime))
         return ira->codegen->builtin_types.entry_invalid;
 
     if (is_comptime || instr_is_comptime(target_value)) {

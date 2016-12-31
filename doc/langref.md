@@ -123,7 +123,7 @@ MultiplyOperator = "*" | "/" | "%" | "**" | "*%"
 
 PrefixOpExpression = PrefixOp PrefixOpExpression | SuffixOpExpression
 
-SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = option("inline") PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 
 FieldAccessExpression = "." Symbol
 

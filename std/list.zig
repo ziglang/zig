@@ -52,7 +52,7 @@ pub fn List(inline T: type) -> type{
 }
 
 fn basicListTest() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     var list = List(i32).init(&debug.global_allocator);
     defer list.deinit();

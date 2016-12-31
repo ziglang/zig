@@ -10,8 +10,8 @@ error Unexpected;
 pub fn getRandomBytes(buf: []u8) -> %void {
     while (true) {
         const ret = switch (@compileVar("os")) {
-            linux => system.getrandom(buf.ptr, buf.len, 0),
-            darwin => system.getrandom(buf.ptr, buf.len),
+            Os.linux => system.getrandom(buf.ptr, buf.len, 0),
+            Os.darwin => system.getrandom(buf.ptr, buf.len),
             else => @compileError("unsupported os"),
         };
         const err = system.getErrno(ret);
@@ -29,7 +29,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
 
 pub coldcc fn abort() -> unreachable {
     switch (@compileVar("os")) {
-        linux, darwin => {
+        Os.linux, Os.darwin => {
             system.raise(system.SIGABRT);
             system.raise(system.SIGKILL);
             while (true) {}

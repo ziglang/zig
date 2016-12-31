@@ -261,7 +261,7 @@ pub fn open_c(path: &const u8, flags: usize, perm: usize) -> usize {
 }
 
 pub fn open(path: []const u8, flags: usize, perm: usize) -> usize {
-    var buf: [path.len + 1]u8 = undefined;
+    const buf = @alloca(u8, path.len + 1);
     @memcpy(&buf[0], &path[0], path.len);
     buf[path.len] = 0;
     return open_c(buf.ptr, flags, perm);
@@ -272,7 +272,7 @@ pub fn create_c(path: &const u8, perm: usize) -> usize {
 }
 
 pub fn create(path: []const u8, perm: usize) -> usize {
-    var buf: [path.len + 1]u8 = undefined;
+    const buf = @alloca(u8, path.len + 1);
     @memcpy(&buf[0], &path[0], path.len);
     buf[path.len] = 0;
     return create_c(buf.ptr, perm);
@@ -283,7 +283,7 @@ pub fn openat_c(dirfd: i32, path: &const u8, flags: usize, mode: usize) -> usize
 }
 
 pub fn openat(dirfd: i32, path: []const u8, flags: usize, mode: usize) -> usize {
-    var buf: [path.len + 1]u8 = undefined;
+    const buf = @alloca(u8, path.len + 1);
     @memcpy(&buf[0], &path[0], path.len);
     buf[path.len] = 0;
     return openat_c(dirfd, buf.ptr, flags, mode);

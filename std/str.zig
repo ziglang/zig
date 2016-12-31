@@ -13,7 +13,7 @@ pub fn sliceEql(inline T: type, a: []const T, b: []const T) -> bool {
 }
 
 fn testStringEquality() {
-    @setFnTest(this, true);
+    @setFnTest(this);
 
     assert(eql("abcd", "abcd"));
     assert(!eql("abcdef", "abZdef"));

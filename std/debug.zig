@@ -35,7 +35,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
             defer st.self_exe_stream.close() %% {};
 
             %return st.elf.openStream(&global_allocator, &st.self_exe_stream);
-            defer %return st.elf.close();
+            defer st.elf.close();
 
             st.debug_info = (%return st.elf.findSection(".debug_info")) ?? return error.MissingDebugInfo;
             st.debug_abbrev = (%return st.elf.findSection(".debug_abbrev")) ?? return error.MissingDebugInfo;
@@ -154,7 +154,7 @@ const Die = struct {
     fn getAttrAddr(self: &const Die, id: u64) -> %u64 {
         const form_value = self.getAttr(id) ?? return error.InvalidDebugInfo;
         return switch (*form_value) {
-            Address => |value| value,
+            FormValue.Address => |value| value,
             else => error.InvalidDebugInfo,
         };
     }
@@ -162,7 +162,7 @@ const Die = struct {
     fn getAttrUnsignedLe(self: &const Die, id: u64) -> %u64 {
         const form_value = self.getAttr(id) ?? return error.InvalidDebugInfo;
         return switch (*form_value) {
-            Const => |value| value.asUnsignedLe(),
+            FormValue.Const => |value| value.asUnsignedLe(),
             else => error.InvalidDebugInfo,
         };
     }
@@ -170,8 +170,8 @@ const Die = struct {
     fn getAttrString(self: &const Die, st: &ElfStackTrace, id: u64) -> %[]u8 {
         const form_value = self.getAttr(id) ?? return error.InvalidDebugInfo;
         return switch (*form_value) {
-            String => |value| value,
-            StrPtr => |offset| getString(st, offset),
+            FormValue.String => |value| value,
+            FormValue.StrPtr => |offset| getString(st, offset),
             else => error.InvalidDebugInfo,
         }
     }
@@ -406,8 +406,8 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
 
         const high_pc_value = compile_unit_die.getAttr(DW.AT_high_pc) ?? return error.MissingDebugInfo;
         const pc_end = switch (*high_pc_value) {
-            Address => |value| value,
-            Const => |value| {
+            FormValue.Address => |value| value,
+            FormValue.Const => |value| {
                 const offset = %return value.asUnsignedLe();
                 low_pc + offset
             },
