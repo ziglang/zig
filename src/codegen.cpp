@@ -1290,13 +1290,11 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
 
     assert(instruction->ptr->value.type->id == TypeTableEntryIdPointer);
     TypeTableEntry *op1_type = instruction->ptr->value.type->data.pointer.child_type;
-    TypeTableEntry *op2_type = instruction->value->value.type;
 
     if (!type_has_bits(op1_type)) {
         return nullptr;
     }
     if (handle_is_ptr(op1_type)) {
-        assert(op1_type == op2_type);
         return gen_struct_memcpy(g, value, ptr, op1_type);
     }
 
@@ -2146,7 +2144,6 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executa
     LLVMBuildStore(g->builder, ok_err_val, err_tag_ptr);
 
     LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_payload_index, "");
-    assert(child_type == instruction->value->value.type);
     gen_assign_raw(g, payload_ptr, payload_val, child_type);
 
     return instruction->tmp_ptr;
