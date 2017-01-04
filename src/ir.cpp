@@ -4925,7 +4925,9 @@ static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope,
             name = buf_alloc();
             buf_append_buf(name, &fn_entry->symbol_name);
             buf_appendf(name, "(");
-            // TODO render args
+            // TODO render args. note that fn_type_id is likely not complete
+            // at this time.
+            // probably have to render them from the fn scope
             buf_appendf(name, ")");
         } else {
             name = buf_sprintf("(anonymous %s at %s:%zu:%zu)", container_string(kind),

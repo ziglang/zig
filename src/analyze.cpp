@@ -1349,6 +1349,18 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
 
         TypeTableEntry *field_type = type_struct_field->type_entry;
 
+        // if the field is a function, actually the debug info should be a pointer.
+        ZigLLVMDIType *field_di_type;
+        if (field_type->id == TypeTableEntryIdFn) {
+            TypeTableEntry *field_ptr_type = get_pointer_to_type(g, field_type, true);
+            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_ptr_type->type_ref);
+            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_ptr_type->type_ref);
+            field_di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, field_type->di_type,
+                    debug_size_in_bits, debug_align_in_bits, buf_ptr(&field_ptr_type->name));
+        } else {
+            field_di_type = field_type->di_type;
+        }
+
         assert(field_type->type_ref);
         assert(struct_type->type_ref);
         assert(struct_type->data.structure.complete);
@@ -1362,7 +1374,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
                 debug_size_in_bits,
                 debug_align_in_bits,
                 debug_offset_in_bits,
-                0, field_type->di_type);
+                0, field_di_type);
 
         assert(di_element_types[gen_field_index]);
     }
