@@ -688,6 +688,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
     if (!enum_def) {
         TypeTableEntry *enum_type = get_partial_container_type(c->codegen, &c->import->decls_scope->base,
                 ContainerKindEnum, c->source_node, buf_ptr(full_type_name));
+        enum_type->data.enumeration.zero_bits_known = true;
         c->enum_type_table.put(bare_name, enum_type);
         c->decl_table.put(enum_decl, enum_type);
         replace_with_fwd_decl(c, enum_type, full_type_name);
@@ -852,6 +853,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
 
     TypeTableEntry *struct_type = get_partial_container_type(c->codegen, &c->import->decls_scope->base,
         ContainerKindStruct, c->source_node, buf_ptr(full_type_name));
+    struct_type->data.structure.zero_bits_known = true;
 
     c->struct_type_table.put(bare_name, struct_type);
     c->decl_table.put(record_decl, struct_type);
@@ -938,7 +940,6 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
 
     struct_type->data.structure.gen_field_count = field_count;
     struct_type->data.structure.complete = true;
-    struct_type->data.structure.zero_bits_known = true;
 
     uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(c->codegen->target_data_ref, struct_type->type_ref);
     uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(c->codegen->target_data_ref, struct_type->type_ref);

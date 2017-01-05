@@ -10,8 +10,8 @@
 
 #include "all_types.hpp"
 
-IrInstruction *ir_gen(CodeGen *g, AstNode *node, Scope *scope, IrExecutable *ir_executable);
-IrInstruction *ir_gen_fn(CodeGen *g, FnTableEntry *fn_entry);
+bool ir_gen(CodeGen *g, AstNode *node, Scope *scope, IrExecutable *ir_executable);
+bool ir_gen_fn(CodeGen *g, FnTableEntry *fn_entry);
 
 IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node,
         TypeTableEntry *expected_type, size_t *backward_branch_count, size_t backward_branch_quota,

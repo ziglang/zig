@@ -2620,6 +2620,8 @@ bool is_node_void_expr(AstNode *node) {
         {
             return true;
         }
+    } else if (node->type == NodeTypeBlock && node->data.block.statements.length == 0) {
+        return true;
     }
 
     return false;
