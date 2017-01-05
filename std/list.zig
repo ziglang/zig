@@ -23,7 +23,7 @@ pub fn List(inline T: type) -> type{
             l.allocator.free(T, l.items);
         }
 
-        pub fn toSlice(l: &Self) -> []T {
+        pub fn toSlice(l: &const Self) -> []const T {
             return l.items[0...l.len];
         }
 

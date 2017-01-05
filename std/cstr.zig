@@ -39,7 +39,7 @@ pub const CBuf = struct {
 
     /// Must deinitialize with deinit.
     pub fn initEmpty(allocator: &Allocator) -> %CBuf {
-        const self = CBuf {
+        var self = CBuf {
             .list = List(u8).init(allocator),
         };
         %return self.resize(0);
@@ -48,7 +48,7 @@ pub const CBuf = struct {
 
     /// Must deinitialize with deinit.
     pub fn initFromMem(allocator: &Allocator, m: []const u8) -> %CBuf {
-        const self = CBuf {
+        var self = CBuf {
             .list = List(u8).init(allocator),
         };
         %return self.resize(m.len);

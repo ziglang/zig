@@ -490,3 +490,10 @@ const test_pointer_to_void_return_type_x = void{};
 fn testPointerToVoidReturnType2() -> &const void {
     return &test_pointer_to_void_return_type_x;
 }
+
+
+fn nonConstPtrToAliasedType() {
+    @setFnTest(this);
+    const int = i32;
+    assert(?&int == ?&i32);
+}

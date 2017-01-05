@@ -155,7 +155,7 @@ fn memberFunctions() {
 }
 const MemberFnRand = struct {
     seed: u32,
-    pub fn getSeed(r: MemberFnRand) -> u32 {
+    pub fn getSeed(r: &const MemberFnRand) -> u32 {
         r.seed
     }
 };
@@ -184,7 +184,7 @@ fn emptyStructMethodCall() {
     assert(es.method() == 1234);
 }
 const EmptyStruct = struct {
-    fn method(es: EmptyStruct) -> i32 {
+    fn method(es: &const EmptyStruct) -> i32 {
         1234
     }
 };

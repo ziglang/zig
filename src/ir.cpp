@@ -721,17 +721,23 @@ static IrInstruction *ir_build_bin_op_from(IrBuilder *irb, IrInstruction *old_in
     return new_instruction;
 }
 
-static IrInstruction *ir_build_var_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node, VariableTableEntry *var) {
+static IrInstruction *ir_build_var_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        VariableTableEntry *var, bool is_const)
+{
     IrInstructionVarPtr *instruction = ir_build_instruction<IrInstructionVarPtr>(irb, scope, source_node);
     instruction->var = var;
+    instruction->is_const = is_const;
 
     ir_ref_var(var);
 
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_var_ptr_from(IrBuilder *irb, IrInstruction *old_instruction, VariableTableEntry *var) {
-    IrInstruction *new_instruction = ir_build_var_ptr(irb, old_instruction->scope, old_instruction->source_node, var);
+static IrInstruction *ir_build_var_ptr_from(IrBuilder *irb, IrInstruction *old_instruction,
+        VariableTableEntry *var, bool is_const)
+{
+    IrInstruction *new_instruction = ir_build_var_ptr(irb, old_instruction->scope,
+            old_instruction->source_node, var, is_const);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 
@@ -3401,7 +3407,7 @@ static IrInstruction *ir_gen_decl_ref(IrBuilder *irb, AstNode *source_node, Tld 
         {
             TldVar *tld_var = (TldVar *)tld;
             VariableTableEntry *var = tld_var->var;
-            IrInstruction *var_ptr = ir_build_var_ptr(irb, scope, source_node, var);
+            IrInstruction *var_ptr = ir_build_var_ptr(irb, scope, source_node, var, false);
             if (lval != LValPurposeNone)
                 return var_ptr;
             else
@@ -3449,7 +3455,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
 
     VariableTableEntry *var = find_variable(irb->codegen, scope, variable_name);
     if (var) {
-        IrInstruction *var_ptr = ir_build_var_ptr(irb, scope, node, var);
+        IrInstruction *var_ptr = ir_build_var_ptr(irb, scope, node, var, lval == LValPurposeAddressOfConst);
         if (lval != LValPurposeNone)
             return var_ptr;
         else
@@ -4309,7 +4315,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     IrInstruction *undefined_value = ir_build_const_undefined(irb, child_scope, elem_node);
     ir_build_var_decl(irb, child_scope, elem_node, elem_var, elem_var_type, undefined_value);
-    IrInstruction *elem_var_ptr = ir_build_var_ptr(irb, child_scope, node, elem_var);
+    IrInstruction *elem_var_ptr = ir_build_var_ptr(irb, child_scope, node, elem_var, false);
 
     AstNode *index_var_source_node;
     VariableTableEntry *index_var;
@@ -4327,7 +4333,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     IrInstruction *zero = ir_build_const_usize(irb, child_scope, node, 0);
     IrInstruction *one = ir_build_const_usize(irb, child_scope, node, 1);
     ir_build_var_decl(irb, child_scope, index_var_source_node, index_var, usize, zero);
-    IrInstruction *index_ptr = ir_build_var_ptr(irb, child_scope, node, index_var);
+    IrInstruction *index_ptr = ir_build_var_ptr(irb, child_scope, node, index_var, false);
 
 
     IrBasicBlock *cond_block = ir_build_basic_block(irb, child_scope, "ForCond");
@@ -4351,7 +4357,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     } else {
         elem_val = ir_build_load_ptr(irb, child_scope, node, elem_ptr);
     }
-    ir_build_store_ptr(irb, child_scope, node, elem_var_ptr, elem_val);
+    ir_mark_gen(ir_build_store_ptr(irb, child_scope, node, elem_var_ptr, elem_val));
 
     LoopStackItem *loop_stack_item = irb->loop_stack.add_one();
     loop_stack_item->break_block = end_block;
@@ -4365,7 +4371,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     ir_set_cursor_at_end(irb, continue_block);
     IrInstruction *new_index_val = ir_build_bin_op(irb, child_scope, node, IrBinOpAdd, index_val, one, false);
-    ir_build_store_ptr(irb, child_scope, node, index_ptr, new_index_val);
+    ir_mark_gen(ir_build_store_ptr(irb, child_scope, node, index_ptr, new_index_val));
     ir_build_br(irb, child_scope, node, cond_block, is_comptime);
 
     ir_set_cursor_at_end(irb, end_block);
@@ -7545,9 +7551,15 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         size_t next_proto_i = 0;
 
         if (first_arg_ptr) {
-            IrInstruction *first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
-            if (first_arg->value.type->id == TypeTableEntryIdInvalid)
-                return ira->codegen->builtin_types.entry_invalid;
+            IrInstruction *first_arg;
+            assert(first_arg_ptr->value.type->id == TypeTableEntryIdPointer);
+            if (handle_is_ptr(first_arg_ptr->value.type->data.pointer.child_type)) {
+                first_arg = first_arg_ptr;
+            } else {
+                first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
+                if (first_arg->value.type->id == TypeTableEntryIdInvalid)
+                    return ira->codegen->builtin_types.entry_invalid;
+            }
 
             if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, first_arg, &impl_fn->child_scope,
                 &next_proto_i, generic_id, &fn_type_id, casted_args, impl_fn))
@@ -7612,9 +7624,15 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     IrInstruction **casted_args = allocate<IrInstruction *>(call_param_count);
     size_t next_arg_index = 0;
     if (first_arg_ptr) {
-        IrInstruction *first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
-        if (first_arg->value.type->id == TypeTableEntryIdInvalid)
-            return ira->codegen->builtin_types.entry_invalid;
+        IrInstruction *first_arg;
+        assert(first_arg_ptr->value.type->id == TypeTableEntryIdPointer);
+        if (handle_is_ptr(first_arg_ptr->value.type->data.pointer.child_type)) {
+            first_arg = first_arg_ptr;
+        } else {
+            first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
+            if (first_arg->value.type->id == TypeTableEntryIdInvalid)
+                return ira->codegen->builtin_types.entry_invalid;
+        }
 
         TypeTableEntry *param_type = fn_type_id->param_info[next_arg_index].type;
         if (param_type->id == TypeTableEntryIdInvalid)
@@ -8090,7 +8108,9 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
     return resolved_type;
 }
 
-static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruction, VariableTableEntry *var) {
+static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
+        VariableTableEntry *var, bool is_const_ptr)
+{
     assert(var->value.type);
     if (var->value.type->id == TypeTableEntryIdInvalid)
         return var->value.type;
@@ -8110,9 +8130,10 @@ static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruc
 
     if (mem_slot && mem_slot->special != ConstValSpecialRuntime) {
         ConstPtrSpecial ptr_special = is_comptime ? ConstPtrSpecialInline : ConstPtrSpecialNone;
-        return ir_analyze_const_ptr(ira, instruction, mem_slot, var->value.type, false, ptr_special, var->src_is_const);
+        bool is_const = (var->value.type->id == TypeTableEntryIdMetaType) ? is_const_ptr : var->src_is_const;
+        return ir_analyze_const_ptr(ira, instruction, mem_slot, var->value.type, false, ptr_special, is_const);
     } else {
-        ir_build_var_ptr_from(&ira->new_irb, instruction, var);
+        ir_build_var_ptr_from(&ira->new_irb, instruction, var, false);
         type_ensure_zero_bits_known(ira->codegen, var->value.type);
         return get_pointer_to_type(ira->codegen, var->value.type, var->src_is_const);
     }
@@ -8120,7 +8141,7 @@ static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruc
 
 static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstructionVarPtr *var_ptr_instruction) {
     VariableTableEntry *var = var_ptr_instruction->var;
-    return ir_analyze_var_ptr(ira, &var_ptr_instruction->base, var);
+    return ir_analyze_var_ptr(ira, &var_ptr_instruction->base, var, var_ptr_instruction->is_const);
 }
 
 static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionElemPtr *elem_ptr_instruction) {
@@ -8313,7 +8334,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
         {
             TldVar *tld_var = (TldVar *)tld;
             VariableTableEntry *var = tld_var->var;
-            return ir_analyze_var_ptr(ira, source_instruction, var);
+            return ir_analyze_var_ptr(ira, source_instruction, var, false);
         }
         case TldIdFn:
         {
@@ -8549,6 +8570,12 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
     if (value->value.type->id == TypeTableEntryIdInvalid)
         return value->value.type;
 
+    assert(ptr->value.type->id == TypeTableEntryIdPointer);
+    if (ptr->value.type->data.pointer.is_const && !store_ptr_instruction->base.is_gen) {
+        ir_add_error(ira, &store_ptr_instruction->base, buf_sprintf("cannot assign to constant"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     TypeTableEntry *child_type = ptr->value.type->data.pointer.child_type;
     IrInstruction *casted_value = ir_implicit_cast(ira, value, child_type);
     if (casted_value == ira->codegen->invalid_instruction)
@@ -8580,7 +8607,7 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
             IrInstructionVarPtr *var_ptr_inst = (IrInstructionVarPtr *)ptr;
             VariableTableEntry *var = var_ptr_inst->var;
             new_ptr_inst = ir_build_var_ptr(&ira->new_irb, store_ptr_instruction->base.scope,
-                store_ptr_instruction->base.source_node, var);
+                store_ptr_instruction->base.source_node, var, false);
             assert(var->mem_slot_index != SIZE_MAX);
             ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
             mem_slot->special = ConstValSpecialRuntime;

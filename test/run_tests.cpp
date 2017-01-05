@@ -548,7 +548,7 @@ const B = struct {
 const C = struct {
     x: i32,
 
-    fn d(c: C) {
+    fn d(c: &const C) {
         %%io.stdout.printf("OK\n");
     }
 };
@@ -577,13 +577,13 @@ const io = @import("std").io;
 const Foo = struct {
     field1: Bar,
 
-    fn method(a: &Foo) -> bool { true }
+    fn method(a: &const Foo) -> bool { true }
 };
 
 const Bar = struct {
     field2: i32,
 
-    fn method(b: &Bar) -> bool { true }
+    fn method(b: &const Bar) -> bool { true }
 };
 
 pub fn main(args: [][]u8) -> %void {
@@ -787,14 +787,14 @@ fn f(a : unreachable) {}
 fn f() {
     3 = 3;
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: invalid assignment target");
+    )SOURCE", 1, ".tmp_source.zig:3:7: error: cannot assign to constant");
 
     add_compile_fail_case("assign to constant variable", R"SOURCE(
 fn f() {
     const a = 3;
     a = 4;
 }
-    )SOURCE", 1, ".tmp_source.zig:4:5: error: cannot assign to constant");
+    )SOURCE", 1, ".tmp_source.zig:4:7: error: cannot assign to constant");
 
     add_compile_fail_case("use of undeclared identifier", R"SOURCE(
 fn f() {

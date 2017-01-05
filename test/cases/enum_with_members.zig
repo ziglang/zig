@@ -6,7 +6,7 @@ const ET = enum {
     SINT: i32,
     UINT: u32,
 
-    pub fn print(a: &ET, buf: []u8) -> %usize {
+    pub fn print(a: &const ET, buf: []u8) -> %usize {
         return switch (*a) {
             ET.SINT => |x| { io.bufPrintInt(i32, buf, x) },
             ET.UINT => |x| { io.bufPrintInt(u32, buf, x) },
