@@ -76,6 +76,9 @@ pub fn HashMap(inline K: type, inline V: type, inline hash: fn(key: K)->u32,
         }
 
         pub fn put(hm: &Self, key: K, value: V) -> %void {
+            if (hm.entries.len == 0) {
+                %return hm.initCapacity(16);
+            }
             hm.incrementModificationCount();
 
             // if we get too full (60%), double the capacity
