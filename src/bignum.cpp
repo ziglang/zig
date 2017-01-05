@@ -88,7 +88,10 @@ bool bignum_fits_in_bits(BigNum *bn, int bit_count, bool is_signed) {
 
 void bignum_truncate(BigNum *bn, int bit_count) {
     assert(bn->kind == BigNumKindInt);
-    bn->data.x_uint &= (1LL << bit_count) - 1;
+    // TODO handle case when negative = true
+    if (bit_count < 64) {
+        bn->data.x_uint &= (1LL << bit_count) - 1;
+    }
 }
 
 uint64_t bignum_to_twos_complement(BigNum *bn) {
@@ -142,11 +145,16 @@ void bignum_negate(BigNum *dest, BigNum *op) {
     }
 }
 
-void bignum_not(BigNum *dest, BigNum *op, int bit_count) {
+void bignum_not(BigNum *dest, BigNum *op, int bit_count, bool is_signed) {
     assert(op->kind == BigNumKindInt);
     uint64_t bits = ~bignum_to_twos_complement(op);
-    bits &= (1LL << bit_count) - 1;
-    bignum_init_signed(dest, bits);
+    if (bit_count < 64) {
+        bits &= (1LL << bit_count) - 1;
+    }
+    if (is_signed)
+        bignum_init_signed(dest, bits);
+    else
+        bignum_init_unsigned(dest, bits);
 }
 
 void bignum_cast_to_float(BigNum *dest, BigNum *op) {

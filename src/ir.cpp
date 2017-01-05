@@ -7885,7 +7885,8 @@ static TypeTableEntry *ir_analyze_bin_not(IrAnalyze *ira, IrInstructionUnOp *ins
 
             bool depends_on_compile_var = value->value.depends_on_compile_var;
             ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
-            bignum_not(&out_val->data.x_bignum, &target_const_val->data.x_bignum, expr_type->data.integral.bit_count);
+            bignum_not(&out_val->data.x_bignum, &target_const_val->data.x_bignum,
+                    expr_type->data.integral.bit_count, expr_type->data.integral.is_signed);
             return expr_type;
         }
 
