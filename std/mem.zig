@@ -69,6 +69,7 @@ pub fn cmp(inline T: type, a: []const T, b: []const T) -> Cmp {
 pub fn sliceAsInt(buf: []u8, is_be: bool, inline T: type) -> T {
     var result: T = undefined;
     const result_slice = ([]u8)((&result)[0...1]);
+    set(u8, result_slice, 0);
     const padding = @sizeOf(T) - buf.len;
 
     if (is_be == @compileVar("is_big_endian")) {
