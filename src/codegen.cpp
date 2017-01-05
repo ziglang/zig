@@ -1983,10 +1983,10 @@ static LLVMValueRef ir_render_overflow_op(CodeGen *g, IrExecutable *executable, 
             add_sub_mul = AddSubMulAdd;
             break;
         case IrOverflowOpSub:
-            add_sub_mul = AddSubMulAdd;
+            add_sub_mul = AddSubMulSub;
             break;
         case IrOverflowOpMul:
-            add_sub_mul = AddSubMulAdd;
+            add_sub_mul = AddSubMulMul;
             break;
         case IrOverflowOpShl:
             return render_shl_with_overflow(g, instruction);
