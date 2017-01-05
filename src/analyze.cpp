@@ -3381,3 +3381,175 @@ void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *
         zig_unreachable();
     }
 }
+
+void render_const_value(Buf *buf, ConstExprValue *const_val) {
+    switch (const_val->special) {
+        case ConstValSpecialRuntime:
+            zig_unreachable();
+        case ConstValSpecialUndef:
+            buf_appendf(buf, "undefined");
+            return;
+        case ConstValSpecialZeroes:
+            buf_appendf(buf, "zeroes");
+            return;
+        case ConstValSpecialStatic:
+            break;
+    }
+    assert(const_val->type);
+
+    TypeTableEntry *canon_type = get_underlying_type(const_val->type);
+    switch (canon_type->id) {
+        case TypeTableEntryIdTypeDecl:
+            zig_unreachable();
+        case TypeTableEntryIdInvalid:
+            buf_appendf(buf, "(invalid)");
+            return;
+        case TypeTableEntryIdVar:
+            buf_appendf(buf, "(var)");
+            return;
+        case TypeTableEntryIdVoid:
+            buf_appendf(buf, "{}");
+            return;
+        case TypeTableEntryIdNumLitFloat:
+            buf_appendf(buf, "%f", const_val->data.x_bignum.data.x_float);
+            return;
+        case TypeTableEntryIdNumLitInt:
+            {
+                BigNum *bignum = &const_val->data.x_bignum;
+                const char *negative_str = bignum->is_negative ? "-" : "";
+                buf_appendf(buf, "%s%llu", negative_str, bignum->data.x_uint);
+                return;
+            }
+        case TypeTableEntryIdMetaType:
+            buf_appendf(buf, "%s", buf_ptr(&const_val->data.x_type->name));
+            return;
+        case TypeTableEntryIdInt:
+            {
+                BigNum *bignum = &const_val->data.x_bignum;
+                assert(bignum->kind == BigNumKindInt);
+                const char *negative_str = bignum->is_negative ? "-" : "";
+                buf_appendf(buf, "%s%llu", negative_str, bignum->data.x_uint);
+            }
+            return;
+        case TypeTableEntryIdFloat:
+            {
+                BigNum *bignum = &const_val->data.x_bignum;
+                assert(bignum->kind == BigNumKindFloat);
+                buf_appendf(buf, "%f", bignum->data.x_float);
+            }
+            return;
+        case TypeTableEntryIdUnreachable:
+            buf_appendf(buf, "@unreachable()");
+            return;
+        case TypeTableEntryIdBool:
+            {
+                const char *value = const_val->data.x_bool ? "true" : "false";
+                buf_appendf(buf, "%s", value);
+                return;
+            }
+        case TypeTableEntryIdPointer:
+            buf_appendf(buf, "&");
+            if (const_val->data.x_ptr.special == ConstPtrSpecialRuntime) {
+                buf_appendf(buf, "(runtime pointer value)");
+            } else if (const_val->data.x_ptr.special == ConstPtrSpecialCStr) {
+                buf_appendf(buf, "(c str lit)");
+            } else {
+                render_const_value(buf, const_ptr_pointee(const_val));
+            }
+            return;
+        case TypeTableEntryIdFn:
+            {
+                FnTableEntry *fn_entry = const_val->data.x_fn;
+                buf_appendf(buf, "%s", buf_ptr(&fn_entry->symbol_name));
+                return;
+            }
+        case TypeTableEntryIdBlock:
+            {
+                AstNode *node = const_val->data.x_block->source_node;
+                buf_appendf(buf, "(scope:%zu:%zu)", node->line + 1, node->column + 1);
+                return;
+            }
+        case TypeTableEntryIdArray:
+            {
+                uint64_t len = canon_type->data.array.len;
+                buf_appendf(buf, "%s{", buf_ptr(&canon_type->name));
+                for (uint64_t i = 0; i < len; i += 1) {
+                    if (i != 0)
+                        buf_appendf(buf, ",");
+                    ConstExprValue *child_value = &const_val->data.x_array.elements[i];
+                    render_const_value(buf, child_value);
+                }
+                buf_appendf(buf, "}");
+                return;
+            }
+        case TypeTableEntryIdNullLit:
+            {
+                buf_appendf(buf, "null");
+                return;
+            }
+        case TypeTableEntryIdUndefLit:
+            {
+                buf_appendf(buf, "undefined");
+                return;
+            }
+        case TypeTableEntryIdMaybe:
+            {
+                if (const_val->data.x_maybe) {
+                    render_const_value(buf, const_val->data.x_maybe);
+                } else {
+                    buf_appendf(buf, "null");
+                }
+                return;
+            }
+        case TypeTableEntryIdNamespace:
+            {
+                ImportTableEntry *import = const_val->data.x_import;
+                if (import->c_import_node) {
+                    buf_appendf(buf, "(namespace from C import)");
+                } else {
+                    buf_appendf(buf, "(namespace: %s)", buf_ptr(import->path));
+                }
+                return;
+            }
+        case TypeTableEntryIdBoundFn:
+            {
+                FnTableEntry *fn_entry = const_val->data.x_bound_fn.fn;
+                buf_appendf(buf, "(bound fn %s)", buf_ptr(&fn_entry->symbol_name));
+                return;
+            }
+        case TypeTableEntryIdStruct:
+            {
+                buf_appendf(buf, "(struct %s constant)", buf_ptr(&canon_type->name));
+                return;
+            }
+        case TypeTableEntryIdEnum:
+            {
+                buf_appendf(buf, "(enum %s constant)", buf_ptr(&canon_type->name));
+                return;
+            }
+        case TypeTableEntryIdErrorUnion:
+            {
+                buf_appendf(buf, "(error union %s constant)", buf_ptr(&canon_type->name));
+                return;
+            }
+        case TypeTableEntryIdUnion:
+            {
+                buf_appendf(buf, "(union %s constant)", buf_ptr(&canon_type->name));
+                return;
+            }
+        case TypeTableEntryIdPureError:
+            {
+                buf_appendf(buf, "(pure error constant)");
+                return;
+            }
+        case TypeTableEntryIdEnumTag:
+            {
+                TypeTableEntry *enum_type = canon_type->data.enum_tag.enum_type;
+                TypeEnumField *field = &enum_type->data.enumeration.fields[const_val->data.x_bignum.data.x_uint];
+                buf_appendf(buf, "%s.%s", buf_ptr(&enum_type->name), buf_ptr(field->name));
+                return;
+            }
+    }
+    zig_unreachable();
+}
+

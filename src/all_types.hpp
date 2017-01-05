@@ -57,6 +57,7 @@ struct IrExecutable {
     Buf *c_import_buf;
     AstNode *source_node;
     IrExecutable *parent_exec;
+    Scope *begin_scope;
 };
 
 enum OutType {

@@ -117,6 +117,7 @@ static void ir_ref_bb(IrBasicBlock *bb) {
 }
 
 static void ir_ref_instruction(IrInstruction *instruction, IrBasicBlock *cur_bb) {
+    assert(instruction->id != IrInstructionIdInvalid);
     instruction->ref_count += 1;
     if (instruction->owner_bb != cur_bb)
         ir_ref_bb(instruction->owner_bb);
@@ -3095,7 +3096,13 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
 
 static IrInstruction *ir_gen_bin_op_id(IrBuilder *irb, Scope *scope, AstNode *node, IrBinOp op_id) {
     IrInstruction *op1 = ir_gen_node(irb, node->data.bin_op_expr.op1, scope);
+    if (op1 == irb->codegen->invalid_instruction)
+        return op1;
+
     IrInstruction *op2 = ir_gen_node(irb, node->data.bin_op_expr.op2, scope);
+    if (op2 == irb->codegen->invalid_instruction)
+        return op2;
+
     return ir_build_bin_op(irb, scope, node, op_id, op1, op2, true);
 }
 
@@ -3956,6 +3963,8 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
     for (size_t i = 0; i < arg_count; i += 1) {
         AstNode *arg_node = node->data.fn_call_expr.params.at(i);
         args[i] = ir_gen_node(irb, arg_node, scope);
+        if (args[i] == irb->codegen->invalid_instruction)
+            return args[i];
     }
 
     bool is_comptime = node->data.fn_call_expr.is_comptime;
@@ -4946,6 +4955,19 @@ static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstN
     return ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
 }
 
+static bool render_instance_name_recursive(Buf *name, Scope *outer_scope, Scope *inner_scope) {
+    if (inner_scope == nullptr || inner_scope == outer_scope) return false;
+    bool need_comma = render_instance_name_recursive(name, outer_scope, inner_scope->parent);
+    if (inner_scope->id != ScopeIdVarDecl)
+        return need_comma;
+
+    ScopeVarDecl *var_scope = (ScopeVarDecl *)inner_scope;
+    if (need_comma)
+        buf_append_char(name, ',');
+    render_const_value(name, &var_scope->var->value);
+    return true;
+}
+
 static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeContainerDecl);
 
@@ -4959,9 +4981,7 @@ static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope,
             name = buf_alloc();
             buf_append_buf(name, &fn_entry->symbol_name);
             buf_appendf(name, "(");
-            // TODO render args. note that fn_type_id is likely not complete
-            // at this time.
-            // probably have to render them from the fn scope
+            render_instance_name_recursive(name, &fn_entry->fndef_scope->base, irb->exec->begin_scope);
             buf_appendf(name, ")");
         } else {
             name = buf_sprintf("(anonymous %s at %s:%zu:%zu)", container_string(kind),
@@ -5822,6 +5842,7 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
     ir_executable.is_inline = true;
     ir_executable.fn_entry = fn_entry;
     ir_executable.c_import_buf = c_import_buf;
+    ir_executable.begin_scope = scope;
     ir_gen(codegen, node, scope, &ir_executable);
 
     if (ir_executable.invalid)
@@ -5843,6 +5864,7 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
     analyzed_executable.c_import_buf = c_import_buf;
     analyzed_executable.backward_branch_count = backward_branch_count;
     analyzed_executable.backward_branch_quota = backward_branch_quota;
+    analyzed_executable.begin_scope = scope;
     TypeTableEntry *result_type = ir_analyze(codegen, &ir_executable, &analyzed_executable, expected_type, node);
     if (result_type->id == TypeTableEntryIdInvalid)
         return codegen->invalid_instruction;
