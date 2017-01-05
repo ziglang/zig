@@ -3096,12 +3096,10 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
 
 static IrInstruction *ir_gen_bin_op_id(IrBuilder *irb, Scope *scope, AstNode *node, IrBinOp op_id) {
     IrInstruction *op1 = ir_gen_node(irb, node->data.bin_op_expr.op1, scope);
-    if (op1 == irb->codegen->invalid_instruction)
-        return op1;
-
     IrInstruction *op2 = ir_gen_node(irb, node->data.bin_op_expr.op2, scope);
-    if (op2 == irb->codegen->invalid_instruction)
-        return op2;
+
+    if (op1 == irb->codegen->invalid_instruction || op2 == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
 
     return ir_build_bin_op(irb, scope, node, op_id, op1, op2, true);
 }
