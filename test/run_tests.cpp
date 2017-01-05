@@ -771,11 +771,11 @@ fn f() {
 fn f() {
     const a = return;
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: variable initialization is unreachable");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: unreachable code");
 
     add_compile_fail_case("unreachable variable", R"SOURCE(
 fn f() {
-    const a : unreachable = return;
+    const a : unreachable = {};
 }
     )SOURCE", 1, ".tmp_source.zig:3:15: error: variable of type 'unreachable' not allowed");
 
