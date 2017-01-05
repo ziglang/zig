@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn enumType() {
     @setFnTest(this);
 
@@ -111,13 +113,3 @@ const IntToEnumNumber = enum {
     Three,
     Four,
 };
-
-
-// TODO import from std
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
-}
-
-
-

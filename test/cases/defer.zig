@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 var result: [3]u8 = undefined;
 var index: usize = undefined;
 
@@ -48,10 +50,4 @@ fn mixingNormalAndMaybeDefers() {
     assert(result[0] == 'c');
     assert(result[1] == 'b');
     assert(result[2] == 'a');
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

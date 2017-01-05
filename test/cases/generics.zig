@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn simpleGenericFn() {
     @setFnTest(this);
 
@@ -138,10 +140,3 @@ fn getByte(ptr: ?&u8) -> u8 {*??ptr}
 fn getFirstByte(inline T: type, mem: []T) -> u8 {
     getByte((&u8)(&mem[0]))
 }
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
-}
-

@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn gotoAndLabels() {
     @setFnTest(this);
 
@@ -36,10 +38,4 @@ exit:
 entry:
     defer it_worked = true;
     if (b) goto exit;
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

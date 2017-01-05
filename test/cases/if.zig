@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn ifStatements() {
     @setFnTest(this);
 
@@ -37,10 +39,4 @@ fn elseIfExpressionF(c: u8) -> u8 {
     } else {
         u8(2)
     }
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

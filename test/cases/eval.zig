@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn compileTimeRecursion() {
     @setFnTest(this);
 
@@ -159,11 +161,3 @@ fn staticallyInitializedArrayLiteral() {
     assert(y[3] == 4);
 }
 const st_init_arr_lit_x = []u8{1,2,3,4};
-
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
-}
-

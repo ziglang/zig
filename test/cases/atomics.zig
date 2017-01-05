@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn cmpxchg() {
     @setFnTest(this);
 
@@ -12,10 +14,4 @@ fn fence() {
     var x: i32 = 1234;
     @fence(AtomicOrder.SeqCst);
     x = 5678;
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn boolLiterals() {
     @setFnTest(this);
 
@@ -27,10 +29,4 @@ fn boolCmp() {
 }
 fn testBoolCmp(a: bool, b: bool) -> bool {
     a == b
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

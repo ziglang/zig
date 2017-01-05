@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 var argv: &&const u8 = undefined;
 
 fn constSliceChild() {
@@ -40,10 +42,4 @@ fn streql(a: []const u8, b: []const u8) -> bool {
         if (b[index] != item) return false;
     }
     return true;
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

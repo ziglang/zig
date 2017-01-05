@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn foo(id: u64) -> %i32 {
     return switch (id) {
         1 => getErrInt(),
@@ -18,10 +20,4 @@ fn irBlockDeps() {
 
     assert(%%foo(1) == 0);
     assert(%%foo(2) == 0);
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn sizeofAndTypeOf() {
     @setFnTest(this);
 
@@ -6,9 +8,3 @@ fn sizeofAndTypeOf() {
 }
 const x: u16 = 13;
 const z: @typeOf(x) = 19;
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
-}

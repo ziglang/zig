@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 const Node = struct {
     payload: i32,
     children: []Node,
@@ -39,10 +41,4 @@ fn structContainsSliceOfItself() {
     assert(root.children[2].payload == 3);
     assert(root.children[2].children[0].payload == 31);
     assert(root.children[2].children[1].payload == 32);
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

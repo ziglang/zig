@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn exactDivision() {
     @setFnTest(this);
 
@@ -175,10 +177,3 @@ fn binaryNot() {
 fn testBinaryNot(x: u16) {
     assert(~x == 0b0101010101010101);
 }
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
-}
-

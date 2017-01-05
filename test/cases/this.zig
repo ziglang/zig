@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 const module = this;
 
 fn Point(inline T: type) -> type {
@@ -48,10 +50,4 @@ fn thisReferToFn() {
     @setFnTest(this);
 
     assert(factorial(5) == 120);
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

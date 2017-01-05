@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn namespaceDependsOnCompileVar() {
     @setFnTest(this);
 
@@ -11,9 +13,3 @@ const some_namespace = switch(@compileVar("os")) {
     Os.linux => @import("cases/namespace_depends_on_compile_var/a.zig"),
     else => @import("cases/namespace_depends_on_compile_var/b.zig"),
 };
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
-}

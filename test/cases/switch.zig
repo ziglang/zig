@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn switchWithNumbers() {
     @setFnTest(this);
 
@@ -126,11 +128,4 @@ fn switchWithMultipleExpressions() {
 }
 fn returnsFive() -> i32 {
     5
-}
-
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

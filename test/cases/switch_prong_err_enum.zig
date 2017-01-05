@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 var read_count: u64 = 0;
 
 fn readOnce() -> %u64 {
@@ -24,10 +26,4 @@ fn switchProngReturnsErrorEnum() {
 
     %%doThing(17);
     assert(read_count == 1);
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

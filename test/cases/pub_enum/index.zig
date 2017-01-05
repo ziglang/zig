@@ -1,4 +1,5 @@
 const other = @import("cases/pub_enum/other.zig");
+const assert = @import("std").debug.assert;
 
 fn pubEnum() {
     @setFnTest(this);
@@ -13,11 +14,4 @@ fn castWithImportedSymbol() {
     @setFnTest(this);
 
     assert(other.size_t(42) == 42);
-}
-
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

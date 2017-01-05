@@ -1,3 +1,7 @@
+const assert = @import("std").debug.assert;
+const str = @import("std").str;
+const cstr = @import("std").cstr;
+
 // normal comment
 /// this is a documentation comment
 /// doc comment line 2
@@ -137,7 +141,7 @@ fn first4KeysOfHomeRow() -> []const u8 {
 fn ReturnStringFromFunction() {
     @setFnTest(this);
 
-    assert(memeql(first4KeysOfHomeRow(), "aoeu"));
+    assert(str.eql(first4KeysOfHomeRow(), "aoeu"));
 }
 
 const g1 : i32 = 1233 + 1;
@@ -203,31 +207,31 @@ fn emptyFn() {}
 fn hexEscape() {
     @setFnTest(this);
 
-    assert(memeql("\x68\x65\x6c\x6c\x6f", "hello"));
+    assert(str.eql("\x68\x65\x6c\x6c\x6f", "hello"));
 }
 
 fn stringConcatenation() {
     @setFnTest(this);
 
-    assert(memeql("OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
+    assert(str.eql("OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
 fn arrayMultOperator() {
     @setFnTest(this);
 
-    assert(memeql("ab" ** 5, "ababababab"));
+    assert(str.eql("ab" ** 5, "ababababab"));
 }
 
 fn stringEscapes() {
     @setFnTest(this);
 
-    assert(memeql("\"", "\x22"));
-    assert(memeql("\'", "\x27"));
-    assert(memeql("\n", "\x0a"));
-    assert(memeql("\r", "\x0d"));
-    assert(memeql("\t", "\x09"));
-    assert(memeql("\\", "\x5c"));
-    assert(memeql("\u1234\u0069", "\xe1\x88\xb4\x69"));
+    assert(str.eql("\"", "\x22"));
+    assert(str.eql("\'", "\x27"));
+    assert(str.eql("\n", "\x0a"));
+    assert(str.eql("\r", "\x0d"));
+    assert(str.eql("\t", "\x09"));
+    assert(str.eql("\\", "\x5c"));
+    assert(str.eql("\u1234\u0069", "\xe1\x88\xb4\x69"));
 }
 
 fn multilineString() {
@@ -239,7 +243,7 @@ fn multilineString() {
         \\three
     ;
     const s2 = "one\ntwo)\nthree";
-    assert(memeql(s1, s2));
+    assert(str.eql(s1, s2));
 }
 
 fn multilineCString() {
@@ -251,7 +255,7 @@ fn multilineCString() {
         c\\three
     ;
     const s2 = c"one\ntwo)\nthree";
-    assert(cstrcmp(s1, s2) == 0);
+    assert(cstr.cmp(s1, s2) == 0);
 }
 
 
@@ -337,8 +341,8 @@ fn pointerDereferencing() {
 fn callResultOfIfElseExpression() {
     @setFnTest(this);
 
-    assert(memeql(f2(true), "a"));
-    assert(memeql(f2(false), "b"));
+    assert(str.eql(f2(true), "a"));
+    assert(str.eql(f2(false), "b"));
 }
 fn f2(x: bool) -> []u8 {
     return (if (x) fA else fB)();
@@ -442,7 +446,7 @@ fn cStringConcatenation() {
     const a = c"OK" ++ c" IT " ++ c"WORKED";
     const b = c"OK IT WORKED";
 
-    const len = cstrlen(b);
+    const len = cstr.len(b);
     const len_with_null = len + 1;
     {var i: u32 = 0; while (i < len_with_null; i += 1) {
         assert(a[i] == b[i]);
@@ -485,44 +489,4 @@ fn testPointerToVoidReturnType() -> %void {
 const test_pointer_to_void_return_type_x = void{};
 fn testPointerToVoidReturnType2() -> &const void {
     return &test_pointer_to_void_return_type_x;
-}
-
-// TODO import from std.cstr
-pub fn cstrlen(ptr: &const u8) -> usize {
-    var count: usize = 0;
-    while (ptr[count] != 0; count += 1) {}
-    return count;
-}
-
-// TODO import from std.str
-pub fn memeql(a: []const u8, b: []const u8) -> bool {
-    sliceEql(u8, a, b)
-}
-
-// TODO import from std.str
-pub fn sliceEql(inline T: type, a: []const T, b: []const T) -> bool {
-    if (a.len != b.len) return false;
-    for (a) |item, index| {
-        if (b[index] != item) return false;
-    }
-    return true;
-}
-
-// TODO import from std.cstr
-pub fn cstrcmp(a: &const u8, b: &const u8) -> i8 {
-    var index: usize = 0;
-    while (a[index] == b[index] && a[index] != 0; index += 1) {}
-    return if (a[index] > b[index]) {
-        1
-    } else if (a[index] < b[index]) {
-        -1
-    } else {
-        i8(0)
-    };
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

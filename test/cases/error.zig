@@ -1,3 +1,6 @@
+const assert = @import("std").debug.assert;
+const str = @import("std").str;
+
 pub fn foo() -> %i32 {
     const x = %return bar();
     return x + 1
@@ -25,8 +28,8 @@ fn gimmeItBroke() -> []const u8 {
 
 fn errorName() {
     @setFnTest(this);
-    assert(memeql(@errorName(error.AnError), "AnError"));
-    assert(memeql(@errorName(error.ALongerErrorName), "ALongerErrorName"));
+    assert(str.eql(@errorName(error.AnError), "AnError"));
+    assert(str.eql(@errorName(error.ALongerErrorName), "ALongerErrorName"));
 }
 error AnError;
 error ALongerErrorName;
@@ -97,26 +100,3 @@ fn doErrReturnInAssignment() -> %void {
 fn makeANonErr() -> %i32 {
     return 1;
 }
-
-
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
-}
-
-// TODO import from std.str
-pub fn memeql(a: []const u8, b: []const u8) -> bool {
-    sliceEql(u8, a, b)
-}
-
-// TODO import from std.str
-pub fn sliceEql(inline T: type, a: []const T, b: []const T) -> bool {
-    if (a.len != b.len) return false;
-    for (a) |item, index| {
-        if (b[index] != item) return false;
-    }
-    return true;
-}
-

@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 const StructWithNoFields = struct {
     fn add(a: i32, b: i32) -> i32 { a + b }
 };
@@ -205,11 +207,4 @@ fn passSliceOfEmptyStructToFn() {
 }
 fn testPassSliceOfEmptyStructToFn(slice: []EmptyStruct2) -> usize {
     slice.len
-}
-
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

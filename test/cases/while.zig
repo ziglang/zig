@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn whileLoop() {
     @setFnTest(this);
 
@@ -71,12 +73,4 @@ fn whileWithContinueExpr() {
         sum += i;
     }}
     assert(sum == 40);
-}
-
-
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

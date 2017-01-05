@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 const FormValue = enum {
     One,
     Two: bool,
@@ -21,10 +23,4 @@ fn switchProngImplicitCast() {
         FormValue.Two => |x| x,
     };
     assert(result);
-}
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
 }

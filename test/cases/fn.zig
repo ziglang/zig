@@ -1,3 +1,5 @@
+const assert = @import("std").debug.assert;
+
 fn params() {
     @setFnTest(this);
 
@@ -98,11 +100,3 @@ fn fn1() -> u32 {5}
 fn fn2() -> u32 {6}
 fn fn3() -> u32 {7}
 fn fn4() -> u32 {8}
-
-
-
-// TODO const assert = @import("std").debug.assert;
-fn assert(ok: bool) {
-    if (!ok)
-        @unreachable();
-}
