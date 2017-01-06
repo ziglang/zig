@@ -841,7 +841,7 @@ const x : i32 = 99;
 fn f() {
     x = 1;
 }
-    )SOURCE", 1, ".tmp_source.zig:4:5: error: cannot assign to constant");
+    )SOURCE", 1, ".tmp_source.zig:4:7: error: cannot assign to constant");
 
 
     add_compile_fail_case("missing else clause", R"SOURCE(
@@ -849,18 +849,18 @@ fn f(b: bool) {
     const x : i32 = if (b) { 1 };
     const y = if (b) { i32(1) };
 }
-    )SOURCE", 2, ".tmp_source.zig:3:21: error: expected type 'i32', found 'void'",
+    )SOURCE", 2, ".tmp_source.zig:3:30: error: integer value 1 cannot be implicitly casted to type 'void'",
                  ".tmp_source.zig:4:15: error: incompatible types: 'i32' and 'void'");
 
     add_compile_fail_case("direct struct loop", R"SOURCE(
 const A = struct { a : A, };
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: 'A' depends on itself");
+    )SOURCE", 1, ".tmp_source.zig:2:11: error: struct 'A' contains itself");
 
     add_compile_fail_case("indirect struct loop", R"SOURCE(
 const A = struct { b : B, };
 const B = struct { c : C, };
 const C = struct { a : A, };
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: 'A' depends on itself");
+    )SOURCE", 1, ".tmp_source.zig:2:11: error: struct 'A' contains itself");
 
     add_compile_fail_case("invalid struct field", R"SOURCE(
 const A = struct { x : i32, };

@@ -1108,7 +1108,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     if (enum_type->data.enumeration.embedded_in_current) {
         if (!enum_type->data.enumeration.reported_infinite_err) {
             enum_type->data.enumeration.reported_infinite_err = true;
-            add_node_error(g, decl_node, buf_sprintf("enum contains itself"));
+            add_node_error(g, decl_node, buf_sprintf("enum '%s' contains itself", buf_ptr(&enum_type->name)));
         }
         return;
     }
@@ -1286,7 +1286,8 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
         struct_type->data.structure.is_invalid = true;
         if (!struct_type->data.structure.reported_infinite_err) {
             struct_type->data.structure.reported_infinite_err = true;
-            add_node_error(g, decl_node, buf_sprintf("struct contains itself"));
+            add_node_error(g, decl_node,
+                    buf_sprintf("struct '%s' contains itself", buf_ptr(&struct_type->name)));
         }
         return;
     }
