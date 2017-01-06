@@ -808,16 +808,29 @@ fn f() {
 }
     )SOURCE", 1, ".tmp_source.zig:3:6: error: invalid token: 'const'");
 
-    add_compile_fail_case("array access errors", R"SOURCE(
+    add_compile_fail_case("array access of undeclared identifier", R"SOURCE(
+fn f() {
+    i[i] = i[i];
+}
+    )SOURCE", 2, ".tmp_source.zig:3:5: error: use of undeclared identifier 'i'",
+                 ".tmp_source.zig:3:12: error: use of undeclared identifier 'i'");
+
+    add_compile_fail_case("array access of non array", R"SOURCE(
 fn f() {
     var bad : bool = undefined;
-    i[i] = i[i];
     bad[bad] = bad[bad];
 }
-    )SOURCE", 4, ".tmp_source.zig:4:5: error: use of undeclared identifier 'i'",
-                 ".tmp_source.zig:4:7: error: use of undeclared identifier 'i'",
-                 ".tmp_source.zig:5:8: error: array access of non-array",
-                 ".tmp_source.zig:5:9: error: expected type 'usize', found 'bool'");
+    )SOURCE", 2, ".tmp_source.zig:4:8: error: array access of non-array type 'bool'",
+                 ".tmp_source.zig:4:19: error: array access of non-array type 'bool'");
+
+    add_compile_fail_case("array access with non integer index", R"SOURCE(
+fn f() {
+    var array = "aoeu";
+    var bad = false;
+    array[bad] = array[bad];
+}
+    )SOURCE", 2, ".tmp_source.zig:5:11: error: expected type 'usize', found 'bool'",
+                 ".tmp_source.zig:5:24: error: expected type 'usize', found 'bool'");
 
     add_compile_fail_case("variadic functions only allowed in extern", R"SOURCE(
 fn f(...) {}

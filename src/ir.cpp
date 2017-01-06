@@ -119,7 +119,7 @@ static void ir_ref_bb(IrBasicBlock *bb) {
 static void ir_ref_instruction(IrInstruction *instruction, IrBasicBlock *cur_bb) {
     assert(instruction->id != IrInstructionIdInvalid);
     instruction->ref_count += 1;
-    if (instruction->owner_bb != cur_bb)
+    if (instruction->owner_bb != cur_bb && !instr_is_comptime(instruction))
         ir_ref_bb(instruction->owner_bb);
 }
 
@@ -3112,12 +3112,10 @@ static IrInstruction *ir_gen_bin_op_id(IrBuilder *irb, Scope *scope, AstNode *no
 
 static IrInstruction *ir_gen_assign(IrBuilder *irb, Scope *scope, AstNode *node) {
     IrInstruction *lvalue = ir_gen_node_extra(irb, node->data.bin_op_expr.op1, scope, LValPurposeAssign);
-    if (lvalue == irb->codegen->invalid_instruction)
-        return lvalue;
-
     IrInstruction *rvalue = ir_gen_node(irb, node->data.bin_op_expr.op2, scope);
-    if (rvalue == irb->codegen->invalid_instruction)
-        return rvalue;
+
+    if (lvalue == irb->codegen->invalid_instruction || rvalue == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
 
     ir_build_store_ptr(irb, scope, node, lvalue, rvalue);
     return ir_build_const_void(irb, scope, node);
