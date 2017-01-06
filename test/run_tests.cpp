@@ -963,7 +963,7 @@ fn f() {
 fn f() {
     if (const x ?= true) { }
 }
-    )SOURCE", 1, ".tmp_source.zig:3:20: error: expected maybe type");
+    )SOURCE", 1, ".tmp_source.zig:3:20: error: expected nullable type, found 'bool'");
 
     add_compile_fail_case("cast unreachable", R"SOURCE(
 fn f() -> i32 {

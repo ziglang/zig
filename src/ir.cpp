@@ -9121,7 +9121,7 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
     if (type_entry->id == TypeTableEntryIdInvalid) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (type_entry->id != TypeTableEntryIdMaybe) {
-        ir_add_error_node(ira, unwrap_maybe_instruction->base.source_node,
+        ir_add_error_node(ira, unwrap_maybe_instruction->value->source_node,
                 buf_sprintf("expected nullable type, found '%s'", buf_ptr(&type_entry->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }

@@ -1393,8 +1393,6 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
 
     ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
     struct_type->di_type = replacement_di_type;
-
-    assert((debug_size_in_bits == 0) == struct_type->zero_bits);
 }
 
 static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
