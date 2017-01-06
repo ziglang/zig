@@ -969,7 +969,7 @@ fn f() {
 fn f() -> i32 {
     i32(return 1)
 }
-    )SOURCE", 1, ".tmp_source.zig:3:8: error: invalid cast from type 'unreachable' to 'i32'");
+    )SOURCE", 1, ".tmp_source.zig:3:8: error: unreachable code");
 
     add_compile_fail_case("invalid builtin fn", R"SOURCE(
 fn f() -> @bogus(foo) {

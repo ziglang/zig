@@ -3970,7 +3970,7 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
     }
 
     bool is_comptime = node->data.fn_call_expr.is_comptime;
-    return ir_mark_gen(ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, is_comptime));
+    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, is_comptime);
 }
 
 static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
