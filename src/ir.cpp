@@ -9578,6 +9578,13 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
     TypeTableEntry *container_type, size_t instr_field_count, IrInstructionContainerInitFieldsField *fields,
     bool depends_on_compile_var)
 {
+    if (container_type->id != TypeTableEntryIdStruct || is_slice(container_type)) {
+        ir_add_error(ira, instruction,
+            buf_sprintf("type '%s' does not support struct initialization syntax",
+                buf_ptr(&container_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     if (!type_is_complete(container_type))
         resolve_container_type(ira->codegen, container_type);
 
