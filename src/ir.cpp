@@ -7466,7 +7466,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
     if (inline_fn_call) {
         // No special handling is needed for compile time evaluation of generic functions.
-        if (!fn_entry) {
+        if (!fn_entry || fn_entry->type_entry->data.fn.fn_type_id.is_extern) {
             ir_add_error(ira, fn_ref, buf_sprintf("unable to evaluate constant expression"));
             return ira->codegen->builtin_types.entry_invalid;
         }

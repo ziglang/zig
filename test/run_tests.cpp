@@ -1019,7 +1019,7 @@ fn f(x: u32) {
     add_compile_fail_case("global variable initializer must be constant expression", R"SOURCE(
 extern fn foo() -> i32;
 const x = foo();
-    )SOURCE", 1, ".tmp_source.zig:3:11: error: global variable initializer requires constant expression");
+    )SOURCE", 1, ".tmp_source.zig:3:11: error: unable to evaluate constant expression");
 
     add_compile_fail_case("array concatenation with wrong type", R"SOURCE(
 fn f(s: []u8) -> []u8 {
