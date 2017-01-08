@@ -1022,16 +1022,15 @@ const x = foo();
     )SOURCE", 1, ".tmp_source.zig:3:11: error: unable to evaluate constant expression");
 
     add_compile_fail_case("array concatenation with wrong type", R"SOURCE(
-fn f(s: []u8) -> []u8 {
-    s ++ "foo"
-}
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: expected array or C string literal, found '[]u8'");
+const src = "aoeu";
+const a = src[0...] ++ "foo";
+    )SOURCE", 1, ".tmp_source.zig:3:14: error: expected array or C string literal, found '[]u8'");
 
     add_compile_fail_case("non compile time array concatenation", R"SOURCE(
 fn f(s: [10]u8) -> []u8 {
     s ++ "foo"
 }
-    )SOURCE", 1, ".tmp_source.zig:3:5: error: array concatenation requires constant expression");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: unable to evaluate constant expression");
 
     add_compile_fail_case("@cImport with bogus include", R"SOURCE(
 const c = @cImport(@cInclude("bogus.h"));
@@ -1041,14 +1040,8 @@ const c = @cImport(@cInclude("bogus.h"));
     add_compile_fail_case("address of number literal", R"SOURCE(
 const x = 3;
 const y = &x;
-    )SOURCE", 1, ".tmp_source.zig:3:12: error: unable to get address of type '(integer literal)'");
-
-    add_compile_fail_case("@typeOf number literal", R"SOURCE(
-const x = 3;
-const Foo = struct {
-    index: @typeOf(x),
-};
-    )SOURCE", 1, ".tmp_source.zig:4:20: error: type '(integer literal)' not eligible for @typeOf");
+fn foo() -> &const i32 { y }
+    )SOURCE", 1, ".tmp_source.zig:4:26: error: expected type '&const i32', found '&const (integer literal)'");
 
     add_compile_fail_case("integer overflow error", R"SOURCE(
 const x : u8 = 300;
@@ -1077,7 +1070,7 @@ const members = []member_fn_type {
     Foo.member_b,
 };
 
-fn f(foo: Foo, index: i32) {
+fn f(foo: Foo, index: usize) {
     const result = members[index]();
 }
     )SOURCE", 1, ".tmp_source.zig:21:34: error: expected 1 arguments, found 0");
@@ -1094,10 +1087,7 @@ const fns = []fn(){ a, b, c };
 fn a() -> i32 {0}
 fn b() -> i32 {1}
 fn c() -> i32 {2}
-    )SOURCE", 3,
-            ".tmp_source.zig:2:21: error: expected type 'fn()', found 'fn() -> i32'",
-            ".tmp_source.zig:2:24: error: expected type 'fn()', found 'fn() -> i32'",
-            ".tmp_source.zig:2:27: error: expected type 'fn()', found 'fn() -> i32'");
+    )SOURCE", 1, ".tmp_source.zig:2:21: error: expected type 'fn()', found 'fn() -> i32'");
 
     add_compile_fail_case("extern function pointer mismatch", R"SOURCE(
 const fns = [](fn(i32)->i32){ a, b, c };
@@ -1126,11 +1116,11 @@ const x = @compileVar("bogus");
     )SOURCE", 1, ".tmp_source.zig:2:23: error: unrecognized compile variable: 'bogus'");
 
 
-    add_compile_fail_case("@constEval", R"SOURCE(
+    add_compile_fail_case("@staticEval", R"SOURCE(
 fn a(x: i32) {
-    const y = @constEval(x);
+    const y = @staticEval(x);
 }
-    )SOURCE", 1, ".tmp_source.zig:3:26: error: unable to evaluate constant expression");
+    )SOURCE", 1, ".tmp_source.zig:3:27: error: unable to evaluate constant expression");
 
     add_compile_fail_case("non constant expression in array size outside function", R"SOURCE(
 const Foo = struct {
