@@ -1128,7 +1128,7 @@ const Foo = struct {
 };
 var global_var: usize = 1;
 fn get() -> usize { global_var }
-    )SOURCE", 1, ".tmp_source.zig:3:9: error: unable to evaluate constant expression");
+    )SOURCE", 1, ".tmp_source.zig:3:12: error: unable to evaluate constant expression");
 
 
     add_compile_fail_case("unnecessary if statement", R"SOURCE(

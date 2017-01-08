@@ -5266,7 +5266,9 @@ static IrInstruction *ir_exec_const_result(IrExecutable *exec) {
         if (instruction->id == IrInstructionIdReturn) {
             IrInstructionReturn *ret_inst = (IrInstructionReturn *)instruction;
             IrInstruction *value = ret_inst->value;
-            assert(value->value.special != ConstValSpecialRuntime);
+            if (value->value.special == ConstValSpecialRuntime) {
+                return nullptr;
+            }
             return value;
         } else if (ir_has_side_effects(instruction)) {
             return nullptr;
