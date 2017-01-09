@@ -6915,6 +6915,25 @@ static int ir_eval_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
         ConstExprValue *out_val, bool (*bignum_fn)(BigNum *, BigNum *, BigNum *),
         TypeTableEntry *type, bool wrapping_op)
 {
+    bool is_int = false;
+    bool is_float = false;
+    if (bignum_fn == bignum_div || bignum_fn == bignum_mod) {
+        if (type->id == TypeTableEntryIdInt ||
+            type->id == TypeTableEntryIdNumLitInt)
+        {
+            is_int = true;
+        } else if (type->id == TypeTableEntryIdFloat ||
+                   type->id == TypeTableEntryIdNumLitFloat)
+        {
+            is_float = true;
+        }
+        if ((is_int && op2_val->data.x_bignum.data.x_uint == 0) ||
+            (is_float && op2_val->data.x_bignum.data.x_float == 0.0))
+        {
+            return ErrorDivByZero;
+        }
+    }
+
     bool overflow = bignum_fn(&out_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum);
     if (overflow) {
         return ErrorOverflow;
