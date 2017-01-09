@@ -86,26 +86,29 @@ fn maxValueType() {
 
 fn shortCircuit() {
     @setFnTest(this);
+    testShortCircuit(false, true);
+}
 
-    var hit_1 = false;
-    var hit_2 = false;
-    var hit_3 = false;
-    var hit_4 = false;
+fn testShortCircuit(f: bool, t: bool) {
+    var hit_1 = f;
+    var hit_2 = f;
+    var hit_3 = f;
+    var hit_4 = f;
 
-    if (true || {assert(false); false}) {
-        hit_1 = true;
+    if (t || {assert(f); f}) {
+        hit_1 = t;
     }
-    if (false || { hit_2 = true; false }) {
-        assert(false);
+    if (f || { hit_2 = t; f }) {
+        assert(f);
     }
 
-    if (true && { hit_3 = true; false }) {
-        assert(false);
+    if (t && { hit_3 = t; f }) {
+        assert(f);
     }
-    if (false && {assert(false); false}) {
-        assert(false);
+    if (f && {assert(f); f}) {
+        assert(f);
     } else {
-        hit_4 = true;
+        hit_4 = t;
     }
     assert(hit_1);
     assert(hit_2);

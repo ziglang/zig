@@ -3,7 +3,7 @@ const assert = @import("std").debug.assert;
 fn nullableType() {
     @setFnTest(this);
 
-    const x : ?bool = true;
+    const x : ?bool = @generatedCode(true);
 
     if (const y ?= x) {
         if (y) {
@@ -15,13 +15,13 @@ fn nullableType() {
         @unreachable();
     }
 
-    const next_x : ?i32 = null;
+    const next_x : ?i32 = @generatedCode(null);
 
     const z = next_x ?? 1234;
 
     assert(z == 1234);
 
-    const final_x : ?i32 = 13;
+    const final_x : ?i32 = @generatedCode(13);
 
     const num = final_x ?? @unreachable();
 
@@ -43,7 +43,7 @@ fn assignToIfVarPtr() {
 fn rhsMaybeUnwrapReturn() {
     @setFnTest(this);
 
-    const x: ?bool = true;
+    const x: ?bool = @generatedCode(true);
     const y = x ?? return;
 }
 

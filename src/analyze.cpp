@@ -1148,6 +1148,9 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             continue;
         }
 
+        enum_type->size_depends_on_compile_var = enum_type->size_depends_on_compile_var ||
+            field_type->size_depends_on_compile_var;
+
         if (!type_has_bits(field_type))
             continue;
 
@@ -1315,6 +1318,9 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
             struct_type->data.enumeration.is_invalid = true;
             continue;
         }
+
+        struct_type->size_depends_on_compile_var = struct_type->size_depends_on_compile_var ||
+            field_type->size_depends_on_compile_var;
 
         if (!type_has_bits(field_type))
             continue;

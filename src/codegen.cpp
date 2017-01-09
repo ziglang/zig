@@ -2273,6 +2273,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdAlignOf:
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
+        case IrInstructionIdGeneratedCode:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -3201,6 +3202,7 @@ static void define_builtin_types(CodeGen *g) {
         bool is_signed = info->is_signed;
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+        entry->size_depends_on_compile_var = true;
         entry->type_ref = LLVMIntType(size_in_bits);
 
         buf_init_from_str(&entry->name, info->name);
@@ -3237,6 +3239,7 @@ static void define_builtin_types(CodeGen *g) {
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMIntType(g->pointer_size_bytes * 8);
+        entry->size_depends_on_compile_var = true;
 
         const char u_or_i = is_signed ? 'i' : 'u';
         buf_resize(&entry->name, 0);
@@ -3292,6 +3295,7 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
         entry->type_ref = LLVMX86FP80Type();
+        entry->size_depends_on_compile_var = true;
         buf_init_from_str(&entry->name, "c_long_double");
         entry->data.floating.bit_count = 80;
 
@@ -3613,6 +3617,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCUndef, "cUndef", 1);
     create_builtin_fn(g, BuiltinFnIdCompileVar, "compileVar", 1);
     create_builtin_fn(g, BuiltinFnIdStaticEval, "staticEval", 1);
+    create_builtin_fn(g, BuiltinFnIdGeneratedCode, "generatedCode", 1);
     create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 1);
     create_builtin_fn(g, BuiltinFnIdClz, "clz", 1);
     create_builtin_fn(g, BuiltinFnIdImport, "import", 1);

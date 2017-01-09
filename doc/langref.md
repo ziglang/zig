@@ -540,9 +540,9 @@ variables:
  * "is_big_endian" `bool` - either `true` for big endian or `false` for little endian.
  * "is_release" `bool`- either `true` for release mode builds or `false` for debug mode builds.
  * "is_test" `bool`- either `true` for test builds or `false` otherwise.
- * "os" `@OS` - use `zig targets` to see what enum values are possible here.
- * "arch" `@Arch` - use `zig targets` to see what enum values are possible here.
- * "environ" `@Environ` - use `zig targets` to see what enum values are possible here.
+ * "os" `Os` - use `zig targets` to see what enum values are possible here.
+ * "arch" `Arch` - use `zig targets` to see what enum values are possible here.
+ * "environ" `Environ` - use `zig targets` to see what enum values are possible here.
 
 Build scripts can set additional compile variables of any name and type.
 
@@ -555,6 +555,18 @@ This function wraps an expression and generates a compile error if the
 expression is not known at compile time.
 
 The result of the function is the result of the expression.
+
+### @generatedCode(expression) -> @typeOf(expression)
+
+This function wraps an expression and returns the result of the expression
+unmodified.
+
+Inside the expression, code is considered generated, which means that the
+following compile errors are disabled:
+
+ * unnecessary if statement error
+
+The result of the expression is marked as depending on a compile variable.
 
 ### @ctz(x: T) -> T
 
@@ -638,3 +650,4 @@ This function returns an integer type with the given signness and bit count.
 ### @setFnTest(func)
 
 Makes the target function a test function.
+

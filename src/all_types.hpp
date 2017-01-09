@@ -942,6 +942,7 @@ struct TypeTableEntry {
     ZigLLVMDIType *di_type;
 
     bool zero_bits;
+    bool size_depends_on_compile_var;
 
     union {
         TypeTableEntryPointer pointer;
@@ -1053,6 +1054,7 @@ enum BuiltinFnId {
     BuiltinFnIdCompileVar,
     BuiltinFnIdCompileErr,
     BuiltinFnIdStaticEval,
+    BuiltinFnIdGeneratedCode,
     BuiltinFnIdCtz,
     BuiltinFnIdClz,
     BuiltinFnIdImport,
@@ -1440,6 +1442,7 @@ enum IrInstructionId {
     IrInstructionIdClz,
     IrInstructionIdCtz,
     IrInstructionIdStaticEval,
+    IrInstructionIdGeneratedCode,
     IrInstructionIdImport,
     IrInstructionIdCImport,
     IrInstructionIdCInclude,
@@ -1851,6 +1854,12 @@ struct IrInstructionEnumTag {
 };
 
 struct IrInstructionStaticEval {
+    IrInstruction base;
+
+    IrInstruction *value;
+};
+
+struct IrInstructionGeneratedCode {
     IrInstruction base;
 
     IrInstruction *value;

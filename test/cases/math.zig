@@ -72,9 +72,11 @@ fn modifyOperators() {
 
 fn threeExprInARow() {
     @setFnTest(this);
-
-    assertFalse(false || false || false);
-    assertFalse(true && true && false);
+    testThreeExprInARow(false, true);
+}
+fn testThreeExprInARow(f: bool, t: bool) {
+    assertFalse(f || f || f);
+    assertFalse(t && t && f);
     assertFalse(1 | 2 | 4 != 7);
     assertFalse(3 ^ 6 ^ 8 != 13);
     assertFalse(7 & 14 & 28 != 4);
@@ -86,6 +88,7 @@ fn threeExprInARow() {
     assertFalse(!!false);
     assertFalse(i32(7) != --(i32(7)));
 }
+
 fn assertFalse(b: bool) {
     assert(!b);
 }
