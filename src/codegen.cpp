@@ -2274,6 +2274,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
         case IrInstructionIdGeneratedCode:
+        case IrInstructionIdCheckSwitchProngs:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);

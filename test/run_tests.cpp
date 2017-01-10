@@ -1167,12 +1167,12 @@ const Number = enum {
 };
 fn f(n: Number) -> i32 {
     switch (n) {
-        One => 1,
-        Two => 2,
-        Three => 3,
+        Number.One => 1,
+        Number.Two => 2,
+        Number.Three => i32(3),
     }
 }
-    )SOURCE", 1, ".tmp_source.zig:9:5: error: enumeration value 'Four' not handled in switch");
+    )SOURCE", 1, ".tmp_source.zig:9:5: error: enumeration value 'Number.Four' not handled in switch");
 
     add_compile_fail_case("import inside function body", R"SOURCE(
 fn f() {
@@ -1429,14 +1429,6 @@ fn f() -> i32 {
     foo(1, 2)
 }
     )SOURCE", 1, ".tmp_source.zig:2:15: error: inline parameter not allowed in extern function");
-
-    /* TODO
-    add_compile_fail_case("inline export function", R"SOURCE(
-export inline fn foo(x: i32, y: i32) -> i32{
-    x + y
-}
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: extern functions cannot be inline");
-    */
 
     add_compile_fail_case("convert fixed size array to slice with invalid size", R"SOURCE(
 fn f() {

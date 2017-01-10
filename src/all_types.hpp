@@ -1484,6 +1484,7 @@ enum IrInstructionId {
     IrInstructionIdIntToPtr,
     IrInstructionIdPtrToInt,
     IrInstructionIdIntToEnum,
+    IrInstructionIdCheckSwitchProngs,
 };
 
 struct IrInstruction {
@@ -2158,6 +2159,19 @@ struct IrInstructionIntToEnum {
     IrInstruction base;
 
     IrInstruction *target;
+};
+
+struct IrInstructionCheckSwitchProngsRange {
+    IrInstruction *start;
+    IrInstruction *end;
+};
+
+struct IrInstructionCheckSwitchProngs {
+    IrInstruction base;
+
+    IrInstruction *target_value;
+    IrInstructionCheckSwitchProngsRange *ranges;
+    size_t range_count;
 };
 
 enum LValPurpose {
