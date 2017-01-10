@@ -5,13 +5,14 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#include "config.h"
+#include "ast_render.hpp"
 #include "buffer.hpp"
 #include "codegen.hpp"
-#include "os.hpp"
+#include "config.h"
 #include "error.hpp"
-#include "target.hpp"
 #include "link.hpp"
+#include "os.hpp"
+#include "target.hpp"
 
 #include <stdio.h>
 
@@ -410,7 +411,7 @@ int main(int argc, char **argv) {
                 return EXIT_SUCCESS;
             } else if (cmd == CmdParseH) {
                 codegen_parseh(g, &root_source_dir, &root_source_name, &root_source_code);
-                codegen_render_ast(g, stdout, 4);
+                ast_render_decls(stdout, 4, g->root_import);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdTest) {
                 codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);

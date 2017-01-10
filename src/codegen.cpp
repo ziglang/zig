@@ -3713,6 +3713,7 @@ void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source
     import->source_code = source_code;
     import->path = full_path;
     g->root_import = import;
+    import->decls_scope = create_decls_scope(nullptr, nullptr, nullptr, import);
 
     init(g, full_path);
 
@@ -3733,11 +3734,6 @@ void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source
         exit(1);
     }
 }
-
-void codegen_render_ast(CodeGen *g, FILE *f, int indent_size) {
-    ast_render(stdout, g->root_import->root, 4);
-}
-
 
 static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package, const char *basename) {
     Buf *std_dir = g->zig_std_dir;

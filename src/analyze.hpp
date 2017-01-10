@@ -26,7 +26,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type);
 TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size);
 TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
-TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind, AstNode *decl_node, const char *name);
+TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind, AstNode *decl_node, const char *name, bool is_extern);
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
 TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type);
 TypeTableEntry *get_bound_fn_type(CodeGen *g, FnTableEntry *fn_entry);

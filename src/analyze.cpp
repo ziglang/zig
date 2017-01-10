@@ -870,26 +870,26 @@ static TypeTableEntryId container_to_type(ContainerKind kind) {
     zig_unreachable();
 }
 
-TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind, AstNode *decl_node, const char *name) {
+TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind, AstNode *decl_node, const char *name, bool is_extern) {
     TypeTableEntryId type_id = container_to_type(kind);
     TypeTableEntry *entry = new_container_type_entry(type_id, decl_node, scope);
 
     switch (kind) {
         case ContainerKindStruct:
             entry->data.structure.decl_node = decl_node;
-            entry->data.structure.is_extern = decl_node->data.container_decl.is_extern;
+            entry->data.structure.is_extern = is_extern;
             break;
         case ContainerKindEnum:
             entry->data.enumeration.decl_node = decl_node;
-            entry->data.enumeration.is_extern = decl_node->data.container_decl.is_extern;
+            entry->data.enumeration.is_extern = is_extern;
             break;
         case ContainerKindUnion:
             entry->data.unionation.decl_node = decl_node;
-            entry->data.unionation.is_extern = decl_node->data.container_decl.is_extern;
+            entry->data.unionation.is_extern = is_extern;
             break;
     }
 
-    unsigned line = decl_node->line;
+    unsigned line = decl_node ? decl_node->line : 0;
 
     ImportTableEntry *import = get_scope_import(scope);
     entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), name);
@@ -1688,7 +1688,7 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
     tld->name = name;
     tld->visib_mod = visib_mod;
     tld->source_node = source_node;
-    tld->import = source_node->owner;
+    tld->import = source_node ? source_node->owner : nullptr;
     tld->parent_scope = parent_scope;
 }
 
@@ -1895,7 +1895,7 @@ VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent
     }
 
     Scope *child_scope;
-    if (source_node->type == NodeTypeParamDecl) {
+    if (source_node && source_node->type == NodeTypeParamDecl) {
         child_scope = create_var_scope(source_node, parent_scope, variable_entry);
     } else {
         // it's already in the decls table

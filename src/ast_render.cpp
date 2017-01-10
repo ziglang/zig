@@ -6,6 +6,7 @@
  */
 
 #include "ast_render.hpp"
+#include "analyze.hpp"
 
 #include <stdio.h>
 
@@ -890,4 +891,84 @@ void ast_render(FILE *f, AstNode *node, int indent_size) {
 
     render_node_grouped(&ar, node);
 }
+
+static void ast_render_tld_fn(AstRender *ar, TldFn *tld_fn) {
+    FnTableEntry *fn_entry = tld_fn->fn_entry;
+    FnTypeId *fn_type_id = &fn_entry->type_entry->data.fn.fn_type_id;
+    const char *visib_mod_str = visib_mod_string(tld_fn->base.visib_mod);
+    const char *extern_str = extern_string(fn_type_id->is_extern);
+    const char *coldcc_str = fn_type_id->is_cold ? "coldcc " : "";
+    const char *nakedcc_str = fn_type_id->is_naked ? "nakedcc " : "";
+    fprintf(ar->f, "%s%s%s%sfn %s(", visib_mod_str, extern_str, coldcc_str, nakedcc_str, buf_ptr(&fn_entry->symbol_name));
+    for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
+        FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
+        if (param_info->is_noalias) {
+            fprintf(ar->f, "noalias ");
+        }
+        fprintf(ar->f, "arg_%zu: %s", i, buf_ptr(&param_info->type->name));
+    }
+    if (fn_type_id->return_type->id == TypeTableEntryIdVoid) {
+        fprintf(ar->f, ");\n");
+    } else {
+        fprintf(ar->f, ") -> %s;\n", buf_ptr(&fn_type_id->return_type->name));
+    }
+}
+
+static void ast_render_tld_var(AstRender *ar, TldVar *tld_var) {
+    VariableTableEntry *var = tld_var->var;
+    const char *visib_mod_str = visib_mod_string(tld_var->base.visib_mod);
+    const char *const_or_var = const_or_var_string(var->src_is_const);
+    const char *extern_str = extern_string(var->is_extern);
+    fprintf(ar->f, "%s%s%s %s", visib_mod_str, extern_str, const_or_var, buf_ptr(&var->name));
+
+    if (var->value.type->id == TypeTableEntryIdNumLitFloat ||
+        var->value.type->id == TypeTableEntryIdNumLitInt)
+    {
+        // skip type
+    } else {
+        fprintf(ar->f, ": %s", buf_ptr(&var->value.type->name));
+    }
+
+    if (var->value.special == ConstValSpecialRuntime) {
+        fprintf(ar->f, ";\n");
+        return;
+    }
+
+    Buf buf = BUF_INIT;
+    buf_resize(&buf, 0);
+    render_const_value(&buf, &var->value);
+
+    fprintf(ar->f, " = %s;\n", buf_ptr(&buf));
+}
+
+void ast_render_decls(FILE *f, int indent_size, ImportTableEntry *import) {
+    AstRender ar = {0};
+    ar.f = f;
+    ar.indent_size = indent_size;
+    ar.indent = 0;
+
+    auto it = import->decls_scope->decl_table.entry_iterator();
+    for (;;) {
+        auto *entry = it.next();
+        if (!entry)
+            break;
+
+        Tld *tld = entry->value;
+        switch (tld->id) {
+            case TldIdVar:
+                ast_render_tld_var(&ar, (TldVar *)tld);
+                break;
+            case TldIdFn:
+                ast_render_tld_fn(&ar, (TldFn *)tld);
+                break;
+            case TldIdContainer:
+                fprintf(stdout, "container\n");
+                break;
+            case TldIdTypeDef:
+                fprintf(stdout, "typedef\n");
+                break;
+        }
+    }
+}
+
 
