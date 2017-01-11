@@ -1452,34 +1452,35 @@ fn function_with_return_type_type() {
             ".tmp_source.zig:17:19: note: called from here");
 
     add_compile_fail_case("bogus method call on slice", R"SOURCE(
+var self = "aoeu";
 fn f(m: []const u8) {
-    m.copy(u8, self.list.items[old_len...], m);
+    m.copy(u8, self[0...], m);
 }
-    )SOURCE", 1, ".tmp_source.zig:3:6: error: no member named 'copy' in '[]const u8'");
+    )SOURCE", 1, ".tmp_source.zig:4:6: error: no member named 'copy' in '[]const u8'");
 
     add_compile_fail_case("wrong number of arguments for method fn call", R"SOURCE(
-const Foo = {
+const Foo = struct {
     fn method(self: &const Foo, a: i32) {}
 };
 fn f(foo: &const Foo) {
 
     foo.method(1, 2);
 }
-    )SOURCE", 1, ".tmp_source.zig:7:15: error: expected 1 arguments, found 2");
+    )SOURCE", 1, ".tmp_source.zig:7:15: error: expected 2 arguments, found 3");
 
     add_compile_fail_case("assign through constant pointer", R"SOURCE(
 fn f() {
   var cstr = c"Hat";
   cstr[0] = 'W';
 }
-    )SOURCE", 1, ".tmp_source.zig:4:7: error: cannot assign to constant");
+    )SOURCE", 1, ".tmp_source.zig:4:11: error: cannot assign to constant");
 
     add_compile_fail_case("assign through constant slice", R"SOURCE(
 pub fn f() {
   var cstr: []const u8 = "Hat";
   cstr[0] = 'W';
 }
-    )SOURCE", 1, ".tmp_source.zig:4:7: error: cannot assign to constant");
+    )SOURCE", 1, ".tmp_source.zig:4:11: error: cannot assign to constant");
 
     add_compile_fail_case("main function with bogus args type", R"SOURCE(
 pub fn main(args: [][]bogus) -> %void {}
