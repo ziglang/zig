@@ -1178,7 +1178,7 @@ fn f(n: Number) -> i32 {
 fn f() {
     const std = @import("std");
 }
-    )SOURCE", 1, ".tmp_source.zig:3:17: error: @import invalid inside function bodies");
+    )SOURCE", 1, ".tmp_source.zig:3:17: error: import valid only at global scope");
 
 
     add_compile_fail_case("normal string with newline", R"SOURCE(
@@ -1196,7 +1196,7 @@ fn foo(inline x: i32, y: i32) -> i32 { return x + y; }
 fn test1(a: i32, b: i32) -> i32 {
     return foo(a, b);
 }
-    )SOURCE", 1, ".tmp_source.zig:4:16: error: unable to evaluate constant expression for inline parameter");
+    )SOURCE", 1, ".tmp_source.zig:4:16: error: unable to evaluate constant expression");
 
     add_compile_fail_case("goto jumping into block", R"SOURCE(
 fn f() {
@@ -1205,9 +1205,7 @@ a_label:
     }
     goto a_label;
 }
-    )SOURCE", 2,
-            ".tmp_source.zig:4:1: error: label 'a_label' defined but not used",
-            ".tmp_source.zig:6:5: error: no label in scope named 'a_label'");
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: no label in scope named 'a_label'");
 
     add_compile_fail_case("goto jumping past a defer", R"SOURCE(
 fn f(b: bool) {
@@ -1216,9 +1214,7 @@ fn f(b: bool) {
 label:
 }
 fn derp(){}
-    )SOURCE", 2,
-            ".tmp_source.zig:3:12: error: no label in scope named 'label'",
-            ".tmp_source.zig:5:1: error: label 'label' defined but not used");
+    )SOURCE", 1, ".tmp_source.zig:3:12: error: no label in scope named 'label'");
 
     add_compile_fail_case("assign null to non-nullable pointer", R"SOURCE(
 const a: &u8 = null;
@@ -1229,21 +1225,20 @@ const array = []u8{};
 fn foo() {
     const pointer = &array[0];
 }
-    )SOURCE", 1, ".tmp_source.zig:4:27: error: out of bounds array access");
+    )SOURCE", 1, ".tmp_source.zig:4:27: error: index 0 outside array of size 0");
 
     add_compile_fail_case("compile time division by zero", R"SOURCE(
-const x = foo(0);
+const y = foo(0);
 fn foo(x: i32) -> i32 {
     1 / x
 }
-    )SOURCE", 3,
-            ".tmp_source.zig:3:1: error: function evaluation caused division by zero",
-            ".tmp_source.zig:2:14: note: called from here",
-            ".tmp_source.zig:4:7: note: division by zero here");
+    )SOURCE", 2,
+            ".tmp_source.zig:4:7: error: division by zero is undefined",
+            ".tmp_source.zig:2:14: note: called from here");
 
     add_compile_fail_case("branch on undefined value", R"SOURCE(
 const x = if (undefined) true else false;
-    )SOURCE", 1, ".tmp_source.zig:2:15: error: branch on undefined value");
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: use of undefined value");
 
 
     add_compile_fail_case("endless loop in function evaluation", R"SOURCE(
@@ -1251,26 +1246,25 @@ const seventh_fib_number = fibbonaci(7);
 fn fibbonaci(x: i32) -> i32 {
     return fibbonaci(x - 1) + fibbonaci(x - 2);
 }
-    )SOURCE", 3,
-            ".tmp_source.zig:3:1: error: function evaluation exceeded 1000 branches",
-            ".tmp_source.zig:2:37: note: called from here",
-            ".tmp_source.zig:4:40: note: quota exceeded here");
+    )SOURCE", 2,
+            ".tmp_source.zig:4:21: error: evaluation exceeded 1000 backwards branches",
+            ".tmp_source.zig:4:21: note: called from here");
 
     add_compile_fail_case("@embedFile with bogus file", R"SOURCE(
 const resource = @embedFile("bogus.txt");
-    )SOURCE", 1, ".tmp_source.zig:2:18: error: unable to find './bogus.txt'");
+    )SOURCE", 1, ".tmp_source.zig:2:29: error: unable to find './bogus.txt'");
 
 
     add_compile_fail_case("non-const expression in struct literal outside function", R"SOURCE(
-const Foo = {
+const Foo = struct {
     x: i32,
 };
 const a = Foo {.x = get_it()};
 extern fn get_it() -> i32;
-    )SOURCE", 1, ".tmp_source.zig:5:27: error: unable to evaluate constant expression");
+    )SOURCE", 1, ".tmp_source.zig:5:21: error: unable to evaluate constant expression");
 
     add_compile_fail_case("non-const expression function call with struct return value outside function", R"SOURCE(
-const Foo = {
+const Foo = struct {
     x: i32,
 };
 const a = get_it();
@@ -1320,76 +1314,68 @@ fn bar() -> i32 {
 
     )SOURCE", 1, ".tmp_source.zig:3:15: error: unable to infer expression type");
 
-    add_compile_fail_case("atomic orderings of cmpxchg", R"SOURCE(
+    add_compile_fail_case("atomic orderings of cmpxchg - failure stricter than success", R"SOURCE(
 fn f() {
     var x: i32 = 1234;
     while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Monotonic, AtomicOrder.SeqCst)) {}
+}
+    )SOURCE", 1, ".tmp_source.zig:4:72: error: failure atomic ordering must be no stricter than success");
+
+    add_compile_fail_case("atomic orderings of cmpxchg - success Monotonic or stricter", R"SOURCE(
+fn f() {
+    var x: i32 = 1234;
     while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Unordered, AtomicOrder.Unordered)) {}
 }
-    )SOURCE", 2,
-            ".tmp_source.zig:4:72: error: failure atomic ordering must be no stricter than success",
-            ".tmp_source.zig:5:49: error: success atomic ordering must be Monotonic or stricter");
+    )SOURCE", 1, ".tmp_source.zig:4:49: error: success atomic ordering must be Monotonic or stricter");
 
     add_compile_fail_case("negation overflow in function evaluation", R"SOURCE(
-fn f() {
-    const x = neg(-128);
-}
+const y = neg(-128);
 fn neg(x: i8) -> i8 {
     -x
 }
-    )SOURCE", 3,
-            ".tmp_source.zig:5:1: error: function evaluation caused overflow",
-            ".tmp_source.zig:3:18: note: called from here",
-            ".tmp_source.zig:6:5: note: overflow occurred here");
+    )SOURCE", 2,
+            ".tmp_source.zig:4:5: error: negation caused overflow",
+            ".tmp_source.zig:2:14: note: called from here");
 
     add_compile_fail_case("add overflow in function evaluation", R"SOURCE(
-fn f() {
-    const x = add(65530, 10);
-}
+const y = add(65530, 10);
 fn add(a: u16, b: u16) -> u16 {
     a + b
 }
-    )SOURCE", 3,
-            ".tmp_source.zig:5:1: error: function evaluation caused overflow",
-            ".tmp_source.zig:3:18: note: called from here",
-            ".tmp_source.zig:6:7: note: overflow occurred here");
+    )SOURCE", 2,
+            ".tmp_source.zig:4:7: error: operation caused overflow",
+            ".tmp_source.zig:2:14: note: called from here");
 
 
     add_compile_fail_case("sub overflow in function evaluation", R"SOURCE(
-fn f() {
-    const x = sub(10, 20);
-}
+const y = sub(10, 20);
 fn sub(a: u16, b: u16) -> u16 {
     a - b
 }
-    )SOURCE", 3,
-            ".tmp_source.zig:5:1: error: function evaluation caused overflow",
-            ".tmp_source.zig:3:18: note: called from here",
-            ".tmp_source.zig:6:7: note: overflow occurred here");
+    )SOURCE", 2,
+            ".tmp_source.zig:4:7: error: operation caused overflow",
+            ".tmp_source.zig:2:14: note: called from here");
 
     add_compile_fail_case("mul overflow in function evaluation", R"SOURCE(
-fn f() {
-    const x = mul(300, 6000);
-}
+const y = mul(300, 6000);
 fn mul(a: u16, b: u16) -> u16 {
     a * b
 }
-    )SOURCE", 3,
-            ".tmp_source.zig:5:1: error: function evaluation caused overflow",
-            ".tmp_source.zig:3:18: note: called from here",
-            ".tmp_source.zig:6:7: note: overflow occurred here");
+    )SOURCE", 2,
+            ".tmp_source.zig:4:7: error: operation caused overflow",
+            ".tmp_source.zig:2:14: note: called from here");
 
     add_compile_fail_case("truncate sign mismatch", R"SOURCE(
-fn f() {
+fn f() -> i8 {
     const x: u32 = 10;
-    @truncate(i8, x);
+    @truncate(i8, x)
 }
     )SOURCE", 1, ".tmp_source.zig:4:19: error: expected signed integer type, found 'u32'");
 
     add_compile_fail_case("truncate same bit count", R"SOURCE(
-fn f() {
+fn f() -> i8 {
     const x: i8 = 10;
-    @truncate(i8, x);
+    @truncate(i8, x)
 }
     )SOURCE", 1, ".tmp_source.zig:4:19: error: type 'i8' has same or fewer bits than destination type 'i8'");
 
@@ -1398,9 +1384,8 @@ fn f() {
     %return something();
 }
 fn something() -> %void { }
-    )SOURCE", 2,
-            ".tmp_source.zig:3:5: error: %return statement in function with return type 'void'",
-            ".tmp_source.zig:2:8: note: function return type here");
+    )SOURCE", 1,
+            ".tmp_source.zig:3:5: error: expected type 'void', found 'error'");
 
     add_compile_fail_case("wrong return type for main", R"SOURCE(
 pub fn main(args: [][]u8) { }
@@ -1444,10 +1429,12 @@ pub fn List(inline T: type) -> type {
     SmallList(T, 8)
 }
 
-pub struct SmallList(inline T: type, inline STATIC_SIZE: usize) {
-    items: []T,
-    length: usize,
-    prealloc_items: [STATIC_SIZE]T,
+pub fn SmallList(inline T: type, inline STATIC_SIZE: usize) -> type {
+    struct {
+        items: []T,
+        length: usize,
+        prealloc_items: [STATIC_SIZE]T,
+    }
 }
 
 fn function_with_return_type_type() {

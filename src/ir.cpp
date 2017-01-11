@@ -7119,7 +7119,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
                 return ira->codegen->builtin_types.entry_invalid;
             } else if (err == ErrorOverflow) {
                 ir_add_error_node(ira, bin_op_instruction->base.source_node,
-                        buf_sprintf("value cannot be represented in any integer type"));
+                        buf_sprintf("operation caused overflow"));
                 return ira->codegen->builtin_types.entry_invalid;
             }
             return ira->codegen->builtin_types.entry_invalid;
