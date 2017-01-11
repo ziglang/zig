@@ -5325,13 +5325,17 @@ static void add_call_stack_errors(CodeGen *codegen, IrExecutable *exec, ErrorMsg
     add_call_stack_errors(codegen, exec->parent_exec, err_msg, limit - 1);
 }
 
-static ErrorMsg *ir_add_error_node(IrAnalyze *ira, AstNode *source_node, Buf *msg) {
-    ira->new_irb.exec->invalid = true;
-    ErrorMsg *err_msg = add_node_error(ira->codegen, source_node, msg);
-    if (ira->new_irb.exec->parent_exec) {
-        add_call_stack_errors(ira->codegen, ira->new_irb.exec, err_msg, 10);
+static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutable *exec, AstNode *source_node, Buf *msg) {
+    exec->invalid = true;
+    ErrorMsg *err_msg = add_node_error(codegen, source_node, msg);
+    if (exec->parent_exec) {
+        add_call_stack_errors(codegen, exec, err_msg, 10);
     }
     return err_msg;
+}
+
+static ErrorMsg *ir_add_error_node(IrAnalyze *ira, AstNode *source_node, Buf *msg) {
+    return exec_add_error_node(ira->codegen, ira->new_irb.exec, source_node, msg);
 }
 
 static ErrorMsg *ir_add_error(IrAnalyze *ira, IrInstruction *source_instruction, Buf *msg) {
@@ -5345,10 +5349,7 @@ static void ir_add_typedef_err_note(IrAnalyze *ira, ErrorMsg *msg, TypeTableEntr
     }
 }
 
-static IrInstruction *ir_exec_const_result(IrExecutable *exec) {
-    if (exec->basic_block_list.length != 1)
-        return nullptr;
-
+static IrInstruction *ir_exec_const_result(CodeGen *codegen, IrExecutable *exec) {
     IrBasicBlock *bb = exec->basic_block_list.at(0);
     for (size_t i = 0; i < bb->instruction_list.length; i += 1) {
         IrInstruction *instruction = bb->instruction_list.at(i);
@@ -5356,14 +5357,18 @@ static IrInstruction *ir_exec_const_result(IrExecutable *exec) {
             IrInstructionReturn *ret_inst = (IrInstructionReturn *)instruction;
             IrInstruction *value = ret_inst->value;
             if (value->value.special == ConstValSpecialRuntime) {
-                return nullptr;
+                exec_add_error_node(codegen, exec, value->source_node,
+                        buf_sprintf("unable to evaluate constant expression"));
+                return codegen->invalid_instruction;
             }
             return value;
         } else if (ir_has_side_effects(instruction)) {
-            return nullptr;
+            exec_add_error_node(codegen, exec, instruction->source_node,
+                    buf_sprintf("unable to evaluate constant expression"));
+            return codegen->invalid_instruction;
         }
     }
-    return nullptr;
+    zig_unreachable();
 }
 
 static bool ir_emit_global_runtime_side_effect(IrAnalyze *ira, IrInstruction *source_instruction) {
@@ -5968,13 +5973,7 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
         fprintf(stderr, "}\n");
     }
 
-    IrInstruction *result = ir_exec_const_result(&analyzed_executable);
-    if (!result) {
-        add_node_error(codegen, source_node, buf_sprintf("unable to evaluate constant expression"));
-        return codegen->invalid_instruction;
-    }
-
-    return result;
+    return ir_exec_const_result(codegen, &analyzed_executable);
 }
 
 static TypeTableEntry *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value) {

@@ -1128,7 +1128,10 @@ const Foo = struct {
 };
 var global_var: usize = 1;
 fn get() -> usize { global_var }
-    )SOURCE", 1, ".tmp_source.zig:3:12: error: unable to evaluate constant expression");
+    )SOURCE", 3,
+            ".tmp_source.zig:6:21: error: unable to evaluate constant expression",
+            ".tmp_source.zig:3:12: note: called from here",
+            ".tmp_source.zig:3:8: note: called from here");
 
 
     add_compile_fail_case("unnecessary if statement", R"SOURCE(
@@ -1274,7 +1277,9 @@ fn get_it() -> Foo {
 }
 var global_side_effect = false;
 
-    )SOURCE", 1, ".tmp_source.zig:5:17: error: unable to evaluate constant expression");
+    )SOURCE", 2,
+            ".tmp_source.zig:7:24: error: unable to evaluate constant expression",
+            ".tmp_source.zig:5:17: note: called from here");
 
     add_compile_fail_case("undeclared identifier error should mark fn as impure", R"SOURCE(
 fn foo() {
@@ -1442,10 +1447,9 @@ fn function_with_return_type_type() {
     list.length = 10;
 }
 
-    )SOURCE", 3,
-            ".tmp_source.zig:3:5: error: failed to evaluate function at compile time",
-            ".tmp_source.zig:4:5: note: unable to evaluate this expression at compile time",
-            ".tmp_source.zig:3:32: note: required to be compile-time function because of return type 'type'");
+    )SOURCE", 2,
+            ".tmp_source.zig:4:7: error: unable to evaluate constant expression",
+            ".tmp_source.zig:17:19: note: called from here");
 
     add_compile_fail_case("bogus method call on slice", R"SOURCE(
 fn f(m: []const u8) {
