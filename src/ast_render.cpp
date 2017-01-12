@@ -908,7 +908,8 @@ static void ast_render_tld_fn(AstRender *ar, Buf *name, TldFn *tld_fn) {
         if (param_info->is_noalias) {
             fprintf(ar->f, "noalias ");
         }
-        fprintf(ar->f, "%s: %s", buf_ptr(tld_fn->fn_entry->param_names[i]), buf_ptr(&param_info->type->name));
+        Buf *param_name = tld_fn->fn_entry->param_names ? tld_fn->fn_entry->param_names[i] : buf_sprintf("arg%zu", i);
+        fprintf(ar->f, "%s: %s", buf_ptr(param_name), buf_ptr(&param_info->type->name));
     }
     if (fn_type_id->return_type->id == TypeTableEntryIdVoid) {
         fprintf(ar->f, ");\n");
@@ -947,24 +948,28 @@ static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
         if (type_entry->id == TypeTableEntryIdStruct) {
             const char *extern_str = extern_string(type_entry->data.structure.is_extern);
             fprintf(ar->f, "%sstruct {\n", extern_str);
-            for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
-                TypeStructField *field = &type_entry->data.structure.fields[i];
-                fprintf(ar->f, "    ");
-                print_symbol(ar, field->name);
-                fprintf(ar->f, ": %s,\n", buf_ptr(&field->type_entry->name));
+            if (type_entry->data.structure.complete) {
+                for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+                    TypeStructField *field = &type_entry->data.structure.fields[i];
+                    fprintf(ar->f, "    ");
+                    print_symbol(ar, field->name);
+                    fprintf(ar->f, ": %s,\n", buf_ptr(&field->type_entry->name));
+                }
             }
             fprintf(ar->f, "}");
         } else if (type_entry->id == TypeTableEntryIdEnum) {
             const char *extern_str = extern_string(type_entry->data.enumeration.is_extern);
             fprintf(ar->f, "%senum {\n", extern_str);
-            for (size_t i = 0; i < type_entry->data.enumeration.src_field_count; i += 1) {
-                TypeEnumField *field = &type_entry->data.enumeration.fields[i];
-                fprintf(ar->f, "    ");
-                print_symbol(ar, field->name);
-                if (field->type_entry->id == TypeTableEntryIdVoid) {
-                    fprintf(ar->f, ",\n");
-                } else {
-                    fprintf(ar->f, ": %s,\n", buf_ptr(&field->type_entry->name));
+            if (type_entry->data.enumeration.complete) {
+                for (size_t i = 0; i < type_entry->data.enumeration.src_field_count; i += 1) {
+                    TypeEnumField *field = &type_entry->data.enumeration.fields[i];
+                    fprintf(ar->f, "    ");
+                    print_symbol(ar, field->name);
+                    if (field->type_entry->id == TypeTableEntryIdVoid) {
+                        fprintf(ar->f, ",\n");
+                    } else {
+                        fprintf(ar->f, ": %s,\n", buf_ptr(&field->type_entry->name));
+                    }
                 }
             }
             fprintf(ar->f, "}");

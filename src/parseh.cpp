@@ -5,14 +5,15 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#include "parseh.hpp"
-#include "config.h"
-#include "os.hpp"
-#include "error.hpp"
-#include "parser.hpp"
 #include "all_types.hpp"
-#include "c_tokenizer.hpp"
 #include "analyze.hpp"
+#include "c_tokenizer.hpp"
+#include "config.h"
+#include "error.hpp"
+#include "ir.hpp"
+#include "os.hpp"
+#include "parseh.hpp"
+#include "parser.hpp"
 
 #include <clang/Frontend/ASTUnit.h>
 #include <clang/Frontend/CompilerInstance.h>
@@ -133,6 +134,13 @@ static void parseh_init_tld(Context *c, Tld *tld, TldId id, Buf *name) {
     tld->resolution = TldResolutionOk;
 }
 
+static Tld *create_inline_fn_tld(Context *c, Buf *fn_name, TldVar *tld_var) {
+    TldFn *tld_fn = allocate<TldFn>(1);
+    parseh_init_tld(c, &tld_fn->base, TldIdFn, fn_name);
+    tld_fn->fn_entry = ir_create_inline_fn(c->codegen, fn_name, tld_var->var, &c->import->decls_scope->base);
+    return &tld_fn->base;
+}
+
 static TldVar *create_global_var(Context *c, Buf *name, ConstExprValue *var_value, bool is_const) {
     auto entry = c->import->decls_scope->decl_table.maybe_get(name);
     if (entry) {
@@ -143,6 +151,7 @@ static TldVar *create_global_var(Context *c, Buf *name, ConstExprValue *var_valu
     TldVar *tld_var = allocate<TldVar>(1);
     parseh_init_tld(c, &tld_var->base, TldIdVar, name);
     tld_var->var = add_variable(c->codegen, c->source_node, &c->import->decls_scope->base, name, is_const, var_value);
+    c->codegen->global_vars.append(tld_var->var);
     return tld_var;
 }
 
@@ -1229,9 +1238,8 @@ static void process_symbol_macros(Context *c) {
             if (var_type->id == TypeTableEntryIdMaybe && !tld_var->var->src_is_const) {
                 TypeTableEntry *child_type = var_type->data.maybe.child_type;
                 if (child_type->id == TypeTableEntryIdFn) {
-                    zig_panic("TODO macro alias of function pointer in .h file");
-                    //Tld *fn_tld = create_inline_fn_alias(c, ms.name, tld_var->var);
-                    //c->macro_table.put(ms.name, fn_tld);
+                    Tld *tld = create_inline_fn_tld(c, ms.name, tld_var);
+                    c->macro_table.put(ms.name, tld);
                     continue;
                 }
             }

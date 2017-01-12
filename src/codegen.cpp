@@ -287,6 +287,8 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             assert(scope->parent);
             ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
             FnTableEntry *fn_table_entry = fn_scope->fn_entry;
+            if (!fn_table_entry->proto_node)
+                return get_di_scope(g, scope->parent);
             unsigned line_number = fn_table_entry->proto_node->line + 1;
             unsigned scope_line = line_number;
             bool is_definition = fn_table_entry->fn_def_node != nullptr;
@@ -2808,7 +2810,6 @@ static void do_code_gen(CodeGen *g) {
             continue;
 
         assert(var->decl_node);
-        assert(var->decl_node->type == NodeTypeVariableDeclaration);
 
         LLVMValueRef global_value;
         if (var->is_extern) {
@@ -3033,9 +3034,11 @@ static void do_code_gen(CodeGen *g) {
                     unsigned align_bytes = ZigLLVMGetPrefTypeAlignment(g->target_data_ref, var->value.type->type_ref);
                     LLVMSetAlignment(var->value_ref, align_bytes);
                 }
-                var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
-                        buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
-                        gen_type->di_type, !g->strip_debug_symbols, 0, var->gen_arg_index + 1);
+                if (var->decl_node) {
+                    var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
+                            buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
+                            gen_type->di_type, !g->strip_debug_symbols, 0, var->gen_arg_index + 1);
+                }
 
             }
         }
@@ -3062,7 +3065,9 @@ static void do_code_gen(CodeGen *g) {
                 LLVMBuildStore(g->builder, LLVMGetParam(fn, variable->gen_arg_index), variable->value_ref);
             }
 
-            gen_var_debug_decl(g, variable);
+            if (variable->decl_node) {
+                gen_var_debug_decl(g, variable);
+            }
         }
 
         ir_render(g, fn_table_entry);

@@ -202,7 +202,7 @@ static TestCase *add_parseh_case(const char *case_name, AllowWarnings allow_warn
 
     test_case->compiler_args.append("parseh");
     test_case->compiler_args.append(tmp_h_path);
-    test_case->compiler_args.append("--verbose");
+    //test_case->compiler_args.append("--verbose");
 
     test_cases.append(test_case);
 
@@ -1883,11 +1883,14 @@ Foo fun(Foo *a);
         R"SOURCE(
 extern void (*fn_ptr)(void);
 #define foo fn_ptr
-    )SOURCE", 2,
+
+extern char (*fn_ptr2)(int, float);
+#define bar fn_ptr2
+    )SOURCE", 4,
             "pub extern var fn_ptr: ?extern fn();",
-            R"SOURCE(pub inline fn foo() {
-    (??fn_ptr)();
-})SOURCE");
+            "pub fn foo();",
+            "pub extern var fn_ptr2: ?extern fn(c_int, f32) -> u8;",
+            "pub fn bar(arg0: c_int, arg1: f32) -> u8;");
 
 
     add_parseh_case("#define string", AllowWarningsNo, R"SOURCE(

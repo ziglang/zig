@@ -193,7 +193,7 @@ Scope *create_loop_scope(AstNode *node, Scope *parent) {
 }
 
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry) {
-    assert(node->type == NodeTypeFnDef);
+    assert(!node || node->type == NodeTypeFnDef);
     ScopeFnDef *scope = allocate<ScopeFnDef>(1);
     init_scope(&scope->base, ScopeIdFnDef, node, parent);
     scope->fn_entry = fn_entry;
@@ -2341,31 +2341,20 @@ bool type_is_codegen_pointer(TypeTableEntry *type) {
 AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index) {
     if (fn_entry->param_source_nodes)
         return fn_entry->param_source_nodes[index];
-    else
+    else if (fn_entry->proto_node)
         return fn_entry->proto_node->data.fn_proto.params.at(index);
+    else
+        return nullptr;
 }
 
-static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
-    assert(fn_table_entry->anal_state != FnAnalStateProbing);
-    if (fn_table_entry->anal_state != FnAnalStateReady)
-        return;
-
-    fn_table_entry->anal_state = FnAnalStateProbing;
-
-    AstNodeFnProto *fn_proto = &fn_table_entry->proto_node->data.fn_proto;
-
-    assert(fn_table_entry->fndef_scope);
-    if (!fn_table_entry->child_scope)
-        fn_table_entry->child_scope = &fn_table_entry->fndef_scope->base;
-
-    // define local variables for parameters
+void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, VariableTableEntry **arg_vars) {
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
         AstNode *param_decl_node = get_param_decl_node(fn_table_entry, i);
-        AstNodeParamDecl *param_decl = &param_decl_node->data.param_decl;
+        Buf *param_name = param_decl_node ? param_decl_node->data.param_decl.name : buf_sprintf("arg%zu", i);
 
         TypeTableEntry *param_type = param_info->type;
         bool is_noalias = param_info->is_noalias;
@@ -2380,7 +2369,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
         }
 
         VariableTableEntry *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
-                param_decl->name, true, create_const_runtime(param_type));
+                param_name, true, create_const_runtime(param_type));
         var->src_arg_index = i;
         fn_table_entry->child_scope = var->child_scope;
 
@@ -2391,30 +2380,20 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
         if (fn_type->data.fn.gen_param_info) {
             var->gen_arg_index = fn_type->data.fn.gen_param_info[i].gen_index;
         }
-    }
 
-    TypeTableEntry *expected_type = fn_type_id->return_type;
+        if (arg_vars) {
+            arg_vars[i] = var;
+        }
+    }
+}
 
-    if (fn_type_id->is_extern && handle_is_ptr(expected_type)) {
-        add_node_error(g, fn_proto->return_type,
-            buf_sprintf("byvalue types not yet supported on extern function return values"));
-    }
-
-    ir_gen_fn(g, fn_table_entry);
-    if (fn_table_entry->ir_executable.invalid) {
-        fn_table_entry->anal_state = FnAnalStateInvalid;
-        return;
-    }
-    if (g->verbose) {
-        fprintf(stderr, "\n");
-        ast_render(stderr, fn_table_entry->fn_def_node, 4);
-        fprintf(stderr, "\n{ // (IR)\n");
-        ir_print(stderr, &fn_table_entry->ir_executable, 4);
-        fprintf(stderr, "}\n");
-    }
+void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_type_node) {
+    TypeTableEntry *fn_type = fn_table_entry->type_entry;
+    assert(!fn_type->data.fn.is_generic);
+    FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
 
     TypeTableEntry *block_return_type = ir_analyze(g, &fn_table_entry->ir_executable,
-            &fn_table_entry->analyzed_executable, expected_type, fn_proto->return_type);
+            &fn_table_entry->analyzed_executable, fn_type_id->return_type, return_type_node);
     fn_table_entry->implicit_return_type = block_return_type;
 
     if (block_return_type->id == TypeTableEntryIdInvalid ||
@@ -2432,6 +2411,46 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
 
     fn_table_entry->anal_state = FnAnalStateComplete;
+}
+
+static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
+    assert(fn_table_entry->anal_state != FnAnalStateProbing);
+    if (fn_table_entry->anal_state != FnAnalStateReady)
+        return;
+
+    fn_table_entry->anal_state = FnAnalStateProbing;
+
+    AstNode *return_type_node = fn_table_entry->proto_node->data.fn_proto.return_type;
+
+    assert(fn_table_entry->fndef_scope);
+    if (!fn_table_entry->child_scope)
+        fn_table_entry->child_scope = &fn_table_entry->fndef_scope->base;
+
+    define_local_param_variables(g, fn_table_entry, nullptr);
+
+    TypeTableEntry *fn_type = fn_table_entry->type_entry;
+    assert(!fn_type->data.fn.is_generic);
+    FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
+
+    if (fn_type_id->is_extern && handle_is_ptr(fn_type_id->return_type)) {
+        add_node_error(g, return_type_node,
+            buf_sprintf("byvalue types not yet supported on extern function return values"));
+    }
+
+    ir_gen_fn(g, fn_table_entry);
+    if (fn_table_entry->ir_executable.invalid) {
+        fn_table_entry->anal_state = FnAnalStateInvalid;
+        return;
+    }
+    if (g->verbose) {
+        fprintf(stderr, "\n");
+        ast_render(stderr, fn_table_entry->fn_def_node, 4);
+        fprintf(stderr, "\n{ // (IR)\n");
+        ir_print(stderr, &fn_table_entry->ir_executable, 4);
+        fprintf(stderr, "}\n");
+    }
+
+    analyze_fn_ir(g, fn_table_entry, return_type_node);
 }
 
 static void add_symbols_from_import(CodeGen *g, AstNode *dst_use_node) {

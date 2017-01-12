@@ -500,7 +500,6 @@ static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_no
 
 template<typename T>
 static T *ir_build_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
-    assert(source_node);
     T *special_instruction = ir_create_instruction<T>(irb, scope, source_node);
     ir_instruction_append(irb->current_basic_block, &special_instruction->base);
     return special_instruction;
@@ -10120,7 +10119,7 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
     find_libc_include_path(ira->codegen);
 
     ImportTableEntry *child_import = allocate<ImportTableEntry>(1);
-    child_import->decls_scope = create_decls_scope(child_import->root, nullptr, nullptr, child_import);
+    child_import->decls_scope = create_decls_scope(node, nullptr, nullptr, child_import);
     child_import->c_import_node = node;
 
     ZigList<ErrorMsg *> errors = {0};
@@ -10143,7 +10142,7 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
     if (ira->codegen->verbose) {
         fprintf(stderr, "\nC imports:\n");
         fprintf(stderr, "-----------\n");
-        ir_print_decls(stderr, child_import);
+        ast_render_decls(stderr, 4, child_import);
     }
 
     // TODO to get fewer false negatives on this, we would need to track this value in
@@ -11544,5 +11543,66 @@ bool ir_has_side_effects(IrInstruction *instruction) {
             }
     }
     zig_unreachable();
+}
+
+FnTableEntry *ir_create_inline_fn(CodeGen *codegen, Buf *fn_name, VariableTableEntry *var, Scope *parent_scope) {
+    FnTableEntry *fn_entry = create_fn_raw(FnInlineAuto, true);
+    buf_init_from_buf(&fn_entry->symbol_name, fn_name);
+
+    fn_entry->fndef_scope = create_fndef_scope(nullptr, parent_scope, fn_entry);
+    fn_entry->child_scope = &fn_entry->fndef_scope->base;
+
+    assert(var->value.type->id == TypeTableEntryIdMaybe);
+    TypeTableEntry *src_fn_type = var->value.type->data.maybe.child_type;
+    assert(src_fn_type->id == TypeTableEntryIdFn);
+
+    FnTypeId new_fn_type = src_fn_type->data.fn.fn_type_id;
+    new_fn_type.is_extern = false;
+
+    fn_entry->type_entry = get_fn_type(codegen, &new_fn_type);
+
+    IrBuilder ir_builder = {0};
+    IrBuilder *irb = &ir_builder;
+
+    irb->codegen = codegen;
+    irb->exec = &fn_entry->ir_executable;
+
+    AstNode *source_node = parent_scope->source_node;
+
+    size_t arg_count = fn_entry->type_entry->data.fn.fn_type_id.param_count;
+    IrInstruction **args = allocate<IrInstruction *>(arg_count);
+    VariableTableEntry **arg_vars = allocate<VariableTableEntry *>(arg_count);
+
+    define_local_param_variables(codegen, fn_entry, arg_vars);
+    Scope *scope = fn_entry->child_scope;
+
+    irb->current_basic_block = ir_build_basic_block(irb, scope, "Entry");
+    // Entry block gets a reference because we enter it to begin.
+    ir_ref_bb(irb->current_basic_block);
+
+    IrInstruction *maybe_fn_ptr = ir_build_var_ptr(irb, scope, source_node, var, true);
+    IrInstruction *unwrapped_fn_ptr = ir_build_unwrap_maybe(irb, scope, source_node, maybe_fn_ptr, true);
+    IrInstruction *fn_ref_instruction = ir_build_load_ptr(irb, scope, source_node, unwrapped_fn_ptr);
+
+    for (size_t i = 0; i < arg_count; i += 1) {
+        IrInstruction *var_ptr_instruction = ir_build_var_ptr(irb, scope, source_node, arg_vars[i], true);
+        args[i] = ir_build_load_ptr(irb, scope, source_node, var_ptr_instruction);
+    }
+
+    IrInstruction *call_instruction = ir_build_call(irb, scope, source_node, nullptr, fn_ref_instruction,
+            arg_count, args, false);
+    ir_build_return(irb, scope, source_node, call_instruction);
+
+    if (codegen->verbose) {
+        fprintf(stderr, "{\n");
+        ir_print(stderr, &fn_entry->ir_executable, 4);
+        fprintf(stderr, "}\n");
+    }
+
+    analyze_fn_ir(codegen, fn_entry, nullptr);
+
+    codegen->fn_defs.append(fn_entry);
+
+    return fn_entry;
 }
 

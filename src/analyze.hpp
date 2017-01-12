@@ -83,6 +83,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b);
 void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val, bool is_max);
 
 void render_const_value(Buf *buf, ConstExprValue *const_val);
+void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, VariableTableEntry **arg_vars);
+void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_type_node);
 
 ScopeBlock *create_block_scope(AstNode *node, Scope *parent);
 ScopeDefer *create_defer_scope(AstNode *node, Scope *parent);
