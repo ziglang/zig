@@ -6154,6 +6154,7 @@ static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_
     } else {
         IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, value, true);
+        new_instruction->value.type = wanted_type;
 
         TypeTableEntry *child_type = wanted_type->data.pointer.child_type;
         if (type_has_bits(child_type)) {
