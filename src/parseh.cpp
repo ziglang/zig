@@ -156,7 +156,7 @@ static TldVar *create_global_var(Context *c, Buf *name, ConstExprValue *var_valu
 }
 
 static Tld *create_global_str_lit_var(Context *c, Buf *name, Buf *value) {
-    TldVar *tld_var = create_global_var(c, name, create_const_str_lit(c->codegen, value), true);
+    TldVar *tld_var = create_global_var(c, name, create_const_c_str_lit(c->codegen, value), true);
     return &tld_var->base;
 }
 

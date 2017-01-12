@@ -4314,12 +4314,16 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
     if (continue_expr_node) {
         ir_set_cursor_at_end(irb, continue_block);
         IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, scope);
+        if (expr_result == irb->codegen->invalid_instruction)
+            return expr_result;
         if (!instr_is_unreachable(expr_result))
             ir_mark_gen(ir_build_br(irb, scope, node, cond_block, is_comptime));
     }
 
     ir_set_cursor_at_end(irb, cond_block);
     IrInstruction *cond_val = ir_gen_node(irb, node->data.while_expr.condition, scope);
+    if (cond_val == irb->codegen->invalid_instruction)
+        return cond_val;
     if (!instr_is_unreachable(cond_val)) {
         ir_mark_gen(ir_build_cond_br(irb, scope, node->data.while_expr.condition, cond_val,
                     body_block, end_block, is_comptime));
@@ -4332,6 +4336,8 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
     loop_stack_item->continue_block = continue_block;
     loop_stack_item->is_comptime = is_comptime;
     IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, scope);
+    if (body_result == irb->codegen->invalid_instruction)
+        return body_result;
     irb->loop_stack.pop();
 
     if (!instr_is_unreachable(body_result))
@@ -7215,22 +7221,21 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
     TypeTableEntry *result_type;
     ConstExprValue *out_array_val;
     size_t new_len = (op1_array_end - op1_array_index) + (op2_array_end - op2_array_index);
-    TypeTableEntry *out_array_type = get_array_type(ira->codegen, child_type, new_len);
     if (op1_canon_type->id == TypeTableEntryIdArray || op2_canon_type->id == TypeTableEntryIdArray) {
-        result_type = out_array_type;
+        result_type = get_array_type(ira->codegen, child_type, new_len);
 
         out_array_val = out_val;
     } else {
+        new_len += 1; // null byte
+
         result_type = get_pointer_to_type(ira->codegen, child_type, true);
 
         out_array_val = allocate<ConstExprValue>(1);
         out_array_val->special = ConstValSpecialStatic;
-        out_array_val->type = out_array_type;
+        out_array_val->type = get_array_type(ira->codegen, child_type, new_len);
         out_val->data.x_ptr.base_ptr = out_array_val;
         out_val->data.x_ptr.index = 0;
         out_val->data.x_ptr.special = ConstPtrSpecialCStr;
-
-        new_len += 1; // null byte
     }
     out_array_val->data.x_array.elements = allocate<ConstExprValue>(new_len);
     out_array_val->data.x_array.size = new_len;

@@ -1895,7 +1895,7 @@ extern char (*fn_ptr2)(int, float);
 
     add_parseh_case("#define string", AllowWarningsNo, R"SOURCE(
 #define  foo  "a string"
-    )SOURCE", 1, "pub const foo = c\"a string\";");
+    )SOURCE", 1, "pub const foo: &const u8 = &(c str lit);");
 
     add_parseh_case("__cdecl doesn't mess up function pointers", AllowWarningsNo, R"SOURCE(
 void foo(void (__cdecl *fn_ptr)(void));
@@ -1909,18 +1909,18 @@ void foo(void (__cdecl *fn_ptr)(void));
 struct type {
     int defer;
 };
-    )SOURCE", 2, R"(export struct struct_type {
+    )SOURCE", 2, R"(pub const struct_type = extern struct {
     @"defer": c_int,
-})", R"(pub const @"type" = struct_type;)");
+};)", R"(pub const @"type" = struct_type;)");
 
     add_parseh_case("macro defines string literal with octal", AllowWarningsNo, R"SOURCE(
 #define FOO "aoeu\023 derp"
 #define FOO2 "aoeu\0234 derp"
 #define FOO_CHAR '\077'
     )SOURCE", 3,
-            R"(pub const FOO = c"aoeu\x13 derp")",
-            R"(pub const FOO2 = c"aoeu\x134 derp")",
-            R"(pub const FOO_CHAR = '?')");
+            R"(pub const FOO: &const u8 = &(c str lit);)",
+            R"(pub const FOO2: &const u8 = &(c str lit);)",
+            R"(pub const FOO_CHAR = 63;)");
 }
 
 static void run_self_hosted_test(bool is_release_mode) {
