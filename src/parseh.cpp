@@ -132,6 +132,7 @@ static const char *decl_name(const Decl *decl) {
 static void parseh_init_tld(Context *c, Tld *tld, TldId id, Buf *name) {
     init_tld(tld, id, name, c->visib_mod, c->source_node, &c->import->decls_scope->base);
     tld->resolution = TldResolutionOk;
+    tld->import = c->import;
 }
 
 static Tld *create_inline_fn_tld(Context *c, Buf *fn_name, TldVar *tld_var) {

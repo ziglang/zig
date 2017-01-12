@@ -2453,8 +2453,8 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     analyze_fn_ir(g, fn_table_entry, return_type_node);
 }
 
-static void add_symbols_from_import(CodeGen *g, AstNode *dst_use_node) {
-    IrInstruction *use_target_value = dst_use_node->data.use.value;
+static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node) {
+    IrInstruction *use_target_value = src_use_node->data.use.value;
     if (use_target_value->value.type->id == TypeTableEntryIdInvalid) {
         dst_use_node->owner->any_imports_failed = true;
         return;
@@ -2501,7 +2501,7 @@ static void add_symbols_from_import(CodeGen *g, AstNode *dst_use_node) {
     for (size_t i = 0; i < target_import->use_decls.length; i += 1) {
         AstNode *use_decl_node = target_import->use_decls.at(i);
         if (use_decl_node->data.use.visib_mod != VisibModPrivate)
-            add_symbols_from_import(g, dst_use_node);
+            add_symbols_from_import(g, use_decl_node, dst_use_node);
     }
 }
 
@@ -2510,7 +2510,7 @@ void resolve_use_decl(CodeGen *g, AstNode *node) {
 
     if (node->data.use.resolution != TldResolutionUnresolved)
         return;
-    add_symbols_from_import(g, node);
+    add_symbols_from_import(g, node, node);
 }
 
 void preview_use_decl(CodeGen *g, AstNode *node) {
