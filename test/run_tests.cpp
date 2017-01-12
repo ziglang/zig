@@ -1486,11 +1486,11 @@ pub fn f() {
 pub fn main(args: [][]bogus) -> %void {}
     )SOURCE", 1, ".tmp_source.zig:2:23: error: use of undeclared identifier 'bogus'");
 
-    add_compile_fail_case("main function with bogus args type", R"SOURCE(
+    add_compile_fail_case("for loop missing element param", R"SOURCE(
 fn foo(blah: []u8) {
     for (blah) { }
 }
-    )SOURCE", 1, ".tmp_source.zig:3:16: error: for loop expression missing element parameter");
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: for loop expression missing element parameter");
 
     add_compile_fail_case("misspelled type with pointer only reference", R"SOURCE(
 const JasonHM = u8;
@@ -1511,14 +1511,14 @@ const JsonType = enum {
     JSONObject,
 };
 
-pub struct JsonNode {
+pub const JsonNode = struct {
     kind: JsonType,
     jobject: ?JsonOA,
-}
+};
 
 fn foo() {
     var jll: JasonList = undefined;
-    jll.init(&debug.global_allocator);
+    jll.init(1234);
     var jd = JsonNode {.kind = JsonType.JSONArray , .jobject = JsonOA.JSONArray {jll} };
 }
     )SOURCE", 2,
@@ -1526,7 +1526,7 @@ fn foo() {
         ".tmp_source.zig:27:8: error: no member named 'init' in 'JsonNode'");
 
     add_compile_fail_case("method call with first arg type primitive", R"SOURCE(
-const Foo = {
+const Foo = struct {
     x: i32,
 
     fn init(x: i32) -> Foo {
@@ -1541,12 +1541,10 @@ fn f() {
 
     derp.init();
 }
-    )SOURCE", 2,
-        ".tmp_source.zig:15:14: error: function called as method of 'Foo', but first parameter is of type 'i32'",
-        ".tmp_source.zig:5:5: note: function declared here");
+    )SOURCE", 1, ".tmp_source.zig:15:5: error: expected type 'i32', found '&const Foo'");
 
     add_compile_fail_case("method call with first arg type wrong container", R"SOURCE(
-pub struct List {
+pub const List = struct {
     len: usize,
     allocator: &Allocator,
 
@@ -1556,23 +1554,21 @@ pub struct List {
             .allocator = allocator,
         }
     }
-}
+};
 
 pub var global_allocator = Allocator {
     .field = 1234,
 };
 
-pub struct Allocator {
+pub const Allocator = struct {
     field: i32,
-}
+};
 
 fn foo() {
     var x = List.init(&global_allocator);
     x.init();
 }
-    )SOURCE", 2,
-        ".tmp_source.zig:24:11: error: function called as method of 'List', but first parameter is of type '&Allocator'",
-        ".tmp_source.zig:6:9: note: function declared here");
+    )SOURCE", 1, ".tmp_source.zig:24:5: error: expected type '&Allocator', found '&List'");
 
     add_compile_fail_case("binary not on number literal", R"SOURCE(
 const TINY_QUANTUM_SHIFT = 4;

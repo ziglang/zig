@@ -1022,6 +1022,7 @@ struct FnTableEntry {
     IrExecutable analyzed_executable;
     size_t prealloc_bbc;
     AstNode **param_source_nodes;
+    Buf **param_names;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_export_set_node;

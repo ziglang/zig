@@ -8471,6 +8471,9 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             FnTableEntry *fn_entry = tld_fn->fn_entry;
             assert(fn_entry->type_entry);
 
+            if (fn_entry->type_entry->id == TypeTableEntryIdInvalid)
+                return ira->codegen->builtin_types.entry_invalid;
+
             // TODO instead of allocating this every time, put it in the tld value and we can reference
             // the same one every time
             ConstExprValue *const_val = allocate<ConstExprValue>(1);
@@ -8568,6 +8571,9 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         } else if (is_container(child_type)) {
             if (child_type->id == TypeTableEntryIdEnum) {
                 ensure_complete_type(ira->codegen, child_type);
+                if (child_type->data.enumeration.is_invalid)
+                    return ira->codegen->builtin_types.entry_invalid;
+
                 TypeEnumField *field = find_enum_type_field(child_type, field_name);
                 if (field) {
                     if (field->type_entry->id == TypeTableEntryIdVoid) {

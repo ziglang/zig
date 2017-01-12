@@ -902,10 +902,13 @@ static void ast_render_tld_fn(AstRender *ar, TldFn *tld_fn) {
     fprintf(ar->f, "%s%s%s%sfn %s(", visib_mod_str, extern_str, coldcc_str, nakedcc_str, buf_ptr(&fn_entry->symbol_name));
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
+        if (i != 0) {
+            fprintf(ar->f, ", ");
+        }
         if (param_info->is_noalias) {
             fprintf(ar->f, "noalias ");
         }
-        fprintf(ar->f, "arg_%zu: %s", i, buf_ptr(&param_info->type->name));
+        fprintf(ar->f, "%s: %s", buf_ptr(tld_fn->fn_entry->param_names[i]), buf_ptr(&param_info->type->name));
     }
     if (fn_type_id->return_type->id == TypeTableEntryIdVoid) {
         fprintf(ar->f, ");\n");

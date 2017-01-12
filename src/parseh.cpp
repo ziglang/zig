@@ -618,6 +618,20 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     assert(!fn_type->data.fn.fn_type_id.is_naked);
 
+    size_t arg_count = fn_type->data.fn.fn_type_id.param_count;
+    fn_entry->param_names = allocate<Buf *>(arg_count);
+    Buf *name_buf;
+    for (size_t i = 0; i < arg_count; i += 1) {
+        const ParmVarDecl *param = fn_decl->getParamDecl(i);
+        const char *name = decl_name(param);
+        if (strlen(name) == 0) {
+            name_buf = buf_sprintf("arg%zu", i);
+        } else {
+            name_buf = buf_create_from_str(name);
+        }
+        fn_entry->param_names[i] = name_buf;
+    }
+
     TldFn *tld_fn = allocate<TldFn>(1);
     parseh_init_tld(c, &tld_fn->base, TldIdFn, fn_name);
     tld_fn->fn_entry = fn_entry;
