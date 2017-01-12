@@ -1754,13 +1754,14 @@ enum Foo {
     FooB,
     Foo1,
 };
-    )SOURCE", 3, R"(export enum enum_Foo {
+    )SOURCE", 5, R"(pub const enum_Foo = extern enum {
     A,
     B,
     @"1",
-})", R"(pub const FooA = enum_Foo.A;
-pub const FooB = enum_Foo.B;
-pub const Foo1 = enum_Foo.@"1";)",
+};)",
+            R"(pub const FooA = 0;)",
+            R"(pub const FooB = 1;)",
+            R"(pub const Foo1 = 2;)",
             R"(pub const Foo = enum_Foo;)");
 
     add_parseh_case("restrict -> noalias", AllowWarningsNo, R"SOURCE(
@@ -1773,10 +1774,10 @@ struct Foo {
     char *y;
 };
     )SOURCE", 2,
-            R"OUTPUT(export struct struct_Foo {
+            R"OUTPUT(const struct_Foo = extern struct {
     x: c_int,
     y: ?&u8,
-})OUTPUT", R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
+};)OUTPUT", R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
     add_parseh_case("qualified struct and enum", AllowWarningsNo, R"SOURCE(
 struct Foo {
@@ -1788,18 +1789,18 @@ enum Bar {
     BarB,
 };
 void func(struct Foo *a, enum Bar **b);
-    )SOURCE", 5, R"OUTPUT(export struct struct_Foo {
+    )SOURCE", 7, R"OUTPUT(pub const struct_Foo = extern struct {
     x: c_int,
     y: c_int,
-})OUTPUT", R"OUTPUT(
-export enum enum_Bar {
+};)OUTPUT", R"OUTPUT(pub const enum_Bar = extern enum {
     A,
     B,
-})OUTPUT", R"OUTPUT(pub const BarA = enum_Bar.A;
-pub const BarB = enum_Bar.B;)OUTPUT",
+};)OUTPUT",
+            R"OUTPUT(pub const BarA = 0;)OUTPUT",
+            R"OUTPUT(pub const BarB = 1;)OUTPUT",
             "pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);",
-    R"OUTPUT(pub const Foo = struct_Foo;
-pub const Bar = enum_Bar;)OUTPUT");
+    R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT",
+    R"OUTPUT(pub const Bar = enum_Bar;)OUTPUT");
 
     add_parseh_case("constant size array", AllowWarningsNo, R"SOURCE(
 void func(int array[20]);
@@ -1811,22 +1812,22 @@ void func(int array[20]);
 struct Foo {
     void (*derp)(struct Foo *foo);
 };
-    )SOURCE", 2, R"OUTPUT(export struct struct_Foo {
+    )SOURCE", 2, R"OUTPUT(pub const struct_Foo = extern struct {
     derp: ?extern fn(?&struct_Foo),
-})OUTPUT", R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
+};)OUTPUT", R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
 
     add_parseh_case("struct prototype used in func", AllowWarningsNo, R"SOURCE(
 struct Foo;
 struct Foo *some_func(struct Foo *foo, int x);
-    )SOURCE", 2, R"OUTPUT(pub type struct_Foo = u8;
-pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;)OUTPUT",
+    )SOURCE", 3, R"OUTPUT(pub type struct_Foo = u8;)OUTPUT",
+        R"OUTPUT(pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;)OUTPUT",
         R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
 
     add_parseh_case("#define a char literal", AllowWarningsNo, R"SOURCE(
 #define A_CHAR  'a'
-    )SOURCE", 1, R"OUTPUT(pub const A_CHAR = 'a';)OUTPUT");
+    )SOURCE", 1, R"OUTPUT(pub const A_CHAR = 97;)OUTPUT");
 
 
     add_parseh_case("#define an unsigned integer literal", AllowWarningsNo,
@@ -1863,12 +1864,12 @@ struct Bar {
     struct Foo *next;
 };
     )SOURCE", 2,
-            R"SOURCE(export struct struct_Bar {
+            R"SOURCE(pub const struct_Bar = extern struct {
     next: ?&struct_Foo,
-})SOURCE",
-            R"SOURCE(export struct struct_Foo {
+};)SOURCE",
+            R"SOURCE(pub const struct_Foo = extern struct {
     next: ?&struct_Bar,
-})SOURCE");
+};)SOURCE");
 
 
     add_parseh_case("typedef void", AllowWarningsNo, R"SOURCE(

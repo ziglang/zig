@@ -110,8 +110,17 @@ static void add_global(Context *c, Tld *tld) {
 }
 
 static Tld *get_global(Context *c, Buf *name) {
-    auto entry = c->import->decls_scope->decl_table.maybe_get(name);
-    return entry ? entry->value : nullptr;
+    {
+        auto entry = c->import->decls_scope->decl_table.maybe_get(name);
+        if (entry)
+            return entry->value;
+    }
+    {
+        auto entry = c->macro_table.maybe_get(name);
+        if (entry)
+            return entry->value;
+    }
+    return nullptr;
 }
 
 static const char *decl_name(const Decl *decl) {
@@ -125,16 +134,16 @@ static void parseh_init_tld(Context *c, Tld *tld, TldId id, Buf *name) {
 }
 
 static TldVar *create_global_var(Context *c, Buf *name, ConstExprValue *var_value, bool is_const) {
+    auto entry = c->import->decls_scope->decl_table.maybe_get(name);
+    if (entry) {
+        Tld *existing_tld = entry->value;
+        assert(existing_tld->id == TldIdVar);
+        return (TldVar *)existing_tld;
+    }
     TldVar *tld_var = allocate<TldVar>(1);
     parseh_init_tld(c, &tld_var->base, TldIdVar, name);
     tld_var->var = add_variable(c->codegen, c->source_node, &c->import->decls_scope->base, name, is_const, var_value);
     return tld_var;
-}
-
-static Tld *create_global_char_lit_var(Context *c, Buf *name, uint8_t value) {
-    ConstExprValue *var_val = create_const_unsigned_negative(c->codegen->builtin_types.entry_u8, value, false);
-    TldVar *tld_var = create_global_var(c, name, var_val, true);
-    return &tld_var->base;
 }
 
 static Tld *create_global_str_lit_var(Context *c, Buf *name, Buf *value) {
@@ -1156,7 +1165,7 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
         switch (tok->id) {
             case CTokIdCharLit:
                 if (is_last && is_first) {
-                    Tld *tld = create_global_char_lit_var(c, name, tok->data.char_lit);
+                    Tld *tld = create_global_num_lit_unsigned_negative(c, name, tok->data.char_lit, false);
                     c->macro_table.put(name, tld);
                 }
                 return;
@@ -1228,7 +1237,7 @@ static void process_symbol_macros(Context *c) {
             }
         }
 
-        add_global_alias(c, ms.value, existing_tld);
+        add_global_alias(c, ms.name, existing_tld);
     }
 }
 

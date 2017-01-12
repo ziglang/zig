@@ -892,7 +892,7 @@ void ast_render(FILE *f, AstNode *node, int indent_size) {
     render_node_grouped(&ar, node);
 }
 
-static void ast_render_tld_fn(AstRender *ar, TldFn *tld_fn) {
+static void ast_render_tld_fn(AstRender *ar, Buf *name, TldFn *tld_fn) {
     FnTableEntry *fn_entry = tld_fn->fn_entry;
     FnTypeId *fn_type_id = &fn_entry->type_entry->data.fn.fn_type_id;
     const char *visib_mod_str = visib_mod_string(tld_fn->base.visib_mod);
@@ -917,15 +917,16 @@ static void ast_render_tld_fn(AstRender *ar, TldFn *tld_fn) {
     }
 }
 
-static void ast_render_tld_var(AstRender *ar, TldVar *tld_var) {
+static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
     VariableTableEntry *var = tld_var->var;
     const char *visib_mod_str = visib_mod_string(tld_var->base.visib_mod);
     const char *const_or_var = const_or_var_string(var->src_is_const);
     const char *extern_str = extern_string(var->is_extern);
-    fprintf(ar->f, "%s%s%s %s", visib_mod_str, extern_str, const_or_var, buf_ptr(&var->name));
+    fprintf(ar->f, "%s%s%s %s", visib_mod_str, extern_str, const_or_var, buf_ptr(name));
 
     if (var->value.type->id == TypeTableEntryIdNumLitFloat ||
-        var->value.type->id == TypeTableEntryIdNumLitInt)
+        var->value.type->id == TypeTableEntryIdNumLitInt ||
+        var->value.type->id == TypeTableEntryIdMetaType)
     {
         // skip type
     } else {
@@ -937,11 +938,60 @@ static void ast_render_tld_var(AstRender *ar, TldVar *tld_var) {
         return;
     }
 
-    Buf buf = BUF_INIT;
-    buf_resize(&buf, 0);
-    render_const_value(&buf, &var->value);
+    fprintf(ar->f, " = ");
 
-    fprintf(ar->f, " = %s;\n", buf_ptr(&buf));
+    if (var->value.special == ConstValSpecialStatic &&
+        var->value.type->id == TypeTableEntryIdMetaType)
+    {
+        TypeTableEntry *type_entry = var->value.data.x_type;
+        if (type_entry->id == TypeTableEntryIdStruct) {
+            const char *extern_str = extern_string(type_entry->data.structure.is_extern);
+            fprintf(ar->f, "%sstruct {\n", extern_str);
+            for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+                TypeStructField *field = &type_entry->data.structure.fields[i];
+                fprintf(ar->f, "    ");
+                print_symbol(ar, field->name);
+                fprintf(ar->f, ": %s,\n", buf_ptr(&field->type_entry->name));
+            }
+            fprintf(ar->f, "}");
+        } else if (type_entry->id == TypeTableEntryIdEnum) {
+            const char *extern_str = extern_string(type_entry->data.enumeration.is_extern);
+            fprintf(ar->f, "%senum {\n", extern_str);
+            for (size_t i = 0; i < type_entry->data.enumeration.src_field_count; i += 1) {
+                TypeEnumField *field = &type_entry->data.enumeration.fields[i];
+                fprintf(ar->f, "    ");
+                print_symbol(ar, field->name);
+                if (field->type_entry->id == TypeTableEntryIdVoid) {
+                    fprintf(ar->f, ",\n");
+                } else {
+                    fprintf(ar->f, ": %s,\n", buf_ptr(&field->type_entry->name));
+                }
+            }
+            fprintf(ar->f, "}");
+        } else if (type_entry->id == TypeTableEntryIdUnion) {
+            fprintf(ar->f, "union {");
+            fprintf(ar->f, "TODO");
+            fprintf(ar->f, "}");
+        } else {
+            fprintf(ar->f, "%s", buf_ptr(&type_entry->name));
+        }
+    } else {
+        Buf buf = BUF_INIT;
+        buf_resize(&buf, 0);
+        render_const_value(&buf, &var->value);
+        fprintf(ar->f, "%s", buf_ptr(&buf));
+    }
+
+    fprintf(ar->f, ";\n");
+}
+
+static void ast_render_tld_typedef(AstRender *ar, Buf *name, TldTypeDef *tld_typedef) {
+    TypeTableEntry *type_entry = tld_typedef->type_entry;
+    TypeTableEntry *canon_type = get_underlying_type(type_entry);
+
+    fprintf(ar->f, "pub type ");
+    print_symbol(ar, name);
+    fprintf(ar->f, " = %s;\n", buf_ptr(&canon_type->name));
 }
 
 void ast_render_decls(FILE *f, int indent_size, ImportTableEntry *import) {
@@ -957,18 +1007,26 @@ void ast_render_decls(FILE *f, int indent_size, ImportTableEntry *import) {
             break;
 
         Tld *tld = entry->value;
+
+        if (!buf_eql_buf(entry->key, tld->name)) {
+            fprintf(ar.f, "pub const ");
+            print_symbol(&ar, entry->key);
+            fprintf(ar.f, " = %s;\n", buf_ptr(tld->name));
+            continue;
+        }
+
         switch (tld->id) {
             case TldIdVar:
-                ast_render_tld_var(&ar, (TldVar *)tld);
+                ast_render_tld_var(&ar, entry->key, (TldVar *)tld);
                 break;
             case TldIdFn:
-                ast_render_tld_fn(&ar, (TldFn *)tld);
+                ast_render_tld_fn(&ar, entry->key, (TldFn *)tld);
                 break;
             case TldIdContainer:
                 fprintf(stdout, "container\n");
                 break;
             case TldIdTypeDef:
-                fprintf(stdout, "typedef\n");
+                ast_render_tld_typedef(&ar, entry->key, (TldTypeDef *)tld);
                 break;
         }
     }
