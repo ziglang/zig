@@ -54,6 +54,7 @@ bool type_is_codegen_pointer(TypeTableEntry *type);
 TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry);
 TypeTableEntry *container_ref_type(TypeTableEntry *type_entry);
 bool type_is_complete(TypeTableEntry *type_entry);
+bool type_is_invalid(TypeTableEntry *type_entry);
 bool type_has_zero_bits_known(TypeTableEntry *type_entry);
 void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry);
 TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name);

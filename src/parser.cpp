@@ -598,6 +598,7 @@ static AstNode *ast_parse_goto_expr(ParseContext *pc, size_t *token_index, bool 
             *token_index += 2;
         } else if (mandatory) {
             ast_expect_token(pc, first_token, TokenIdKeywordGoto);
+            zig_unreachable();
         } else {
             return nullptr;
         }
@@ -607,6 +608,7 @@ static AstNode *ast_parse_goto_expr(ParseContext *pc, size_t *token_index, bool 
         *token_index += 1;
     } else if (mandatory) {
         ast_expect_token(pc, first_token, TokenIdKeywordGoto);
+        zig_unreachable();
     } else {
         return nullptr;
     }
@@ -1605,6 +1607,7 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, size_t *token_index, bool
             *token_index += 2;
         } else if (mandatory) {
             ast_expect_token(pc, while_token, TokenIdKeywordWhile);
+            zig_unreachable();
         } else {
             return nullptr;
         }
@@ -1614,6 +1617,7 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, size_t *token_index, bool
         *token_index += 1;
     } else if (mandatory) {
         ast_expect_token(pc, first_token, TokenIdKeywordWhile);
+        zig_unreachable();
     } else {
         return nullptr;
     }
@@ -1663,6 +1667,7 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, size_t *token_index, bool m
             *token_index += 2;
         } else if (mandatory) {
             ast_expect_token(pc, first_token, TokenIdKeywordFor);
+            zig_unreachable();
         } else {
             return nullptr;
         }
@@ -1672,6 +1677,7 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, size_t *token_index, bool m
         *token_index += 1;
     } else if (mandatory) {
         ast_expect_token(pc, first_token, TokenIdKeywordFor);
+        zig_unreachable();
     } else {
         return nullptr;
     }
@@ -1726,6 +1732,7 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
             *token_index += 2;
         } else if (mandatory) {
             ast_expect_token(pc, first_token, TokenIdKeywordSwitch);
+            zig_unreachable();
         } else {
             return nullptr;
         }
@@ -1735,6 +1742,7 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
         *token_index += 1;
     } else if (mandatory) {
         ast_expect_token(pc, first_token, TokenIdKeywordSwitch);
+        zig_unreachable();
     } else {
         return nullptr;
     }
@@ -2112,6 +2120,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         *token_index += 1;
     } else if (mandatory) {
         ast_expect_token(pc, first_token, TokenIdKeywordFn);
+        zig_unreachable();
     } else {
         return nullptr;
     }

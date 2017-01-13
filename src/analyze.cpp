@@ -1082,7 +1082,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
     return get_fn_type(g, &fn_type_id);
 }
 
-static bool type_is_invalid(TypeTableEntry *type_entry) {
+bool type_is_invalid(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
             return true;
@@ -1117,6 +1117,9 @@ static TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_typ
 static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     // if you change this logic you likely must also change similar logic in parseh.cpp
     assert(enum_type->id == TypeTableEntryIdEnum);
+
+    if (enum_type->data.enumeration.complete)
+        return;
 
     resolve_enum_zero_bits(g, enum_type);
     if (enum_type->data.enumeration.is_invalid)
@@ -1297,6 +1300,9 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     // if you change the logic of this function likely you must make a similar change in
     // parseh.cpp
     assert(struct_type->id == TypeTableEntryIdStruct);
+
+    if (struct_type->data.structure.complete)
+        return;
 
     resolve_struct_zero_bits(g, struct_type);
     if (struct_type->data.structure.is_invalid)
@@ -2043,45 +2049,6 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only) {
 
     tld->resolution = TldResolutionOk;
     tld->dep_loop_flag = false;
-}
-
-static bool type_has_codegen_value(TypeTableEntry *type_entry) {
-    switch (type_entry->id) {
-        case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdMetaType:
-        case TypeTableEntryIdVoid:
-        case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdNumLitFloat:
-        case TypeTableEntryIdNumLitInt:
-        case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
-        case TypeTableEntryIdNamespace:
-        case TypeTableEntryIdBlock:
-        case TypeTableEntryIdBoundFn:
-            return false;
-
-        case TypeTableEntryIdBool:
-        case TypeTableEntryIdInt:
-        case TypeTableEntryIdFloat:
-        case TypeTableEntryIdPointer:
-        case TypeTableEntryIdArray:
-        case TypeTableEntryIdStruct:
-        case TypeTableEntryIdMaybe:
-        case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
-        case TypeTableEntryIdEnum:
-        case TypeTableEntryIdUnion:
-        case TypeTableEntryIdFn:
-        case TypeTableEntryIdEnumTag:
-            return true;
-
-        case TypeTableEntryIdTypeDecl:
-            return type_has_codegen_value(type_entry->data.type_decl.canonical_type);
-
-        case TypeTableEntryIdVar:
-            zig_unreachable();
-    }
-    zig_unreachable();
 }
 
 bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type) {

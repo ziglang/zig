@@ -934,7 +934,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
         TypeTableEntry *field_type = resolve_qual_type(c, field_decl->getType(), field_decl);
         type_struct_field->type_entry = field_type;
 
-        if (field_type->id == TypeTableEntryIdInvalid) {
+        if (type_is_invalid(field_type) || !type_is_complete(field_type)) {
             emit_warning(c, field_decl, "struct %s demoted to typedef - unresolved type\n", buf_ptr(bare_name));
             replace_with_fwd_decl(c, struct_type, full_type_name);
             return struct_type;
