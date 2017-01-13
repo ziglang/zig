@@ -520,6 +520,8 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
         TypeTableEntry *entry = existing_entry->value;
         return entry;
     } else {
+        ensure_complete_type(g, child_type);
+
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
         entry->zero_bits = (array_size == 0) || child_type->zero_bits;
 
@@ -1080,6 +1082,23 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
     return get_fn_type(g, &fn_type_id);
 }
 
+static bool type_is_invalid(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+            return true;
+        case TypeTableEntryIdStruct:
+            return type_entry->data.structure.is_invalid;
+        case TypeTableEntryIdEnum:
+            return type_entry->data.enumeration.is_invalid;
+        case TypeTableEntryIdUnion:
+            return type_entry->data.unionation.is_invalid;
+        default:
+            return false;
+    }
+    zig_unreachable();
+}
+
+
 static TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, TypeTableEntry *int_type) {
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnumTag);
 
@@ -1296,7 +1315,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     }
 
     assert(!struct_type->data.structure.zero_bits_loop_flag);
-    assert(struct_type->data.enumeration.fields);
+    assert(struct_type->data.structure.fields);
     assert(decl_node->type == NodeTypeContainerDecl);
 
     size_t field_count = struct_type->data.structure.src_field_count;
@@ -1309,13 +1328,14 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
 
     Scope *scope = &struct_type->data.structure.decls_scope->base;
 
+    //if (buf_eql_str(&struct_type->name, "Particle")) { BREAKPOINT; }
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         TypeTableEntry *field_type = type_struct_field->type_entry;
 
         ensure_complete_type(g, field_type);
-        if (field_type->id == TypeTableEntryIdInvalid) {
-            struct_type->data.enumeration.is_invalid = true;
+        if (type_is_invalid(field_type)) {
+            struct_type->data.structure.is_invalid = true;
             continue;
         }
 
@@ -1342,6 +1362,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     assert(struct_type->di_type);
 
     LLVMStructSetBody(struct_type->type_ref, element_types, gen_field_count, false);
+    assert(LLVMStoreSizeOfType(g->target_data_ref, struct_type->type_ref) > 0);
 
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(gen_field_count);
 
@@ -1492,7 +1513,7 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
         type_struct_field->gen_index = SIZE_MAX;
 
         type_ensure_zero_bits_known(g, field_type);
-        if (field_type->id == TypeTableEntryIdInvalid) {
+        if (type_is_invalid(field_type)) {
             struct_type->data.structure.is_invalid = true;
             continue;
         }
