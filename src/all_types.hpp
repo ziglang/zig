@@ -126,7 +126,6 @@ enum ConstValSpecial {
     ConstValSpecialRuntime,
     ConstValSpecialStatic,
     ConstValSpecialUndef,
-    ConstValSpecialZeroes,
 };
 
 enum RuntimeHintErrorUnion {
@@ -271,7 +270,6 @@ enum NodeType {
     NodeTypeBoolLiteral,
     NodeTypeNullLiteral,
     NodeTypeUndefinedLiteral,
-    NodeTypeZeroesLiteral,
     NodeTypeThisLiteral,
     NodeTypeIfBoolExpr,
     NodeTypeIfVarExpr,
@@ -655,9 +653,6 @@ struct AstNodeNullLiteral {
 struct AstNodeUndefinedLiteral {
 };
 
-struct AstNodeZeroesLiteral {
-};
-
 struct AstNodeThisLiteral {
 };
 
@@ -737,7 +732,6 @@ struct AstNode {
         AstNodeStructValueField struct_val_field;
         AstNodeNullLiteral null_literal;
         AstNodeUndefinedLiteral undefined_literal;
-        AstNodeZeroesLiteral zeroes_literal;
         AstNodeThisLiteral this_literal;
         AstNodeSymbolExpr symbol_expr;
         AstNodeBoolLiteral bool_literal;

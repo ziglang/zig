@@ -5223,8 +5223,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             zig_panic("TODO IR gen NodeTypeErrorValueDecl");
         case NodeTypeTypeDecl:
             zig_panic("TODO IR gen NodeTypeTypeDecl");
-        case NodeTypeZeroesLiteral:
-            zig_panic("TODO zeroes is deprecated");
     }
     zig_unreachable();
 }
@@ -5930,9 +5928,6 @@ static ConstExprValue *ir_resolve_const(IrAnalyze *ira, IrInstruction *value, Un
                 ir_add_error(ira, value, buf_sprintf("use of undefined value"));
                 return nullptr;
             }
-        case ConstValSpecialZeroes:
-            ir_add_error(ira, value, buf_sprintf("zeroes is deprecated"));
-            return nullptr;
     }
     zig_unreachable();
 }

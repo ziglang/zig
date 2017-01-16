@@ -60,7 +60,6 @@ AstNode *first_executing_node(AstNode *node) {
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
-        case NodeTypeZeroesLiteral:
         case NodeTypeThisLiteral:
         case NodeTypeIfBoolExpr:
         case NodeTypeIfVarExpr:
@@ -1793,7 +1792,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeBoolLiteral:
         case NodeTypeNullLiteral:
         case NodeTypeUndefinedLiteral:
-        case NodeTypeZeroesLiteral:
         case NodeTypeThisLiteral:
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
@@ -3402,9 +3400,6 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
             zig_unreachable();
         case ConstValSpecialUndef:
             buf_appendf(buf, "undefined");
-            return;
-        case ConstValSpecialZeroes:
-            buf_appendf(buf, "zeroes");
             return;
         case ConstValSpecialStatic:
             break;

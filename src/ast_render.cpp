@@ -177,8 +177,6 @@ static const char *node_type_str(NodeType node_type) {
             return "NullLiteral";
         case NodeTypeUndefinedLiteral:
             return "UndefinedLiteral";
-        case NodeTypeZeroesLiteral:
-            return "ZeroesLiteral";
         case NodeTypeThisLiteral:
             return "ThisLiteral";
         case NodeTypeIfBoolExpr:
@@ -877,7 +875,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeErrorValueDecl:
         case NodeTypeStructField:
         case NodeTypeUse:
-        case NodeTypeZeroesLiteral:
             zig_panic("TODO more ast rendering");
     }
 }

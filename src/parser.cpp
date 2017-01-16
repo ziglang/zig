@@ -622,7 +622,7 @@ static AstNode *ast_parse_goto_expr(ParseContext *pc, size_t *token_index, bool 
 }
 /*
 PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
-KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "zeroes" | "error" | "type" | "this"
+KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -668,10 +668,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         return node;
     } else if (token->id == TokenIdKeywordUndefined) {
         AstNode *node = ast_create_node(pc, NodeTypeUndefinedLiteral, token);
-        *token_index += 1;
-        return node;
-    } else if (token->id == TokenIdKeywordZeroes) {
-        AstNode *node = ast_create_node(pc, NodeTypeZeroesLiteral, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordThis) {
@@ -2583,9 +2579,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             // none
             break;
         case NodeTypeUndefinedLiteral:
-            // none
-            break;
-        case NodeTypeZeroesLiteral:
             // none
             break;
         case NodeTypeThisLiteral:

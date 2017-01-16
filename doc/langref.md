@@ -149,7 +149,7 @@ GotoExpression = option("inline") "goto" Symbol
 
 GroupedExpression = "(" Expression ")"
 
-KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "zeroes" | "error" | "type" | "this"
+KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this"
 
 ContainerDecl = option("extern") ("struct" | "enum" | "union") "{" many(StructMember) "}"
 

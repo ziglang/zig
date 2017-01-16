@@ -1244,13 +1244,10 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
     IrInstruction *init_value = decl_var_instruction->init_value;
 
     bool have_init_expr = false;
-    bool want_zeroes = false;
 
     ConstExprValue *const_val = &init_value->value;
     if (const_val->special == ConstValSpecialRuntime || const_val->special == ConstValSpecialStatic)
         have_init_expr = true;
-    if (const_val->special == ConstValSpecialZeroes)
-        want_zeroes = true;
 
     if (have_init_expr) {
         assert(var->value.type == init_value->value.type);
@@ -1259,14 +1256,14 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         bool ignore_uninit = false;
         // handle runtime stack allocation
         bool want_safe = ir_want_debug_safety(g, &decl_var_instruction->base);
-        if (!ignore_uninit && (want_safe || want_zeroes)) {
+        if (!ignore_uninit && want_safe) {
             TypeTableEntry *usize = g->builtin_types.entry_usize;
             uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, var->value.type->type_ref);
             uint64_t align_bytes = get_memcpy_align(g, var->value.type);
 
             // memset uninitialized memory to 0xa
             LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-            LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), want_zeroes ? 0x00 : 0xaa, false);
+            LLVMValueRef fill_char = LLVMConstInt(LLVMInt8Type(), 0xaa, false);
             LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, var->value_ref, ptr_u8, "");
             LLVMValueRef byte_count = LLVMConstInt(usize->type_ref, size_bytes, false);
             LLVMValueRef align_in_bytes = LLVMConstInt(LLVMInt32Type(), align_bytes, false);
@@ -2440,8 +2437,6 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
             zig_unreachable();
         case ConstValSpecialUndef:
             return LLVMGetUndef(canon_type->type_ref);
-        case ConstValSpecialZeroes:
-            return LLVMConstNull(canon_type->type_ref);
         case ConstValSpecialStatic:
             break;
 

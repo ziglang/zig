@@ -140,7 +140,6 @@ static const struct ZigKeyword zig_keywords[] = {
     {"var", TokenIdKeywordVar},
     {"volatile", TokenIdKeywordVolatile},
     {"while", TokenIdKeywordWhile},
-    {"zeroes", TokenIdKeywordZeroes},
 };
 
 bool is_zig_keyword(Buf *buf) {
@@ -1472,7 +1471,6 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordNoAlias: return "noalias";
         case TokenIdKeywordSwitch: return "switch";
         case TokenIdKeywordUndefined: return "undefined";
-        case TokenIdKeywordZeroes: return "zeroes";
         case TokenIdKeywordThis: return "this";
         case TokenIdKeywordError: return "error";
         case TokenIdKeywordType: return "type";
