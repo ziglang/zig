@@ -1624,6 +1624,21 @@ fn f() {
 }
     )SOURCE", 1, ".tmp_source.zig:14:15: error: condition is always false; unnecessary if statement");
 
+    add_compile_fail_case("return from defer expression", R"SOURCE(
+pub fn testTrickyDefer() -> %void {
+    defer canFail() %% {};
+
+    defer %return canFail();
+
+    const a = maybeInt() ?? return;
+}
+
+fn canFail() -> %void { }
+
+pub fn maybeInt() -> ?i32 {
+    return 0;
+}
+    )SOURCE", 1, ".tmp_source.zig:5:11: error: cannot return from defer expression");
 }
 
 //////////////////////////////////////////////////////////////////////////////
