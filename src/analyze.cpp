@@ -1362,6 +1362,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
 
     if (struct_type->zero_bits) {
         struct_type->type_ref = LLVMVoidType();
+        ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, g->builtin_types.entry_void->di_type);
         struct_type->di_type = g->builtin_types.entry_void->di_type;
         return;
     }
