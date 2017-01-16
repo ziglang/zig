@@ -1521,9 +1521,7 @@ fn foo() {
     jll.init(1234);
     var jd = JsonNode {.kind = JsonType.JSONArray , .jobject = JsonOA.JSONArray {jll} };
 }
-    )SOURCE", 2,
-        ".tmp_source.zig:6:16: error: use of undeclared identifier 'JsonList'",
-        ".tmp_source.zig:27:8: error: no member named 'init' in 'JsonNode'");
+    )SOURCE", 1, ".tmp_source.zig:6:16: error: use of undeclared identifier 'JsonList'");
 
     add_compile_fail_case("method call with first arg type primitive", R"SOURCE(
 const Foo = struct {

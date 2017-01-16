@@ -7936,9 +7936,10 @@ static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op
     IrInstruction *value = un_op_instruction->value->other;
     TypeTableEntry *type_entry = ir_resolve_type(ira, value);
     TypeTableEntry *canon_type = get_underlying_type(type_entry);
+    if (type_is_invalid(canon_type))
+        return ira->codegen->builtin_types.entry_invalid;
     switch (canon_type->id) {
         case TypeTableEntryIdInvalid:
-            return ira->codegen->builtin_types.entry_invalid;
         case TypeTableEntryIdVar:
         case TypeTableEntryIdTypeDecl:
             zig_unreachable();
@@ -9997,7 +9998,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
 static TypeTableEntry *ir_analyze_instruction_container_init_fields(IrAnalyze *ira, IrInstructionContainerInitFields *instruction) {
     IrInstruction *container_type_value = instruction->container_type->other;
     TypeTableEntry *container_type = ir_resolve_type(ira, container_type_value);
-    if (container_type->id == TypeTableEntryIdInvalid)
+    if (type_is_invalid(container_type))
         return ira->codegen->builtin_types.entry_invalid;
 
     bool depends_on_compile_var = container_type_value->value.depends_on_compile_var;
