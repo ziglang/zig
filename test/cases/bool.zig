@@ -44,3 +44,14 @@ fn shortCircuitAndOr() {
     a ||= true;
     assert(a);
 }
+
+const global_f = false;
+const global_t = true;
+const not_global_f = !global_f;
+const not_global_t = !global_t;
+fn compileTimeBoolnot() {
+    @setFnTest(this);
+
+    assert(not_global_f);
+    assert(!not_global_t);
+}
