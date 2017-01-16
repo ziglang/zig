@@ -94,8 +94,12 @@ static Buf *exec_c_import_buf(IrExecutable *exec) {
     return exec->c_import_buf;
 }
 
+static bool value_is_comptime(ConstExprValue *const_val) {
+    return const_val->special != ConstValSpecialRuntime;
+}
+
 static bool instr_is_comptime(IrInstruction *instruction) {
-    return instruction->value.special != ConstValSpecialRuntime;
+    return value_is_comptime(&instruction->value);
 }
 
 static bool instr_is_unreachable(IrInstruction *instruction) {
@@ -6907,7 +6911,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
 
     ConstExprValue *op1_val = &casted_op1->value;
     ConstExprValue *op2_val = &casted_op2->value;
-    if (op1_val->special != ConstValSpecialRuntime && op2_val->special != ConstValSpecialRuntime) {
+    if ((value_is_comptime(op1_val) && value_is_comptime(op2_val)) || resolved_type->id == TypeTableEntryIdVoid) {
         bool type_can_gt_lt_cmp = (resolved_type->id == TypeTableEntryIdNumLitFloat ||
                 resolved_type->id == TypeTableEntryIdNumLitInt ||
                 resolved_type->id == TypeTableEntryIdFloat ||
@@ -6933,7 +6937,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
 
             answer = bignum_cmp(&op1_val->data.x_bignum, &op2_val->data.x_bignum);
         } else {
-            bool are_equal = const_values_equal(op1_val, op2_val);
+            bool are_equal = resolved_type->id == TypeTableEntryIdVoid || const_values_equal(op1_val, op2_val);
             if (op_id == IrBinOpCmpEq) {
                 answer = are_equal;
             } else if (op_id == IrBinOpCmpNotEq) {

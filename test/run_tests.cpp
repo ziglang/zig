@@ -1605,6 +1605,25 @@ fn derp() {
 }
     )SOURCE", 1, ".tmp_source.zig:7:13: error: cannot assign to constant");
 
+    add_compile_fail_case("compare void with void is compile time known", R"SOURCE(
+const Foo = struct {
+    a: void,
+    b: i32,
+    c: void,
+};
+
+fn f() {
+    const foo = Foo {
+        .a = {},
+        .b = 1,
+        .c = {},
+    };
+    if (foo.a != {}) {
+        @unreachable();
+    }
+}
+    )SOURCE", 1, ".tmp_source.zig:14:15: error: condition is always false; unnecessary if statement");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
