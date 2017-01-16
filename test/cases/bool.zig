@@ -30,3 +30,17 @@ fn boolCmp() {
 fn testBoolCmp(a: bool, b: bool) -> bool {
     a == b
 }
+
+fn shortCircuitAndOr() {
+    @setFnTest(this);
+
+    var a = true;
+    a &&= false;
+    assert(!a);
+    a &&= true;
+    assert(!a);
+    a ||= false;
+    assert(!a);
+    a ||= true;
+    assert(a);
+}
