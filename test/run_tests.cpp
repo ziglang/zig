@@ -1590,6 +1590,11 @@ fn privateFunction() { }
         )SOURCE");
     }
 
+    add_compile_fail_case("container init with non-type", R"SOURCE(
+const zero: i32 = 0;
+const a = zero{1};
+    )SOURCE", 1, ".tmp_source.zig:3:11: error: expected type, found 'i32'");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
