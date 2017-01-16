@@ -83,8 +83,11 @@ const Particle = struct {
 fn nullLiteralOutsideFunction() {
     @setFnTest(this);
 
-    const is_null = if (const _ ?= here_is_a_null_literal.context) false else true;
+    const is_null = here_is_a_null_literal.context == null;
     assert(is_null);
+
+    const is_non_null = here_is_a_null_literal.context != null;
+    assert(!is_non_null);
 }
 const SillyStruct = struct {
     context: ?i32,
@@ -98,4 +101,14 @@ const here_is_a_null_literal = SillyStruct {
 fn foo(x: ?i32) -> ?bool {
     const value = ?return x;
     return value > 1234;
+}
+
+fn testNullRuntime() {
+    @setFnTest(this);
+
+    testTestNullRuntime(null);
+}
+fn testTestNullRuntime(x: ?i32) {
+    assert(x == null);
+    assert(!(x != null));
 }

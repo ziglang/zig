@@ -1225,7 +1225,7 @@ static IrInstruction *ir_build_size_of(IrBuilder *irb, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_test_null(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
+static IrInstruction *ir_build_test_nonnull(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
     IrInstructionTestNonNull *instruction = ir_build_instruction<IrInstructionTestNonNull>(irb, scope, source_node);
     instruction->value = value;
 
@@ -1234,10 +1234,10 @@ static IrInstruction *ir_build_test_null(IrBuilder *irb, Scope *scope, AstNode *
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_test_null_from(IrBuilder *irb, IrInstruction *old_instruction,
+static IrInstruction *ir_build_test_nonnull_from(IrBuilder *irb, IrInstruction *old_instruction,
         IrInstruction *value)
 {
-    IrInstruction *new_instruction = ir_build_test_null(irb, old_instruction->scope,
+    IrInstruction *new_instruction = ir_build_test_nonnull(irb, old_instruction->scope,
             old_instruction->source_node, value);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
@@ -2923,7 +2923,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     IrBasicBlock *null_block = ir_build_basic_block(irb, scope, "MaybeRetNull");
                     IrBasicBlock *ok_block = ir_build_basic_block(irb, scope, "MaybeRetOk");
 
-                    IrInstruction *is_non_null = ir_build_test_null(irb, scope, node, return_value);
+                    IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node, return_value);
 
                     IrInstruction *is_comptime;
                     if (ir_should_inline(irb)) {
@@ -2980,7 +2980,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 if (maybe_val_ptr == irb->codegen->invalid_instruction)
                     return irb->codegen->invalid_instruction;
                 IrInstruction *maybe_val = ir_build_load_ptr(irb, scope, node, maybe_val_ptr);
-                IrInstruction *is_non_null = ir_build_test_null(irb, scope, node, maybe_val);
+                IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node, maybe_val);
 
                 IrBasicBlock *return_block = ir_build_basic_block(irb, scope, "MaybeRetReturn");
                 IrBasicBlock *continue_block = ir_build_basic_block(irb, scope, "MaybeRetContinue");
@@ -3293,7 +3293,7 @@ static IrInstruction *ir_gen_maybe_ok_or(IrBuilder *irb, Scope *parent_scope, As
         return irb->codegen->invalid_instruction;
 
     IrInstruction *maybe_val = ir_build_load_ptr(irb, parent_scope, node, maybe_ptr);
-    IrInstruction *is_non_null = ir_build_test_null(irb, parent_scope, node, maybe_val);
+    IrInstruction *is_non_null = ir_build_test_nonnull(irb, parent_scope, node, maybe_val);
 
     IrInstruction *is_comptime;
     if (ir_should_inline(irb)) {
@@ -4595,7 +4595,7 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, Scope *scope, AstNode *
         return maybe_val_ptr;
 
     IrInstruction *maybe_val = ir_build_load_ptr(irb, scope, node, maybe_val_ptr);
-    IrInstruction *is_non_null = ir_build_test_null(irb, scope, node, maybe_val);
+    IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node, maybe_val);
 
     IrBasicBlock *then_block = ir_build_basic_block(irb, scope, "MaybeThen");
     IrBasicBlock *else_block = ir_build_basic_block(irb, scope, "MaybeElse");
@@ -6839,13 +6839,55 @@ static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp
 static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
     IrInstruction *op1 = bin_op_instruction->op1->other;
     IrInstruction *op2 = bin_op_instruction->op2->other;
+
+    IrBinOp op_id = bin_op_instruction->op_id;
+    bool is_equality_cmp = (op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq);
+    if (is_equality_cmp &&
+        ((op1->value.type->id == TypeTableEntryIdNullLit && op2->value.type->id == TypeTableEntryIdMaybe) ||
+        (op2->value.type->id == TypeTableEntryIdNullLit && op1->value.type->id == TypeTableEntryIdMaybe) ||
+        (op1->value.type->id == TypeTableEntryIdNullLit && op2->value.type->id == TypeTableEntryIdNullLit)))
+    {
+        bool depends_on_compile_var = op1->value.depends_on_compile_var || op2->value.depends_on_compile_var;
+        if (op1->value.type->id == TypeTableEntryIdNullLit && op2->value.type->id == TypeTableEntryIdNullLit) {
+            ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base, depends_on_compile_var);
+            out_val->data.x_bool = (op_id == IrBinOpCmpEq);
+            return ira->codegen->builtin_types.entry_bool;
+        }
+        IrInstruction *maybe_op;
+        if (op1->value.type->id == TypeTableEntryIdNullLit) {
+            maybe_op = op2;
+        } else if (op2->value.type->id == TypeTableEntryIdNullLit) {
+            maybe_op = op1;
+        } else {
+            zig_unreachable();
+        }
+        if (instr_is_comptime(maybe_op)) {
+            ConstExprValue *maybe_val = ir_resolve_const(ira, maybe_op, UndefBad);
+            if (!maybe_val)
+                return ira->codegen->builtin_types.entry_invalid;
+            bool is_null = (maybe_val->data.x_maybe == nullptr);
+            ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base, depends_on_compile_var);
+            out_val->data.x_bool = (op_id == IrBinOpCmpEq) ? is_null : !is_null;
+            return ira->codegen->builtin_types.entry_bool;
+        }
+
+        IrInstruction *is_non_null = ir_build_test_nonnull(&ira->new_irb, bin_op_instruction->base.scope,
+            bin_op_instruction->base.source_node, maybe_op);
+        is_non_null->value.type = ira->codegen->builtin_types.entry_bool;
+
+        if (op_id == IrBinOpCmpEq) {
+            ir_build_bool_not_from(&ira->new_irb, &bin_op_instruction->base, is_non_null);
+        } else {
+            ir_link_new_instruction(is_non_null, &bin_op_instruction->base);
+        }
+        return ira->codegen->builtin_types.entry_bool;
+    }
+
     IrInstruction *instructions[] = {op1, op2};
     TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, bin_op_instruction->base.source_node, instructions, 2);
     if (resolved_type->id == TypeTableEntryIdInvalid)
         return resolved_type;
-    IrBinOp op_id = bin_op_instruction->op_id;
 
-    bool is_equality_cmp = (op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq);
     AstNode *source_node = bin_op_instruction->base.source_node;
     switch (resolved_type->id) {
         case TypeTableEntryIdInvalid:
@@ -9240,7 +9282,7 @@ static TypeTableEntry *ir_analyze_instruction_test_non_null(IrAnalyze *ira, IrIn
             return ira->codegen->builtin_types.entry_bool;
         }
 
-        ir_build_test_null_from(&ira->new_irb, &instruction->base, value);
+        ir_build_test_nonnull_from(&ira->new_irb, &instruction->base, value);
         return ira->codegen->builtin_types.entry_bool;
     } else if (type_entry->id == TypeTableEntryIdNullLit) {
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, false);
