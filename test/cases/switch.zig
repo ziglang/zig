@@ -129,3 +129,25 @@ fn switchWithMultipleExpressions() {
 fn returnsFive() -> i32 {
     5
 }
+
+
+const Number = enum {
+    One: u64,
+    Two: u8,
+    Three: f32,
+};
+
+const number = Number.Three { 1.23 };
+
+fn returnsFalse() -> bool {
+    switch (number) {
+        Number.One => |x| return x > 1234,
+        Number.Two => |x| return x == 'a',
+        Number.Three => |x| return x > 12.34,
+    }
+}
+fn switchOnConstEnumWithVar() {
+    @setFnTest(this);
+
+    assert(!returnsFalse());
+}

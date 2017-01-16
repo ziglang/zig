@@ -677,9 +677,14 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
         assert(instruction->value.special != ConstValSpecialRuntime);
         assert(instruction->value.type);
         render_const_val(g, &instruction->value);
+        // we might have to do some pointer casting here due to the way union
+        // values are rendered with a type other than the one we expect
         if (handle_is_ptr(instruction->value.type)) {
             render_const_val_global(g, &instruction->value);
-            instruction->llvm_value = instruction->value.llvm_global;
+            TypeTableEntry *ptr_type = get_pointer_to_type(g, instruction->value.type, true);
+            instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value.llvm_global, ptr_type->type_ref, "");
+        } else if (instruction->value.type->id == TypeTableEntryIdPointer) {
+            instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value.llvm_value, instruction->value.type->type_ref, "");
         } else {
             instruction->llvm_value = instruction->value.llvm_value;
         }
@@ -2540,7 +2545,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                         tag_value,
                         union_value,
                     };
-                    return LLVMConstNamedStruct(canon_type->type_ref, fields, 2);
+                    return LLVMConstStruct(fields, 2, false);
                 }
             }
         case TypeTableEntryIdFn:
@@ -2553,11 +2558,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     render_const_val(g, const_val->data.x_ptr.base_ptr);
                     render_const_val_global(g, const_val->data.x_ptr.base_ptr);
                     ConstExprValue *other_val = const_val->data.x_ptr.base_ptr;
-                    if (other_val->type == const_val->type->data.pointer.child_type) {
-                        const_val->llvm_value = other_val->llvm_global;
-                    } else {
-                        const_val->llvm_value = LLVMConstBitCast(other_val->llvm_global, const_val->type->type_ref);
-                    }
+                    const_val->llvm_value = LLVMConstBitCast(other_val->llvm_global, const_val->type->type_ref);
                     render_const_val_global(g, const_val);
                     return const_val->llvm_value;
                 } else {
@@ -2636,7 +2637,8 @@ static void render_const_val(CodeGen *g, ConstExprValue *const_val) {
 
 static void render_const_val_global(CodeGen *g, ConstExprValue *const_val) {
     if (!const_val->llvm_global) {
-        LLVMValueRef global_value = LLVMAddGlobal(g->module, const_val->type->type_ref, "");
+        LLVMTypeRef type_ref = const_val->llvm_value ? LLVMTypeOf(const_val->llvm_value) : const_val->type->type_ref;
+        LLVMValueRef global_value = LLVMAddGlobal(g->module, type_ref, "");
         LLVMSetLinkage(global_value, LLVMInternalLinkage);
         LLVMSetGlobalConstant(global_value, true);
         LLVMSetUnnamedAddr(global_value, true);

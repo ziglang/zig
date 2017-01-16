@@ -9565,7 +9565,20 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstr
         }
 
         if (instr_is_comptime(target_value_ptr)) {
-            zig_panic("TODO comptime switch var");
+            ConstExprValue *target_val_ptr = ir_resolve_const(ira, target_value_ptr, UndefBad);
+            if (!target_value_ptr)
+                return ira->codegen->builtin_types.entry_invalid;
+
+            ConstExprValue *pointee_val = const_ptr_pointee(target_val_ptr);
+            if (pointee_val->type->id == TypeTableEntryIdEnum) {
+                bool depends_on_compile_var = target_value_ptr->value.depends_on_compile_var;
+                ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+                out_val->data.x_ptr.base_ptr = pointee_val->data.x_enum.payload;
+                out_val->data.x_ptr.index = SIZE_MAX;
+                return get_pointer_to_type(ira->codegen, pointee_val->type, target_value_ptr->value.type->data.pointer.is_const);
+            } else {
+                zig_panic("TODO comptime switch var");
+            }
         }
 
         ir_build_enum_field_ptr_from(&ira->new_irb, &instruction->base, target_value_ptr, field);
