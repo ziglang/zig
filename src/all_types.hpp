@@ -81,6 +81,11 @@ struct ConstArrayValue {
     // This will be the same as `len` from the type, but we duplicate the information
     // in the constant value so that pointers pointing to arrays can see this size.
     size_t size;
+    // If the data for this array is supposed to be contained in a different constant
+    // value, we link to the parent here. This way getting a pointer to this constant
+    // value can return a pointer into the parent data structure.
+    ConstExprValue *parent_array;
+    size_t parent_array_index;
 };
 
 enum ConstPtrSpecial {

@@ -8314,7 +8314,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
 
     bool safety_check_on = elem_ptr_instruction->safety_check_on;
-    if (casted_elem_index->value.special != ConstValSpecialRuntime) {
+    if (instr_is_comptime(casted_elem_index)) {
         uint64_t index = casted_elem_index->value.data.x_bignum.data.x_uint;
         if (array_type->id == TypeTableEntryIdArray) {
             uint64_t array_len = array_type->data.array.len;
@@ -9923,6 +9923,13 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
             if (const_val.special == ConstValSpecialStatic) {
                 ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, const_val.depends_on_compile_var);
                 *out_val = const_val;
+                for (size_t i = 0; i < elem_count; i += 1) {
+                    ConstExprValue *elem_val = &out_val->data.x_array.elements[i];
+                    if (elem_val->type->id == TypeTableEntryIdArray) {
+                        elem_val->data.x_array.parent_array = out_val;
+                        elem_val->data.x_array.parent_array_index = i;
+                    }
+                }
                 return fixed_size_array_type;
             }
 

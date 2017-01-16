@@ -500,3 +500,20 @@ fn nonConstPtrToAliasedType() {
     const int = i32;
     assert(?&int == ?&i32);
 }
+
+
+
+fn array2DConstDoublePtr() {
+    @setFnTest(this);
+
+    const rect_2d_vertexes = [][1]f32 {
+        []f32{1.0},
+        []f32{2.0},
+    };
+    testArray2DConstDoublePtr(&rect_2d_vertexes[0][0]);
+}
+
+fn testArray2DConstDoublePtr(ptr: &const f32) {
+    assert(ptr[0] == 1.0);
+    assert(ptr[1] == 2.0);
+}
