@@ -1336,7 +1336,6 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
 
     Scope *scope = &struct_type->data.structure.decls_scope->base;
 
-    //if (buf_eql_str(&struct_type->name, "Particle")) { BREAKPOINT; }
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         TypeTableEntry *field_type = type_struct_field->type_entry;

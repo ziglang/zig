@@ -3465,7 +3465,7 @@ static IrInstruction *ir_gen_decl_ref(IrBuilder *irb, AstNode *source_node, Tld 
         {
             TldVar *tld_var = (TldVar *)tld;
             VariableTableEntry *var = tld_var->var;
-            IrInstruction *var_ptr = ir_build_var_ptr(irb, scope, source_node, var, false);
+            IrInstruction *var_ptr = ir_build_var_ptr(irb, scope, source_node, var, lval == LValPurposeAddressOfConst);
             if (lval != LValPurposeNone)
                 return var_ptr;
             else
@@ -7655,9 +7655,9 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         buf_init_from_buf(&impl_fn->symbol_name, &fn_entry->symbol_name);
         impl_fn->fndef_scope = create_fndef_scope(impl_fn->fn_def_node, parent_scope, impl_fn);
         impl_fn->child_scope = &impl_fn->fndef_scope->base;
-        FnTypeId fn_type_id = {0};
-        init_fn_type_id(&fn_type_id, fn_proto_node);
-        fn_type_id.param_count = 0;
+        FnTypeId inst_fn_type_id = {0};
+        init_fn_type_id(&inst_fn_type_id, fn_proto_node);
+        inst_fn_type_id.param_count = 0;
 
         // TODO maybe GenericFnTypeId can be replaced with using the child_scope directly
         // as the key in generic_table
@@ -7679,7 +7679,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             }
 
             if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, first_arg, &impl_fn->child_scope,
-                &next_proto_i, generic_id, &fn_type_id, casted_args, impl_fn))
+                &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
             {
                 return ira->codegen->builtin_types.entry_invalid;
             }
@@ -7690,7 +7690,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                 return ira->codegen->builtin_types.entry_invalid;
 
             if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg, &impl_fn->child_scope,
-                &next_proto_i, generic_id, &fn_type_id, casted_args, impl_fn))
+                &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
             {
                 return ira->codegen->builtin_types.entry_invalid;
             }
@@ -7701,7 +7701,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             TypeTableEntry *return_type = analyze_type_expr(ira->codegen, impl_fn->child_scope, return_type_node);
             if (return_type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
-            fn_type_id.return_type = return_type;
+            inst_fn_type_id.return_type = return_type;
 
             if (type_requires_comptime(return_type)) {
                 // Throw out our work and call the function as if it were inline.
@@ -7715,7 +7715,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             impl_fn = existing_entry->value;
         } else {
             // finish instantiating the function
-            impl_fn->type_entry = get_fn_type(ira->codegen, &fn_type_id);
+            impl_fn->type_entry = get_fn_type(ira->codegen, &inst_fn_type_id);
             if (impl_fn->type_entry->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
 
@@ -7802,7 +7802,7 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
 
     bool is_inline = call_instruction->is_comptime || ir_should_inline(&ira->new_irb);
 
-    if (is_inline || fn_ref->value.special != ConstValSpecialRuntime) {
+    if (is_inline || instr_is_comptime(fn_ref)) {
         if (fn_ref->value.type->id == TypeTableEntryIdMetaType) {
             TypeTableEntry *dest_type = ir_resolve_type(ira, fn_ref);
             if (dest_type->id == TypeTableEntryIdInvalid)

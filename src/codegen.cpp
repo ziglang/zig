@@ -1238,7 +1238,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
     if (!type_has_bits(var->value.type))
         return nullptr;
 
-    if (var->ref_count == 0)
+    if (var->ref_count == 0 && g->is_release_build)
         return nullptr;
 
     IrInstruction *init_value = decl_var_instruction->init_value;
@@ -2501,14 +2501,13 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
             }
         case TypeTableEntryIdArray:
             {
-                TypeTableEntry *child_type = canon_type->data.array.child_type;
                 uint64_t len = canon_type->data.array.len;
                 LLVMValueRef *values = allocate<LLVMValueRef>(len);
                 for (uint64_t i = 0; i < len; i += 1) {
                     ConstExprValue *elem_value = &const_val->data.x_array.elements[i];
                     values[i] = gen_const_val(g, elem_value);
                 }
-                return LLVMConstArray(child_type->type_ref, values, len);
+                return LLVMConstArray(LLVMTypeOf(values[0]), values, len);
             }
         case TypeTableEntryIdEnum:
             {
@@ -2554,35 +2553,43 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
             {
                 render_const_val_global(g, const_val);
                 size_t index = const_val->data.x_ptr.index;
-                if (index == SIZE_MAX) {
-                    render_const_val(g, const_val->data.x_ptr.base_ptr);
-                    render_const_val_global(g, const_val->data.x_ptr.base_ptr);
-                    ConstExprValue *other_val = const_val->data.x_ptr.base_ptr;
-                    const_val->llvm_value = LLVMConstBitCast(other_val->llvm_global, const_val->type->type_ref);
-                    render_const_val_global(g, const_val);
-                    return const_val->llvm_value;
-                } else {
-                    ConstExprValue *array_const_val = const_val->data.x_ptr.base_ptr;
-                    assert(array_const_val->type->id == TypeTableEntryIdArray);
-                    if (array_const_val->type->zero_bits) {
-                        // make this a null pointer
-                        TypeTableEntry *usize_type = g->builtin_types.entry_usize;
-                        const_val->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize_type->type_ref),
-                                const_val->type->type_ref);
+                ConstExprValue *base_ptr = const_val->data.x_ptr.base_ptr;
+                TypeTableEntry *usize = g->builtin_types.entry_usize;
+                if (base_ptr) {
+                    if (index == SIZE_MAX) {
+                        render_const_val(g, base_ptr);
+                        render_const_val_global(g, base_ptr);
+                        ConstExprValue *other_val = base_ptr;
+                        const_val->llvm_value = LLVMConstBitCast(other_val->llvm_global, const_val->type->type_ref);
                         render_const_val_global(g, const_val);
                         return const_val->llvm_value;
+                    } else {
+                        ConstExprValue *array_const_val = base_ptr;
+                        assert(array_const_val->type->id == TypeTableEntryIdArray);
+                        if (array_const_val->type->zero_bits) {
+                            // make this a null pointer
+                            TypeTableEntry *usize_type = g->builtin_types.entry_usize;
+                            const_val->llvm_value = LLVMConstIntToPtr(LLVMConstNull(usize_type->type_ref),
+                                    const_val->type->type_ref);
+                            render_const_val_global(g, const_val);
+                            return const_val->llvm_value;
+                        }
+                        render_const_val(g, array_const_val);
+                        render_const_val_global(g, array_const_val);
+                        LLVMValueRef indices[] = {
+                            LLVMConstNull(usize->type_ref),
+                            LLVMConstInt(usize->type_ref, index, false),
+                        };
+                        LLVMValueRef uncasted_ptr_val = LLVMConstInBoundsGEP(array_const_val->llvm_global, indices, 2);
+                        LLVMValueRef ptr_val = LLVMConstBitCast(uncasted_ptr_val, const_val->type->type_ref);
+                        const_val->llvm_value = ptr_val;
+                        render_const_val_global(g, const_val);
+                        return ptr_val;
                     }
-                    render_const_val(g, array_const_val);
-                    render_const_val_global(g, array_const_val);
-                    TypeTableEntry *usize = g->builtin_types.entry_usize;
-                    LLVMValueRef indices[] = {
-                        LLVMConstNull(usize->type_ref),
-                        LLVMConstInt(usize->type_ref, index, false),
-                    };
-                    LLVMValueRef ptr_val = LLVMConstInBoundsGEP(array_const_val->llvm_global, indices, 2);
-                    const_val->llvm_value = ptr_val;
+                } else {
+                    const_val->llvm_value = LLVMConstIntToPtr(LLVMConstInt(usize->type_ref, index, false), const_val->type->type_ref);
                     render_const_val_global(g, const_val);
-                    return ptr_val;
+                    return const_val->llvm_value;
                 }
             }
         case TypeTableEntryIdErrorUnion:
