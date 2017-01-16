@@ -364,6 +364,8 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         TypeTableEntry *entry = child_type->maybe_parent;
         return entry;
     } else {
+        ensure_complete_type(g, child_type);
+
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
         assert(child_type->type_ref);
         assert(child_type->di_type);
