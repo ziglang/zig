@@ -1595,6 +1595,16 @@ const zero: i32 = 0;
 const a = zero{1};
     )SOURCE", 1, ".tmp_source.zig:3:11: error: expected type, found 'i32'");
 
+    add_compile_fail_case("assign to constant field", R"SOURCE(
+const Foo = struct {
+    field: i32,
+};
+fn derp() {
+    const f = Foo {.field = 1234,};
+    f.field = 0;
+}
+    )SOURCE", 1, ".tmp_source.zig:7:13: error: cannot assign to constant");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////

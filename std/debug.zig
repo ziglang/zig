@@ -327,8 +327,8 @@ fn parseAbbrevTable(in_stream: &io.InStream) -> %AbbrevTable {
 
 /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
 /// seeks in the stream and parses it.
-fn getAbbrevTable(st: &ElfStackTrace, abbrev_offset: u64) -> %&AbbrevTable {
-    for (st.abbrev_table_list.toSlice()) |header| {
+fn getAbbrevTable(st: &ElfStackTrace, abbrev_offset: u64) -> %&const AbbrevTable {
+    for (st.abbrev_table_list.toSlice()) |*header| {
         if (header.offset == abbrev_offset) {
             return &header.table;
         }

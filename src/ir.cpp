@@ -8423,6 +8423,8 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
     TypeTableEntry *bare_type = container_ref_type(container_type);
     ensure_complete_type(ira->codegen, bare_type);
 
+    assert(container_ptr->value.type->id == TypeTableEntryIdPointer);
+    bool is_const = container_ptr->value.type->data.pointer.is_const;
     if (bare_type->id == TypeTableEntryIdStruct) {
         if (bare_type->data.structure.is_invalid)
             return ira->codegen->builtin_types.entry_invalid;
@@ -8430,7 +8432,7 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
         TypeStructField *field = find_struct_type_field(bare_type, field_name);
         if (field) {
             ir_build_struct_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
-            return get_pointer_to_type(ira->codegen, field->type_entry, false);
+            return get_pointer_to_type(ira->codegen, field->type_entry, is_const);
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
                 field_ptr_instruction, container_ptr, container_type);
@@ -8442,7 +8444,7 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
         TypeEnumField *field = find_enum_type_field(bare_type, field_name);
         if (field) {
             ir_build_enum_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
-            return get_pointer_to_type(ira->codegen, field->type_entry, false);
+            return get_pointer_to_type(ira->codegen, field->type_entry, is_const);
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
                 field_ptr_instruction, container_ptr, container_type);
