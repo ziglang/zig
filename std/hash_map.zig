@@ -63,7 +63,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K)->u3
         }
 
         pub fn deinit(hm: &Self) {
-            hm.allocator.free(Entry, hm.entries);
+            hm.allocator.free(hm.entries);
         }
 
         pub fn clear(hm: &Self) {
@@ -91,7 +91,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K)->u3
                         hm.internalPut(old_entry.key, old_entry.value);
                     }
                 }
-                hm.allocator.free(Entry, old_entries);
+                hm.allocator.free(old_entries);
             }
 
             hm.internalPut(key, value);

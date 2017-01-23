@@ -20,7 +20,7 @@ pub fn List(comptime T: type) -> type{
         }
 
         pub fn deinit(l: &Self) {
-            l.allocator.free(T, l.items);
+            l.allocator.free(l.items);
         }
 
         pub fn toSlice(l: &const Self) -> []const T {

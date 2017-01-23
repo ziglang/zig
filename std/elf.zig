@@ -180,7 +180,7 @@ pub const Elf = struct {
         %return elf.in_stream.seekTo(elf.section_header_offset);
 
         elf.section_headers = %return elf.allocator.alloc(SectionHeader, sh_entry_count);
-        %defer elf.allocator.free(SectionHeader, elf.section_headers);
+        %defer elf.allocator.free(elf.section_headers);
 
         if (elf.is_64) {
             if (sh_entry_size != 64) return error.InvalidFormat;
@@ -231,7 +231,7 @@ pub const Elf = struct {
     }
 
     pub fn close(elf: &Elf) {
-        elf.allocator.free(SectionHeader, elf.section_headers);
+        elf.allocator.free(elf.section_headers);
 
         if (elf.auto_close_stream)
             elf.in_stream.close();
