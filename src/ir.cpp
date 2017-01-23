@@ -64,8 +64,16 @@ ConstExprValue *const_ptr_pointee(ConstExprValue *const_val) {
     }
 }
 
-static bool ir_should_inline(IrBuilder *irb) {
-    return irb->exec->is_inline;
+static bool ir_should_inline(IrExecutable *exec, Scope *scope) {
+    if (exec->is_inline)
+        return true;
+
+    while (scope != nullptr) {
+        if (scope->id == ScopeIdCompTime)
+            return true;
+        scope = scope->parent;
+    }
+    return false;
 }
 
 static void ir_instruction_append(IrBasicBlock *basic_block, IrInstruction *instruction) {
@@ -2904,7 +2912,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     IrInstruction *is_err = ir_build_test_err(irb, scope, node, return_value);
 
                     IrInstruction *is_comptime;
-                    if (ir_should_inline(irb)) {
+                    if (ir_should_inline(irb->exec, scope)) {
                         is_comptime = ir_build_const_bool(irb, scope, node, true);
                     } else {
                         is_comptime = ir_build_test_comptime(irb, scope, node, is_err);
@@ -2926,7 +2934,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node, return_value);
 
                     IrInstruction *is_comptime;
-                    if (ir_should_inline(irb)) {
+                    if (ir_should_inline(irb->exec, scope)) {
                         is_comptime = ir_build_const_bool(irb, scope, node, true);
                     } else {
                         is_comptime = ir_build_test_comptime(irb, scope, node, is_non_null);
@@ -2958,7 +2966,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
 
                 IrBasicBlock *return_block = ir_build_basic_block(irb, scope, "ErrRetReturn");
                 IrBasicBlock *continue_block = ir_build_basic_block(irb, scope, "ErrRetContinue");
-                IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, ir_should_inline(irb));
+                IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, ir_should_inline(irb->exec, scope));
                 ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err_val, return_block, continue_block, is_comptime));
 
                 ir_set_cursor_at_end(irb, return_block);
@@ -2984,7 +2992,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
 
                 IrBasicBlock *return_block = ir_build_basic_block(irb, scope, "MaybeRetReturn");
                 IrBasicBlock *continue_block = ir_build_basic_block(irb, scope, "MaybeRetContinue");
-                IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, ir_should_inline(irb));
+                IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, ir_should_inline(irb->exec, scope));
                 ir_mark_gen(ir_build_cond_br(irb, scope, node, is_non_null, continue_block, return_block, is_comptime));
 
                 ir_set_cursor_at_end(irb, return_block);
@@ -3128,7 +3136,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
 
             if (!return_value || !instr_is_unreachable(return_value)) {
                 IrInstruction *is_comptime = ir_mark_gen(ir_build_const_bool(irb, child_scope, statement_node,
-                        ir_should_inline(irb)));
+                        ir_should_inline(irb->exec, child_scope)));
                 ir_mark_gen(ir_build_br(irb, child_scope, statement_node, label_block, is_comptime));
             }
             ir_set_cursor_at_end(irb, label_block);
@@ -3207,7 +3215,7 @@ static IrInstruction *ir_gen_bool_or(IrBuilder *irb, Scope *scope, AstNode *node
     IrBasicBlock *post_val1_block = irb->current_basic_block;
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb)) {
+    if (ir_should_inline(irb->exec, scope)) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = ir_build_test_comptime(irb, scope, node, val1);
@@ -3249,7 +3257,7 @@ static IrInstruction *ir_gen_bool_and(IrBuilder *irb, Scope *scope, AstNode *nod
     IrBasicBlock *post_val1_block = irb->current_basic_block;
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb)) {
+    if (ir_should_inline(irb->exec, scope)) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = ir_build_test_comptime(irb, scope, node, val1);
@@ -3296,7 +3304,7 @@ static IrInstruction *ir_gen_maybe_ok_or(IrBuilder *irb, Scope *parent_scope, As
     IrInstruction *is_non_null = ir_build_test_nonnull(irb, parent_scope, node, maybe_val);
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb)) {
+    if (ir_should_inline(irb->exec, parent_scope)) {
         is_comptime = ir_build_const_bool(irb, parent_scope, node, true);
     } else {
         is_comptime = ir_build_test_comptime(irb, parent_scope, node, is_non_null);
@@ -4042,8 +4050,7 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
             return args[i];
     }
 
-    bool is_comptime = node->data.fn_call_expr.is_comptime;
-    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, is_comptime);
+    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false);
 }
 
 static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -4054,7 +4061,7 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
         return condition;
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb) || node->data.if_bool_expr.is_inline) {
+    if (ir_should_inline(irb->exec, scope) || node->data.if_bool_expr.is_inline) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = ir_build_test_comptime(irb, scope, node, condition);
@@ -4281,7 +4288,7 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     bool is_const = variable_declaration->is_const;
     bool is_extern = variable_declaration->is_extern;
     IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node,
-        ir_should_inline(irb) || variable_declaration->is_inline);
+        ir_should_inline(irb->exec, scope) || variable_declaration->is_inline);
     VariableTableEntry *var = ir_create_var(irb, node, scope, variable_declaration->symbol,
         is_const, is_const, is_shadowable, is_comptime);
     // we detect IrInstructionIdDeclVar in gen_block to make sure the next node
@@ -4312,7 +4319,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
     IrBasicBlock *end_block = ir_build_basic_block(irb, scope, "WhileEnd");
 
     IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node,
-        ir_should_inline(irb) || node->data.while_expr.is_inline);
+        ir_should_inline(irb->exec, scope) || node->data.while_expr.is_inline);
     ir_build_br(irb, scope, node, cond_block, is_comptime);
 
     if (continue_expr_node) {
@@ -4381,7 +4388,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     }
 
     IrInstruction *is_comptime = ir_build_const_bool(irb, parent_scope, node,
-        ir_should_inline(irb) || node->data.for_expr.is_inline);
+        ir_should_inline(irb->exec, parent_scope) || node->data.for_expr.is_inline);
 
     Scope *child_scope = create_loop_scope(node, parent_scope);
 
@@ -4602,7 +4609,7 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, Scope *scope, AstNode *
     IrBasicBlock *endif_block = ir_build_basic_block(irb, scope, "MaybeEndIf");
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb) || node->data.if_var_expr.is_inline) {
+    if (ir_should_inline(irb->exec, scope) || node->data.if_var_expr.is_inline) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = ir_build_test_comptime(irb, scope, node, is_non_null);
@@ -4714,7 +4721,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     ZigList<IrInstructionSwitchBrCase> cases = {0};
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb) || node->data.switch_expr.is_inline) {
+    if (ir_should_inline(irb->exec, scope) || node->data.switch_expr.is_inline) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = ir_build_test_comptime(irb, scope, node, target_value);
@@ -4892,6 +4899,13 @@ static IrInstruction *ir_gen_goto(IrBuilder *irb, Scope *scope, AstNode *node) {
     return ir_build_unreachable(irb, scope, node);
 }
 
+static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNode *node, LValPurpose lval) {
+    assert(node->type == NodeTypeCompTime);
+
+    Scope *child_scope = create_comptime_scope(node, parent_scope);
+    return ir_gen_node_extra(irb, node->data.comptime_expr.expr, child_scope, lval);
+}
+
 static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeBreak);
 
@@ -4904,7 +4918,7 @@ static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *scope, AstNode *node) 
     LoopStackItem *loop_stack_item = &irb->loop_stack.last();
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb) || node->data.break_expr.is_inline) {
+    if (ir_should_inline(irb->exec, scope) || node->data.break_expr.is_inline) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = loop_stack_item->is_comptime;
@@ -4927,7 +4941,7 @@ static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *scope, AstNode *nod
     LoopStackItem *loop_stack_item = &irb->loop_stack.last();
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb) || node->data.continue_expr.is_inline) {
+    if (ir_should_inline(irb->exec, scope) || node->data.continue_expr.is_inline) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = loop_stack_item->is_comptime;
@@ -5003,7 +5017,7 @@ static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstN
     IrInstruction *is_err = ir_build_test_err(irb, parent_scope, node, err_union_val);
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb)) {
+    if (ir_should_inline(irb->exec, parent_scope)) {
         is_comptime = ir_build_const_bool(irb, parent_scope, node, true);
     } else {
         is_comptime = ir_build_test_comptime(irb, parent_scope, node, is_err);
@@ -5197,6 +5211,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_switch_expr(irb, scope, node), lval);
         case NodeTypeGoto:
             return ir_lval_wrap(irb, scope, ir_gen_goto(irb, scope, node), lval);
+        case NodeTypeCompTime:
+            return ir_gen_comptime(irb, scope, node, lval);
         case NodeTypeTypeLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_type_literal(irb, scope, node), lval);
         case NodeTypeErrorType:
@@ -5259,7 +5275,7 @@ static bool ir_goto_pass2(IrBuilder *irb) {
         label->used = true;
 
         IrInstruction *is_comptime = ir_build_const_bool(irb, goto_item->scope, source_node,
-            ir_should_inline(irb) || source_node->data.goto_expr.is_inline);
+            ir_should_inline(irb->exec, goto_item->scope) || source_node->data.goto_expr.is_inline);
         if (!ir_gen_defers_for_block(irb, goto_item->scope, label->bb->scope, false, false)) {
             add_node_error(irb->codegen, source_node,
                 buf_sprintf("no label in scope named '%s'", buf_ptr(label_name)));
@@ -5379,7 +5395,7 @@ static IrInstruction *ir_exec_const_result(CodeGen *codegen, IrExecutable *exec)
 }
 
 static bool ir_emit_global_runtime_side_effect(IrAnalyze *ira, IrInstruction *source_instruction) {
-    if (ir_should_inline(&ira->new_irb)) {
+    if (ir_should_inline(ira->new_irb.exec, source_instruction->scope)) {
         ir_add_error(ira, source_instruction, buf_sprintf("unable to evaluate constant expression"));
         return false;
     }
@@ -7841,7 +7857,8 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
     if (fn_ref->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    bool is_inline = call_instruction->is_comptime || ir_should_inline(&ira->new_irb);
+    bool is_inline = call_instruction->is_comptime ||
+        ir_should_inline(ira->new_irb.exec, call_instruction->base.scope);
 
     if (is_inline || instr_is_comptime(fn_ref)) {
         if (fn_ref->value.type->id == TypeTableEntryIdMetaType) {
@@ -8146,7 +8163,7 @@ static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstruct
             return ir_unreach_error(ira);
 
         if (!cond_br_instruction->base.is_gen && !condition->value.depends_on_compile_var &&
-                !ir_should_inline(&ira->new_irb))
+                !ir_should_inline(ira->new_irb.exec, cond_br_instruction->base.scope))
         {
             const char *true_or_false = cond_is_true ? "true" : "false";
             ir_add_error(ira, &cond_br_instruction->base,
@@ -9814,7 +9831,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
 
     IrInstructionStructInitField *new_fields = allocate<IrInstructionStructInitField>(actual_field_count);
 
-    bool is_comptime = ir_should_inline(&ira->new_irb);
+    bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->scope);
 
     ConstExprValue const_val = {};
     const_val.special = ConstValSpecialStatic;
@@ -9931,7 +9948,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
             const_val.data.x_array.elements = allocate<ConstExprValue>(elem_count);
             const_val.data.x_array.size = elem_count;
 
-            bool is_comptime = ir_should_inline(&ira->new_irb);
+            bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->base.scope);
 
             IrInstruction **new_items = allocate<IrInstruction *>(elem_count);
 

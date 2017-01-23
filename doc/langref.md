@@ -123,7 +123,7 @@ MultiplyOperator = "*" | "/" | "%" | "**" | "*%"
 
 PrefixOpExpression = PrefixOp PrefixOpExpression | SuffixOpExpression
 
-SuffixOpExpression = option("inline") PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 
 FieldAccessExpression = "." Symbol
 
@@ -141,11 +141,13 @@ StructLiteralField = "." Symbol "=" Expression
 
 PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%" | "??" | "-%"
 
-PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
+PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | CompTimeExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
 
 ArrayType = "[" option(Expression) "]" option("const") TypeExpr
 
-GotoExpression = option("inline") "goto" Symbol
+GotoExpression = "goto" Symbol
+
+CompTimeExpression = option("comptime") Expression
 
 GroupedExpression = "(" Expression ")"
 

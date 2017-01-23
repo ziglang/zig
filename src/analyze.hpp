@@ -42,8 +42,6 @@ uint64_t get_memcpy_align(CodeGen *g, TypeTableEntry *type_entry);
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
         Buf *abs_full_path, Buf *src_dirname, Buf *src_basename, Buf *source_code);
 
-AstNode *first_executing_node(AstNode *node);
-
 
 // TODO move these over, these used to be static
 bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type);
@@ -95,6 +93,7 @@ ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent);
 Scope *create_loop_scope(AstNode *node, Scope *parent);
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry);
 ScopeDecls *create_decls_scope(AstNode *node, Scope *parent, TypeTableEntry *container_type, ImportTableEntry *import);
+Scope *create_comptime_scope(AstNode *node, Scope *parent);
 
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str);
 ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str);

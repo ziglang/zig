@@ -280,6 +280,7 @@ enum NodeType {
     NodeTypeSwitchRange,
     NodeTypeLabel,
     NodeTypeGoto,
+    NodeTypeCompTime,
     NodeTypeBreak,
     NodeTypeContinue,
     NodeTypeAsmExpr,
@@ -449,7 +450,6 @@ struct AstNodeFnCallExpr {
     AstNode *fn_ref_expr;
     ZigList<AstNode *> params;
     bool is_builtin;
-    bool is_comptime;
 };
 
 struct AstNodeArrayAccessExpr {
@@ -554,6 +554,10 @@ struct AstNodeLabel {
 struct AstNodeGoto {
     Buf *name;
     bool is_inline;
+};
+
+struct AstNodeCompTime {
+    AstNode *expr;
 };
 
 struct AsmOutput {
@@ -721,6 +725,7 @@ struct AstNode {
         AstNodeSwitchRange switch_range;
         AstNodeLabel label;
         AstNodeGoto goto_expr;
+        AstNodeCompTime comptime_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
         AstNodeContainerDecl container_decl;
@@ -1289,6 +1294,7 @@ enum ScopeId {
     ScopeIdCImport,
     ScopeIdLoop,
     ScopeIdFnDef,
+    ScopeIdCompTime,
 };
 
 struct Scope {
@@ -1365,6 +1371,13 @@ struct ScopeCImport {
 struct ScopeLoop {
     Scope base;
 };
+
+// This scope is created for a comptime expression.
+// NodeTypeCompTime
+struct ScopeCompTime {
+    Scope base;
+};
+
 
 // This scope is created for a function definition.
 // NodeTypeFnDef

@@ -24,67 +24,6 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type);
 static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type);
 static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type);
 
-AstNode *first_executing_node(AstNode *node) {
-    switch (node->type) {
-        case NodeTypeFnCallExpr:
-            return first_executing_node(node->data.fn_call_expr.fn_ref_expr);
-        case NodeTypeBinOpExpr:
-            return first_executing_node(node->data.bin_op_expr.op1);
-        case NodeTypeUnwrapErrorExpr:
-            return first_executing_node(node->data.unwrap_err_expr.op1);
-        case NodeTypeArrayAccessExpr:
-            return first_executing_node(node->data.array_access_expr.array_ref_expr);
-        case NodeTypeSliceExpr:
-            return first_executing_node(node->data.slice_expr.array_ref_expr);
-        case NodeTypeFieldAccessExpr:
-            return first_executing_node(node->data.field_access_expr.struct_expr);
-        case NodeTypeSwitchRange:
-            return first_executing_node(node->data.switch_range.start);
-        case NodeTypeRoot:
-        case NodeTypeFnProto:
-        case NodeTypeFnDef:
-        case NodeTypeFnDecl:
-        case NodeTypeParamDecl:
-        case NodeTypeBlock:
-        case NodeTypeReturnExpr:
-        case NodeTypeDefer:
-        case NodeTypeVariableDeclaration:
-        case NodeTypeTypeDecl:
-        case NodeTypeErrorValueDecl:
-        case NodeTypeNumberLiteral:
-        case NodeTypeStringLiteral:
-        case NodeTypeCharLiteral:
-        case NodeTypeSymbol:
-        case NodeTypePrefixOpExpr:
-        case NodeTypeUse:
-        case NodeTypeBoolLiteral:
-        case NodeTypeNullLiteral:
-        case NodeTypeUndefinedLiteral:
-        case NodeTypeThisLiteral:
-        case NodeTypeIfBoolExpr:
-        case NodeTypeIfVarExpr:
-        case NodeTypeLabel:
-        case NodeTypeGoto:
-        case NodeTypeBreak:
-        case NodeTypeContinue:
-        case NodeTypeAsmExpr:
-        case NodeTypeContainerDecl:
-        case NodeTypeStructField:
-        case NodeTypeStructValueField:
-        case NodeTypeWhileExpr:
-        case NodeTypeForExpr:
-        case NodeTypeSwitchExpr:
-        case NodeTypeSwitchProng:
-        case NodeTypeArrayType:
-        case NodeTypeErrorType:
-        case NodeTypeTypeLiteral:
-        case NodeTypeContainerInitExpr:
-        case NodeTypeVarLiteral:
-            return node;
-    }
-    zig_unreachable();
-}
-
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     // if this assert fails, then parseh generated code that
     // failed semantic analysis, which isn't supposed to happen
@@ -197,6 +136,13 @@ ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_en
     init_scope(&scope->base, ScopeIdFnDef, node, parent);
     scope->fn_entry = fn_entry;
     return scope;
+}
+
+Scope *create_comptime_scope(AstNode *node, Scope *parent) {
+    assert(node->type == NodeTypeCompTime);
+    ScopeCompTime *scope = allocate<ScopeCompTime>(1);
+    init_scope(&scope->base, ScopeIdCompTime, node, parent);
+    return &scope->base;
 }
 
 ImportTableEntry *get_scope_import(Scope *scope) {
@@ -1804,6 +1750,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeSwitchRange:
         case NodeTypeLabel:
         case NodeTypeGoto:
+        case NodeTypeCompTime:
         case NodeTypeBreak:
         case NodeTypeContinue:
         case NodeTypeAsmExpr:
@@ -2199,6 +2146,7 @@ FnTableEntry *scope_get_fn_if_root(Scope *scope) {
             case ScopeIdVarDecl:
             case ScopeIdCImport:
             case ScopeIdLoop:
+            case ScopeIdCompTime:
                 scope = scope->parent;
                 continue;
             case ScopeIdFnDef:

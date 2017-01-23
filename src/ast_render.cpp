@@ -197,6 +197,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Label";
         case NodeTypeGoto:
             return "Goto";
+        case NodeTypeCompTime:
+            return "CompTime";
         case NodeTypeBreak:
             return "Break";
         case NodeTypeContinue:
@@ -810,8 +812,13 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeGoto:
             {
-                const char *inline_str = node->data.goto_expr.is_inline ? "inline " : "";
-                fprintf(ar->f, "%sgoto %s", inline_str, buf_ptr(node->data.goto_expr.name));
+                fprintf(ar->f, "goto %s", buf_ptr(node->data.goto_expr.name));
+                break;
+            }
+        case NodeTypeCompTime:
+            {
+                fprintf(ar->f, "comptime ");
+                render_node_grouped(ar, node->data.comptime_expr.expr);
                 break;
             }
         case NodeTypeForExpr:

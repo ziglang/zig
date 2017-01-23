@@ -585,29 +585,14 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, size_t *token_index, bool m
 }
 
 /*
-GotoExpression = option("inline") "goto" Symbol
+GotoExpression = "goto" Symbol
 */
 static AstNode *ast_parse_goto_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *first_token = &pc->tokens->at(*token_index);
-    Token *goto_token;
-    bool is_inline;
-    if (first_token->id == TokenIdKeywordInline) {
-        is_inline = true;
-        goto_token = &pc->tokens->at(*token_index + 1);
-        if (goto_token->id == TokenIdKeywordGoto) {
-            *token_index += 2;
-        } else if (mandatory) {
-            ast_expect_token(pc, first_token, TokenIdKeywordGoto);
-            zig_unreachable();
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordGoto) {
-        goto_token = first_token;
-        is_inline = false;
+    Token *goto_token = &pc->tokens->at(*token_index);
+    if (goto_token->id == TokenIdKeywordGoto) {
         *token_index += 1;
     } else if (mandatory) {
-        ast_expect_token(pc, first_token, TokenIdKeywordGoto);
+        ast_expect_token(pc, goto_token, TokenIdKeywordGoto);
         zig_unreachable();
     } else {
         return nullptr;
@@ -617,11 +602,30 @@ static AstNode *ast_parse_goto_expr(ParseContext *pc, size_t *token_index, bool 
 
     Token *dest_symbol = ast_eat_token(pc, token_index, TokenIdSymbol);
     node->data.goto_expr.name = token_buf(dest_symbol);
-    node->data.goto_expr.is_inline = is_inline;
     return node;
 }
+
 /*
-PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
+CompTimeExpression = "comptime" Expression
+*/
+static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
+    Token *comptime_token = &pc->tokens->at(*token_index);
+    if (comptime_token->id == TokenIdKeywordCompTime) {
+        *token_index += 1;
+    } else if (mandatory) {
+        ast_expect_token(pc, comptime_token, TokenIdKeywordCompTime);
+        zig_unreachable();
+    } else {
+        return nullptr;
+    }
+
+    AstNode *node = ast_create_node(pc, NodeTypeCompTime, comptime_token);
+    node->data.comptime_expr.expr = ast_parse_expression(pc, token_index, true);
+    return node;
+}
+
+/*
+PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | CompTimeExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
 KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -705,6 +709,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
     AstNode *goto_node = ast_parse_goto_expr(pc, token_index, false);
     if (goto_node)
         return goto_node;
+
+    AstNode *comptime_node = ast_parse_comptime_expr(pc, token_index, false);
+    if (comptime_node)
+        return comptime_node;
 
     AstNode *grouped_expr_node = ast_parse_grouped_expr(pc, token_index, false);
     if (grouped_expr_node) {
@@ -835,7 +843,7 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_inde
 }
 
 /*
-SuffixOpExpression = option("inline") PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 SliceExpression : token(LBracket) Expression token(Ellipsis) option(Expression) token(RBracket) option(token(Const))
@@ -843,24 +851,9 @@ FieldAccessExpression : token(Dot) token(Symbol)
 StructLiteralField : token(Dot) token(Symbol) token(Eq) Expression
 */
 static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *inline_token = &pc->tokens->at(*token_index);
-    bool is_comptime;
-    if (inline_token->id == TokenIdKeywordInline) {
-        // TODO make it an error if something other than function call has the comptime keyword
-        is_comptime = true;
-        *token_index += 1;
-    } else {
-        is_comptime = false;
-    }
-
-
     AstNode *primary_expr = ast_parse_primary_expr(pc, token_index, mandatory);
-    if (!primary_expr) {
-        if (is_comptime) {
-            *token_index -= 1;
-        }
+    if (!primary_expr)
         return nullptr;
-    }
 
     while (true) {
         Token *first_token = &pc->tokens->at(*token_index);
@@ -869,7 +862,6 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
 
             AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, first_token);
             node->data.fn_call_expr.fn_ref_expr = primary_expr;
-            node->data.fn_call_expr.is_comptime = is_comptime;
             ast_parse_fn_call_param_list(pc, token_index, &node->data.fn_call_expr.params);
 
             primary_expr = node;
@@ -2623,6 +2615,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeGoto:
             // none
+            break;
+        case NodeTypeCompTime:
+            visit_field(&node->data.comptime_expr.expr, visit, context);
             break;
         case NodeTypeBreak:
             // none
