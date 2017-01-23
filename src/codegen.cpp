@@ -2261,7 +2261,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCompileVar:
         case IrInstructionIdSizeOf:
         case IrInstructionIdSwitchTarget:
-        case IrInstructionIdStaticEval:
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdMinValue:
         case IrInstructionIdMaxValue:
@@ -3640,7 +3639,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCDefine, "cDefine", 2);
     create_builtin_fn(g, BuiltinFnIdCUndef, "cUndef", 1);
     create_builtin_fn(g, BuiltinFnIdCompileVar, "compileVar", 1);
-    create_builtin_fn(g, BuiltinFnIdStaticEval, "staticEval", 1);
     create_builtin_fn(g, BuiltinFnIdGeneratedCode, "generatedCode", 1);
     create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 1);
     create_builtin_fn(g, BuiltinFnIdClz, "clz", 1);

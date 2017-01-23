@@ -486,12 +486,6 @@ static void ir_print_enum_tag(IrPrint *irp, IrInstructionEnumTag *instruction) {
     ir_print_other_instruction(irp, instruction->value);
 }
 
-static void ir_print_static_eval(IrPrint *irp, IrInstructionStaticEval *instruction) {
-    fprintf(irp->f, "@staticEval(");
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_generated_code(IrPrint *irp, IrInstructionGeneratedCode *instruction) {
     fprintf(irp->f, "@generatedCode(");
     ir_print_other_instruction(irp, instruction->value);
@@ -937,9 +931,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdEnumTag:
             ir_print_enum_tag(irp, (IrInstructionEnumTag *)instruction);
-            break;
-        case IrInstructionIdStaticEval:
-            ir_print_static_eval(irp, (IrInstructionStaticEval *)instruction);
             break;
         case IrInstructionIdGeneratedCode:
             ir_print_generated_code(irp, (IrInstructionGeneratedCode *)instruction);

@@ -13,7 +13,7 @@ fn max(comptime T: type, a: T, b: T) -> T {
 }
 
 fn add(comptime a: i32, b: i32) -> i32 {
-    return @staticEval(a) + b;
+    return comptime {a} + b;
 }
 
 const the_max = max(u32, 1234, 5678);

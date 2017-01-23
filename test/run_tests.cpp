@@ -1116,12 +1116,6 @@ const x = @compileVar("bogus");
     )SOURCE", 1, ".tmp_source.zig:2:23: error: unrecognized compile variable: 'bogus'");
 
 
-    add_compile_fail_case("@staticEval", R"SOURCE(
-fn a(x: i32) {
-    const y = @staticEval(x);
-}
-    )SOURCE", 1, ".tmp_source.zig:3:27: error: unable to evaluate constant expression");
-
     add_compile_fail_case("non constant expression in array size outside function", R"SOURCE(
 const Foo = struct {
     y: [get()]u8,

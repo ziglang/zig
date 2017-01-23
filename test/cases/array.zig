@@ -49,7 +49,7 @@ fn arrayLiteral() {
 fn arrayDotLenConstExpr() {
     @setFnTest(this);
 
-    assert(@staticEval(some_array.len) == 4);
+    assert(comptime {some_array.len == 4});
 }
 
 const ArrayDotLenConstExpr = struct {

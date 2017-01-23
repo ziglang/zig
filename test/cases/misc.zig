@@ -174,8 +174,8 @@ fn memcpyAndMemsetIntrinsics() {
 fn builtinStaticEval() {
     @setFnTest(this);
 
-    const x : i32 = @staticEval(1 + 2 + 3);
-    assert(x == @staticEval(6));
+    const x : i32 = comptime {1 + 2 + 3};
+    assert(x == comptime 6);
 }
 
 fn slicing() {
@@ -201,7 +201,7 @@ fn constantEqualFunctionPointers() {
     @setFnTest(this);
 
     const alias = emptyFn;
-    assert(@staticEval(emptyFn == alias));
+    assert(comptime {emptyFn == alias});
 }
 
 fn emptyFn() {}

@@ -315,10 +315,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumTag *) {
     return IrInstructionIdEnumTag;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionStaticEval *) {
-    return IrInstructionIdStaticEval;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionGeneratedCode *) {
     return IrInstructionIdGeneratedCode;
 }
@@ -1403,15 +1399,6 @@ static IrInstruction *ir_build_enum_tag_from(IrBuilder *irb, IrInstruction *old_
     return new_instruction;
 }
 
-static IrInstruction *ir_build_static_eval(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
-    IrInstructionStaticEval *instruction = ir_build_instruction<IrInstructionStaticEval>(irb, scope, source_node);
-    instruction->value = value;
-
-    ir_ref_instruction(value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
 static IrInstruction *ir_build_generated_code(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *value)
 {
@@ -2300,13 +2287,6 @@ static IrInstruction *ir_instruction_ctz_get_dep(IrInstructionCtz *instruction, 
     }
 }
 
-static IrInstruction *ir_instruction_staticeval_get_dep(IrInstructionStaticEval *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->value;
-        default: return nullptr;
-    }
-}
-
 static IrInstruction *ir_instruction_generatedcode_get_dep(IrInstructionGeneratedCode *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->value;
@@ -2711,8 +2691,6 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_clz_get_dep((IrInstructionClz *) instruction, index);
         case IrInstructionIdCtz:
             return ir_instruction_ctz_get_dep((IrInstructionCtz *) instruction, index);
-        case IrInstructionIdStaticEval:
-            return ir_instruction_staticeval_get_dep((IrInstructionStaticEval *) instruction, index);
         case IrInstructionIdGeneratedCode:
             return ir_instruction_generatedcode_get_dep((IrInstructionGeneratedCode *) instruction, index);
         case IrInstructionIdImport:
@@ -3727,15 +3705,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_clz(irb, scope, node, arg0_value);
             }
-        case BuiltinFnIdStaticEval:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_instruction)
-                    return arg0_value;
-
-                return ir_build_static_eval(irb, scope, node, arg0_value);
-            }
         case BuiltinFnIdGeneratedCode:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -4731,6 +4700,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     ZigList<IrBasicBlock *> incoming_blocks = {0};
     ZigList<IrInstructionCheckSwitchProngsRange> check_ranges = {0};
 
+    Scope *comptime_scope = create_comptime_scope(node, scope);
     AstNode *else_prong = nullptr;
     for (size_t prong_i = 0; prong_i < prong_count; prong_i += 1) {
         AstNode *prong_node = node->data.switch_expr.prongs.at(prong_i);
@@ -4764,11 +4734,11 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                         AstNode *start_node = item_node->data.switch_range.start;
                         AstNode *end_node = item_node->data.switch_range.end;
 
-                        IrInstruction *start_value = ir_gen_node(irb, start_node, scope);
+                        IrInstruction *start_value = ir_gen_node(irb, start_node, comptime_scope);
                         if (start_value == irb->codegen->invalid_instruction)
                             return irb->codegen->invalid_instruction;
 
-                        IrInstruction *end_value = ir_gen_node(irb, end_node, scope);
+                        IrInstruction *end_value = ir_gen_node(irb, end_node, comptime_scope);
                         if (end_value == irb->codegen->invalid_instruction)
                             return irb->codegen->invalid_instruction;
 
@@ -4776,13 +4746,10 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                         check_range->start = start_value;
                         check_range->end = end_value;
 
-                        IrInstruction *start_value_const = ir_build_static_eval(irb, scope, start_node, start_value);
-                        IrInstruction *end_value_const = ir_build_static_eval(irb, scope, start_node, end_value);
-
                         IrInstruction *lower_range_ok = ir_build_bin_op(irb, scope, item_node, IrBinOpCmpGreaterOrEq,
-                                target_value, start_value_const, false);
+                                target_value, start_value, false);
                         IrInstruction *upper_range_ok = ir_build_bin_op(irb, scope, item_node, IrBinOpCmpLessOrEq,
-                                target_value, end_value_const, false);
+                                target_value, end_value, false);
                         IrInstruction *both_ok = ir_build_bin_op(irb, scope, item_node, IrBinOpBoolAnd,
                                 lower_range_ok, upper_range_ok, false);
                         if (ok_bit) {
@@ -4791,7 +4758,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                             ok_bit = both_ok;
                         }
                     } else {
-                        IrInstruction *item_value = ir_gen_node(irb, item_node, scope);
+                        IrInstruction *item_value = ir_gen_node(irb, item_node, comptime_scope);
                         if (item_value == irb->codegen->invalid_instruction)
                             return irb->codegen->invalid_instruction;
 
@@ -4833,7 +4800,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
                     AstNode *item_node = prong_node->data.switch_prong.items.at(item_i);
                     assert(item_node->type != NodeTypeSwitchRange);
 
-                    IrInstruction *item_value = ir_gen_node(irb, item_node, scope);
+                    IrInstruction *item_value = ir_gen_node(irb, item_node, comptime_scope);
                     if (item_value == irb->codegen->invalid_instruction)
                         return irb->codegen->invalid_instruction;
 
@@ -9660,22 +9627,6 @@ static TypeTableEntry *ir_analyze_instruction_enum_tag(IrAnalyze *ira, IrInstruc
     return new_instruction->value.type;
 }
 
-static TypeTableEntry *ir_analyze_instruction_static_eval(IrAnalyze *ira,
-        IrInstructionStaticEval *static_eval_instruction)
-{
-    IrInstruction *value = static_eval_instruction->value->other;
-    if (value->value.type->id == TypeTableEntryIdInvalid)
-        return ira->codegen->builtin_types.entry_invalid;
-
-    ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
-    if (!val)
-        return ira->codegen->builtin_types.entry_invalid;
-
-    ConstExprValue *out_val = ir_build_const_from(ira, &static_eval_instruction->base, val->depends_on_compile_var);
-    *out_val = *val;
-    return value->value.type;
-}
-
 static TypeTableEntry *ir_analyze_instruction_generated_code(IrAnalyze *ira, IrInstructionGeneratedCode *instruction) {
     IrInstruction *value = instruction->value->other;
     if (value->value.type->id == TypeTableEntryIdInvalid)
@@ -11379,8 +11330,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_switch_var(ira, (IrInstructionSwitchVar *)instruction);
         case IrInstructionIdEnumTag:
             return ir_analyze_instruction_enum_tag(ira, (IrInstructionEnumTag *)instruction);
-        case IrInstructionIdStaticEval:
-            return ir_analyze_instruction_static_eval(ira, (IrInstructionStaticEval *)instruction);
         case IrInstructionIdGeneratedCode:
             return ir_analyze_instruction_generated_code(ira, (IrInstructionGeneratedCode *)instruction);
         case IrInstructionIdImport:
@@ -11591,7 +11540,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSwitchVar:
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdEnumTag:
-        case IrInstructionIdStaticEval:
         case IrInstructionIdGeneratedCode:
         case IrInstructionIdRef:
         case IrInstructionIdMinValue:

@@ -1058,7 +1058,6 @@ enum BuiltinFnId {
     BuiltinFnIdCUndef,
     BuiltinFnIdCompileVar,
     BuiltinFnIdCompileErr,
-    BuiltinFnIdStaticEval,
     BuiltinFnIdGeneratedCode,
     BuiltinFnIdCtz,
     BuiltinFnIdClz,
@@ -1373,7 +1372,7 @@ struct ScopeLoop {
 };
 
 // This scope is created for a comptime expression.
-// NodeTypeCompTime
+// NodeTypeCompTime, NodeTypeSwitchExpr
 struct ScopeCompTime {
     Scope base;
 };
@@ -1454,7 +1453,6 @@ enum IrInstructionId {
     IrInstructionIdEnumTag,
     IrInstructionIdClz,
     IrInstructionIdCtz,
-    IrInstructionIdStaticEval,
     IrInstructionIdGeneratedCode,
     IrInstructionIdImport,
     IrInstructionIdCImport,
@@ -1862,12 +1860,6 @@ struct IrInstructionClz {
 };
 
 struct IrInstructionEnumTag {
-    IrInstruction base;
-
-    IrInstruction *value;
-};
-
-struct IrInstructionStaticEval {
     IrInstruction base;
 
     IrInstruction *value;

@@ -172,8 +172,8 @@ const DivResult = struct {
 fn binaryNot() {
     @setFnTest(this);
 
-    assert(@staticEval(~u16(0b1010101010101010) == 0b0101010101010101));
-    assert(@staticEval(~u64(2147483647) == 18446744071562067968));
+    assert(comptime {~u16(0b1010101010101010) == 0b0101010101010101});
+    assert(comptime {~u64(2147483647) == 18446744071562067968});
     testBinaryNot(0b1010101010101010);
 }
 

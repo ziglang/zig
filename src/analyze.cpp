@@ -139,7 +139,7 @@ ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_en
 }
 
 Scope *create_comptime_scope(AstNode *node, Scope *parent) {
-    assert(node->type == NodeTypeCompTime);
+    assert(node->type == NodeTypeCompTime || node->type == NodeTypeSwitchExpr);
     ScopeCompTime *scope = allocate<ScopeCompTime>(1);
     init_scope(&scope->base, ScopeIdCompTime, node, parent);
     return &scope->base;
