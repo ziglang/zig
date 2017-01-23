@@ -369,16 +369,17 @@ pub fn parseUnsigned(comptime T: type, buf: []u8, radix: u8) -> %T {
 
 error InvalidChar;
 fn charToDigit(c: u8, radix: u8) -> %u8 {
-    const value = if ('0' <= c && c <= '9') {
-        c - '0'
-    } else if ('A' <= c && c <= 'Z') {
-        c - 'A' + 10
-    } else if ('a' <= c && c <= 'z') {
-        c - 'a' + 10
-    } else {
-        return error.InvalidChar;
+    const value = switch (c) {
+        '0' ... '9' => c - '0',
+        'A' ... 'Z' => c - 'A' + 10,
+        'a' ... 'z' => c - 'a' + 10,
+        else => return error.InvalidChar,
     };
-    return if (value >= radix) error.InvalidChar else value;
+
+    if (value >= radix)
+        return error.InvalidChar;
+
+    return value;
 }
 
 pub fn bufPrintInt(comptime T: type, out_buf: []u8, x: T) -> usize {
