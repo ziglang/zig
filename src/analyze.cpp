@@ -208,6 +208,7 @@ bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdArgTuple:
             return true;
     }
     zig_unreachable();
@@ -245,6 +246,7 @@ bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdArgTuple:
             return true;
     }
     zig_unreachable();
@@ -921,6 +923,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         assert(param_node->type == NodeTypeParamDecl);
 
         bool param_is_inline = param_node->data.param_decl.is_inline;
+        bool param_is_var_args = param_node->data.param_decl.is_var_args;
 
         if (param_is_inline) {
             if (fn_type_id.is_extern) {
@@ -929,6 +932,13 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
                 return g->builtin_types.entry_invalid;
             }
             return get_generic_fn_type(g, &fn_type_id);
+        } else if (param_is_var_args) {
+            if (fn_type_id.is_extern) {
+                fn_type_id.param_count = fn_type_id.next_param_index;
+                continue;
+            } else {
+                return get_generic_fn_type(g, &fn_type_id);
+            }
         }
 
         TypeTableEntry *type_entry = analyze_type_expr(g, child_scope, param_node->data.param_decl.type);
@@ -939,6 +949,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdUnreachable:
             case TypeTableEntryIdUndefLit:
             case TypeTableEntryIdNullLit:
+            case TypeTableEntryIdArgTuple:
                 add_node_error(g, param_node->data.param_decl.type,
                     buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
                 return g->builtin_types.entry_invalid;
@@ -989,6 +1000,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
 
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdArgTuple:
             add_node_error(g, fn_proto->return_type,
                 buf_sprintf("return type '%s' not allowed", buf_ptr(&fn_type_id.return_type->name)));
             return g->builtin_types.entry_invalid;
@@ -1558,13 +1570,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
     AstNode *fn_def_node = fn_proto->fn_def_node;
 
-    if (fn_def_node && fn_proto->is_var_args) {
-        add_node_error(g, proto_node,
-                buf_sprintf("variadic arguments only allowed in extern function declarations"));
-        tld_fn->base.resolution = TldResolutionInvalid;
-        return;
-    }
-
     FnTableEntry *fn_table_entry = create_fn(tld_fn->base.source_node);
     get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
 
@@ -1799,6 +1804,7 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdBlock:
+        case TypeTableEntryIdArgTuple:
             add_node_error(g, source_node, buf_sprintf("variable of type '%s' not allowed",
                 buf_ptr(&underlying_type->name)));
             return g->builtin_types.entry_invalid;
@@ -2210,6 +2216,7 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdArgTuple:
             return false;
     }
     zig_unreachable();
@@ -2260,6 +2267,7 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
         case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdArgTuple:
             zig_unreachable();
     }
 }
@@ -2290,7 +2298,13 @@ void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, Vari
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
         AstNode *param_decl_node = get_param_decl_node(fn_table_entry, i);
-        Buf *param_name = param_decl_node ? param_decl_node->data.param_decl.name : buf_sprintf("arg%zu", i);
+        Buf *param_name;
+        bool is_var_args = param_decl_node && param_decl_node->data.param_decl.is_var_args;
+        if (param_decl_node && !is_var_args) {
+            param_name = param_decl_node->data.param_decl.name;
+        } else {
+            param_name = buf_sprintf("arg%zu", i);
+        }
 
         TypeTableEntry *param_type = param_info->type;
         bool is_noalias = param_info->is_noalias;
@@ -2308,6 +2322,7 @@ void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, Vari
                 param_name, true, create_const_runtime(param_type));
         var->src_arg_index = i;
         fn_table_entry->child_scope = var->child_scope;
+        var->shadowable = var->shadowable || is_var_args;
 
         if (type_has_bits(param_type)) {
             fn_table_entry->variable_list.append(var);
@@ -2627,6 +2642,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
+        case TypeTableEntryIdArgTuple:
              zig_unreachable();
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVoid:
@@ -2742,6 +2758,9 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdNumLitFloat:
             return const_val->data.x_bignum.data.x_float * UINT32_MAX;
+        case TypeTableEntryIdArgTuple:
+            return const_val->data.x_arg_tuple.start_index * 281907309 +
+                const_val->data.x_arg_tuple.end_index * 2290442768;
         case TypeTableEntryIdPointer:
             return hash_ptr(const_val->data.x_ptr.base_ptr) + hash_size(const_val->data.x_ptr.index);
         case TypeTableEntryIdUndefLit:
@@ -2805,7 +2824,7 @@ uint32_t generic_fn_type_id_hash(GenericFnTypeId *id) {
 bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
     assert(a->fn_entry);
     if (a->fn_entry != b->fn_entry) return false;
-    assert(a->param_count == b->param_count);
+    if (a->param_count != b->param_count) return false;
     for (size_t i = 0; i < a->param_count; i += 1) {
         ConstExprValue *a_val = &a->params[i];
         ConstExprValue *b_val = &b->params[i];
@@ -2904,6 +2923,7 @@ static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry)
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
+        case TypeTableEntryIdArgTuple:
             zig_unreachable();
         case TypeTableEntryIdArray:
             return type_of_first_thing_in_memory(type_entry->data.array.child_type);
@@ -2946,6 +2966,7 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
             return true;
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
@@ -3155,6 +3176,20 @@ ConstExprValue *create_const_ptr(CodeGen *g, ConstExprValue *base_ptr, size_t in
     return const_val;
 }
 
+void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_index_start, size_t arg_index_end) {
+    const_val->special = ConstValSpecialStatic;
+    const_val->type = g->builtin_types.entry_arg_tuple;
+    const_val->data.x_arg_tuple.start_index = arg_index_start;
+    const_val->data.x_arg_tuple.end_index = arg_index_end;
+}
+
+ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_arg_tuple(g, const_val, arg_index_start, arg_index_end);
+    return const_val;
+}
+
+
 void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry) {
     if (type_entry->id == TypeTableEntryIdStruct) {
         if (!type_entry->data.structure.complete)
@@ -3245,6 +3280,9 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             return a->data.x_import == b->data.x_import;
         case TypeTableEntryIdBlock:
             return a->data.x_block == b->data.x_block;
+        case TypeTableEntryIdArgTuple:
+            return a->data.x_arg_tuple.start_index == b->data.x_arg_tuple.start_index &&
+                   a->data.x_arg_tuple.end_index == b->data.x_arg_tuple.end_index;
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
@@ -3506,7 +3544,11 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                 buf_appendf(buf, "%s.%s", buf_ptr(&enum_type->name), buf_ptr(field->name));
                 return;
             }
+        case TypeTableEntryIdArgTuple:
+            {
+                buf_appendf(buf, "(args value)");
+                return;
+            }
     }
     zig_unreachable();
 }
-

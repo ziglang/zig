@@ -33,7 +33,7 @@ FnDef = option("inline" | "extern") FnProto Block
 
 ParamDeclList = "(" list(ParamDecl, ",") ")"
 
-ParamDecl = option("noalias" | "comptime") option(Symbol ":") TypeExpr | "..."
+ParamDecl = option("noalias" | "comptime") option(Symbol ":") (TypeExpr | "...")
 
 Block = "{" list(option(Statement), ";") "}"
 

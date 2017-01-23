@@ -250,15 +250,10 @@ static AstNode *ast_parse_type_expr(ParseContext *pc, size_t *token_index, bool 
 }
 
 /*
-ParamDecl = option("noalias" | "comptime") option(Symbol ":") TypeExpr | "..."
+ParamDecl = option("noalias" | "comptime") option(Symbol ":") (TypeExpr | "...")
 */
 static AstNode *ast_parse_param_decl(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
-
-    if (token->id == TokenIdEllipsis) {
-        *token_index += 1;
-        return nullptr;
-    }
 
     AstNode *node = ast_create_node(pc, NodeTypeParamDecl, token);
 
@@ -282,7 +277,13 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, size_t *token_index) {
         }
     }
 
-    node->data.param_decl.type = ast_parse_type_expr(pc, token_index, true);
+    Token *ellipsis_tok = &pc->tokens->at(*token_index);
+    if (ellipsis_tok->id == TokenIdEllipsis) {
+        *token_index += 1;
+        node->data.param_decl.is_var_args = true;
+    } else {
+        node->data.param_decl.type = ast_parse_type_expr(pc, token_index, true);
+    }
 
     return node;
 }
@@ -304,12 +305,10 @@ static void ast_parse_param_decl_list(ParseContext *pc, size_t *token_index,
     for (;;) {
         AstNode *param_decl_node = ast_parse_param_decl(pc, token_index);
         bool expect_end = false;
-        if (param_decl_node) {
-            params->append(param_decl_node);
-        } else {
-            *is_var_args = true;
-            expect_end = true;
-        }
+        assert(param_decl_node);
+        params->append(param_decl_node);
+        expect_end = param_decl_node->data.param_decl.is_var_args;
+        *is_var_args = expect_end;
 
         Token *token = &pc->tokens->at(*token_index);
         *token_index += 1;

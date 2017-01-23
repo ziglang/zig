@@ -2636,6 +2636,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
+        case TypeTableEntryIdArgTuple:
             zig_unreachable();
 
     }
@@ -3178,6 +3179,12 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVar);
         buf_init_from_str(&entry->name, "(var)");
         g->builtin_types.entry_var = entry;
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArgTuple);
+        buf_init_from_str(&entry->name, "(args)");
+        entry->zero_bits = true;
+        g->builtin_types.entry_arg_tuple = entry;
     }
 
     for (size_t int_size_i = 0; int_size_i < array_length(int_sizes_in_bits); int_size_i += 1) {
@@ -3947,6 +3954,7 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdVar:
+        case TypeTableEntryIdArgTuple:
             zig_unreachable();
     }
 }

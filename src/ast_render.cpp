@@ -393,7 +393,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 print_symbol(ar, node->data.fn_proto.name);
                 fprintf(ar->f, "(");
                 int arg_count = node->data.fn_proto.params.length;
-                bool is_var_args = node->data.fn_proto.is_var_args;
                 for (int arg_i = 0; arg_i < arg_count; arg_i += 1) {
                     AstNode *param_decl = node->data.fn_proto.params.at(arg_i);
                     assert(param_decl->type == NodeTypeParamDecl);
@@ -404,14 +403,15 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                         print_symbol(ar, param_decl->data.param_decl.name);
                         fprintf(ar->f, ": ");
                     }
-                    render_node_grouped(ar, param_decl->data.param_decl.type);
+                    if (param_decl->data.param_decl.is_var_args) {
+                        fprintf(ar->f, "...");
+                    } else {
+                        render_node_grouped(ar, param_decl->data.param_decl.type);
+                    }
 
-                    if (arg_i + 1 < arg_count || is_var_args) {
+                    if (arg_i + 1 < arg_count) {
                         fprintf(ar->f, ", ");
                     }
-                }
-                if (is_var_args) {
-                    fprintf(ar->f, "...");
                 }
                 fprintf(ar->f, ")");
 

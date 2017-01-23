@@ -4347,8 +4347,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     IrInstruction *array_val = ir_build_load_ptr(irb, parent_scope, array_node, array_val_ptr);
 
-    IrInstruction *array_type = ir_build_typeof(irb, parent_scope, array_node, array_val);
-    IrInstruction *pointer_type = ir_build_to_ptr_type(irb, parent_scope, array_node, array_type);
+    IrInstruction *pointer_type = ir_build_to_ptr_type(irb, parent_scope, array_node, array_val);
     IrInstruction *elem_var_type;
     if (node->data.for_expr.elem_is_ptr) {
         elem_var_type = pointer_type;
@@ -6887,6 +6886,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
             if (!is_equality_cmp) {
                 ir_add_error_node(ira, source_node,
                     buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
@@ -7449,6 +7449,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdFn:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdArgTuple:
             // OK
             break;
     }
@@ -7520,21 +7521,35 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
 {
     AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(*next_proto_i);
     assert(param_decl_node->type == NodeTypeParamDecl);
-    AstNode *param_type_node = param_decl_node->data.param_decl.type;
-    TypeTableEntry *param_type = analyze_type_expr(ira->codegen, *child_scope, param_type_node);
-    if (param_type->id == TypeTableEntryIdInvalid)
-        return false;
+    bool is_var_args = param_decl_node->data.param_decl.is_var_args;
+    bool arg_part_of_generic_id = false;
+    IrInstruction *casted_arg;
+    if (is_var_args) {
+        arg_part_of_generic_id = true;
+        casted_arg = arg;
+    } else {
+        AstNode *param_type_node = param_decl_node->data.param_decl.type;
+        TypeTableEntry *param_type = analyze_type_expr(ira->codegen, *child_scope, param_type_node);
+        if (param_type->id == TypeTableEntryIdInvalid)
+            return false;
 
-    IrInstruction *casted_arg = ir_implicit_cast(ira, arg, param_type);
-    if (casted_arg->value.type->id == TypeTableEntryIdInvalid)
-        return false;
+        bool is_var_type = (param_type->id == TypeTableEntryIdVar);
+        if (is_var_type) {
+            arg_part_of_generic_id = true;
+            casted_arg = arg;
+        } else {
+            casted_arg = ir_implicit_cast(ira, arg, param_type);
+            if (casted_arg->value.type->id == TypeTableEntryIdInvalid)
+                return false;
+        }
+    }
 
-    bool inline_arg = param_decl_node->data.param_decl.is_inline;
-    bool is_var_type = (param_type->id == TypeTableEntryIdVar);
+    bool comptime_arg = param_decl_node->data.param_decl.is_inline;
 
     ConstExprValue *arg_val;
 
-    if (inline_arg) {
+    if (comptime_arg) {
+        arg_part_of_generic_id = true;
         arg_val = ir_resolve_const(ira, casted_arg, UndefBad);
         if (!arg_val)
             return false;
@@ -7544,25 +7559,40 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     } else {
         arg_val = create_const_runtime(casted_arg->value.type);
     }
-
-    Buf *param_name = param_decl_node->data.param_decl.name;
-    VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
-        *child_scope, param_name, true, arg_val);
-    var->value.depends_on_compile_var = true;
-    *child_scope = var->child_scope;
-
-    if (inline_arg || is_var_type) {
+    if (arg_part_of_generic_id) {
         generic_id->params[generic_id->param_count] = *arg_val;
         generic_id->param_count += 1;
     }
-    if (!inline_arg) {
-        if (type_requires_comptime(var->value.type)) {
-            ir_add_error(ira, arg,
-                buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&var->value.type->name)));
+
+    Buf *param_name = param_decl_node->data.param_decl.name;
+    if (is_var_args) {
+        if (!impl_fn->var_args_var) {
+            ConstExprValue *var_args_val = create_const_arg_tuple(ira->codegen,
+                    fn_type_id->param_count, fn_type_id->param_count + 1);
+            VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
+                *child_scope, param_name, true, var_args_val);
+            var->value.depends_on_compile_var = true;
+            *child_scope = var->child_scope;
+            impl_fn->var_args_var = var;
+        }
+        impl_fn->var_args_var->value.data.x_arg_tuple.end_index = fn_type_id->param_count + 1;
+
+    } else {
+        VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
+            *child_scope, param_name, true, arg_val);
+        var->value.depends_on_compile_var = true;
+        *child_scope = var->child_scope;
+        var->shadowable = !comptime_arg;
+
+        *next_proto_i += 1;
+    }
+
+    if (!comptime_arg) {
+        if (type_requires_comptime(casted_arg->value.type)) {
+            ir_add_error(ira, casted_arg,
+                buf_sprintf("parameter of type '%s' requires comptime", buf_ptr(&casted_arg->value.type->name)));
             return false;
         }
-
-        var->shadowable = true;
 
         casted_args[fn_type_id->param_count] = casted_arg;
         FnTypeParamInfo *param_info = &fn_type_id->param_info[fn_type_id->param_count];
@@ -7571,7 +7601,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
         impl_fn->param_source_nodes[fn_type_id->param_count] = param_decl_node;
         fn_type_id->param_count += 1;
     }
-    *next_proto_i += 1;
+
     return true;
 }
 
@@ -7682,6 +7712,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         FnTypeId inst_fn_type_id = {0};
         init_fn_type_id(&inst_fn_type_id, fn_proto_node);
         inst_fn_type_id.param_count = 0;
+        inst_fn_type_id.is_var_args = false;
 
         // TODO maybe GenericFnTypeId can be replaced with using the child_scope directly
         // as the key in generic_table
@@ -7918,6 +7949,7 @@ static TypeTableEntry *ir_analyze_unary_prefix_op_err(IrAnalyze *ira, IrInstruct
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVar:
+        case TypeTableEntryIdArgTuple:
             ir_add_error_node(ira, un_op_instruction->base.source_node,
                     buf_sprintf("unable to wrap type '%s' in error type", buf_ptr(&meta_type->name)));
             // TODO if meta_type is type decl, add note pointing to type decl declaration
@@ -7990,6 +8022,7 @@ static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdArgTuple:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base,
                         value->value.depends_on_compile_var);
@@ -8327,6 +8360,30 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         return_type = array_type;
     } else if (is_slice(array_type)) {
         return_type = array_type->data.structure.fields[0].type_entry;
+    } else if (array_type->id == TypeTableEntryIdArgTuple) {
+        ConstExprValue *ptr_val = ir_resolve_const(ira, array_ptr, UndefBad);
+        if (!ptr_val)
+            return ira->codegen->builtin_types.entry_invalid;
+        ConstExprValue *args_val = const_ptr_pointee(ptr_val);
+        size_t start = args_val->data.x_arg_tuple.start_index;
+        size_t end = args_val->data.x_arg_tuple.end_index;
+        ConstExprValue *elem_index_val = ir_resolve_const(ira, elem_index, UndefBad);
+        if (!elem_index_val)
+            return ira->codegen->builtin_types.entry_invalid;
+        size_t index = bignum_to_twos_complement(&elem_index_val->data.x_bignum);
+        size_t len = end - start;
+        if (index >= len) {
+            ir_add_error(ira, &elem_ptr_instruction->base,
+                buf_sprintf("index %zu outside argument list of size %zu", index, len));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        size_t abs_index = start + index;
+        FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+        assert(fn_entry);
+        VariableTableEntry *var = fn_entry->variable_list.at(abs_index);
+        bool depends_on_compile_var = array_ptr->value.depends_on_compile_var ||
+            elem_index->value.depends_on_compile_var;
+        return ir_analyze_var_ptr(ira, &elem_ptr_instruction->base, var, true, depends_on_compile_var);
     } else {
         ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                 buf_sprintf("array access of non-array type '%s'", buf_ptr(&array_type->name)));
@@ -8571,6 +8628,29 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         if (buf_eql_str(field_name, "len")) {
             ConstExprValue *len_val = allocate<ConstExprValue>(1);
             init_const_usize(ira->codegen, len_val, container_type->data.array.len);
+
+            TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
+            bool ptr_is_const = true;
+            return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, len_val,
+                    usize, false, ConstPtrSpecialNone, ptr_is_const);
+        } else {
+            ir_add_error_node(ira, source_node,
+                buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
+                    buf_ptr(&container_type->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    } else if (container_type->id == TypeTableEntryIdArgTuple) {
+        ConstExprValue *container_ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
+        if (!container_ptr_val)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        assert(container_ptr->value.type->id == TypeTableEntryIdPointer);
+        ConstExprValue *child_val = const_ptr_pointee(container_ptr_val);
+
+        if (buf_eql_str(field_name, "len")) {
+            ConstExprValue *len_val = allocate<ConstExprValue>(1);
+            size_t len = child_val->data.x_arg_tuple.end_index - child_val->data.x_arg_tuple.start_index;
+            init_const_usize(ira->codegen, len_val, len);
 
             TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
             bool ptr_is_const = true;
@@ -8830,6 +8910,7 @@ static TypeTableEntry *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdFn:
         case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdArgTuple:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &typeof_instruction->base, false);
                 // TODO depends_on_compile_var should be set based on whether the type of the expression
@@ -8847,8 +8928,8 @@ static TypeTableEntry *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructi
 static TypeTableEntry *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
         IrInstructionToPtrType *to_ptr_type_instruction)
 {
-    IrInstruction *type_value = to_ptr_type_instruction->value->other;
-    TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
+    IrInstruction *value = to_ptr_type_instruction->value->other;
+    TypeTableEntry *type_entry = value->value.type;
     if (type_entry->id == TypeTableEntryIdInvalid)
         return type_entry;
 
@@ -8857,6 +8938,11 @@ static TypeTableEntry *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
         ptr_type = get_pointer_to_type(ira->codegen, type_entry->data.array.child_type, false);
     } else if (is_slice(type_entry)) {
         ptr_type = type_entry->data.structure.fields[0].type_entry;
+    } else if (type_entry->id == TypeTableEntryIdArgTuple) {
+        ConstExprValue *arg_tuple_val = ir_resolve_const(ira, value, UndefBad);
+        if (!arg_tuple_val)
+            return ira->codegen->builtin_types.entry_invalid;
+        zig_panic("TODO for loop on var args");
     } else {
         ir_add_error_node(ira, to_ptr_type_instruction->base.source_node,
                 buf_sprintf("expected array type, found '%s'", buf_ptr(&type_entry->name)));
@@ -8864,7 +8950,7 @@ static TypeTableEntry *ir_analyze_instruction_to_ptr_type(IrAnalyze *ira,
     }
 
     ConstExprValue *out_val = ir_build_const_from(ira, &to_ptr_type_instruction->base,
-            type_value->value.depends_on_compile_var);
+            value->value.depends_on_compile_var);
     out_val->data.x_type = ptr_type;
     return ira->codegen->builtin_types.entry_type;
 }
@@ -9027,6 +9113,7 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdBlock:
+        case TypeTableEntryIdArgTuple:
             ir_add_error_node(ira, slice_type_instruction->base.source_node,
                     buf_sprintf("slice of type '%s' not allowed", buf_ptr(&resolved_child_type->name)));
             // TODO if this is a typedecl, add error note showing the declaration of the type decl
@@ -9118,6 +9205,7 @@ static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdBlock:
+        case TypeTableEntryIdArgTuple:
             ir_add_error_node(ira, array_type_instruction->base.source_node,
                     buf_sprintf("array of type '%s' not allowed", buf_ptr(&child_type->name)));
             // TODO if this is a typedecl, add error note showing the declaration of the type decl
@@ -9214,6 +9302,7 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdArgTuple:
             ir_add_error_node(ira, size_of_instruction->base.source_node,
                     buf_sprintf("no size available for type '%s'", buf_ptr(&type_entry->name)));
             // TODO if this is a typedecl, add error note showing the declaration of the type decl
@@ -9559,6 +9648,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
             ir_add_error(ira, &switch_target_instruction->base,
                 buf_sprintf("invalid switch target type '%s'", buf_ptr(&target_type->name)));
             // TODO if this is a typedecl, add error note showing the declaration of the type decl
@@ -10075,6 +10165,7 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
             {
                 const char *err_format = is_max ?
                     "no max value available for type '%s'" :

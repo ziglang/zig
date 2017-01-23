@@ -832,10 +832,6 @@ fn f() {
     )SOURCE", 2, ".tmp_source.zig:5:11: error: expected type 'usize', found 'bool'",
                  ".tmp_source.zig:5:24: error: expected type 'usize', found 'bool'");
 
-    add_compile_fail_case("variadic functions only allowed in extern", R"SOURCE(
-fn f(...) {}
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: variadic arguments only allowed in extern function declarations");
-
     add_compile_fail_case("write to const global variable", R"SOURCE(
 const x : i32 = 99;
 fn f() {
@@ -1633,6 +1629,33 @@ pub fn maybeInt() -> ?i32 {
     return 0;
 }
     )SOURCE", 1, ".tmp_source.zig:5:11: error: cannot return from defer expression");
+
+    add_compile_fail_case("attempt to access var args out of bounds", R"SOURCE(
+fn add(args: ...) -> i32 {
+    args[0] + args[1]
+}
+
+fn foo() -> i32 {
+    add(i32(1234))
+}
+    )SOURCE", 2,
+            ".tmp_source.zig:3:19: error: index 1 outside argument list of size 1",
+            ".tmp_source.zig:7:8: note: called from here");
+
+    add_compile_fail_case("pass integer literal to var args", R"SOURCE(
+fn add(args: ...) -> i32 {
+    var sum = i32(0);
+    {comptime var i: usize = 0; inline while (i < args.len; i += 1) {
+        sum += args[i];
+    }}
+    return sum;
+}
+
+fn bar() -> i32 {
+    add(1, 2, 3, 4)
+}
+    )SOURCE", 1, ".tmp_source.zig:11:9: error: parameter of type '(integer literal)' requires comptime");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////

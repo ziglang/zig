@@ -122,6 +122,11 @@ struct ConstBoundFnValue {
     IrInstruction *first_arg;
 };
 
+struct ConstArgTuple {
+    size_t start_index;
+    size_t end_index;
+};
+
 enum ConstValSpecial {
     ConstValSpecialRuntime,
     ConstValSpecialStatic,
@@ -163,6 +168,7 @@ struct ConstExprValue {
         ConstPtrValue x_ptr;
         ImportTableEntry *x_import;
         Scope *x_block;
+        ConstArgTuple x_arg_tuple;
 
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
@@ -325,6 +331,7 @@ struct AstNodeParamDecl {
     AstNode *type;
     bool is_noalias;
     bool is_inline;
+    bool is_var_args;
 };
 
 struct AstNodeBlock {
@@ -936,6 +943,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdNamespace,
     TypeTableEntryIdBlock,
     TypeTableEntryIdBoundFn,
+    TypeTableEntryIdArgTuple,
 };
 
 struct TypeTableEntry {
@@ -1034,6 +1042,8 @@ struct FnTableEntry {
 
     ZigList<IrInstruction *> alloca_list;
     ZigList<VariableTableEntry *> variable_list;
+
+    VariableTableEntry *var_args_var;
 };
 
 uint32_t fn_table_entry_hash(FnTableEntry*);
@@ -1155,6 +1165,7 @@ struct CodeGen {
         TypeTableEntry *entry_environ_enum;
         TypeTableEntry *entry_oformat_enum;
         TypeTableEntry *entry_atomic_order_enum;
+        TypeTableEntry *entry_arg_tuple;
     } builtin_types;
 
     ZigTarget zig_target;
