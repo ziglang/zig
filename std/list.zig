@@ -3,7 +3,7 @@ const assert = debug.assert;
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 
-pub fn List(inline T: type) -> type{
+pub fn List(comptime T: type) -> type{
     struct {
         const Self = this;
 

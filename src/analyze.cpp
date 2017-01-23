@@ -979,7 +979,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         if (param_is_inline) {
             if (fn_type_id.is_extern) {
                 add_node_error(g, param_node,
-                        buf_sprintf("inline parameter not allowed in extern function"));
+                        buf_sprintf("comptime parameter not allowed in extern function"));
                 return g->builtin_types.entry_invalid;
             }
             return get_generic_fn_type(g, &fn_type_id);

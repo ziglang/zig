@@ -2,7 +2,7 @@ const assert = @import("std").debug.assert;
 
 const module = this;
 
-fn Point(inline T: type) -> type {
+fn Point(comptime T: type) -> type {
     struct {
         const Self = this;
         x: T,

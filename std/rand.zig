@@ -29,7 +29,7 @@ pub const Rand = struct {
     }
 
     /// Get an integer with random bits.
-    pub fn scalar(r: &Rand, inline T: type) -> T {
+    pub fn scalar(r: &Rand, comptime T: type) -> T {
         if (T == usize) {
             return r.rng.get();
         } else {
@@ -59,7 +59,7 @@ pub const Rand = struct {
     /// Get a random unsigned integer with even distribution between `start`
     /// inclusive and `end` exclusive.
     // TODO support signed integers and then rename to "range"
-    pub fn rangeUnsigned(r: &Rand, inline T: type, start: T, end: T) -> T {
+    pub fn rangeUnsigned(r: &Rand, comptime T: type, start: T, end: T) -> T {
         const range = end - start;
         const leftover = @maxValue(T) % range;
         const upper_bound = @maxValue(T) - leftover;
@@ -75,7 +75,7 @@ pub const Rand = struct {
     }
 
     /// Get a floating point value in the range 0.0..1.0.
-    pub fn float(r: &Rand, inline T: type) -> T {
+    pub fn float(r: &Rand, comptime T: type) -> T {
         // TODO Implement this way instead:
         // const int = @int_type(false, @sizeOf(T) * 8);
         // const mask = ((1 << @float_mantissa_bit_count(T)) - 1);
@@ -94,12 +94,12 @@ pub const Rand = struct {
 };
 
 fn MersenneTwister(
-    inline int: type, inline n: usize, inline m: usize, inline r: int,
-    inline a: int,
-    inline u: int, inline d: int,
-    inline s: int, inline b: int,
-    inline t: int, inline c: int,
-    inline l: int, inline f: int) -> type
+    comptime int: type, comptime n: usize, comptime m: usize, comptime r: int,
+    comptime a: int,
+    comptime u: int, comptime d: int,
+    comptime s: int, comptime b: int,
+    comptime t: int, comptime c: int,
+    comptime l: int, comptime f: int) -> type
 {
     struct {
         const Self = this;

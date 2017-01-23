@@ -16,7 +16,7 @@ var argv: &&u8 = undefined;
 export nakedcc fn _start() -> unreachable {
     @setFnVisible(this, want_start_symbol);
 
-    inline switch (@compileVar("arch")) {
+    switch (@compileVar("arch")) {
         Arch.x86_64 => {
             argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> usize));
             argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));

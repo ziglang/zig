@@ -7,8 +7,8 @@ const Allocator = mem.Allocator;
 const want_modification_safety = !@compileVar("is_release");
 const debug_u32 = if (want_modification_safety) u32 else void;
 
-pub fn HashMap(inline K: type, inline V: type, inline hash: fn(key: K)->u32,
-    inline eql: fn(a: K, b: K)->bool) -> type
+pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K)->u32,
+    comptime eql: fn(a: K, b: K)->bool) -> type
 {
     struct {
         entries: []Entry,

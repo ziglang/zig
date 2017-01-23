@@ -250,7 +250,7 @@ static AstNode *ast_parse_type_expr(ParseContext *pc, size_t *token_index, bool 
 }
 
 /*
-ParamDecl = option("noalias" | "inline") option("Symbol" ":") TypeExpr | "..."
+ParamDecl = option("noalias" | "comptime") option(Symbol ":") TypeExpr | "..."
 */
 static AstNode *ast_parse_param_decl(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
@@ -266,7 +266,7 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, size_t *token_index) {
         node->data.param_decl.is_noalias = true;
         *token_index += 1;
         token = &pc->tokens->at(*token_index);
-    } else if (token->id == TokenIdKeywordInline) {
+    } else if (token->id == TokenIdKeywordCompTime) {
         node->data.param_decl.is_inline = true;
         *token_index += 1;
         token = &pc->tokens->at(*token_index);
@@ -1492,7 +1492,7 @@ static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
 }
 
 /*
-VariableDeclaration = option("inline") ("var" | "const") Symbol option(":" TypeExpr) "=" Expression
+VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" TypeExpr) "=" Expression
 */
 static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *token_index, bool mandatory,
         VisibMod visib_mod)
@@ -1501,9 +1501,9 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
     Token *var_token;
 
     bool is_const;
-    bool is_inline;
-    if (first_token->id == TokenIdKeywordInline) {
-        is_inline = true;
+    bool is_comptime;
+    if (first_token->id == TokenIdKeywordCompTime) {
+        is_comptime = true;
         var_token = &pc->tokens->at(*token_index + 1);
 
         if (var_token->id == TokenIdKeywordVar) {
@@ -1518,12 +1518,12 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
 
         *token_index += 2;
     } else if (first_token->id == TokenIdKeywordVar) {
-        is_inline = false;
+        is_comptime = false;
         is_const = false;
         var_token = first_token;
         *token_index += 1;
     } else if (first_token->id == TokenIdKeywordConst) {
-        is_inline = false;
+        is_comptime = false;
         is_const = true;
         var_token = first_token;
         *token_index += 1;
@@ -1535,7 +1535,7 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
 
     AstNode *node = ast_create_node(pc, NodeTypeVariableDeclaration, var_token);
 
-    node->data.variable_declaration.is_inline = is_inline;
+    node->data.variable_declaration.is_inline = is_comptime;
     node->data.variable_declaration.is_const = is_const;
     node->data.variable_declaration.visib_mod = visib_mod;
 

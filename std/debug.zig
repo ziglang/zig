@@ -241,7 +241,7 @@ fn parseFormValueRefLen(in_stream: &io.InStream, size: usize) -> %FormValue {
     return FormValue.Ref { buf };
 }
 
-fn parseFormValueRef(in_stream: &io.InStream, inline T: type) -> %FormValue {
+fn parseFormValueRef(in_stream: &io.InStream, comptime T: type) -> %FormValue {
     const block_len = %return in_stream.readIntLe(T);
     return parseFormValueRefLen(in_stream, block_len);
 }

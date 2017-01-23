@@ -5,13 +5,13 @@ const math = @import("math.zig");
 
 pub const Cmp = math.Cmp;
 
-pub fn sort(inline T: type, array: []T, inline cmp: fn(a: &const T, b: &const T)->Cmp) {
+pub fn sort(comptime T: type, array: []T, comptime cmp: fn(a: &const T, b: &const T)->Cmp) {
     if (array.len > 0) {
         quicksort(T, array, 0, array.len - 1, cmp);
     }
 }
 
-fn quicksort(inline T: type, array: []T, left: usize, right: usize, inline cmp: fn(a: &const T, b: &const T)->Cmp) {
+fn quicksort(comptime T: type, array: []T, left: usize, right: usize, comptime cmp: fn(a: &const T, b: &const T)->Cmp) {
     var i = left;
     var j = right;
     const p = (i + j) / 2;

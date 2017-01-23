@@ -292,10 +292,10 @@ fn genericMallocFree() {
     memFree(u8, a);
 }
 const some_mem : [100]u8 = undefined;
-fn memAlloc(inline T: type, n: usize) -> %[]T {
+fn memAlloc(comptime T: type, n: usize) -> %[]T {
     return (&T)(&some_mem[0])[0...n];
 }
-fn memFree(inline T: type, mem: []T) { }
+fn memFree(comptime T: type, mem: []T) { }
 
 
 fn castUndefined() {

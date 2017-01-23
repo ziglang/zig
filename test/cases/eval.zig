@@ -25,17 +25,17 @@ fn testStaticAddOne() {
 fn inlinedLoop() {
     @setFnTest(this);
 
-    inline var i = 0;
-    inline var sum = 0;
+    comptime var i = 0;
+    comptime var sum = 0;
     inline while (i <= 5; i += 1)
         sum += i;
     assert(sum == 15);
 }
 
-fn gimme1or2(inline a: bool) -> i32 {
+fn gimme1or2(comptime a: bool) -> i32 {
     const x: i32 = 1;
     const y: i32 = 2;
-    inline var z: i32 = if (a) x else y;
+    comptime var z: i32 = if (a) x else y;
     return z;
 }
 fn inlineVariableGetsResultOfConstIf() {

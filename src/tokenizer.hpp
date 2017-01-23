@@ -43,6 +43,7 @@ enum TokenId {
     TokenIdKeywordError,
     TokenIdKeywordType,
     TokenIdKeywordInline,
+    TokenIdKeywordCompTime,
     TokenIdKeywordDefer,
     TokenIdKeywordThis,
     TokenIdKeywordColdCC,

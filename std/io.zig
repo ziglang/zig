@@ -105,7 +105,7 @@ pub const OutStream = struct {
         return byte_count;
     }
 
-    pub fn printInt(self: &OutStream, inline T: type, x: T) -> %usize {
+    pub fn printInt(self: &OutStream, comptime T: type, x: T) -> %usize {
         // TODO replace max_u64_base10_digits with math.log10(math.pow(2, @sizeOf(T)))
         if (self.index + max_u64_base10_digits >= self.buffer.len) {
             %return self.flush();
@@ -255,22 +255,22 @@ pub const InStream = struct {
         return result[0];
     }
 
-    pub fn readIntLe(is: &InStream, inline T: type) -> %T {
+    pub fn readIntLe(is: &InStream, comptime T: type) -> %T {
         is.readInt(false, T)
     }
 
-    pub fn readIntBe(is: &InStream, inline T: type) -> %T {
+    pub fn readIntBe(is: &InStream, comptime T: type) -> %T {
         is.readInt(true, T)
     }
 
-    pub fn readInt(is: &InStream, is_be: bool, inline T: type) -> %T {
+    pub fn readInt(is: &InStream, is_be: bool, comptime T: type) -> %T {
         var result: T = undefined;
         const result_slice = ([]u8)((&result)[0...1]);
         %return is.readNoEof(result_slice);
         return endian.swapIf(!is_be, T, result);
     }
 
-    pub fn readVarInt(is: &InStream, is_be: bool, inline T: type, size: usize) -> %T {
+    pub fn readVarInt(is: &InStream, is_be: bool, comptime T: type, size: usize) -> %T {
         assert(size <= @sizeOf(T));
         assert(size <= 8);
         var input_buf: [8]u8 = undefined;
@@ -355,7 +355,7 @@ pub const InStream = struct {
     }
 };
 
-pub fn parseUnsigned(inline T: type, buf: []u8, radix: u8) -> %T {
+pub fn parseUnsigned(comptime T: type, buf: []u8, radix: u8) -> %T {
     var x: T = 0;
 
     for (buf) |c| {
@@ -381,11 +381,11 @@ fn charToDigit(c: u8, radix: u8) -> %u8 {
     return if (value >= radix) error.InvalidChar else value;
 }
 
-pub fn bufPrintInt(inline T: type, out_buf: []u8, x: T) -> usize {
+pub fn bufPrintInt(comptime T: type, out_buf: []u8, x: T) -> usize {
     if (T.is_signed) bufPrintSigned(T, out_buf, x) else bufPrintUnsigned(T, out_buf, x)
 }
 
-fn bufPrintSigned(inline T: type, out_buf: []u8, x: T) -> usize {
+fn bufPrintSigned(comptime T: type, out_buf: []u8, x: T) -> usize {
     const uint = @intType(false, T.bit_count);
     if (x < 0) {
         out_buf[0] = '-';
@@ -395,7 +395,7 @@ fn bufPrintSigned(inline T: type, out_buf: []u8, x: T) -> usize {
     }
 }
 
-fn bufPrintUnsigned(inline T: type, out_buf: []u8, x: T) -> usize {
+fn bufPrintUnsigned(comptime T: type, out_buf: []u8, x: T) -> usize {
     var buf: [max_u64_base10_digits]u8 = undefined;
     var a = x;
     var index: usize = buf.len;

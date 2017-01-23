@@ -15,7 +15,7 @@ ErrorValueDecl = "error" Symbol ";"
 
 GlobalVarDecl = VariableDeclaration ";"
 
-VariableDeclaration = option("inline") ("var" | "const") Symbol option(":" TypeExpr) "=" Expression
+VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" TypeExpr) "=" Expression
 
 StructMember = (StructField | FnDef | GlobalVarDecl)
 
@@ -33,7 +33,7 @@ FnDef = option("inline" | "extern") FnProto Block
 
 ParamDeclList = "(" list(ParamDecl, ",") ")"
 
-ParamDecl = option("noalias" | "inline") option(Symbol ":") TypeExpr | "..."
+ParamDecl = option("noalias" | "comptime") option(Symbol ":") TypeExpr | "..."
 
 Block = "{" list(option(Statement), ";") "}"
 

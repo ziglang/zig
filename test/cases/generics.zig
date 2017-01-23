@@ -8,11 +8,11 @@ fn simpleGenericFn() {
     assert(add(2, 3) == 5);
 }
 
-fn max(inline T: type, a: T, b: T) -> T {
+fn max(comptime T: type, a: T, b: T) -> T {
     return if (a > b) a else b;
 }
 
-fn add(inline a: i32, b: i32) -> i32 {
+fn add(comptime a: i32, b: i32) -> i32 {
     return @staticEval(a) + b;
 }
 
@@ -67,11 +67,11 @@ fn max_f64(a: f64, b: f64) -> f64 {
 }
 
 
-pub fn List(inline T: type) -> type {
+pub fn List(comptime T: type) -> type {
     SmallList(T, 8)
 }
 
-pub fn SmallList(inline T: type, inline STATIC_SIZE: usize) -> type {
+pub fn SmallList(comptime T: type, comptime STATIC_SIZE: usize) -> type {
     struct {
         items: []T,
         length: usize,
@@ -100,7 +100,7 @@ fn genericStruct() {
     assert(a1.value == a1.getVal());
     assert(b1.getVal());
 }
-fn GenNode(inline T: type) -> type {
+fn GenNode(comptime T: type) -> type {
     struct {
         value: T,
         next: ?&GenNode(T),
@@ -113,7 +113,7 @@ fn constDeclsInStruct() {
 
     assert(GenericDataThing(3).count_plus_one == 4);
 }
-fn GenericDataThing(inline count: isize) -> type {
+fn GenericDataThing(comptime count: isize) -> type {
     struct {
         const count_plus_one = count + 1;
     }
@@ -125,7 +125,7 @@ fn useGenericParamInGenericParam() {
 
     assert(aGenericFn(i32, 3, 4) == 7);
 }
-fn aGenericFn(inline T: type, inline a: T, b: T) -> T {
+fn aGenericFn(comptime T: type, comptime a: T, b: T) -> T {
     return a + b;
 }
 
@@ -137,6 +137,6 @@ fn genericFnWithImplicitCast() {
     assert(getFirstByte(u16, []u16 {0, 13}) == 0);
 }
 fn getByte(ptr: ?&u8) -> u8 {*??ptr}
-fn getFirstByte(inline T: type, mem: []T) -> u8 {
+fn getFirstByte(comptime T: type, mem: []T) -> u8 {
     getByte((&u8)(&mem[0]))
 }

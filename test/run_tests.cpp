@@ -1195,7 +1195,7 @@ const invalid = foo > foo;
     )SOURCE", 1, ".tmp_source.zig:3:21: error: operator not allowed for type 'fn()'");
 
     add_compile_fail_case("generic function instance with non-constant expression", R"SOURCE(
-fn foo(inline x: i32, y: i32) -> i32 { return x + y; }
+fn foo(comptime x: i32, y: i32) -> i32 { return x + y; }
 fn test1(a: i32, b: i32) -> i32 {
     return foo(a, b);
 }
@@ -1407,18 +1407,18 @@ fn f() {
 }
     )SOURCE", 1, ".tmp_source.zig:3:13: error: unable to evaluate constant expression");
 
-    add_compile_fail_case("export function with inline parameter", R"SOURCE(
-export fn foo(inline x: i32, y: i32) -> i32{
+    add_compile_fail_case("export function with comptime parameter", R"SOURCE(
+export fn foo(comptime x: i32, y: i32) -> i32{
     x + y
 }
-    )SOURCE", 1, ".tmp_source.zig:2:15: error: inline parameter not allowed in extern function");
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: comptime parameter not allowed in extern function");
 
-    add_compile_fail_case("extern function with inline parameter", R"SOURCE(
-extern fn foo(inline x: i32, y: i32) -> i32;
+    add_compile_fail_case("extern function with comptime parameter", R"SOURCE(
+extern fn foo(comptime x: i32, y: i32) -> i32;
 fn f() -> i32 {
     foo(1, 2)
 }
-    )SOURCE", 1, ".tmp_source.zig:2:15: error: inline parameter not allowed in extern function");
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: comptime parameter not allowed in extern function");
 
     add_compile_fail_case("convert fixed size array to slice with invalid size", R"SOURCE(
 fn f() {
@@ -1429,12 +1429,12 @@ fn f() {
 
     add_compile_fail_case("non-pure function returns type", R"SOURCE(
 var a: u32 = 0;
-pub fn List(inline T: type) -> type {
+pub fn List(comptime T: type) -> type {
     a += 1;
     SmallList(T, 8)
 }
 
-pub fn SmallList(inline T: type, inline STATIC_SIZE: usize) -> type {
+pub fn SmallList(comptime T: type, comptime STATIC_SIZE: usize) -> type {
     struct {
         items: []T,
         length: usize,

@@ -15,7 +15,7 @@ pub const Allocator = struct {
     context: ?&Context,
 
     /// Aborts the program if an allocation fails.
-    fn checkedAlloc(self: &Allocator, inline T: type, n: usize) -> []T {
+    fn checkedAlloc(self: &Allocator, comptime T: type, n: usize) -> []T {
         alloc(self, T, n) %% |err| {
             // TODO var args printf
             %%io.stderr.write("allocation failure: ");
@@ -25,37 +25,37 @@ pub const Allocator = struct {
         }
     }
 
-    fn alloc(self: &Allocator, inline T: type, n: usize) -> %[]T {
+    fn alloc(self: &Allocator, comptime T: type, n: usize) -> %[]T {
         const byte_count = %return math.mulOverflow(usize, @sizeOf(T), n);
         ([]T)(%return self.allocFn(self, byte_count))
     }
 
-    fn realloc(self: &Allocator, inline T: type, old_mem: []T, n: usize) -> %[]T {
+    fn realloc(self: &Allocator, comptime T: type, old_mem: []T, n: usize) -> %[]T {
         const byte_count = %return math.mulOverflow(usize, @sizeOf(T), n);
         ([]T)(%return self.reallocFn(self, ([]u8)(old_mem), byte_count))
     }
 
     // TODO mem: []var and get rid of 2nd param
-    fn free(self: &Allocator, inline T: type, mem: []T) {
+    fn free(self: &Allocator, comptime T: type, mem: []T) {
         self.freeFn(self, ([]u8)(mem));
     }
 };
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
-pub fn copy(inline T: type, dest: []T, source: []const T) {
+pub fn copy(comptime T: type, dest: []T, source: []const T) {
     @setDebugSafety(this, false);
     assert(dest.len >= source.len);
     for (source) |s, i| dest[i] = s;
 }
 
-pub fn set(inline T: type, dest: []T, value: T) {
+pub fn set(comptime T: type, dest: []T, value: T) {
     for (dest) |*d| *d = value;
 }
 
 /// Return < 0, == 0, or > 0 if memory a is less than, equal to, or greater than,
 /// memory b, respectively.
-pub fn cmp(inline T: type, a: []const T, b: []const T) -> Cmp {
+pub fn cmp(comptime T: type, a: []const T, b: []const T) -> Cmp {
     const n = math.min(a.len, b.len);
     var i: usize = 0;
     while (i < n; i += 1) {
@@ -66,7 +66,7 @@ pub fn cmp(inline T: type, a: []const T, b: []const T) -> Cmp {
     return if (a.len > b.len) Cmp.Greater else if (a.len < b.len) Cmp.Less else Cmp.Equal;
 }
 
-pub fn sliceAsInt(buf: []u8, is_be: bool, inline T: type) -> T {
+pub fn sliceAsInt(buf: []u8, is_be: bool, comptime T: type) -> T {
     var result: T = undefined;
     const result_slice = ([]u8)((&result)[0...1]);
     set(u8, result_slice, 0);
