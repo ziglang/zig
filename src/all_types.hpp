@@ -1042,8 +1042,6 @@ struct FnTableEntry {
 
     ZigList<IrInstruction *> alloca_list;
     ZigList<VariableTableEntry *> variable_list;
-
-    VariableTableEntry *var_args_var;
 };
 
 uint32_t fn_table_entry_hash(FnTableEntry*);

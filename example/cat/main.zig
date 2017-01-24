@@ -16,9 +16,7 @@ pub fn main(args: [][]u8) -> %void {
         } else {
             var is: io.InStream = undefined;
             is.open(arg) %% |err| {
-                %%io.stderr.printf("Unable to open file: ");
-                %%io.stderr.printf(@errorName(err));
-                %%io.stderr.printf("\n");
+                %%io.stderr.printf("Unable to open file: {}\n", @errorName(err));
                 return err;
             };
             defer %%is.close();
@@ -34,9 +32,7 @@ pub fn main(args: [][]u8) -> %void {
 }
 
 fn usage(exe: []u8) -> %void {
-    %%io.stderr.printf("Usage: ");
-    %%io.stderr.printf(exe);
-    %%io.stderr.printf(" [FILE]...\n");
+    %%io.stderr.printf("Usage: {} [FILE]...\n", exe);
     return error.Invalid;
 }
 
@@ -45,9 +41,7 @@ fn cat_stream(is: &io.InStream) -> %void {
 
     while (true) {
         const bytes_read = is.read(buf) %% |err| {
-            %%io.stderr.printf("Unable to read from stream: ");
-            %%io.stderr.printf(@errorName(err));
-            %%io.stderr.printf("\n");
+            %%io.stderr.printf("Unable to read from stream: {}\n", @errorName(err));
             return err;
         };
 
@@ -56,9 +50,7 @@ fn cat_stream(is: &io.InStream) -> %void {
         }
 
         io.stdout.write(buf[0...bytes_read]) %% |err| {
-            %%io.stderr.printf("Unable to write to stdout: ");
-            %%io.stderr.printf(@errorName(err));
-            %%io.stderr.printf("\n");
+            %%io.stderr.printf("Unable to write to stdout: {}\n", @errorName(err));
             return err;
         };
     }

@@ -5743,6 +5743,8 @@ static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
             IrInstruction *dep_instruction = ir_instruction_get_dep(instruction, dep_i);
             if (dep_instruction == nullptr)
                 break;
+            if (dep_instruction->other)
+                continue;
             if (dep_instruction->owner_bb == old_bb)
                 continue;
             ir_get_new_bb(ira, dep_instruction->owner_bb);
@@ -7565,19 +7567,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     }
 
     Buf *param_name = param_decl_node->data.param_decl.name;
-    if (is_var_args) {
-        if (!impl_fn->var_args_var) {
-            ConstExprValue *var_args_val = create_const_arg_tuple(ira->codegen,
-                    fn_type_id->param_count, fn_type_id->param_count + 1);
-            VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
-                *child_scope, param_name, true, var_args_val);
-            var->value.depends_on_compile_var = true;
-            *child_scope = var->child_scope;
-            impl_fn->var_args_var = var;
-        }
-        impl_fn->var_args_var->value.data.x_arg_tuple.end_index = fn_type_id->param_count + 1;
-
-    } else {
+    if (!is_var_args) {
         VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
             *child_scope, param_name, true, arg_val);
         var->value.depends_on_compile_var = true;
@@ -7611,7 +7601,8 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 {
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     size_t first_arg_1_or_0 = first_arg_ptr ? 1 : 0;
-    size_t src_param_count = fn_type_id->param_count;
+    size_t var_args_1_or_0 = fn_type_id->is_var_args ? 1 : 0;
+    size_t src_param_count = fn_type_id->param_count - var_args_1_or_0;
     size_t call_param_count = call_instruction->arg_count + first_arg_1_or_0;
     AstNode *source_node = call_instruction->base.source_node;
 
@@ -7739,10 +7730,21 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                 return ira->codegen->builtin_types.entry_invalid;
             }
         }
+
+        bool found_first_var_arg = false;
+        size_t first_var_arg = inst_fn_type_id.param_count;
         for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
             IrInstruction *arg = call_instruction->args[call_i]->other;
             if (arg->value.type->id == TypeTableEntryIdInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
+
+            AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(next_proto_i);
+            assert(param_decl_node->type == NodeTypeParamDecl);
+            bool is_var_args = param_decl_node->data.param_decl.is_var_args;
+            if (is_var_args && !found_first_var_arg) {
+                first_var_arg = inst_fn_type_id.param_count;
+                found_first_var_arg = true;
+            }
 
             if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg, &impl_fn->child_scope,
                 &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
@@ -7751,6 +7753,17 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             }
         }
 
+        if (fn_proto_node->data.fn_proto.is_var_args) {
+            AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(next_proto_i);
+            Buf *param_name = param_decl_node->data.param_decl.name;
+
+            ConstExprValue *var_args_val = create_const_arg_tuple(ira->codegen,
+                    first_var_arg, inst_fn_type_id.param_count);
+            VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
+                impl_fn->child_scope, param_name, true, var_args_val);
+            var->value.depends_on_compile_var = true;
+            impl_fn->child_scope = var->child_scope;
+        }
         {
             AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
             TypeTableEntry *return_type = analyze_type_expr(ira->codegen, impl_fn->child_scope, return_type_node);
@@ -8317,8 +8330,9 @@ static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruc
     if (mem_slot && mem_slot->special != ConstValSpecialRuntime) {
         ConstPtrSpecial ptr_special = is_comptime ? ConstPtrSpecialInline : ConstPtrSpecialNone;
         bool is_const = (var->value.type->id == TypeTableEntryIdMetaType) ? is_const_ptr : var->src_is_const;
+        depends_on_compile_var = mem_slot->depends_on_compile_var || depends_on_compile_var || is_comptime;
         return ir_analyze_const_ptr(ira, instruction, mem_slot, var->value.type,
-                mem_slot->depends_on_compile_var || depends_on_compile_var, ptr_special, is_const);
+                depends_on_compile_var, ptr_special, is_const);
     } else {
         ir_build_var_ptr_from(&ira->new_irb, instruction, var, false);
         type_ensure_zero_bits_known(ira->codegen, var->value.type);
@@ -8513,6 +8527,22 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
 
         TypeStructField *field = find_struct_type_field(bare_type, field_name);
         if (field) {
+            if (instr_is_comptime(container_ptr)) {
+                ConstExprValue *ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
+                if (!ptr_val)
+                    return ira->codegen->builtin_types.entry_invalid;
+
+                ConstExprValue *struct_val = const_ptr_pointee(ptr_val);
+                if (value_is_comptime(struct_val)) {
+                    ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
+                    if (value_is_comptime(field_val)) {
+                        bool depends_on_compile_var = field_val->depends_on_compile_var ||
+                            struct_val->depends_on_compile_var || ptr_val->depends_on_compile_var;
+                        return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, field_val,
+                                field_val->type, depends_on_compile_var, ConstPtrSpecialNone, is_const);
+                    }
+                }
+            }
             ir_build_struct_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
             return get_pointer_to_type(ira->codegen, field->type_entry, is_const);
         } else {
@@ -10937,7 +10967,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
         init_const_ptr(ira->codegen, ptr_val, base_ptr, index, instruction->is_const);
 
         ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];
-        init_const_usize(ira->codegen, len_val, rel_end);
+        init_const_usize(ira->codegen, len_val, end_scalar - start_scalar);
 
         return return_type;
     }

@@ -624,7 +624,7 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
 }
 
 /*
-PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | CompTimeExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
+PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
 KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -708,10 +708,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
     AstNode *goto_node = ast_parse_goto_expr(pc, token_index, false);
     if (goto_node)
         return goto_node;
-
-    AstNode *comptime_node = ast_parse_comptime_expr(pc, token_index, false);
-    if (comptime_node)
-        return comptime_node;
 
     AstNode *grouped_expr_node = ast_parse_grouped_expr(pc, token_index, false);
     if (grouped_expr_node) {
@@ -1810,7 +1806,7 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
 }
 
 /*
-BlockExpression : IfExpression | Block | WhileExpression | ForExpression | SwitchExpression
+BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression | CompTimeExpression
 */
 static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1834,6 +1830,10 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool
     AstNode *block = ast_parse_block(pc, token_index, false);
     if (block)
         return block;
+
+    AstNode *comptime_node = ast_parse_comptime_expr(pc, token_index, false);
+    if (comptime_node)
+        return comptime_node;
 
     if (mandatory)
         ast_invalid_token_error(pc, token);

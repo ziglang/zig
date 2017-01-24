@@ -69,7 +69,9 @@ AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | Un
 
 AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||=" | "*%=" | "+%=" | "-%=" | "<<%="
 
-BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression
+BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression | CompTimeExpression
+
+CompTimeExpression = option("comptime") Expression
 
 SwitchExpression = option("inline") "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 
@@ -141,13 +143,11 @@ StructLiteralField = "." Symbol "=" Expression
 
 PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%" | "??" | "-%"
 
-PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | CompTimeExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
+PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
 
 ArrayType = "[" option(Expression) "]" option("const") TypeExpr
 
 GotoExpression = "goto" Symbol
-
-CompTimeExpression = option("comptime") Expression
 
 GroupedExpression = "(" Expression ")"
 

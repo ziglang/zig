@@ -3263,7 +3263,13 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdArray:
             zig_panic("TODO");
         case TypeTableEntryIdStruct:
-            zig_panic("TODO");
+            for (size_t i = 0; i < a->type->data.structure.src_field_count; i += 1) {
+                ConstExprValue *field_a = &a->data.x_struct.fields[i];
+                ConstExprValue *field_b = &b->data.x_struct.fields[i];
+                if (!const_values_equal(field_a, field_b))
+                    return false;
+            }
+            return true;
         case TypeTableEntryIdUnion:
             zig_panic("TODO");
         case TypeTableEntryIdUndefLit:

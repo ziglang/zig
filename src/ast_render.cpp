@@ -600,6 +600,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 }
 
                 ar->indent -= ar->indent_size;
+                print_indent(ar);
                 fprintf(ar->f, "}");
                 break;
             }

@@ -1,4 +1,5 @@
 const assert = @import("std").debug.assert;
+const str = @import("std").str;
 
 fn compileTimeRecursion() {
     @setFnTest(this);
@@ -161,3 +162,16 @@ fn staticallyInitializedArrayLiteral() {
     assert(y[3] == 4);
 }
 const st_init_arr_lit_x = []u8{1,2,3,4};
+
+
+fn constSlice() {
+    @setFnTest(this);
+
+    comptime {
+        const a = "1234567890";
+        assert(a.len == 10);
+        const b = a[1...2];
+        assert(b.len == 1);
+        assert(b[0] == '2');
+    }
+}
