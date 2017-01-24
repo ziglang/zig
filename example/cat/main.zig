@@ -8,7 +8,7 @@ pub fn main(args: [][]u8) -> %void {
     for (args[1...]) |arg| {
         if (str.eql(arg, "-")) {
             catted_anything = true;
-            cat_stream(&io.stdin) %% |err| return err;
+            %return cat_stream(&io.stdin);
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
@@ -20,13 +20,13 @@ pub fn main(args: [][]u8) -> %void {
             defer %%is.close();
 
             catted_anything = true;
-            cat_stream(&is) %% |err| return err;
+            %return cat_stream(&is);
         }
     }
     if (!catted_anything) {
-        cat_stream(&io.stdin) %% |err| return err;
+        %return cat_stream(&io.stdin);
     }
-    io.stdout.flush() %% |err| return err;
+    %return io.stdout.flush();
 }
 
 fn usage(exe: []u8) -> %void {
