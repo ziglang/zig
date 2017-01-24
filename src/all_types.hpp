@@ -978,6 +978,9 @@ struct TypeTableEntry {
     HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
     TypeTableEntry *maybe_parent;
     TypeTableEntry *error_parent;
+    // If we generate a constant name value for this type, we memoize it here.
+    // The type of this is array
+    ConstExprValue *cached_const_name_val;
 };
 
 struct PackageTableEntry {
@@ -1086,6 +1089,10 @@ enum BuiltinFnId {
     BuiltinFnIdSetFnVisible,
     BuiltinFnIdSetDebugSafety,
     BuiltinFnIdAlloca,
+    BuiltinFnIdTypeName,
+    BuiltinFnIdIsInteger,
+    BuiltinFnIdIsFloat,
+    BuiltinFnIdCanImplicitCast,
 };
 
 struct BuiltinFnEntry {
@@ -1505,6 +1512,9 @@ enum IrInstructionId {
     IrInstructionIdPtrToInt,
     IrInstructionIdIntToEnum,
     IrInstructionIdCheckSwitchProngs,
+    IrInstructionIdTestType,
+    IrInstructionIdTypeName,
+    IrInstructionIdCanImplicitCast,
 };
 
 struct IrInstruction {
@@ -2186,6 +2196,26 @@ struct IrInstructionCheckSwitchProngs {
     IrInstruction *target_value;
     IrInstructionCheckSwitchProngsRange *ranges;
     size_t range_count;
+};
+
+struct IrInstructionTestType {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+    TypeTableEntryId type_id;
+};
+
+struct IrInstructionTypeName {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+};
+
+struct IrInstructionCanImplicitCast {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+    IrInstruction *target_value;
 };
 
 enum LValPurpose {

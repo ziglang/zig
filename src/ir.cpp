@@ -495,6 +495,18 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCheckSwitchProng
     return IrInstructionIdCheckSwitchProngs;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTestType *) {
+    return IrInstructionIdTestType;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeName *) {
+    return IrInstructionIdTypeName;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCanImplicitCast *) {
+    return IrInstructionIdCanImplicitCast;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2001,6 +2013,45 @@ static IrInstruction *ir_build_check_switch_prongs(IrBuilder *irb, Scope *scope,
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_test_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *type_value, TypeTableEntryId type_id)
+{
+    IrInstructionTestType *instruction = ir_build_instruction<IrInstructionTestType>(
+            irb, scope, source_node);
+    instruction->type_value = type_value;
+    instruction->type_id = type_id;
+
+    ir_ref_instruction(type_value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_type_name(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *type_value)
+{
+    IrInstructionTypeName *instruction = ir_build_instruction<IrInstructionTypeName>(
+            irb, scope, source_node);
+    instruction->type_value = type_value;
+
+    ir_ref_instruction(type_value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_can_implicit_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *type_value, IrInstruction *target_value)
+{
+    IrInstructionCanImplicitCast *instruction = ir_build_instruction<IrInstructionCanImplicitCast>(
+            irb, scope, source_node);
+    instruction->type_value = type_value;
+    instruction->target_value = target_value;
+
+    ir_ref_instruction(type_value, irb->current_basic_block);
+    ir_ref_instruction(target_value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_instruction_br_get_dep(IrInstructionBr *instruction, size_t index) {
     return nullptr;
 }
@@ -2605,6 +2656,28 @@ static IrInstruction *ir_instruction_checkswitchprongs_get_dep(IrInstructionChec
     return nullptr;
 }
 
+static IrInstruction *ir_instruction_testtype_get_dep(IrInstructionTestType *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->type_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_typename_get_dep(IrInstructionTypeName *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->type_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_canimplicitcast_get_dep(IrInstructionCanImplicitCast *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->type_value;
+        case 1: return instruction->target_value;
+        default: return nullptr;
+    }
+}
+
 static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t index) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -2777,6 +2850,12 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_inttoenum_get_dep((IrInstructionIntToEnum *) instruction, index);
         case IrInstructionIdCheckSwitchProngs:
             return ir_instruction_checkswitchprongs_get_dep((IrInstructionCheckSwitchProngs *) instruction, index);
+        case IrInstructionIdTestType:
+            return ir_instruction_testtype_get_dep((IrInstructionTestType *) instruction, index);
+        case IrInstructionIdTypeName:
+            return ir_instruction_typename_get_dep((IrInstructionTypeName *) instruction, index);
+        case IrInstructionIdCanImplicitCast:
+            return ir_instruction_canimplicitcast_get_dep((IrInstructionCanImplicitCast *) instruction, index);
     }
     zig_unreachable();
 }
@@ -3594,6 +3673,18 @@ static IrInstruction *ir_gen_overflow_op(IrBuilder *irb, Scope *scope, AstNode *
     return ir_build_overflow_op(irb, scope, node, op, type_value, op1, op2, result_ptr, nullptr);
 }
 
+static IrInstruction *ir_gen_test_type(IrBuilder *irb, Scope *scope, AstNode *node, TypeTableEntryId type_id) {
+    assert(node->type == NodeTypeFnCallExpr);
+
+    AstNode *type_node = node->data.fn_call_expr.params.at(0);
+
+    IrInstruction *type_value = ir_gen_node(irb, type_node, scope);
+    if (type_value == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    return ir_build_test_type(irb, scope, node, type_value, type_id);
+}
+
 static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeFnCallExpr);
 
@@ -3995,6 +4086,33 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             return ir_gen_overflow_op(irb, scope, node, IrOverflowOpMul);
         case BuiltinFnIdShlWithOverflow:
             return ir_gen_overflow_op(irb, scope, node, IrOverflowOpShl);
+        case BuiltinFnIdTypeName:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_type_name(irb, scope, node, arg0_value);
+            }
+        case BuiltinFnIdIsInteger:
+            return ir_gen_test_type(irb, scope, node, TypeTableEntryIdInt);
+        case BuiltinFnIdIsFloat:
+            return ir_gen_test_type(irb, scope, node, TypeTableEntryIdFloat);
+        case BuiltinFnIdCanImplicitCast:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_can_implicit_cast(irb, scope, node, arg0_value, arg1_value);
+            }
     }
     zig_unreachable();
 }
@@ -8942,7 +9060,7 @@ static TypeTableEntry *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdArgTuple:
             {
-                ConstExprValue *out_val = ir_build_const_from(ira, &typeof_instruction->base, false);
+                ConstExprValue *out_val = ir_build_const_from(ira, &typeof_instruction->base, true);
                 // TODO depends_on_compile_var should be set based on whether the type of the expression
                 // depends_on_compile_var. but we currently don't have a thing to tell us if the type of
                 // something depends on a compile var
@@ -9622,6 +9740,8 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
             pointee_val = nullptr;
     }
     TypeTableEntry *canon_target_type = get_underlying_type(target_type);
+    ensure_complete_type(ira->codegen, target_type);
+
     switch (canon_target_type->id) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
@@ -10257,6 +10377,24 @@ static TypeTableEntry *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstruc
 
     ira->codegen->generate_error_name_table = true;
     ir_build_err_name_from(&ira->new_irb, &instruction->base, value);
+    return str_type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstructionTypeName *instruction) {
+    IrInstruction *type_value = instruction->type_value->other;
+    TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
+    if (type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *str_type = get_slice_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
+    if (!type_entry->cached_const_name_val) {
+        ConstExprValue *array_val = create_const_str_lit(ira->codegen, &type_entry->name);
+        type_entry->cached_const_name_val = create_const_slice(ira->codegen,
+                array_val, 0, buf_len(&type_entry->name), true);
+    }
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base,
+        type_value->value.depends_on_compile_var);
+    *out_val = *type_entry->cached_const_name_val;
     return str_type;
 }
 
@@ -11370,6 +11508,44 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
     return ira->codegen->builtin_types.entry_void;
 }
 
+static TypeTableEntry *ir_analyze_instruction_test_type(IrAnalyze *ira, IrInstructionTestType *instruction) {
+    IrInstruction *type_value = instruction->type_value->other;
+    TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
+    if (type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, type_value->value.depends_on_compile_var);
+    out_val->data.x_bool = (type_entry->id == instruction->type_id);
+    return ira->codegen->builtin_types.entry_bool;
+}
+
+static TypeTableEntry *ir_analyze_instruction_can_implicit_cast(IrAnalyze *ira,
+        IrInstructionCanImplicitCast *instruction)
+{
+    IrInstruction *type_value = instruction->type_value->other;
+    TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
+    if (type_entry->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *target_value = instruction->target_value->other;
+    if (target_value->value.type->id == TypeTableEntryIdInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ImplicitCastMatchResult result = ir_types_match_with_implicit_cast(ira, type_entry, target_value->value.type,
+            target_value);
+
+    if (result == ImplicitCastMatchResultReportedError) {
+        zig_panic("TODO refactor implicit cast tester to return bool without reporting errors");
+    }
+    
+    // TODO in order to known depends_on_compile_var we have to known if the type of the target
+    // depends on a compile var
+    bool depends_on_compile_var = true;
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base, depends_on_compile_var);
+    out_val->data.x_bool = (result == ImplicitCastMatchResultYes);
+    return ira->codegen->builtin_types.entry_bool;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -11471,6 +11647,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_compile_err(ira, (IrInstructionCompileErr *)instruction);
         case IrInstructionIdErrName:
             return ir_analyze_instruction_err_name(ira, (IrInstructionErrName *)instruction);
+        case IrInstructionIdTypeName:
+            return ir_analyze_instruction_type_name(ira, (IrInstructionTypeName *)instruction);
         case IrInstructionIdCImport:
             return ir_analyze_instruction_c_import(ira, (IrInstructionCImport *)instruction);
         case IrInstructionIdCInclude:
@@ -11525,6 +11703,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_test_comptime(ira, (IrInstructionTestComptime *)instruction);
         case IrInstructionIdCheckSwitchProngs:
             return ir_analyze_instruction_check_switch_prongs(ira, (IrInstructionCheckSwitchProngs *)instruction);
+        case IrInstructionIdTestType:
+            return ir_analyze_instruction_test_type(ira, (IrInstructionTestType *)instruction);
+        case IrInstructionIdCanImplicitCast:
+            return ir_analyze_instruction_can_implicit_cast(ira, (IrInstructionCanImplicitCast *)instruction);
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
@@ -11691,6 +11873,9 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdPtrToInt:
         case IrInstructionIdIntToPtr:
         case IrInstructionIdIntToEnum:
+        case IrInstructionIdTestType:
+        case IrInstructionIdTypeName:
+        case IrInstructionIdCanImplicitCast:
             return false;
         case IrInstructionIdAsm:
             {

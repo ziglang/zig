@@ -50,10 +50,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
                 const compile_unit = findCompileUnit(st, return_address) ?? return error.MissingDebugInfo;
                 const name = %return compile_unit.die.getAttrString(st, DW.AT_name);
 
-                %return out_stream.printInt(usize, return_address);
-                %return out_stream.printf("  -> ");
-                %return out_stream.printf(name);
-                %return out_stream.printf("\n");
+                %return out_stream.printf("{}  -> {}\n", return_address, name);
                 maybe_fp = *(&const ?&const u8)(fp);
             }
         },

@@ -2279,6 +2279,9 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdTestComptime:
         case IrInstructionIdGeneratedCode:
         case IrInstructionIdCheckSwitchProngs:
+        case IrInstructionIdTestType:
+        case IrInstructionIdTypeName:
+        case IrInstructionIdCanImplicitCast:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -3652,6 +3655,10 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdImport, "import", 1);
     create_builtin_fn(g, BuiltinFnIdCImport, "cImport", 1);
     create_builtin_fn(g, BuiltinFnIdErrName, "errorName", 1);
+    create_builtin_fn(g, BuiltinFnIdTypeName, "typeName", 1);
+    create_builtin_fn(g, BuiltinFnIdIsInteger, "isInteger", 1);
+    create_builtin_fn(g, BuiltinFnIdIsFloat, "isFloat", 1);
+    create_builtin_fn(g, BuiltinFnIdCanImplicitCast, "canImplicitCast", 2);
     create_builtin_fn(g, BuiltinFnIdEmbedFile, "embedFile", 1);
     create_builtin_fn(g, BuiltinFnIdCmpExchange, "cmpxchg", 5);
     create_builtin_fn(g, BuiltinFnIdFence, "fence", 1);

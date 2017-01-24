@@ -807,6 +807,26 @@ static void ir_print_check_switch_prongs(IrPrint *irp, IrInstructionCheckSwitchP
     fprintf(irp->f, ")");
 }
 
+static void ir_print_test_type(IrPrint *irp, IrInstructionTestType *instruction) {
+    fprintf(irp->f, "@testType(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_type_name(IrPrint *irp, IrInstructionTypeName *instruction) {
+    fprintf(irp->f, "@typeName(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_can_implicit_cast(IrPrint *irp, IrInstructionCanImplicitCast *instruction) {
+    fprintf(irp->f, "@canImplicitCast(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->target_value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1063,6 +1083,15 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCheckSwitchProngs:
             ir_print_check_switch_prongs(irp, (IrInstructionCheckSwitchProngs *)instruction);
+            break;
+        case IrInstructionIdTestType:
+            ir_print_test_type(irp, (IrInstructionTestType *)instruction);
+            break;
+        case IrInstructionIdTypeName:
+            ir_print_type_name(irp, (IrInstructionTypeName *)instruction);
+            break;
+        case IrInstructionIdCanImplicitCast:
+            ir_print_can_implicit_cast(irp, (IrInstructionCanImplicitCast *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

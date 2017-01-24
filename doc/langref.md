@@ -370,10 +370,10 @@ TODO
 
 ## Built-in Functions
 
-Built-in functions are prefixed with `@`. Remember that the `inline` keyword on
+Built-in functions are prefixed with `@`. Remember that the `comptime` keyword on
 a parameter means that the parameter must be known at compile time.
 
-### @alloca(inline T: type, count: usize) -> []T
+### @alloca(comptime T: type, count: usize) -> []T
 
 Allocates memory in the stack frame of the caller. This temporary space is
 automatically freed when the function that called alloca returns to its caller,
@@ -391,13 +391,13 @@ The allocated memory contents are undefined.
 This function returns a compile-time constant, which is the type of the
 expression passed as an argument. The expression is *not evaluated*.
 
-### @sizeOf(inline T: type) -> (number literal)
+### @sizeOf(comptime T: type) -> (number literal)
 
 This function returns the number of bytes it takes to store T in memory.
 
 The result is a target-specific compile time constant.
 
-### @alignOf(inline T: type) -> (number literal)
+### @alignOf(comptime T: type) -> (number literal)
 
 This function returns the number of bytes that this type should be aligned to
 for the current target.
@@ -414,10 +414,10 @@ false otherwise.
 
 ```
 Function                                                             Operation
-@addWithOverflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a + b
-@subWithOverflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a - b
-@mulWithOverflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a * b
-@shlWithOverflow(inline T: type, a: T, b: T, result: &T) -> bool   *x = a << b
+@addWithOverflow(comptime T: type, a: T, b: T, result: &T) -> bool   *x = a + b
+@subWithOverflow(comptime T: type, a: T, b: T, result: &T) -> bool   *x = a - b
+@mulWithOverflow(comptime T: type, a: T, b: T, result: &T) -> bool   *x = a * b
+@shlWithOverflow(comptime T: type, a: T, b: T, result: &T) -> bool   *x = a << b
 ```
 
 ### @memset(dest: &u8, c: u8, byte_count: usize)
@@ -475,27 +475,27 @@ aggressive optimizations.
 
 This function is only valid within function scope.
 
-### @maxValue(inline T: type) -> (number literal)
+### @maxValue(comptime T: type) -> (number literal)
 
 This function returns the maximum integer value of the integer type T.
 
 The result is a compile time constant. For some types such as `c_long`, the
 result is marked as depending on a compile variable.
 
-### @minValue(inline T: type) -> (number literal)
+### @minValue(comptime T: type) -> (number literal)
 
 This function returns the minimum integer value of the integer type T.
 
 The result is a compile time constant. For some types such as `c_long`, the
 result is marked as depending on a compile variable.
 
-### @memberCount(inline T: type) -> (number literal)
+### @memberCount(comptime T: type) -> (number literal)
 
 This function returns the number of enum values in an enum type.
 
 The result is a compile time constant.
 
-### @import(inline path: []u8) -> (namespace)
+### @import(comptime path: []u8) -> (namespace)
 
 This function finds a zig file corresponding to `path` and imports all the
 public top level declarations into the resulting namespace.
@@ -516,25 +516,25 @@ appending to a temporary buffer which is then parsed as C code.
 
 This function is only valid at top level scope.
 
-### @cInclude(inline path: []u8)
+### @cInclude(comptime path: []u8)
 
 This function can only occur inside `@c_import`.
 
 This appends `#include <$path>\n` to the `c_import` temporary buffer.
 
-### @cDefine(inline name: []u8, value)
+### @cDefine(comptime name: []u8, value)
 
 This function can only occur inside `@c_import`.
 
 This appends `#define $name $value` to the `c_import` temporary buffer.
 
-### @cUndef(inline name: []u8)
+### @cUndef(comptime name: []u8)
 
 This function can only occur inside `@c_import`.
 
 This appends `#undef $name` to the `c_import` temporary buffer.
 
-### @compileVar(inline name: []u8) -> (varying type)
+### @compileVar(comptime name: []u8) -> (varying type)
 
 This function returns a compile-time variable. There are built in compile
 variables:
@@ -584,10 +584,14 @@ error OutOfMem;
 
 Then the string representation is "OutOfMem".
 
-If there are no calls to `@err_name` in an entire application, then no error
+If there are no calls to `@errorName` in an entire application, then no error
 name table will be generated.
 
-### @embedFile(inline path: []u8) -> [X]u8
+### @typeName(T: type) -> []u8
+
+This function returns the string representation of a type.
+
+### @embedFile(comptime path: []u8) -> [X]u8
 
 This function returns a compile time constant fixed-size array with length
 equal to the byte count of the file given by `path`. The contents of the array
@@ -610,7 +614,7 @@ The caller guarantees that this operation will have no remainder.
 In debug mode, a remainder causes a panic. In release mode, a remainder is
 undefined behavior.
 
-### @truncate(inline T: type, integer) -> T
+### @truncate(comptime T: type, integer) -> T
 
 This function truncates bits from an integer type, resulting in a smaller
 integer type.
@@ -631,14 +635,14 @@ const b: u8 = @truncate(u8, a);
 // b is now 0xcd
 ```
 
-### @compileError(inline msg: []u8)
+### @compileError(comptime msg: []u8)
 
 This function, when semantically analyzed, causes a compile error with the message `msg`.
 
 There are several ways that code avoids being semantically checked, such as using `if`
-or `switch` with compile time constants, and inline functions.
+or `switch` with compile time constants, and comptime functions.
 
-### @intType(inline is_signed: bool, inline bit_count: u8) -> type
+### @intType(comptime is_signed: bool, comptime bit_count: u8) -> type
 
 This function returns an integer type with the given signness and bit count.
 
@@ -646,3 +650,14 @@ This function returns an integer type with the given signness and bit count.
 
 Makes the target function a test function.
 
+### @isInteger(comptime T: type) -> bool
+
+Returns whether a given type is an integer.
+
+### @isFloat(comptime T: type) -> bool
+
+Returns whether a given type is a float.
+
+### @canImplicitCast(comptime T: type, value) -> bool
+
+Returns whether a value can be implicitly casted to a given type.

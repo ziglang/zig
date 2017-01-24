@@ -2,8 +2,6 @@ const std = @import("std");
 const io = std.io;
 const str = std.str;
 
-// TODO var args printing
-
 pub fn main(args: [][]u8) -> %void {
     const exe = args[0];
     var catted_anything = false;

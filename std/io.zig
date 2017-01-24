@@ -80,7 +80,7 @@ pub const OutStream = struct {
         self.index += 1;
     }
 
-    pub fn write(self: &OutStream, bytes: []const u8) -> %usize {
+    pub fn write(self: &OutStream, bytes: []const u8) -> %void {
         var src_bytes_left = bytes.len;
         var src_index: usize = 0;
         const dest_space_left = self.buffer.len - self.index;
@@ -94,25 +94,89 @@ pub const OutStream = struct {
             }
             src_bytes_left -= copy_amt;
         }
-        return bytes.len;
     }
 
-    /// Prints a byte buffer, flushes the buffer, then returns the number of
-    /// bytes printed. The "f" is for "flush".
-    pub fn printf(self: &OutStream, str: []const u8) -> %usize {
-        const byte_count = %return self.write(str);
+    const State = enum { // TODO put inside printf function and make sure the name and debug info is correct
+        Start,
+        OpenBrace,
+        CloseBrace,
+    };
+
+    /// Calls print and then flushes the buffer.
+    pub fn printf(self: &OutStream, comptime format: []const u8, args: ...) -> %void {
+        comptime var start_index: usize = 0;
+        comptime var state = State.Start;
+        comptime var next_arg: usize = 0;
+        inline for (format) |c, i| {
+            switch (state) {
+                State.Start => switch (c) {
+                    '{' => {
+                        if (start_index < i) %return self.write(format[start_index...i]);
+                        state = State.OpenBrace;
+                    },
+                    '}' => {
+                        if (start_index < i) %return self.write(format[start_index...i]);
+                        state = State.CloseBrace;
+                    },
+                    else => {},
+                },
+                State.OpenBrace => switch (c) {
+                    '{' => {
+                        state = State.Start;
+                        start_index = i;
+                    },
+                    '}' => {
+                        %return self.printValue(args[next_arg]);
+                        next_arg += 1;
+                        state = State.Start;
+                        start_index = i + 1;
+                    },
+                    else => @compileError("Unknown format character: " ++ c),
+                },
+                State.CloseBrace => switch (c) {
+                    '}' => {
+                        state = State.Start;
+                        start_index = i;
+                    },
+                    else => @compileError("Single '}' encountered in format string"),
+                },
+            }
+        }
+        comptime {
+            if (args.len != next_arg) {
+                @compileError("Unused arguments");
+            }
+            if (state != State.Start) {
+                @compileError("Incomplete format string: " ++ format);
+            }
+        }
+        inline if (start_index < format.len) {
+            %return self.write(format[start_index...format.len]);
+        }
         %return self.flush();
-        return byte_count;
     }
 
-    pub fn printInt(self: &OutStream, comptime T: type, x: T) -> %usize {
+    pub fn printValue(self: &OutStream, value: var) -> %void {
+        const T = @typeOf(value);
+        if (@isInteger(T)) {
+            return self.printInt(T, value);
+        } else if (@isFloat(T)) {
+            return self.printFloat(T, value);
+        } else if (@canImplicitCast([]const u8, value)) {
+            const casted_value = ([]const u8)(value);
+            return self.write(casted_value);
+        } else {
+            @compileError("Unable to print type '" ++ @typeName(T) ++ "'");
+        }
+    }
+
+    pub fn printInt(self: &OutStream, comptime T: type, x: T) -> %void {
         // TODO replace max_u64_base10_digits with math.log10(math.pow(2, @sizeOf(T)))
         if (self.index + max_u64_base10_digits >= self.buffer.len) {
             %return self.flush();
         }
         const amt_printed = bufPrintInt(T, self.buffer[self.index...], x);
         self.index += amt_printed;
-        return amt_printed;
     }
 
     pub fn flush(self: &OutStream) -> %void {

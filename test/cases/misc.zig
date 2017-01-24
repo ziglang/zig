@@ -517,3 +517,52 @@ fn testArray2DConstDoublePtr(ptr: &const f32) {
     assert(ptr[0] == 1.0);
     assert(ptr[1] == 2.0);
 }
+
+fn isInteger() {
+    @setFnTest(this);
+
+    comptime {
+        assert(@isInteger(i8));
+        assert(@isInteger(u8));
+        assert(@isInteger(i64));
+        assert(@isInteger(u64));
+        assert(!@isInteger(f32));
+        assert(!@isInteger(f64));
+        assert(!@isInteger(bool));
+        assert(!@isInteger(&i32));
+    }
+}
+
+fn isFloat() {
+    @setFnTest(this);
+
+    comptime {
+        assert(!@isFloat(i8));
+        assert(!@isFloat(u8));
+        assert(!@isFloat(i64));
+        assert(!@isFloat(u64));
+        assert(@isFloat(f32));
+        assert(@isFloat(f64));
+        assert(!@isFloat(bool));
+        assert(!@isFloat(&f32));
+    }
+}
+
+fn canImplicitCast() {
+    @setFnTest(this);
+
+    comptime {
+        assert(@canImplicitCast(i64, i32(3)));
+        assert(!@canImplicitCast(i32, f32(1.234)));
+        assert(@canImplicitCast([]const u8, "aoeu"));
+    }
+}
+
+fn typeName() {
+    @setFnTest(this);
+
+    comptime {
+        assert(str.eql(@typeName(i64), "i64"));
+        assert(str.eql(@typeName(&usize), "&usize"));
+    }
+}
