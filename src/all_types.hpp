@@ -1424,6 +1424,10 @@ struct IrBasicBlock {
     size_t ref_count;
     LLVMBasicBlockRef llvm_block;
     LLVMBasicBlockRef llvm_exit_block;
+    // The instruction that referenced this basic block and caused us to
+    // analyze the basic block. If the same instruction wants us to emit
+    // the same basic block, then we re-generate it instead of saving it.
+    IrInstruction *ref_instruction;
 };
 
 enum IrInstructionId {

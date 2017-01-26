@@ -5843,13 +5843,16 @@ static bool is_u8(TypeTableEntry *type) {
         !type->data.integral.is_signed && type->data.integral.bit_count == 8;
 }
 
-static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
+static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb, IrInstruction *ref_old_instruction) {
     assert(old_bb);
 
-    if (old_bb->other)
-        return old_bb->other;
+    if (old_bb->other) {
+        if (ref_old_instruction == nullptr || old_bb->other->ref_instruction != ref_old_instruction)
+            return old_bb->other;
+    }
 
     IrBasicBlock *new_bb = ir_build_bb_from(&ira->new_irb, old_bb);
+    new_bb->ref_instruction = ref_old_instruction;
 
     // We are about to enqueue old_bb for analysis. Before we do so, look over old_bb's
     // instructions and make sure we have enqueued first the blocks which contain
@@ -5865,7 +5868,7 @@ static IrBasicBlock *ir_get_new_bb(IrAnalyze *ira, IrBasicBlock *old_bb) {
                 continue;
             if (dep_instruction->owner_bb == old_bb)
                 continue;
-            ir_get_new_bb(ira, dep_instruction->owner_bb);
+            ir_get_new_bb(ira, dep_instruction->owner_bb, nullptr);
         }
     }
     ira->old_bb_queue.append(old_bb);
@@ -5897,7 +5900,8 @@ static void ir_finish_bb(IrAnalyze *ira) {
 
     if (ira->block_queue_index < ira->old_bb_queue.length) {
         IrBasicBlock *old_bb = ira->old_bb_queue.at(ira->block_queue_index);
-        ira->new_irb.current_basic_block = ir_get_new_bb(ira, old_bb);
+        assert(old_bb->other);
+        ira->new_irb.current_basic_block = old_bb->other;
 
         ir_start_bb(ira, old_bb, nullptr);
     }
@@ -8274,7 +8278,7 @@ static TypeTableEntry *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr
     if (is_comptime || old_dest_block->ref_count == 1)
         return ir_inline_bb(ira, &br_instruction->base, old_dest_block);
 
-    IrBasicBlock *new_bb = ir_get_new_bb(ira, old_dest_block);
+    IrBasicBlock *new_bb = ir_get_new_bb(ira, old_dest_block, &br_instruction->base);
     ir_build_br_from(&ira->new_irb, &br_instruction->base, new_bb);
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
@@ -8307,7 +8311,7 @@ static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstruct
         if (is_comptime || old_dest_block->ref_count == 1)
             return ir_inline_bb(ira, &cond_br_instruction->base, old_dest_block);
 
-        IrBasicBlock *new_dest_block = ir_get_new_bb(ira, old_dest_block);
+        IrBasicBlock *new_dest_block = ir_get_new_bb(ira, old_dest_block, &cond_br_instruction->base);
         ir_build_br_from(&ira->new_irb, &cond_br_instruction->base, new_dest_block);
         return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
     }
@@ -8317,8 +8321,9 @@ static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstruct
     if (casted_condition == ira->codegen->invalid_instruction)
         return ir_unreach_error(ira);
 
-    IrBasicBlock *new_then_block = ir_get_new_bb(ira, cond_br_instruction->then_block);
-    IrBasicBlock *new_else_block = ir_get_new_bb(ira, cond_br_instruction->else_block);
+    assert(cond_br_instruction->then_block != cond_br_instruction->else_block);
+    IrBasicBlock *new_then_block = ir_get_new_bb(ira, cond_br_instruction->then_block, &cond_br_instruction->base);
+    IrBasicBlock *new_else_block = ir_get_new_bb(ira, cond_br_instruction->else_block, &cond_br_instruction->base);
     ir_build_cond_br_from(&ira->new_irb, &cond_br_instruction->base,
             casted_condition, new_then_block, new_else_block, nullptr);
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
@@ -9683,7 +9688,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         if (is_comptime || old_dest_block->ref_count == 1) {
             return ir_inline_bb(ira, &switch_br_instruction->base, old_dest_block);
         } else {
-            IrBasicBlock *new_dest_block = ir_get_new_bb(ira, old_dest_block);
+            IrBasicBlock *new_dest_block = ir_get_new_bb(ira, old_dest_block, &switch_br_instruction->base);
             ir_build_br_from(&ira->new_irb, &switch_br_instruction->base, new_dest_block);
             return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
         }
@@ -9693,8 +9698,14 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
     for (size_t i = 0; i < case_count; i += 1) {
         IrInstructionSwitchBrCase *old_case = &switch_br_instruction->cases[i];
         IrInstructionSwitchBrCase *new_case = &cases[i];
-        new_case->block = ir_get_new_bb(ira, old_case->block);
+        new_case->block = ir_get_new_bb(ira, old_case->block, &switch_br_instruction->base);
         new_case->value = ira->codegen->invalid_instruction;
+
+        // Calling ir_get_new_bb set the ref_instruction on the new basic block.
+        // However a switch br may branch to the same basic block which would trigger an
+        // incorrect re-generation of the block. So we set it to null here and assign
+        // it back after the loop.
+        new_case->block->ref_instruction = nullptr;
 
         IrInstruction *old_value = old_case->value;
         IrInstruction *new_value = old_value->other;
@@ -9717,7 +9728,12 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
         new_case->value = casted_new_value;
     }
 
-    IrBasicBlock *new_else_block = ir_get_new_bb(ira, switch_br_instruction->else_block);
+    for (size_t i = 0; i < case_count; i += 1) {
+        IrInstructionSwitchBrCase *new_case = &cases[i];
+        new_case->block->ref_instruction = &switch_br_instruction->base;
+    }
+
+    IrBasicBlock *new_else_block = ir_get_new_bb(ira, switch_br_instruction->else_block, &switch_br_instruction->base);
     ir_build_switch_br_from(&ira->new_irb, &switch_br_instruction->base,
             target_value, new_else_block, case_count, cases, nullptr);
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
@@ -11751,7 +11767,7 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
     ira->exec_context.mem_slot_list = allocate<ConstExprValue>(ira->exec_context.mem_slot_count);
 
     IrBasicBlock *old_entry_bb = ira->old_irb.exec->basic_block_list.at(0);
-    IrBasicBlock *new_entry_bb = ir_get_new_bb(ira, old_entry_bb);
+    IrBasicBlock *new_entry_bb = ir_get_new_bb(ira, old_entry_bb, nullptr);
     ir_ref_bb(new_entry_bb);
     ira->new_irb.current_basic_block = new_entry_bb;
     ira->block_queue_index = 0;

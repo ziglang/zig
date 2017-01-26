@@ -175,3 +175,19 @@ fn constSlice() {
         assert(b[0] == '2');
     }
 }
+
+fn tryToTrickEvalWithRuntimeIf() {
+    @setFnTest(this);
+
+    assert(testTryToTrickEvalWithRuntimeIf(true) == 10);
+}
+
+fn testTryToTrickEvalWithRuntimeIf(b: bool) -> usize {
+    comptime var i: usize = 0;
+    inline while (i < 10; i += 1) {
+        const result = if (b) false else true;
+    }
+    comptime {
+        return i;
+    }
+}
