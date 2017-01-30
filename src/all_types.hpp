@@ -80,6 +80,7 @@ struct ConstArrayValue {
     ConstExprValue *elements;
     // This will be the same as `len` from the type, but we duplicate the information
     // in the constant value so that pointers pointing to arrays can see this size.
+    // TODO now that ConstExprValue has the type field we can use that instead of this.
     size_t size;
     // If the data for this array is supposed to be contained in a different constant
     // value, we link to the parent here. This way getting a pointer to this constant

@@ -252,3 +252,29 @@ fn comptimeIterateOverFnPtrList() {
     assert(performFn('o', 0) == 1);
     assert(performFn('w', 99) == 99);
 }
+
+
+fn initStaticArray() -> [10]i32 {
+    var array: [10]i32 = undefined;
+    array[0] = 1;
+    array[4] = 2;
+    array[7] = 3;
+    array[9] = 4;
+    return array;
+}
+const static_array = initStaticArray();
+fn initStaticArrayToUndefined() {
+    @setFnTest(this);
+
+    assert(static_array[0] == 1);
+    assert(static_array[4] == 2);
+    assert(static_array[7] == 3);
+    assert(static_array[9] == 4);
+
+    comptime {
+        assert(static_array[0] == 1);
+        assert(static_array[4] == 2);
+        assert(static_array[7] == 3);
+        assert(static_array[9] == 4);
+    }
+}

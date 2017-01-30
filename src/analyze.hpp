@@ -136,4 +136,6 @@ ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t
 void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_index_start, size_t arg_index_end);
 ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end);
 
+void init_const_undefined(ConstExprValue *const_val);
+
 #endif

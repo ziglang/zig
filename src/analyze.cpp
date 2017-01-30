@@ -3190,6 +3190,27 @@ ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_
 }
 
 
+void init_const_undefined(ConstExprValue *const_val) {
+    TypeTableEntry *canon_wanted_type = get_underlying_type(const_val->type);
+    if (canon_wanted_type->id == TypeTableEntryIdArray) {
+        const_val->special = ConstValSpecialStatic;
+        size_t elem_count = canon_wanted_type->data.array.len;
+        const_val->data.x_array.elements = allocate<ConstExprValue>(elem_count);
+        const_val->data.x_array.size = elem_count;
+        for (size_t i = 0; i < elem_count; i += 1) {
+            ConstExprValue *element_val = &const_val->data.x_array.elements[i];
+            element_val->type = canon_wanted_type->data.array.child_type;
+            init_const_undefined(element_val);
+            if (get_underlying_type(element_val->type)->id == TypeTableEntryIdArray) {
+                element_val->data.x_array.parent_array = const_val;
+                element_val->data.x_array.parent_array_index = i;
+            }
+        }
+    } else {
+        const_val->special = ConstValSpecialUndef;
+    }
+}
+
 void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry) {
     if (type_entry->id == TypeTableEntryIdStruct) {
         if (!type_entry->data.structure.complete)

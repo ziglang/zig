@@ -6347,6 +6347,15 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
     return result;
 }
 
+static IrInstruction *ir_analyze_undefined_to_anything(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *target, TypeTableEntry *wanted_type)
+{
+    IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, wanted_type, target->value.depends_on_compile_var);
+    init_const_undefined(&result->value);
+    return result;
+}
+
 static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *target, TypeTableEntry *wanted_type)
 {
@@ -6671,7 +6680,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
     // explicit cast from undefined to anything
     if (actual_type->id == TypeTableEntryIdUndefLit) {
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpNoop, false);
+        return ir_analyze_undefined_to_anything(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from something to const pointer of it
