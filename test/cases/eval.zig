@@ -6,10 +6,10 @@ fn compileTimeRecursion() {
 
     assert(some_data.len == 21);
 }
-var some_data: [usize(fibbonaci(7))]u8 = undefined;
-fn fibbonaci(x: i32) -> i32 {
+var some_data: [usize(fibonacci(7))]u8 = undefined;
+fn fibonacci(x: i32) -> i32 {
     if (x <= 1) return 1;
-    return fibbonaci(x - 1) + fibbonaci(x - 2);
+    return fibonacci(x - 1) + fibonacci(x - 2);
 }
 
 
@@ -218,4 +218,37 @@ fn inlinedBlockAndRuntimeBlockPhi() {
         assert(letsTryToCompareBools(false, true));
         assert(!letsTryToCompareBools(false, false));
     }
+}
+
+const CmdFn = struct {
+    name: []const u8,
+    func: fn(i32) -> i32,
+};
+
+const cmd_fns = []CmdFn{
+    CmdFn {.name = "one", .func = one},
+    CmdFn {.name = "two", .func = two},
+    CmdFn {.name = "three", .func = three},
+};
+fn one(value: i32) -> i32 { value + 1 }
+fn two(value: i32) -> i32 { value + 2 }
+fn three(value: i32) -> i32 { value + 3 }
+
+fn performFn(comptime prefix_char: u8, start_value: i32) -> i32 {
+    var result: i32 = start_value;
+    comptime var i = 0;
+    inline while (i < cmd_fns.len; i += 1) {
+        if (cmd_fns[i].name[0] == prefix_char) {
+            result = cmd_fns[i].func(result);
+        }
+    }
+    return result;
+}
+
+fn comptimeIterateOverFnPtrList() {
+    @setFnTest(this);
+
+    assert(performFn('t', 1) == 6);
+    assert(performFn('o', 0) == 1);
+    assert(performFn('w', 99) == 99);
 }

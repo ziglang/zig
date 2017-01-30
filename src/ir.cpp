@@ -2945,7 +2945,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
         return irb->codegen->invalid_instruction;
     }
 
-    Scope *outer_scope = fn_entry->child_scope;
+    Scope *outer_scope = irb->exec->begin_scope;
 
     AstNode *expr_node = node->data.return_expr.expr;
     switch (node->data.return_expr.kind) {
