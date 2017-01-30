@@ -191,3 +191,31 @@ fn testTryToTrickEvalWithRuntimeIf(b: bool) -> usize {
         return i;
     }
 }
+
+fn max(comptime T: type, a: T, b: T) -> T {
+    if (T == bool) {
+        return a || b;
+    } else if (a > b) {
+        return a;
+    } else {
+        return b;
+    }
+}
+fn letsTryToCompareBools(a: bool, b: bool) -> bool {
+    max(bool, a, b)
+}
+fn inlinedBlockAndRuntimeBlockPhi() {
+    @setFnTest(this);
+
+    assert(letsTryToCompareBools(true, true));
+    assert(letsTryToCompareBools(true, false));
+    assert(letsTryToCompareBools(false, true));
+    assert(!letsTryToCompareBools(false, false));
+
+    comptime {
+        assert(letsTryToCompareBools(true, true));
+        assert(letsTryToCompareBools(true, false));
+        assert(letsTryToCompareBools(false, true));
+        assert(!letsTryToCompareBools(false, false));
+    }
+}

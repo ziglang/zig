@@ -5935,6 +5935,7 @@ static TypeTableEntry *ir_inline_bb(IrAnalyze *ira, IrInstruction *source_instru
             return ir_unreach_error(ira);
     }
 
+    old_bb->other = ira->old_irb.current_basic_block->other;
     ir_start_bb(ira, old_bb, ira->old_irb.current_basic_block);
     return ira->codegen->builtin_types.entry_unreachable;
 }
