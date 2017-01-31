@@ -7866,7 +7866,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         impl_fn->fndef_scope = create_fndef_scope(impl_fn->fn_def_node, parent_scope, impl_fn);
         impl_fn->child_scope = &impl_fn->fndef_scope->base;
         FnTypeId inst_fn_type_id = {0};
-        init_fn_type_id(&inst_fn_type_id, fn_proto_node);
+        init_fn_type_id(&inst_fn_type_id, fn_proto_node, call_param_count);
         inst_fn_type_id.param_count = 0;
         inst_fn_type_id.is_var_args = false;
 
@@ -7875,7 +7875,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         GenericFnTypeId *generic_id = allocate<GenericFnTypeId>(1);
         generic_id->fn_entry = fn_entry;
         generic_id->param_count = 0;
-        generic_id->params = allocate<ConstExprValue>(src_param_count);
+        generic_id->params = allocate<ConstExprValue>(call_param_count);
         size_t next_proto_i = 0;
 
         if (first_arg_ptr) {
@@ -11483,7 +11483,7 @@ static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruc
     assert(proto_node->type == NodeTypeFnProto);
 
     FnTypeId fn_type_id = {0};
-    init_fn_type_id(&fn_type_id, proto_node);
+    init_fn_type_id(&fn_type_id, proto_node, proto_node->data.fn_proto.params.length);
 
     bool depends_on_compile_var = false;
 

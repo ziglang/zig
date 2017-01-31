@@ -898,7 +898,7 @@ static TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     return fn_type;
 }
 
-void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node) {
+void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
@@ -906,7 +906,7 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node) {
     fn_type_id->is_naked = fn_proto->is_nakedcc;
     fn_type_id->is_cold = fn_proto->is_coldcc;
     fn_type_id->param_count = fn_proto->params.length;
-    fn_type_id->param_info = allocate_nonzero<FnTypeParamInfo>(fn_type_id->param_count);
+    fn_type_id->param_info = allocate_nonzero<FnTypeParamInfo>(param_count_alloc);
     fn_type_id->next_param_index = 0;
     fn_type_id->is_var_args = fn_proto->is_var_args;
 }
@@ -916,7 +916,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
     FnTypeId fn_type_id = {0};
-    init_fn_type_id(&fn_type_id, proto_node);
+    init_fn_type_id(&fn_type_id, proto_node, proto_node->data.fn_proto.params.length);
 
     for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
         AstNode *param_node = fn_proto->params.at(fn_type_id.next_param_index);

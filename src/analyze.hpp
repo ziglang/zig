@@ -70,7 +70,7 @@ VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent
 TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 FnTableEntry *create_fn(AstNode *proto_node);
 FnTableEntry *create_fn_raw(FnInline inline_value, bool internal_linkage);
-void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node);
+void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc);
 AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index);
 FnTableEntry *scope_get_fn_if_root(Scope *scope);
 bool type_requires_comptime(TypeTableEntry *type_entry);
