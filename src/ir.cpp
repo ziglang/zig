@@ -7397,7 +7397,7 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         op2_array_end = op2_array_val->data.x_array.size - 1;
     } else {
         ir_add_error(ira, op2,
-            buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->value.type->name)));
+            buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op2->value.type->name)));
         // TODO if meta_type is type decl, add note pointing to type decl declaration
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -8511,6 +8511,23 @@ static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstruct
     return ir_analyze_var_ptr(ira, &var_ptr_instruction->base, var, var_ptr_instruction->is_const, false);
 }
 
+static VariableTableEntry *get_fn_var_by_index(FnTableEntry *fn_entry, size_t index) {
+    size_t next_var_i = 0;
+    FnGenParamInfo *gen_param_info = fn_entry->type_entry->data.fn.gen_param_info;
+    for (size_t param_i = 0; param_i < index; param_i += 1) {
+        FnGenParamInfo *info = &gen_param_info[param_i];
+        if (info->gen_index == SIZE_MAX)
+            continue;
+
+        next_var_i += 1;
+    }
+    FnGenParamInfo *info = &gen_param_info[index];
+    if (info->gen_index == SIZE_MAX)
+        return nullptr;
+
+    return fn_entry->variable_list.at(next_var_i);
+}
+
 static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionElemPtr *elem_ptr_instruction) {
     IrInstruction *array_ptr = elem_ptr_instruction->array_ptr->other;
     if (array_ptr->value.type->id == TypeTableEntryIdInvalid)
@@ -8560,10 +8577,15 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         size_t abs_index = start + index;
         FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
         assert(fn_entry);
-        VariableTableEntry *var = fn_entry->variable_list.at(abs_index);
+        VariableTableEntry *var = get_fn_var_by_index(fn_entry, abs_index);
         bool depends_on_compile_var = array_ptr->value.depends_on_compile_var ||
             elem_index->value.depends_on_compile_var;
-        return ir_analyze_var_ptr(ira, &elem_ptr_instruction->base, var, true, depends_on_compile_var);
+        if (var) {
+            return ir_analyze_var_ptr(ira, &elem_ptr_instruction->base, var, true, depends_on_compile_var);
+        } else {
+            return ir_analyze_const_ptr(ira, &elem_ptr_instruction->base, &ira->codegen->const_void_val,
+                    ira->codegen->builtin_types.entry_void, depends_on_compile_var, ConstPtrSpecialNone, true);
+        }
     } else {
         ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                 buf_sprintf("array access of non-array type '%s'", buf_ptr(&array_type->name)));
@@ -10445,16 +10467,13 @@ static TypeTableEntry *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstru
     if (type_entry->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *str_type = get_slice_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
     if (!type_entry->cached_const_name_val) {
-        ConstExprValue *array_val = create_const_str_lit(ira->codegen, &type_entry->name);
-        type_entry->cached_const_name_val = create_const_slice(ira->codegen,
-                array_val, 0, buf_len(&type_entry->name), true);
+        type_entry->cached_const_name_val = create_const_str_lit(ira->codegen, &type_entry->name);
     }
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base,
         type_value->value.depends_on_compile_var);
     *out_val = *type_entry->cached_const_name_val;
-    return str_type;
+    return out_val->type;
 }
 
 static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstructionCImport *instruction) {

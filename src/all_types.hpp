@@ -1262,6 +1262,7 @@ struct CodeGen {
     LLVMValueRef err_name_table;
 
     IrInstruction *invalid_instruction;
+    ConstExprValue const_void_val;
 };
 
 // TODO after merging IR branch, we can probably delete some of these fields

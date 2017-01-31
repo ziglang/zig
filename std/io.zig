@@ -165,6 +165,8 @@ pub const OutStream = struct {
         } else if (@canImplicitCast([]const u8, value)) {
             const casted_value = ([]const u8)(value);
             return self.write(casted_value);
+        } else if (T == void) {
+            return self.write("void");
         } else {
             @compileError("Unable to print type '" ++ @typeName(T) ++ "'");
         }

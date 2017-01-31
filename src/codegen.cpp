@@ -3738,6 +3738,9 @@ static void init(CodeGen *g, Buf *source_path) {
 
     g->invalid_instruction = allocate<IrInstruction>(1);
     g->invalid_instruction->value.type = g->builtin_types.entry_invalid;
+
+    g->const_void_val.special = ConstValSpecialStatic;
+    g->const_void_val.type = g->builtin_types.entry_void;
 }
 
 void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code) {

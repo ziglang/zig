@@ -15,3 +15,13 @@ fn testAddArbitraryArgs() {
     assert(add(i32(1234)) == 1234);
     assert(add() == 0);
 }
+
+fn readFirstVarArg(args: ...) {
+    const value = args[0];
+}
+
+fn sendVoidArgToVarArgs() {
+    @setFnTest(this);
+
+    readFirstVarArg({});
+}
