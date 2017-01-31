@@ -1656,6 +1656,12 @@ fn bar() -> i32 {
 }
     )SOURCE", 1, ".tmp_source.zig:11:9: error: parameter of type '(integer literal)' requires comptime");
 
+    add_compile_fail_case("assign too big number to u16", R"SOURCE(
+fn foo() {
+    var vga_mem: u16 = 0xB8000;
+}
+    )SOURCE", 1, ".tmp_source.zig:3:24: error: integer value 753664 cannot be implicitly casted to type 'u16'");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////

@@ -7591,6 +7591,11 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     var->value.type = result_type;
     assert(var->value.type);
 
+    if (result_type->id == TypeTableEntryIdInvalid) {
+        decl_var_instruction->base.other = &decl_var_instruction->base;
+        return ira->codegen->builtin_types.entry_void;
+    }
+
     bool is_comptime = ir_get_var_is_comptime(var);
 
     if (casted_init_value->value.special != ConstValSpecialRuntime) {
