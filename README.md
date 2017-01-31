@@ -1,13 +1,13 @@
 # zig lang
 
-A system programming language intended to replace C.
+A system programming language which prioritizes optimality, safety, and
+readability.
 
-Zig intends to remain a small language, yet powerful enough to write
-optimal, readable, safe, and concise code to solve any computing problem.
+Zig is a small language, yet powerful enough to solve any computing problem.
 
-Porting a C project to Zig should be a pleasant experience - every C feature
-needs a corresponding Zig feature which solves the problem equivalently or
-better.
+Zig intends to replace C. Therefore, porting a C project to Zig should be a
+pleasant experience. For every use case C can solve, the same use case must
+be handled in Zig in an equally or more satisfying way.
 
 Zig is not afraid to roll the major version number of the language if it
 improves simplicity, fixes poor design decisions, or adds a new feature which
@@ -30,8 +30,9 @@ compromises backward compatibility.
    than writing buggy code.
  * No header files required. Top level declarations are entirely
    order-independent.
- * Powerful constant expression evaluator. Generally, anything that *can* be
-   figured out at compile time *is* figured out at compile time.
+ * Compile-time code execution. Compile-time reflection.
+ * Partial compile-time function evaluation with eliminates the need for
+   a preprocessor or macros.
  * Tagged union enum type. No more accidentally reading the wrong union field.
  * Generics so that one can write efficient data structures that work for any
    data type.
@@ -44,14 +45,12 @@ compromises backward compatibility.
  * Release mode produces heavily optimized code. What other projects call
    "Link Time Optimization" Zig does automatically.
  * Mark functions as tests and automatically run them with `zig test`.
- * Supported architectures: `x86_64`, `i386`
- * Supported operating systems: linux
+ * Currently supported architectures: `x86_64`, `i386`
+ * Currently supported operating systems: linux, macosx
  * Friendly toward package maintainers. Reproducible build, bootstrapping
    process carefully documented. Issues filed by package maintainers are
    considered especially important.
  * Easy cross-compiling.
- * Eliminate the preprocessor, but (most) everything you can accomplish with
-   the preprocessor, you can accomplish directly in the language.
 
 ## Planned Features
 
