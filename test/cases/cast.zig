@@ -8,3 +8,10 @@ fn intToPtrCast() {
     const z = usize(y);
     assert(z == 13);
 }
+
+fn numLitIntToPtrCast() {
+    @setFnTest(this);
+
+    const vga_mem = (&u16)(0xB8000);
+    assert(usize(vga_mem) == 0xB8000);
+}

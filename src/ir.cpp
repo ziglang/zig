@@ -6424,6 +6424,27 @@ static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *sourc
     return result;
 }
 
+static IrInstruction *ir_analyze_int_lit_to_ptr(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *target, TypeTableEntry *wanted_type)
+{
+    assert(wanted_type->id == TypeTableEntryIdPointer);
+
+    ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+    if (!val)
+        return ira->codegen->invalid_instruction;
+
+    TypeTableEntry *usize_type = ira->codegen->builtin_types.entry_usize;
+    if (!ir_num_lit_fits_in_other_type(ira, target, usize_type))
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, wanted_type, val->depends_on_compile_var);
+    result->value.data.x_ptr.base_ptr = nullptr;
+    result->value.data.x_ptr.index = bignum_to_twos_complement(&val->data.x_bignum);
+    result->value.data.x_ptr.special = ConstPtrSpecialRuntime;
+    return result;
+}
+
 static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *target, TypeTableEntry *wanted_type)
 {
@@ -6489,6 +6510,13 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         (actual_type_canon == isize_type || actual_type_canon == usize_type))
     {
         return ir_analyze_int_to_ptr(ira, source_instr, value, wanted_type);
+    }
+
+    // explicit cast from number literal to pointer
+    if (wanted_type_canon->id == TypeTableEntryIdPointer &&
+        (actual_type_canon->id == TypeTableEntryIdNumLitInt))
+    {
+        return ir_analyze_int_lit_to_ptr(ira, source_instr, value, wanted_type);
     }
 
     // explicit widening or shortening cast
