@@ -650,6 +650,10 @@ This function returns an integer type with the given signness and bit count.
 
 Makes the target function a test function.
 
+### @setDebugSafety(scope, safety_on: bool)
+
+Sets a whether we want debug safety checks on for a given scope.
+
 ### @isInteger(comptime T: type) -> bool
 
 Returns whether a given type is an integer.
