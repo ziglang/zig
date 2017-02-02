@@ -7808,9 +7808,15 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         size_t next_proto_i = 0;
         if (first_arg_ptr) {
-            IrInstruction *first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
-            if (first_arg->value.type->id == TypeTableEntryIdInvalid)
-                return ira->codegen->builtin_types.entry_invalid;
+            IrInstruction *first_arg;
+            assert(first_arg_ptr->value.type->id == TypeTableEntryIdPointer);
+            if (handle_is_ptr(first_arg_ptr->value.type->data.pointer.child_type)) {
+                first_arg = first_arg_ptr;
+            } else {
+                first_arg = ir_get_deref(ira, first_arg_ptr, first_arg_ptr);
+                if (first_arg->value.type->id == TypeTableEntryIdInvalid)
+                    return ira->codegen->builtin_types.entry_invalid;
+            }
 
             if (!ir_analyze_fn_call_inline_arg(ira, fn_proto_node, first_arg, &exec_scope, &next_proto_i))
                 return ira->codegen->builtin_types.entry_invalid;

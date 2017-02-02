@@ -27,6 +27,10 @@ fn initStaticArrayToUndefined() {
 
 const Foo = struct {
     x: i32,
+
+    fn setFooXMethod(foo: &Foo) {
+        foo.x = 3;
+    }
 };
 
 fn setFooX(foo: &Foo) {
@@ -45,5 +49,20 @@ fn assignUndefinedToStruct() {
         var foo: Foo = undefined;
         setFooX(&foo);
         assert(foo.x == 2);
+    }
+}
+
+fn assignUndefinedToStructWithMethod() {
+    @setFnTest(this);
+
+    comptime {
+        var foo: Foo = undefined;
+        foo.setFooXMethod();
+        assert(foo.x == 3);
+    }
+    {
+        var foo: Foo = undefined;
+        foo.setFooXMethod();
+        assert(foo.x == 3);
     }
 }
