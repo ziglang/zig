@@ -69,7 +69,7 @@ AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | Un
 
 AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||=" | "*%=" | "+%=" | "-%=" | "<<%="
 
-BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression | CompTimeExpression
+BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression | CompTimeExpression | TryExpression
 
 CompTimeExpression = option("comptime") Expression
 
@@ -92,6 +92,8 @@ Defer = option("%" | "?") "defer" Expression
 IfExpression = IfVarExpression | IfBoolExpression
 
 IfBoolExpression = "if" "(" Expression ")" Expression option(Else)
+
+TryExpression = "try" "(" ("const" | "var") option("*") Symbol "=" Expression  ")" Expression option("else" option("|" Symbol "|") Expression)
 
 IfVarExpression = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
 

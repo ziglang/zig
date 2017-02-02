@@ -299,6 +299,7 @@ enum NodeType {
     NodeTypeErrorType,
     NodeTypeTypeLiteral,
     NodeTypeVarLiteral,
+    NodeTypeTryExpr,
 };
 
 struct AstNodeRoot {
@@ -511,6 +512,16 @@ struct AstNodeIfBoolExpr {
     AstNode *else_node; // null, block node, or other if expr node
 };
 
+struct AstNodeTryExpr {
+    bool var_is_const;
+    Buf *var_symbol;
+    bool var_is_ptr;
+    AstNode *target_node;
+    AstNode *then_node;
+    AstNode *else_node;
+    Buf *err_symbol;
+};
+
 struct AstNodeIfVarExpr {
     AstNodeVariableDeclaration var_decl;
     AstNode *then_block;
@@ -721,6 +732,7 @@ struct AstNode {
         AstNodeUse use;
         AstNodeIfBoolExpr if_bool_expr;
         AstNodeIfVarExpr if_var_expr;
+        AstNodeTryExpr try_expr;
         AstNodeWhileExpr while_expr;
         AstNodeForExpr for_expr;
         AstNodeSwitchExpr switch_expr;

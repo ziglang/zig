@@ -9,8 +9,8 @@ error MissingDebugInfo;
 error InvalidDebugInfo;
 error UnsupportedDebugInfo;
 
-pub fn assert(b: bool) {
-    if (!b) @unreachable()
+pub fn assert(ok: bool) {
+    if (!ok) @unreachable()
 }
 
 pub fn printStackTrace() -> %void {

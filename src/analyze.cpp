@@ -1769,6 +1769,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeErrorType:
         case NodeTypeTypeLiteral:
         case NodeTypeVarLiteral:
+        case NodeTypeTryExpr:
             zig_unreachable();
     }
 }

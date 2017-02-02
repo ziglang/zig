@@ -624,6 +624,71 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
 }
 
 /*
+TryExpression = "try" "(" ("const" | "var") option("*") Symbol "=" Expression  ")" Expression option("else" option("|" Symbol "|") Expression)
+*/
+static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
+    Token *try_token = &pc->tokens->at(*token_index);
+    if (try_token->id == TokenIdKeywordTry) {
+        *token_index += 1;
+    } else if (mandatory) {
+        ast_expect_token(pc, try_token, TokenIdKeywordTry);
+        zig_unreachable();
+    } else {
+        return nullptr;
+    }
+
+    AstNode *node = ast_create_node(pc, NodeTypeTryExpr, try_token);
+
+    ast_eat_token(pc, token_index, TokenIdLParen);
+
+    Token *var_token = &pc->tokens->at(*token_index);
+    if (var_token->id == TokenIdKeywordVar) {
+        node->data.try_expr.var_is_const = false;
+        *token_index += 1;
+    } else if (var_token->id == TokenIdKeywordConst) {
+        node->data.try_expr.var_is_const = true;
+        *token_index += 1;
+    } else {
+        ast_invalid_token_error(pc, var_token);
+    }
+
+    Token *star_token = &pc->tokens->at(*token_index);
+    if (star_token->id == TokenIdStar) {
+        node->data.try_expr.var_is_ptr = true;
+        *token_index += 1;
+    }
+
+    Token *var_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+    node->data.try_expr.var_symbol = token_buf(var_name_tok);
+
+    ast_eat_token(pc, token_index, TokenIdEq);
+
+    node->data.try_expr.target_node = ast_parse_expression(pc, token_index, true);
+
+    ast_eat_token(pc, token_index, TokenIdRParen);
+
+    node->data.try_expr.then_node = ast_parse_expression(pc, token_index, true);
+
+    Token *else_token = &pc->tokens->at(*token_index);
+    if (else_token->id != TokenIdKeywordElse)
+        return node;
+
+    *token_index += 1;
+    Token *open_bar_tok = &pc->tokens->at(*token_index);
+    if (open_bar_tok->id == TokenIdBinOr) {
+        *token_index += 1;
+
+        Token *err_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+        node->data.try_expr.err_symbol = token_buf(err_name_tok);
+
+        ast_eat_token(pc, token_index, TokenIdBinOr);
+    }
+
+    node->data.try_expr.else_node = ast_parse_expression(pc, token_index, true);
+    return node;
+}
+
+/*
 PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
 KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this"
 */
@@ -1775,7 +1840,7 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
 }
 
 /*
-BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression | CompTimeExpression
+BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression | CompTimeExpression | TryExpression
 */
 static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1803,6 +1868,10 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool
     AstNode *comptime_node = ast_parse_comptime_expr(pc, token_index, false);
     if (comptime_node)
         return comptime_node;
+
+    AstNode *try_node = ast_parse_try_expr(pc, token_index, false);
+    if (try_node)
+        return try_node;
 
     if (mandatory)
         ast_invalid_token_error(pc, token);
@@ -2554,6 +2623,11 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.if_var_expr.var_decl.expr, visit, context);
             visit_field(&node->data.if_var_expr.then_block, visit, context);
             visit_field(&node->data.if_var_expr.else_node, visit, context);
+            break;
+        case NodeTypeTryExpr:
+            visit_field(&node->data.try_expr.target_node, visit, context);
+            visit_field(&node->data.try_expr.then_node, visit, context);
+            visit_field(&node->data.try_expr.else_node, visit, context);
             break;
         case NodeTypeWhileExpr:
             visit_field(&node->data.while_expr.condition, visit, context);

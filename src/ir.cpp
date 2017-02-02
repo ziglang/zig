@@ -4748,6 +4748,98 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, Scope *scope, AstNode *
     return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
 }
 
+static IrInstruction *ir_gen_try_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeTryExpr);
+
+    AstNode *target_node = node->data.try_expr.target_node;
+    AstNode *then_node = node->data.try_expr.then_node;
+    AstNode *else_node = node->data.try_expr.else_node;
+    bool var_is_ptr = node->data.try_expr.var_is_ptr;
+    bool var_is_const = node->data.try_expr.var_is_const;
+    Buf *var_symbol = node->data.try_expr.var_symbol;
+    Buf *err_symbol = node->data.try_expr.err_symbol;
+
+    IrInstruction *err_val_ptr = ir_gen_node_extra(irb, target_node, scope, LValPurposeAddressOf);
+    if (err_val_ptr == irb->codegen->invalid_instruction)
+        return err_val_ptr;
+
+    IrInstruction *err_val = ir_build_load_ptr(irb, scope, node, err_val_ptr);
+    IrInstruction *is_err = ir_build_test_err(irb, scope, node, err_val);
+
+    IrBasicBlock *ok_block = ir_build_basic_block(irb, scope, "TryOk");
+    IrBasicBlock *else_block = ir_build_basic_block(irb, scope, "TryElse");
+    IrBasicBlock *endif_block = ir_build_basic_block(irb, scope, "TryEnd");
+
+    IrInstruction *is_comptime;
+    if (ir_should_inline(irb->exec, scope)) {
+        is_comptime = ir_build_const_bool(irb, scope, node, true);
+    } else {
+        is_comptime = ir_build_test_comptime(irb, scope, node, is_err);
+    }
+    ir_build_cond_br(irb, scope, node, is_err, else_block, ok_block, is_comptime);
+
+    ir_set_cursor_at_end(irb, ok_block);
+
+    Scope *var_scope;
+    if (var_symbol) {
+        IrInstruction *var_type = nullptr;
+        bool is_shadowable = false;
+        VariableTableEntry *var = ir_create_var(irb, node, scope,
+                var_symbol, var_is_const, var_is_const, is_shadowable, is_comptime);
+
+        IrInstruction *var_ptr_value = ir_build_unwrap_err_payload(irb, scope, node, err_val_ptr, false);
+        IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, node, var_ptr_value);
+        ir_build_var_decl(irb, scope, node, var, var_type, var_value);
+        var_scope = var->child_scope;
+    } else {
+        var_scope = scope;
+    }
+    IrInstruction *then_expr_result = ir_gen_node(irb, then_node, var_scope);
+    if (then_expr_result == irb->codegen->invalid_instruction)
+        return then_expr_result;
+    IrBasicBlock *after_then_block = irb->current_basic_block;
+    if (!instr_is_unreachable(then_expr_result))
+        ir_mark_gen(ir_build_br(irb, scope, node, endif_block, is_comptime));
+
+    ir_set_cursor_at_end(irb, else_block);
+
+    IrInstruction *else_expr_result;
+    if (else_node) {
+        Scope *err_var_scope;
+        if (err_symbol) {
+            IrInstruction *var_type = nullptr;
+            bool is_shadowable = false;
+            bool is_const = true;
+            VariableTableEntry *var = ir_create_var(irb, node, scope,
+                    err_symbol, is_const, is_const, is_shadowable, is_comptime);
+
+            IrInstruction *var_value = ir_build_unwrap_err_code(irb, scope, node, err_val_ptr);
+            ir_build_var_decl(irb, scope, node, var, var_type, var_value);
+            err_var_scope = var->child_scope;
+        } else {
+            err_var_scope = scope;
+        }
+        else_expr_result = ir_gen_node(irb, else_node, err_var_scope);
+        if (else_expr_result == irb->codegen->invalid_instruction)
+            return else_expr_result;
+    } else {
+        else_expr_result = ir_build_const_void(irb, scope, node);
+    }
+    IrBasicBlock *after_else_block = irb->current_basic_block;
+    if (!instr_is_unreachable(else_expr_result))
+        ir_mark_gen(ir_build_br(irb, scope, node, endif_block, is_comptime));
+
+    ir_set_cursor_at_end(irb, endif_block);
+    IrInstruction **incoming_values = allocate<IrInstruction *>(2);
+    incoming_values[0] = then_expr_result;
+    incoming_values[1] = else_expr_result;
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    incoming_blocks[0] = after_then_block;
+    incoming_blocks[1] = after_else_block;
+
+    return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+}
+
 static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *switch_node, AstNode *prong_node,
         IrBasicBlock *end_block, IrInstruction *is_comptime, IrInstruction *target_value_ptr, IrInstruction *prong_value,
         ZigList<IrBasicBlock *> *incoming_blocks, ZigList<IrInstruction *> *incoming_values)
@@ -5291,6 +5383,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_var_literal(irb, scope, node), lval);
         case NodeTypeIfVarExpr:
             return ir_lval_wrap(irb, scope, ir_gen_if_var_expr(irb, scope, node), lval);
+        case NodeTypeTryExpr:
+            return ir_lval_wrap(irb, scope, ir_gen_try_expr(irb, scope, node), lval);
         case NodeTypeSwitchExpr:
             return ir_lval_wrap(irb, scope, ir_gen_switch_expr(irb, scope, node), lval);
         case NodeTypeGoto:
