@@ -6352,7 +6352,7 @@ static IrInstruction *ir_analyze_undefined_to_anything(IrAnalyze *ira, IrInstruc
 {
     IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
             source_instr->source_node, wanted_type, target->value.depends_on_compile_var);
-    init_const_undefined(&result->value);
+    init_const_undefined(ira->codegen, &result->value);
     return result;
 }
 

@@ -275,6 +275,8 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
     if (*parent_pointer) {
         return *parent_pointer;
     } else {
+        type_ensure_zero_bits_known(g, child_type);
+
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
 
         const char *const_str = is_const ? "const " : "";
@@ -3190,7 +3192,7 @@ ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_
 }
 
 
-void init_const_undefined(ConstExprValue *const_val) {
+void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
     TypeTableEntry *canon_wanted_type = get_underlying_type(const_val->type);
     if (canon_wanted_type->id == TypeTableEntryIdArray) {
         const_val->special = ConstValSpecialStatic;
@@ -3200,11 +3202,23 @@ void init_const_undefined(ConstExprValue *const_val) {
         for (size_t i = 0; i < elem_count; i += 1) {
             ConstExprValue *element_val = &const_val->data.x_array.elements[i];
             element_val->type = canon_wanted_type->data.array.child_type;
-            init_const_undefined(element_val);
+            init_const_undefined(g, element_val);
             if (get_underlying_type(element_val->type)->id == TypeTableEntryIdArray) {
                 element_val->data.x_array.parent_array = const_val;
                 element_val->data.x_array.parent_array_index = i;
             }
+        }
+    } else if (canon_wanted_type->id == TypeTableEntryIdStruct) {
+        ensure_complete_type(g, canon_wanted_type);
+
+        const_val->special = ConstValSpecialStatic;
+        size_t field_count = canon_wanted_type->data.structure.src_field_count;
+        const_val->data.x_struct.fields = allocate<ConstExprValue>(field_count);
+        for (size_t i = 0; i < field_count; i += 1) {
+            ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
+            field_val->type = canon_wanted_type->data.structure.fields[i].type_entry;
+            assert(field_val->type);
+            init_const_undefined(g, field_val);
         }
     } else {
         const_val->special = ConstValSpecialUndef;
