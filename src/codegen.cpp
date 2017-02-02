@@ -66,7 +66,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->is_test_build = false;
     g->want_h_file = true;
 
-    // the error.Ok value
+    // reserve index 0 to indicate no error
     g->error_decls.append(nullptr);
 
     g->root_package = new_package(buf_ptr(root_source_dir), "");
