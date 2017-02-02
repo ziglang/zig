@@ -1179,6 +1179,8 @@ static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInst
 
     switch (op_id) {
         case IrUnOpInvalid:
+        case IrUnOpError:
+        case IrUnOpMaybe:
             zig_unreachable();
         case IrUnOpNegation:
         case IrUnOpNegationWrap:
@@ -1211,14 +1213,6 @@ static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInst
                     TypeTableEntry *child_type = expr_type->data.pointer.child_type;
                     return get_handle_value(g, expr, child_type);
                 }
-            }
-        case IrUnOpError:
-            {
-                zig_panic("TODO codegen PrefixOpError");
-            }
-        case IrUnOpMaybe:
-            {
-                zig_panic("TODO codegen PrefixOpMaybe");
             }
     }
 
