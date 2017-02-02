@@ -509,7 +509,6 @@ struct AstNodeIfBoolExpr {
     AstNode *condition;
     AstNode *then_block;
     AstNode *else_node; // null, block node, or other if expr node
-    bool is_inline;
 };
 
 struct AstNodeIfVarExpr {
@@ -517,7 +516,6 @@ struct AstNodeIfVarExpr {
     AstNode *then_block;
     AstNode *else_node; // null, block node, or other if expr node
     bool var_is_ptr;
-    bool is_inline;
 };
 
 struct AstNodeWhileExpr {
@@ -539,7 +537,6 @@ struct AstNodeForExpr {
 struct AstNodeSwitchExpr {
     AstNode *expr;
     ZigList<AstNode *> prongs;
-    bool is_inline;
 };
 
 struct AstNodeSwitchProng {
@@ -677,11 +674,9 @@ struct AstNodeBoolLiteral {
 };
 
 struct AstNodeBreakExpr {
-    bool is_inline; // TODO
 };
 
 struct AstNodeContinueExpr {
-    bool is_inline; // TODO
 };
 
 struct AstNodeArrayType {

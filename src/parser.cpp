@@ -1313,30 +1313,17 @@ static AstNode *ast_parse_else(ParseContext *pc, size_t *token_index, bool manda
 
 /*
 IfExpression : IfVarExpression | IfBoolExpression
-IfBoolExpression = option("inline") "if" "(" Expression ")" Expression option(Else)
-IfVarExpression = option("inline") "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
+IfBoolExpression = "if" "(" Expression ")" Expression option(Else)
+IfVarExpression = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
 */
 static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *first_token = &pc->tokens->at(*token_index);
-    Token *if_tok;
+    Token *if_token = &pc->tokens->at(*token_index);
 
-    bool is_inline;
-    if (first_token->id == TokenIdKeywordInline) {
-        if_tok = &pc->tokens->at(*token_index + 1);
-        if (if_tok->id == TokenIdKeywordIf) {
-            is_inline = true;
-            *token_index += 2;
-        } else if (mandatory) {
-            ast_expect_token(pc, if_tok, TokenIdKeywordIf);
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordIf) {
-        if_tok = first_token;
-        is_inline = false;
+    if (if_token->id == TokenIdKeywordIf) {
         *token_index += 1;
     } else if (mandatory) {
-        ast_expect_token(pc, first_token, TokenIdKeywordIf);
+        ast_expect_token(pc, if_token, TokenIdKeywordIf);
+        zig_unreachable();
     } else {
         return nullptr;
     }
@@ -1345,8 +1332,7 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool ma
 
     Token *token = &pc->tokens->at(*token_index);
     if (token->id == TokenIdKeywordConst || token->id == TokenIdKeywordVar) {
-        AstNode *node = ast_create_node(pc, NodeTypeIfVarExpr, if_tok);
-        node->data.if_var_expr.is_inline = is_inline;
+        AstNode *node = ast_create_node(pc, NodeTypeIfVarExpr, if_token);
         node->data.if_var_expr.var_decl.is_const = (token->id == TokenIdKeywordConst);
         *token_index += 1;
 
@@ -1383,8 +1369,7 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool ma
 
         return node;
     } else {
-        AstNode *node = ast_create_node(pc, NodeTypeIfBoolExpr, if_tok);
-        node->data.if_bool_expr.is_inline = is_inline;
+        AstNode *node = ast_create_node(pc, NodeTypeIfBoolExpr, if_token);
         node->data.if_bool_expr.condition = ast_parse_expression(pc, token_index, true);
         ast_eat_token(pc, token_index, TokenIdRParen);
         node->data.if_bool_expr.then_block = ast_parse_expression(pc, token_index, true);
@@ -1700,38 +1685,22 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, size_t *token_index, bool m
 }
 
 /*
-SwitchExpression = option("inline") "switch" "(" Expression ")" "{" many(SwitchProng) "}"
+SwitchExpression = "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" option("*") Symbol "|") Expression ","
 SwitchItem : Expression | (Expression "..." Expression)
 */
 static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *first_token = &pc->tokens->at(*token_index);
-    Token *switch_token;
-    bool is_inline;
-    if (first_token->id == TokenIdKeywordInline) {
-        is_inline = true;
-        switch_token = &pc->tokens->at(*token_index + 1);
-        if (switch_token->id == TokenIdKeywordSwitch) {
-            *token_index += 2;
-        } else if (mandatory) {
-            ast_expect_token(pc, first_token, TokenIdKeywordSwitch);
-            zig_unreachable();
-        } else {
-            return nullptr;
-        }
-    } else if (first_token->id == TokenIdKeywordSwitch) {
-        is_inline = false;
-        switch_token = first_token;
+    Token *switch_token = &pc->tokens->at(*token_index);
+    if (switch_token->id == TokenIdKeywordSwitch) {
         *token_index += 1;
     } else if (mandatory) {
-        ast_expect_token(pc, first_token, TokenIdKeywordSwitch);
+        ast_expect_token(pc, switch_token, TokenIdKeywordSwitch);
         zig_unreachable();
     } else {
         return nullptr;
     }
 
     AstNode *node = ast_create_node(pc, NodeTypeSwitchExpr, switch_token);
-    node->data.switch_expr.is_inline = is_inline;
 
     ast_eat_token(pc, token_index, TokenIdLParen);
     node->data.switch_expr.expr = ast_parse_expression(pc, token_index, true);

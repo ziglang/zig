@@ -73,7 +73,7 @@ BlockExpression = IfExpression | Block | WhileExpression | ForExpression | Switc
 
 CompTimeExpression = option("comptime") Expression
 
-SwitchExpression = option("inline") "switch" "(" Expression ")" "{" many(SwitchProng) "}"
+SwitchExpression = "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 
 SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" option("*") Symbol "|") Expression ","
 
@@ -91,9 +91,9 @@ Defer = option("%" | "?") "defer" Expression
 
 IfExpression = IfVarExpression | IfBoolExpression
 
-IfBoolExpression = option("inline") "if" "(" Expression ")" Expression option(Else)
+IfBoolExpression = "if" "(" Expression ")" Expression option(Else)
 
-IfVarExpression = option("inline") "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
+IfVarExpression = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
 
 Else = "else" Expression
 

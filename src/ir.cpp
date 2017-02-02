@@ -4148,7 +4148,7 @@ static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode 
         return condition;
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb->exec, scope) || node->data.if_bool_expr.is_inline) {
+    if (ir_should_inline(irb->exec, scope)) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = ir_build_test_comptime(irb, scope, node, condition);
@@ -4695,7 +4695,7 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, Scope *scope, AstNode *
     IrBasicBlock *endif_block = ir_build_basic_block(irb, scope, "MaybeEndIf");
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb->exec, scope) || node->data.if_var_expr.is_inline) {
+    if (ir_should_inline(irb->exec, scope)) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = ir_build_test_comptime(irb, scope, node, is_non_null);
@@ -4807,7 +4807,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     ZigList<IrInstructionSwitchBrCase> cases = {0};
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb->exec, scope) || node->data.switch_expr.is_inline) {
+    if (ir_should_inline(irb->exec, scope)) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = ir_build_test_comptime(irb, scope, node, target_value);
@@ -5002,7 +5002,7 @@ static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *scope, AstNode *node) 
     LoopStackItem *loop_stack_item = &irb->loop_stack.last();
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb->exec, scope) || node->data.break_expr.is_inline) {
+    if (ir_should_inline(irb->exec, scope)) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = loop_stack_item->is_comptime;
@@ -5025,7 +5025,7 @@ static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *scope, AstNode *nod
     LoopStackItem *loop_stack_item = &irb->loop_stack.last();
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb->exec, scope) || node->data.continue_expr.is_inline) {
+    if (ir_should_inline(irb->exec, scope)) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
     } else {
         is_comptime = loop_stack_item->is_comptime;

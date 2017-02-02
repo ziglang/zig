@@ -844,14 +844,12 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeBreak:
             {
-                const char *inline_str = node->data.break_expr.is_inline ? "inline " : "";
-                fprintf(ar->f, "%sbreak", inline_str);
+                fprintf(ar->f, "break");
                 break;
             }
         case NodeTypeContinue:
             {
-                const char *inline_str = node->data.continue_expr.is_inline ? "inline " : "";
-                fprintf(ar->f, "%scontinue", inline_str);
+                fprintf(ar->f, "continue");
                 break;
             }
         case NodeTypeSliceExpr:

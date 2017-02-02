@@ -150,7 +150,7 @@ pub const OutStream = struct {
                 @compileError("Incomplete format string: " ++ format);
             }
         }
-        inline if (start_index < format.len) {
+        if (start_index < format.len) {
             %return self.write(format[start_index...format.len]);
         }
         %return self.flush();

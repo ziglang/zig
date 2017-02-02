@@ -33,18 +33,21 @@ fn testSwitchWithAllRanges(x: u32, y: u32) -> u32 {
     }
 }
 
-fn inlineSwitch() {
+fn implicitComptimeSwitch() {
     @setFnTest(this);
 
     const x = 3 + 4;
-    const result = inline switch (x) {
+    const result = switch (x) {
         3 => 10,
         4 => 11,
         5, 6 => 12,
         7, 8 => 13,
         else => 14,
     };
-    assert(result + 1 == 14);
+
+    comptime {
+        assert(result + 1 == 14);
+    }
 }
 
 fn switchOnEnum() {
