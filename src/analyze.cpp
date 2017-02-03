@@ -1913,6 +1913,20 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
 
     AstNode *source_node = tld_var->base.source_node;
 
+    if (is_export && is_extern) {
+        add_node_error(g, source_node, buf_sprintf("variable is both export and extern"));
+    }
+
+    VarLinkage linkage;
+    if (is_export) {
+        linkage = VarLinkageExport;
+    } else if (is_extern) {
+        linkage = VarLinkageExternal;
+    } else {
+        linkage = VarLinkageInternal;
+    }
+
+
     IrInstruction *init_value = nullptr;
 
     TypeTableEntry *implicit_type = nullptr;
@@ -1926,7 +1940,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
         if (implicit_type->id == TypeTableEntryIdUnreachable) {
             add_node_error(g, source_node, buf_sprintf("variable initialization is unreachable"));
             implicit_type = g->builtin_types.entry_invalid;
-        } else if ((!is_const || is_export) &&
+        } else if ((!is_const || linkage == VarLinkageExternal) &&
                 (implicit_type->id == TypeTableEntryIdNumLitFloat ||
                 implicit_type->id == TypeTableEntryIdNumLitInt))
         {
@@ -1940,7 +1954,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
             implicit_type = g->builtin_types.entry_invalid;
         }
         assert(implicit_type->id == TypeTableEntryIdInvalid || init_value->value.special != ConstValSpecialRuntime);
-    } else if (!is_extern) {
+    } else if (linkage != VarLinkageExternal) {
         add_node_error(g, source_node, buf_sprintf("variables must be initialized"));
         implicit_type = g->builtin_types.entry_invalid;
     }
@@ -1951,7 +1965,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     ConstExprValue *init_val = init_value ? &init_value->value : create_const_runtime(type);
 
     tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol, is_const, init_val);
-    tld_var->var->is_extern = is_extern;
+    tld_var->var->linkage = linkage;
 
     g->global_vars.append(tld_var->var);
 }

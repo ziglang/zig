@@ -955,7 +955,7 @@ static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
     VariableTableEntry *var = tld_var->var;
     const char *visib_mod_str = visib_mod_string(tld_var->base.visib_mod);
     const char *const_or_var = const_or_var_string(var->src_is_const);
-    const char *extern_str = extern_string(var->is_extern);
+    const char *extern_str = extern_string(var->linkage == VarLinkageExternal);
     fprintf(ar->f, "%s%s%s %s", visib_mod_str, extern_str, const_or_var, buf_ptr(name));
 
     if (var->value.type->id == TypeTableEntryIdNumLitFloat ||

@@ -1090,7 +1090,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
 
     if (is_extern) {
         TldVar *tld_var = create_global_var(c, name, create_const_runtime(var_type), is_const);
-        tld_var->var->is_extern = true;
+        tld_var->var->linkage = VarLinkageExternal;
         add_global(c, &tld_var->base);
         return;
     }

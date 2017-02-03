@@ -1278,7 +1278,12 @@ struct CodeGen {
     ConstExprValue const_void_val;
 };
 
-// TODO after merging IR branch, we can probably delete some of these fields
+enum VarLinkage {
+    VarLinkageInternal,
+    VarLinkageExport,
+    VarLinkageExternal,
+};
+
 struct VariableTableEntry {
     Buf name;
     ConstExprValue value;
@@ -1297,7 +1302,7 @@ struct VariableTableEntry {
     bool shadowable;
     size_t mem_slot_index;
     size_t ref_count;
-    bool is_extern;
+    VarLinkage linkage;
 };
 
 struct ErrorTableEntry {
