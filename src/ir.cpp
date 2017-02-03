@@ -1042,13 +1042,14 @@ static IrInstruction *ir_build_unreachable_from(IrBuilder *irb, IrInstruction *o
 }
 
 static IrInstruction *ir_build_store_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *ptr, IrInstruction *value)
+        IrInstruction *ptr, IrInstruction *value, bool is_volatile)
 {
     IrInstructionStorePtr *instruction = ir_build_instruction<IrInstructionStorePtr>(irb, scope, source_node);
     instruction->base.value.special = ConstValSpecialStatic;
     instruction->base.value.type = irb->codegen->builtin_types.entry_void;
     instruction->ptr = ptr;
     instruction->value = value;
+    instruction->is_volatile = is_volatile;
 
     ir_ref_instruction(ptr, irb->current_basic_block);
     ir_ref_instruction(value, irb->current_basic_block);
@@ -1057,10 +1058,10 @@ static IrInstruction *ir_build_store_ptr(IrBuilder *irb, Scope *scope, AstNode *
 }
 
 static IrInstruction *ir_build_store_ptr_from(IrBuilder *irb, IrInstruction *old_instruction,
-        IrInstruction *ptr, IrInstruction *value)
+        IrInstruction *ptr, IrInstruction *value, bool is_volatile)
 {
     IrInstruction *new_instruction = ir_build_store_ptr(irb, old_instruction->scope,
-            old_instruction->source_node, ptr, value);
+            old_instruction->source_node, ptr, value, is_volatile);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -3298,7 +3299,7 @@ static IrInstruction *ir_gen_assign(IrBuilder *irb, Scope *scope, AstNode *node)
     if (lvalue == irb->codegen->invalid_instruction || rvalue == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    ir_build_store_ptr(irb, scope, node, lvalue, rvalue);
+    ir_build_store_ptr(irb, scope, node, lvalue, rvalue, false);
     return ir_build_const_void(irb, scope, node);
 }
 
@@ -3311,7 +3312,7 @@ static IrInstruction *ir_gen_assign_op(IrBuilder *irb, Scope *scope, AstNode *no
     if (op2 == irb->codegen->invalid_instruction)
         return op2;
     IrInstruction *result = ir_build_bin_op(irb, scope, node, op_id, op1, op2, true);
-    ir_build_store_ptr(irb, scope, node, lvalue, result);
+    ir_build_store_ptr(irb, scope, node, lvalue, result, false);
     return ir_build_const_void(irb, scope, node);
 }
 
@@ -4199,6 +4200,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return ir_build_set_global_section(irb, scope, node, var, arg1_value);
                 }
             }
+        case BuiltinFnIdVolatileStore:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_store_ptr(irb, scope, node, arg0_value, arg1_value, true);
+            }
     }
     zig_unreachable();
 }
@@ -4613,7 +4628,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     } else {
         elem_val = ir_build_load_ptr(irb, child_scope, node, elem_ptr);
     }
-    ir_mark_gen(ir_build_store_ptr(irb, child_scope, node, elem_var_ptr, elem_val));
+    ir_mark_gen(ir_build_store_ptr(irb, child_scope, node, elem_var_ptr, elem_val, false));
 
     LoopStackItem *loop_stack_item = irb->loop_stack.add_one();
     loop_stack_item->break_block = end_block;
@@ -4627,7 +4642,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     ir_set_cursor_at_end(irb, continue_block);
     IrInstruction *new_index_val = ir_build_bin_op(irb, child_scope, node, IrBinOpAdd, index_val, one, false);
-    ir_mark_gen(ir_build_store_ptr(irb, child_scope, node, index_ptr, new_index_val));
+    ir_mark_gen(ir_build_store_ptr(irb, child_scope, node, index_ptr, new_index_val, false));
     ir_build_br(irb, child_scope, node, cond_block, is_comptime);
 
     ir_set_cursor_at_end(irb, end_block);
@@ -9274,11 +9289,12 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
         }
         new_ptr_inst->value.type = ptr->value.type;
         ir_build_store_ptr(&ira->new_irb, store_ptr_instruction->base.scope,
-            store_ptr_instruction->base.source_node, new_ptr_inst, casted_value);
+            store_ptr_instruction->base.source_node, new_ptr_inst, casted_value, false);
         return ir_analyze_void(ira, &store_ptr_instruction->base);
     }
 
-    ir_build_store_ptr_from(&ira->new_irb, &store_ptr_instruction->base, ptr, casted_value);
+    ir_build_store_ptr_from(&ira->new_irb, &store_ptr_instruction->base, ptr, casted_value,
+            store_ptr_instruction->is_volatile);
     return ira->codegen->builtin_types.entry_void;
 }
 

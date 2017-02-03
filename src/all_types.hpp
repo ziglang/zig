@@ -1109,6 +1109,7 @@ enum BuiltinFnId {
     BuiltinFnIdCanImplicitCast,
     BuiltinFnIdSetGlobalAlign,
     BuiltinFnIdSetGlobalSection,
+    BuiltinFnIdVolatileStore,
 };
 
 struct BuiltinFnEntry {
@@ -1691,6 +1692,7 @@ struct IrInstructionStorePtr {
 
     IrInstruction *ptr;
     IrInstruction *value;
+    bool is_volatile;
 };
 
 struct IrInstructionFieldPtr {

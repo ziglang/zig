@@ -1303,7 +1303,10 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
         return gen_struct_memcpy(g, value, ptr, op1_type);
     }
 
-    LLVMBuildStore(g->builder, value, ptr);
+    LLVMValueRef llvm_instruction = LLVMBuildStore(g->builder, value, ptr);
+
+    LLVMSetVolatile(llvm_instruction, instruction->is_volatile);
+
     return nullptr;
 }
 
@@ -3686,6 +3689,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdAlloca, "alloca", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalAlign, "setGlobalAlign", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalSection, "setGlobalSection", 2);
+    create_builtin_fn(g, BuiltinFnIdVolatileStore, "volatileStore", 2);
 }
 
 static void init(CodeGen *g, Buf *source_path) {
