@@ -1107,6 +1107,8 @@ enum BuiltinFnId {
     BuiltinFnIdIsInteger,
     BuiltinFnIdIsFloat,
     BuiltinFnIdCanImplicitCast,
+    BuiltinFnIdSetGlobalAlign,
+    BuiltinFnIdSetGlobalSection,
 };
 
 struct BuiltinFnEntry {
@@ -1304,6 +1306,10 @@ struct VariableTableEntry {
     size_t mem_slot_index;
     size_t ref_count;
     VarLinkage linkage;
+    AstNode *set_global_align_node;
+    uint64_t alignment;
+    AstNode *set_global_section_node;
+    Buf *section_name;
 };
 
 struct ErrorTableEntry {
@@ -1540,6 +1546,8 @@ enum IrInstructionId {
     IrInstructionIdTestType,
     IrInstructionIdTypeName,
     IrInstructionIdCanImplicitCast,
+    IrInstructionIdSetGlobalAlign,
+    IrInstructionIdSetGlobalSection,
 };
 
 struct IrInstruction {
@@ -2241,6 +2249,20 @@ struct IrInstructionCanImplicitCast {
 
     IrInstruction *type_value;
     IrInstruction *target_value;
+};
+
+struct IrInstructionSetGlobalAlign {
+    IrInstruction base;
+
+    VariableTableEntry *var;
+    IrInstruction *value;
+};
+
+struct IrInstructionSetGlobalSection {
+    IrInstruction base;
+
+    VariableTableEntry *var;
+    IrInstruction *value;
 };
 
 enum LValPurpose {

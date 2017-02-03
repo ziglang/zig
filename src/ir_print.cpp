@@ -233,11 +233,15 @@ static void ir_print_phi(IrPrint *irp, IrInstructionPhi *phi_instruction) {
 static void ir_print_container_init_list(IrPrint *irp, IrInstructionContainerInitList *instruction) {
     ir_print_other_instruction(irp, instruction->container_type);
     fprintf(irp->f, "{");
-    for (size_t i = 0; i < instruction->item_count; i += 1) {
-        IrInstruction *item = instruction->items[i];
-        if (i != 0)
-            fprintf(irp->f, ", ");
-        ir_print_other_instruction(irp, item);
+    if (instruction->item_count > 50) {
+        fprintf(irp->f, "...(%zu items)...", instruction->item_count);
+    } else {
+        for (size_t i = 0; i < instruction->item_count; i += 1) {
+            IrInstruction *item = instruction->items[i];
+            if (i != 0)
+                fprintf(irp->f, ", ");
+            ir_print_other_instruction(irp, item);
+        }
     }
     fprintf(irp->f, "}");
 }
@@ -827,6 +831,18 @@ static void ir_print_can_implicit_cast(IrPrint *irp, IrInstructionCanImplicitCas
     fprintf(irp->f, ")");
 }
 
+static void ir_print_set_global_align(IrPrint *irp, IrInstructionSetGlobalAlign *instruction) {
+    fprintf(irp->f, "@setGlobalAlign(%s,", buf_ptr(&instruction->var->name));
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_set_global_section(IrPrint *irp, IrInstructionSetGlobalSection *instruction) {
+    fprintf(irp->f, "@setGlobalSection(%s,", buf_ptr(&instruction->var->name));
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1092,6 +1108,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCanImplicitCast:
             ir_print_can_implicit_cast(irp, (IrInstructionCanImplicitCast *)instruction);
+            break;
+        case IrInstructionIdSetGlobalAlign:
+            ir_print_set_global_align(irp, (IrInstructionSetGlobalAlign *)instruction);
+            break;
+        case IrInstructionIdSetGlobalSection:
+            ir_print_set_global_section(irp, (IrInstructionSetGlobalSection *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

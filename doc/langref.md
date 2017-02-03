@@ -667,3 +667,11 @@ Returns whether a given type is a float.
 ### @canImplicitCast(comptime T: type, value) -> bool
 
 Returns whether a value can be implicitly casted to a given type.
+
+### @setGlobalAlign(global_variable_name, byte_count: usize) -> bool
+
+Sets the alignment property of a global variable.
+
+### @setGlobalSection(global_variable_name, section_name: []u8) -> bool
+
+Puts the global variable in the specified section.

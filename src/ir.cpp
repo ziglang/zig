@@ -507,6 +507,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCanImplicitCast 
     return IrInstructionIdCanImplicitCast;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSetGlobalAlign *) {
+    return IrInstructionIdSetGlobalAlign;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSetGlobalSection *) {
+    return IrInstructionIdSetGlobalSection;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2052,6 +2060,32 @@ static IrInstruction *ir_build_can_implicit_cast(IrBuilder *irb, Scope *scope, A
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_set_global_align(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        VariableTableEntry *var, IrInstruction *value)
+{
+    IrInstructionSetGlobalAlign *instruction = ir_build_instruction<IrInstructionSetGlobalAlign>(
+            irb, scope, source_node);
+    instruction->var = var;
+    instruction->value = value;
+
+    ir_ref_instruction(value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_set_global_section(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        VariableTableEntry *var, IrInstruction *value)
+{
+    IrInstructionSetGlobalSection *instruction = ir_build_instruction<IrInstructionSetGlobalSection>(
+            irb, scope, source_node);
+    instruction->var = var;
+    instruction->value = value;
+
+    ir_ref_instruction(value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_instruction_br_get_dep(IrInstructionBr *instruction, size_t index) {
     return nullptr;
 }
@@ -2678,6 +2712,20 @@ static IrInstruction *ir_instruction_canimplicitcast_get_dep(IrInstructionCanImp
     }
 }
 
+static IrInstruction *ir_instruction_setglobalalign_get_dep(IrInstructionSetGlobalAlign *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_setglobalsection_get_dep(IrInstructionSetGlobalSection *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->value;
+        default: return nullptr;
+    }
+}
+
 static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t index) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -2856,6 +2904,10 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_typename_get_dep((IrInstructionTypeName *) instruction, index);
         case IrInstructionIdCanImplicitCast:
             return ir_instruction_canimplicitcast_get_dep((IrInstructionCanImplicitCast *) instruction, index);
+        case IrInstructionIdSetGlobalAlign:
+            return ir_instruction_setglobalalign_get_dep((IrInstructionSetGlobalAlign *) instruction, index);
+        case IrInstructionIdSetGlobalSection:
+            return ir_instruction_setglobalsection_get_dep((IrInstructionSetGlobalSection *) instruction, index);
     }
     zig_unreachable();
 }
@@ -4112,6 +4164,40 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 return ir_build_can_implicit_cast(irb, scope, node, arg0_value, arg1_value);
+            }
+        case BuiltinFnIdSetGlobalAlign:
+        case BuiltinFnIdSetGlobalSection:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                if (arg0_node->type != NodeTypeSymbol) {
+                    add_node_error(irb->codegen, arg0_node, buf_sprintf("expected identifier"));
+                    return irb->codegen->invalid_instruction;
+                }
+                Buf *variable_name = arg0_node->data.symbol_expr.symbol;
+                Tld *tld = find_decl(scope, variable_name);
+                if (!tld) {
+                    add_node_error(irb->codegen, node, buf_sprintf("use of undeclared identifier '%s'",
+                                buf_ptr(variable_name)));
+                    return irb->codegen->invalid_instruction;
+                }
+                if (tld->id != TldIdVar) {
+                    add_node_error(irb->codegen, node, buf_sprintf("'%s' is not a global variable",
+                                buf_ptr(variable_name)));
+                    return irb->codegen->invalid_instruction;
+                }
+                TldVar *tld_var = (TldVar *)tld;
+                VariableTableEntry *var = tld_var->var;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                if (builtin_fn->id == BuiltinFnIdSetGlobalAlign) {
+                    return ir_build_set_global_align(irb, scope, node, var, arg1_value);
+                } else {
+                    return ir_build_set_global_section(irb, scope, node, var, arg1_value);
+                }
             }
     }
     zig_unreachable();
@@ -9350,6 +9436,53 @@ static TypeTableEntry *ir_analyze_instruction_set_fn_visible(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_void;
 }
 
+static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
+        IrInstructionSetGlobalAlign *instruction)
+{
+    VariableTableEntry *var = instruction->var;
+    IrInstruction *align_value = instruction->value->other;
+
+    uint64_t scalar_align;
+    if (!ir_resolve_usize(ira, align_value, &scalar_align))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    AstNode *source_node = instruction->base.source_node;
+    if (var->set_global_align_node) {
+        ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                buf_sprintf("alignment set twice"));
+        add_error_note(ira->codegen, msg, var->set_global_align_node, buf_sprintf("first set here"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    var->set_global_align_node = source_node;
+    var->alignment = scalar_align;
+
+    ir_build_const_from(ira, &instruction->base, false);
+    return ira->codegen->builtin_types.entry_void;
+}
+
+static TypeTableEntry *ir_analyze_instruction_set_global_section(IrAnalyze *ira,
+        IrInstructionSetGlobalSection *instruction)
+{
+    VariableTableEntry *var = instruction->var;
+    IrInstruction *section_value = instruction->value->other;
+
+    Buf *section_name = ir_resolve_str(ira, section_value);
+    if (!section_name)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    AstNode *source_node = instruction->base.source_node;
+    if (var->set_global_section_node) {
+        ErrorMsg *msg = ir_add_error_node(ira, source_node, buf_sprintf("section set twice"));
+        add_error_note(ira->codegen, msg, var->set_global_section_node, buf_sprintf("first set here"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    var->set_global_section_node = source_node;
+    var->section_name = section_name;
+
+    ir_build_const_from(ira, &instruction->base, false);
+    return ira->codegen->builtin_types.entry_void;
+}
+
 static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
         IrInstructionSetDebugSafety *set_debug_safety_instruction)
 {
@@ -11779,6 +11912,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_set_fn_test(ira, (IrInstructionSetFnTest *)instruction);
         case IrInstructionIdSetFnVisible:
             return ir_analyze_instruction_set_fn_visible(ira, (IrInstructionSetFnVisible *)instruction);
+        case IrInstructionIdSetGlobalAlign:
+            return ir_analyze_instruction_set_global_align(ira, (IrInstructionSetGlobalAlign *)instruction);
+        case IrInstructionIdSetGlobalSection:
+            return ir_analyze_instruction_set_global_section(ira, (IrInstructionSetGlobalSection *)instruction);
         case IrInstructionIdSetDebugSafety:
             return ir_analyze_instruction_set_debug_safety(ira, (IrInstructionSetDebugSafety *)instruction);
         case IrInstructionIdSliceType:
@@ -11993,6 +12130,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdBreakpoint:
         case IrInstructionIdOverflowOp: // TODO when we support multiple returns this can be side effect free
         case IrInstructionIdCheckSwitchProngs:
+        case IrInstructionIdSetGlobalAlign:
+        case IrInstructionIdSetGlobalSection:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
