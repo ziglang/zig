@@ -7302,8 +7302,8 @@ static int ir_eval_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
     return 0;
 }
 
-static int ir_eval_math_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
-        IrBinOp op_id, ConstExprValue *op2_val, TypeTableEntry *op2_type, ConstExprValue *out_val)
+static int ir_eval_math_op(TypeTableEntry *canon_type, ConstExprValue *op1_val,
+        IrBinOp op_id, ConstExprValue *op2_val, ConstExprValue *out_val)
 {
     switch (op_id) {
         case IrBinOpInvalid:
@@ -7319,33 +7319,33 @@ static int ir_eval_math_op(ConstExprValue *op1_val, TypeTableEntry *op1_type,
         case IrBinOpArrayMult:
             zig_unreachable();
         case IrBinOpBinOr:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_or, op1_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_or, canon_type, false);
         case IrBinOpBinXor:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_xor, op1_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_xor, canon_type, false);
         case IrBinOpBinAnd:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_and, op1_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_and, canon_type, false);
         case IrBinOpBitShiftLeft:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shl, op1_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shl, canon_type, false);
         case IrBinOpBitShiftLeftWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shl, op1_type, true);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shl, canon_type, true);
         case IrBinOpBitShiftRight:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shr, op1_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shr, canon_type, false);
         case IrBinOpAdd:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_add, op1_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_add, canon_type, false);
         case IrBinOpAddWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_add, op1_type, true);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_add, canon_type, true);
         case IrBinOpSub:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_sub, op1_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_sub, canon_type, false);
         case IrBinOpSubWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_sub, op1_type, true);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_sub, canon_type, true);
         case IrBinOpMult:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mul, op1_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mul, canon_type, false);
         case IrBinOpMultWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mul, op1_type, true);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mul, canon_type, true);
         case IrBinOpDiv:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div, op1_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div, canon_type, false);
         case IrBinOpMod:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mod, op1_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mod, canon_type, false);
     }
     zig_unreachable();
 }
@@ -7357,14 +7357,15 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
     TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, bin_op_instruction->base.source_node, instructions, 2);
     if (resolved_type->id == TypeTableEntryIdInvalid)
         return resolved_type;
+    TypeTableEntry *canon_resolved_type = get_underlying_type(resolved_type);
     IrBinOp op_id = bin_op_instruction->op_id;
 
-    if (resolved_type->id == TypeTableEntryIdInt ||
-        resolved_type->id == TypeTableEntryIdNumLitInt)
+    if (canon_resolved_type->id == TypeTableEntryIdInt ||
+        canon_resolved_type->id == TypeTableEntryIdNumLitInt)
     {
         // int
-    } else if ((resolved_type->id == TypeTableEntryIdFloat ||
-                resolved_type->id == TypeTableEntryIdNumLitFloat) &&
+    } else if ((canon_resolved_type->id == TypeTableEntryIdFloat ||
+                canon_resolved_type->id == TypeTableEntryIdNumLitFloat) &&
         (op_id == IrBinOpAdd ||
             op_id == IrBinOpSub ||
             op_id == IrBinOpMult ||
@@ -7398,7 +7399,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         bin_op_instruction->base.other = &bin_op_instruction->base;
 
         int err;
-        if ((err = ir_eval_math_op(op1_val, resolved_type, op_id, op2_val, resolved_type, out_val))) {
+        if ((err = ir_eval_math_op(canon_resolved_type, op1_val, op_id, op2_val, out_val))) {
             if (err == ErrorDivByZero) {
                 ir_add_error_node(ira, bin_op_instruction->base.source_node,
                         buf_sprintf("division by zero is undefined"));

@@ -29,6 +29,7 @@ const test_switch_prong_err_enum = @import("cases/switch_prong_err_enum.zig");
 const test_switch_prong_implicit_cast = @import("cases/switch_prong_implicit_cast.zig");
 const test_this = @import("cases/this.zig");
 const test_try = @import("cases/try.zig");
+const test_typedef = @import("cases/typedef.zig");
 const test_undefined = @import("cases/undefined.zig");
 const test_var_args = @import("cases/var_args.zig");
 const test_while = @import("cases/while.zig");

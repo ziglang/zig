@@ -816,6 +816,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
     IrInstruction *op2 = bin_op_instruction->op2;
 
     assert(op1->value.type == op2->value.type);
+    TypeTableEntry *canon_type = get_underlying_type(op1->value.type);
 
     bool want_debug_safety = bin_op_instruction->safety_check_on &&
         ir_want_debug_safety(g, &bin_op_instruction->base);
@@ -837,22 +838,22 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         case IrBinOpCmpGreaterThan:
         case IrBinOpCmpLessOrEq:
         case IrBinOpCmpGreaterOrEq:
-            if (op1->value.type->id == TypeTableEntryIdFloat) {
+            if (canon_type->id == TypeTableEntryIdFloat) {
                 LLVMRealPredicate pred = cmp_op_to_real_predicate(op_id);
                 return LLVMBuildFCmp(g->builder, pred, op1_value, op2_value, "");
-            } else if (op1->value.type->id == TypeTableEntryIdInt) {
-                LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, op1->value.type->data.integral.is_signed);
+            } else if (canon_type->id == TypeTableEntryIdInt) {
+                LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, canon_type->data.integral.is_signed);
                 return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
-            } else if (op1->value.type->id == TypeTableEntryIdEnum) {
-                if (op1->value.type->data.enumeration.gen_field_count == 0) {
+            } else if (canon_type->id == TypeTableEntryIdEnum) {
+                if (canon_type->data.enumeration.gen_field_count == 0) {
                     LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
                     return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
                 } else {
                     zig_unreachable();
                 }
-            } else if (op1->value.type->id == TypeTableEntryIdPureError ||
-                    op1->value.type->id == TypeTableEntryIdPointer ||
-                    op1->value.type->id == TypeTableEntryIdBool)
+            } else if (canon_type->id == TypeTableEntryIdPureError ||
+                    canon_type->id == TypeTableEntryIdPointer ||
+                    canon_type->id == TypeTableEntryIdBool)
             {
                 LLVMIntPredicate pred = cmp_op_to_int_predicate(op_id, false);
                 return LLVMBuildICmp(g->builder, pred, op1_value, op2_value, "");
@@ -861,15 +862,15 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
             }
         case IrBinOpAdd:
         case IrBinOpAddWrap:
-            if (op1->value.type->id == TypeTableEntryIdFloat) {
+            if (canon_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFAdd(g->builder, op1_value, op2_value, "");
-            } else if (op1->value.type->id == TypeTableEntryIdInt) {
+            } else if (canon_type->id == TypeTableEntryIdInt) {
                 bool is_wrapping = (op_id == IrBinOpAddWrap);
                 if (is_wrapping) {
                     return LLVMBuildAdd(g->builder, op1_value, op2_value, "");
                 } else if (want_debug_safety) {
-                    return gen_overflow_op(g, op1->value.type, AddSubMulAdd, op1_value, op2_value);
-                } else if (op1->value.type->data.integral.is_signed) {
+                    return gen_overflow_op(g, canon_type, AddSubMulAdd, op1_value, op2_value);
+                } else if (canon_type->data.integral.is_signed) {
                     return LLVMBuildNSWAdd(g->builder, op1_value, op2_value, "");
                 } else {
                     return LLVMBuildNUWAdd(g->builder, op1_value, op2_value, "");
@@ -886,36 +887,36 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         case IrBinOpBitShiftLeft:
         case IrBinOpBitShiftLeftWrap:
             {
-                assert(op1->value.type->id == TypeTableEntryIdInt);
+                assert(canon_type->id == TypeTableEntryIdInt);
                 bool is_wrapping = (op_id == IrBinOpBitShiftLeftWrap);
                 if (is_wrapping) {
                     return LLVMBuildShl(g->builder, op1_value, op2_value, "");
                 } else if (want_debug_safety) {
-                    return gen_overflow_shl_op(g, op1->value.type, op1_value, op2_value);
-                } else if (op1->value.type->data.integral.is_signed) {
+                    return gen_overflow_shl_op(g, canon_type, op1_value, op2_value);
+                } else if (canon_type->data.integral.is_signed) {
                     return ZigLLVMBuildNSWShl(g->builder, op1_value, op2_value, "");
                 } else {
                     return ZigLLVMBuildNUWShl(g->builder, op1_value, op2_value, "");
                 }
             }
         case IrBinOpBitShiftRight:
-            assert(op1->value.type->id == TypeTableEntryIdInt);
-            if (op1->value.type->data.integral.is_signed) {
+            assert(canon_type->id == TypeTableEntryIdInt);
+            if (canon_type->data.integral.is_signed) {
                 return LLVMBuildAShr(g->builder, op1_value, op2_value, "");
             } else {
                 return LLVMBuildLShr(g->builder, op1_value, op2_value, "");
             }
         case IrBinOpSub:
         case IrBinOpSubWrap:
-            if (op1->value.type->id == TypeTableEntryIdFloat) {
+            if (canon_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFSub(g->builder, op1_value, op2_value, "");
-            } else if (op1->value.type->id == TypeTableEntryIdInt) {
+            } else if (canon_type->id == TypeTableEntryIdInt) {
                 bool is_wrapping = (op_id == IrBinOpSubWrap);
                 if (is_wrapping) {
                     return LLVMBuildSub(g->builder, op1_value, op2_value, "");
                 } else if (want_debug_safety) {
-                    return gen_overflow_op(g, op1->value.type, AddSubMulSub, op1_value, op2_value);
-                } else if (op1->value.type->data.integral.is_signed) {
+                    return gen_overflow_op(g, canon_type, AddSubMulSub, op1_value, op2_value);
+                } else if (canon_type->data.integral.is_signed) {
                     return LLVMBuildNSWSub(g->builder, op1_value, op2_value, "");
                 } else {
                     return LLVMBuildNUWSub(g->builder, op1_value, op2_value, "");
@@ -925,15 +926,15 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
             }
         case IrBinOpMult:
         case IrBinOpMultWrap:
-            if (op1->value.type->id == TypeTableEntryIdFloat) {
+            if (canon_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFMul(g->builder, op1_value, op2_value, "");
-            } else if (op1->value.type->id == TypeTableEntryIdInt) {
+            } else if (canon_type->id == TypeTableEntryIdInt) {
                 bool is_wrapping = (op_id == IrBinOpMultWrap);
                 if (is_wrapping) {
                     return LLVMBuildMul(g->builder, op1_value, op2_value, "");
                 } else if (want_debug_safety) {
-                    return gen_overflow_op(g, op1->value.type, AddSubMulMul, op1_value, op2_value);
-                } else if (op1->value.type->data.integral.is_signed) {
+                    return gen_overflow_op(g, canon_type, AddSubMulMul, op1_value, op2_value);
+                } else if (canon_type->data.integral.is_signed) {
                     return LLVMBuildNSWMul(g->builder, op1_value, op2_value, "");
                 } else {
                     return LLVMBuildNUWMul(g->builder, op1_value, op2_value, "");
@@ -942,13 +943,13 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 zig_unreachable();
             }
         case IrBinOpDiv:
-            return gen_div(g, want_debug_safety, op1_value, op2_value, op1->value.type, false);
+            return gen_div(g, want_debug_safety, op1_value, op2_value, canon_type, false);
         case IrBinOpMod:
-            if (op1->value.type->id == TypeTableEntryIdFloat) {
+            if (canon_type->id == TypeTableEntryIdFloat) {
                 return LLVMBuildFRem(g->builder, op1_value, op2_value, "");
             } else {
-                assert(op1->value.type->id == TypeTableEntryIdInt);
-                if (op1->value.type->data.integral.is_signed) {
+                assert(canon_type->id == TypeTableEntryIdInt);
+                if (canon_type->data.integral.is_signed) {
                     return LLVMBuildSRem(g->builder, op1_value, op2_value, "");
                 } else {
                     return LLVMBuildURem(g->builder, op1_value, op2_value, "");
