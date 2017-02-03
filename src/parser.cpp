@@ -2275,21 +2275,24 @@ static AstNode *ast_parse_use(ParseContext *pc, size_t *token_index, VisibMod vi
 }
 
 /*
-ContainerDecl = option("extern") ("struct" | "enum" | "union") "{" many(StructMember) "}"
-StructMember = (StructField | FnDef | GlobalVarDecl)
-StructField = Symbol option(":" Expression) ",")
+ContainerDecl = option("extern" | "packed") ("struct" | "enum" | "union") "{" many(ContainerMember) "}"
+ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
+ContainerField = Symbol option(":" Expression) ",")
 */
 static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *first_token = &pc->tokens->at(*token_index);
     Token *container_kind_token;
 
-    bool is_extern;
+    ContainerLayout layout;
     if (first_token->id == TokenIdKeywordExtern) {
         container_kind_token = &pc->tokens->at(*token_index + 1);
-        is_extern = true;
+        layout = ContainerLayoutExtern;
+    } else if (first_token->id == TokenIdKeywordPacked) {
+        container_kind_token = &pc->tokens->at(*token_index + 1);
+        layout = ContainerLayoutPacked;
     } else {
         container_kind_token = first_token;
-        is_extern = false;
+        layout = ContainerLayoutAuto;
     }
 
     ContainerKind kind;
@@ -2304,10 +2307,10 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
     } else {
         return nullptr;
     }
-    *token_index += is_extern ? 2 : 1;
+    *token_index += (layout == ContainerLayoutAuto) ? 1 : 2;
 
     AstNode *node = ast_create_node(pc, NodeTypeContainerDecl, first_token);
-    node->data.container_decl.is_extern = is_extern;
+    node->data.container_decl.layout = layout;
     node->data.container_decl.kind = kind;
 
     ast_eat_token(pc, token_index, TokenIdLBrace);

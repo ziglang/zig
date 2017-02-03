@@ -5283,8 +5283,9 @@ static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope,
     TldContainer *tld_container = allocate<TldContainer>(1);
     init_tld(&tld_container->base, TldIdContainer, name, visib_mod, node, parent_scope);
 
-    TypeTableEntry *container_type = get_partial_container_type(irb->codegen, parent_scope, kind, node, buf_ptr(name),
-        node->data.container_decl.is_extern);
+    ContainerLayout layout = node->data.container_decl.layout;
+    TypeTableEntry *container_type = get_partial_container_type(irb->codegen, parent_scope,
+            kind, node, buf_ptr(name), layout);
     ScopeDecls *child_scope = get_container_scope(container_type);
 
     tld_container->type_entry = container_type;

@@ -208,3 +208,20 @@ fn passSliceOfEmptyStructToFn() {
 fn testPassSliceOfEmptyStructToFn(slice: []EmptyStruct2) -> usize {
     slice.len
 }
+
+const APackedStruct = packed struct {
+    x: u8,
+    y: u8,
+};
+
+fn packedStruct() {
+    @setFnTest(this);
+
+    var foo = APackedStruct {
+        .x = 1,
+        .y = 2,
+    };
+    foo.y += 1;
+    const four = foo.x + foo.y;
+    assert(four == 4);
+}

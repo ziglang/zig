@@ -104,6 +104,15 @@ static const char *defer_string(ReturnKind kind) {
     zig_unreachable();
 }
 
+static const char *layout_string(ContainerLayout layout) {
+    switch (layout) {
+        case ContainerLayoutAuto: return "";
+        case ContainerLayoutExtern: return "extern ";
+        case ContainerLayoutPacked: return "packed ";
+    }
+    zig_unreachable();
+}
+
 static const char *extern_string(bool is_extern) {
     return is_extern ? "extern " : "";
 }
@@ -970,8 +979,8 @@ static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
     {
         TypeTableEntry *type_entry = var->value.data.x_type;
         if (type_entry->id == TypeTableEntryIdStruct) {
-            const char *extern_str = extern_string(type_entry->data.structure.is_extern);
-            fprintf(ar->f, "%sstruct {\n", extern_str);
+            const char *layout_str = layout_string(type_entry->data.structure.layout);
+            fprintf(ar->f, "%sstruct {\n", layout_str);
             if (type_entry->data.structure.complete) {
                 for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
                     TypeStructField *field = &type_entry->data.structure.fields[i];
@@ -982,8 +991,8 @@ static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
             }
             fprintf(ar->f, "}");
         } else if (type_entry->id == TypeTableEntryIdEnum) {
-            const char *extern_str = extern_string(type_entry->data.enumeration.is_extern);
-            fprintf(ar->f, "%senum {\n", extern_str);
+            const char *layout_str = layout_string(type_entry->data.enumeration.layout);
+            fprintf(ar->f, "%senum {\n", layout_str);
             if (type_entry->data.enumeration.complete) {
                 for (size_t i = 0; i < type_entry->data.enumeration.src_field_count; i += 1) {
                     TypeEnumField *field = &type_entry->data.enumeration.fields[i];

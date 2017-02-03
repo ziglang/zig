@@ -17,9 +17,9 @@ GlobalVarDecl = VariableDeclaration ";"
 
 VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" TypeExpr) "=" Expression
 
-StructMember = (StructField | FnDef | GlobalVarDecl)
+ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
 
-StructField = Symbol option(":" Expression) ",")
+ContainerField = Symbol option(":" Expression) ",")
 
 UseDecl = "use" Expression ";"
 
@@ -155,7 +155,7 @@ GroupedExpression = "(" Expression ")"
 
 KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this"
 
-ContainerDecl = option("extern") ("struct" | "enum" | "union") "{" many(StructMember) "}"
+ContainerDecl = option("extern" | "packed") ("struct" | "enum" | "union") "{" many(ContainerMember) "}"
 
 ```
 

@@ -823,22 +823,24 @@ static TypeTableEntryId container_to_type(ContainerKind kind) {
     zig_unreachable();
 }
 
-TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind, AstNode *decl_node, const char *name, bool is_extern) {
+TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
+        AstNode *decl_node, const char *name, ContainerLayout layout)
+{
     TypeTableEntryId type_id = container_to_type(kind);
     TypeTableEntry *entry = new_container_type_entry(type_id, decl_node, scope);
 
     switch (kind) {
         case ContainerKindStruct:
             entry->data.structure.decl_node = decl_node;
-            entry->data.structure.is_extern = is_extern;
+            entry->data.structure.layout = layout;
             break;
         case ContainerKindEnum:
             entry->data.enumeration.decl_node = decl_node;
-            entry->data.enumeration.is_extern = is_extern;
+            entry->data.enumeration.layout = layout;
             break;
         case ContainerKindUnion:
             entry->data.unionation.decl_node = decl_node;
-            entry->data.unionation.is_extern = is_extern;
+            entry->data.unionation.layout = layout;
             break;
     }
 
@@ -1328,7 +1330,8 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     }
     assert(struct_type->di_type);
 
-    LLVMStructSetBody(struct_type->type_ref, element_types, gen_field_count, false);
+    bool packed = (struct_type->data.structure.layout == ContainerLayoutPacked);
+    LLVMStructSetBody(struct_type->type_ref, element_types, gen_field_count, packed);
     assert(LLVMStoreSizeOfType(g->target_data_ref, struct_type->type_ref) > 0);
 
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(gen_field_count);

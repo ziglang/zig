@@ -8,15 +8,15 @@ if exists("b:current_syntax")
 endif
 let b:current_syntax = "zig"
 
-syn keyword zigStorage const var extern export pub noalias inline comptime nakedcc coldcc
+syn keyword zigStorage const var extern packed export pub noalias inline comptime nakedcc coldcc volatile
 syn keyword zigStructure struct enum union
-syn keyword zigStatement goto break return continue asm defer
+syn keyword zigStatement goto break return continue asm defer unreachable
 syn keyword zigConditional if else switch try
 syn keyword zigRepeat while for
 
 syn keyword zigConstant null undefined zeroes this
 syn keyword zigKeyword fn use
-syn keyword zigType bool f32 f64 void unreachable type error
+syn keyword zigType bool f32 f64 void Unreachable type error
 syn keyword zigType i8  u8  i16  u16  i32  u32  i64  u64  isize  usize
 syn keyword zigType c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong c_long_double
 
