@@ -433,7 +433,22 @@ static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
 int get_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
     switch (target->os) {
         case ZigLLVM_UnknownOS:
-            zig_unreachable();
+            switch (id) {
+                case CIntTypeShort:
+                case CIntTypeUShort:
+                    return 16;
+                case CIntTypeInt:
+                case CIntTypeUInt:
+                    return 32;
+                case CIntTypeLong:
+                case CIntTypeULong:
+                    return get_arch_pointer_bit_width(target->arch.arch);
+                case CIntTypeLongLong:
+                case CIntTypeULongLong:
+                    return 64;
+                case CIntTypeCount:
+                    zig_unreachable();
+            }
         case ZigLLVM_Linux:
         case ZigLLVM_Darwin:
             switch (id) {
