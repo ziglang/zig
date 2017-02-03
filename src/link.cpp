@@ -687,8 +687,11 @@ static void construct_linker_job_darwin(LinkJob *lj) {
 
 static void construct_linker_job(LinkJob *lj) {
     switch (lj->codegen->zig_target.os) {
-        case ZigLLVM_UnknownOS:
-            zig_unreachable();
+        case ZigLLVM_UnknownOS: // freestanding
+            // TODO we want to solve this problem with LLD, but for now let's
+            // assume gnu binutils
+            // http://lists.llvm.org/pipermail/llvm-dev/2017-February/109835.html
+            return construct_linker_job_linux(lj);
         case ZigLLVM_Linux:
             if (lj->codegen->zig_target.arch.arch == ZigLLVM_hexagon) {
                 zig_panic("TODO construct hexagon_TC linker job");
