@@ -225,6 +225,11 @@ void codegen_set_rdynamic(CodeGen *g, bool rdynamic) {
     g->linker_rdynamic = rdynamic;
 }
 
+void codegen_set_linker_script(CodeGen *g, const char *linker_script) {
+    g->linker_script = linker_script;
+}
+
+
 static void render_const_val(CodeGen *g, ConstExprValue *const_val);
 static void render_const_val_global(CodeGen *g, ConstExprValue *const_val, bool is_export);
 

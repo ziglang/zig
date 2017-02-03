@@ -56,6 +56,7 @@ static int usage(const char *arg0) {
         "  -mios-version-min [ver]      (darwin only) set iOS deployment target\n"
         "  -framework [name]            (darwin only) link against framework\n"
         "  --check-unused               perform semantic analysis on unused declarations\n"
+        "  --linker-script [path]       use a custom linker script\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -140,6 +141,7 @@ int main(int argc, char **argv) {
     const char *mmacosx_version_min = nullptr;
     const char *mios_version_min = nullptr;
     bool check_unused = false;
+    const char *linker_script = nullptr;
 
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
@@ -231,6 +233,8 @@ int main(int argc, char **argv) {
                     mios_version_min = argv[i];
                 } else if (strcmp(arg, "-framework") == 0) {
                     frameworks.append(argv[i]);
+                } else if (strcmp(arg, "--linker-script") == 0) {
+                    linker_script = argv[i];
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return usage(arg0);
@@ -343,7 +347,7 @@ int main(int argc, char **argv) {
             CodeGen *g = codegen_create(&root_source_dir, target);
             codegen_set_is_release(g, is_release_build);
             codegen_set_is_test(g, cmd == CmdTest);
-
+            codegen_set_linker_script(g, linker_script);
             codegen_set_check_unused(g, check_unused);
 
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);

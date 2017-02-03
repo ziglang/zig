@@ -154,6 +154,11 @@ static void construct_linker_job_linux(LinkJob *lj) {
         find_libc_lib_path(g);
     }
 
+    if (g->linker_script) {
+        lj->args.append("-T");
+        lj->args.append(g->linker_script);
+    }
+
     lj->args.append("--gc-sections");
 
     lj->args.append("-m");

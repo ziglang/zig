@@ -1223,6 +1223,7 @@ struct CodeGen {
     Buf *mmacosx_version_min;
     Buf *mios_version_min;
     bool linker_rdynamic;
+    const char *linker_script;
 
     // The function definitions this module includes. There must be a corresponding
     // fn_protos entry.
