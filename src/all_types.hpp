@@ -222,6 +222,10 @@ struct TldVar {
     Tld base;
 
     VariableTableEntry *var;
+    AstNode *set_global_align_node;
+    uint64_t alignment;
+    AstNode *set_global_section_node;
+    Buf *section_name;
 };
 
 struct TldFn {
@@ -1235,7 +1239,7 @@ struct CodeGen {
     // The function prototypes this module includes. In the case of external declarations,
     // there will not be a corresponding fn_defs entry.
     ZigList<FnTableEntry *> fn_protos;
-    ZigList<VariableTableEntry *> global_vars;
+    ZigList<TldVar *> global_vars;
 
     OutType out_type;
     FnTableEntry *cur_fn;
@@ -1307,10 +1311,6 @@ struct VariableTableEntry {
     size_t mem_slot_index;
     size_t ref_count;
     VarLinkage linkage;
-    AstNode *set_global_align_node;
-    uint64_t alignment;
-    AstNode *set_global_section_node;
-    Buf *section_name;
 };
 
 struct ErrorTableEntry {
@@ -2256,14 +2256,14 @@ struct IrInstructionCanImplicitCast {
 struct IrInstructionSetGlobalAlign {
     IrInstruction base;
 
-    VariableTableEntry *var;
+    TldVar *tld_var;
     IrInstruction *value;
 };
 
 struct IrInstructionSetGlobalSection {
     IrInstruction base;
 
-    VariableTableEntry *var;
+    TldVar *tld_var;
     IrInstruction *value;
 };
 

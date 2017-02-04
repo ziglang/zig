@@ -628,6 +628,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 if (entry->type == NodeTypeStructValueField) {
                     Buf *name = entry->data.struct_val_field.name;
                     AstNode *expr = entry->data.struct_val_field.expr;
+                    print_indent(ar);
                     fprintf(ar->f, ".%s = ", buf_ptr(name));
                     render_node_grouped(ar, expr);
                     fprintf(ar->f, ",\n");
@@ -637,10 +638,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     render_node_grouped(ar, entry);
                 }
             }
-            fprintf(ar->f, "}");
             if (node->data.container_init_expr.kind == ContainerInitKindStruct) {
                 ar->indent -= ar->indent_size;
             }
+            print_indent(ar);
+            fprintf(ar->f, "}");
             break;
         case NodeTypeArrayType:
             {

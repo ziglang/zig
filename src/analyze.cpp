@@ -1967,7 +1967,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol, is_const, init_val);
     tld_var->var->linkage = linkage;
 
-    g->global_vars.append(tld_var->var);
+    g->global_vars.append(tld_var);
 }
 
 static void resolve_decl_typedef(CodeGen *g, TldTypeDef *tld_typedef) {

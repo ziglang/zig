@@ -2808,7 +2808,8 @@ static void do_code_gen(CodeGen *g) {
 
     // Generate module level variables
     for (size_t i = 0; i < g->global_vars.length; i += 1) {
-        VariableTableEntry *var = g->global_vars.at(i);
+        TldVar *tld_var = g->global_vars.at(i);
+        VariableTableEntry *var = tld_var->var;
 
         if (var->value.type->id == TypeTableEntryIdNumLitFloat) {
             // Generate debug info for it but that's it.
@@ -2852,11 +2853,11 @@ static void do_code_gen(CodeGen *g) {
             if (var->linkage == VarLinkageExport) {
                 LLVMSetLinkage(global_value, LLVMExternalLinkage);
             }
-            if (var->section_name) {
-                LLVMSetSection(global_value, buf_ptr(var->section_name));
+            if (tld_var->section_name) {
+                LLVMSetSection(global_value, buf_ptr(tld_var->section_name));
             }
-            if (var->alignment) {
-                LLVMSetAlignment(global_value, var->alignment);
+            if (tld_var->alignment) {
+                LLVMSetAlignment(global_value, tld_var->alignment);
             }
 
             // TODO debug info for function pointers

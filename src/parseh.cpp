@@ -152,7 +152,7 @@ static TldVar *create_global_var(Context *c, Buf *name, ConstExprValue *var_valu
     TldVar *tld_var = allocate<TldVar>(1);
     parseh_init_tld(c, &tld_var->base, TldIdVar, name);
     tld_var->var = add_variable(c->codegen, c->source_node, &c->import->decls_scope->base, name, is_const, var_value);
-    c->codegen->global_vars.append(tld_var->var);
+    c->codegen->global_vars.append(tld_var);
     return tld_var;
 }
 
