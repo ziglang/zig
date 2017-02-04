@@ -1662,6 +1662,13 @@ fn foo() {
 }
     )SOURCE", 1, ".tmp_source.zig:3:24: error: integer value 753664 cannot be implicitly casted to type 'u16'");
 
+    add_compile_fail_case("set global variable alignment to non power of 2", R"SOURCE(
+const some_data: [100]u8 = {
+    @setGlobalAlign(some_data, 3);
+    undefined
+};
+    )SOURCE", 1, ".tmp_source.zig:3:32: error: alignment value must be power of 2");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////

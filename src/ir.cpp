@@ -9451,6 +9451,10 @@ static TypeTableEntry *ir_analyze_instruction_set_fn_visible(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_void;
 }
 
+static bool is_power_of_2(uint64_t x) {
+    return x != 0 && ((x & (~x + 1)) == x);
+}
+
 static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
         IrInstructionSetGlobalAlign *instruction)
 {
@@ -9461,7 +9465,10 @@ static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
     if (!ir_resolve_usize(ira, align_value, &scalar_align))
         return ira->codegen->builtin_types.entry_invalid;
 
-    // TODO error if not power of 2
+    if (!is_power_of_2(scalar_align)) {
+        ir_add_error(ira, instruction->value, buf_sprintf("alignment value must be power of 2"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
 
     AstNode *source_node = instruction->base.source_node;
     if (tld_var->set_global_align_node) {
