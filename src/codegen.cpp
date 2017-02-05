@@ -415,12 +415,14 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, 
     return *fn;
 }
 
-static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, TypeTableEntry *type) {
+static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, TypeTableEntry *type, bool is_volatile) {
     if (type_has_bits(type)) {
         if (handle_is_ptr(type)) {
             return ptr;
         } else {
-            return LLVMBuildLoad(g->builder, ptr, "");
+            LLVMValueRef result = LLVMBuildLoad(g->builder, ptr, "");
+            LLVMSetVolatile(result, is_volatile);
+            return result;
         }
     } else {
         return nullptr;
@@ -1191,6 +1193,7 @@ static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInst
         case IrUnOpInvalid:
         case IrUnOpError:
         case IrUnOpMaybe:
+        case IrUnOpDereference:
             zig_unreachable();
         case IrUnOpNegation:
         case IrUnOpNegationWrap:
@@ -1214,16 +1217,6 @@ static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInst
             }
         case IrUnOpBinNot:
             return LLVMBuildNot(g->builder, expr, "");
-        case IrUnOpDereference:
-            {
-                assert(expr_type->id == TypeTableEntryIdPointer);
-                if (!type_has_bits(expr_type)) {
-                    return nullptr;
-                } else {
-                    TypeTableEntry *child_type = expr_type->data.pointer.child_type;
-                    return get_handle_value(g, expr, child_type);
-                }
-            }
     }
 
     zig_unreachable();
@@ -1289,8 +1282,15 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
 }
 
 static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrInstructionLoadPtr *instruction) {
+    TypeTableEntry *child_type = instruction->base.value.type;
+    if (!type_has_bits(child_type)) {
+        return nullptr;
+    }
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
-    return get_handle_value(g, ptr, instruction->base.value.type);
+    TypeTableEntry *ptr_type = instruction->ptr->value.type;
+    assert(ptr_type->id == TypeTableEntryIdPointer);
+    bool is_volatile = ptr_type->data.pointer.is_volatile;
+    return get_handle_value(g, ptr, child_type, is_volatile);
 }
 
 static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, IrInstructionStorePtr *instruction) {
@@ -1329,8 +1329,9 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
     LLVMValueRef array_ptr_ptr = ir_llvm_value(g, instruction->array_ptr);
     TypeTableEntry *array_ptr_type = instruction->array_ptr->value.type;
     assert(array_ptr_type->id == TypeTableEntryIdPointer);
+    bool is_volatile = array_ptr_type->data.pointer.is_volatile;
     TypeTableEntry *array_type = array_ptr_type->data.pointer.child_type;
-    LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type);
+    LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, is_volatile);
     LLVMValueRef subscript_value = ir_llvm_value(g, instruction->elem_index);
     assert(subscript_value);
 
@@ -1607,12 +1608,13 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
 {
     TypeTableEntry *ptr_type = instruction->value->value.type;
     assert(ptr_type->id == TypeTableEntryIdPointer);
+    bool is_volatile = ptr_type->data.pointer.is_volatile;
     TypeTableEntry *maybe_type = ptr_type->data.pointer.child_type;
     assert(maybe_type->id == TypeTableEntryIdMaybe);
     TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
     bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
     LLVMValueRef maybe_ptr = ir_llvm_value(g, instruction->value);
-    LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type);
+    LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type, is_volatile);
     if (ir_want_debug_safety(g, &instruction->base) && instruction->safety_check_on) {
         LLVMValueRef non_null_bit = gen_non_null_bit(g, maybe_type, maybe_handle);
         LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapMaybeOk");
@@ -1627,7 +1629,7 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
     if (maybe_is_ptr) {
         return maybe_ptr;
     } else {
-        LLVMValueRef maybe_struct_ref = get_handle_value(g, maybe_ptr, maybe_type);
+        LLVMValueRef maybe_struct_ref = get_handle_value(g, maybe_ptr, maybe_type, is_volatile);
         return LLVMBuildStructGEP(g->builder, maybe_struct_ref, maybe_child_index, "");
     }
 }
@@ -2066,10 +2068,12 @@ static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrI
 
 static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executable, IrInstructionUnwrapErrCode *instruction) {
     TypeTableEntry *ptr_type = get_underlying_type(instruction->value->value.type);
+    assert(ptr_type->id == TypeTableEntryIdPointer);
+    bool is_volatile = ptr_type->data.pointer.is_volatile;
     TypeTableEntry *err_union_type = get_underlying_type(ptr_type->data.pointer.child_type);
     TypeTableEntry *child_type = get_underlying_type(err_union_type->data.error.child_type);
     LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
-    LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type);
+    LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, is_volatile);
 
     if (type_has_bits(child_type)) {
         LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
@@ -2081,10 +2085,12 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executab
 
 static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *executable, IrInstructionUnwrapErrPayload *instruction) {
     TypeTableEntry *ptr_type = get_underlying_type(instruction->value->value.type);
+    assert(ptr_type->id == TypeTableEntryIdPointer);
+    bool is_volatile = ptr_type->data.pointer.is_volatile;
     TypeTableEntry *err_union_type = get_underlying_type(ptr_type->data.pointer.child_type);
     TypeTableEntry *child_type = get_underlying_type(err_union_type->data.error.child_type);
     LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
-    LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type);
+    LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, is_volatile);
 
     if (ir_want_debug_safety(g, &instruction->base) && instruction->safety_check_on) {
         LLVMValueRef err_val;
@@ -2193,7 +2199,7 @@ static LLVMValueRef ir_render_enum_tag(CodeGen *g, IrExecutable *executable, IrI
         return enum_val;
 
     LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, enum_val, enum_gen_tag_index, "");
-    return get_handle_value(g, tag_field_ptr, tag_type);
+    return get_handle_value(g, tag_field_ptr, tag_type, false);
 }
 
 static LLVMValueRef ir_render_init_enum(CodeGen *g, IrExecutable *executable, IrInstructionInitEnum *instruction) {

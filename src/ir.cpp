@@ -8367,7 +8367,7 @@ static TypeTableEntry *ir_analyze_dereference(IrAnalyze *ira, IrInstructionUnOp 
         return child_type;
     }
 
-    ir_build_un_op_from(&ira->new_irb, &un_op_instruction->base, IrUnOpDereference, value);
+    ir_build_load_ptr_from(&ira->new_irb, &un_op_instruction->base, value);
     return child_type;
 }
 
