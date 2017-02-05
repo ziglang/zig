@@ -93,7 +93,7 @@ IfExpression = IfVarExpression | IfBoolExpression
 
 IfBoolExpression = "if" "(" Expression ")" Expression option(Else)
 
-TryExpression = "try" "(" ("const" | "var") option("*") Symbol "=" Expression  ")" Expression option("else" option("|" Symbol "|") Expression)
+TryExpression = "try" "(" option(("const" | "var") option("*") Symbol "=") Expression  ")" Expression option("else" option("|" Symbol "|") Expression)
 
 IfVarExpression = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
 

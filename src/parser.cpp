@@ -628,7 +628,7 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
 }
 
 /*
-TryExpression = "try" "(" ("const" | "var") option("*") Symbol "=" Expression  ")" Expression option("else" option("|" Symbol "|") Expression)
+TryExpression = "try" "(" option(("const" | "var") option("*") Symbol "=") Expression  ")" Expression option("else" option("|" Symbol "|") Expression)
 */
 static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *try_token = &pc->tokens->at(*token_index);
@@ -646,26 +646,31 @@ static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index, bool m
     ast_eat_token(pc, token_index, TokenIdLParen);
 
     Token *var_token = &pc->tokens->at(*token_index);
+    bool have_vars;
     if (var_token->id == TokenIdKeywordVar) {
         node->data.try_expr.var_is_const = false;
         *token_index += 1;
+        have_vars = true;
     } else if (var_token->id == TokenIdKeywordConst) {
         node->data.try_expr.var_is_const = true;
         *token_index += 1;
+        have_vars = true;
     } else {
-        ast_invalid_token_error(pc, var_token);
+        have_vars = false;
     }
 
-    Token *star_token = &pc->tokens->at(*token_index);
-    if (star_token->id == TokenIdStar) {
-        node->data.try_expr.var_is_ptr = true;
-        *token_index += 1;
+    if (have_vars) {
+        Token *star_token = &pc->tokens->at(*token_index);
+        if (star_token->id == TokenIdStar) {
+            node->data.try_expr.var_is_ptr = true;
+            *token_index += 1;
+        }
+
+        Token *var_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+        node->data.try_expr.var_symbol = token_buf(var_name_tok);
+
+        ast_eat_token(pc, token_index, TokenIdEq);
     }
-
-    Token *var_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
-    node->data.try_expr.var_symbol = token_buf(var_name_tok);
-
-    ast_eat_token(pc, token_index, TokenIdEq);
 
     node->data.try_expr.target_node = ast_parse_expression(pc, token_index, true);
 
