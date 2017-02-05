@@ -2036,7 +2036,8 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
     // pointer const
     if (expected_type->id == TypeTableEntryIdPointer &&
         actual_type->id == TypeTableEntryIdPointer &&
-        (!actual_type->data.pointer.is_const || expected_type->data.pointer.is_const))
+        (!actual_type->data.pointer.is_const || expected_type->data.pointer.is_const) &&
+        (!actual_type->data.pointer.is_volatile || expected_type->data.pointer.is_volatile))
     {
         return types_match_const_cast_only(expected_type->data.pointer.child_type,
                 actual_type->data.pointer.child_type);
@@ -2047,12 +2048,14 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
         actual_type->id == TypeTableEntryIdStruct &&
         expected_type->data.structure.is_slice &&
         actual_type->data.structure.is_slice &&
-        (!actual_type->data.structure.fields[0].type_entry->data.pointer.is_const ||
-          expected_type->data.structure.fields[0].type_entry->data.pointer.is_const))
+        (!actual_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
+          expected_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const) &&
+        (!actual_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_volatile ||
+          expected_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_volatile))
     {
         return types_match_const_cast_only(
-                expected_type->data.structure.fields[0].type_entry->data.pointer.child_type,
-                actual_type->data.structure.fields[0].type_entry->data.pointer.child_type);
+                expected_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+                actual_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type);
     }
 
     // maybe

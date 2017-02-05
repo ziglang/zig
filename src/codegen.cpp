@@ -1804,7 +1804,10 @@ static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrIns
 
     LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
 
-    LLVMValueRef is_volatile = instruction->is_volatile ?
+    TypeTableEntry *ptr_type = get_underlying_type(instruction->dest_ptr->value.type);
+    assert(ptr_type->id == TypeTableEntryIdPointer);
+
+    LLVMValueRef is_volatile = ptr_type->data.pointer.is_volatile ?
         LLVMConstAllOnes(LLVMInt1Type()) : LLVMConstNull(LLVMInt1Type());
 
     LLVMValueRef params[] = {
@@ -1829,7 +1832,13 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrIns
     LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
     LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr, ptr_u8, "");
 
-    LLVMValueRef is_volatile = instruction->is_volatile ?
+    TypeTableEntry *dest_ptr_type = get_underlying_type(instruction->dest_ptr->value.type);
+    TypeTableEntry *src_ptr_type = get_underlying_type(instruction->src_ptr->value.type);
+
+    assert(dest_ptr_type->id == TypeTableEntryIdPointer);
+    assert(src_ptr_type->id == TypeTableEntryIdPointer);
+
+    LLVMValueRef is_volatile = (dest_ptr_type->data.pointer.is_volatile || src_ptr_type->data.pointer.is_volatile) ?
         LLVMConstAllOnes(LLVMInt1Type()) : LLVMConstNull(LLVMInt1Type());
 
     LLVMValueRef params[] = {

@@ -11193,9 +11193,13 @@ static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructi
     if (count_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
+    TypeTableEntry *dest_uncasted_type = get_underlying_type(dest_ptr->value.type);
+    bool dest_is_volatile = (dest_uncasted_type->id == TypeTableEntryIdPointer) &&
+        dest_uncasted_type->data.pointer.is_volatile;
+
     TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
     TypeTableEntry *u8 = ira->codegen->builtin_types.entry_u8;
-    TypeTableEntry *u8_ptr = get_pointer_to_type(ira->codegen, u8, false);
+    TypeTableEntry *u8_ptr = get_pointer_to_type_volatile(ira->codegen, u8, false, dest_is_volatile);
 
     IrInstruction *casted_dest_ptr = ir_implicit_cast(ira, dest_ptr, u8_ptr);
     if (casted_dest_ptr->value.type->id == TypeTableEntryIdInvalid)
@@ -11262,10 +11266,17 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
     if (count_value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
+    TypeTableEntry *dest_uncasted_type = get_underlying_type(dest_ptr->value.type);
+    TypeTableEntry *src_uncasted_type = get_underlying_type(src_ptr->value.type);
+    bool dest_is_volatile = (dest_uncasted_type->id == TypeTableEntryIdPointer) &&
+        dest_uncasted_type->data.pointer.is_volatile;
+    bool src_is_volatile = (src_uncasted_type->id == TypeTableEntryIdPointer) &&
+        src_uncasted_type->data.pointer.is_volatile;
+
     TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
     TypeTableEntry *u8 = ira->codegen->builtin_types.entry_u8;
-    TypeTableEntry *u8_ptr_mut = get_pointer_to_type(ira->codegen, u8, false);
-    TypeTableEntry *u8_ptr_const = get_pointer_to_type(ira->codegen, u8, true);
+    TypeTableEntry *u8_ptr_mut = get_pointer_to_type_volatile(ira->codegen, u8, false, dest_is_volatile);
+    TypeTableEntry *u8_ptr_const = get_pointer_to_type_volatile(ira->codegen, u8, true, src_is_volatile);
 
     IrInstruction *casted_dest_ptr = ir_implicit_cast(ira, dest_ptr, u8_ptr_mut);
     if (casted_dest_ptr->value.type->id == TypeTableEntryIdInvalid)
@@ -11888,7 +11899,7 @@ static TypeTableEntry *ir_analyze_instruction_can_implicit_cast(IrAnalyze *ira,
     if (result == ImplicitCastMatchResultReportedError) {
         zig_panic("TODO refactor implicit cast tester to return bool without reporting errors");
     }
-    
+
     // TODO in order to known depends_on_compile_var we have to known if the type of the target
     // depends on a compile var
     bool depends_on_compile_var = true;

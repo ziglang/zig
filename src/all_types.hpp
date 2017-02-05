@@ -2064,7 +2064,6 @@ struct IrInstructionMemset {
     IrInstruction *dest_ptr;
     IrInstruction *byte;
     IrInstruction *count;
-    bool is_volatile;
 };
 
 struct IrInstructionMemcpy {
@@ -2073,7 +2072,6 @@ struct IrInstructionMemcpy {
     IrInstruction *dest_ptr;
     IrInstruction *src_ptr;
     IrInstruction *count;
-    bool is_volatile;
 };
 
 struct IrInstructionSlice {
