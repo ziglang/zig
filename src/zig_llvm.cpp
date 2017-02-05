@@ -708,24 +708,6 @@ LLVMValueRef ZigLLVMBuildExactUDiv(LLVMBuilderRef B, LLVMValueRef LHS,
 
 #include "buffer.hpp"
 
-void ZigLLVMGetTargetTriple(Buf *out_buf, ZigLLVM_ArchType arch_type, ZigLLVM_SubArchType sub_arch_type,
-        ZigLLVM_VendorType vendor_type, ZigLLVM_OSType os_type, ZigLLVM_EnvironmentType environ_type,
-        ZigLLVM_ObjectFormatType oformat)
-{
-    Triple triple;
-
-    triple.setArch((Triple::ArchType)arch_type);
-    // TODO how to set the sub arch?
-    triple.setVendor((Triple::VendorType)vendor_type);
-    triple.setOS((Triple::OSType)os_type);
-    triple.setEnvironment((Triple::EnvironmentType)environ_type);
-    // I guess it's a "triple" because we don't set the object format?
-    //triple.setObjectFormat((Triple::ObjectFormatType)oformat);
-
-    const std::string &str = triple.str();
-    buf_init_from_mem(out_buf, str.c_str(), str.size());
-}
-
 enum FloatAbi {
     FloatAbiHard,
     FloatAbiSoft,

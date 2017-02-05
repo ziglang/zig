@@ -347,9 +347,6 @@ struct Buf;
 void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *sub_arch_type,
         ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type,
         ZigLLVM_ObjectFormatType *oformat);
-void ZigLLVMGetTargetTriple(Buf *out_buf, ZigLLVM_ArchType arch_type, ZigLLVM_SubArchType sub_arch_type,
-        ZigLLVM_VendorType vendor_type, ZigLLVM_OSType os_type, ZigLLVM_EnvironmentType environ_type,
-        ZigLLVM_ObjectFormatType oformat);
 
 
 Buf *get_dynamic_linker(LLVMTargetMachineRef target_machine);

@@ -5,9 +5,10 @@
  * See http://opensource.org/licenses/MIT
  */
 
+#include "buffer.hpp"
+#include "error.hpp"
 #include "target.hpp"
 #include "util.hpp"
-#include "error.hpp"
 
 #include <stdio.h>
 
@@ -282,8 +283,14 @@ void init_all_targets(void) {
 }
 
 void get_target_triple(Buf *triple, const ZigTarget *target) {
-    ZigLLVMGetTargetTriple(triple, target->arch.arch, target->arch.sub_arch,
-            target->vendor, target->os, target->env_type, target->oformat);
+    char arch_name[50];
+    get_arch_name(arch_name, &target->arch);
+
+    buf_resize(triple, 0);
+    buf_appendf(triple, "%s-%s-%s-%s", arch_name,
+            ZigLLVMGetVendorTypeName(target->vendor),
+            ZigLLVMGetOSTypeName(target->os),
+            ZigLLVMGetEnvironmentTypeName(target->env_type));
 }
 
 static bool is_os_darwin(ZigTarget *target) {
