@@ -136,6 +136,10 @@ static void parse_asm_template(ParseContext *pc, AstNode *node) {
                 } else if (c == '[') {
                     cur_tok->id = AsmTokenIdVar;
                     state = StateVar;
+                } else if (c == '=') {
+                    cur_tok->id = AsmTokenIdUniqueId;
+                    cur_tok->end = i;
+                    state = StateStart;
                 } else {
                     ast_asm_error(pc, node, i, "expected a '%%' or '['");
                 }

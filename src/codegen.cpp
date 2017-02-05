@@ -1481,6 +1481,9 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     Buf llvm_template = BUF_INIT;
     buf_resize(&llvm_template, 0);
 
+    uint32_t unique_id = g->unique_asm_id;
+    g->unique_asm_id += 1;
+
     for (size_t token_i = 0; token_i < asm_expr->token_list.length; token_i += 1) {
         AsmToken *asm_token = &asm_expr->token_list.at(token_i);
         switch (asm_token->id) {
@@ -1498,9 +1501,14 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
                 buf_append_char(&llvm_template, '%');
                 break;
             case AsmTokenIdVar:
-                size_t index = find_asm_index(g, asm_node, asm_token);
-                assert(index < SIZE_MAX);
-                buf_appendf(&llvm_template, "$%zu", index);
+                {
+                    size_t index = find_asm_index(g, asm_node, asm_token);
+                    assert(index < SIZE_MAX);
+                    buf_appendf(&llvm_template, "$%zu", index);
+                    break;
+                }
+            case AsmTokenIdUniqueId:
+                buf_appendf(&llvm_template, "%" PRIu32, unique_id);
                 break;
         }
     }

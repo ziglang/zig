@@ -604,6 +604,7 @@ enum AsmTokenId {
     AsmTokenIdTemplate,
     AsmTokenIdPercent,
     AsmTokenIdVar,
+    AsmTokenIdUniqueId,
 };
 
 struct AsmToken {
@@ -1286,6 +1287,8 @@ struct CodeGen {
 
     IrInstruction *invalid_instruction;
     ConstExprValue const_void_val;
+
+    uint32_t unique_asm_id;
 };
 
 enum VarLinkage {
