@@ -268,7 +268,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         LLVMAddFunctionAttr(fn_table_entry->llvm_value, LLVMNoReturnAttribute);
     }
     LLVMSetFunctionCallConv(fn_table_entry->llvm_value, fn_type->data.fn.calling_convention);
-    if (!fn_type->data.fn.fn_type_id.is_extern) {
+    if (!fn_type->data.fn.fn_type_id.is_extern || fn_table_entry->fn_def_node != nullptr) {
         LLVMAddFunctionAttr(fn_table_entry->llvm_value, LLVMNoUnwindAttribute);
     }
     if (!g->is_release_build && fn_table_entry->fn_inline != FnInlineAlways) {
