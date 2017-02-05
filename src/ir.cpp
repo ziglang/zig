@@ -9262,7 +9262,7 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
     if (casted_value == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (ptr->value.special != ConstValSpecialRuntime) {
+    if (ptr->value.special != ConstValSpecialRuntime && ptr->value.data.x_ptr.special != ConstPtrSpecialRuntime) {
         bool is_inline = (ptr->value.data.x_ptr.special == ConstPtrSpecialInline);
         if (casted_value->value.special != ConstValSpecialRuntime) {
             ConstExprValue *dest_val = const_ptr_pointee(&ptr->value);
@@ -9276,33 +9276,6 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
                     buf_sprintf("cannot store runtime value in compile time variable"));
             return ira->codegen->builtin_types.entry_invalid;
         }
-    }
-
-    if (ptr->value.special != ConstValSpecialRuntime) {
-        // This memory location is transforming from known at compile time to known at runtime.
-        // We must emit our own var ptr instruction.
-        // TODO can we delete this code now that we have inline var?
-        ptr->value.special = ConstValSpecialRuntime;
-        IrInstruction *new_ptr_inst;
-        if (ptr->id == IrInstructionIdVarPtr) {
-            IrInstructionVarPtr *var_ptr_inst = (IrInstructionVarPtr *)ptr;
-            VariableTableEntry *var = var_ptr_inst->var;
-            new_ptr_inst = ir_build_var_ptr(&ira->new_irb, store_ptr_instruction->base.scope,
-                store_ptr_instruction->base.source_node, var, false);
-            assert(var->mem_slot_index != SIZE_MAX);
-            ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
-            mem_slot->special = ConstValSpecialRuntime;
-        } else if (ptr->id == IrInstructionIdFieldPtr) {
-            zig_panic("TODO");
-        } else if (ptr->id == IrInstructionIdElemPtr) {
-            zig_panic("TODO");
-        } else {
-            zig_unreachable();
-        }
-        new_ptr_inst->value.type = ptr->value.type;
-        ir_build_store_ptr(&ira->new_irb, store_ptr_instruction->base.scope,
-            store_ptr_instruction->base.source_node, new_ptr_inst, casted_value);
-        return ir_analyze_void(ira, &store_ptr_instruction->base);
     }
 
     ir_build_store_ptr_from(&ira->new_irb, &store_ptr_instruction->base, ptr, casted_value);
