@@ -2074,11 +2074,11 @@ static IrInstruction *ir_build_can_implicit_cast(IrBuilder *irb, Scope *scope, A
 }
 
 static IrInstruction *ir_build_set_global_align(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        TldVar *tld_var, IrInstruction *value)
+        Tld *tld, IrInstruction *value)
 {
     IrInstructionSetGlobalAlign *instruction = ir_build_instruction<IrInstructionSetGlobalAlign>(
             irb, scope, source_node);
-    instruction->tld_var = tld_var;
+    instruction->tld = tld;
     instruction->value = value;
 
     ir_ref_instruction(value, irb->current_basic_block);
@@ -2087,11 +2087,11 @@ static IrInstruction *ir_build_set_global_align(IrBuilder *irb, Scope *scope, As
 }
 
 static IrInstruction *ir_build_set_global_section(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        TldVar *tld_var, IrInstruction *value)
+        Tld *tld, IrInstruction *value)
 {
     IrInstructionSetGlobalSection *instruction = ir_build_instruction<IrInstructionSetGlobalSection>(
             irb, scope, source_node);
-    instruction->tld_var = tld_var;
+    instruction->tld = tld;
     instruction->value = value;
 
     ir_ref_instruction(value, irb->current_basic_block);
@@ -4192,22 +4192,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                                 buf_ptr(variable_name)));
                     return irb->codegen->invalid_instruction;
                 }
-                if (tld->id != TldIdVar) {
-                    add_node_error(irb->codegen, node, buf_sprintf("'%s' is not a global variable",
+                if (tld->id != TldIdVar && tld->id != TldIdFn) {
+                    add_node_error(irb->codegen, node, buf_sprintf("'%s' must be global variable or function",
                                 buf_ptr(variable_name)));
                     return irb->codegen->invalid_instruction;
                 }
-                TldVar *tld_var = (TldVar *)tld;
-
                 AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
                 IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
                 if (builtin_fn->id == BuiltinFnIdSetGlobalAlign) {
-                    return ir_build_set_global_align(irb, scope, node, tld_var, arg1_value);
+                    return ir_build_set_global_align(irb, scope, node, tld, arg1_value);
                 } else {
-                    return ir_build_set_global_section(irb, scope, node, tld_var, arg1_value);
+                    return ir_build_set_global_section(irb, scope, node, tld, arg1_value);
                 }
             }
     }
@@ -9472,7 +9470,7 @@ static bool is_power_of_2(uint64_t x) {
 static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
         IrInstructionSetGlobalAlign *instruction)
 {
-    TldVar *tld_var = instruction->tld_var;
+    Tld *tld = instruction->tld;
     IrInstruction *align_value = instruction->value->other;
 
     uint64_t scalar_align;
@@ -9484,15 +9482,31 @@ static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
 
+    AstNode **set_global_align_node;
+    uint64_t *alignment_ptr;
+    if (tld->id == TldIdVar) {
+        TldVar *tld_var = (TldVar *)tld;
+        set_global_align_node = &tld_var->set_global_align_node;
+        alignment_ptr = &tld_var->alignment;
+    } else if (tld->id == TldIdFn) {
+        TldFn *tld_fn = (TldFn *)tld;
+        FnTableEntry *fn_entry = tld_fn->fn_entry;
+        set_global_align_node = &fn_entry->set_global_align_node;
+        alignment_ptr = &fn_entry->alignment;
+    } else {
+        // error is caught in pass1 IR gen
+        zig_unreachable();
+    }
+
     AstNode *source_node = instruction->base.source_node;
-    if (tld_var->set_global_align_node) {
+    if (*set_global_align_node) {
         ErrorMsg *msg = ir_add_error_node(ira, source_node,
                 buf_sprintf("alignment set twice"));
-        add_error_note(ira->codegen, msg, tld_var->set_global_align_node, buf_sprintf("first set here"));
+        add_error_note(ira->codegen, msg, *set_global_align_node, buf_sprintf("first set here"));
         return ira->codegen->builtin_types.entry_invalid;
     }
-    tld_var->set_global_align_node = source_node;
-    tld_var->alignment = scalar_align;
+    *set_global_align_node = source_node;
+    *alignment_ptr = scalar_align;
 
     ir_build_const_from(ira, &instruction->base, false);
     return ira->codegen->builtin_types.entry_void;
@@ -9501,21 +9515,37 @@ static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
 static TypeTableEntry *ir_analyze_instruction_set_global_section(IrAnalyze *ira,
         IrInstructionSetGlobalSection *instruction)
 {
-    TldVar *tld_var = instruction->tld_var;
+    Tld *tld = instruction->tld;
     IrInstruction *section_value = instruction->value->other;
 
     Buf *section_name = ir_resolve_str(ira, section_value);
     if (!section_name)
         return ira->codegen->builtin_types.entry_invalid;
 
+    AstNode **set_global_section_node;
+    Buf **section_name_ptr;
+    if (tld->id == TldIdVar) {
+        TldVar *tld_var = (TldVar *)tld;
+        set_global_section_node = &tld_var->set_global_section_node;
+        section_name_ptr = &tld_var->section_name;
+    } else if (tld->id == TldIdFn) {
+        TldFn *tld_fn = (TldFn *)tld;
+        FnTableEntry *fn_entry = tld_fn->fn_entry;
+        set_global_section_node = &fn_entry->set_global_section_node;
+        section_name_ptr = &fn_entry->section_name;
+    } else {
+        // error is caught in pass1 IR gen
+        zig_unreachable();
+    }
+
     AstNode *source_node = instruction->base.source_node;
-    if (tld_var->set_global_section_node) {
+    if (*set_global_section_node) {
         ErrorMsg *msg = ir_add_error_node(ira, source_node, buf_sprintf("section set twice"));
-        add_error_note(ira->codegen, msg, tld_var->set_global_section_node, buf_sprintf("first set here"));
+        add_error_note(ira->codegen, msg, *set_global_section_node, buf_sprintf("first set here"));
         return ira->codegen->builtin_types.entry_invalid;
     }
-    tld_var->set_global_section_node = source_node;
-    tld_var->section_name = section_name;
+    *set_global_section_node = source_node;
+    *section_name_ptr = section_name;
 
     ir_build_const_from(ira, &instruction->base, false);
     return ira->codegen->builtin_types.entry_void;

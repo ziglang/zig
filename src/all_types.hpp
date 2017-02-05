@@ -1067,6 +1067,11 @@ struct FnTableEntry {
 
     ZigList<IrInstruction *> alloca_list;
     ZigList<VariableTableEntry *> variable_list;
+
+    AstNode *set_global_align_node;
+    uint64_t alignment;
+    AstNode *set_global_section_node;
+    Buf *section_name;
 };
 
 uint32_t fn_table_entry_hash(FnTableEntry*);
@@ -2261,14 +2266,14 @@ struct IrInstructionCanImplicitCast {
 struct IrInstructionSetGlobalAlign {
     IrInstruction base;
 
-    TldVar *tld_var;
+    Tld *tld;
     IrInstruction *value;
 };
 
 struct IrInstructionSetGlobalSection {
     IrInstruction base;
 
-    TldVar *tld_var;
+    Tld *tld;
     IrInstruction *value;
 };
 

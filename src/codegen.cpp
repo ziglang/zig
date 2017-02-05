@@ -275,6 +275,12 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim-non-leaf", nullptr);
     }
+    if (fn_table_entry->section_name) {
+        LLVMSetSection(fn_table_entry->llvm_value, buf_ptr(fn_table_entry->section_name));
+    }
+    if (fn_table_entry->alignment) {
+        LLVMSetAlignment(fn_table_entry->llvm_value, fn_table_entry->alignment);
+    }
 
     return fn_table_entry->llvm_value;
 }

@@ -833,13 +833,13 @@ static void ir_print_can_implicit_cast(IrPrint *irp, IrInstructionCanImplicitCas
 }
 
 static void ir_print_set_global_align(IrPrint *irp, IrInstructionSetGlobalAlign *instruction) {
-    fprintf(irp->f, "@setGlobalAlign(%s,", buf_ptr(instruction->tld_var->base.name));
+    fprintf(irp->f, "@setGlobalAlign(%s,", buf_ptr(instruction->tld->name));
     ir_print_other_instruction(irp, instruction->value);
     fprintf(irp->f, ")");
 }
 
 static void ir_print_set_global_section(IrPrint *irp, IrInstructionSetGlobalSection *instruction) {
-    fprintf(irp->f, "@setGlobalSection(%s,", buf_ptr(instruction->tld_var->base.name));
+    fprintf(irp->f, "@setGlobalSection(%s,", buf_ptr(instruction->tld->name));
     ir_print_other_instruction(irp, instruction->value);
     fprintf(irp->f, ")");
 }
