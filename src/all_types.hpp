@@ -490,6 +490,8 @@ enum PrefixOp {
     PrefixOpNegationWrap,
     PrefixOpAddressOf,
     PrefixOpConstAddressOf,
+    PrefixOpVolatileAddressOf,
+    PrefixOpConstVolatileAddressOf,
     PrefixOpDereference,
     PrefixOpMaybe,
     PrefixOpError,
@@ -806,6 +808,7 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b);
 struct TypeTableEntryPointer {
     TypeTableEntry *child_type;
     bool is_const;
+    bool is_volatile;
 };
 
 struct TypeTableEntryInt {
@@ -991,7 +994,7 @@ struct TypeTableEntry {
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
-    TypeTableEntry *pointer_parent[2];
+    TypeTableEntry *pointer_parent[2][2]; // [0 - mut, 1 - const][0 - normal, 1 - volatile]
     TypeTableEntry *unknown_size_array_parent[2];
     HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
     TypeTableEntry *maybe_parent;
@@ -1113,7 +1116,6 @@ enum BuiltinFnId {
     BuiltinFnIdCanImplicitCast,
     BuiltinFnIdSetGlobalAlign,
     BuiltinFnIdSetGlobalSection,
-    BuiltinFnIdVolatileStore,
 };
 
 struct BuiltinFnEntry {
@@ -1692,7 +1694,6 @@ struct IrInstructionStorePtr {
 
     IrInstruction *ptr;
     IrInstruction *value;
-    bool is_volatile;
 };
 
 struct IrInstructionFieldPtr {
@@ -1943,6 +1944,7 @@ struct IrInstructionRef {
     IrInstruction *value;
     LLVMValueRef tmp_ptr;
     bool is_const;
+    bool is_volatile;
 };
 
 struct IrInstructionMinValue {
@@ -2062,6 +2064,7 @@ struct IrInstructionMemset {
     IrInstruction *dest_ptr;
     IrInstruction *byte;
     IrInstruction *count;
+    bool is_volatile;
 };
 
 struct IrInstructionMemcpy {
@@ -2070,6 +2073,7 @@ struct IrInstructionMemcpy {
     IrInstruction *dest_ptr;
     IrInstruction *src_ptr;
     IrInstruction *count;
+    bool is_volatile;
 };
 
 struct IrInstructionSlice {
@@ -2265,13 +2269,6 @@ struct IrInstructionSetGlobalSection {
 
     TldVar *tld_var;
     IrInstruction *value;
-};
-
-enum LValPurpose {
-    LValPurposeNone,
-    LValPurposeAssign,
-    LValPurposeAddressOf,
-    LValPurposeAddressOfConst,
 };
 
 static const size_t slice_ptr_index = 0;

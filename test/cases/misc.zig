@@ -566,3 +566,12 @@ fn typeName() {
         assert(str.eql(@typeName(&usize), "&usize"));
     }
 }
+
+fn volatileLoadAndStore() {
+    @setFnTest(this);
+
+    var number: i32 = 1234;
+    const ptr = &volatile number;
+    *ptr += 1;
+    assert(*ptr == 1235);
+}

@@ -68,6 +68,8 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpBinNot: return "~";
         case PrefixOpAddressOf: return "&";
         case PrefixOpConstAddressOf: return "&const ";
+        case PrefixOpVolatileAddressOf: return "&volatile ";
+        case PrefixOpConstVolatileAddressOf: return "&const volatile ";
         case PrefixOpDereference: return "*";
         case PrefixOpMaybe: return "?";
         case PrefixOpError: return "%";

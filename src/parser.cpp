@@ -996,7 +996,7 @@ static PrefixOp tok_to_prefix_op(Token *token) {
 
 /*
 PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
-PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const")) | "?" | "%" | "%%" | "??" | "-%"
+PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%"
 */
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1036,10 +1036,19 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, 
     }
 
     if (prefix_op == PrefixOpAddressOf) {
-        Token *token = &pc->tokens->at(*token_index);
-        if (token->id == TokenIdKeywordConst) {
+        Token *const_or_volatile_tok = &pc->tokens->at(*token_index);
+        if (const_or_volatile_tok->id == TokenIdKeywordConst) {
             *token_index += 1;
-            prefix_op = PrefixOpConstAddressOf;
+            Token *volatile_token = &pc->tokens->at(*token_index);
+            if (volatile_token->id == TokenIdKeywordVolatile) {
+                *token_index += 1;
+                prefix_op = PrefixOpConstVolatileAddressOf;
+            } else {
+                prefix_op = PrefixOpConstAddressOf;
+            }
+        } else if (const_or_volatile_tok->id == TokenIdKeywordVolatile) {
+            prefix_op = PrefixOpVolatileAddressOf;
+            *token_index += 1;
         }
     }
 

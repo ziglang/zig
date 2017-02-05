@@ -299,9 +299,6 @@ static void ir_print_store_ptr(IrPrint *irp, IrInstructionStorePtr *instruction)
     ir_print_var_instruction(irp, instruction->ptr);
     fprintf(irp->f, " = ");
     ir_print_other_instruction(irp, instruction->value);
-    if (instruction->is_volatile) {
-        fprintf(irp->f, " // volatile");
-    }
 }
 
 static void ir_print_typeof(IrPrint *irp, IrInstructionTypeOf *instruction) {
@@ -512,7 +509,8 @@ static void ir_print_array_len(IrPrint *irp, IrInstructionArrayLen *instruction)
 
 static void ir_print_ref(IrPrint *irp, IrInstructionRef *instruction) {
     const char *const_str = instruction->is_const ? "const " : "";
-    fprintf(irp->f, "%sref ", const_str);
+    const char *volatile_str = instruction->is_volatile ? "volatile " : "";
+    fprintf(irp->f, "%s%sref ", const_str, volatile_str);
     ir_print_other_instruction(irp, instruction->value);
 }
 

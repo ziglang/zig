@@ -269,43 +269,48 @@ TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
     return get_int_type(g, false, bits_needed_for_unsigned(x));
 }
 
-TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
+TypeTableEntry *get_pointer_to_type_volatile(CodeGen *g, TypeTableEntry *child_type, bool is_const, bool is_volatile) {
     assert(child_type->id != TypeTableEntryIdInvalid);
-    TypeTableEntry **parent_pointer = &child_type->pointer_parent[(is_const ? 1 : 0)];
-    if (*parent_pointer) {
+    TypeTableEntry **parent_pointer = &child_type->pointer_parent[(is_const ? 1 : 0)][(is_volatile ? 1 : 0)];
+    if (*parent_pointer)
         return *parent_pointer;
+
+    type_ensure_zero_bits_known(g, child_type);
+
+    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
+
+    const char *const_str = is_const ? "const " : "";
+    const char *volatile_str = is_volatile ? "volatile " : "";
+    buf_resize(&entry->name, 0);
+    buf_appendf(&entry->name, "&%s%s%s", const_str, volatile_str, buf_ptr(&child_type->name));
+
+    TypeTableEntry *canon_child_type = get_underlying_type(child_type);
+    assert(canon_child_type->id != TypeTableEntryIdInvalid);
+
+    entry->zero_bits = !type_has_bits(canon_child_type);
+
+    if (!entry->zero_bits) {
+        entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
+
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
+        assert(child_type->di_type);
+        entry->di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, child_type->di_type,
+                debug_size_in_bits, debug_align_in_bits, buf_ptr(&entry->name));
     } else {
-        type_ensure_zero_bits_known(g, child_type);
-
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
-
-        const char *const_str = is_const ? "const " : "";
-        buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "&%s%s", const_str, buf_ptr(&child_type->name));
-
-        TypeTableEntry *canon_child_type = get_underlying_type(child_type);
-        assert(canon_child_type->id != TypeTableEntryIdInvalid);
-
-        entry->zero_bits = !type_has_bits(canon_child_type);
-
-        if (!entry->zero_bits) {
-            entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
-
-            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
-            assert(child_type->di_type);
-            entry->di_type = ZigLLVMCreateDebugPointerType(g->dbuilder, child_type->di_type,
-                    debug_size_in_bits, debug_align_in_bits, buf_ptr(&entry->name));
-        } else {
-            entry->di_type = g->builtin_types.entry_void->di_type;
-        }
-
-        entry->data.pointer.child_type = child_type;
-        entry->data.pointer.is_const = is_const;
-
-        *parent_pointer = entry;
-        return entry;
+        entry->di_type = g->builtin_types.entry_void->di_type;
     }
+
+    entry->data.pointer.child_type = child_type;
+    entry->data.pointer.is_const = is_const;
+    entry->data.pointer.is_volatile = is_volatile;
+
+    *parent_pointer = entry;
+    return entry;
+}
+
+TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
+    return get_pointer_to_type_volatile(g, child_type, is_const, false);
 }
 
 TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {

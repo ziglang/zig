@@ -1294,18 +1294,19 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
 
     assert(instruction->ptr->value.type->id == TypeTableEntryIdPointer);
-    TypeTableEntry *op1_type = instruction->ptr->value.type->data.pointer.child_type;
+    TypeTableEntry *ptr_type = get_underlying_type(instruction->ptr->value.type);
+    TypeTableEntry *child_type = get_underlying_type(ptr_type->data.pointer.child_type);
 
-    if (!type_has_bits(op1_type)) {
+    if (!type_has_bits(child_type)) {
         return nullptr;
     }
-    if (handle_is_ptr(op1_type)) {
-        return gen_struct_memcpy(g, value, ptr, op1_type);
+    if (handle_is_ptr(child_type)) {
+        return gen_struct_memcpy(g, value, ptr, child_type);
     }
 
     LLVMValueRef llvm_instruction = LLVMBuildStore(g->builder, value, ptr);
 
-    LLVMSetVolatile(llvm_instruction, instruction->is_volatile);
+    LLVMSetVolatile(llvm_instruction, ptr_type->data.pointer.is_volatile);
 
     return nullptr;
 }
@@ -1803,12 +1804,15 @@ static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrIns
 
     LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
 
+    LLVMValueRef is_volatile = instruction->is_volatile ?
+        LLVMConstAllOnes(LLVMInt1Type()) : LLVMConstNull(LLVMInt1Type());
+
     LLVMValueRef params[] = {
         dest_ptr_casted, // dest pointer
         char_val, // source pointer
         len_val, // byte count
         LLVMConstInt(LLVMInt32Type(), 1, false), // align in bytes
-        LLVMConstNull(LLVMInt1Type()), // is volatile
+        is_volatile,
     };
 
     LLVMBuildCall(g->builder, g->memset_fn_val, params, 5, "");
@@ -1825,12 +1829,15 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrIns
     LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, dest_ptr, ptr_u8, "");
     LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, src_ptr, ptr_u8, "");
 
+    LLVMValueRef is_volatile = instruction->is_volatile ?
+        LLVMConstAllOnes(LLVMInt1Type()) : LLVMConstNull(LLVMInt1Type());
+
     LLVMValueRef params[] = {
         dest_ptr_casted, // dest pointer
         src_ptr_casted, // source pointer
         len_val, // byte count
         LLVMConstInt(LLVMInt32Type(), 1, false), // align in bytes
-        LLVMConstNull(LLVMInt1Type()), // is volatile
+        is_volatile,
     };
 
     LLVMBuildCall(g->builder, g->memcpy_fn_val, params, 5, "");
@@ -3690,7 +3697,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdAlloca, "alloca", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalAlign, "setGlobalAlign", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalSection, "setGlobalSection", 2);
-    create_builtin_fn(g, BuiltinFnIdVolatileStore, "volatileStore", 2);
 }
 
 static void init(CodeGen *g, Buf *source_path) {
