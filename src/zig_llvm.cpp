@@ -733,7 +733,14 @@ enum FloatAbi {
 };
 
 static FloatAbi get_float_abi(const Triple &triple) {
-    zig_panic("TODO implement get_float_abi for ARM");
+    if (triple.getEnvironment() == Triple::GNUEABIHF ||
+        triple.getEnvironment() == Triple::EABIHF ||
+        triple.getEnvironment() == Triple::MuslEABIHF)
+    {
+        return FloatAbiHard;
+    } else {
+        zig_panic("TODO: user needs to input if they want hard or soft floating point");
+    }
 }
 
 Buf *get_dynamic_linker(LLVMTargetMachineRef target_machine_ref) {
