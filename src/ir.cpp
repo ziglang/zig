@@ -8819,7 +8819,8 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         ConstExprValue *array_ptr_val;
         if (array_ptr->value.special != ConstValSpecialRuntime &&
             (array_ptr_val = const_ptr_pointee(&array_ptr->value)) &&
-            array_ptr_val->special != ConstValSpecialRuntime)
+            array_ptr_val->special != ConstValSpecialRuntime &&
+            (array_type->id != TypeTableEntryIdPointer || array_ptr_val->data.x_ptr.special != ConstPtrSpecialRuntime))
         {
             bool depends_on_compile_var = array_ptr_val->depends_on_compile_var ||
                 casted_elem_index->value.depends_on_compile_var;
@@ -8926,14 +8927,17 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                 if (!ptr_val)
                     return ira->codegen->builtin_types.entry_invalid;
 
-                ConstExprValue *struct_val = const_ptr_pointee(ptr_val);
-                if (value_is_comptime(struct_val)) {
-                    ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
-                    if (value_is_comptime(field_val)) {
-                        bool depends_on_compile_var = field_val->depends_on_compile_var ||
-                            struct_val->depends_on_compile_var || ptr_val->depends_on_compile_var;
-                        return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, field_val,
-                                field_val->type, depends_on_compile_var, ConstPtrSpecialNone, is_const, is_volatile);
+                if (ptr_val->data.x_ptr.special != ConstPtrSpecialRuntime) {
+                    ConstExprValue *struct_val = const_ptr_pointee(ptr_val);
+                    if (value_is_comptime(struct_val)) {
+                        ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
+                        if (value_is_comptime(field_val)) {
+                            bool depends_on_compile_var = field_val->depends_on_compile_var ||
+                                struct_val->depends_on_compile_var || ptr_val->depends_on_compile_var;
+                            return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, field_val,
+                                    field_val->type, depends_on_compile_var, ConstPtrSpecialNone,
+                                    is_const, is_volatile);
+                        }
                     }
                 }
             }

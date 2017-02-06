@@ -786,11 +786,13 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeTryExpr:
             {
-                const char *var_str = node->data.try_expr.var_is_const ? "const" : "var";
-                const char *var_name = buf_ptr(node->data.try_expr.var_symbol);
-                const char *ptr_str = node->data.try_expr.var_is_ptr ? "*" : "";
-                fprintf(ar->f, "try (%s %s%s", var_str, ptr_str, var_name);
-                fprintf(ar->f, " = ");
+                fprintf(ar->f, "try (");
+                if (node->data.try_expr.var_symbol) {
+                    const char *var_str = node->data.try_expr.var_is_const ? "const" : "var";
+                    const char *var_name = buf_ptr(node->data.try_expr.var_symbol);
+                    const char *ptr_str = node->data.try_expr.var_is_ptr ? "*" : "";
+                    fprintf(ar->f, "%s %s%s = ", var_str, ptr_str, var_name);
+                }
                 render_node_grouped(ar, node->data.try_expr.target_node);
                 fprintf(ar->f, ") ");
                 render_node_grouped(ar, node->data.try_expr.then_node);
