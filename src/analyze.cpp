@@ -713,7 +713,13 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     fn_type->data.fn.fn_type_id = *fn_type_id;
 
     if (fn_type_id->is_cold) {
-        fn_type->data.fn.calling_convention = LLVMColdCallConv;
+        if (g->zig_target.arch.arch == ZigLLVM_arm) {
+            // TODO we want to use coldcc here but it's causing a segfault on ARM
+            // https://llvm.org/bugs/show_bug.cgi?id=31875
+            fn_type->data.fn.calling_convention = LLVMCCallConv;
+        } else {
+            fn_type->data.fn.calling_convention = LLVMColdCallConv;
+        }
     } else if (fn_type_id->is_extern) {
         fn_type->data.fn.calling_convention = LLVMCCallConv;
     } else {
@@ -725,8 +731,8 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
     const char *extern_str = fn_type_id->is_extern ? "extern " : "";
-    const char *naked_str = fn_type_id->is_naked ? "naked " : "";
-    const char *cold_str = fn_type_id->is_cold ? "cold " : "";
+    const char *naked_str = fn_type_id->is_naked ? "nakedcc " : "";
+    const char *cold_str = fn_type_id->is_cold ? "coldcc " : "";
     buf_appendf(&fn_type->name, "%s%s%sfn(", extern_str, naked_str, cold_str);
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
@@ -1572,6 +1578,33 @@ static bool scope_is_root_decls(Scope *scope) {
     zig_unreachable();
 }
 
+static void wrong_panic_prototype(CodeGen *g, AstNode *proto_node, TypeTableEntry *fn_type) {
+    add_node_error(g, proto_node,
+            buf_sprintf("expected 'fn([]const u8) -> unreachable', found '%s'",
+                buf_ptr(&fn_type->name)));
+}
+
+static void typecheck_panic_fn(CodeGen *g) {
+    assert(g->panic_fn);
+
+    AstNode *proto_node = g->panic_fn->proto_node;
+    assert(proto_node->type == NodeTypeFnProto);
+    TypeTableEntry *fn_type = g->panic_fn->type_entry;
+    FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
+    if (fn_type_id->param_count != 1) {
+        return wrong_panic_prototype(g, proto_node, fn_type);
+    }
+    TypeTableEntry *const_u8_slice = get_slice_type(g, g->builtin_types.entry_u8, true);
+    if (fn_type_id->param_info[0].type != const_u8_slice) {
+        return wrong_panic_prototype(g, proto_node, fn_type);
+    }
+
+    TypeTableEntry *actual_return_type = fn_type_id->return_type;
+    if (actual_return_type != g->builtin_types.entry_unreachable) {
+        return wrong_panic_prototype(g, proto_node, fn_type);
+    }
+}
+
 static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     ImportTableEntry *import = tld_fn->base.import;
     AstNode *proto_node = tld_fn->base.source_node;
@@ -1612,27 +1645,39 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         if (fn_def_node)
             g->fn_defs.append(fn_table_entry);
 
-        bool is_main_fn = scope_is_root_decls(tld_fn->base.parent_scope) &&
-            (import == g->root_import) && buf_eql_str(&fn_table_entry->symbol_name, "main");
-        if (is_main_fn)
-            g->main_fn = fn_table_entry;
+        if (import == g->root_import && scope_is_root_decls(tld_fn->base.parent_scope)) {
+            if (buf_eql_str(&fn_table_entry->symbol_name, "main")) {
+                g->main_fn = fn_table_entry;
 
-        if (is_main_fn && !g->link_libc && tld_fn->base.visib_mod != VisibModExport) {
-            TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
-            TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
-            if (actual_return_type != err_void) {
-                add_node_error(g, fn_proto->return_type,
-                        buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
-                            buf_ptr(&actual_return_type->name)));
+                if (!g->link_libc && tld_fn->base.visib_mod != VisibModExport) {
+                    TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
+                    TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
+                    if (actual_return_type != err_void) {
+                        add_node_error(g, fn_proto->return_type,
+                                buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
+                                    buf_ptr(&actual_return_type->name)));
+                    }
+                }
+            } else if (buf_eql_str(&fn_table_entry->symbol_name, "panic")) {
+                g->panic_fn = fn_table_entry;
+                typecheck_panic_fn(g);
+            }
+        } else if (import->package == g->panic_package && scope_is_root_decls(tld_fn->base.parent_scope)) {
+            if (buf_eql_str(&fn_table_entry->symbol_name, "panic")) {
+                g->panic_fn = fn_table_entry;
+                typecheck_panic_fn(g);
             }
         }
     }
 }
 
 static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
-    bool want_to_resolve = (g->check_unused || g->is_test_build || tld->visib_mod == VisibModExport);
-    if (want_to_resolve)
+    if (g->check_unused || g->is_test_build || tld->visib_mod == VisibModExport ||
+        (buf_eql_str(tld->name, "panic") &&
+         (decls_scope->import->package == g->panic_package || decls_scope->import == g->root_import)))
+    {
         g->resolve_queue.append(tld);
+    }
 
     auto entry = decls_scope->decl_table.put_unique(tld->name, tld);
     if (entry) {
@@ -2548,9 +2593,6 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
     assert(import_entry->root);
     if (g->verbose) {
         ast_print(stderr, import_entry->root, 0);
-        //fprintf(stderr, "\nReformatted Source:\n");
-        //fprintf(stderr, "---------------------\n");
-        //ast_render(stderr, import_entry->root, 4);
     }
 
     import_entry->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
@@ -2571,8 +2613,12 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
 
             bool is_pub = (proto_node->data.fn_proto.visib_mod == VisibModPub);
 
-            if (buf_eql_str(proto_name, "main") && is_pub) {
-                g->have_exported_main = true;
+            if (is_pub) {
+                if (buf_eql_str(proto_name, "main")) {
+                    g->have_exported_main = true;
+                } else if (buf_eql_str(proto_name, "panic")) {
+                    g->have_exported_panic = true;
+                }
             }
         }
     }

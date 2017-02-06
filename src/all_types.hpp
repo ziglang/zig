@@ -1132,6 +1132,22 @@ struct BuiltinFnEntry {
     LLVMValueRef fn_val;
 };
 
+enum PanicMsgId {
+    PanicMsgIdUnreachable,
+    PanicMsgIdBoundsCheckFailure,
+    PanicMsgIdCastNegativeToUnsigned,
+    PanicMsgIdCastTruncatedData,
+    PanicMsgIdIntegerOverflow,
+    PanicMsgIdShiftOverflowedBits,
+    PanicMsgIdDivisionByZero,
+    PanicMsgIdExactDivisionRemainder,
+    PanicMsgIdSliceWidenRemainder,
+    PanicMsgIdUnwrapMaybeFail,
+    PanicMsgIdUnwrapErrFail,
+
+    PanicMsgIdCount,
+};
+
 uint32_t fn_eval_hash(Scope*);
 bool fn_eval_eql(Scope *a, Scope *b);
 
@@ -1210,6 +1226,7 @@ struct CodeGen {
     bool strip_debug_symbols;
     bool want_h_file;
     bool have_exported_main;
+    bool have_exported_panic;
     bool link_libc;
     Buf *libc_lib_dir;
     Buf *libc_static_lib_dir;
@@ -1230,6 +1247,7 @@ struct CodeGen {
     bool is_native_target;
     PackageTableEntry *root_package;
     PackageTableEntry *std_package;
+    PackageTableEntry *panic_package;
     Buf *root_out_name;
     bool windows_subsystem_windows;
     bool windows_subsystem_console;
@@ -1252,6 +1270,7 @@ struct CodeGen {
     OutType out_type;
     FnTableEntry *cur_fn;
     FnTableEntry *main_fn;
+    FnTableEntry *panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
     ZigList<LLVMBasicBlockRef> break_block_stack;
@@ -1292,6 +1311,8 @@ struct CodeGen {
 
     IrInstruction *invalid_instruction;
     ConstExprValue const_void_val;
+
+    ConstExprValue panic_msg_vals[PanicMsgIdCount];
 };
 
 enum VarLinkage {

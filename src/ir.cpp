@@ -3878,20 +3878,10 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                if (exec_fn_entry(irb->exec)) {
-                    add_node_error(irb->codegen, node, buf_sprintf("import valid only at global scope"));
-                    return irb->codegen->invalid_instruction;
-                }
-
                 return ir_build_import(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdCImport:
             {
-                if (exec_fn_entry(irb->exec)) {
-                    add_node_error(irb->codegen, node, buf_sprintf("C import valid only at global scope"));
-                    return irb->codegen->invalid_instruction;
-                }
-
                 return ir_build_c_import(irb, scope, node);
             }
         case BuiltinFnIdCInclude:

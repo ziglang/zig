@@ -450,8 +450,56 @@ static bool ir_want_debug_safety(CodeGen *g, IrInstruction *instruction) {
     return true;
 }
 
-static void gen_debug_safety_crash(CodeGen *g) {
-    LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
+static Buf *panic_msg_buf(PanicMsgId msg_id) {
+    switch (msg_id) {
+        case PanicMsgIdCount:
+            zig_unreachable();
+        case PanicMsgIdBoundsCheckFailure:
+            return buf_create_from_str("index out of bounds");
+        case PanicMsgIdCastNegativeToUnsigned:
+            return buf_create_from_str("attempt to cast negative value to unsigned integer");
+        case PanicMsgIdCastTruncatedData:
+            return buf_create_from_str("integer cast truncated bits");
+        case PanicMsgIdIntegerOverflow:
+            return buf_create_from_str("integer overflow");
+        case PanicMsgIdShiftOverflowedBits:
+            return buf_create_from_str("left shift overflowed bits");
+        case PanicMsgIdDivisionByZero:
+            return buf_create_from_str("division by zero");
+        case PanicMsgIdExactDivisionRemainder:
+            return buf_create_from_str("exact division produced remainder");
+        case PanicMsgIdSliceWidenRemainder:
+            return buf_create_from_str("slice widening size mismatch");
+        case PanicMsgIdUnwrapMaybeFail:
+            return buf_create_from_str("attempt to unwrap null");
+        case PanicMsgIdUnwrapErrFail:
+            return buf_create_from_str("attempt to unwrap error");
+        case PanicMsgIdUnreachable:
+            return buf_create_from_str("reached unreachable code");
+    }
+    zig_unreachable();
+}
+
+static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
+    ConstExprValue *val = &g->panic_msg_vals[msg_id];
+    if (val->llvm_global)
+        return val->llvm_global;
+
+    Buf *buf_msg = panic_msg_buf(msg_id);
+    ConstExprValue *array_val = create_const_str_lit(g, buf_msg);
+    init_const_slice(g, val, array_val, 0, buf_len(buf_msg), true);
+
+    render_const_val_global(g, val, "");
+    render_const_val(g, val);
+
+    assert(val->llvm_global);
+    return val->llvm_global;
+}
+
+static void gen_debug_safety_crash(CodeGen *g, PanicMsgId msg_id) {
+    LLVMValueRef fn_val = fn_llvm_value(g, g->panic_fn);
+    LLVMValueRef msg_arg = get_panic_msg_ptr_val(g, msg_id);
+    ZigLLVMBuildCall(g->builder, fn_val, &msg_arg, 1, g->panic_fn->type_entry->data.fn.calling_convention, "");
     LLVMBuildUnreachable(g->builder);
 }
 
@@ -477,7 +525,7 @@ static void add_bounds_check(CodeGen *g, LLVMValueRef target_val,
     LLVMBuildCondBr(g->builder, lower_ok_val, lower_ok_block, bounds_check_fail_block);
 
     LLVMPositionBuilderAtEnd(g->builder, bounds_check_fail_block);
-    gen_debug_safety_crash(g);
+    gen_debug_safety_crash(g, PanicMsgIdBoundsCheckFailure);
 
     if (upper_value) {
         LLVMPositionBuilderAtEnd(g->builder, lower_ok_block);
@@ -520,7 +568,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_debug_safety, Typ
         LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
-        gen_debug_safety_crash(g);
+        gen_debug_safety_crash(g, PanicMsgIdCastNegativeToUnsigned);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -559,7 +607,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_debug_safety, Typ
             LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
             LLVMPositionBuilderAtEnd(g->builder, fail_block);
-            gen_debug_safety_crash(g);
+            gen_debug_safety_crash(g, PanicMsgIdCastTruncatedData);
 
             LLVMPositionBuilderAtEnd(g->builder, ok_block);
             return trunc_val;
@@ -587,7 +635,7 @@ static LLVMValueRef gen_overflow_op(CodeGen *g, TypeTableEntry *type_entry, AddS
     LLVMBuildCondBr(g->builder, overflow_bit, fail_block, ok_block);
 
     LLVMPositionBuilderAtEnd(g->builder, fail_block);
-    gen_debug_safety_crash(g);
+    gen_debug_safety_crash(g, PanicMsgIdIntegerOverflow);
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
     return result;
@@ -748,7 +796,7 @@ static LLVMValueRef gen_overflow_shl_op(CodeGen *g, TypeTableEntry *type_entry,
     LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
     LLVMPositionBuilderAtEnd(g->builder, fail_block);
-    gen_debug_safety_crash(g);
+    gen_debug_safety_crash(g, PanicMsgIdShiftOverflowedBits);
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
     return result;
@@ -773,7 +821,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, LLVMValueRef val
         LLVMBuildCondBr(g->builder, is_zero_bit, fail_block, ok_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
-        gen_debug_safety_crash(g);
+        gen_debug_safety_crash(g, PanicMsgIdDivisionByZero);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -801,7 +849,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, LLVMValueRef val
             LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
             LLVMPositionBuilderAtEnd(g->builder, fail_block);
-            gen_debug_safety_crash(g);
+            gen_debug_safety_crash(g, PanicMsgIdExactDivisionRemainder);
 
             LLVMPositionBuilderAtEnd(g->builder, ok_block);
         }
@@ -1038,7 +1086,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
                         LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
                         LLVMPositionBuilderAtEnd(g->builder, fail_block);
-                        gen_debug_safety_crash(g);
+                        gen_debug_safety_crash(g, PanicMsgIdSliceWidenRemainder);
 
                         LLVMPositionBuilderAtEnd(g->builder, ok_block);
                     }
@@ -1162,7 +1210,7 @@ static LLVMValueRef ir_render_unreachable(CodeGen *g, IrExecutable *executable,
         IrInstructionUnreachable *unreachable_instruction)
 {
     if (ir_want_debug_safety(g, &unreachable_instruction->base) || g->is_test_build) {
-        gen_debug_safety_crash(g);
+        gen_debug_safety_crash(g, PanicMsgIdUnreachable);
     } else {
         LLVMBuildUnreachable(g->builder);
     }
@@ -1622,7 +1670,7 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
         LLVMBuildCondBr(g->builder, non_null_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
-        gen_debug_safety_crash(g);
+        gen_debug_safety_crash(g, PanicMsgIdUnwrapMaybeFail);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -2107,7 +2155,7 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
         LLVMBuildCondBr(g->builder, cond_val, ok_block, err_block);
 
         LLVMPositionBuilderAtEnd(g->builder, err_block);
-        gen_debug_safety_crash(g);
+        gen_debug_safety_crash(g, PanicMsgIdUnwrapErrFail);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -3849,6 +3897,12 @@ static PackageTableEntry *create_bootstrap_pkg(CodeGen *g) {
     return package;
 }
 
+static PackageTableEntry *create_panic_pkg(CodeGen *g) {
+    PackageTableEntry *package = new_package(buf_ptr(g->zig_std_dir), "");
+    package->package_table.put(buf_create_from_str("std"), g->std_package);
+    return package;
+}
+
 void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *source_code) {
     Buf source_path = BUF_INIT;
     os_path_join(src_dir, src_basename, &source_path);
@@ -3872,6 +3926,10 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
         if (g->have_exported_main && (g->out_type == OutTypeObj || g->out_type == OutTypeExe)) {
             g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g), "bootstrap.zig");
         }
+    }
+    if (!g->have_exported_panic) {
+        g->panic_package = create_panic_pkg(g);
+        add_special_code(g, g->panic_package, "panic.zig");
     }
 
     if (g->verbose) {

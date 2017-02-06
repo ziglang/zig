@@ -1167,13 +1167,6 @@ fn f(n: Number) -> i32 {
 }
     )SOURCE", 1, ".tmp_source.zig:9:5: error: enumeration value 'Number.Four' not handled in switch");
 
-    add_compile_fail_case("import inside function body", R"SOURCE(
-fn f() {
-    const std = @import("std");
-}
-    )SOURCE", 1, ".tmp_source.zig:3:17: error: import valid only at global scope");
-
-
     add_compile_fail_case("normal string with newline", R"SOURCE(
 const foo = "a
 b";
@@ -1675,6 +1668,10 @@ const some_data: [100]u8 = {
 
 static void add_debug_safety_test_cases(void) {
     add_debug_safety_case("out of bounds slice access", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 pub fn main(args: [][]u8) -> %void {
     const a = []i32{1, 2, 3, 4};
     baz(bar(a));
@@ -1686,6 +1683,10 @@ fn baz(a: i32) { }
     )SOURCE");
 
     add_debug_safety_case("integer addition overflow", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = add(65530, 10);
@@ -1697,6 +1698,10 @@ fn add(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer subtraction overflow", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = sub(10, 20);
@@ -1708,6 +1713,10 @@ fn sub(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer multiplication overflow", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = mul(300, 6000);
@@ -1719,6 +1728,10 @@ fn mul(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer negation overflow", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = neg(-32768);
@@ -1730,6 +1743,10 @@ fn neg(a: i16) -> i16 {
     )SOURCE");
 
     add_debug_safety_case("signed shift left overflow", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = shl(-16385, 1);
@@ -1741,6 +1758,10 @@ fn shl(a: i16, b: i16) -> i16 {
     )SOURCE");
 
     add_debug_safety_case("unsigned shift left overflow", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = shl(0b0010111111111111, 3);
@@ -1752,6 +1773,10 @@ fn shl(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer division by zero", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = div0(999, 0);
@@ -1762,6 +1787,10 @@ fn div0(a: i32, b: i32) -> i32 {
     )SOURCE");
 
     add_debug_safety_case("exact division failure", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = divExact(10, 3);
@@ -1773,6 +1802,10 @@ fn divExact(a: i32, b: i32) -> i32 {
     )SOURCE");
 
     add_debug_safety_case("cast []u8 to bigger slice of wrong size", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = widenSlice([]u8{1, 2, 3, 4, 5});
@@ -1784,6 +1817,10 @@ fn widenSlice(slice: []u8) -> []i32 {
     )SOURCE");
 
     add_debug_safety_case("value does not fit in shortening cast", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = shorten_cast(200);
@@ -1795,6 +1832,10 @@ fn shorten_cast(x: i32) -> i8 {
     )SOURCE");
 
     add_debug_safety_case("signed integer not fitting in cast to unsigned integer", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = unsigned_cast(-10);

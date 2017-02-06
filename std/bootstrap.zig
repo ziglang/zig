@@ -1,8 +1,9 @@
 // This file is in a package which has the root source file exposed as "@root".
 
 const root = @import("@root");
-const linux = @import("linux.zig");
-const cstr = @import("cstr.zig");
+const std = @import("std");
+const linux = std.linux;
+const cstr = std.cstr;
 
 const want_start_symbol = switch(@compileVar("os")) {
     Os.linux => true,

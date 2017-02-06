@@ -68,6 +68,10 @@ set(TEST_SOURCES
 )
 
 set(C_HEADERS
+    "${CMAKE_SOURCE_DIR}/c_headers/Intrin.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/__stddef_max_align_t.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/__wmmintrin_aes.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/__wmmintrin_pclmul.h"
     "${CMAKE_SOURCE_DIR}/c_headers/adxintrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/ammintrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/arm_acle.h"
@@ -95,14 +99,13 @@ set(C_HEADERS
     "${CMAKE_SOURCE_DIR}/c_headers/htmxlintrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/ia32intrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/immintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/Intrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/inttypes.h"
     "${CMAKE_SOURCE_DIR}/c_headers/iso646.h"
     "${CMAKE_SOURCE_DIR}/c_headers/limits.h"
     "${CMAKE_SOURCE_DIR}/c_headers/lzcntintrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/mm3dnow.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/mmintrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/mm_malloc.h"
+    "${CMAKE_SOURCE_DIR}/c_headers/mmintrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/nmmintrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/pmmintrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/popcntintrin.h"
@@ -117,7 +120,6 @@ set(C_HEADERS
     "${CMAKE_SOURCE_DIR}/c_headers/stdatomic.h"
     "${CMAKE_SOURCE_DIR}/c_headers/stdbool.h"
     "${CMAKE_SOURCE_DIR}/c_headers/stddef.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/__stddef_max_align_t.h"
     "${CMAKE_SOURCE_DIR}/c_headers/stdint.h"
     "${CMAKE_SOURCE_DIR}/c_headers/stdnoreturn.h"
     "${CMAKE_SOURCE_DIR}/c_headers/tbmintrin.h"
@@ -127,9 +129,7 @@ set(C_HEADERS
     "${CMAKE_SOURCE_DIR}/c_headers/vadefs.h"
     "${CMAKE_SOURCE_DIR}/c_headers/varargs.h"
     "${CMAKE_SOURCE_DIR}/c_headers/vecintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/__wmmintrin_aes.h"
     "${CMAKE_SOURCE_DIR}/c_headers/wmmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/__wmmintrin_pclmul.h"
     "${CMAKE_SOURCE_DIR}/c_headers/x86intrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/xmmintrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/xopintrin.h"
@@ -202,6 +202,8 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/bootstrap.zig" DESTINATION "${ZIG_STD_DES
 install(FILES "${CMAKE_SOURCE_DIR}/std/builtin.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/compiler_rt.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/cstr.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/darwin.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/darwin_x86_64.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/debug.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/dwarf.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/elf.zig" DESTINATION "${ZIG_STD_DEST}")
@@ -214,13 +216,12 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/io.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/linux.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/linux_i386.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/linux_x86_64.zig" DESTINATION "${ZIG_STD_DEST}")
-install(FILES "${CMAKE_SOURCE_DIR}/std/darwin.zig" DESTINATION "${ZIG_STD_DEST}")
-install(FILES "${CMAKE_SOURCE_DIR}/std/darwin_x86_64.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/list.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/math.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/mem.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/net.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/os.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/panic.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/rand.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/rand_test.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/sort.zig" DESTINATION "${ZIG_STD_DEST}")

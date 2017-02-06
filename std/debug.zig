@@ -42,6 +42,8 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
             st.debug_str = (%return st.elf.findSection(".debug_str")) ?? return error.MissingDebugInfo;
             %return scanAllCompileUnits(st);
 
+            %return out_stream.printf("(...work-in-progress stack unwinding code follows...)\n");
+
             var maybe_fp: ?&const u8 = @frameAddress();
             while (true) {
                 const fp = maybe_fp ?? break;
