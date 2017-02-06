@@ -713,12 +713,14 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     fn_type->data.fn.fn_type_id = *fn_type_id;
 
     if (fn_type_id->is_cold) {
-        if (g->zig_target.arch.arch == ZigLLVM_arm) {
-            // TODO we want to use coldcc here but it's causing a segfault on ARM
-            // https://llvm.org/bugs/show_bug.cgi?id=31875
-            fn_type->data.fn.calling_convention = LLVMCCallConv;
-        } else {
+        // cold calling convention only works on x86.
+        // but we can add the cold attribute later.
+        if (g->zig_target.arch.arch == ZigLLVM_x86 ||
+            g->zig_target.arch.arch == ZigLLVM_x86_64)
+        {
             fn_type->data.fn.calling_convention = LLVMColdCallConv;
+        } else {
+            fn_type->data.fn.calling_convention = LLVMFastCallConv;
         }
     } else if (fn_type_id->is_extern) {
         fn_type->data.fn.calling_convention = LLVMCCallConv;

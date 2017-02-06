@@ -561,6 +561,14 @@ void ZigLLVMAddFunctionAttr(LLVMValueRef fn_ref, const char *attr_name, const ch
     func->setAttributes(new_attr_set);
 }
 
+void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn_ref) {
+    Function *func = unwrap<Function>(fn_ref);
+    const AttributeSet attr_set = func->getAttributes();
+    const AttributeSet new_attr_set = attr_set.addAttribute(func->getContext(), AttributeSet::FunctionIndex,
+            Attribute::Cold);
+    func->setAttributes(new_attr_set);
+}
+
 
 static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, "");
 static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorType, "");
