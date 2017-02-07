@@ -682,6 +682,33 @@ static LLVMRealPredicate cmp_op_to_real_predicate(IrBinOp cmp_op) {
     }
 }
 
+static bool is_array_of_at_least_n_bytes(CodeGen *g, TypeTableEntry *type_entry, uint32_t n) {
+    if (type_entry->id != TypeTableEntryIdArray)
+        return false;
+
+    TypeTableEntry *child_type = type_entry->data.array.child_type;
+    if (child_type->id != TypeTableEntryIdInt)
+        return false;
+
+    if (child_type != g->builtin_types.entry_u8)
+        return false;
+
+    if (type_entry->data.array.len < n)
+        return false;
+
+    return true;
+}
+
+static uint32_t get_type_alignment(CodeGen *g, TypeTableEntry *type_entry) {
+    uint32_t alignment = ZigLLVMGetPrefTypeAlignment(g->target_data_ref, type_entry->type_ref);
+    uint32_t dbl_ptr_bytes = g->pointer_size_bytes * 2;
+    if (is_array_of_at_least_n_bytes(g, type_entry, dbl_ptr_bytes)) {
+        return (alignment < dbl_ptr_bytes) ? dbl_ptr_bytes : alignment;
+    } else {
+        return alignment;
+    }
+}
+
 static LLVMValueRef gen_struct_memcpy(CodeGen *g, LLVMValueRef src, LLVMValueRef dest,
         TypeTableEntry *type_entry)
 {
@@ -697,7 +724,7 @@ static LLVMValueRef gen_struct_memcpy(CodeGen *g, LLVMValueRef src, LLVMValueRef
 
     TypeTableEntry *usize = g->builtin_types.entry_usize;
     uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
-    uint64_t align_bytes = get_memcpy_align(g, type_entry);
+    uint64_t align_bytes = get_type_alignment(g, type_entry);
     assert(size_bytes > 0);
     assert(align_bytes > 0);
 
@@ -1308,7 +1335,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         if (!ignore_uninit && want_safe) {
             TypeTableEntry *usize = g->builtin_types.entry_usize;
             uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, var->value.type->type_ref);
-            uint64_t align_bytes = get_memcpy_align(g, var->value.type);
+            uint64_t align_bytes = get_type_alignment(g, var->value.type);
 
             // memset uninitialized memory to 0xa
             LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
@@ -2748,6 +2775,7 @@ static void render_const_val_global(CodeGen *g, ConstExprValue *const_val, const
         LLVMSetLinkage(global_value, LLVMInternalLinkage);
         LLVMSetGlobalConstant(global_value, true);
         LLVMSetUnnamedAddr(global_value, true);
+        LLVMSetAlignment(global_value, get_type_alignment(g, const_val->type));
 
         const_val->llvm_global = global_value;
     }
@@ -2882,6 +2910,12 @@ static void gen_global_var(CodeGen *g, VariableTableEntry *var, LLVMValueRef ini
         type_entry->di_type, is_local_to_unit, init_val);
 }
 
+static LLVMValueRef build_alloca(CodeGen *g, TypeTableEntry *type_entry, const char *name) {
+    LLVMValueRef result = LLVMBuildAlloca(g->builder, type_entry->type_ref, name);
+    LLVMSetAlignment(result, get_type_alignment(g, type_entry));
+    return result;
+}
+
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
@@ -2938,9 +2972,8 @@ static void do_code_gen(CodeGen *g) {
             if (tld_var->section_name) {
                 LLVMSetSection(global_value, buf_ptr(tld_var->section_name));
             }
-            if (tld_var->alignment) {
-                LLVMSetAlignment(global_value, tld_var->alignment);
-            }
+            LLVMSetAlignment(global_value, tld_var->alignment ?
+                    tld_var->alignment : get_type_alignment(g, var->value.type));
 
             // TODO debug info for function pointers
             if (var->gen_is_const && var->value.type->id != TypeTableEntryIdFn) {
@@ -3114,7 +3147,7 @@ static void do_code_gen(CodeGen *g) {
             } else {
                 zig_unreachable();
             }
-            *slot = LLVMBuildAlloca(g->builder, slot_type->type_ref, "");
+            *slot = build_alloca(g, slot_type, "");
         }
 
         ImportTableEntry *import = get_scope_import(&fn_table_entry->fndef_scope->base);
@@ -3132,11 +3165,7 @@ static void do_code_gen(CodeGen *g) {
                 continue;
 
             if (var->src_arg_index == SIZE_MAX) {
-                var->value_ref = LLVMBuildAlloca(g->builder, var->value.type->type_ref, buf_ptr(&var->name));
-
-
-                unsigned align_bytes = ZigLLVMGetPrefTypeAlignment(g->target_data_ref, var->value.type->type_ref);
-                LLVMSetAlignment(var->value_ref, align_bytes);
+                var->value_ref = build_alloca(g, var->value.type, buf_ptr(&var->name));
 
                 var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                         buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
@@ -3150,9 +3179,7 @@ static void do_code_gen(CodeGen *g) {
                     var->value_ref = LLVMGetParam(fn, var->gen_arg_index);
                 } else {
                     gen_type = var->value.type;
-                    var->value_ref = LLVMBuildAlloca(g->builder, var->value.type->type_ref, buf_ptr(&var->name));
-                    unsigned align_bytes = ZigLLVMGetPrefTypeAlignment(g->target_data_ref, var->value.type->type_ref);
-                    LLVMSetAlignment(var->value_ref, align_bytes);
+                    var->value_ref = build_alloca(g, var->value.type, buf_ptr(&var->name));
                 }
                 if (var->decl_node) {
                     var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),

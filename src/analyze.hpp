@@ -38,7 +38,6 @@ void find_libc_lib_path(CodeGen *g);
 
 TypeTableEntry *get_underlying_type(TypeTableEntry *type_entry);
 bool type_has_bits(TypeTableEntry *type_entry);
-uint64_t get_memcpy_align(CodeGen *g, TypeTableEntry *type_entry);
 
 
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,

@@ -2973,60 +2973,6 @@ bool type_has_bits(TypeTableEntry *type_entry) {
     return !type_entry->zero_bits;
 }
 
-static TypeTableEntry *first_struct_field_type(TypeTableEntry *type_entry) {
-    assert(type_entry->id == TypeTableEntryIdStruct);
-    for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
-        TypeStructField *tsf = &type_entry->data.structure.fields[i];
-        if (tsf->gen_index == 0) {
-            return tsf->type_entry;
-        }
-    }
-    zig_unreachable();
-}
-
-static TypeTableEntry *type_of_first_thing_in_memory(TypeTableEntry *type_entry) {
-    assert(type_has_bits(type_entry));
-    switch (type_entry->id) {
-        case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdNumLitFloat:
-        case TypeTableEntryIdNumLitInt:
-        case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
-        case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdMetaType:
-        case TypeTableEntryIdVoid:
-        case TypeTableEntryIdNamespace:
-        case TypeTableEntryIdBlock:
-        case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdVar:
-        case TypeTableEntryIdArgTuple:
-            zig_unreachable();
-        case TypeTableEntryIdArray:
-            return type_of_first_thing_in_memory(type_entry->data.array.child_type);
-        case TypeTableEntryIdStruct:
-            return type_of_first_thing_in_memory(first_struct_field_type(type_entry));
-        case TypeTableEntryIdUnion:
-            zig_panic("TODO");
-        case TypeTableEntryIdMaybe:
-            return type_of_first_thing_in_memory(type_entry->data.maybe.child_type);
-        case TypeTableEntryIdErrorUnion:
-            return type_of_first_thing_in_memory(type_entry->data.error.child_type);
-        case TypeTableEntryIdTypeDecl:
-            return type_of_first_thing_in_memory(type_entry->data.type_decl.canonical_type);
-        case TypeTableEntryIdEnum:
-            return type_entry->data.enumeration.tag_type;
-        case TypeTableEntryIdPureError:
-        case TypeTableEntryIdFn:
-        case TypeTableEntryIdBool:
-        case TypeTableEntryIdInt:
-        case TypeTableEntryIdFloat:
-        case TypeTableEntryIdPointer:
-        case TypeTableEntryIdEnumTag:
-            return type_entry;
-    }
-    zig_unreachable();
-}
-
 bool type_requires_comptime(TypeTableEntry *type_entry) {
     switch (get_underlying_type(type_entry)->id) {
         case TypeTableEntryIdInvalid:
@@ -3061,11 +3007,6 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
             return false;
     }
     zig_unreachable();
-}
-
-uint64_t get_memcpy_align(CodeGen *g, TypeTableEntry *type_entry) {
-    TypeTableEntry *first_type_in_mem = type_of_first_thing_in_memory(type_entry);
-    return LLVMABISizeOfType(g->target_data_ref, first_type_in_mem->type_ref);
 }
 
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
