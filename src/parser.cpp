@@ -497,6 +497,12 @@ static void ast_parse_asm_input(ParseContext *pc, size_t *token_index, AstNode *
 
     *token_index += 1;
 
+    Token *colon_again = &pc->tokens->at(*token_index);
+    if (colon_again->id == TokenIdColon) {
+        ast_parse_asm_clobbers(pc, token_index, node);
+        return;
+    }
+
     for (;;) {
         ast_parse_asm_input_item(pc, token_index, node);
 
