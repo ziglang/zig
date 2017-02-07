@@ -1,5 +1,4 @@
 const assert = @import("std").debug.assert;
-const str = @import("std").str;
 
 fn compileTimeRecursion() {
     @setFnTest(this);

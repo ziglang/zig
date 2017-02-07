@@ -1,5 +1,5 @@
 const assert = @import("std").debug.assert;
-const str = @import("std").str;
+const mem = @import("std").mem;
 const cstr = @import("std").cstr;
 
 // normal comment
@@ -144,7 +144,7 @@ fn first4KeysOfHomeRow() -> []const u8 {
 fn ReturnStringFromFunction() {
     @setFnTest(this);
 
-    assert(str.eql(first4KeysOfHomeRow(), "aoeu"));
+    assert(mem.eql(first4KeysOfHomeRow(), "aoeu"));
 }
 
 const g1 : i32 = 1233 + 1;
@@ -210,31 +210,31 @@ fn emptyFn() {}
 fn hexEscape() {
     @setFnTest(this);
 
-    assert(str.eql("\x68\x65\x6c\x6c\x6f", "hello"));
+    assert(mem.eql("\x68\x65\x6c\x6c\x6f", "hello"));
 }
 
 fn stringConcatenation() {
     @setFnTest(this);
 
-    assert(str.eql("OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
+    assert(mem.eql("OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
 fn arrayMultOperator() {
     @setFnTest(this);
 
-    assert(str.eql("ab" ** 5, "ababababab"));
+    assert(mem.eql("ab" ** 5, "ababababab"));
 }
 
 fn stringEscapes() {
     @setFnTest(this);
 
-    assert(str.eql("\"", "\x22"));
-    assert(str.eql("\'", "\x27"));
-    assert(str.eql("\n", "\x0a"));
-    assert(str.eql("\r", "\x0d"));
-    assert(str.eql("\t", "\x09"));
-    assert(str.eql("\\", "\x5c"));
-    assert(str.eql("\u1234\u0069", "\xe1\x88\xb4\x69"));
+    assert(mem.eql("\"", "\x22"));
+    assert(mem.eql("\'", "\x27"));
+    assert(mem.eql("\n", "\x0a"));
+    assert(mem.eql("\r", "\x0d"));
+    assert(mem.eql("\t", "\x09"));
+    assert(mem.eql("\\", "\x5c"));
+    assert(mem.eql("\u1234\u0069", "\xe1\x88\xb4\x69"));
 }
 
 fn multilineString() {
@@ -246,7 +246,7 @@ fn multilineString() {
         \\three
     ;
     const s2 = "one\ntwo)\nthree";
-    assert(str.eql(s1, s2));
+    assert(mem.eql(s1, s2));
 }
 
 fn multilineCString() {
@@ -295,7 +295,7 @@ const some_mem : [100]u8 = undefined;
 fn memAlloc(comptime T: type, n: usize) -> %[]T {
     return (&T)(&some_mem[0])[0...n];
 }
-fn memFree(comptime T: type, mem: []T) { }
+fn memFree(comptime T: type, memory: []T) { }
 
 
 fn castUndefined() {
@@ -344,8 +344,8 @@ fn pointerDereferencing() {
 fn callResultOfIfElseExpression() {
     @setFnTest(this);
 
-    assert(str.eql(f2(true), "a"));
-    assert(str.eql(f2(false), "b"));
+    assert(mem.eql(f2(true), "a"));
+    assert(mem.eql(f2(false), "b"));
 }
 fn f2(x: bool) -> []u8 {
     return (if (x) fA else fB)();
@@ -562,8 +562,8 @@ fn typeName() {
     @setFnTest(this);
 
     comptime {
-        assert(str.eql(@typeName(i64), "i64"));
-        assert(str.eql(@typeName(&usize), "&usize"));
+        assert(mem.eql(@typeName(i64), "i64"));
+        assert(mem.eql(@typeName(&usize), "&usize"));
     }
 }
 

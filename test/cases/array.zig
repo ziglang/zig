@@ -1,5 +1,5 @@
 const assert = @import("std").debug.assert;
-const str = @import("std").str;
+const mem = @import("std").mem;
 
 fn arrays() {
     @setFnTest(this);
@@ -63,10 +63,10 @@ fn nestedArrays() {
 
     const array_of_strings = [][]u8 {"hello", "this", "is", "my", "thing"};
     for (array_of_strings) |s, i| {
-        if (i == 0) assert(str.eql(s, "hello"));
-        if (i == 1) assert(str.eql(s, "this"));
-        if (i == 2) assert(str.eql(s, "is"));
-        if (i == 3) assert(str.eql(s, "my"));
-        if (i == 4) assert(str.eql(s, "thing"));
+        if (i == 0) assert(mem.eql(s, "hello"));
+        if (i == 1) assert(mem.eql(s, "this"));
+        if (i == 2) assert(mem.eql(s, "is"));
+        if (i == 3) assert(mem.eql(s, "my"));
+        if (i == 4) assert(mem.eql(s, "thing"));
     }
 }

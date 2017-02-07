@@ -8536,14 +8536,6 @@ static TypeTableEntry *ir_analyze_instruction_cond_br(IrAnalyze *ira, IrInstruct
         if (!ir_resolve_bool(ira, condition, &cond_is_true))
             return ir_unreach_error(ira);
 
-        if (!cond_br_instruction->base.is_gen && !condition->value.depends_on_compile_var &&
-                !ir_should_inline(ira->new_irb.exec, cond_br_instruction->base.scope))
-        {
-            const char *true_or_false = cond_is_true ? "true" : "false";
-            ir_add_error(ira, &cond_br_instruction->base,
-                buf_sprintf("condition is always %s; unnecessary if statement", true_or_false));
-        }
-
         IrBasicBlock *old_dest_block = cond_is_true ?
             cond_br_instruction->then_block : cond_br_instruction->else_block;
 
@@ -9060,7 +9052,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             bool ptr_is_const = true;
             bool ptr_is_volatile = false;
             return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, len_val,
-                    usize, false, ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
+                    usize, depends_on_compile_var, ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
         } else {
             ir_add_error_node(ira, source_node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
@@ -9084,7 +9076,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             bool ptr_is_const = true;
             bool ptr_is_volatile = false;
             return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, len_val,
-                    usize, false, ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
+                    usize, depends_on_compile_var, ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
         } else {
             ir_add_error_node(ira, source_node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),

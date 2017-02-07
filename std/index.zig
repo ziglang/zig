@@ -2,7 +2,6 @@ pub const rand = @import("rand.zig");
 pub const io = @import("io.zig");
 pub const os = @import("os.zig");
 pub const math = @import("math.zig");
-pub const str = @import("str.zig");
 pub const cstr = @import("cstr.zig");
 pub const sort = @import("sort.zig");
 pub const net = @import("net.zig");

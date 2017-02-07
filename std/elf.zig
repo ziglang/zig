@@ -1,5 +1,4 @@
 const io = @import("io.zig");
-const str = @import("str.zig");
 const math = @import("math.zig");
 const mem = @import("mem.zig");
 const debug = @import("debug.zig");
@@ -95,7 +94,7 @@ pub const Elf = struct {
 
         var magic: [4]u8 = undefined;
         %return elf.in_stream.readNoEof(magic);
-        if (!str.eql(magic, "\x7fELF")) return error.InvalidFormat;
+        if (!mem.eql(magic, "\x7fELF")) return error.InvalidFormat;
 
         elf.is_64 = switch (%return elf.in_stream.readByte()) {
             1 => false,

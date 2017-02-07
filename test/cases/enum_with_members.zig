@@ -1,5 +1,5 @@
 const assert = @import("std").debug.assert;
-const str = @import("std").str;
+const mem = @import("std").mem;
 const io = @import("std").io;
 
 const ET = enum {
@@ -8,8 +8,8 @@ const ET = enum {
 
     pub fn print(a: &const ET, buf: []u8) -> %usize {
         return switch (*a) {
-            ET.SINT => |x| { io.bufPrintInt(i32, buf, x) },
-            ET.UINT => |x| { io.bufPrintInt(u32, buf, x) },
+            ET.SINT => |x| { io.bufPrintInt(buf, x, 10, false) },
+            ET.UINT => |x| { io.bufPrintInt(buf, x, 10, false) },
         }
     }
 };
@@ -22,8 +22,8 @@ fn enumWithMembers() {
     var buf: [20]u8 = undefined;
 
     assert(%%a.print(buf) == 3);
-    assert(str.eql(buf[0...3], "-42"));
+    assert(mem.eql(buf[0...3], "-42"));
 
     assert(%%b.print(buf) == 2);
-    assert(str.eql(buf[0...2], "42"));
+    assert(mem.eql(buf[0...2], "42"));
 }

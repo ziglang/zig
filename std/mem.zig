@@ -43,6 +43,9 @@ pub const Allocator = struct {
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 pub fn copy(comptime T: type, dest: []T, source: []const T) {
+    // TODO instead of manually doing this check for the whole array
+    // and turning off debug safety, the compiler should detect loops like
+    // this and automatically omit safety checks for loops
     @setDebugSafety(this, false);
     assert(dest.len >= source.len);
     for (source) |s, i| dest[i] = s;
@@ -80,6 +83,23 @@ pub fn sliceAsInt(buf: []u8, is_be: bool, comptime T: type) -> T {
         }
     }
     return result;
+}
+
+/// Compares two slices and returns whether they are equal.
+pub fn eql(a: var, b: var) -> bool {
+    if (a.len != b.len) return false;
+    for (a) |item, index| {
+        if (b[index] != item) return false;
+    }
+    return true;
+}
+
+fn testStringEquality() {
+    @setFnTest(this);
+
+    assert(eql("abcd", "abcd"));
+    assert(!eql("abcdef", "abZdef"));
+    assert(!eql("abcdefg", "abcdef"));
 }
 
 fn testSliceAsInt() {

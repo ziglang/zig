@@ -32,4 +32,5 @@ const test_try = @import("cases/try.zig");
 const test_typedef = @import("cases/typedef.zig");
 const test_undefined = @import("cases/undefined.zig");
 const test_var_args = @import("cases/var_args.zig");
+const test_void = @import("cases/void.zig");
 const test_while = @import("cases/while.zig");

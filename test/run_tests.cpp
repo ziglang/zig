@@ -471,21 +471,17 @@ const io = @import("std").io;
 pub fn main(args: [][]u8) -> %void {
     const array = []u8 {9, 8, 7, 6};
     for (array) |item| {
-        %%io.stdout.printInt(@typeOf(item), item);
-        %%io.stdout.printf("\n");
+        %%io.stdout.printf("{}\n", item);
     }
     for (array) |item, index| {
-        %%io.stdout.printInt(@typeOf(index), index);
-        %%io.stdout.printf("\n");
+        %%io.stdout.printf("{}\n", index);
     }
     const unknown_size: []u8 = array;
     for (unknown_size) |item| {
-        %%io.stdout.printInt(@typeOf(item), item);
-        %%io.stdout.printf("\n");
+        %%io.stdout.printf("{}\n", item);
     }
     for (unknown_size) |item, index| {
-        %%io.stdout.printInt(@typeOf(index), index);
-        %%io.stdout.printf("\n");
+        %%io.stdout.printf("{}\n", index);
     }
 }
     )SOURCE", "9\n8\n7\n6\n0\n1\n2\n3\n9\n8\n7\n6\n0\n1\n2\n3\n");
@@ -1124,13 +1120,6 @@ fn get() -> usize { global_var }
             ".tmp_source.zig:3:8: note: called from here");
 
 
-    add_compile_fail_case("unnecessary if statement", R"SOURCE(
-fn f() {
-    if (true) { }
-}
-    )SOURCE", 1, ".tmp_source.zig:3:9: error: condition is always true; unnecessary if statement");
-
-
     add_compile_fail_case("addition with non numbers", R"SOURCE(
 const Foo = struct {
     field: i32,
@@ -1587,25 +1576,6 @@ fn derp() {
     f.field = 0;
 }
     )SOURCE", 1, ".tmp_source.zig:7:13: error: cannot assign to constant");
-
-    add_compile_fail_case("compare void with void is compile time known", R"SOURCE(
-const Foo = struct {
-    a: void,
-    b: i32,
-    c: void,
-};
-
-fn f() {
-    const foo = Foo {
-        .a = {},
-        .b = 1,
-        .c = {},
-    };
-    if (foo.a != {}) {
-        @unreachable();
-    }
-}
-    )SOURCE", 1, ".tmp_source.zig:14:15: error: condition is always false; unnecessary if statement");
 
     add_compile_fail_case("return from defer expression", R"SOURCE(
 pub fn testTrickyDefer() -> %void {

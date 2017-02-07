@@ -1,5 +1,5 @@
 const assert = @import("std").debug.assert;
-const str = @import("std").str;
+const mem = @import("std").mem;
 
 pub fn foo() -> %i32 {
     const x = %return bar();
@@ -28,8 +28,8 @@ fn gimmeItBroke() -> []const u8 {
 
 fn errorName() {
     @setFnTest(this);
-    assert(str.eql(@errorName(error.AnError), "AnError"));
-    assert(str.eql(@errorName(error.ALongerErrorName), "ALongerErrorName"));
+    assert(mem.eql(@errorName(error.AnError), "AnError"));
+    assert(mem.eql(@errorName(error.ALongerErrorName), "ALongerErrorName"));
 }
 error AnError;
 error ALongerErrorName;

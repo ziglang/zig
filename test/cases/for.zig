@@ -1,6 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const str = std.str;
+const mem = std.mem;
 
 fn continueInForLoop() {
     @setFnTest(this);
@@ -24,7 +24,7 @@ fn forLoopWithPointerElemVar() {
     var target: [source.len]u8 = undefined;
     @memcpy(&target[0], &source[0], source.len);
     mangleString(target);
-    assert(str.eql(target, "bcdefgh"));
+    assert(mem.eql(target, "bcdefgh"));
 }
 fn mangleString(s: []u8) {
     for (s) |*c| {

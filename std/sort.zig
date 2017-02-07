@@ -1,5 +1,4 @@
 const assert = @import("debug.zig").assert;
-const str = @import("str.zig");
 const mem = @import("mem.zig");
 const math = @import("math.zig");
 
@@ -76,7 +75,7 @@ fn testSort() {
         const slice = buf[0...case[0].len];
         mem.copy(u8, slice, case[0]);
         sort(u8, slice, u8asc);
-        assert(str.eql(slice, case[1]));
+        assert(mem.eql(slice, case[1]));
     }
 
     const i32cases = [][][]i32 {
@@ -93,7 +92,7 @@ fn testSort() {
         const slice = buf[0...case[0].len];
         mem.copy(i32, slice, case[0]);
         sort(i32, slice, i32asc);
-        assert(str.sliceEql(i32, slice, case[1]));
+        assert(mem.eql(slice, case[1]));
     }
 }
 
@@ -114,6 +113,6 @@ fn testSortDesc() {
         const slice = buf[0...case[0].len];
         mem.copy(i32, slice, case[0]);
         sort(i32, slice, i32desc);
-        assert(str.sliceEql(i32, slice, case[1]));
+        assert(mem.eql(slice, case[1]));
     }
 }

@@ -61,8 +61,8 @@ error Unseekable;
 error Eof;
 
 const buffer_size = 4 * 1024;
-const max_u64_base10_digits = 20;
 const max_f64_digits = 65;
+const max_int_digits = 65;
 
 pub const OpenRead     = 0b0001;
 pub const OpenWrite    = 0b0010;
@@ -100,6 +100,7 @@ pub const OutStream = struct {
         Start,
         OpenBrace,
         CloseBrace,
+        Hex: bool,
     };
 
     /// Calls print and then flushes the buffer.
@@ -131,6 +132,12 @@ pub const OutStream = struct {
                         state = State.Start;
                         start_index = i + 1;
                     },
+                    'x' => {
+                        state = State.Hex { false };
+                    },
+                    'X' => {
+                        state = State.Hex { true };
+                    },
                     else => @compileError("Unknown format character: " ++ c),
                 },
                 State.CloseBrace => switch (c) {
@@ -140,14 +147,25 @@ pub const OutStream = struct {
                     },
                     else => @compileError("Single '}' encountered in format string"),
                 },
+                State.Hex => |uppercase| switch (c) {
+                    '}' => {
+                        self.printInt(args[next_arg], 16, uppercase);
+                        next_arg += 1;
+                        state = State.Start;
+                        start_index = i + 1;
+                    },
+                    else => @compileError("Expected '}' after 'x'/'X' in format string"),
+                },
             }
         }
         comptime {
             if (args.len != next_arg) {
                 @compileError("Unused arguments");
             }
-            if (state != State.Start) {
-                @compileError("Incomplete format string: " ++ format);
+            // TODO https://github.com/andrewrk/zig/issues/253
+            switch (state) {
+                State.Start => {},
+                else => @compileError("Incomplete format string: " ++ format),
             }
         }
         if (start_index < format.len) {
@@ -159,7 +177,7 @@ pub const OutStream = struct {
     pub fn printValue(self: &OutStream, value: var) -> %void {
         const T = @typeOf(value);
         if (@isInteger(T)) {
-            return self.printInt(T, value);
+            return self.printInt(value, 10, false);
         } else if (@isFloat(T)) {
             return self.printFloat(T, value);
         } else if (@canImplicitCast([]const u8, value)) {
@@ -172,12 +190,11 @@ pub const OutStream = struct {
         }
     }
 
-    pub fn printInt(self: &OutStream, comptime T: type, x: T) -> %void {
-        // TODO replace max_u64_base10_digits with math.log10(math.pow(2, @sizeOf(T)))
-        if (self.index + max_u64_base10_digits >= self.buffer.len) {
+    pub fn printInt(self: &OutStream, x: var, base: u8, uppercase: bool) -> %void {
+        if (self.index + max_int_digits >= self.buffer.len) {
             %return self.flush();
         }
-        const amt_printed = bufPrintInt(T, self.buffer[self.index...], x);
+        const amt_printed = bufPrintInt(self.buffer[self.index...], x, base, uppercase);
         self.index += amt_printed;
     }
 
@@ -448,39 +465,51 @@ fn charToDigit(c: u8, radix: u8) -> %u8 {
     return value;
 }
 
-pub fn bufPrintInt(comptime T: type, out_buf: []u8, x: T) -> usize {
-    if (T.is_signed) bufPrintSigned(T, out_buf, x) else bufPrintUnsigned(T, out_buf, x)
+fn digitToChar(digit: u8, uppercase: bool) -> u8 {
+    return switch (digit) {
+        0 ... 9 => digit + '0',
+        10 ... 35 => digit + ((if (uppercase) u8('A') else u8('a')) - 10),
+        else => @unreachable(),
+    };
 }
 
-fn bufPrintSigned(comptime T: type, out_buf: []u8, x: T) -> usize {
-    const uint = @intType(false, T.bit_count);
+/// Guaranteed to not use more than max_int_digits
+pub fn bufPrintInt(out_buf: []u8, x: var, base: u8, uppercase: bool) -> usize {
+    if (@typeOf(x).is_signed)
+        bufPrintSigned(out_buf, x, base, uppercase)
+    else
+        bufPrintUnsigned(out_buf, x, base, uppercase)
+}
+
+fn bufPrintSigned(out_buf: []u8, x: var, base: u8, uppercase: bool) -> usize {
+    const uint = @intType(false, @typeOf(x).bit_count);
     if (x < 0) {
         out_buf[0] = '-';
-        return 1 + bufPrintUnsigned(uint, out_buf[1...], uint(-(x + 1)) + 1);
+        return 1 + bufPrintUnsigned(out_buf[1...], uint(-(x + 1)) + 1, base, uppercase);
     } else {
-        return bufPrintUnsigned(uint, out_buf, uint(x));
+        return bufPrintUnsigned(out_buf, uint(x), base, uppercase);
     }
 }
 
-fn bufPrintUnsigned(comptime T: type, out_buf: []u8, x: T) -> usize {
-    var buf: [max_u64_base10_digits]u8 = undefined;
+fn bufPrintUnsigned(out_buf: []u8, x: var, base: u8, uppercase: bool) -> usize {
+    // max_int_digits accounts for the minus sign. when printing an unsigned
+    // number we don't need to do that.
+    var buf: [max_int_digits - 1]u8 = undefined;
     var a = x;
     var index: usize = buf.len;
 
     while (true) {
-        const digit = a % 10;
+        const digit = a % base;
         index -= 1;
-        buf[index] = '0' + u8(digit);
-        a /= 10;
+        buf[index] = digitToChar(u8(digit), uppercase);
+        a /= base;
         if (a == 0)
             break;
     }
 
-    const len = buf.len - index;
-
-    @memcpy(&out_buf[0], &buf[index], len);
-
-    return len;
+    const src_buf = buf[index...];
+    mem.copy(u8, out_buf, src_buf);
+    return src_buf.len;
 }
 
 fn parseU64DigitTooBig() {
@@ -504,4 +533,20 @@ pub fn openSelfExe(stream: &InStream) -> %void {
         },
         else => @compileError("unsupported os"),
     }
+}
+
+fn bufPrintIntToSlice(buf: []u8, x: var, base: u8, uppercase: bool) -> []u8 {
+    return buf[0...bufPrintInt(buf, x, base, uppercase)];
+}
+
+fn testBufPrintInt() {
+    @setFnTest(this);
+
+    var buf: [max_int_digits]u8 = undefined;
+    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 2, false), "-101111000110000101001110"));
+    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 10, false), "-12345678"));
+    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 16, false), "-bc614e"));
+    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 16, true), "-BC614E"));
+
+    assert(mem.eql(bufPrintIntToSlice(buf, u32(12345678), 10, true), "12345678"));
 }
