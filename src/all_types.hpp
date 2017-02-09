@@ -149,7 +149,6 @@ enum RuntimeHintMaybe {
 struct ConstExprValue {
     TypeTableEntry *type;
     ConstValSpecial special;
-    bool depends_on_compile_var;
     LLVMValueRef llvm_value;
     LLVMValueRef llvm_global;
 
@@ -976,7 +975,6 @@ struct TypeTableEntry {
     ZigLLVMDIType *di_type;
 
     bool zero_bits;
-    bool size_depends_on_compile_var;
 
     union {
         TypeTableEntryPointer pointer;

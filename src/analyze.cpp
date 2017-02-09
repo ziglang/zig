@@ -1146,9 +1146,6 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             continue;
         }
 
-        enum_type->size_depends_on_compile_var = enum_type->size_depends_on_compile_var ||
-            field_type->size_depends_on_compile_var;
-
         if (!type_has_bits(field_type))
             continue;
 
@@ -1319,9 +1316,6 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
             struct_type->data.structure.is_invalid = true;
             continue;
         }
-
-        struct_type->size_depends_on_compile_var = struct_type->size_depends_on_compile_var ||
-            field_type->size_depends_on_compile_var;
 
         if (!type_has_bits(field_type))
             continue;
@@ -3348,17 +3342,6 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
     zig_unreachable();
 }
 
-static bool int_type_depends_on_compile_var(CodeGen *g, TypeTableEntry *int_type) {
-    assert(int_type->id == TypeTableEntryIdInt);
-
-    for (size_t i = 0; i < CIntTypeCount; i += 1) {
-        if (int_type == g->builtin_types.entry_c_int[i]) {
-            return true;
-        }
-    }
-    return false;
-}
-
 static uint64_t max_unsigned_val(TypeTableEntry *type_entry) {
     assert(type_entry->id == TypeTableEntryIdInt);
     if (type_entry->data.integral.bit_count == 64) {
@@ -3407,7 +3390,6 @@ static int64_t min_signed_val(TypeTableEntry *type_entry) {
 void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val, bool is_max) {
     if (type_entry->id == TypeTableEntryIdInt) {
         const_val->special = ConstValSpecialStatic;
-        const_val->depends_on_compile_var = int_type_depends_on_compile_var(g, type_entry);
         if (is_max) {
             if (type_entry->data.integral.is_signed) {
                 int64_t val = max_signed_val(type_entry);
