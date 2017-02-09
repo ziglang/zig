@@ -1,4 +1,4 @@
-# zig lang
+![ZIG](http://ziglang.org/zig-logo.svg)
 
 A system programming language which prioritizes optimality, safety, and
 readability.
