@@ -1096,6 +1096,7 @@ enum BuiltinFnId {
     BuiltinFnIdCUndef,
     BuiltinFnIdCompileVar,
     BuiltinFnIdCompileErr,
+    BuiltinFnIdCompileLog,
     BuiltinFnIdGeneratedCode,
     BuiltinFnIdCtz,
     BuiltinFnIdClz,
@@ -1541,6 +1542,7 @@ enum IrInstructionId {
     IrInstructionIdMinValue,
     IrInstructionIdMaxValue,
     IrInstructionIdCompileErr,
+    IrInstructionIdCompileLog,
     IrInstructionIdErrName,
     IrInstructionIdEmbedFile,
     IrInstructionIdCmpxchg,
@@ -1991,6 +1993,13 @@ struct IrInstructionCompileErr {
     IrInstruction base;
 
     IrInstruction *msg;
+};
+
+struct IrInstructionCompileLog {
+    IrInstruction base;
+
+    size_t msg_count;
+    IrInstruction **msg_list;
 };
 
 struct IrInstructionErrName {

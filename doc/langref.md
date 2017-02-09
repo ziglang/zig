@@ -639,10 +639,23 @@ const b: u8 = @truncate(u8, a);
 
 ### @compileError(comptime msg: []u8)
 
-This function, when semantically analyzed, causes a compile error with the message `msg`.
+This function, when semantically analyzed, causes a compile error with the
+message `msg`.
 
-There are several ways that code avoids being semantically checked, such as using `if`
-or `switch` with compile time constants, and comptime functions.
+There are several ways that code avoids being semantically checked, such as
+using `if` or `switch` with compile time constants, and comptime functions.
+
+### @compileLog(args: ...)
+
+This function, when semantically analyzed, causes a compile error, but it does
+not prevent compile-time code from continuing to run, and it otherwise does not
+interfere with analysis.
+
+Each of the arguments will be serialized to a printable debug value and output
+to stderr, and then a newline at the end.
+
+This function can be used to do "printf debugging" on compile-time executing
+code.
 
 ### @intType(comptime is_signed: bool, comptime bit_count: u8) -> type
 

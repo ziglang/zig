@@ -2377,6 +2377,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdMinValue:
         case IrInstructionIdMaxValue:
         case IrInstructionIdCompileErr:
+        case IrInstructionIdCompileLog:
         case IrInstructionIdArrayLen:
         case IrInstructionIdImport:
         case IrInstructionIdCImport:
@@ -3791,6 +3792,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdDivExact, "divExact", 2);
     create_builtin_fn(g, BuiltinFnIdTruncate, "truncate", 2);
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
+    create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "intType", 2);
     create_builtin_fn(g, BuiltinFnIdUnreachable, "unreachable", 0);
     create_builtin_fn(g, BuiltinFnIdSetFnTest, "setFnTest", 1);

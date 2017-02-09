@@ -532,6 +532,17 @@ static void ir_print_compile_err(IrPrint *irp, IrInstructionCompileErr *instruct
     fprintf(irp->f, ")");
 }
 
+static void ir_print_compile_log(IrPrint *irp, IrInstructionCompileLog *instruction) {
+    fprintf(irp->f, "@compileLog(");
+    for (size_t i = 0; i < instruction->msg_count; i += 1) {
+        if (i != 0)
+            fprintf(irp->f, ",");
+        IrInstruction *msg = instruction->msg_list[i];
+        ir_print_other_instruction(irp, msg);
+    }
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_err_name(IrPrint *irp, IrInstructionErrName *instruction) {
     fprintf(irp->f, "@errorName(");
     ir_print_other_instruction(irp, instruction->value);
@@ -989,6 +1000,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCompileErr:
             ir_print_compile_err(irp, (IrInstructionCompileErr *)instruction);
+            break;
+        case IrInstructionIdCompileLog:
+            ir_print_compile_log(irp, (IrInstructionCompileLog *)instruction);
             break;
         case IrInstructionIdErrName:
             ir_print_err_name(irp, (IrInstructionErrName *)instruction);

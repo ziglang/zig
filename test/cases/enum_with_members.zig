@@ -8,8 +8,8 @@ const ET = enum {
 
     pub fn print(a: &const ET, buf: []u8) -> %usize {
         return switch (*a) {
-            ET.SINT => |x| { io.bufPrintInt(buf, x, 10, false) },
-            ET.UINT => |x| { io.bufPrintInt(buf, x, 10, false) },
+            ET.SINT => |x| { io.bufPrintInt(buf, x, 10, false, 0) },
+            ET.UINT => |x| { io.bufPrintInt(buf, x, 10, false, 0) },
         }
     }
 };

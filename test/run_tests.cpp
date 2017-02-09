@@ -1015,8 +1015,9 @@ const x = foo();
 
     add_compile_fail_case("array concatenation with wrong type", R"SOURCE(
 const src = "aoeu";
-const a = src[0...] ++ "foo";
-    )SOURCE", 1, ".tmp_source.zig:3:14: error: expected array or C string literal, found '[]u8'");
+const derp = usize(1234);
+const a = derp ++ "foo";
+    )SOURCE", 1, ".tmp_source.zig:4:11: error: expected array or C string literal, found 'usize'");
 
     add_compile_fail_case("non compile time array concatenation", R"SOURCE(
 fn f(s: [10]u8) -> []u8 {
@@ -1631,6 +1632,23 @@ const some_data: [100]u8 = {
     undefined
 };
     )SOURCE", 1, ".tmp_source.zig:3:32: error: alignment value must be power of 2");
+
+    add_compile_fail_case("compile log", R"SOURCE(
+fn foo() {
+    comptime bar(12, "hi");
+}
+fn bar(a: i32, b: []const u8) {
+    @compileLog("begin");
+    @compileLog("a", a, "b", b);
+    @compileLog("end");
+}
+    )SOURCE", 6,
+        ".tmp_source.zig:6:5: error: found compile log statement",
+        ".tmp_source.zig:3:17: note: called from here",
+        ".tmp_source.zig:7:5: error: found compile log statement",
+        ".tmp_source.zig:3:17: note: called from here",
+        ".tmp_source.zig:8:5: error: found compile log statement",
+        ".tmp_source.zig:3:17: note: called from here");
 
 }
 

@@ -13,6 +13,27 @@ pub fn assert(ok: bool) {
     if (!ok) @unreachable()
 }
 
+var panicking = false;
+/// This is the default panic implementation.
+pub coldcc fn panic(message: []const u8) -> unreachable {
+    // TODO
+    // if (@atomicRmw(AtomicOp.XChg, &panicking, true, AtomicOrder.SeqCst)) { }
+    if (panicking) {
+        // Panicked during a panic.
+        // TODO detect if a different thread caused the panic, because in that case
+        // we would want to return here instead of calling abort, so that the thread
+        // which first called panic can finish printing a stack trace.
+        os.abort();
+    } else {
+        panicking = true;
+    }
+
+    %%io.stderr.printf("{}\n", message);
+    %%printStackTrace();
+
+    os.abort();
+}
+
 pub fn printStackTrace() -> %void {
     %return writeStackTrace(&io.stderr);
     %return io.stderr.flush();

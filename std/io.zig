@@ -100,14 +100,20 @@ pub const OutStream = struct {
         Start,
         OpenBrace,
         CloseBrace,
-        Hex: bool,
+        Integer,
+        IntegerWidth,
     };
 
     /// Calls print and then flushes the buffer.
     pub fn printf(self: &OutStream, comptime format: []const u8, args: ...) -> %void {
-        comptime var start_index: usize = 0;
+        comptime var start_index = 0;
         comptime var state = State.Start;
-        comptime var next_arg: usize = 0;
+        comptime var next_arg = 0;
+        comptime var radix = 0;
+        comptime var uppercase = false;
+        comptime var width = 0;
+        comptime var width_start = 0;
+
         inline for (format) |c, i| {
             switch (state) {
                 State.Start => switch (c) {
@@ -132,11 +138,23 @@ pub const OutStream = struct {
                         state = State.Start;
                         start_index = i + 1;
                     },
+                    'd' => {
+                        radix = 10;
+                        uppercase = false;
+                        width = 0;
+                        state = State.Integer;
+                    },
                     'x' => {
-                        state = State.Hex { false };
+                        radix = 16;
+                        uppercase = false;
+                        width = 0;
+                        state = State.Integer;
                     },
                     'X' => {
-                        state = State.Hex { true };
+                        radix = 16;
+                        uppercase = true;
+                        width = 0;
+                        state = State.Integer;
                     },
                     else => @compileError("Unknown format character: " ++ c),
                 },
@@ -147,14 +165,29 @@ pub const OutStream = struct {
                     },
                     else => @compileError("Single '}' encountered in format string"),
                 },
-                State.Hex => |uppercase| switch (c) {
+                State.Integer => switch (c) {
                     '}' => {
-                        self.printInt(args[next_arg], 16, uppercase);
+                        self.printInt(args[next_arg], radix, uppercase, width);
                         next_arg += 1;
                         state = State.Start;
                         start_index = i + 1;
                     },
-                    else => @compileError("Expected '}' after 'x'/'X' in format string"),
+                    '0' ... '9' => {
+                        width_start = i;
+                        state = State.IntegerWidth;
+                    },
+                    else => @compileError("Unexpected character in format string: " ++ []u8{c}),
+                },
+                State.IntegerWidth => switch (c) {
+                    '}' => {
+                        width = comptime %%parseUnsigned(usize, format[width_start...i], 10);
+                        self.printInt(args[next_arg], radix, uppercase, width);
+                        next_arg += 1;
+                        state = State.Start;
+                        start_index = i + 1;
+                    },
+                    '0' ... '9' => {},
+                    else => @compileError("Unexpected character in format string: " ++ []u8{c}),
                 },
             }
         }
@@ -162,10 +195,8 @@ pub const OutStream = struct {
             if (args.len != next_arg) {
                 @compileError("Unused arguments");
             }
-            // TODO https://github.com/andrewrk/zig/issues/253
-            switch (state) {
-                State.Start => {},
-                else => @compileError("Incomplete format string: " ++ format),
+            if (state != State.Start) {
+                @compileError("Incomplete format string: " ++ format);
             }
         }
         if (start_index < format.len) {
@@ -177,7 +208,7 @@ pub const OutStream = struct {
     pub fn printValue(self: &OutStream, value: var) -> %void {
         const T = @typeOf(value);
         if (@isInteger(T)) {
-            return self.printInt(value, 10, false);
+            return self.printInt(value, 10, false, 0);
         } else if (@isFloat(T)) {
             return self.printFloat(T, value);
         } else if (@canImplicitCast([]const u8, value)) {
@@ -190,11 +221,11 @@ pub const OutStream = struct {
         }
     }
 
-    pub fn printInt(self: &OutStream, x: var, base: u8, uppercase: bool) -> %void {
+    pub fn printInt(self: &OutStream, x: var, base: u8, uppercase: bool, width: usize) -> %void {
         if (self.index + max_int_digits >= self.buffer.len) {
             %return self.flush();
         }
-        const amt_printed = bufPrintInt(self.buffer[self.index...], x, base, uppercase);
+        const amt_printed = bufPrintInt(self.buffer[self.index...], x, base, uppercase, width);
         self.index += amt_printed;
     }
 
@@ -474,24 +505,29 @@ fn digitToChar(digit: u8, uppercase: bool) -> u8 {
 }
 
 /// Guaranteed to not use more than max_int_digits
-pub fn bufPrintInt(out_buf: []u8, x: var, base: u8, uppercase: bool) -> usize {
+pub fn bufPrintInt(out_buf: []u8, x: var, base: u8, uppercase: bool, width: usize) -> usize {
     if (@typeOf(x).is_signed)
-        bufPrintSigned(out_buf, x, base, uppercase)
+        bufPrintSigned(out_buf, x, base, uppercase, width)
     else
-        bufPrintUnsigned(out_buf, x, base, uppercase)
+        bufPrintUnsigned(out_buf, x, base, uppercase, width)
 }
 
-fn bufPrintSigned(out_buf: []u8, x: var, base: u8, uppercase: bool) -> usize {
+fn bufPrintSigned(out_buf: []u8, x: var, base: u8, uppercase: bool, width: usize) -> usize {
     const uint = @intType(false, @typeOf(x).bit_count);
+    // include the sign in the width
+    const new_width = if (width == 0) 0 else (width - 1);
+    var new_value: uint = undefined;
     if (x < 0) {
         out_buf[0] = '-';
-        return 1 + bufPrintUnsigned(out_buf[1...], uint(-(x + 1)) + 1, base, uppercase);
+        new_value = uint(-(x + 1)) + 1;
     } else {
-        return bufPrintUnsigned(out_buf, uint(x), base, uppercase);
+        out_buf[0] = '+';
+        new_value = uint(x);
     }
+    return 1 + bufPrintUnsigned(out_buf[1...], new_value, base, uppercase, new_width);
 }
 
-fn bufPrintUnsigned(out_buf: []u8, x: var, base: u8, uppercase: bool) -> usize {
+fn bufPrintUnsigned(out_buf: []u8, x: var, base: u8, uppercase: bool, width: usize) -> usize {
     // max_int_digits accounts for the minus sign. when printing an unsigned
     // number we don't need to do that.
     var buf: [max_int_digits - 1]u8 = undefined;
@@ -508,18 +544,11 @@ fn bufPrintUnsigned(out_buf: []u8, x: var, base: u8, uppercase: bool) -> usize {
     }
 
     const src_buf = buf[index...];
-    mem.copy(u8, out_buf, src_buf);
-    return src_buf.len;
-}
+    const padding = if (width > src_buf.len) (width - src_buf.len) else 0;
 
-fn parseU64DigitTooBig() {
-    @setFnTest(this);
-
-    parseUnsigned(u64, "123a", 10) %% |err| {
-        if (err == error.InvalidChar) return;
-        @unreachable();
-    };
-    @unreachable();
+    mem.set(u8, out_buf[0...padding], '0');
+    mem.copy(u8, out_buf[padding...], src_buf);
+    return src_buf.len + padding;
 }
 
 pub fn openSelfExe(stream: &InStream) -> %void {
@@ -535,18 +564,43 @@ pub fn openSelfExe(stream: &InStream) -> %void {
     }
 }
 
-fn bufPrintIntToSlice(buf: []u8, x: var, base: u8, uppercase: bool) -> []u8 {
-    return buf[0...bufPrintInt(buf, x, base, uppercase)];
+fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, width: usize) -> []u8 {
+    return buf[0...bufPrintInt(buf, value, base, uppercase, width)];
+}
+
+fn testParseU64DigitTooBig() {
+    @setFnTest(this);
+
+    parseUnsigned(u64, "123a", 10) %% |err| {
+        if (err == error.InvalidChar) return;
+        @unreachable();
+    };
+    @unreachable();
+}
+
+fn testParseUnsignedComptime() {
+    @setFnTest(this);
+
+    comptime {
+        assert(%%parseUnsigned(usize, "2", 10) == 2);
+    }
 }
 
 fn testBufPrintInt() {
     @setFnTest(this);
 
     var buf: [max_int_digits]u8 = undefined;
-    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 2, false), "-101111000110000101001110"));
-    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 10, false), "-12345678"));
-    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 16, false), "-bc614e"));
-    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 16, true), "-BC614E"));
+    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 2, false, 0), "-101111000110000101001110"));
+    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 10, false, 0), "-12345678"));
+    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 16, false, 0), "-bc614e"));
+    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 16, true, 0), "-BC614E"));
 
-    assert(mem.eql(bufPrintIntToSlice(buf, u32(12345678), 10, true), "12345678"));
+    assert(mem.eql(bufPrintIntToSlice(buf, u32(12345678), 10, true, 0), "12345678"));
+
+    assert(mem.eql(bufPrintIntToSlice(buf, u32(666), 10, false, 6), "000666"));
+    assert(mem.eql(bufPrintIntToSlice(buf, u32(0x1234), 16, false, 6), "001234"));
+    assert(mem.eql(bufPrintIntToSlice(buf, u32(0x1234), 16, false, 1), "1234"));
+
+    assert(mem.eql(bufPrintIntToSlice(buf, i32(42), 10, false, 3), "+42"));
+    assert(mem.eql(bufPrintIntToSlice(buf, i32(-42), 10, false, 3), "-42"));
 }

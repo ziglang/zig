@@ -3439,7 +3439,8 @@ void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *
 void render_const_value(Buf *buf, ConstExprValue *const_val) {
     switch (const_val->special) {
         case ConstValSpecialRuntime:
-            zig_unreachable();
+            buf_appendf(buf, "(runtime value)");
+            return;
         case ConstValSpecialUndef:
             buf_appendf(buf, "undefined");
             return;
@@ -3522,7 +3523,28 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
             }
         case TypeTableEntryIdArray:
             {
+                TypeTableEntry *child_type = canon_type->data.array.child_type;
                 uint64_t len = canon_type->data.array.len;
+
+                // if it's []u8, assume UTF-8 and output a string
+                if (child_type->id == TypeTableEntryIdInt &&
+                    child_type->data.integral.bit_count == 8 &&
+                    !child_type->data.integral.is_signed)
+                {
+                    buf_append_char(buf, '"');
+                    for (uint64_t i = 0; i < len; i += 1) {
+                        ConstExprValue *child_value = &const_val->data.x_array.elements[i];
+                        uint64_t x = child_value->data.x_bignum.data.x_uint;
+                        if (x == '"') {
+                            buf_append_str(buf, "\\\"");
+                        } else {
+                            buf_append_char(buf, x);
+                        }
+                    }
+                    buf_append_char(buf, '"');
+                    return;
+                }
+
                 buf_appendf(buf, "%s{", buf_ptr(&canon_type->name));
                 for (uint64_t i = 0; i < len; i += 1) {
                     if (i != 0)

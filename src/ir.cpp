@@ -375,6 +375,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCompileErr *) {
     return IrInstructionIdCompileErr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCompileLog *) {
+    return IrInstructionIdCompileLog;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionErrName *) {
     return IrInstructionIdErrName;
 }
@@ -1510,6 +1514,20 @@ static IrInstruction *ir_build_compile_err(IrBuilder *irb, Scope *scope, AstNode
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_compile_log(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        size_t msg_count, IrInstruction **msg_list)
+{
+    IrInstructionCompileLog *instruction = ir_build_instruction<IrInstructionCompileLog>(irb, scope, source_node);
+    instruction->msg_count = msg_count;
+    instruction->msg_list = msg_list;
+
+    for (size_t i = 0; i < msg_count; i += 1) {
+        ir_ref_instruction(msg_list[i], irb->current_basic_block);
+    }
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_err_name(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
     IrInstructionErrName *instruction = ir_build_instruction<IrInstructionErrName>(irb, scope, source_node);
     instruction->value = value;
@@ -2461,6 +2479,12 @@ static IrInstruction *ir_instruction_compileerr_get_dep(IrInstructionCompileErr 
     }
 }
 
+static IrInstruction *ir_instruction_compilelog_get_dep(IrInstructionCompileLog *instruction, size_t index) {
+    if (index < instruction->msg_count)
+        return instruction->msg_list[index];
+    return nullptr;
+}
+
 static IrInstruction *ir_instruction_errname_get_dep(IrInstructionErrName *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->value;
@@ -2848,6 +2872,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_maxvalue_get_dep((IrInstructionMaxValue *) instruction, index);
         case IrInstructionIdCompileErr:
             return ir_instruction_compileerr_get_dep((IrInstructionCompileErr *) instruction, index);
+        case IrInstructionIdCompileLog:
+            return ir_instruction_compilelog_get_dep((IrInstructionCompileLog *) instruction, index);
         case IrInstructionIdErrName:
             return ir_instruction_errname_get_dep((IrInstructionErrName *) instruction, index);
         case IrInstructionIdEmbedFile:
@@ -3767,7 +3793,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
     BuiltinFnEntry *builtin_fn = entry->value;
     size_t actual_param_count = node->data.fn_call_expr.params.length;
 
-    if (builtin_fn->param_count != actual_param_count) {
+    if (builtin_fn->param_count != SIZE_MAX && builtin_fn->param_count != actual_param_count) {
         add_node_error(irb->codegen, node,
                 buf_sprintf("expected %zu arguments, found %zu",
                     builtin_fn->param_count, actual_param_count));
@@ -3957,6 +3983,19 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 return ir_build_compile_err(irb, scope, node, arg0_value);
+            }
+        case BuiltinFnIdCompileLog:
+            {
+                IrInstruction **args = allocate<IrInstruction*>(actual_param_count);
+
+                for (size_t i = 0; i < actual_param_count; i += 1) {
+                    AstNode *arg_node = node->data.fn_call_expr.params.at(i);
+                    args[i] = ir_gen_node(irb, arg_node, scope);
+                    if (args[i] == irb->codegen->invalid_instruction)
+                        return irb->codegen->invalid_instruction;
+                }
+
+                return ir_build_compile_log(irb, scope, node, actual_param_count, args);
             }
         case BuiltinFnIdErrName:
             {
@@ -5254,7 +5293,7 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node) 
         return irb->codegen->invalid_instruction;
 
     IrInstruction *start_value = ir_gen_node(irb, start_node, scope);
-    if (ptr_value == irb->codegen->invalid_instruction)
+    if (start_value == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
     IrInstruction *end_value;
@@ -5797,6 +5836,16 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
             return ImplicitCastMatchResultYes;
         } else {
             return ImplicitCastMatchResultReportedError;
+        }
+    }
+
+    // implicit typed number to integer or float literal.
+    // works when the number is known
+    if (value->value.special == ConstValSpecialStatic) {
+        if (actual_type->id == TypeTableEntryIdInt && expected_type->id == TypeTableEntryIdNumLitInt) {
+            return ImplicitCastMatchResultYes;
+        } else if (actual_type->id == TypeTableEntryIdFloat && expected_type->id == TypeTableEntryIdNumLitFloat) {
+            return ImplicitCastMatchResultYes;
         }
     }
 
@@ -6654,6 +6703,19 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
     return result;
 }
 
+static IrInstruction *ir_analyze_number_to_literal(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *target, TypeTableEntry *wanted_type)
+{
+    ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+    if (!val)
+        return ira->codegen->invalid_instruction;
+
+    IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, wanted_type, true);
+    bignum_init_bignum(&result->value.data.x_bignum, &val->data.x_bignum);
+    return result;
+}
+
 static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_instr,
     TypeTableEntry *wanted_type, IrInstruction *value)
 {
@@ -6856,6 +6918,15 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         } else {
             return ira->codegen->invalid_instruction;
         }
+    }
+
+    // explicit cast from typed number to integer or float literal.
+    // works when the number is known at compile time
+    if (instr_is_comptime(value) &&
+        ((actual_type->id == TypeTableEntryIdInt && wanted_type->id == TypeTableEntryIdNumLitInt) ||
+        (actual_type->id == TypeTableEntryIdFloat && wanted_type->id == TypeTableEntryIdNumLitFloat)))
+    {
+        return ir_analyze_number_to_literal(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from %void to integer type which can fit it
@@ -7552,6 +7623,13 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         op1_array_val = op1_val->data.x_ptr.base_ptr;
         op1_array_index = op1_val->data.x_ptr.index;
         op1_array_end = op1_array_val->data.x_array.size - 1;
+    } else if (is_slice(op1_canon_type)) {
+        TypeTableEntry *ptr_type = op1_canon_type->data.structure.fields[slice_ptr_index].type_entry;
+        child_type = ptr_type->data.pointer.child_type;
+        ConstExprValue *ptr_val = &op1_val->data.x_struct.fields[slice_ptr_index];
+        op1_array_val = ptr_val->data.x_ptr.base_ptr;
+        op1_array_index = ptr_val->data.x_ptr.index;
+        op1_array_end = op1_array_val->data.x_array.size;
     } else {
         ir_add_error(ira, op1,
             buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->value.type->name)));
@@ -7585,6 +7663,18 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         op2_array_val = op2_val->data.x_ptr.base_ptr;
         op2_array_index = op2_val->data.x_ptr.index;
         op2_array_end = op2_array_val->data.x_array.size - 1;
+    } else if (is_slice(op2_canon_type)) {
+        TypeTableEntry *ptr_type = op2_canon_type->data.structure.fields[slice_ptr_index].type_entry;
+        if (ptr_type->data.pointer.child_type != child_type) {
+            ir_add_error(ira, op2, buf_sprintf("expected array of type '%s', found '%s'",
+                        buf_ptr(&child_type->name),
+                        buf_ptr(&op2->value.type->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        ConstExprValue *ptr_val = &op2_val->data.x_struct.fields[slice_ptr_index];
+        op2_array_val = ptr_val->data.x_ptr.base_ptr;
+        op2_array_index = ptr_val->data.x_ptr.index;
+        op2_array_end = op2_array_val->data.x_array.size;
     } else {
         ir_add_error(ira, op2,
             buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op2->value.type->name)));
@@ -9177,7 +9267,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             }
         } else {
             ir_add_error(ira, &field_ptr_instruction->base,
-                buf_sprintf("type '%s' does not support field access", buf_ptr(&container_type->name)));
+                buf_sprintf("type '%s' does not support field access", buf_ptr(&child_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
     } else if (container_type->id == TypeTableEntryIdNamespace) {
@@ -9527,6 +9617,12 @@ static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
     ConstExprValue *target_val = ir_resolve_const(ira, target_instruction, UndefBad);
     if (!target_val)
         return ira->codegen->builtin_types.entry_invalid;
+
+    if (ira->new_irb.exec->is_inline) {
+        // ignore setDebugSafety when running functions at compile time
+        ir_build_const_from(ira, &set_debug_safety_instruction->base, false);
+        return ira->codegen->builtin_types.entry_void;
+    }
 
     bool *safety_off_ptr;
     AstNode **safety_set_node_ptr;
@@ -10703,6 +10799,26 @@ static TypeTableEntry *ir_analyze_instruction_compile_err(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_invalid;
 }
 
+static TypeTableEntry *ir_analyze_instruction_compile_log(IrAnalyze *ira, IrInstructionCompileLog *instruction) {
+    Buf buf = BUF_INIT;
+    fprintf(stderr, "| ");
+    for (size_t i = 0; i < instruction->msg_count; i += 1) {
+        IrInstruction *msg = instruction->msg_list[i]->other;
+        if (msg->value.type->id == TypeTableEntryIdInvalid)
+            return ira->codegen->builtin_types.entry_invalid;
+        buf_resize(&buf, 0);
+        render_const_value(&buf, &msg->value);
+        const char *comma_str = (i != 0) ? ", " : "";
+        fprintf(stderr, "%s%s", comma_str, buf_ptr(&buf));
+    }
+    fprintf(stderr, "\n");
+
+    ir_add_error(ira, &instruction->base, buf_sprintf("found compile log statement"));
+
+    ir_build_const_from(ira, &instruction->base, false);
+    return ira->codegen->builtin_types.entry_void;
+}
+
 static TypeTableEntry *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstructionErrName *instruction) {
     IrInstruction *value = instruction->value->other;
     if (value->value.type->id == TypeTableEntryIdInvalid)
@@ -11602,13 +11718,13 @@ static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInst
                 out_val->data.x_bool = bignum_add(dest_bignum, op1_bignum, op2_bignum);
                 break;
             case IrOverflowOpSub:
-                out_val->data.x_bool = bignum_add(dest_bignum, op1_bignum, op2_bignum);
+                out_val->data.x_bool = bignum_sub(dest_bignum, op1_bignum, op2_bignum);
                 break;
             case IrOverflowOpMul:
-                out_val->data.x_bool = bignum_add(dest_bignum, op1_bignum, op2_bignum);
+                out_val->data.x_bool = bignum_mul(dest_bignum, op1_bignum, op2_bignum);
                 break;
             case IrOverflowOpShl:
-                out_val->data.x_bool = bignum_add(dest_bignum, op1_bignum, op2_bignum);
+                out_val->data.x_bool = bignum_shl(dest_bignum, op1_bignum, op2_bignum);
                 break;
         }
         if (!bignum_fits_in_bits(dest_bignum, canon_type->data.integral.bit_count,
@@ -12007,6 +12123,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_max_value(ira, (IrInstructionMaxValue *)instruction);
         case IrInstructionIdCompileErr:
             return ir_analyze_instruction_compile_err(ira, (IrInstructionCompileErr *)instruction);
+        case IrInstructionIdCompileLog:
+            return ir_analyze_instruction_compile_log(ira, (IrInstructionCompileLog *)instruction);
         case IrInstructionIdErrName:
             return ir_analyze_instruction_err_name(ira, (IrInstructionErrName *)instruction);
         case IrInstructionIdTypeName:
@@ -12164,6 +12282,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSetDebugSafety:
         case IrInstructionIdImport:
         case IrInstructionIdCompileErr:
+        case IrInstructionIdCompileLog:
         case IrInstructionIdCImport:
         case IrInstructionIdCInclude:
         case IrInstructionIdCDefine:

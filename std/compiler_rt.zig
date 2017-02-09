@@ -1,3 +1,13 @@
+// Avoid dragging in the debug safety mechanisms into this .o file,
+// unless we're trying to test this file.
+pub fn panic(message: []const u8) -> unreachable {
+    if (@compileVar("is_test")) {
+        @import("std").debug.panic(message);
+    } else {
+        @unreachable();
+    }
+}
+
 const CHAR_BIT = 8;
 const du_int = u64;
 const di_int = i64;
@@ -212,6 +222,106 @@ export fn __umoddi3(a: du_int, b: du_int) -> du_int {
     return r;
 }
 
+fn isArmArch() -> bool {
+    return switch (@compileVar("arch")) {
+        Arch.armv8_2a,
+        Arch.armv8_1a,
+        Arch.armv8,
+        Arch.armv8m_baseline,
+        Arch.armv8m_mainline,
+        Arch.armv7,
+        Arch.armv7em,
+        Arch.armv7m,
+        Arch.armv7s,
+        Arch.armv7k,
+        Arch.armv6,
+        Arch.armv6m,
+        Arch.armv6k,
+        Arch.armv6t2,
+        Arch.armv5,
+        Arch.armv5te,
+        Arch.armv4t,
+        Arch.armeb => true,
+        else => false,
+    };
+}
+
+export nakedcc fn __aeabi_uidivmod() {
+    @setDebugSafety(this, false);
+
+    if (comptime isArmArch()) {
+        asm volatile (
+            \\ push    { lr }
+            \\ sub     sp, sp, #4
+            \\ mov     r2, sp
+            \\ bl      __udivmodsi4
+            \\ ldr     r1, [sp]
+            \\ add     sp, sp, #4
+            \\ pop     { pc }
+        ::: "r2", "r1");
+        @unreachable();
+    }
+
+    @setFnVisible(this, false);
+}
+
+export fn __udivmodsi4(a: su_int, b: su_int, rem: &su_int) -> su_int {
+    @setDebugSafety(this, false);
+
+    const d = __udivsi3(a, b);
+    *rem = su_int(si_int(a) -% (si_int(d) * si_int(b)));
+    return d;
+}
+
+
+// TODO make this an alias instead of an extra function call
+// https://github.com/andrewrk/zig/issues/256
+
+export fn __aeabi_uidiv(n: su_int, d: su_int) -> su_int {
+    @setDebugSafety(this, false);
+
+    return __udivsi3(n, d);
+}
+
+export fn __udivsi3(n: su_int, d: su_int) -> su_int {
+    @setDebugSafety(this, false);
+
+    const n_uword_bits: c_uint = @sizeOf(su_int) * CHAR_BIT;
+    // special cases
+    if (d == 0)
+        return 0; // ?!
+    if (n == 0)
+        return 0;
+    var sr: c_uint = @clz(d) - @clz(n);
+    // 0 <= sr <= n_uword_bits - 1 or sr large
+    if (sr > n_uword_bits - 1)  // d > r
+        return 0;
+    if (sr == n_uword_bits - 1)  // d == 1
+        return n;
+    sr += 1;
+    // 1 <= sr <= n_uword_bits - 1
+    // Not a special case
+    var q: su_int = n << (n_uword_bits - sr);
+    var r: su_int = n >> sr;
+    var carry: su_int = 0;
+    while (sr > 0; sr -= 1) {
+        // r:q = ((r:q)  << 1) | carry
+        r = (r << 1) | (q >> (n_uword_bits - 1));
+        q = (q << 1) | carry;
+        // carry = 0;
+        // if (r.all >= d.all)
+        // {
+        //      r.all -= d.all;
+        //      carry = 1;
+        // }
+        const s = si_int(d - r - 1) >> si_int(n_uword_bits - 1);
+        carry = su_int(s & 1);
+        r -= d & su_int(s);
+    }
+    q = (q << 1) | carry;
+    return q;
+}
+
 fn test_umoddi3() {
     @setFnTest(this);
 
@@ -257,6 +367,155 @@ fn test_one_udivmoddi4(a: du_int, b: du_int, expected_q: du_int, expected_r: du_
     assert(r == expected_r);
 }
 
-fn assert(b: bool) {
-    if (!b) @unreachable();
+fn test_udivsi3() {
+    @setFnTest(this);
+
+    const cases = [][3]su_int {
+        []su_int{0x00000000, 0x00000001, 0x00000000},
+        []su_int{0x00000000, 0x00000002, 0x00000000},
+        []su_int{0x00000000, 0x00000003, 0x00000000},
+        []su_int{0x00000000, 0x00000010, 0x00000000},
+        []su_int{0x00000000, 0x078644FA, 0x00000000},
+        []su_int{0x00000000, 0x0747AE14, 0x00000000},
+        []su_int{0x00000000, 0x7FFFFFFF, 0x00000000},
+        []su_int{0x00000000, 0x80000000, 0x00000000},
+        []su_int{0x00000000, 0xFFFFFFFD, 0x00000000},
+        []su_int{0x00000000, 0xFFFFFFFE, 0x00000000},
+        []su_int{0x00000000, 0xFFFFFFFF, 0x00000000},
+        []su_int{0x00000001, 0x00000001, 0x00000001},
+        []su_int{0x00000001, 0x00000002, 0x00000000},
+        []su_int{0x00000001, 0x00000003, 0x00000000},
+        []su_int{0x00000001, 0x00000010, 0x00000000},
+        []su_int{0x00000001, 0x078644FA, 0x00000000},
+        []su_int{0x00000001, 0x0747AE14, 0x00000000},
+        []su_int{0x00000001, 0x7FFFFFFF, 0x00000000},
+        []su_int{0x00000001, 0x80000000, 0x00000000},
+        []su_int{0x00000001, 0xFFFFFFFD, 0x00000000},
+        []su_int{0x00000001, 0xFFFFFFFE, 0x00000000},
+        []su_int{0x00000001, 0xFFFFFFFF, 0x00000000},
+        []su_int{0x00000002, 0x00000001, 0x00000002},
+        []su_int{0x00000002, 0x00000002, 0x00000001},
+        []su_int{0x00000002, 0x00000003, 0x00000000},
+        []su_int{0x00000002, 0x00000010, 0x00000000},
+        []su_int{0x00000002, 0x078644FA, 0x00000000},
+        []su_int{0x00000002, 0x0747AE14, 0x00000000},
+        []su_int{0x00000002, 0x7FFFFFFF, 0x00000000},
+        []su_int{0x00000002, 0x80000000, 0x00000000},
+        []su_int{0x00000002, 0xFFFFFFFD, 0x00000000},
+        []su_int{0x00000002, 0xFFFFFFFE, 0x00000000},
+        []su_int{0x00000002, 0xFFFFFFFF, 0x00000000},
+        []su_int{0x00000003, 0x00000001, 0x00000003},
+        []su_int{0x00000003, 0x00000002, 0x00000001},
+        []su_int{0x00000003, 0x00000003, 0x00000001},
+        []su_int{0x00000003, 0x00000010, 0x00000000},
+        []su_int{0x00000003, 0x078644FA, 0x00000000},
+        []su_int{0x00000003, 0x0747AE14, 0x00000000},
+        []su_int{0x00000003, 0x7FFFFFFF, 0x00000000},
+        []su_int{0x00000003, 0x80000000, 0x00000000},
+        []su_int{0x00000003, 0xFFFFFFFD, 0x00000000},
+        []su_int{0x00000003, 0xFFFFFFFE, 0x00000000},
+        []su_int{0x00000003, 0xFFFFFFFF, 0x00000000},
+        []su_int{0x00000010, 0x00000001, 0x00000010},
+        []su_int{0x00000010, 0x00000002, 0x00000008},
+        []su_int{0x00000010, 0x00000003, 0x00000005},
+        []su_int{0x00000010, 0x00000010, 0x00000001},
+        []su_int{0x00000010, 0x078644FA, 0x00000000},
+        []su_int{0x00000010, 0x0747AE14, 0x00000000},
+        []su_int{0x00000010, 0x7FFFFFFF, 0x00000000},
+        []su_int{0x00000010, 0x80000000, 0x00000000},
+        []su_int{0x00000010, 0xFFFFFFFD, 0x00000000},
+        []su_int{0x00000010, 0xFFFFFFFE, 0x00000000},
+        []su_int{0x00000010, 0xFFFFFFFF, 0x00000000},
+        []su_int{0x078644FA, 0x00000001, 0x078644FA},
+        []su_int{0x078644FA, 0x00000002, 0x03C3227D},
+        []su_int{0x078644FA, 0x00000003, 0x028216FE},
+        []su_int{0x078644FA, 0x00000010, 0x0078644F},
+        []su_int{0x078644FA, 0x078644FA, 0x00000001},
+        []su_int{0x078644FA, 0x0747AE14, 0x00000001},
+        []su_int{0x078644FA, 0x7FFFFFFF, 0x00000000},
+        []su_int{0x078644FA, 0x80000000, 0x00000000},
+        []su_int{0x078644FA, 0xFFFFFFFD, 0x00000000},
+        []su_int{0x078644FA, 0xFFFFFFFE, 0x00000000},
+        []su_int{0x078644FA, 0xFFFFFFFF, 0x00000000},
+        []su_int{0x0747AE14, 0x00000001, 0x0747AE14},
+        []su_int{0x0747AE14, 0x00000002, 0x03A3D70A},
+        []su_int{0x0747AE14, 0x00000003, 0x026D3A06},
+        []su_int{0x0747AE14, 0x00000010, 0x00747AE1},
+        []su_int{0x0747AE14, 0x078644FA, 0x00000000},
+        []su_int{0x0747AE14, 0x0747AE14, 0x00000001},
+        []su_int{0x0747AE14, 0x7FFFFFFF, 0x00000000},
+        []su_int{0x0747AE14, 0x80000000, 0x00000000},
+        []su_int{0x0747AE14, 0xFFFFFFFD, 0x00000000},
+        []su_int{0x0747AE14, 0xFFFFFFFE, 0x00000000},
+        []su_int{0x0747AE14, 0xFFFFFFFF, 0x00000000},
+        []su_int{0x7FFFFFFF, 0x00000001, 0x7FFFFFFF},
+        []su_int{0x7FFFFFFF, 0x00000002, 0x3FFFFFFF},
+        []su_int{0x7FFFFFFF, 0x00000003, 0x2AAAAAAA},
+        []su_int{0x7FFFFFFF, 0x00000010, 0x07FFFFFF},
+        []su_int{0x7FFFFFFF, 0x078644FA, 0x00000011},
+        []su_int{0x7FFFFFFF, 0x0747AE14, 0x00000011},
+        []su_int{0x7FFFFFFF, 0x7FFFFFFF, 0x00000001},
+        []su_int{0x7FFFFFFF, 0x80000000, 0x00000000},
+        []su_int{0x7FFFFFFF, 0xFFFFFFFD, 0x00000000},
+        []su_int{0x7FFFFFFF, 0xFFFFFFFE, 0x00000000},
+        []su_int{0x7FFFFFFF, 0xFFFFFFFF, 0x00000000},
+        []su_int{0x80000000, 0x00000001, 0x80000000},
+        []su_int{0x80000000, 0x00000002, 0x40000000},
+        []su_int{0x80000000, 0x00000003, 0x2AAAAAAA},
+        []su_int{0x80000000, 0x00000010, 0x08000000},
+        []su_int{0x80000000, 0x078644FA, 0x00000011},
+        []su_int{0x80000000, 0x0747AE14, 0x00000011},
+        []su_int{0x80000000, 0x7FFFFFFF, 0x00000001},
+        []su_int{0x80000000, 0x80000000, 0x00000001},
+        []su_int{0x80000000, 0xFFFFFFFD, 0x00000000},
+        []su_int{0x80000000, 0xFFFFFFFE, 0x00000000},
+        []su_int{0x80000000, 0xFFFFFFFF, 0x00000000},
+        []su_int{0xFFFFFFFD, 0x00000001, 0xFFFFFFFD},
+        []su_int{0xFFFFFFFD, 0x00000002, 0x7FFFFFFE},
+        []su_int{0xFFFFFFFD, 0x00000003, 0x55555554},
+        []su_int{0xFFFFFFFD, 0x00000010, 0x0FFFFFFF},
+        []su_int{0xFFFFFFFD, 0x078644FA, 0x00000022},
+        []su_int{0xFFFFFFFD, 0x0747AE14, 0x00000023},
+        []su_int{0xFFFFFFFD, 0x7FFFFFFF, 0x00000001},
+        []su_int{0xFFFFFFFD, 0x80000000, 0x00000001},
+        []su_int{0xFFFFFFFD, 0xFFFFFFFD, 0x00000001},
+        []su_int{0xFFFFFFFD, 0xFFFFFFFE, 0x00000000},
+        []su_int{0xFFFFFFFD, 0xFFFFFFFF, 0x00000000},
+        []su_int{0xFFFFFFFE, 0x00000001, 0xFFFFFFFE},
+        []su_int{0xFFFFFFFE, 0x00000002, 0x7FFFFFFF},
+        []su_int{0xFFFFFFFE, 0x00000003, 0x55555554},
+        []su_int{0xFFFFFFFE, 0x00000010, 0x0FFFFFFF},
+        []su_int{0xFFFFFFFE, 0x078644FA, 0x00000022},
+        []su_int{0xFFFFFFFE, 0x0747AE14, 0x00000023},
+        []su_int{0xFFFFFFFE, 0x7FFFFFFF, 0x00000002},
+        []su_int{0xFFFFFFFE, 0x80000000, 0x00000001},
+        []su_int{0xFFFFFFFE, 0xFFFFFFFD, 0x00000001},
+        []su_int{0xFFFFFFFE, 0xFFFFFFFE, 0x00000001},
+        []su_int{0xFFFFFFFE, 0xFFFFFFFF, 0x00000000},
+        []su_int{0xFFFFFFFF, 0x00000001, 0xFFFFFFFF},
+        []su_int{0xFFFFFFFF, 0x00000002, 0x7FFFFFFF},
+        []su_int{0xFFFFFFFF, 0x00000003, 0x55555555},
+        []su_int{0xFFFFFFFF, 0x00000010, 0x0FFFFFFF},
+        []su_int{0xFFFFFFFF, 0x078644FA, 0x00000022},
+        []su_int{0xFFFFFFFF, 0x0747AE14, 0x00000023},
+        []su_int{0xFFFFFFFF, 0x7FFFFFFF, 0x00000002},
+        []su_int{0xFFFFFFFF, 0x80000000, 0x00000001},
+        []su_int{0xFFFFFFFF, 0xFFFFFFFD, 0x00000001},
+        []su_int{0xFFFFFFFF, 0xFFFFFFFE, 0x00000001},
+        []su_int{0xFFFFFFFF, 0xFFFFFFFF, 0x00000001},
+    };
+
+    for (cases) |case| {
+        test_one_udivsi3(case[0], case[1], case[2]);
+    }
+}
+
+fn test_one_udivsi3(a: su_int, b: su_int, expected_q: su_int) {
+    const q: su_int = __udivsi3(a, b);
+    assert(q == expected_q);
+}
+
+
+fn assert(ok: bool) {
+    if (!ok) @unreachable();
 }

@@ -251,3 +251,15 @@ fn comptimeIterateOverFnPtrList() {
     assert(performFn('o', 0) == 1);
     assert(performFn('w', 99) == 99);
 }
+
+fn evalSetDebugSafetyAtCompileTime() {
+    @setFnTest(this);
+
+    const result = comptime fnWithSetDebugSafety();
+    assert(result == 1234);
+}
+
+fn fnWithSetDebugSafety() -> i32{
+    @setDebugSafety(this, true);
+    return 1234;
+}

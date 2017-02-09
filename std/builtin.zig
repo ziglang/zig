@@ -29,3 +29,8 @@ export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
     while (index != n; index += 1)
         d[index] = s[index];
 }
+
+// Avoid dragging in the debug safety mechanisms into this .o file.
+pub fn panic(message: []const u8) -> unreachable {
+    @unreachable();
+}
