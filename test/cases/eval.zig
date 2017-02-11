@@ -263,3 +263,23 @@ fn fnWithSetDebugSafety() -> i32{
     @setDebugSafety(this, true);
     return 1234;
 }
+
+
+
+const SimpleStruct = struct {
+    field: i32,
+
+    fn method(self: &const SimpleStruct) -> i32 {
+        return self.field + 3;
+    }
+};
+
+var simple_struct = SimpleStruct{ .field = 1234, };
+
+const bound_fn = simple_struct.method;
+
+fn callMethodOnBoundFnReferringToVarInstance() {
+    @setFnTest(this);
+
+    assert(bound_fn() == 1237);
+}

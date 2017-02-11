@@ -126,9 +126,12 @@ ConstExprValue *create_const_type(CodeGen *g, TypeTableEntry *type_value);
 void init_const_runtime(ConstExprValue *const_val, TypeTableEntry *type);
 ConstExprValue *create_const_runtime(TypeTableEntry *type);
 
-void init_const_ptr(CodeGen *g, ConstExprValue *const_val, ConstExprValue *base_ptr, size_t index, bool is_const);
-ConstExprValue *create_const_ptr(CodeGen *g, ConstExprValue *const_val, ConstExprValue *base_ptr,
-        size_t index, bool is_const);
+void init_const_ptr_ref(CodeGen *g, ConstExprValue *const_val, ConstExprValue *pointee_val, bool is_const);
+ConstExprValue *create_const_ptr_ref(CodeGen *g, ConstExprValue *pointee_val, bool is_const);
+
+void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
+        size_t elem_index, bool is_const);
+ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index, bool is_const);
 
 void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
         size_t start, size_t len, bool is_const);

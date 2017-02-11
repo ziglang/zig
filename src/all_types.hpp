@@ -67,6 +67,27 @@ enum OutType {
     OutTypeObj,
 };
 
+enum ConstParentId {
+    ConstParentIdNone,
+    ConstParentIdStruct,
+    ConstParentIdArray,
+};
+
+struct ConstParent {
+    ConstParentId id;
+
+    union {
+        struct {
+            ConstExprValue *array_val;
+            size_t elem_index;
+        } p_array;
+        struct {
+            ConstExprValue *struct_val;
+            size_t field_index;
+        } p_struct;
+    } data;
+};
+
 struct ConstEnumValue {
     uint64_t tag;
     ConstExprValue *payload;
@@ -74,43 +95,55 @@ struct ConstEnumValue {
 
 struct ConstStructValue {
     ConstExprValue *fields;
+    ConstParent parent;
 };
 
 struct ConstArrayValue {
     ConstExprValue *elements;
-    // This will be the same as `len` from the type, but we duplicate the information
-    // in the constant value so that pointers pointing to arrays can see this size.
-    // TODO now that ConstExprValue has the type field we can use that instead of this.
-    size_t size;
-    // If the data for this array is supposed to be contained in a different constant
-    // value, we link to the parent here. This way getting a pointer to this constant
-    // value can return a pointer into the parent data structure.
-    ConstExprValue *parent_array;
-    size_t parent_array_index;
+    ConstParent parent;
 };
 
 enum ConstPtrSpecial {
-    ConstPtrSpecialNone,
-    // This helps us preserve the null byte when performing compile-time
-    // concatenation on C strings.
-    ConstPtrSpecialCStr,
-    // This means that the pointer points to inline memory, so attempting
-    // to write a non-compile-time known value is an error
-    ConstPtrSpecialInline,
+    // Enforce explicitly setting this ID by making the zero value invalid.
+    ConstPtrSpecialInvalid,
+    // The pointer is a reference to a single object.
+    ConstPtrSpecialRef,
+    // The pointer points to an element in an underlying array.
+    ConstPtrSpecialBaseArray,
+    // The pointer points to a field in an underlying struct.
+    ConstPtrSpecialBaseStruct,
     // This means that we did a compile-time pointer reinterpret and we cannot
     // understand the value of pointee at compile time. However, we will still
     // emit a binary with a compile time known address.
     // In this case index is the numeric address value.
-    ConstPtrSpecialRuntime,
+    ConstPtrSpecialHardCodedAddr,
 };
 
 struct ConstPtrValue {
-    ConstExprValue *base_ptr;
-    // If index is SIZE_MAX, then base_ptr points directly to child type.
-    // Otherwise base_ptr points to an array const val and index is offset
-    // in object units from base_ptr into the block of memory pointed to
-    size_t index;
     ConstPtrSpecial special;
+    // This means that the pointer points to memory used by a comptime variable,
+    // so attempting to write a non-compile-time known value is an error
+    bool comptime_var_mem;
+
+    union {
+        struct {
+            ConstExprValue *pointee;
+        } ref;
+        struct {
+            ConstExprValue *array_val;
+            size_t elem_index;
+            // This helps us preserve the null byte when performing compile-time
+            // concatenation on C strings.
+            bool is_cstr;
+        } base_array;
+        struct {
+            ConstExprValue *struct_val;
+            size_t field_index;
+        } base_struct;
+        struct {
+            uint64_t addr;
+        } hard_coded_addr;
+    } data;
 };
 
 struct ConstErrValue {

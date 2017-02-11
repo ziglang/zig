@@ -64,16 +64,21 @@ static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, Typ
 
 ConstExprValue *const_ptr_pointee(ConstExprValue *const_val) {
     assert(const_val->special == ConstValSpecialStatic);
-    assert(const_val->data.x_ptr.special != ConstPtrSpecialRuntime);
-    ConstExprValue *base_ptr = const_val->data.x_ptr.base_ptr;
-    size_t index = const_val->data.x_ptr.index;
-
-    if (index == SIZE_MAX) {
-        return base_ptr;
-    } else {
-        assert(index < base_ptr->data.x_array.size);
-        return &base_ptr->data.x_array.elements[index];
+    switch (const_val->data.x_ptr.special) {
+        case ConstPtrSpecialInvalid:
+            zig_unreachable();
+        case ConstPtrSpecialRef:
+            return const_val->data.x_ptr.data.ref.pointee;
+        case ConstPtrSpecialBaseArray:
+            return &const_val->data.x_ptr.data.base_array.array_val->data.x_array.elements[
+                const_val->data.x_ptr.data.base_array.elem_index];
+        case ConstPtrSpecialBaseStruct:
+            return &const_val->data.x_ptr.data.base_struct.struct_val->data.x_struct.fields[
+                const_val->data.x_ptr.data.base_struct.field_index];
+        case ConstPtrSpecialHardCodedAddr:
+            zig_unreachable();
     }
+    zig_unreachable();
 }
 
 static bool ir_should_inline(IrExecutable *exec, Scope *scope) {
@@ -6209,7 +6214,7 @@ static TypeTableEntry *ir_analyze_void(IrAnalyze *ira, IrInstruction *instructio
 
 static TypeTableEntry *ir_analyze_const_ptr(IrAnalyze *ira, IrInstruction *instruction,
         ConstExprValue *pointee, TypeTableEntry *pointee_type,
-        ConstPtrSpecial special, bool ptr_is_const, bool ptr_is_volatile)
+        bool comptime_var_mem, bool ptr_is_const, bool ptr_is_volatile)
 {
     if (pointee_type->id == TypeTableEntryIdMetaType) {
         TypeTableEntry *type_entry = pointee->data.x_type;
@@ -6227,9 +6232,9 @@ static TypeTableEntry *ir_analyze_const_ptr(IrAnalyze *ira, IrInstruction *instr
         TypeTableEntry *ptr_type = get_pointer_to_type_volatile(ira->codegen, pointee_type,
                 ptr_is_const, ptr_is_volatile);
         ConstExprValue *const_val = ir_build_const_from(ira, instruction);
-        const_val->data.x_ptr.base_ptr = pointee;
-        const_val->data.x_ptr.index = SIZE_MAX;
-        const_val->data.x_ptr.special = special;
+        const_val->data.x_ptr.special = ConstPtrSpecialRef;
+        const_val->data.x_ptr.comptime_var_mem = comptime_var_mem;
+        const_val->data.x_ptr.data.ref.pointee = pointee;
         return ptr_type;
     }
 }
@@ -6471,8 +6476,8 @@ static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value.type = wanted_type;
         const_instruction->base.value.special = ConstValSpecialStatic;
-        const_instruction->base.value.data.x_ptr.base_ptr = val;
-        const_instruction->base.value.data.x_ptr.index = SIZE_MAX;
+        const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialRef;
+        const_instruction->base.value.data.x_ptr.data.ref.pointee = val;
         return &const_instruction->base;
     }
 
@@ -6608,10 +6613,10 @@ static IrInstruction *ir_analyze_ptr_to_int(IrAnalyze *ira, IrInstruction *sourc
         ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
         if (!val)
             return ira->codegen->invalid_instruction;
-        if (val->data.x_ptr.special == ConstPtrSpecialRuntime) {
+        if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
             IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                     source_instr->source_node, wanted_type);
-            bignum_init_unsigned(&result->value.data.x_bignum, val->data.x_ptr.index);
+            bignum_init_unsigned(&result->value.data.x_bignum, val->data.x_ptr.data.hard_coded_addr.addr);
             return result;
         }
     }
@@ -6633,9 +6638,8 @@ static IrInstruction *ir_analyze_int_to_ptr(IrAnalyze *ira, IrInstruction *sourc
             return ira->codegen->invalid_instruction;
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
-        result->value.data.x_ptr.base_ptr = nullptr;
-        result->value.data.x_ptr.index = bignum_to_twos_complement(&val->data.x_bignum);
-        result->value.data.x_ptr.special = ConstPtrSpecialRuntime;
+        result->value.data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
+        result->value.data.x_ptr.data.hard_coded_addr.addr = bignum_to_twos_complement(&val->data.x_bignum);
         return result;
     }
 
@@ -6660,9 +6664,8 @@ static IrInstruction *ir_analyze_int_lit_to_ptr(IrAnalyze *ira, IrInstruction *s
 
     IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
             source_instr->source_node, wanted_type);
-    result->value.data.x_ptr.base_ptr = nullptr;
-    result->value.data.x_ptr.index = bignum_to_twos_complement(&val->data.x_bignum);
-    result->value.data.x_ptr.special = ConstPtrSpecialRuntime;
+    result->value.data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
+    result->value.data.x_ptr.data.hard_coded_addr.addr = bignum_to_twos_complement(&val->data.x_bignum);
     return result;
 }
 
@@ -7006,17 +7009,22 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
         return ira->codegen->invalid_instruction;
     } else if (type_entry->id == TypeTableEntryIdPointer) {
         TypeTableEntry *child_type = type_entry->data.pointer.child_type;
-        if (ptr->value.special != ConstValSpecialRuntime) {
-            ConstExprValue *pointee = const_ptr_pointee(&ptr->value);
-            if (pointee->special != ConstValSpecialRuntime) {
-                IrInstruction *result = ir_create_const(&ira->new_irb, source_instruction->scope,
-                    source_instruction->source_node, child_type);
-                result->value = *pointee;
-                return result;
+        if (instr_is_comptime(ptr)) {
+            // Dereferencing a mutable pointer at compile time  is not allowed
+            // unless that pointer is from a comptime variable
+            if (type_entry->data.pointer.is_const || ptr->value.data.x_ptr.comptime_var_mem) {
+                ConstExprValue *pointee = const_ptr_pointee(&ptr->value);
+                if (pointee->special != ConstValSpecialRuntime) {
+                    IrInstruction *result = ir_create_const(&ira->new_irb, source_instruction->scope,
+                        source_instruction->source_node, child_type);
+                    result->value = *pointee;
+                    return result;
+                }
             }
         }
-        // TODO if the instruction is a get pointer instruction we can skip it
-        IrInstruction *load_ptr_instruction = ir_build_load_ptr(&ira->new_irb, source_instruction->scope, source_instruction->source_node, ptr);
+        // TODO if the instruction is a const ref instruction we can skip it
+        IrInstruction *load_ptr_instruction = ir_build_load_ptr(&ira->new_irb, source_instruction->scope,
+                source_instruction->source_node, ptr);
         load_ptr_instruction->value.type = child_type;
         return load_ptr_instruction;
     } else if (type_entry->id == TypeTableEntryIdMetaType) {
@@ -7052,8 +7060,7 @@ static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_inst
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
         if (!val)
             return ira->codegen->builtin_types.entry_invalid;
-        return ir_analyze_const_ptr(ira, source_instruction, val, value->value.type,
-                ConstPtrSpecialNone, is_const, is_volatile);
+        return ir_analyze_const_ptr(ira, source_instruction, val, value->value.type, false, is_const, is_volatile);
     }
 
     TypeTableEntry *ptr_type = get_pointer_to_type_volatile(ira->codegen, value->value.type, is_const, is_volatile);
@@ -7136,13 +7143,14 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
 
     ConstExprValue *ptr_field = &const_val->data.x_struct.fields[slice_ptr_index];
     ConstExprValue *len_field = &const_val->data.x_struct.fields[slice_len_index];
-    ConstExprValue *array_val = ptr_field->data.x_ptr.base_ptr;
-    assert(ptr_field->data.x_ptr.index != SIZE_MAX);
+
+    assert(ptr_field->data.x_ptr.special == ConstPtrSpecialBaseArray);
+    ConstExprValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
     size_t len = len_field->data.x_bignum.data.x_uint;
     Buf *result = buf_alloc();
     buf_resize(result, len);
     for (size_t i = 0; i < len; i += 1) {
-        size_t new_index = ptr_field->data.x_ptr.index + i;
+        size_t new_index = ptr_field->data.x_ptr.data.base_array.elem_index + i;
         ConstExprValue *char_val = &array_val->data.x_array.elements[new_index];
         uint64_t big_c = char_val->data.x_bignum.data.x_uint;
         assert(big_c <= UINT8_MAX);
@@ -7591,22 +7599,24 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         child_type = op1_canon_type->data.array.child_type;
         op1_array_val = op1_val;
         op1_array_index = 0;
-        op1_array_end = op1_val->data.x_array.size;
+        op1_array_end = op1_canon_type->data.array.len;
     } else if (op1_canon_type->id == TypeTableEntryIdPointer &&
         op1_canon_type->data.pointer.child_type == ira->codegen->builtin_types.entry_u8 &&
-        op1_val->data.x_ptr.special == ConstPtrSpecialCStr)
+        op1_val->data.x_ptr.special == ConstPtrSpecialBaseArray &&
+        op1_val->data.x_ptr.data.base_array.is_cstr)
     {
         child_type = op1_canon_type->data.pointer.child_type;
-        op1_array_val = op1_val->data.x_ptr.base_ptr;
-        op1_array_index = op1_val->data.x_ptr.index;
-        op1_array_end = op1_array_val->data.x_array.size - 1;
+        op1_array_val = op1_val->data.x_ptr.data.base_array.array_val;
+        op1_array_index = op1_val->data.x_ptr.data.base_array.elem_index;
+        op1_array_end = op1_array_val->type->data.array.len - 1;
     } else if (is_slice(op1_canon_type)) {
         TypeTableEntry *ptr_type = op1_canon_type->data.structure.fields[slice_ptr_index].type_entry;
         child_type = ptr_type->data.pointer.child_type;
         ConstExprValue *ptr_val = &op1_val->data.x_struct.fields[slice_ptr_index];
-        op1_array_val = ptr_val->data.x_ptr.base_ptr;
-        op1_array_index = ptr_val->data.x_ptr.index;
-        op1_array_end = op1_array_val->data.x_array.size;
+        assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
+        op1_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
+        op1_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
+        op1_array_end = op1_array_val->type->data.array.len;
     } else {
         ir_add_error(ira, op1,
             buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op1->value.type->name)));
@@ -7626,10 +7636,11 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         }
         op2_array_val = op2_val;
         op2_array_index = 0;
-        op2_array_end = op2_array_val->data.x_array.size;
+        op2_array_end = op2_array_val->type->data.array.len;
     } else if (op2_canon_type->id == TypeTableEntryIdPointer &&
         op2_canon_type->data.pointer.child_type == ira->codegen->builtin_types.entry_u8 &&
-        op2_val->data.x_ptr.special == ConstPtrSpecialCStr)
+        op2_val->data.x_ptr.special == ConstPtrSpecialBaseArray &&
+        op2_val->data.x_ptr.data.base_array.is_cstr)
     {
         if (child_type != ira->codegen->builtin_types.entry_u8) {
             ir_add_error(ira, op2, buf_sprintf("expected array of type '%s', found '%s'",
@@ -7637,9 +7648,9 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
                         buf_ptr(&op2->value.type->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
-        op2_array_val = op2_val->data.x_ptr.base_ptr;
-        op2_array_index = op2_val->data.x_ptr.index;
-        op2_array_end = op2_array_val->data.x_array.size - 1;
+        op2_array_val = op2_val->data.x_ptr.data.base_array.array_val;
+        op2_array_index = op2_val->data.x_ptr.data.base_array.elem_index;
+        op2_array_end = op2_array_val->type->data.array.len - 1;
     } else if (is_slice(op2_canon_type)) {
         TypeTableEntry *ptr_type = op2_canon_type->data.structure.fields[slice_ptr_index].type_entry;
         if (ptr_type->data.pointer.child_type != child_type) {
@@ -7649,9 +7660,10 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
             return ira->codegen->builtin_types.entry_invalid;
         }
         ConstExprValue *ptr_val = &op2_val->data.x_struct.fields[slice_ptr_index];
-        op2_array_val = ptr_val->data.x_ptr.base_ptr;
-        op2_array_index = ptr_val->data.x_ptr.index;
-        op2_array_end = op2_array_val->data.x_array.size;
+        assert(ptr_val->data.x_ptr.special == ConstPtrSpecialBaseArray);
+        op2_array_val = ptr_val->data.x_ptr.data.base_array.array_val;
+        op2_array_index = ptr_val->data.x_ptr.data.base_array.elem_index;
+        op2_array_end = op2_array_val->type->data.array.len;
     } else {
         ir_add_error(ira, op2,
             buf_sprintf("expected array or C string literal, found '%s'", buf_ptr(&op2->value.type->name)));
@@ -7676,12 +7688,12 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         out_array_val = allocate<ConstExprValue>(1);
         out_array_val->special = ConstValSpecialStatic;
         out_array_val->type = get_array_type(ira->codegen, child_type, new_len);
-        out_val->data.x_ptr.base_ptr = out_array_val;
-        out_val->data.x_ptr.index = 0;
-        out_val->data.x_ptr.special = ConstPtrSpecialCStr;
+        out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
+        out_val->data.x_ptr.data.base_array.is_cstr = true;
+        out_val->data.x_ptr.data.base_array.array_val = out_array_val;
+        out_val->data.x_ptr.data.base_array.elem_index = 0;
     }
     out_array_val->data.x_array.elements = allocate<ConstExprValue>(new_len);
-    out_array_val->data.x_array.size = new_len;
 
     size_t next_index = 0;
     for (size_t i = op1_array_index; i < op1_array_end; i += 1, next_index += 1) {
@@ -7736,7 +7748,6 @@ static TypeTableEntry *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
 
     uint64_t new_array_len = array_len.data.x_uint;
-    out_val->data.x_array.size = new_array_len;
     out_val->data.x_array.elements = allocate<ConstExprValue>(new_array_len);
 
     uint64_t i = 0;
@@ -8721,24 +8732,23 @@ static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruc
     if (var->value.type->id == TypeTableEntryIdInvalid)
         return var->value.type;
 
-    bool is_comptime = ir_get_var_is_comptime(var);
+    bool comptime_var_mem = ir_get_var_is_comptime(var);
 
     ConstExprValue *mem_slot = nullptr;
     FnTableEntry *fn_entry = scope_fn_entry(var->parent_scope);
-    if (var->src_is_const && var->value.special == ConstValSpecialStatic) {
+    if (var->value.special == ConstValSpecialStatic) {
         mem_slot = &var->value;
-        assert(mem_slot->special != ConstValSpecialRuntime);
     } else if (fn_entry) {
         // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
-        if (var->mem_slot_index != SIZE_MAX && (is_comptime || var->gen_is_const))
+        if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const))
             mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
     }
 
     bool is_const = (var->value.type->id == TypeTableEntryIdMetaType) ? is_const_ptr : var->src_is_const;
     bool is_volatile = (var->value.type->id == TypeTableEntryIdMetaType) ? is_volatile_ptr : false;
     if (mem_slot && mem_slot->special != ConstValSpecialRuntime) {
-        ConstPtrSpecial ptr_special = is_comptime ? ConstPtrSpecialInline : ConstPtrSpecialNone;
-        return ir_analyze_const_ptr(ira, instruction, mem_slot, var->value.type, ptr_special, is_const, is_volatile);
+        return ir_analyze_const_ptr(ira, instruction, mem_slot, var->value.type,
+                comptime_var_mem, is_const, is_volatile);
     } else {
         ir_build_var_ptr_from(&ira->new_irb, instruction, var, is_const, is_volatile);
         type_ensure_zero_bits_known(ira->codegen, var->value.type);
@@ -8793,7 +8803,8 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                     buf_sprintf("index 0 outside array of size 0"));
         }
         TypeTableEntry *child_type = array_type->data.array.child_type;
-        return_type = get_pointer_to_type(ira->codegen, child_type, false);
+        return_type = get_pointer_to_type_volatile(ira->codegen, child_type,
+                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile);
     } else if (array_type->id == TypeTableEntryIdPointer) {
         return_type = array_type;
     } else if (is_slice(array_type)) {
@@ -8826,8 +8837,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                     is_const, is_volatile);
         } else {
             return ir_analyze_const_ptr(ira, &elem_ptr_instruction->base, &ira->codegen->const_void_val,
-                    ira->codegen->builtin_types.entry_void, ConstPtrSpecialNone,
-                    is_const, is_volatile);
+                    ira->codegen->builtin_types.entry_void, false, is_const, is_volatile);
         }
     } else {
         ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
@@ -8858,30 +8868,54 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         if (array_ptr->value.special != ConstValSpecialRuntime &&
             (array_ptr_val = const_ptr_pointee(&array_ptr->value)) &&
             array_ptr_val->special != ConstValSpecialRuntime &&
-            (array_type->id != TypeTableEntryIdPointer || array_ptr_val->data.x_ptr.special != ConstPtrSpecialRuntime))
+            (array_type->id != TypeTableEntryIdPointer ||
+                array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr))
         {
             ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base);
+            out_val->data.x_ptr.comptime_var_mem = array_ptr->value.data.x_ptr.comptime_var_mem;
             if (array_type->id == TypeTableEntryIdPointer) {
-                size_t offset = array_ptr_val->data.x_ptr.index;
                 size_t new_index;
                 size_t mem_size;
                 size_t old_size;
-                if (offset == SIZE_MAX) {
-                    new_index = SIZE_MAX;
-                    mem_size = 1;
-                    old_size = 1;
-                } else {
-                    new_index = offset + index;
-                    mem_size = array_ptr_val->data.x_ptr.base_ptr->data.x_array.size;
-                    old_size = mem_size - offset;
+                switch (array_ptr_val->data.x_ptr.special) {
+                    case ConstPtrSpecialInvalid:
+                        zig_unreachable();
+                    case ConstPtrSpecialRef:
+                        mem_size = 1;
+                        old_size = 1;
+                        new_index = index;
+
+                        out_val->data.x_ptr.special = ConstPtrSpecialRef;
+                        out_val->data.x_ptr.data.ref.pointee = array_ptr_val->data.x_ptr.data.ref.pointee;
+                        break;
+                    case ConstPtrSpecialBaseArray:
+                        {
+                            size_t offset = array_ptr_val->data.x_ptr.data.base_array.elem_index;
+                            new_index = offset + index;
+                            mem_size = array_ptr_val->data.x_ptr.data.base_array.array_val->type->data.array.len;
+                            old_size = mem_size - offset;
+
+                            assert(array_ptr_val->data.x_ptr.data.base_array.array_val);
+
+                            out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
+                            out_val->data.x_ptr.data.base_array.array_val =
+                                array_ptr_val->data.x_ptr.data.base_array.array_val;
+                            out_val->data.x_ptr.data.base_array.elem_index = new_index;
+                            out_val->data.x_ptr.data.base_array.is_cstr =
+                                array_ptr_val->data.x_ptr.data.base_array.is_cstr;
+
+                            break;
+                        }
+                    case ConstPtrSpecialBaseStruct:
+                        zig_panic("TODO elem ptr on a const inner struct");
+                    case ConstPtrSpecialHardCodedAddr:
+                        zig_unreachable();
                 }
                 if (new_index >= mem_size) {
                     ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                         buf_sprintf("index %" PRIu64 " outside pointer of size %" PRIu64, index, old_size));
                     return ira->codegen->builtin_types.entry_invalid;
                 }
-                out_val->data.x_ptr.base_ptr = array_ptr_val->data.x_ptr.base_ptr;
-                out_val->data.x_ptr.index = new_index;
             } else if (is_slice(array_type)) {
                 ConstExprValue *ptr_field = &array_ptr_val->data.x_struct.fields[slice_ptr_index];
                 ConstExprValue *len_field = &array_ptr_val->data.x_struct.fields[slice_len_index];
@@ -8892,18 +8926,35 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                             index, slice_len));
                     return ira->codegen->builtin_types.entry_invalid;
                 }
-                out_val->data.x_ptr.base_ptr = ptr_field->data.x_ptr.base_ptr;
-                size_t offset = ptr_field->data.x_ptr.index;
-                if (offset == SIZE_MAX) {
-                    out_val->data.x_ptr.index = SIZE_MAX;
-                } else {
-                    uint64_t new_index = offset + index;
-                    assert(new_index < ptr_field->data.x_ptr.base_ptr->data.x_array.size);
-                    out_val->data.x_ptr.index = new_index;
+                switch (ptr_field->data.x_ptr.special) {
+                    case ConstPtrSpecialInvalid:
+                        zig_unreachable();
+                    case ConstPtrSpecialRef:
+                        out_val->data.x_ptr.special = ConstPtrSpecialRef;
+                        out_val->data.x_ptr.data.ref.pointee = ptr_field->data.x_ptr.data.ref.pointee;
+                        break;
+                    case ConstPtrSpecialBaseArray:
+                        {
+                            size_t offset = ptr_field->data.x_ptr.data.base_array.elem_index;
+                            uint64_t new_index = offset + index;
+                            assert(new_index < ptr_field->data.x_ptr.data.base_array.array_val->type->data.array.len);
+                            out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
+                            out_val->data.x_ptr.data.base_array.array_val =
+                                ptr_field->data.x_ptr.data.base_array.array_val;
+                            out_val->data.x_ptr.data.base_array.elem_index = new_index;
+                            out_val->data.x_ptr.data.base_array.is_cstr =
+                                ptr_field->data.x_ptr.data.base_array.is_cstr;
+                            break;
+                        }
+                    case ConstPtrSpecialBaseStruct:
+                        zig_panic("TODO elem ptr on a slice backed by const inner struct");
+                    case ConstPtrSpecialHardCodedAddr:
+                        zig_unreachable();
                 }
             } else if (array_type->id == TypeTableEntryIdArray) {
-                out_val->data.x_ptr.base_ptr = array_ptr_val;
-                out_val->data.x_ptr.index = index;
+                out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
+                out_val->data.x_ptr.data.base_array.array_val = array_ptr_val;
+                out_val->data.x_ptr.data.base_array.elem_index = index;
             } else {
                 zig_unreachable();
             }
@@ -8931,6 +8982,9 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
                 return ira->codegen->builtin_types.entry_invalid;
             TldFn *tld_fn = (TldFn *)tld;
             FnTableEntry *fn_entry = tld_fn->fn_entry;
+            if (fn_entry->type_entry->id == TypeTableEntryIdInvalid)
+                return ira->codegen->builtin_types.entry_invalid;
+
             IrInstruction *bound_fn_value = ir_build_const_bound_fn(&ira->new_irb, field_ptr_instruction->base.scope,
                 field_ptr_instruction->base.source_node, fn_entry, container_ptr);
             return ir_analyze_ref(ira, &field_ptr_instruction->base, bound_fn_value, true, false);
@@ -8962,15 +9016,17 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                 if (!ptr_val)
                     return ira->codegen->builtin_types.entry_invalid;
 
-                if (ptr_val->data.x_ptr.special != ConstPtrSpecialRuntime) {
+                if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
                     ConstExprValue *struct_val = const_ptr_pointee(ptr_val);
-                    if (value_is_comptime(struct_val)) {
-                        ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
-                        if (value_is_comptime(field_val)) {
-                            return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, field_val,
-                                    field_val->type, ConstPtrSpecialNone, is_const, is_volatile);
-                        }
-                    }
+                    ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
+                    TypeTableEntry *ptr_type = get_pointer_to_type_volatile(ira->codegen, field_val->type,
+                            is_const, is_volatile);
+                    ConstExprValue *const_val = ir_build_const_from(ira, &field_ptr_instruction->base);
+                    const_val->data.x_ptr.special = ConstPtrSpecialBaseStruct;
+                    const_val->data.x_ptr.comptime_var_mem = container_ptr->value.data.x_ptr.comptime_var_mem;
+                    const_val->data.x_ptr.data.base_struct.struct_val = struct_val;
+                    const_val->data.x_ptr.data.base_struct.field_index = field->src_index;
+                    return ptr_type;
                 }
             }
             ir_build_struct_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
@@ -9032,7 +9088,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             bool ptr_is_const = true;
             bool ptr_is_volatile = false;
             return ir_analyze_const_ptr(ira, source_instruction, const_val, fn_entry->type_entry,
-                    ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
+                    false, ptr_is_const, ptr_is_volatile);
         }
         case TldIdTypeDef:
         {
@@ -9049,7 +9105,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             bool ptr_is_const = true;
             bool ptr_is_volatile = false;
             return ir_analyze_const_ptr(ira, source_instruction, const_val, ira->codegen->builtin_types.entry_type,
-                    ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
+                    false, ptr_is_const, ptr_is_volatile);
         }
     }
     zig_unreachable();
@@ -9092,7 +9148,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             bool ptr_is_const = true;
             bool ptr_is_volatile = false;
             return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, len_val,
-                    usize, ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
+                    usize, false, ptr_is_const, ptr_is_volatile);
         } else {
             ir_add_error_node(ira, source_node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
@@ -9116,7 +9172,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
             bool ptr_is_const = true;
             bool ptr_is_volatile = false;
             return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, len_val,
-                    usize, ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
+                    usize, false, ptr_is_const, ptr_is_volatile);
         } else {
             ir_add_error_node(ira, source_node,
                 buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name),
@@ -9155,14 +9211,14 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                         bool ptr_is_volatile = false;
                         return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
                                 create_const_enum_tag(child_type, field->value), child_type,
-                                ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
+                                false, ptr_is_const, ptr_is_volatile);
                     } else {
                         bool ptr_is_const = true;
                         bool ptr_is_volatile = false;
                         return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
                             create_const_unsigned_negative(child_type->data.enumeration.tag_type, field->value, false),
                             child_type->data.enumeration.tag_type,
-                            ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
+                            false, ptr_is_const, ptr_is_volatile);
                     }
                 }
             }
@@ -9187,7 +9243,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 bool ptr_is_const = true;
                 bool ptr_is_volatile = false;
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base, const_val,
-                        child_type, ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
+                        child_type, false, ptr_is_const, ptr_is_volatile);
             }
 
             ir_add_error(ira, &field_ptr_instruction->base,
@@ -9201,14 +9257,14 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                     create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
                         child_type->data.integral.bit_count, false),
                     ira->codegen->builtin_types.entry_num_lit_int,
-                    ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
+                    false, ptr_is_const, ptr_is_volatile);
             } else if (buf_eql_str(field_name, "is_signed")) {
                 bool ptr_is_const = true;
                 bool ptr_is_volatile = false;
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
                     create_const_bool(ira->codegen, child_type->data.integral.is_signed),
                     ira->codegen->builtin_types.entry_bool,
-                    ConstPtrSpecialNone, ptr_is_const, ptr_is_volatile);
+                    false, ptr_is_const, ptr_is_volatile);
             } else {
                 ir_add_error(ira, &field_ptr_instruction->base,
                     buf_sprintf("type '%s' has no member called '%s'",
@@ -9295,16 +9351,16 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
     if (casted_value == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (ptr->value.special != ConstValSpecialRuntime && ptr->value.data.x_ptr.special != ConstPtrSpecialRuntime) {
-        bool is_inline = (ptr->value.data.x_ptr.special == ConstPtrSpecialInline);
-        if (casted_value->value.special != ConstValSpecialRuntime) {
-            ConstExprValue *dest_val = const_ptr_pointee(&ptr->value);
-            if (dest_val->special != ConstValSpecialRuntime) {
-                *dest_val = casted_value->value;
-                return ir_analyze_void(ira, &store_ptr_instruction->base);
+    if (instr_is_comptime(ptr) && ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+        bool comptime_var_mem = ptr->value.data.x_ptr.comptime_var_mem;
+        if (comptime_var_mem) {
+            if (instr_is_comptime(casted_value)) {
+                ConstExprValue *dest_val = const_ptr_pointee(&ptr->value);
+                if (dest_val->special != ConstValSpecialRuntime) {
+                    *dest_val = casted_value->value;
+                    return ir_analyze_void(ira, &store_ptr_instruction->base);
+                }
             }
-        }
-        if (is_inline) {
             ir_add_error(ira, &store_ptr_instruction->base,
                     buf_sprintf("cannot store runtime value in compile time variable"));
             return ira->codegen->builtin_types.entry_invalid;
@@ -9906,14 +9962,15 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
     TypeTableEntry *child_type = type_entry->data.maybe.child_type;
-    TypeTableEntry *result_type = get_pointer_to_type(ira->codegen, child_type, false);
+    TypeTableEntry *result_type = get_pointer_to_type_volatile(ira->codegen, child_type,
+            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile);
 
     if (instr_is_comptime(value)) {
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
         if (!val)
             return ira->codegen->builtin_types.entry_invalid;
-        ConstExprValue *maybe_val = val->data.x_ptr.base_ptr;
-        assert(val->data.x_ptr.index == SIZE_MAX);
+        assert(val->data.x_ptr.special == ConstPtrSpecialRef);
+        ConstExprValue *maybe_val = val->data.x_ptr.data.ref.pointee;
 
         if (maybe_val->special != ConstValSpecialRuntime) {
             if (!maybe_val->data.x_maybe) {
@@ -9921,8 +9978,8 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
                 return ira->codegen->builtin_types.entry_invalid;
             }
             ConstExprValue *out_val = ir_build_const_from(ira, &unwrap_maybe_instruction->base);
-            out_val->data.x_ptr.base_ptr = maybe_val->data.x_maybe;
-            out_val->data.x_ptr.index = SIZE_MAX;
+            out_val->data.x_ptr.special = ConstPtrSpecialRef;
+            out_val->data.x_ptr.data.ref.pointee = maybe_val->data.x_maybe;
             return result_type;
         }
     }
@@ -10215,9 +10272,10 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstr
             ConstExprValue *pointee_val = const_ptr_pointee(target_val_ptr);
             if (pointee_val->type->id == TypeTableEntryIdEnum) {
                 ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-                out_val->data.x_ptr.base_ptr = pointee_val->data.x_enum.payload;
-                out_val->data.x_ptr.index = SIZE_MAX;
-                return get_pointer_to_type(ira->codegen, pointee_val->type, target_value_ptr->value.type->data.pointer.is_const);
+                out_val->data.x_ptr.special = ConstPtrSpecialRef;
+                out_val->data.x_ptr.data.ref.pointee = pointee_val->data.x_enum.payload;
+                return get_pointer_to_type(ira->codegen, pointee_val->type,
+                        target_value_ptr->value.type->data.pointer.is_const);
             } else {
                 zig_panic("TODO comptime switch var");
             }
@@ -10501,7 +10559,6 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
             const_val.special = ConstValSpecialStatic;
             const_val.type = fixed_size_array_type;
             const_val.data.x_array.elements = allocate<ConstExprValue>(elem_count);
-            const_val.data.x_array.size = elem_count;
 
             bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->base.scope);
 
@@ -10540,8 +10597,9 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
                 for (size_t i = 0; i < elem_count; i += 1) {
                     ConstExprValue *elem_val = &out_val->data.x_array.elements[i];
                     if (elem_val->type->id == TypeTableEntryIdArray) {
-                        elem_val->data.x_array.parent_array = out_val;
-                        elem_val->data.x_array.parent_array_index = i;
+                        elem_val->data.x_array.parent.id = ConstParentIdArray;
+                        elem_val->data.x_array.parent.data.p_array.array_val = out_val;
+                        elem_val->data.x_array.parent.data.p_array.elem_index = i;
                     }
                 }
                 return fixed_size_array_type;
@@ -11227,22 +11285,34 @@ static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructi
 
     if (casted_dest_ptr->value.special == ConstValSpecialStatic &&
         casted_byte->value.special == ConstValSpecialStatic &&
-        casted_count->value.special == ConstValSpecialStatic)
+        casted_count->value.special == ConstValSpecialStatic &&
+        casted_dest_ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr)
     {
         ConstExprValue *dest_ptr_val = &casted_dest_ptr->value;
 
         ConstExprValue *dest_elements;
         size_t start;
         size_t bound_end;
-        if (dest_ptr_val->data.x_ptr.index == SIZE_MAX) {
-            dest_elements = dest_ptr_val->data.x_ptr.base_ptr;
-            start = 0;
-            bound_end = 1;
-        } else {
-            ConstExprValue *array_val = dest_ptr_val->data.x_ptr.base_ptr;
-            dest_elements = array_val->data.x_array.elements;
-            start = dest_ptr_val->data.x_ptr.index;
-            bound_end = array_val->data.x_array.size;
+        switch (dest_ptr_val->data.x_ptr.special) {
+            case ConstPtrSpecialInvalid:
+                zig_unreachable();
+            case ConstPtrSpecialRef:
+                dest_elements = dest_ptr_val->data.x_ptr.data.ref.pointee;
+                start = 0;
+                bound_end = 1;
+                break;
+            case ConstPtrSpecialBaseArray:
+                {
+                    ConstExprValue *array_val = dest_ptr_val->data.x_ptr.data.base_array.array_val;
+                    dest_elements = array_val->data.x_array.elements;
+                    start = dest_ptr_val->data.x_ptr.data.base_array.elem_index;
+                    bound_end = array_val->type->data.array.len;
+                    break;
+                }
+            case ConstPtrSpecialBaseStruct:
+                zig_panic("TODO memset on const inner struct");
+            case ConstPtrSpecialHardCodedAddr:
+                zig_unreachable();
         }
 
         size_t count = casted_count->value.data.x_bignum.data.x_uint;
@@ -11304,7 +11374,8 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
 
     if (casted_dest_ptr->value.special == ConstValSpecialStatic &&
         casted_src_ptr->value.special == ConstValSpecialStatic &&
-        casted_count->value.special == ConstValSpecialStatic)
+        casted_count->value.special == ConstValSpecialStatic &&
+        casted_dest_ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr)
     {
         size_t count = casted_count->value.data.x_bignum.data.x_uint;
 
@@ -11312,15 +11383,26 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
         ConstExprValue *dest_elements;
         size_t dest_start;
         size_t dest_end;
-        if (dest_ptr_val->data.x_ptr.index == SIZE_MAX) {
-            dest_elements = dest_ptr_val->data.x_ptr.base_ptr;
-            dest_start = 0;
-            dest_end = 1;
-        } else {
-            ConstExprValue *array_val = dest_ptr_val->data.x_ptr.base_ptr;
-            dest_elements = array_val->data.x_array.elements;
-            dest_start = dest_ptr_val->data.x_ptr.index;
-            dest_end = array_val->data.x_array.size;
+        switch (dest_ptr_val->data.x_ptr.special) {
+            case ConstPtrSpecialInvalid:
+                zig_unreachable();
+            case ConstPtrSpecialRef:
+                dest_elements = dest_ptr_val->data.x_ptr.data.ref.pointee;
+                dest_start = 0;
+                dest_end = 1;
+                break;
+            case ConstPtrSpecialBaseArray:
+                {
+                    ConstExprValue *array_val = dest_ptr_val->data.x_ptr.data.base_array.array_val;
+                    dest_elements = array_val->data.x_array.elements;
+                    dest_start = dest_ptr_val->data.x_ptr.data.base_array.elem_index;
+                    dest_end = array_val->type->data.array.len;
+                    break;
+                }
+            case ConstPtrSpecialBaseStruct:
+                zig_panic("TODO memcpy on const inner struct");
+            case ConstPtrSpecialHardCodedAddr:
+                zig_unreachable();
         }
 
         if (dest_start + count > dest_end) {
@@ -11332,15 +11414,27 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
         ConstExprValue *src_elements;
         size_t src_start;
         size_t src_end;
-        if (src_ptr_val->data.x_ptr.index == SIZE_MAX) {
-            src_elements = src_ptr_val->data.x_ptr.base_ptr;
-            src_start = 0;
-            src_end = 1;
-        } else {
-            ConstExprValue *array_val = src_ptr_val->data.x_ptr.base_ptr;
-            src_elements = array_val->data.x_array.elements;
-            src_start = src_ptr_val->data.x_ptr.index;
-            src_end = array_val->data.x_array.size;
+
+        switch (src_ptr_val->data.x_ptr.special) {
+            case ConstPtrSpecialInvalid:
+                zig_unreachable();
+            case ConstPtrSpecialRef:
+                src_elements = src_ptr_val->data.x_ptr.data.ref.pointee;
+                src_start = 0;
+                src_end = 1;
+                break;
+            case ConstPtrSpecialBaseArray:
+                {
+                    ConstExprValue *array_val = src_ptr_val->data.x_ptr.data.base_array.array_val;
+                    src_elements = array_val->data.x_array.elements;
+                    src_start = src_ptr_val->data.x_ptr.data.base_array.elem_index;
+                    src_end = array_val->type->data.array.len;
+                    break;
+                }
+            case ConstPtrSpecialBaseStruct:
+                zig_panic("TODO memcpy on const inner struct");
+            case ConstPtrSpecialHardCodedAddr:
+                zig_unreachable();
         }
 
         if (src_start + count > src_end) {
@@ -11415,68 +11509,115 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
         casted_start->value.special == ConstValSpecialStatic &&
         (!end || end->value.special == ConstValSpecialStatic))
     {
-        ConstExprValue *base_ptr;
+        ConstExprValue *array_val;
+        ConstExprValue *parent_ptr;
         size_t abs_offset;
         size_t rel_end;
         if (array_type->id == TypeTableEntryIdArray) {
-            base_ptr = &ptr->value;
+            array_val = &ptr->value;
             abs_offset = 0;
             rel_end = array_type->data.array.len;
+            parent_ptr = nullptr;
         } else if (array_type->id == TypeTableEntryIdPointer) {
-            base_ptr = ptr->value.data.x_ptr.base_ptr;
-            abs_offset = ptr->value.data.x_ptr.index;
-            if (abs_offset == SIZE_MAX) {
-                rel_end = 1;
-            } else {
-                rel_end = base_ptr->data.x_array.size - abs_offset;
+            parent_ptr = &ptr->value;
+            switch (parent_ptr->data.x_ptr.special) {
+                case ConstPtrSpecialInvalid:
+                    zig_unreachable();
+                case ConstPtrSpecialRef:
+                    array_val = nullptr;
+                    abs_offset = SIZE_MAX;
+                    rel_end = 1;
+                    break;
+                case ConstPtrSpecialBaseArray:
+                    array_val = parent_ptr->data.x_ptr.data.base_array.array_val;
+                    abs_offset = parent_ptr->data.x_ptr.data.base_array.elem_index;
+                    rel_end = array_val->type->data.array.len - abs_offset;
+                    break;
+                case ConstPtrSpecialBaseStruct:
+                    zig_panic("TODO slice const inner struct");
+                case ConstPtrSpecialHardCodedAddr:
+                    array_val = nullptr;
+                    break;
             }
         } else if (is_slice(array_type)) {
-            ConstExprValue *ptr_val = &ptr->value.data.x_struct.fields[slice_ptr_index];
+            parent_ptr = &ptr->value.data.x_struct.fields[slice_ptr_index];
             ConstExprValue *len_val = &ptr->value.data.x_struct.fields[slice_len_index];
-            base_ptr = ptr_val->data.x_ptr.base_ptr;
-            abs_offset = ptr_val->data.x_ptr.index;
 
-            if (ptr_val->data.x_ptr.index == SIZE_MAX) {
-                rel_end = 1;
-            } else {
-                rel_end = len_val->data.x_bignum.data.x_uint;
+            switch (parent_ptr->data.x_ptr.special) {
+                case ConstPtrSpecialInvalid:
+                    zig_unreachable();
+                case ConstPtrSpecialRef:
+                    array_val = nullptr;
+                    abs_offset = SIZE_MAX;
+                    rel_end = 1;
+                    break;
+                case ConstPtrSpecialBaseArray:
+                    array_val = parent_ptr->data.x_ptr.data.base_array.array_val;
+                    abs_offset = parent_ptr->data.x_ptr.data.base_array.elem_index;
+                    rel_end = len_val->data.x_bignum.data.x_uint;
+                    break;
+                case ConstPtrSpecialBaseStruct:
+                    zig_panic("TODO slice const inner struct");
+                case ConstPtrSpecialHardCodedAddr:
+                    array_val = nullptr;
+                    break;
             }
         } else {
             zig_unreachable();
         }
 
-        uint64_t start_scalar = casted_start->value.data.x_bignum.data.x_uint;
-        if (start_scalar > rel_end) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
-            return ira->codegen->builtin_types.entry_invalid;
+        if (array_val || parent_ptr->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
+            uint64_t start_scalar = casted_start->value.data.x_bignum.data.x_uint;
+            if (start_scalar > rel_end) {
+                ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+
+            uint64_t end_scalar;
+            if (end) {
+                end_scalar = end->value.data.x_bignum.data.x_uint;
+            } else {
+                end_scalar = rel_end;
+            }
+            if (end_scalar > rel_end) {
+                ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+            if (start_scalar > end_scalar) {
+                ir_add_error(ira, &instruction->base, buf_sprintf("slice start is greater than end"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+
+            ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+            out_val->data.x_struct.fields = allocate<ConstExprValue>(2);
+
+            ConstExprValue *ptr_val = &out_val->data.x_struct.fields[slice_ptr_index];
+
+            if (array_val) {
+                size_t index = abs_offset + start_scalar;
+                init_const_ptr_array(ira->codegen, ptr_val, array_val, index, instruction->is_const);
+            } else {
+                switch (parent_ptr->data.x_ptr.special) {
+                    case ConstPtrSpecialInvalid:
+                        zig_unreachable();
+                    case ConstPtrSpecialRef:
+                        init_const_ptr_ref(ira->codegen, ptr_val,
+                                parent_ptr->data.x_ptr.data.ref.pointee, instruction->is_const);
+                        break;
+                    case ConstPtrSpecialBaseArray:
+                        zig_unreachable();
+                    case ConstPtrSpecialBaseStruct:
+                        zig_panic("TODO");
+                    case ConstPtrSpecialHardCodedAddr:
+                        zig_unreachable();
+                }
+            }
+
+            ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];
+            init_const_usize(ira->codegen, len_val, end_scalar - start_scalar);
+
+            return return_type;
         }
-
-        uint64_t end_scalar;
-        if (end) {
-            end_scalar = end->value.data.x_bignum.data.x_uint;
-        } else {
-            end_scalar = rel_end;
-        }
-        if (end_scalar > rel_end) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-        if (start_scalar > end_scalar) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("slice start is greater than end"));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-
-        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        out_val->data.x_struct.fields = allocate<ConstExprValue>(2);
-
-        ConstExprValue *ptr_val = &out_val->data.x_struct.fields[slice_ptr_index];
-        size_t index = (abs_offset != SIZE_MAX) ? (abs_offset + start_scalar) : SIZE_MAX;
-        init_const_ptr(ira->codegen, ptr_val, base_ptr, index, instruction->is_const);
-
-        ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];
-        init_const_usize(ira->codegen, len_val, end_scalar - start_scalar);
-
-        return return_type;
     }
 
     IrInstruction *new_instruction = ir_build_slice_from(&ira->new_irb, &instruction->base, ptr,
@@ -11688,8 +11829,7 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_code(IrAnalyze *ira,
             ConstExprValue *ptr_val = ir_resolve_const(ira, value, UndefBad);
             if (!ptr_val)
                 return ira->codegen->builtin_types.entry_invalid;
-            ConstExprValue *err_union_val = ptr_val->data.x_ptr.base_ptr;
-            assert(ptr_val->data.x_ptr.index == SIZE_MAX);
+            ConstExprValue *err_union_val = const_ptr_pointee(ptr_val);
             if (err_union_val->special != ConstValSpecialRuntime) {
                 ErrorTableEntry *err = err_union_val->data.x_err_union.err;
                 assert(err);
@@ -11728,13 +11868,13 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     } else if (canon_type->id == TypeTableEntryIdErrorUnion) {
         TypeTableEntry *child_type = canon_type->data.error.child_type;
-        TypeTableEntry *result_type = get_pointer_to_type(ira->codegen, child_type, false);
+        TypeTableEntry *result_type = get_pointer_to_type_volatile(ira->codegen, child_type,
+                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile);
         if (instr_is_comptime(value)) {
             ConstExprValue *ptr_val = ir_resolve_const(ira, value, UndefBad);
             if (!ptr_val)
                 return ira->codegen->builtin_types.entry_invalid;
-            ConstExprValue *err_union_val = ptr_val->data.x_ptr.base_ptr;
-            assert(ptr_val->data.x_ptr.index == SIZE_MAX);
+            ConstExprValue *err_union_val = const_ptr_pointee(ptr_val);
             if (err_union_val->special != ConstValSpecialRuntime) {
                 ErrorTableEntry *err = err_union_val->data.x_err_union.err;
                 if (err != nullptr) {
@@ -11744,8 +11884,8 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
                 }
 
                 ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-                out_val->data.x_ptr.base_ptr = err_union_val->data.x_err_union.payload;
-                out_val->data.x_ptr.index = SIZE_MAX;
+                out_val->data.x_ptr.special = ConstPtrSpecialRef;
+                out_val->data.x_ptr.data.ref.pointee = err_union_val->data.x_err_union.payload;
                 return result_type;
             }
         }

@@ -2832,7 +2832,33 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             return const_val->data.x_arg_tuple.start_index * 281907309 +
                 const_val->data.x_arg_tuple.end_index * 2290442768;
         case TypeTableEntryIdPointer:
-            return hash_ptr(const_val->data.x_ptr.base_ptr) + hash_size(const_val->data.x_ptr.index);
+            {
+                uint32_t hash_val = const_val->data.x_ptr.comptime_var_mem ? 2216297012 : 170810250;
+                switch (const_val->data.x_ptr.special) {
+                    case ConstPtrSpecialInvalid:
+                        zig_unreachable();
+                    case ConstPtrSpecialRef:
+                        hash_val += 2478261866;
+                        hash_val += hash_ptr(const_val->data.x_ptr.data.ref.pointee);
+                        return hash_val;
+                    case ConstPtrSpecialBaseArray:
+                        hash_val += 1764906839;
+                        hash_val += hash_ptr(const_val->data.x_ptr.data.base_array.array_val);
+                        hash_val += hash_size(const_val->data.x_ptr.data.base_array.elem_index);
+                        hash_val += const_val->data.x_ptr.data.base_array.is_cstr ? 1297263887 : 200363492;
+                        return hash_val;
+                    case ConstPtrSpecialBaseStruct:
+                        hash_val += 3518317043;
+                        hash_val += hash_ptr(const_val->data.x_ptr.data.base_struct.struct_val);
+                        hash_val += hash_size(const_val->data.x_ptr.data.base_struct.field_index);
+                        return hash_val;
+                    case ConstPtrSpecialHardCodedAddr:
+                        hash_val += 4048518294;
+                        hash_val += hash_size(const_val->data.x_ptr.data.hard_coded_addr.addr);
+                        return hash_val;
+                }
+                zig_unreachable();
+            }
         case TypeTableEntryIdUndefLit:
             return 162837799;
         case TypeTableEntryIdNullLit:
@@ -3007,7 +3033,6 @@ void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str));
     const_val->data.x_array.elements = allocate<ConstExprValue>(buf_len(str));
-    const_val->data.x_array.size = buf_len(str);
 
     for (size_t i = 0; i < buf_len(str); i += 1) {
         ConstExprValue *this_char = &const_val->data.x_array.elements[i];
@@ -3030,7 +3055,6 @@ void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     array_val->special = ConstValSpecialStatic;
     array_val->type = get_array_type(g, g->builtin_types.entry_u8, len_with_null);
     array_val->data.x_array.elements = allocate<ConstExprValue>(len_with_null);
-    array_val->data.x_array.size = len_with_null;
     for (size_t i = 0; i < buf_len(str); i += 1) {
         ConstExprValue *this_char = &array_val->data.x_array.elements[i];
         this_char->special = ConstValSpecialStatic;
@@ -3045,9 +3069,10 @@ void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     // then make the pointer point to it
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
-    const_val->data.x_ptr.base_ptr = array_val;
-    const_val->data.x_ptr.index = 0;
-    const_val->data.x_ptr.special = ConstPtrSpecialCStr;
+    const_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
+    const_val->data.x_ptr.data.base_array.array_val = array_val;
+    const_val->data.x_ptr.data.base_array.elem_index = 0;
+    const_val->data.x_ptr.data.base_array.is_cstr = true;
 }
 ConstExprValue *create_const_c_str_lit(CodeGen *g, Buf *str) {
     ConstExprValue *const_val = allocate<ConstExprValue>(1);
@@ -3156,7 +3181,7 @@ void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *arr
     const_val->type = get_slice_type(g, array_val->type->data.array.child_type, is_const);
     const_val->data.x_struct.fields = allocate<ConstExprValue>(2);
 
-    init_const_ptr(g, &const_val->data.x_struct.fields[slice_ptr_index], array_val, start, is_const);
+    init_const_ptr_array(g, &const_val->data.x_struct.fields[slice_ptr_index], array_val, start, is_const);
     init_const_usize(g, &const_val->data.x_struct.fields[slice_len_index], len);
 }
 
@@ -3166,24 +3191,35 @@ ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t
     return const_val;
 }
 
-void init_const_ptr(CodeGen *g, ConstExprValue *const_val, ConstExprValue *base_ptr, size_t index, bool is_const) {
-    TypeTableEntry *child_type;
-    if (index == SIZE_MAX) {
-        child_type = base_ptr->type;
-    } else {
-        assert(base_ptr->type->id == TypeTableEntryIdArray);
-        child_type = base_ptr->type->data.array.child_type;
-    }
+void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue *array_val,
+        size_t elem_index, bool is_const)
+{
+    assert(array_val->type->id == TypeTableEntryIdArray);
+    TypeTableEntry *child_type = array_val->type->data.array.child_type;
 
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_pointer_to_type(g, child_type, is_const);
-    const_val->data.x_ptr.base_ptr = base_ptr;
-    const_val->data.x_ptr.index = index;
+    const_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
+    const_val->data.x_ptr.data.base_array.array_val = array_val;
+    const_val->data.x_ptr.data.base_array.elem_index = elem_index;
 }
 
-ConstExprValue *create_const_ptr(CodeGen *g, ConstExprValue *base_ptr, size_t index, bool is_const) {
+ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index, bool is_const) {
     ConstExprValue *const_val = allocate<ConstExprValue>(1);
-    init_const_ptr(g, const_val, base_ptr, index, is_const);
+    init_const_ptr_array(g, const_val, array_val, elem_index, is_const);
+    return const_val;
+}
+
+void init_const_ptr_ref(CodeGen *g, ConstExprValue *const_val, ConstExprValue *pointee_val, bool is_const) {
+    const_val->special = ConstValSpecialStatic;
+    const_val->type = get_pointer_to_type(g, pointee_val->type, is_const);
+    const_val->data.x_ptr.special = ConstPtrSpecialRef;
+    const_val->data.x_ptr.data.ref.pointee = pointee_val;
+}
+
+ConstExprValue *create_const_ptr_ref(CodeGen *g, ConstExprValue *pointee_val, bool is_const) {
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_ptr_ref(g, const_val, pointee_val, is_const);
     return const_val;
 }
 
@@ -3207,14 +3243,14 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
         const_val->special = ConstValSpecialStatic;
         size_t elem_count = canon_wanted_type->data.array.len;
         const_val->data.x_array.elements = allocate<ConstExprValue>(elem_count);
-        const_val->data.x_array.size = elem_count;
         for (size_t i = 0; i < elem_count; i += 1) {
             ConstExprValue *element_val = &const_val->data.x_array.elements[i];
             element_val->type = canon_wanted_type->data.array.child_type;
             init_const_undefined(g, element_val);
             if (get_underlying_type(element_val->type)->id == TypeTableEntryIdArray) {
-                element_val->data.x_array.parent_array = const_val;
-                element_val->data.x_array.parent_array_index = i;
+                element_val->data.x_array.parent.id = ConstParentIdArray;
+                element_val->data.x_array.parent.data.p_array.array_val = const_val;
+                element_val->data.x_array.parent.data.p_array.elem_index = i;
             }
         }
     } else if (canon_wanted_type->id == TypeTableEntryIdStruct) {
@@ -3301,9 +3337,37 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdEnumTag:
             return bignum_cmp_eq(&a->data.x_bignum, &b->data.x_bignum);
         case TypeTableEntryIdPointer:
-            if (a->data.x_ptr.index != b->data.x_ptr.index)
+            if (a->data.x_ptr.special != b->data.x_ptr.special)
                 return false;
-            return a->data.x_ptr.base_ptr == b->data.x_ptr.base_ptr;
+            if (a->data.x_ptr.comptime_var_mem != b->data.x_ptr.comptime_var_mem)
+                return false;
+            switch (a->data.x_ptr.special) {
+                case ConstPtrSpecialInvalid:
+                    zig_unreachable();
+                case ConstPtrSpecialRef:
+                    if (a->data.x_ptr.data.ref.pointee != b->data.x_ptr.data.ref.pointee)
+                        return false;
+                    return true;
+                case ConstPtrSpecialBaseArray:
+                    if (a->data.x_ptr.data.base_array.array_val != b->data.x_ptr.data.base_array.array_val)
+                        return false;
+                    if (a->data.x_ptr.data.base_array.elem_index != b->data.x_ptr.data.base_array.elem_index)
+                        return false;
+                    if (a->data.x_ptr.data.base_array.is_cstr != b->data.x_ptr.data.base_array.is_cstr)
+                        return false;
+                    return true;
+                case ConstPtrSpecialBaseStruct:
+                    if (a->data.x_ptr.data.base_struct.struct_val != b->data.x_ptr.data.base_struct.struct_val)
+                        return false;
+                    if (a->data.x_ptr.data.base_struct.field_index != b->data.x_ptr.data.base_struct.field_index)
+                        return false;
+                    return true;
+                case ConstPtrSpecialHardCodedAddr:
+                    if (a->data.x_ptr.data.hard_coded_addr.addr != b->data.x_ptr.data.hard_coded_addr.addr)
+                        return false;
+                    return true;
+            }
+            zig_unreachable();
         case TypeTableEntryIdArray:
             zig_panic("TODO");
         case TypeTableEntryIdStruct:
@@ -3482,15 +3546,29 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                 return;
             }
         case TypeTableEntryIdPointer:
-            buf_appendf(buf, "&");
-            if (const_val->data.x_ptr.special == ConstPtrSpecialRuntime) {
-                buf_appendf(buf, "(runtime pointer value)");
-            } else if (const_val->data.x_ptr.special == ConstPtrSpecialCStr) {
-                buf_appendf(buf, "(c str lit)");
-            } else {
-                render_const_value(buf, const_ptr_pointee(const_val));
+            switch (const_val->data.x_ptr.special) {
+                case ConstPtrSpecialInvalid:
+                    zig_unreachable();
+                case ConstPtrSpecialRef:
+                case ConstPtrSpecialBaseStruct:
+                    buf_appendf(buf, "&");
+                    render_const_value(buf, const_ptr_pointee(const_val));
+                    return;
+                case ConstPtrSpecialBaseArray:
+                    if (const_val->data.x_ptr.data.base_array.is_cstr) {
+                        buf_appendf(buf, "&(c str lit)");
+                        return;
+                    } else {
+                        buf_appendf(buf, "&");
+                        render_const_value(buf, const_ptr_pointee(const_val));
+                        return;
+                    }
+                case ConstPtrSpecialHardCodedAddr:
+                    buf_appendf(buf, "(&%s)(%" PRIx64 ")", buf_ptr(&canon_type->data.pointer.child_type->name),
+                            const_val->data.x_ptr.data.hard_coded_addr.addr);
+                    return;
             }
-            return;
+            zig_unreachable();
         case TypeTableEntryIdFn:
             {
                 FnTableEntry *fn_entry = const_val->data.x_fn;
