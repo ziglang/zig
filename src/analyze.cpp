@@ -3038,7 +3038,7 @@ void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
         ConstExprValue *this_char = &const_val->data.x_array.elements[i];
         this_char->special = ConstValSpecialStatic;
         this_char->type = g->builtin_types.entry_u8;
-        bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
+        bignum_init_unsigned(&this_char->data.x_bignum, (uint8_t)buf_ptr(str)[i]);
     }
 }
 
@@ -3059,7 +3059,7 @@ void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
         ConstExprValue *this_char = &array_val->data.x_array.elements[i];
         this_char->special = ConstValSpecialStatic;
         this_char->type = g->builtin_types.entry_u8;
-        bignum_init_unsigned(&this_char->data.x_bignum, buf_ptr(str)[i]);
+        bignum_init_unsigned(&this_char->data.x_bignum, (uint8_t)buf_ptr(str)[i]);
     }
     ConstExprValue *null_char = &array_val->data.x_array.elements[len_with_null - 1];
     null_char->special = ConstValSpecialStatic;
@@ -3594,11 +3594,13 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                     buf_append_char(buf, '"');
                     for (uint64_t i = 0; i < len; i += 1) {
                         ConstExprValue *child_value = &const_val->data.x_array.elements[i];
-                        uint64_t x = child_value->data.x_bignum.data.x_uint;
-                        if (x == '"') {
+                        uint64_t big_c = child_value->data.x_bignum.data.x_uint;
+                        assert(big_c <= UINT8_MAX);
+                        uint8_t c = big_c;
+                        if (c == '"') {
                             buf_append_str(buf, "\\\"");
                         } else {
-                            buf_append_char(buf, x);
+                            buf_append_char(buf, c);
                         }
                     }
                     buf_append_char(buf, '"');

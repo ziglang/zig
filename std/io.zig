@@ -156,7 +156,7 @@ pub const OutStream = struct {
                         width = 0;
                         state = State.Integer;
                     },
-                    else => @compileError("Unknown format character: " ++ c),
+                    else => @compileError("Unknown format character: " ++ []u8{c}),
                 },
                 State.CloseBrace => switch (c) {
                     '}' => {
