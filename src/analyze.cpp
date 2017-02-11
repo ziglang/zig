@@ -3302,7 +3302,7 @@ bool ir_get_var_is_comptime(VariableTableEntry *var) {
 }
 
 bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
-    assert(a->type == b->type);
+    assert(a->type->id == b->type->id);
     assert(a->special == ConstValSpecialStatic);
     assert(b->special == ConstValSpecialStatic);
     switch (a->type->id) {

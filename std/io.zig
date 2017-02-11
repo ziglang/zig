@@ -469,7 +469,7 @@ pub const InStream = struct {
     }
 };
 
-pub fn parseUnsigned(comptime T: type, buf: []u8, radix: u8) -> %T {
+pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) -> %T {
     var x: T = 0;
 
     for (buf) |c| {

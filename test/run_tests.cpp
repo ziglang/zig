@@ -319,9 +319,9 @@ pub const b_text = a_text;
 const io = @import("std").io;
 
 pub fn main(args: [][]u8) -> %void {
-    %%io.stdout.printf("Hello, world!\n");
+    %%io.stdout.printf("Hello, world!\n{d4} {x3}\n", u32(12), u16(0x12));
 }
-    )SOURCE", "Hello, world!\n");
+    )SOURCE", "Hello, world!\n0012 012\n");
 
 
     add_simple_case_libc("number literals", R"SOURCE(
