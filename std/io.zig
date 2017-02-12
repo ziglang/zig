@@ -512,17 +512,19 @@ pub fn bufPrintInt(out_buf: []u8, x: var, base: u8, uppercase: bool, width: usiz
 
 fn bufPrintSigned(out_buf: []u8, x: var, base: u8, uppercase: bool, width: usize) -> usize {
     const uint = @intType(false, @typeOf(x).bit_count);
-    // include the sign in the width
-    const new_width = if (width == 0) 0 else (width - 1);
-    var new_value: uint = undefined;
     if (x < 0) {
         out_buf[0] = '-';
-        new_value = uint(-(x + 1)) + 1;
+        const new_value = uint(-(x + 1)) + 1;
+        const new_width = if (width == 0) 0 else (width - 1);
+        return 1 + bufPrintUnsigned(out_buf[1...], new_value, base, uppercase, new_width);
+    } else if (width == 0) {
+        return bufPrintUnsigned(out_buf, uint(x), base, uppercase, width);
     } else {
         out_buf[0] = '+';
-        new_value = uint(x);
+        const new_value = uint(x);
+        const new_width = if (width == 0) 0 else (width - 1);
+        return 1 + bufPrintUnsigned(out_buf[1...], new_value, base, uppercase, new_width);
     }
-    return 1 + bufPrintUnsigned(out_buf[1...], new_value, base, uppercase, new_width);
 }
 
 fn bufPrintUnsigned(out_buf: []u8, x: var, base: u8, uppercase: bool, width: usize) -> usize {
