@@ -293,7 +293,7 @@ static void end_float_token(Tokenize *t) {
             t->cur_tok->data.num_lit.overflow = true;
             return;
         }
-        assert(str_end == buf_ptr(t->buf) + t->cur_tok->end_pos);
+        assert(str_end <= buf_ptr(t->buf) + t->cur_tok->end_pos);
         return;
     }
 
