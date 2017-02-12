@@ -465,27 +465,6 @@ fn print_ok(val: @typeOf(x)) -> @typeOf(foo) {
 const foo : i32 = 0;
     )SOURCE", "OK\n");
 
-    add_simple_case("for loops", R"SOURCE(
-const io = @import("std").io;
-
-pub fn main(args: [][]u8) -> %void {
-    const array = []u8 {9, 8, 7, 6};
-    for (array) |item| {
-        %%io.stdout.printf("{}\n", item);
-    }
-    for (array) |item, index| {
-        %%io.stdout.printf("{}\n", index);
-    }
-    const unknown_size: []u8 = array;
-    for (unknown_size) |item| {
-        %%io.stdout.printf("{}\n", item);
-    }
-    for (unknown_size) |item, index| {
-        %%io.stdout.printf("{}\n", index);
-    }
-}
-    )SOURCE", "9\n8\n7\n6\n0\n1\n2\n3\n9\n8\n7\n6\n0\n1\n2\n3\n");
-
     add_simple_case_libc("expose function pointer to C land", R"SOURCE(
 const c = @cImport(@cInclude("stdlib.h"));
 
@@ -1350,13 +1329,6 @@ fn f() -> i8 {
 }
     )SOURCE", 1, ".tmp_source.zig:4:19: error: expected signed integer type, found 'u32'");
 
-    add_compile_fail_case("truncate same bit count", R"SOURCE(
-fn f() -> i8 {
-    const x: i8 = 10;
-    @truncate(i8, x)
-}
-    )SOURCE", 1, ".tmp_source.zig:4:19: error: type 'i8' has same or fewer bits than destination type 'i8'");
-
     add_compile_fail_case("%return in function with non error return type", R"SOURCE(
 fn f() {
     %return something();
@@ -1396,9 +1368,9 @@ fn f() -> i32 {
     add_compile_fail_case("convert fixed size array to slice with invalid size", R"SOURCE(
 fn f() {
     var array: [5]u8 = undefined;
-    var foo = ([]u32)(array)[0];
+    var foo = ([]const u32)(array)[0];
 }
-    )SOURCE", 1, ".tmp_source.zig:4:22: error: unable to convert [5]u8 to []u32: size mismatch");
+    )SOURCE", 1, ".tmp_source.zig:4:28: error: unable to convert [5]u8 to []const u32: size mismatch");
 
     add_compile_fail_case("non-pure function returns type", R"SOURCE(
 var a: u32 = 0;
@@ -1664,7 +1636,7 @@ pub fn main(args: [][]u8) -> %void {
     const a = []i32{1, 2, 3, 4};
     baz(bar(a));
 }
-fn bar(a: []i32) -> i32 {
+fn bar(a: []const i32) -> i32 {
     a[4]
 }
 fn baz(a: i32) { }
@@ -1799,8 +1771,8 @@ pub fn main(args: [][]u8) -> %void {
     const x = widenSlice([]u8{1, 2, 3, 4, 5});
     if (x.len == 0) return error.Whatever;
 }
-fn widenSlice(slice: []u8) -> []i32 {
-    ([]i32)(slice)
+fn widenSlice(slice: []const u8) -> []const i32 {
+    ([]const i32)(slice)
 }
     )SOURCE");
 

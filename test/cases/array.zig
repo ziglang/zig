@@ -23,7 +23,7 @@ fn arrays() {
     assert(accumulator == 15);
     assert(getArrayLen(array) == 5);
 }
-fn getArrayLen(a: []u32) -> usize {
+fn getArrayLen(a: []const u32) -> usize {
     a.len
 }
 
@@ -61,12 +61,12 @@ const some_array = []u8 {0, 1, 2, 3};
 fn nestedArrays() {
     @setFnTest(this);
 
-    const array_of_strings = [][]u8 {"hello", "this", "is", "my", "thing"};
+    const array_of_strings = [][]const u8 {"hello", "this", "is", "my", "thing"};
     for (array_of_strings) |s, i| {
-        if (i == 0) assert(mem.eql(s, "hello"));
-        if (i == 1) assert(mem.eql(s, "this"));
-        if (i == 2) assert(mem.eql(s, "is"));
-        if (i == 3) assert(mem.eql(s, "my"));
-        if (i == 4) assert(mem.eql(s, "thing"));
+        if (i == 0) assert(mem.eql(u8, s, "hello"));
+        if (i == 1) assert(mem.eql(u8, s, "this"));
+        if (i == 2) assert(mem.eql(u8, s, "is"));
+        if (i == 3) assert(mem.eql(u8, s, "my"));
+        if (i == 4) assert(mem.eql(u8, s, "thing"));
     }
 }

@@ -144,7 +144,7 @@ fn first4KeysOfHomeRow() -> []const u8 {
 fn ReturnStringFromFunction() {
     @setFnTest(this);
 
-    assert(mem.eql(first4KeysOfHomeRow(), "aoeu"));
+    assert(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
 }
 
 const g1 : i32 = 1233 + 1;
@@ -210,31 +210,31 @@ fn emptyFn() {}
 fn hexEscape() {
     @setFnTest(this);
 
-    assert(mem.eql("\x68\x65\x6c\x6c\x6f", "hello"));
+    assert(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
 }
 
 fn stringConcatenation() {
     @setFnTest(this);
 
-    assert(mem.eql("OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
+    assert(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
 fn arrayMultOperator() {
     @setFnTest(this);
 
-    assert(mem.eql("ab" ** 5, "ababababab"));
+    assert(mem.eql(u8, "ab" ** 5, "ababababab"));
 }
 
 fn stringEscapes() {
     @setFnTest(this);
 
-    assert(mem.eql("\"", "\x22"));
-    assert(mem.eql("\'", "\x27"));
-    assert(mem.eql("\n", "\x0a"));
-    assert(mem.eql("\r", "\x0d"));
-    assert(mem.eql("\t", "\x09"));
-    assert(mem.eql("\\", "\x5c"));
-    assert(mem.eql("\u1234\u0069", "\xe1\x88\xb4\x69"));
+    assert(mem.eql(u8, "\"", "\x22"));
+    assert(mem.eql(u8, "\'", "\x27"));
+    assert(mem.eql(u8, "\n", "\x0a"));
+    assert(mem.eql(u8, "\r", "\x0d"));
+    assert(mem.eql(u8, "\t", "\x09"));
+    assert(mem.eql(u8, "\\", "\x5c"));
+    assert(mem.eql(u8, "\u1234\u0069", "\xe1\x88\xb4\x69"));
 }
 
 fn multilineString() {
@@ -246,7 +246,7 @@ fn multilineString() {
         \\three
     ;
     const s2 = "one\ntwo)\nthree";
-    assert(mem.eql(s1, s2));
+    assert(mem.eql(u8, s1, s2));
 }
 
 fn multilineCString() {
@@ -302,7 +302,7 @@ fn castUndefined() {
     @setFnTest(this);
 
     const array: [100]u8 = undefined;
-    const slice = ([]u8)(array);
+    const slice = ([]const u8)(array);
     testCastUndefined(slice);
 }
 fn testCastUndefined(x: []const u8) {}
@@ -344,14 +344,14 @@ fn pointerDereferencing() {
 fn callResultOfIfElseExpression() {
     @setFnTest(this);
 
-    assert(mem.eql(f2(true), "a"));
-    assert(mem.eql(f2(false), "b"));
+    assert(mem.eql(u8, f2(true), "a"));
+    assert(mem.eql(u8, f2(false), "b"));
 }
-fn f2(x: bool) -> []u8 {
+fn f2(x: bool) -> []const u8 {
     return (if (x) fA else fB)();
 }
-fn fA() -> []u8 { "a" }
-fn fB() -> []u8 { "b" }
+fn fA() -> []const u8 { "a" }
+fn fB() -> []const u8 { "b" }
 
 
 fn constExpressionEvalHandlingOfVariables() {
@@ -434,7 +434,7 @@ fn intToPtrCast() {
 fn pointerComparison() {
     @setFnTest(this);
 
-    const a = ([]u8)("a");
+    const a = ([]const u8)("a");
     const b = &a;
     assert(ptrEql(b, b));
 }
@@ -463,7 +463,7 @@ fn castSliceToU8Slice() {
 
     assert(@sizeOf(i32) == 4);
     var big_thing_array = []i32{1, 2, 3, 4};
-    const big_thing_slice: []i32 = big_thing_array;
+    const big_thing_slice: []i32 = big_thing_array[0...];
     const bytes = ([]u8)(big_thing_slice);
     assert(bytes.len == 4 * 4);
     bytes[4] = 0;
@@ -562,8 +562,8 @@ fn typeName() {
     @setFnTest(this);
 
     comptime {
-        assert(mem.eql(@typeName(i64), "i64"));
-        assert(mem.eql(@typeName(&usize), "&usize"));
+        assert(mem.eql(u8, @typeName(i64), "i64"));
+        assert(mem.eql(u8, @typeName(&usize), "&usize"));
     }
 }
 

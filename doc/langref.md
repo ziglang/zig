@@ -637,6 +637,25 @@ const b: u8 = @truncate(u8, a);
 // b is now 0xcd
 ```
 
+This function always truncates the significant bits of the integer, regardless
+of endianness on the target platform.
+
+This function also performs a twos complement cast. For example, the following
+produces a crash in debug mode and undefined behavior in release mode:
+
+```zig
+const a = i16(-1);
+const b = u16(a);
+```
+
+However this is well defined and working code:
+
+```zig
+const a = i16(-1);
+const b = @truncate(u16, a);
+// b is now 0xffff
+```
+
 ### @compileError(comptime msg: []u8)
 
 This function, when semantically analyzed, causes a compile error with the

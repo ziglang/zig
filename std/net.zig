@@ -134,7 +134,7 @@ pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
 
 pub fn connect(hostname: []const u8, port: u16) -> %Connection {
     var addrs_buf: [1]Address = undefined;
-    const addrs_slice = %return lookup(hostname, addrs_buf);
+    const addrs_slice = %return lookup(hostname, addrs_buf[0...]);
     const main_addr = &addrs_slice[0];
 
     return connectAddr(main_addr, port);

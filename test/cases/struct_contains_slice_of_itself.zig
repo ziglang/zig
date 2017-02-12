@@ -19,7 +19,7 @@ fn structContainsSliceOfItself() {
         },
         Node {
             .payload = 3,
-            .children = []Node{
+            .children = ([]Node{
                 Node {
                     .payload = 31,
                     .children = []Node{},
@@ -28,7 +28,7 @@ fn structContainsSliceOfItself() {
                     .payload = 32,
                     .children = []Node{},
                 },
-            },
+            })[0...],
         },
     };
     const root = Node {

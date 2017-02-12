@@ -28,8 +28,8 @@ fn gimmeItBroke() -> []const u8 {
 
 fn errorName() {
     @setFnTest(this);
-    assert(mem.eql(@errorName(error.AnError), "AnError"));
-    assert(mem.eql(@errorName(error.ALongerErrorName), "ALongerErrorName"));
+    assert(mem.eql(u8, @errorName(error.AnError), "AnError"));
+    assert(mem.eql(u8, @errorName(error.ALongerErrorName), "ALongerErrorName"));
 }
 error AnError;
 error ALongerErrorName;

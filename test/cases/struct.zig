@@ -205,7 +205,7 @@ fn passSliceOfEmptyStructToFn() {
 
     assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{ EmptyStruct2{} }) == 1);
 }
-fn testPassSliceOfEmptyStructToFn(slice: []EmptyStruct2) -> usize {
+fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) -> usize {
     slice.len
 }
 

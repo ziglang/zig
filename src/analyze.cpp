@@ -2833,7 +2833,18 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
                 const_val->data.x_arg_tuple.end_index * 2290442768;
         case TypeTableEntryIdPointer:
             {
-                uint32_t hash_val = const_val->data.x_ptr.comptime_var_mem ? 2216297012 : 170810250;
+                uint32_t hash_val = 0;
+                switch (const_val->data.x_ptr.mut) {
+                    case ConstPtrMutRuntimeVar:
+                        hash_val += 3500721036;
+                        break;
+                    case ConstPtrMutComptimeConst:
+                        hash_val += 4214318515;
+                        break;
+                    case ConstPtrMutComptimeVar:
+                        hash_val += 1103195694;
+                        break;
+                }
                 switch (const_val->data.x_ptr.special) {
                     case ConstPtrSpecialInvalid:
                         zig_unreachable();
@@ -3339,7 +3350,7 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdPointer:
             if (a->data.x_ptr.special != b->data.x_ptr.special)
                 return false;
-            if (a->data.x_ptr.comptime_var_mem != b->data.x_ptr.comptime_var_mem)
+            if (a->data.x_ptr.mut != b->data.x_ptr.mut)
                 return false;
             switch (a->data.x_ptr.special) {
                 case ConstPtrSpecialInvalid:

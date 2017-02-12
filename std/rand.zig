@@ -1,5 +1,6 @@
 const assert = @import("debug.zig").assert;
 const rand_test = @import("rand_test.zig");
+const mem = @import("mem.zig");
 
 pub const MT19937_32 = MersenneTwister(
     u32, 624, 397, 31,
@@ -28,14 +29,16 @@ pub const Rand = struct {
         r.rng.init(seed);
     }
 
-    /// Get an integer with random bits.
+    /// Get an integer or boolean with random bits.
     pub fn scalar(r: &Rand, comptime T: type) -> T {
         if (T == usize) {
             return r.rng.get();
+        } else if (T == bool) {
+            return (r.rng.get() & 0b1) == 0;
         } else {
             var result: [@sizeOf(T)]u8 = undefined;
-            r.fillBytes(result);
-            return ([]T)(result)[0];
+            r.fillBytes(result[0...]);
+            return mem.readInt(result, T, false);
         }
     }
 
@@ -43,12 +46,12 @@ pub const Rand = struct {
     pub fn fillBytes(r: &Rand, buf: []u8) {
         var bytes_left = buf.len;
         while (bytes_left >= @sizeOf(usize)) {
-            ([]usize)(buf[buf.len - bytes_left...])[0] = r.rng.get();
+            mem.writeInt(buf[buf.len - bytes_left...], r.rng.get(), false);
             bytes_left -= @sizeOf(usize);
         }
         if (bytes_left > 0) {
-            var rand_val_array : [@sizeOf(usize)]u8 = undefined;
-            ([]usize)(rand_val_array)[0] = r.rng.get();
+            var rand_val_array: [@sizeOf(usize)]u8 = undefined;
+            mem.writeInt(rand_val_array[0...], r.rng.get(), false);
             while (bytes_left > 0) {
                 buf[buf.len - bytes_left] = rand_val_array[@sizeOf(usize) - bytes_left];
                 bytes_left -= 1;
@@ -63,11 +66,11 @@ pub const Rand = struct {
         const range = end - start;
         const leftover = @maxValue(T) % range;
         const upper_bound = @maxValue(T) - leftover;
-        var rand_val_array : [@sizeOf(T)]u8 = undefined;
+        var rand_val_array: [@sizeOf(T)]u8 = undefined;
 
         while (true) {
-            r.fillBytes(rand_val_array);
-            const rand_val = ([]T)(rand_val_array)[0];
+            r.fillBytes(rand_val_array[0...]);
+            const rand_val = mem.readInt(rand_val_array, T, false);
             if (rand_val < upper_bound) {
                 return start + (rand_val % range);
             }

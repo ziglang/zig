@@ -119,11 +119,21 @@ enum ConstPtrSpecial {
     ConstPtrSpecialHardCodedAddr,
 };
 
-struct ConstPtrValue {
-    ConstPtrSpecial special;
+enum ConstPtrMut {
+    // The pointer points to memory that is known at compile time and immutable.
+    ConstPtrMutComptimeConst,
     // This means that the pointer points to memory used by a comptime variable,
     // so attempting to write a non-compile-time known value is an error
-    bool comptime_var_mem;
+    // But the underlying value is allowed to change at compile time.
+    ConstPtrMutComptimeVar,
+    // The pointer points to memory that is known only at runtime.
+    // For example it may point to the initializer value of a variable.
+    ConstPtrMutRuntimeVar,
+};
+
+struct ConstPtrValue {
+    ConstPtrSpecial special;
+    ConstPtrMut mut;
 
     union {
         struct {

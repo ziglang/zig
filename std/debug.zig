@@ -149,7 +149,7 @@ const Constant = struct {
             return error.InvalidDebugInfo;
         if (self.signed)
             return error.InvalidDebugInfo;
-        return mem.sliceAsInt(self.payload, false, u64);
+        return mem.readInt(self.payload, u64, false);
     }
 };
 

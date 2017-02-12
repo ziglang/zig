@@ -6,7 +6,6 @@ const system = switch(@compileVar("os")) {
 
 const errno = @import("errno.zig");
 const math = @import("math.zig");
-const endian = @import("endian.zig");
 const debug = @import("debug.zig");
 const assert = debug.assert;
 const os = @import("os.zig");
@@ -365,7 +364,7 @@ pub const InStream = struct {
 
     pub fn readByte(is: &InStream) -> %u8 {
         var result: [1]u8 = undefined;
-        %return is.readNoEof(result);
+        %return is.readNoEof(result[0...]);
         return result[0];
     }
 
@@ -378,10 +377,9 @@ pub const InStream = struct {
     }
 
     pub fn readInt(is: &InStream, is_be: bool, comptime T: type) -> %T {
-        var result: T = undefined;
-        const result_slice = ([]u8)((&result)[0...1]);
-        %return is.readNoEof(result_slice);
-        return endian.swapIf(!is_be, T, result);
+        var bytes: [@sizeOf(T)]u8 = undefined;
+        %return is.readNoEof(bytes[0...]);
+        return mem.readInt(bytes, T, is_be);
     }
 
     pub fn readVarInt(is: &InStream, is_be: bool, comptime T: type, size: usize) -> %T {
@@ -390,7 +388,7 @@ pub const InStream = struct {
         var input_buf: [8]u8 = undefined;
         const input_slice = input_buf[0...size];
         %return is.readNoEof(input_slice);
-        return mem.sliceAsInt(input_slice, is_be, T);
+        return mem.readInt(input_slice, T, is_be);
     }
 
     pub fn seekForward(is: &InStream, amount: usize) -> %void {
@@ -589,18 +587,19 @@ fn testParseUnsignedComptime() {
 fn testBufPrintInt() {
     @setFnTest(this);
 
-    var buf: [max_int_digits]u8 = undefined;
-    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 2, false, 0), "-101111000110000101001110"));
-    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 10, false, 0), "-12345678"));
-    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 16, false, 0), "-bc614e"));
-    assert(mem.eql(bufPrintIntToSlice(buf, i32(-12345678), 16, true, 0), "-BC614E"));
+    var buffer: [max_int_digits]u8 = undefined;
+    const buf = buffer[0...];
+    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 2, false, 0), "-101111000110000101001110"));
+    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 10, false, 0), "-12345678"));
+    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, false, 0), "-bc614e"));
+    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, true, 0), "-BC614E"));
 
-    assert(mem.eql(bufPrintIntToSlice(buf, u32(12345678), 10, true, 0), "12345678"));
+    assert(mem.eql(u8, bufPrintIntToSlice(buf, u32(12345678), 10, true, 0), "12345678"));
 
-    assert(mem.eql(bufPrintIntToSlice(buf, u32(666), 10, false, 6), "000666"));
-    assert(mem.eql(bufPrintIntToSlice(buf, u32(0x1234), 16, false, 6), "001234"));
-    assert(mem.eql(bufPrintIntToSlice(buf, u32(0x1234), 16, false, 1), "1234"));
+    assert(mem.eql(u8, bufPrintIntToSlice(buf, u32(666), 10, false, 6), "000666"));
+    assert(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, 6), "001234"));
+    assert(mem.eql(u8, bufPrintIntToSlice(buf, u32(0x1234), 16, false, 1), "1234"));
 
-    assert(mem.eql(bufPrintIntToSlice(buf, i32(42), 10, false, 3), "+42"));
-    assert(mem.eql(bufPrintIntToSlice(buf, i32(-42), 10, false, 3), "-42"));
+    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(42), 10, false, 3), "+42"));
+    assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-42), 10, false, 3), "-42"));
 }

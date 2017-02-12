@@ -1859,9 +1859,18 @@ static LLVMValueRef ir_render_div_exact(CodeGen *g, IrExecutable *executable, Ir
 }
 
 static LLVMValueRef ir_render_truncate(CodeGen *g, IrExecutable *executable, IrInstructionTruncate *instruction) {
-    TypeTableEntry *dest_type = get_underlying_type(instruction->base.value.type);
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
-    return LLVMBuildTrunc(g->builder, target_val, dest_type->type_ref, "");
+    TypeTableEntry *dest_type = get_underlying_type(instruction->base.value.type);
+    TypeTableEntry *src_type = get_underlying_type(instruction->target->value.type);
+    if (dest_type == src_type) {
+        // no-op
+        return target_val;
+    } if (src_type->data.integral.bit_count == dest_type->data.integral.bit_count) {
+        return LLVMBuildBitCast(g->builder, target_val, dest_type->type_ref, "");
+    } else {
+        LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+        return LLVMBuildTrunc(g->builder, target_val, dest_type->type_ref, "");
+    }
 }
 
 static LLVMValueRef ir_render_alloca(CodeGen *g, IrExecutable *executable, IrInstructionAlloca *instruction) {
@@ -1945,10 +1954,14 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrIns
 static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInstructionSlice *instruction) {
     assert(instruction->tmp_ptr);
 
-    TypeTableEntry *array_type = get_underlying_type(instruction->ptr->value.type);
+    LLVMValueRef array_ptr_ptr = ir_llvm_value(g, instruction->ptr);
+    TypeTableEntry *array_ptr_type = instruction->ptr->value.type;
+    assert(array_ptr_type->id == TypeTableEntryIdPointer);
+    bool is_volatile = array_ptr_type->data.pointer.is_volatile;
+    TypeTableEntry *array_type = array_ptr_type->data.pointer.child_type;
+    LLVMValueRef array_ptr = get_handle_value(g, array_ptr_ptr, array_type, is_volatile);
 
     LLVMValueRef tmp_struct_ptr = instruction->tmp_ptr;
-    LLVMValueRef array_ptr = ir_llvm_value(g, instruction->ptr);
 
     bool want_debug_safety = instruction->safety_check_on && ir_want_debug_safety(g, &instruction->base);
 
@@ -2582,7 +2595,6 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
             return LLVMGetUndef(canon_type->type_ref);
         case ConstValSpecialStatic:
             break;
-
     }
 
     switch (canon_type->id) {

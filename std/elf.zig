@@ -93,8 +93,8 @@ pub const Elf = struct {
         elf.auto_close_stream = false;
 
         var magic: [4]u8 = undefined;
-        %return elf.in_stream.readNoEof(magic);
-        if (!mem.eql(magic, "\x7fELF")) return error.InvalidFormat;
+        %return elf.in_stream.readNoEof(magic[0...]);
+        if (!mem.eql(u8, magic, "\x7fELF")) return error.InvalidFormat;
 
         elf.is_64 = switch (%return elf.in_stream.readByte()) {
             1 => false,
@@ -236,7 +236,7 @@ pub const Elf = struct {
             elf.in_stream.close();
     }
 
-    pub fn findSection(elf: &Elf, name: []u8) -> %?&SectionHeader {
+    pub fn findSection(elf: &Elf, name: []const u8) -> %?&SectionHeader {
         for (elf.section_headers) |*section| {
             if (section.sh_type == SHT_NULL) continue;
 

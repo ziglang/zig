@@ -136,7 +136,7 @@ fn genericFnWithImplicitCast() {
     assert(getFirstByte(u8, []u8 {13}) == 13);
     assert(getFirstByte(u16, []u16 {0, 13}) == 0);
 }
-fn getByte(ptr: ?&u8) -> u8 {*??ptr}
-fn getFirstByte(comptime T: type, mem: []T) -> u8 {
-    getByte((&u8)(&mem[0]))
+fn getByte(ptr: ?&const u8) -> u8 {*??ptr}
+fn getFirstByte(comptime T: type, mem: []const T) -> u8 {
+    getByte((&const u8)(&mem[0]))
 }

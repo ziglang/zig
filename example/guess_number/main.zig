@@ -6,10 +6,11 @@ const os = std.os;
 pub fn main(args: [][]u8) -> %void {
     %%io.stdout.printf("Welcome to the Guess Number Game in Zig.\n");
 
-    var seed: [@sizeOf(usize)]u8 = undefined;
-    %%os.getRandomBytes(seed);
+    var seed_bytes: [@sizeOf(usize)]u8 = undefined;
+    %%os.getRandomBytes(seed_bytes[0...]);
+    const seed = std.mem.readInt(seed_bytes, usize, true);
     var rand: Rand = undefined;
-    rand.init(([]usize)(seed)[0]);
+    rand.init(seed);
 
     const answer = rand.rangeUnsigned(u8, 0, 100) + 1;
 

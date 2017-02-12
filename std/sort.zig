@@ -61,13 +61,13 @@ fn reverse(was: Cmp) -> Cmp {
 fn testSort() {
     @setFnTest(this);
 
-    const u8cases = [][][]u8 {
-        [][]u8{"", ""},
-        [][]u8{"a", "a"},
-        [][]u8{"az", "az"},
-        [][]u8{"za", "az"},
-        [][]u8{"asdf", "adfs"},
-        [][]u8{"one", "eno"},
+    const u8cases = [][]const []const u8 {
+        [][]const u8{"", ""},
+        [][]const u8{"a", "a"},
+        [][]const u8{"az", "az"},
+        [][]const u8{"za", "az"},
+        [][]const u8{"asdf", "adfs"},
+        [][]const u8{"one", "eno"},
     };
 
     for (u8cases) |case| {
@@ -75,16 +75,16 @@ fn testSort() {
         const slice = buf[0...case[0].len];
         mem.copy(u8, slice, case[0]);
         sort(u8, slice, u8asc);
-        assert(mem.eql(slice, case[1]));
+        assert(mem.eql(u8, slice, case[1]));
     }
 
-    const i32cases = [][][]i32 {
-        [][]i32{[]i32{}, []i32{}},
-        [][]i32{[]i32{1}, []i32{1}},
-        [][]i32{[]i32{0, 1}, []i32{0, 1}},
-        [][]i32{[]i32{1, 0}, []i32{0, 1}},
-        [][]i32{[]i32{1, -1, 0}, []i32{-1, 0, 1}},
-        [][]i32{[]i32{2, 1, 3}, []i32{1, 2, 3}},
+    const i32cases = [][]const []const i32 {
+        [][]const i32{[]i32{}, []i32{}},
+        [][]const i32{[]i32{1}, []i32{1}},
+        [][]const i32{[]i32{0, 1}, []i32{0, 1}},
+        [][]const i32{[]i32{1, 0}, []i32{0, 1}},
+        [][]const i32{[]i32{1, -1, 0}, []i32{-1, 0, 1}},
+        [][]const i32{[]i32{2, 1, 3}, []i32{1, 2, 3}},
     };
 
     for (i32cases) |case| {
@@ -92,20 +92,20 @@ fn testSort() {
         const slice = buf[0...case[0].len];
         mem.copy(i32, slice, case[0]);
         sort(i32, slice, i32asc);
-        assert(mem.eql(slice, case[1]));
+        assert(mem.eql(i32, slice, case[1]));
     }
 }
 
 fn testSortDesc() {
     @setFnTest(this);
 
-    const rev_cases = [][][]i32 {
-        [][]i32{[]i32{}, []i32{}},
-        [][]i32{[]i32{1}, []i32{1}},
-        [][]i32{[]i32{0, 1}, []i32{1, 0}},
-        [][]i32{[]i32{1, 0}, []i32{1, 0}},
-        [][]i32{[]i32{1, -1, 0}, []i32{1, 0, -1}},
-        [][]i32{[]i32{2, 1, 3}, []i32{3, 2, 1}},
+    const rev_cases = [][]const []const i32 {
+        [][]const i32{[]i32{}, []i32{}},
+        [][]const i32{[]i32{1}, []i32{1}},
+        [][]const i32{[]i32{0, 1}, []i32{1, 0}},
+        [][]const i32{[]i32{1, 0}, []i32{1, 0}},
+        [][]const i32{[]i32{1, -1, 0}, []i32{1, 0, -1}},
+        [][]const i32{[]i32{2, 1, 3}, []i32{3, 2, 1}},
     };
 
     for (rev_cases) |case| {
@@ -113,6 +113,6 @@ fn testSortDesc() {
         const slice = buf[0...case[0].len];
         mem.copy(i32, slice, case[0]);
         sort(i32, slice, i32desc);
-        assert(mem.eql(slice, case[1]));
+        assert(mem.eql(i32, slice, case[1]));
     }
 }

@@ -283,3 +283,21 @@ fn callMethodOnBoundFnReferringToVarInstance() {
 
     assert(bound_fn() == 1237);
 }
+
+
+
+fn ptrToLocalArrayArgumentAtComptime() {
+    @setFnTest(this);
+
+    comptime {
+        var bytes: [10]u8 = undefined;
+        modifySomeBytes(bytes[0...]);
+        assert(bytes[0] == 'a');
+        assert(bytes[9] == 'b');
+    }
+}
+
+fn modifySomeBytes(bytes: []u8) {
+    bytes[0] = 'a';
+    bytes[9] = 'b';
+}
