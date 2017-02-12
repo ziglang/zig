@@ -9985,8 +9985,23 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
     if (value->value.type->id == TypeTableEntryIdInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
-    // This will be a pointer type because test null IR instruction operates on a pointer to a thing.
     TypeTableEntry *ptr_type = value->value.type;
+    if (ptr_type->id == TypeTableEntryIdMetaType) {
+        // surprise! actually this is just ??T not an unwrap maybe instruction
+        TypeTableEntry *ptr_type_ptr = ir_resolve_type(ira, value);
+        assert(ptr_type_ptr->id == TypeTableEntryIdPointer);
+        TypeTableEntry *child_type = ptr_type_ptr->data.pointer.child_type;
+        type_ensure_zero_bits_known(ira->codegen, child_type);
+        TypeTableEntry *layer1 = get_maybe_type(ira->codegen, child_type);
+        TypeTableEntry *layer2 = get_maybe_type(ira->codegen, layer1);
+        TypeTableEntry *result_type = get_pointer_to_type(ira->codegen, layer2, true);
+
+        IrInstruction *const_instr = ir_build_const_type(&ira->new_irb, unwrap_maybe_instruction->base.scope,
+                unwrap_maybe_instruction->base.source_node, result_type);
+        ir_link_new_instruction(const_instr, &unwrap_maybe_instruction->base);
+        return const_instr->value.type;
+    }
+
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
     TypeTableEntry *type_entry = ptr_type->data.pointer.child_type;

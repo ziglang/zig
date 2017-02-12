@@ -1622,6 +1622,11 @@ fn bar(a: i32, b: []const u8) {
         ".tmp_source.zig:8:5: error: found compile log statement",
         ".tmp_source.zig:3:17: note: called from here");
 
+    add_compile_fail_case("double ?? on main return value", R"SOURCE(
+pub fn main(args: [][]u8) -> ??void {
+}
+    )SOURCE", 1, ".tmp_source.zig:2:30: error: expected return type of main to be '%void', instead is '??void'");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
