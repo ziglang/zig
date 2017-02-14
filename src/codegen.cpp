@@ -846,14 +846,30 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, LLVMValueRef val
         } else {
             zig_unreachable();
         }
-        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivZeroOk");
-        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivZeroFail");
-        LLVMBuildCondBr(g->builder, is_zero_bit, fail_block, ok_block);
+        LLVMBasicBlockRef div_zero_ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivZeroOk");
+        LLVMBasicBlockRef div_zero_fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivZeroFail");
+        LLVMBuildCondBr(g->builder, is_zero_bit, div_zero_fail_block, div_zero_ok_block);
 
-        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        LLVMPositionBuilderAtEnd(g->builder, div_zero_fail_block);
         gen_debug_safety_crash(g, PanicMsgIdDivisionByZero);
 
-        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+        LLVMPositionBuilderAtEnd(g->builder, div_zero_ok_block);
+
+        if (type_entry->id == TypeTableEntryIdInt && type_entry->data.integral.is_signed) {
+            LLVMValueRef neg_1_value = LLVMConstInt(type_entry->type_ref, -1, true);
+            LLVMValueRef int_min_value = LLVMConstInt(type_entry->type_ref, min_signed_val(type_entry), true);
+            LLVMBasicBlockRef overflow_ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivOverflowOk");
+            LLVMBasicBlockRef overflow_fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivOverflowFail");
+            LLVMValueRef num_is_int_min = LLVMBuildICmp(g->builder, LLVMIntEQ, val1, int_min_value, "");
+            LLVMValueRef den_is_neg_1 = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, neg_1_value, "");
+            LLVMValueRef overflow_fail_bit = LLVMBuildAnd(g->builder, num_is_int_min, den_is_neg_1, "");
+            LLVMBuildCondBr(g->builder, overflow_fail_bit, overflow_fail_block, overflow_ok_block);
+
+            LLVMPositionBuilderAtEnd(g->builder, overflow_fail_block);
+            gen_debug_safety_crash(g, PanicMsgIdIntegerOverflow);
+
+            LLVMPositionBuilderAtEnd(g->builder, overflow_ok_block);
+        }
     }
 
     if (type_entry->id == TypeTableEntryIdFloat) {

@@ -1700,10 +1700,25 @@ pub fn panic(message: []const u8) -> unreachable {
 error Whatever;
 pub fn main(args: [][]u8) -> %void {
     const x = neg(-32768);
-    if (x == 0) return error.Whatever;
+    if (x == 32767) return error.Whatever;
 }
 fn neg(a: i16) -> i16 {
     -a
+}
+    )SOURCE");
+
+    add_debug_safety_case("signed integer division overflow", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
+error Whatever;
+pub fn main(args: [][]u8) -> %void {
+    const x = div(-32768, -1);
+    if (x == 32767) return error.Whatever;
+}
+fn div(a: i16, b: i16) -> i16 {
+    a / b
 }
     )SOURCE");
 

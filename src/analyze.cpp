@@ -3447,7 +3447,7 @@ static int64_t max_signed_val(TypeTableEntry *type_entry) {
     }
 }
 
-static int64_t min_signed_val(TypeTableEntry *type_entry) {
+int64_t min_signed_val(TypeTableEntry *type_entry) {
     assert(type_entry->id == TypeTableEntryIdInt);
     if (type_entry->data.integral.bit_count == 64) {
         return INT64_MIN;
