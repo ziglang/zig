@@ -46,42 +46,35 @@ void bignum_init_bignum(BigNum *dest, BigNum *src) {
     safe_memcpy(dest, src, 1);
 }
 
+static int u64_log2(uint64_t x) {
+    int result = 0;
+    for (; x != 0; x >>= 1) {
+        result += 1;
+    }
+    return result;
+}
+
 bool bignum_fits_in_bits(BigNum *bn, int bit_count, bool is_signed) {
     assert(bn->kind == BigNumKindInt);
 
     if (is_signed) {
-        if (bn->is_negative) {
-            if (bn->data.x_uint <= ((uint64_t)INT8_MAX) + 1) {
-                return bit_count >= 8;
-            } else if (bn->data.x_uint <= ((uint64_t)INT16_MAX) + 1) {
-                return bit_count >= 16;
-            } else if (bn->data.x_uint <= ((uint64_t)INT32_MAX) + 1) {
-                return bit_count >= 32;
-            } else {
-                return bit_count >= 64;
-            }
-        } else if (bn->data.x_uint <= (uint64_t)INT8_MAX) {
-            return bit_count >= 8;
-        } else if (bn->data.x_uint <= (uint64_t)INT16_MAX) {
-            return bit_count >= 16;
-        } else if (bn->data.x_uint <= (uint64_t)INT32_MAX) {
-            return bit_count >= 32;
+        uint64_t max_neg;
+        uint64_t max_pos;
+        if (bit_count < 64) {
+            max_neg = (1ULL << (bit_count - 1));
+            max_pos = max_neg - 1;
         } else {
-            return bit_count >= 64;
+            max_pos = ((uint64_t)INT64_MAX);
+            max_neg = max_pos + 1;
         }
+        uint64_t max_val = bn->is_negative ? max_neg : max_pos;
+        return bn->data.x_uint <= max_val;
     } else {
         if (bn->is_negative) {
             return bn->data.x_uint == 0;
         } else {
-            if (bn->data.x_uint <= UINT8_MAX) {
-                return bit_count >= 8;
-            } else if (bn->data.x_uint <= UINT16_MAX) {
-                return bit_count >= 16;
-            } else if (bn->data.x_uint <= UINT32_MAX) {
-                return bit_count >= 32;
-            } else {
-                return bit_count >= 64;
-            }
+            int required_bit_count = u64_log2(bn->data.x_uint);
+            return bit_count >= required_bit_count;
         }
     }
 }

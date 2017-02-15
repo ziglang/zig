@@ -2212,6 +2212,7 @@ static void run_all_tests(bool reverse) {
         for (size_t i = test_cases.length;;) {
             TestCase *test_case = test_cases.at(i);
             printf("Test %zu/%zu %s...", i + 1, test_cases.length, test_case->case_name);
+            fflush(stdout);
             run_test(test_case);
             printf("OK\n");
             if (i == 0) break;
@@ -2221,6 +2222,7 @@ static void run_all_tests(bool reverse) {
         for (size_t i = 0; i < test_cases.length; i += 1) {
             TestCase *test_case = test_cases.at(i);
             printf("Test %zu/%zu %s...", i + 1, test_cases.length, test_case->case_name);
+            fflush(stdout);
             run_test(test_case);
             printf("OK\n");
         }

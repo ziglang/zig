@@ -18,8 +18,8 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
 TypeTableEntry *get_pointer_to_type_volatile(CodeGen *g, TypeTableEntry *child_type, bool is_const, bool is_volatile);
 bool is_node_void_expr(AstNode *node);
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry);
-TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, size_t size_in_bits);
-TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, size_t size_in_bits);
+TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint8_t size_in_bits);
+TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint8_t size_in_bits);
 TypeTableEntry **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_c_int_type(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *child_type);
@@ -142,5 +142,7 @@ void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_inde
 ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end);
 
 void init_const_undefined(CodeGen *g, ConstExprValue *const_val);
+
+TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, size_t size_in_bits);
 
 #endif

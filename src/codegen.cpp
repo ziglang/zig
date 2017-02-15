@@ -58,6 +58,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->import_table.init(32);
     g->builtin_fn_table.init(32);
     g->primitive_type_table.init(32);
+    g->int_type_table.init(8);
     g->fn_type_table.init(32);
     g->error_table.init(16);
     g->generic_table.init(16);
@@ -232,6 +233,7 @@ void codegen_set_linker_script(CodeGen *g, const char *linker_script) {
 
 static void render_const_val(CodeGen *g, ConstExprValue *const_val);
 static void render_const_val_global(CodeGen *g, ConstExprValue *const_val, const char *name);
+static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val);
 
 static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (fn_table_entry->llvm_value)
@@ -2599,6 +2601,84 @@ static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ConstExprValue *s
     return LLVMConstInBoundsGEP(base_ptr, indices, 2);
 }
 
+static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, ConstExprValue *const_val) { 
+    switch (const_val->special) {
+        case ConstValSpecialRuntime:
+            zig_unreachable();
+        case ConstValSpecialUndef:
+            return LLVMConstInt(big_int_type_ref, 0, false);
+        case ConstValSpecialStatic:
+            break;
+    }
+
+    TypeTableEntry *canon_type = get_underlying_type(const_val->type);
+    assert(!canon_type->zero_bits);
+    switch (canon_type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdTypeDecl:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdVoid:
+            zig_unreachable();
+        case TypeTableEntryIdBool:
+            return LLVMConstInt(big_int_type_ref, const_val->data.x_bool ? 1 : 0, false);
+        case TypeTableEntryIdInt:
+            {
+                LLVMValueRef int_val = gen_const_val(g, const_val);
+                return LLVMConstZExt(int_val, big_int_type_ref);
+            }
+            return LLVMConstInt(big_int_type_ref, bignum_to_twos_complement(&const_val->data.x_bignum), false);
+        case TypeTableEntryIdFloat:
+            {
+                LLVMValueRef float_val = gen_const_val(g, const_val);
+                LLVMValueRef int_val = LLVMConstFPToUI(float_val, LLVMIntType(canon_type->data.floating.bit_count));
+                return LLVMConstZExt(int_val, big_int_type_ref);
+            }
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdMaybe:
+            {
+                LLVMValueRef ptr_val = gen_const_val(g, const_val);
+                LLVMValueRef ptr_size_int_val = LLVMConstPtrToInt(ptr_val, g->builtin_types.entry_usize->type_ref);
+                return LLVMConstZExt(ptr_size_int_val, big_int_type_ref);
+            }
+        case TypeTableEntryIdArray:
+            zig_panic("TODO bit pack an array");
+        case TypeTableEntryIdUnion:
+            zig_panic("TODO bit pack a union");
+        case TypeTableEntryIdStruct:
+            {
+                assert(canon_type->data.structure.layout == ContainerLayoutPacked);
+
+                LLVMValueRef val = LLVMConstInt(big_int_type_ref, 0, false);
+                for (size_t i = 0; i < canon_type->data.structure.src_field_count; i += 1) {
+                    TypeStructField *field = &canon_type->data.structure.fields[i];
+                    if (field->gen_index == SIZE_MAX) {
+                        continue;
+                    }
+                    LLVMValueRef child_val = pack_const_int(g, big_int_type_ref, &const_val->data.x_struct.fields[i]);
+                    LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, field->packed_bits_size, false);
+                    val = LLVMConstShl(val, shift_amt);
+                    val = LLVMConstOr(val, child_val);
+                }
+                return val;
+            }
+    }
+    zig_unreachable();
+}
 
 static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
     TypeTableEntry *canon_type = get_underlying_type(const_val->type);
@@ -2670,15 +2750,57 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
         case TypeTableEntryIdStruct:
             {
                 LLVMValueRef *fields = allocate<LLVMValueRef>(canon_type->data.structure.gen_field_count);
-                for (uint32_t i = 0; i < canon_type->data.structure.src_field_count; i += 1) {
-                    TypeStructField *type_struct_field = &canon_type->data.structure.fields[i];
-                    if (type_struct_field->gen_index == SIZE_MAX) {
-                        continue;
+                size_t src_field_count = canon_type->data.structure.src_field_count;
+                if (canon_type->data.structure.layout == ContainerLayoutPacked) {
+                    size_t src_field_index = 0;
+                    while (src_field_index < src_field_count) {
+                        TypeStructField *type_struct_field = &canon_type->data.structure.fields[src_field_index];
+                        if (type_struct_field->gen_index == SIZE_MAX) {
+                            src_field_index += 1;
+                            continue;
+                        }
+
+                        size_t src_field_index_end = src_field_index + 1;
+                        for (; src_field_index_end < src_field_count; src_field_index_end += 1) {
+                            TypeStructField *it_field = &canon_type->data.structure.fields[src_field_index_end];
+                            if (it_field->gen_index != type_struct_field->gen_index)
+                                break;
+                        }
+
+                        if (src_field_index + 1 == src_field_index_end) {
+                            fields[type_struct_field->gen_index] =
+                                gen_const_val(g, &const_val->data.x_struct.fields[src_field_index]);
+                        } else {
+                            LLVMTypeRef big_int_type_ref = LLVMStructGetTypeAtIndex(canon_type->type_ref,
+                                    type_struct_field->gen_index);
+                            LLVMValueRef val = LLVMConstInt(big_int_type_ref, 0, false);
+                            for (size_t i = src_field_index; i < src_field_index_end; i += 1) {
+                                TypeStructField *it_field = &canon_type->data.structure.fields[i];
+                                if (it_field->gen_index == SIZE_MAX) {
+                                    continue;
+                                }
+                                LLVMValueRef child_val = pack_const_int(g, big_int_type_ref,
+                                        &const_val->data.x_struct.fields[i]);
+                                LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref,
+                                        it_field->packed_bits_size, false);
+                                val = LLVMConstShl(val, shift_amt);
+                                val = LLVMConstOr(val, child_val);
+                            }
+                            fields[type_struct_field->gen_index] = val;
+                        }
+
+                        src_field_index = src_field_index_end;
                     }
-                    fields[type_struct_field->gen_index] = gen_const_val(g, &const_val->data.x_struct.fields[i]);
+                } else {
+                    for (uint32_t i = 0; i < src_field_count; i += 1) {
+                        TypeStructField *type_struct_field = &canon_type->data.structure.fields[i];
+                        if (type_struct_field->gen_index == SIZE_MAX) {
+                            continue;
+                        }
+                        fields[type_struct_field->gen_index] = gen_const_val(g, &const_val->data.x_struct.fields[i]);
+                    }
                 }
-                return LLVMConstNamedStruct(canon_type->type_ref, fields,
-                        canon_type->data.structure.gen_field_count);
+                return LLVMConstNamedStruct(canon_type->type_ref, fields, canon_type->data.structure.gen_field_count);
             }
         case TypeTableEntryIdUnion:
             {
@@ -3406,37 +3528,8 @@ static void define_builtin_types(CodeGen *g) {
         size_t size_in_bits = int_sizes_in_bits[int_size_i];
         for (size_t is_sign_i = 0; is_sign_i < array_length(is_signed_list); is_sign_i += 1) {
             bool is_signed = is_signed_list[is_sign_i];
-
-            TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
-            entry->type_ref = LLVMIntType(size_in_bits);
-
-            const char u_or_i = is_signed ? 'i' : 'u';
-            buf_resize(&entry->name, 0);
-            buf_appendf(&entry->name, "%c%zu", u_or_i, size_in_bits);
-
-            unsigned dwarf_tag;
-            if (is_signed) {
-                if (size_in_bits == 8) {
-                    dwarf_tag = ZigLLVMEncoding_DW_ATE_signed_char();
-                } else {
-                    dwarf_tag = ZigLLVMEncoding_DW_ATE_signed();
-                }
-            } else {
-                if (size_in_bits == 8) {
-                    dwarf_tag = ZigLLVMEncoding_DW_ATE_unsigned_char();
-                } else {
-                    dwarf_tag = ZigLLVMEncoding_DW_ATE_unsigned();
-                }
-            }
-
-            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
-            entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                    debug_size_in_bits, debug_align_in_bits, dwarf_tag);
-            entry->data.integral.is_signed = is_signed;
-            entry->data.integral.bit_count = size_in_bits;
+            TypeTableEntry *entry = make_int_type(g, is_signed, size_in_bits);
             g->primitive_type_table.put(&entry->name, entry);
-
             get_int_type_ptr(g, is_signed, size_in_bits)[0] = entry;
         }
     }

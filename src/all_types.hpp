@@ -873,11 +873,13 @@ struct TypeStructField {
     TypeTableEntry *type_entry;
     size_t src_index;
     size_t gen_index;
+    // offset from the memory at gen_index
+    size_t packed_bits_offset;
+    size_t packed_bits_size;
 };
 struct TypeTableEntryStruct {
     AstNode *decl_node;
     ContainerLayout layout;
-    bool is_packed;
     uint32_t src_field_count;
     uint32_t gen_field_count;
     TypeStructField *fields;
@@ -1037,7 +1039,7 @@ struct TypeTableEntry {
 
     // use these fields to make sure we don't duplicate type table entries for the same type
     TypeTableEntry *pointer_parent[2][2]; // [0 - mut, 1 - const][0 - normal, 1 - volatile]
-    TypeTableEntry *unknown_size_array_parent[2];
+    TypeTableEntry *slice_parent[2]; // [0 - mut, 1 - const]
     HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
     TypeTableEntry *maybe_parent;
     TypeTableEntry *error_parent;
@@ -1193,6 +1195,14 @@ enum PanicMsgId {
 uint32_t fn_eval_hash(Scope*);
 bool fn_eval_eql(Scope *a, Scope *b);
 
+struct IntTypeId {
+    bool is_signed;
+    uint8_t bit_count;
+};
+
+uint32_t int_type_id_hash(IntTypeId);
+bool int_type_id_eql(IntTypeId a, IntTypeId b);
+
 struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -1208,6 +1218,7 @@ struct CodeGen {
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
+    HashMap<IntTypeId, TypeTableEntry *, int_type_id_hash, int_type_id_eql> int_type_table;
     HashMap<FnTypeId *, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
     HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;

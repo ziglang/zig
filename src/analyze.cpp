@@ -261,6 +261,24 @@ uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry) {
     }
 }
 
+// This has to do with packed structs
+static uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry) {
+    TypeTableEntry *canon_type = get_underlying_type(type_entry);
+
+    if (!type_has_bits(type_entry))
+        return 0;
+
+    if (canon_type->id == TypeTableEntryIdStruct && canon_type->data.structure.layout == ContainerLayoutPacked) {
+        uint64_t result = 0;
+        for (size_t i = 0; i < canon_type->data.structure.src_field_count; i += 1) {
+            result += type_size_bits(g, canon_type->data.structure.fields[i].type_entry);
+        }
+        return result;
+    }
+
+    return LLVMSizeOfTypeInBits(g->target_data_ref, canon_type->type_ref);
+}
+
 static bool is_slice(TypeTableEntry *type) {
     return type->id == TypeTableEntryIdStruct && type->data.structure.is_slice;
 }
@@ -507,7 +525,7 @@ static void slice_type_common_init(CodeGen *g, TypeTableEntry *child_type,
     TypeTableEntry *pointer_type = get_pointer_to_type(g, child_type, is_const);
 
     unsigned element_count = 2;
-    entry->data.structure.is_packed = false;
+    entry->data.structure.layout = ContainerLayoutAuto;
     entry->data.structure.is_slice = true;
     entry->data.structure.src_field_count = element_count;
     entry->data.structure.gen_field_count = element_count;
@@ -531,7 +549,7 @@ static void slice_type_common_init(CodeGen *g, TypeTableEntry *child_type,
 
 TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
     assert(child_type->id != TypeTableEntryIdInvalid);
-    TypeTableEntry **parent_pointer = &child_type->unknown_size_array_parent[(is_const ? 1 : 0)];
+    TypeTableEntry **parent_pointer = &child_type->slice_parent[(is_const ? 1 : 0)];
 
     if (*parent_pointer) {
         return *parent_pointer;
@@ -1269,6 +1287,48 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     }
 }
 
+static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
+    TypeTableEntry *canon_type = get_underlying_type(type_entry);
+    switch (canon_type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdTypeDecl:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+            return false;
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+            return true;
+        case TypeTableEntryIdStruct:
+            return canon_type->data.structure.layout == ContainerLayoutPacked;
+        case TypeTableEntryIdMaybe:
+            {
+                TypeTableEntry *canon_child_type = get_underlying_type(canon_type->data.maybe.child_type);
+                return canon_child_type->id == TypeTableEntryIdPointer || canon_child_type->id == TypeTableEntryIdFn;
+            }
+    }
+    zig_unreachable();
+}
+
 static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     // if you change the logic of this function likely you must make a similar change in
     // parseh.cpp
@@ -1307,22 +1367,77 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
 
     Scope *scope = &struct_type->data.structure.decls_scope->base;
 
+    size_t gen_field_index = 0;
+    bool packed = (struct_type->data.structure.layout == ContainerLayoutPacked);
+    size_t packed_bits_offset = 0;
+    size_t first_packed_bits_offset_misalign = SIZE_MAX;
+    size_t debug_field_count = 0;
+
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         TypeTableEntry *field_type = type_struct_field->type_entry;
 
         ensure_complete_type(g, field_type);
+
         if (type_is_invalid(field_type)) {
             struct_type->data.structure.is_invalid = true;
-            continue;
+            break;
         }
 
         if (!type_has_bits(field_type))
             continue;
 
-        element_types[type_struct_field->gen_index] = field_type->type_ref;
-        assert(element_types[type_struct_field->gen_index]);
+        type_struct_field->gen_index = gen_field_index;
+
+        if (packed) {
+            if (!type_allowed_in_packed_struct(field_type)) {
+                AstNode *field_source_node = decl_node->data.container_decl.fields.at(i);
+                add_node_error(g, field_source_node,
+                        buf_sprintf("packed structs cannot contain fields of type '%s'",
+                            buf_ptr(&field_type->name)));
+                struct_type->data.structure.is_invalid = true;
+                break;
+            }
+
+            type_struct_field->packed_bits_size = type_size_bits(g, field_type);
+
+            size_t next_packed_bits_offset = packed_bits_offset + type_struct_field->packed_bits_size;
+
+            if (first_packed_bits_offset_misalign != SIZE_MAX) {
+                // this field is not byte-aligned; it is part of the previous field with a bit offset
+                type_struct_field->packed_bits_offset = packed_bits_offset - first_packed_bits_offset_misalign;
+
+                if (next_packed_bits_offset % 8 == 0) {
+                    // next field recovers byte alignment
+                    size_t full_bit_count = next_packed_bits_offset - first_packed_bits_offset_misalign;
+                    element_types[gen_field_index] = LLVMIntType(full_bit_count);
+                    gen_field_index += 1;
+
+                    first_packed_bits_offset_misalign = SIZE_MAX;
+                }
+            } else if (next_packed_bits_offset % 8 != 0) {
+                first_packed_bits_offset_misalign = packed_bits_offset;
+                type_struct_field->packed_bits_offset = 0;
+            } else {
+                element_types[gen_field_index] = field_type->type_ref;
+                type_struct_field->packed_bits_offset = 0;
+                gen_field_index += 1;
+            }
+            packed_bits_offset = next_packed_bits_offset;
+        } else {
+            element_types[gen_field_index] = field_type->type_ref;
+            assert(element_types[gen_field_index]);
+
+            gen_field_index += 1;
+        }
+        debug_field_count += 1;
     }
+    if (first_packed_bits_offset_misalign != SIZE_MAX) {
+        size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
+        element_types[gen_field_index] = LLVMIntType(full_bit_count);
+        gen_field_index += 1;
+    }
+
     struct_type->data.structure.embedded_in_current = false;
     struct_type->data.structure.complete = true;
 
@@ -1337,13 +1452,18 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     }
     assert(struct_type->di_type);
 
-    bool packed = (struct_type->data.structure.layout == ContainerLayoutPacked);
+
+    // the count may have been adjusting from packing bit fields
+    gen_field_count = gen_field_index;
+    struct_type->data.structure.gen_field_count = gen_field_count;
+
     LLVMStructSetBody(struct_type->type_ref, element_types, gen_field_count, packed);
     assert(LLVMStoreSizeOfType(g->target_data_ref, struct_type->type_ref) > 0);
 
-    ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(gen_field_count);
+    ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(debug_field_count);
 
     ImportTableEntry *import = get_scope_import(scope);
+    size_t debug_field_index = 0;
     for (size_t i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
@@ -1369,19 +1489,28 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
         assert(field_type->type_ref);
         assert(struct_type->type_ref);
         assert(struct_type->data.structure.complete);
-        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
-        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_type->type_ref);
-        uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref,
-                gen_field_index);
-        di_element_types[gen_field_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
+        uint64_t debug_size_in_bits;
+        uint64_t debug_align_in_bits;
+        uint64_t debug_offset_in_bits;
+        if (packed) {
+            debug_size_in_bits = type_struct_field->packed_bits_size;
+            debug_align_in_bits = 1;
+            debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref,
+                    gen_field_index) + type_struct_field->packed_bits_offset;
+        } else {
+            debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
+            debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_type->type_ref);
+            debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref, gen_field_index);
+        }
+        di_element_types[debug_field_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
                 ZigLLVMTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
                 import->di_file, field_node->line + 1,
                 debug_size_in_bits,
                 debug_align_in_bits,
                 debug_offset_in_bits,
                 0, field_di_type);
-
-        assert(di_element_types[gen_field_index]);
+        assert(di_element_types[debug_field_index]);
+        debug_field_index += 1;
     }
 
 
@@ -1393,7 +1522,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
             import->di_file, decl_node->line + 1,
             debug_size_in_bits,
             debug_align_in_bits,
-            0, nullptr, di_element_types, gen_field_count, 0, nullptr, "");
+            0, nullptr, di_element_types, debug_field_count, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
     struct_type->di_type = replacement_di_type;
@@ -2672,7 +2801,7 @@ bool is_node_void_expr(AstNode *node) {
     return false;
 }
 
-TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, size_t size_in_bits) {
+TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint8_t size_in_bits) {
     size_t index;
     if (size_in_bits == 8) {
         index = 0;
@@ -2683,13 +2812,25 @@ TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, size_t size_in_bit
     } else if (size_in_bits == 64) {
         index = 3;
     } else {
-        zig_unreachable();
+        return nullptr;
     }
     return &g->builtin_types.entry_int[is_signed ? 0 : 1][index];
 }
 
-TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, size_t size_in_bits) {
-    return *get_int_type_ptr(g, is_signed, size_in_bits);
+TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint8_t size_in_bits) {
+    TypeTableEntry **common_entry = get_int_type_ptr(g, is_signed, size_in_bits);
+    if (common_entry)
+        return *common_entry;
+
+    {
+        auto entry = g->int_type_table.maybe_get({is_signed, size_in_bits});
+        if (entry)
+            return entry->value;
+    }
+
+    TypeTableEntry *new_entry = make_int_type(g, is_signed, size_in_bits);
+    g->int_type_table.put({is_signed, size_in_bits}, new_entry);
+    return new_entry;
 }
 
 TypeTableEntry **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type) {
@@ -3702,4 +3843,46 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
             }
     }
     zig_unreachable();
+}
+
+TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, size_t size_in_bits) {
+    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+    entry->type_ref = LLVMIntType(size_in_bits);
+
+    const char u_or_i = is_signed ? 'i' : 'u';
+    buf_resize(&entry->name, 0);
+    buf_appendf(&entry->name, "%c%zu", u_or_i, size_in_bits);
+
+    unsigned dwarf_tag;
+    if (is_signed) {
+        if (size_in_bits == 8) {
+            dwarf_tag = ZigLLVMEncoding_DW_ATE_signed_char();
+        } else {
+            dwarf_tag = ZigLLVMEncoding_DW_ATE_signed();
+        }
+    } else {
+        if (size_in_bits == 8) {
+            dwarf_tag = ZigLLVMEncoding_DW_ATE_unsigned_char();
+        } else {
+            dwarf_tag = ZigLLVMEncoding_DW_ATE_unsigned();
+        }
+    }
+
+    uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
+    uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
+    entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+            debug_size_in_bits, debug_align_in_bits, dwarf_tag);
+    entry->data.integral.is_signed = is_signed;
+    entry->data.integral.bit_count = size_in_bits;
+    return entry;
+}
+
+uint32_t int_type_id_hash(IntTypeId x) {
+    uint32_t hash = x.is_signed ? 2652528194 : 163929201;
+    hash += ((uint32_t)x.bit_count) * 2998081557;
+    return hash;
+}
+
+bool int_type_id_eql(IntTypeId a, IntTypeId b) {
+    return (a.is_signed == b.is_signed && a.bit_count == b.bit_count);
 }
