@@ -3997,3 +3997,33 @@ bool type_id_eql(TypeId a, TypeId b) {
     }
     zig_unreachable();
 }
+
+uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
+    switch (x.id) {
+        case ZigLLVMFnIdCtz:
+            return x.data.ctz.bit_count * 810453934;
+        case ZigLLVMFnIdClz:
+            return x.data.clz.bit_count * 2428952817;
+        case ZigLLVMFnIdOverflowArithmetic:
+            return (x.data.overflow_arithmetic.bit_count * 87135777) +
+                (x.data.overflow_arithmetic.add_sub_mul * 31640542) +
+                (x.data.overflow_arithmetic.is_signed ? 1062315172 : 314955820);
+    }
+    zig_unreachable();
+}
+
+bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
+    if (a.id != b.id)
+        return false;
+    switch (a.id) {
+        case ZigLLVMFnIdCtz:
+            return a.data.ctz.bit_count == b.data.ctz.bit_count;
+        case ZigLLVMFnIdClz:
+            return a.data.clz.bit_count == b.data.clz.bit_count;
+        case ZigLLVMFnIdOverflowArithmetic:
+            return (a.data.overflow_arithmetic.bit_count == b.data.overflow_arithmetic.bit_count) &&
+                (a.data.overflow_arithmetic.add_sub_mul == b.data.overflow_arithmetic.add_sub_mul) &&
+                (a.data.overflow_arithmetic.is_signed == b.data.overflow_arithmetic.is_signed);
+    }
+    zig_unreachable();
+}

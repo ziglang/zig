@@ -180,3 +180,24 @@ fn binaryNot() {
 fn testBinaryNot(x: u16) {
     assert(~x == 0b0101010101010101);
 }
+
+fn smallIntAddition() {
+    @setFnTest(this);
+
+    var x: @intType(false, 2) = 0;
+    assert(x == 0);
+
+    x += 1;
+    assert(x == 1);
+
+    x += 1;
+    assert(x == 2);
+
+    x += 1;
+    assert(x == 3);
+
+    var result: @typeOf(x) = 3;
+    assert(@addWithOverflow(@typeOf(x), x, 1, &result));
+
+    assert(result == 0);
+}

@@ -244,9 +244,14 @@ fn bitFieldAccess() {
         .b = 2,
         .c = 3,
     };
+    assert(getA(&data) == 1);
     assert(getB(&data) == 2);
     assert(getC(&data) == 3);
     comptime assert(@sizeOf(BitField1) == 1);
+}
+
+fn getA(data: &const BitField1) -> u3 {
+    return data.a;
 }
 
 fn getB(data: &const BitField1) -> u3 {

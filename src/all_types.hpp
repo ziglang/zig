@@ -1219,6 +1219,39 @@ struct TypeId {
 uint32_t type_id_hash(TypeId);
 bool type_id_eql(TypeId a, TypeId b);
 
+enum ZigLLVMFnId {
+    ZigLLVMFnIdCtz,
+    ZigLLVMFnIdClz,
+    ZigLLVMFnIdOverflowArithmetic,
+};
+
+enum AddSubMul {
+    AddSubMulAdd = 0,
+    AddSubMulSub = 1,
+    AddSubMulMul = 2,
+};
+
+struct ZigLLVMFnKey {
+    ZigLLVMFnId id;
+
+    union {
+        struct {
+            uint32_t bit_count;
+        } ctz;
+        struct {
+            uint32_t bit_count;
+        } clz;
+        struct {
+            AddSubMul add_sub_mul;
+            uint32_t bit_count;
+            bool is_signed;
+        } overflow_arithmetic;
+    } data;
+};
+
+uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey);
+bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b);
+
 struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -1239,6 +1272,7 @@ struct CodeGen {
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
     HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
     HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
+    HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
 
     ZigList<ImportTableEntry *> import_queue;
     size_t import_queue_index;
@@ -1363,8 +1397,6 @@ struct CodeGen {
     bool error_during_imports;
     uint32_t next_node_index;
     TypeTableEntry *err_tag_type;
-    LLVMValueRef int_overflow_fns[2][3][4]; // [0-signed,1-unsigned][0-add,1-sub,2-mul][0-8,1-16,2-32,3-64]
-    LLVMValueRef int_builtin_fns[2][4]; // [0-ctz,1-clz][0-8,1-16,2-32,3-64]
 
     const char **clang_argv;
     size_t clang_argv_len;

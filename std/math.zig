@@ -71,15 +71,13 @@ fn getReturnTypeForAbs(comptime T: type) -> type {
 fn testMath() {
     @setFnTest(this);
 
+    testMathImpl();
+    comptime testMathImpl();
+}
+
+fn testMathImpl() {
     assert(%%mulOverflow(i32, 3, 4) == 12);
     assert(%%addOverflow(i32, 3, 4) == 7);
     assert(%%subOverflow(i32, 3, 4) == -1);
     assert(%%shlOverflow(i32, 0b11, 4) == 0b110000);
-
-    comptime {
-        assert(%%mulOverflow(i32, 3, 4) == 12);
-        assert(%%addOverflow(i32, 3, 4) == 7);
-        assert(%%subOverflow(i32, 3, 4) == -1);
-        assert(%%shlOverflow(i32, 0b11, 4) == 0b110000);
-    }
 }
