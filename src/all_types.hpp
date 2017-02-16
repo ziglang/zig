@@ -1040,7 +1040,6 @@ struct TypeTableEntry {
     // use these fields to make sure we don't duplicate type table entries for the same type
     TypeTableEntry *pointer_parent[2][2]; // [0 - mut, 1 - const][0 - normal, 1 - volatile]
     TypeTableEntry *slice_parent[2]; // [0 - mut, 1 - const]
-    HashMap<uint64_t, TypeTableEntry *, uint64_hash, uint64_eq> arrays_by_size;
     TypeTableEntry *maybe_parent;
     TypeTableEntry *error_parent;
     // If we generate a constant name value for this type, we memoize it here.
@@ -1195,13 +1194,29 @@ enum PanicMsgId {
 uint32_t fn_eval_hash(Scope*);
 bool fn_eval_eql(Scope *a, Scope *b);
 
-struct IntTypeId {
-    bool is_signed;
-    uint8_t bit_count;
+struct TypeId {
+    TypeTableEntryId id;
+
+    union {
+        struct {
+            TypeTableEntry *child_type;
+            bool is_const;
+            bool is_volatile;
+            uint8_t bit_offset;
+        } pointer;
+        struct {
+            TypeTableEntry *child_type;
+            uint64_t size;
+        } array;
+        struct {
+            bool is_signed;
+            uint8_t bit_count;
+        } integer;
+    } data;
 };
 
-uint32_t int_type_id_hash(IntTypeId);
-bool int_type_id_eql(IntTypeId a, IntTypeId b);
+uint32_t type_id_hash(TypeId);
+bool type_id_eql(TypeId a, TypeId b);
 
 struct CodeGen {
     LLVMModuleRef module;
@@ -1218,7 +1233,7 @@ struct CodeGen {
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
-    HashMap<IntTypeId, TypeTableEntry *, int_type_id_hash, int_type_id_eql> int_type_table;
+    HashMap<TypeId, TypeTableEntry *, type_id_hash, type_id_eql> type_table;
     HashMap<FnTypeId *, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
     HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;

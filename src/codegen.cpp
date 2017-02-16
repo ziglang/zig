@@ -58,7 +58,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->import_table.init(32);
     g->builtin_fn_table.init(32);
     g->primitive_type_table.init(32);
-    g->int_type_table.init(8);
+    g->type_table.init(32);
     g->fn_type_table.init(32);
     g->error_table.init(16);
     g->generic_table.init(16);

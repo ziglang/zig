@@ -50,7 +50,6 @@ ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *m
 
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id) {
     TypeTableEntry *entry = allocate<TypeTableEntry>(1);
-    entry->arrays_by_size.init(2);
     entry->id = id;
     return entry;
 }
@@ -489,34 +488,38 @@ TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
 }
 
 TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size) {
-    auto existing_entry = child_type->arrays_by_size.maybe_get(array_size);
+    TypeId type_id;
+    type_id.id = TypeTableEntryIdArray;
+    type_id.data.array.child_type = child_type;
+    type_id.data.array.size = array_size;
+    auto existing_entry = g->type_table.maybe_get(type_id);
     if (existing_entry) {
         TypeTableEntry *entry = existing_entry->value;
         return entry;
-    } else {
-        ensure_complete_type(g, child_type);
-
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
-        entry->zero_bits = (array_size == 0) || child_type->zero_bits;
-
-        buf_resize(&entry->name, 0);
-        buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
-
-        if (!entry->zero_bits) {
-            entry->type_ref = child_type->type_ref ? LLVMArrayType(child_type->type_ref, array_size) : nullptr;
-
-            uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-            uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
-
-            entry->di_type = ZigLLVMCreateDebugArrayType(g->dbuilder, debug_size_in_bits,
-                    debug_align_in_bits, child_type->di_type, array_size);
-        }
-        entry->data.array.child_type = child_type;
-        entry->data.array.len = array_size;
-
-        child_type->arrays_by_size.put(array_size, entry);
-        return entry;
     }
+
+    ensure_complete_type(g, child_type);
+
+    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
+    entry->zero_bits = (array_size == 0) || child_type->zero_bits;
+
+    buf_resize(&entry->name, 0);
+    buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
+
+    if (!entry->zero_bits) {
+        entry->type_ref = child_type->type_ref ? LLVMArrayType(child_type->type_ref, array_size) : nullptr;
+
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
+
+        entry->di_type = ZigLLVMCreateDebugArrayType(g->dbuilder, debug_size_in_bits,
+                debug_align_in_bits, child_type->di_type, array_size);
+    }
+    entry->data.array.child_type = child_type;
+    entry->data.array.len = array_size;
+
+    g->type_table.put(type_id, entry);
+    return entry;
 }
 
 static void slice_type_common_init(CodeGen *g, TypeTableEntry *child_type,
@@ -2822,14 +2825,19 @@ TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint8_t size_in_bits) {
     if (common_entry)
         return *common_entry;
 
+    TypeId type_id;
+    type_id.id = TypeTableEntryIdInt;
+    type_id.data.integer.is_signed = is_signed;
+    type_id.data.integer.bit_count = size_in_bits;
+
     {
-        auto entry = g->int_type_table.maybe_get({is_signed, size_in_bits});
+        auto entry = g->type_table.maybe_get(type_id);
         if (entry)
             return entry->value;
     }
 
     TypeTableEntry *new_entry = make_int_type(g, is_signed, size_in_bits);
-    g->int_type_table.put({is_signed, size_in_bits}, new_entry);
+    g->type_table.put(type_id, new_entry);
     return new_entry;
 }
 
@@ -3877,12 +3885,88 @@ TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, size_t size_in_bits) {
     return entry;
 }
 
-uint32_t int_type_id_hash(IntTypeId x) {
-    uint32_t hash = x.is_signed ? 2652528194 : 163929201;
-    hash += ((uint32_t)x.bit_count) * 2998081557;
-    return hash;
+uint32_t type_id_hash(TypeId x) {
+    switch (x.id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdTypeDecl:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+            zig_unreachable();
+        case TypeTableEntryIdPointer:
+            return hash_ptr(x.data.pointer.child_type) +
+                (x.data.pointer.is_const ? 2749109194 : 4047371087) +
+                (x.data.pointer.is_volatile ? 536730450 : 1685612214) +
+                (((uint32_t)x.data.pointer.bit_offset) * 2639019452);
+        case TypeTableEntryIdArray:
+            return hash_ptr(x.data.array.child_type) +
+                (x.data.array.size * 2122979968);
+        case TypeTableEntryIdInt:
+            return (x.data.integer.is_signed ? 2652528194 : 163929201) +
+                    (((uint32_t)x.data.integer.bit_count) * 2998081557);
+    }
+    zig_unreachable();
 }
 
-bool int_type_id_eql(IntTypeId a, IntTypeId b) {
-    return (a.is_signed == b.is_signed && a.bit_count == b.bit_count);
+bool type_id_eql(TypeId a, TypeId b) {
+    if (a.id != b.id)
+        return false;
+    switch (a.id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdTypeDecl:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+            zig_unreachable();
+        case TypeTableEntryIdPointer:
+            return a.data.pointer.child_type == b.data.pointer.child_type &&
+                a.data.pointer.is_const == b.data.pointer.is_const &&
+                a.data.pointer.is_volatile == b.data.pointer.is_volatile &&
+                a.data.pointer.bit_offset == b.data.pointer.bit_offset;
+        case TypeTableEntryIdArray:
+            return a.data.array.child_type == b.data.array.child_type &&
+                a.data.array.size == b.data.array.size;
+        case TypeTableEntryIdInt:
+            return a.data.integer.is_signed == b.data.integer.is_signed &&
+                a.data.integer.bit_count == b.data.integer.bit_count;
+    }
+    zig_unreachable();
 }
