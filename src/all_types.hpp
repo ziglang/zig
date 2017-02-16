@@ -852,6 +852,7 @@ struct TypeTableEntryPointer {
     TypeTableEntry *child_type;
     bool is_const;
     bool is_volatile;
+    uint32_t bit_offset;
 };
 
 struct TypeTableEntryInt {
@@ -1202,7 +1203,7 @@ struct TypeId {
             TypeTableEntry *child_type;
             bool is_const;
             bool is_volatile;
-            uint8_t bit_offset;
+            uint32_t bit_offset;
         } pointer;
         struct {
             TypeTableEntry *child_type;

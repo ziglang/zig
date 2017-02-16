@@ -1379,14 +1379,31 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
 
 static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrInstructionLoadPtr *instruction) {
     TypeTableEntry *child_type = instruction->base.value.type;
-    if (!type_has_bits(child_type)) {
+    if (!type_has_bits(child_type))
         return nullptr;
-    }
+
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     TypeTableEntry *ptr_type = instruction->ptr->value.type;
     assert(ptr_type->id == TypeTableEntryIdPointer);
     bool is_volatile = ptr_type->data.pointer.is_volatile;
-    return get_handle_value(g, ptr, child_type, is_volatile);
+
+    uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
+    if (bit_offset == 0)
+        return get_handle_value(g, ptr, child_type, is_volatile);
+
+    assert(!handle_is_ptr(child_type));
+
+    LLVMValueRef containing_int = LLVMBuildLoad(g->builder, ptr, "");
+    LLVMSetVolatile(containing_int, is_volatile);
+
+    uint32_t child_bit_count = type_size_bits(g, child_type);
+    uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
+    uint32_t shift_amt = host_bit_count - bit_offset - child_bit_count;
+
+    LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
+    LLVMValueRef shifted_value = LLVMBuildLShr(g->builder, containing_int, shift_amt_val, "");
+
+    return LLVMBuildTrunc(g->builder, shifted_value, child_type->type_ref, "");
 }
 
 static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, IrInstructionStorePtr *instruction) {

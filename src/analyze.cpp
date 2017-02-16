@@ -261,7 +261,7 @@ uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry) {
 }
 
 // This has to do with packed structs
-static uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry) {
+uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry) {
     TypeTableEntry *canon_type = get_underlying_type(type_entry);
 
     if (!type_has_bits(type_entry))
@@ -287,7 +287,7 @@ TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
 }
 
 TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type, bool is_const,
-        uint8_t bit_offset, bool is_volatile)
+        uint32_t bit_offset, bool is_volatile)
 {
     assert(child_type->id != TypeTableEntryIdInvalid);
 
@@ -316,7 +316,12 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
     const char *const_str = is_const ? "const " : "";
     const char *volatile_str = is_volatile ? "volatile " : "";
     buf_resize(&entry->name, 0);
-    buf_appendf(&entry->name, "&%s%s%s", const_str, volatile_str, buf_ptr(&child_type->name));
+    if (bit_offset == 0) {
+        buf_appendf(&entry->name, "&%s%s%s", const_str, volatile_str, buf_ptr(&child_type->name));
+    } else {
+        buf_appendf(&entry->name, "&:%" PRIu8 " %s%s%s", bit_offset, const_str,
+                volatile_str, buf_ptr(&child_type->name));
+    }
 
     TypeTableEntry *canon_child_type = get_underlying_type(child_type);
     assert(canon_child_type->id != TypeTableEntryIdInvalid);
@@ -338,6 +343,7 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
     entry->data.pointer.child_type = child_type;
     entry->data.pointer.is_const = is_const;
     entry->data.pointer.is_volatile = is_volatile;
+    entry->data.pointer.bit_offset = bit_offset;
 
     if (parent_pointer) {
         *parent_pointer = entry;

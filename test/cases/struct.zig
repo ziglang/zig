@@ -225,3 +225,34 @@ fn packedStruct() {
     const four = foo.x + foo.y;
     assert(four == 4);
 }
+
+
+const u2 = @intType(false, 2);
+const u3 = @intType(false, 3);
+
+const BitField1 = packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+};
+
+fn bitFieldAccess() {
+    @setFnTest(this);
+
+    const data = BitField1 {
+        .a = 1,
+        .b = 2,
+        .c = 3,
+    };
+    assert(getB(&data) == 2);
+    assert(getC(&data) == 3);
+    comptime assert(@sizeOf(BitField1) == 1);
+}
+
+fn getB(data: &const BitField1) -> u3 {
+    return data.b;
+}
+
+fn getC(data: &const BitField1) -> u2 {
+    return data.c;
+}

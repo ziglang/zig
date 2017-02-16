@@ -9067,7 +9067,8 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                 }
             }
             ir_build_struct_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
-            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, 0, is_volatile);
+            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const,
+                    field->packed_bits_offset, is_volatile);
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
                 field_ptr_instruction, container_ptr, container_type);
