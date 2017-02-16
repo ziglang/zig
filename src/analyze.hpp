@@ -15,7 +15,8 @@ ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg);
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg);
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id);
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
-TypeTableEntry *get_pointer_to_type_volatile(CodeGen *g, TypeTableEntry *child_type, bool is_const, bool is_volatile);
+TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type, bool is_const,
+        uint8_t bit_offset, bool is_volatile);
 bool is_node_void_expr(AstNode *node);
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry);
 TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint8_t size_in_bits);

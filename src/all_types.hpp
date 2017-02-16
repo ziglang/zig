@@ -1038,7 +1038,7 @@ struct TypeTableEntry {
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
-    TypeTableEntry *pointer_parent[2][2]; // [0 - mut, 1 - const][0 - normal, 1 - volatile]
+    TypeTableEntry *pointer_parent[2]; // [0 - mut, 1 - const]
     TypeTableEntry *slice_parent[2]; // [0 - mut, 1 - const]
     TypeTableEntry *maybe_parent;
     TypeTableEntry *error_parent;

@@ -286,11 +286,28 @@ TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
     return get_int_type(g, false, bits_needed_for_unsigned(x));
 }
 
-TypeTableEntry *get_pointer_to_type_volatile(CodeGen *g, TypeTableEntry *child_type, bool is_const, bool is_volatile) {
+TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type, bool is_const,
+        uint8_t bit_offset, bool is_volatile)
+{
     assert(child_type->id != TypeTableEntryIdInvalid);
-    TypeTableEntry **parent_pointer = &child_type->pointer_parent[(is_const ? 1 : 0)][(is_volatile ? 1 : 0)];
-    if (*parent_pointer)
-        return *parent_pointer;
+
+    TypeId type_id = {};
+    TypeTableEntry **parent_pointer = nullptr;
+    if (bit_offset != 0 || is_volatile) {
+        type_id.id = TypeTableEntryIdPointer;
+        type_id.data.pointer.child_type = child_type;
+        type_id.data.pointer.is_const = is_const;
+        type_id.data.pointer.is_volatile = is_volatile;
+        type_id.data.pointer.bit_offset = bit_offset;
+
+        auto existing_entry = g->type_table.maybe_get(type_id);
+        if (existing_entry)
+            return existing_entry->value;
+    } else {
+        parent_pointer = &child_type->pointer_parent[(is_const ? 1 : 0)];
+        if (*parent_pointer)
+            return *parent_pointer;
+    }
 
     type_ensure_zero_bits_known(g, child_type);
 
@@ -322,12 +339,16 @@ TypeTableEntry *get_pointer_to_type_volatile(CodeGen *g, TypeTableEntry *child_t
     entry->data.pointer.is_const = is_const;
     entry->data.pointer.is_volatile = is_volatile;
 
-    *parent_pointer = entry;
+    if (parent_pointer) {
+        *parent_pointer = entry;
+    } else {
+        g->type_table.put(type_id, entry);
+    }
     return entry;
 }
 
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
-    return get_pointer_to_type_volatile(g, child_type, is_const, false);
+    return get_pointer_to_type_extra(g, child_type, is_const, 0, false);
 }
 
 TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
@@ -488,7 +509,7 @@ TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
 }
 
 TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size) {
-    TypeId type_id;
+    TypeId type_id = {};
     type_id.id = TypeTableEntryIdArray;
     type_id.data.array.child_type = child_type;
     type_id.data.array.size = array_size;
@@ -2825,7 +2846,7 @@ TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint8_t size_in_bits) {
     if (common_entry)
         return *common_entry;
 
-    TypeId type_id;
+    TypeId type_id = {};
     type_id.id = TypeTableEntryIdInt;
     type_id.data.integer.is_signed = is_signed;
     type_id.data.integer.bit_count = size_in_bits;
