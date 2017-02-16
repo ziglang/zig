@@ -236,18 +236,27 @@ const BitField1 = packed struct {
     c: u2,
 };
 
+const bit_field_1 = BitField1 {
+    .a = 1,
+    .b = 2,
+    .c = 3,
+};
+
 fn bitFieldAccess() {
     @setFnTest(this);
 
-    const data = BitField1 {
-        .a = 1,
-        .b = 2,
-        .c = 3,
-    };
+    var data = bit_field_1;
     assert(getA(&data) == 1);
     assert(getB(&data) == 2);
     assert(getC(&data) == 3);
     comptime assert(@sizeOf(BitField1) == 1);
+
+    data.b += 1;
+    assert(data.b == 3);
+
+    data.a += 1;
+    assert(data.a == 2);
+    assert(data.b == 3);
 }
 
 fn getA(data: &const BitField1) -> u3 {

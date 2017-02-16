@@ -1410,17 +1410,45 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
     TypeTableEntry *ptr_type = get_underlying_type(instruction->ptr->value.type);
     TypeTableEntry *child_type = get_underlying_type(ptr_type->data.pointer.child_type);
 
-    if (!type_has_bits(child_type)) {
+    if (!type_has_bits(child_type))
         return nullptr;
-    }
-    if (handle_is_ptr(child_type)) {
+
+    if (handle_is_ptr(child_type))
         return gen_struct_memcpy(g, value, ptr, child_type);
+
+    uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
+    if (bit_offset == 0) {
+        LLVMTypeRef ptr_child_ref = LLVMGetElementType(LLVMTypeOf(ptr));
+        bool need_to_do_some_bit_stuff =
+            LLVMGetTypeKind(ptr_child_ref) == LLVMIntegerTypeKind &&
+            LLVMGetTypeKind(child_type->type_ref) == LLVMIntegerTypeKind &&
+            LLVMGetIntTypeWidth(child_type->type_ref) < LLVMGetIntTypeWidth(ptr_child_ref);
+        if (!need_to_do_some_bit_stuff) {
+            LLVMValueRef llvm_instruction = LLVMBuildStore(g->builder, value, ptr);
+            LLVMSetVolatile(llvm_instruction, ptr_type->data.pointer.is_volatile);
+            return nullptr;
+        }
     }
 
-    LLVMValueRef llvm_instruction = LLVMBuildStore(g->builder, value, ptr);
+    LLVMValueRef containing_int = LLVMBuildLoad(g->builder, ptr, "");
 
+    uint32_t child_bit_count = type_size_bits(g, child_type);
+    uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
+    uint32_t shift_amt = host_bit_count - bit_offset - child_bit_count;
+    LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
+
+    LLVMValueRef mask_val = LLVMConstAllOnes(child_type->type_ref);
+    mask_val = LLVMConstZExt(mask_val, LLVMTypeOf(containing_int));
+    mask_val = LLVMConstShl(mask_val, shift_amt_val);
+    mask_val = LLVMConstNot(mask_val);
+
+    LLVMValueRef anded_containing_int = LLVMBuildAnd(g->builder, containing_int, mask_val, "");
+    LLVMValueRef extended_value = LLVMBuildZExt(g->builder, value, LLVMTypeOf(containing_int), "");
+    LLVMValueRef shifted_value = LLVMBuildShl(g->builder, extended_value, shift_amt_val, "");
+    LLVMValueRef ored_value = LLVMBuildOr(g->builder, shifted_value, anded_containing_int, "");
+
+    LLVMValueRef llvm_instruction = LLVMBuildStore(g->builder, ored_value, ptr);
     LLVMSetVolatile(llvm_instruction, ptr_type->data.pointer.is_volatile);
-
     return nullptr;
 }
 
