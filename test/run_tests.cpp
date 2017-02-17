@@ -1627,6 +1627,25 @@ pub fn main(args: [][]u8) -> ??void {
 }
     )SOURCE", 1, ".tmp_source.zig:2:30: error: expected return type of main to be '%void', instead is '??void'");
 
+    add_compile_fail_case("casting bit offset pointer to regular pointer", R"SOURCE(
+const u2 = @intType(false, 2);
+const u3 = @intType(false, 3);
+
+const BitField = packed struct {
+    a: u3,
+    b: u3,
+    c: u2,
+};
+
+fn foo(bit_field: &const BitField) -> u3 {
+    return bar(&bit_field.b);
+}
+
+fn bar(x: &const u3) -> u3 {
+    return *x;
+}
+    )SOURCE", 1, ".tmp_source.zig:12:26: error: expected type '&const u3', found '&:3:6 const u3'");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////

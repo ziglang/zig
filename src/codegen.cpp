@@ -1374,27 +1374,17 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
     assert(ptr_type->id == TypeTableEntryIdPointer);
     bool is_volatile = ptr_type->data.pointer.is_volatile;
 
-    uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
-    LLVMValueRef containing_int;
-    if (bit_offset == 0) {
-        LLVMValueRef result_val = get_handle_value(g, ptr, child_type, is_volatile);
-        if (LLVMGetTypeKind(LLVMTypeOf(result_val)) == LLVMIntegerTypeKind &&
-            LLVMGetTypeKind(child_type->type_ref) == LLVMIntegerTypeKind &&
-            LLVMGetIntTypeWidth(child_type->type_ref) < LLVMGetIntTypeWidth(LLVMTypeOf(result_val)))
-        {
-            containing_int = result_val;
-        } else {
-            return result_val;
-        }
-    } else {
-        assert(!handle_is_ptr(child_type));
-        containing_int = LLVMBuildLoad(g->builder, ptr, "");
-        LLVMSetVolatile(containing_int, is_volatile);
-    }
+    uint32_t unaligned_bit_count = ptr_type->data.pointer.unaligned_bit_count;
+    if (unaligned_bit_count == 0)
+        return get_handle_value(g, ptr, child_type, is_volatile);
 
-    uint32_t child_bit_count = type_size_bits(g, child_type);
+    assert(!handle_is_ptr(child_type));
+    LLVMValueRef containing_int = LLVMBuildLoad(g->builder, ptr, "");
+    LLVMSetVolatile(containing_int, is_volatile);
+
+    uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
     uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
-    uint32_t shift_amt = host_bit_count - bit_offset - child_bit_count;
+    uint32_t shift_amt = host_bit_count - bit_offset - unaligned_bit_count;
 
     LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
     LLVMValueRef shifted_value = LLVMBuildLShr(g->builder, containing_int, shift_amt_val, "");
@@ -1416,25 +1406,18 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
     if (handle_is_ptr(child_type))
         return gen_struct_memcpy(g, value, ptr, child_type);
 
-    uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
-    if (bit_offset == 0) {
-        LLVMTypeRef ptr_child_ref = LLVMGetElementType(LLVMTypeOf(ptr));
-        bool need_to_do_some_bit_stuff =
-            LLVMGetTypeKind(ptr_child_ref) == LLVMIntegerTypeKind &&
-            LLVMGetTypeKind(child_type->type_ref) == LLVMIntegerTypeKind &&
-            LLVMGetIntTypeWidth(child_type->type_ref) < LLVMGetIntTypeWidth(ptr_child_ref);
-        if (!need_to_do_some_bit_stuff) {
-            LLVMValueRef llvm_instruction = LLVMBuildStore(g->builder, value, ptr);
-            LLVMSetVolatile(llvm_instruction, ptr_type->data.pointer.is_volatile);
-            return nullptr;
-        }
+    uint32_t unaligned_bit_count = ptr_type->data.pointer.unaligned_bit_count;
+    if (unaligned_bit_count == 0) {
+        LLVMValueRef llvm_instruction = LLVMBuildStore(g->builder, value, ptr);
+        LLVMSetVolatile(llvm_instruction, ptr_type->data.pointer.is_volatile);
+        return nullptr;
     }
 
     LLVMValueRef containing_int = LLVMBuildLoad(g->builder, ptr, "");
 
-    uint32_t child_bit_count = type_size_bits(g, child_type);
+    uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
     uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
-    uint32_t shift_amt = host_bit_count - bit_offset - child_bit_count;
+    uint32_t shift_amt = host_bit_count - bit_offset - unaligned_bit_count;
     LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
 
     LLVMValueRef mask_val = LLVMConstAllOnes(child_type->type_ref);

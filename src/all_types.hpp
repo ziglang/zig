@@ -853,6 +853,7 @@ struct TypeTableEntryPointer {
     bool is_const;
     bool is_volatile;
     uint32_t bit_offset;
+    uint32_t unaligned_bit_count;
 };
 
 struct TypeTableEntryInt {
@@ -877,6 +878,7 @@ struct TypeStructField {
     // offset from the memory at gen_index
     size_t packed_bits_offset;
     size_t packed_bits_size;
+    size_t unaligned_bit_count;
 };
 struct TypeTableEntryStruct {
     AstNode *decl_node;
@@ -1204,6 +1206,7 @@ struct TypeId {
             bool is_const;
             bool is_volatile;
             uint32_t bit_offset;
+            uint32_t unaligned_bit_count;
         } pointer;
         struct {
             TypeTableEntry *child_type;

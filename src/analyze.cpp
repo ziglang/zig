@@ -287,23 +287,25 @@ TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
 }
 
 TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type, bool is_const,
-        uint32_t bit_offset, bool is_volatile)
+        bool is_volatile, uint32_t bit_offset, uint32_t unaligned_bit_count)
 {
     assert(child_type->id != TypeTableEntryIdInvalid);
 
     TypeId type_id = {};
     TypeTableEntry **parent_pointer = nullptr;
-    if (bit_offset != 0 || is_volatile) {
+    if (unaligned_bit_count != 0 || is_volatile) {
         type_id.id = TypeTableEntryIdPointer;
         type_id.data.pointer.child_type = child_type;
         type_id.data.pointer.is_const = is_const;
         type_id.data.pointer.is_volatile = is_volatile;
         type_id.data.pointer.bit_offset = bit_offset;
+        type_id.data.pointer.unaligned_bit_count = unaligned_bit_count;
 
         auto existing_entry = g->type_table.maybe_get(type_id);
         if (existing_entry)
             return existing_entry->value;
     } else {
+        assert(bit_offset == 0);
         parent_pointer = &child_type->pointer_parent[(is_const ? 1 : 0)];
         if (*parent_pointer)
             return *parent_pointer;
@@ -316,11 +318,11 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
     const char *const_str = is_const ? "const " : "";
     const char *volatile_str = is_volatile ? "volatile " : "";
     buf_resize(&entry->name, 0);
-    if (bit_offset == 0) {
+    if (unaligned_bit_count == 0) {
         buf_appendf(&entry->name, "&%s%s%s", const_str, volatile_str, buf_ptr(&child_type->name));
     } else {
-        buf_appendf(&entry->name, "&:%" PRIu8 " %s%s%s", bit_offset, const_str,
-                volatile_str, buf_ptr(&child_type->name));
+        buf_appendf(&entry->name, "&:%" PRIu32 ":%" PRIu32 " %s%s%s", bit_offset,
+                bit_offset + unaligned_bit_count, const_str, volatile_str, buf_ptr(&child_type->name));
     }
 
     TypeTableEntry *canon_child_type = get_underlying_type(child_type);
@@ -344,6 +346,7 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
     entry->data.pointer.is_const = is_const;
     entry->data.pointer.is_volatile = is_volatile;
     entry->data.pointer.bit_offset = bit_offset;
+    entry->data.pointer.unaligned_bit_count = unaligned_bit_count;
 
     if (parent_pointer) {
         *parent_pointer = entry;
@@ -354,7 +357,7 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
 }
 
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const) {
-    return get_pointer_to_type_extra(g, child_type, is_const, 0, false);
+    return get_pointer_to_type_extra(g, child_type, is_const, false, 0, 0);
 }
 
 TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
@@ -1429,13 +1432,15 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
                 break;
             }
 
-            type_struct_field->packed_bits_size = type_size_bits(g, field_type);
+            size_t field_size_in_bits = type_size_bits(g, field_type);
+            size_t next_packed_bits_offset = packed_bits_offset + field_size_in_bits;
 
-            size_t next_packed_bits_offset = packed_bits_offset + type_struct_field->packed_bits_size;
+            type_struct_field->packed_bits_size = field_size_in_bits;
 
             if (first_packed_bits_offset_misalign != SIZE_MAX) {
                 // this field is not byte-aligned; it is part of the previous field with a bit offset
                 type_struct_field->packed_bits_offset = packed_bits_offset - first_packed_bits_offset_misalign;
+                type_struct_field->unaligned_bit_count = field_size_in_bits;
 
                 if (next_packed_bits_offset % 8 == 0) {
                     // next field recovers byte alignment
@@ -1448,9 +1453,12 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
             } else if (next_packed_bits_offset % 8 != 0) {
                 first_packed_bits_offset_misalign = packed_bits_offset;
                 type_struct_field->packed_bits_offset = 0;
+                type_struct_field->unaligned_bit_count = field_size_in_bits;
             } else {
+                // This is a byte-aligned field (both start and end) in a packed struct.
                 element_types[gen_field_index] = field_type->type_ref;
                 type_struct_field->packed_bits_offset = 0;
+                type_struct_field->unaligned_bit_count = 0;
                 gen_field_index += 1;
             }
             packed_bits_offset = next_packed_bits_offset;
@@ -2237,7 +2245,9 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
     if (expected_type->id == TypeTableEntryIdPointer &&
         actual_type->id == TypeTableEntryIdPointer &&
         (!actual_type->data.pointer.is_const || expected_type->data.pointer.is_const) &&
-        (!actual_type->data.pointer.is_volatile || expected_type->data.pointer.is_volatile))
+        (!actual_type->data.pointer.is_volatile || expected_type->data.pointer.is_volatile) &&
+        actual_type->data.pointer.bit_offset == expected_type->data.pointer.bit_offset &&
+        actual_type->data.pointer.unaligned_bit_count == expected_type->data.pointer.unaligned_bit_count)
     {
         return types_match_const_cast_only(expected_type->data.pointer.child_type,
                 actual_type->data.pointer.child_type);
@@ -3943,7 +3953,8 @@ uint32_t type_id_hash(TypeId x) {
             return hash_ptr(x.data.pointer.child_type) +
                 (x.data.pointer.is_const ? 2749109194 : 4047371087) +
                 (x.data.pointer.is_volatile ? 536730450 : 1685612214) +
-                (((uint32_t)x.data.pointer.bit_offset) * 2639019452);
+                (((uint32_t)x.data.pointer.bit_offset) * 2639019452) +
+                (((uint32_t)x.data.pointer.unaligned_bit_count) * 529908881);
         case TypeTableEntryIdArray:
             return hash_ptr(x.data.array.child_type) +
                 (x.data.array.size * 2122979968);
@@ -3987,7 +3998,8 @@ bool type_id_eql(TypeId a, TypeId b) {
             return a.data.pointer.child_type == b.data.pointer.child_type &&
                 a.data.pointer.is_const == b.data.pointer.is_const &&
                 a.data.pointer.is_volatile == b.data.pointer.is_volatile &&
-                a.data.pointer.bit_offset == b.data.pointer.bit_offset;
+                a.data.pointer.bit_offset == b.data.pointer.bit_offset &&
+                a.data.pointer.unaligned_bit_count == b.data.pointer.unaligned_bit_count;
         case TypeTableEntryIdArray:
             return a.data.array.child_type == b.data.array.child_type &&
                 a.data.array.size == b.data.array.size;
