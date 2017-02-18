@@ -253,6 +253,7 @@ bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
 
 
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry) {
+    assert(type_is_complete(type_entry));
     if (type_has_bits(type_entry)) {
         return LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
     } else {

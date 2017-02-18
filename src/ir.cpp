@@ -9904,6 +9904,9 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
     IrInstruction *type_value = size_of_instruction->type_value->other;
     TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
     TypeTableEntry *canon_type_entry = get_underlying_type(type_entry);
+
+    ensure_complete_type(ira->codegen, type_entry);
+
     switch (canon_type_entry->id) {
         case TypeTableEntryIdInvalid:
             return ira->codegen->builtin_types.entry_invalid;
