@@ -9566,10 +9566,6 @@ static TypeTableEntry *ir_analyze_instruction_set_fn_visible(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_void;
 }
 
-static bool is_power_of_2(uint64_t x) {
-    return x != 0 && ((x & (~x + 1)) == x);
-}
-
 static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
         IrInstructionSetGlobalAlign *instruction)
 {

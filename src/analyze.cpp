@@ -254,15 +254,21 @@ bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
 
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry) {
     assert(type_is_complete(type_entry));
-    if (type_has_bits(type_entry)) {
-        return LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
-    } else {
+    TypeTableEntry *canon_type = get_underlying_type(type_entry);
+
+    if (!type_has_bits(type_entry))
         return 0;
+
+    if (canon_type->id == TypeTableEntryIdStruct && canon_type->data.structure.layout == ContainerLayoutPacked) {
+        uint64_t size_in_bits = type_size_bits(g, type_entry);
+        return (size_in_bits + 7) / 8;
     }
+
+    return LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
 }
 
-// This has to do with packed structs
 uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry) {
+    assert(type_is_complete(type_entry));
     TypeTableEntry *canon_type = get_underlying_type(type_entry);
 
     if (!type_has_bits(type_entry))
@@ -530,6 +536,14 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
     }
 
     ensure_complete_type(g, child_type);
+
+    TypeTableEntry *canon_child_type = get_underlying_type(child_type);
+    if (canon_child_type->id == TypeTableEntryIdStruct &&
+        canon_child_type->data.structure.layout == ContainerLayoutPacked &&
+        type_size_bits(g, canon_child_type) != 8 * type_size(g, canon_child_type))
+    {
+        zig_panic("TODO array of packed struct with unaligned size");
+    }
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
     entry->zero_bits = (array_size == 0) || child_type->zero_bits;

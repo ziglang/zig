@@ -99,6 +99,10 @@ static inline bool mem_eql_str(const char *mem, size_t mem_len, const char *str)
     return memcmp(mem, str, mem_len) == 0;
 }
 
+static inline bool is_power_of_2(uint64_t x) {
+    return x != 0 && ((x & (~x + 1)) == x);
+}
+
 uint32_t int_hash(int i);
 bool int_eq(int a, int b);
 uint32_t uint64_hash(uint64_t i);

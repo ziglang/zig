@@ -270,3 +270,51 @@ fn getB(data: &const BitField1) -> u3 {
 fn getC(data: &const BitField1) -> u2 {
     return data.c;
 }
+
+const u24 = @intType(false, 24);
+const Foo24Bits = packed struct {
+    field: u24,
+};
+const Foo96Bits = packed struct {
+    a: u24,
+    b: u24,
+    c: u24,
+    d: u24,
+};
+
+fn packedStruct24Bits() {
+    @setFnTest(this);
+
+    comptime assert(@sizeOf(Foo24Bits) == 3);
+    comptime assert(@sizeOf(Foo96Bits) == 12);
+
+    var value = Foo96Bits {
+        .a = 0,
+        .b = 0,
+        .c = 0,
+        .d = 0,
+    };
+    value.a += 1;
+    assert(value.a == 1);
+    assert(value.b == 0);
+    assert(value.c == 0);
+    assert(value.d == 0);
+
+    value.b += 1;
+    assert(value.a == 1);
+    assert(value.b == 1);
+    assert(value.c == 0);
+    assert(value.d == 0);
+
+    value.c += 1;
+    assert(value.a == 1);
+    assert(value.b == 1);
+    assert(value.c == 1);
+    assert(value.d == 0);
+
+    value.d += 1;
+    assert(value.a == 1);
+    assert(value.b == 1);
+    assert(value.c == 1);
+    assert(value.d == 1);
+}
