@@ -1120,6 +1120,8 @@ bool type_is_invalid(TypeTableEntry *type_entry) {
             return type_entry->data.enumeration.is_invalid;
         case TypeTableEntryIdUnion:
             return type_entry->data.unionation.is_invalid;
+        case TypeTableEntryIdTypeDecl:
+            return type_is_invalid(type_entry->data.type_decl.canonical_type);
         default:
             return false;
     }

@@ -93,10 +93,9 @@ static TestCase *add_simple_case_libc(const char *case_name, const char *source,
     return tc;
 }
 
-static TestCase *add_compile_fail_case(const char *case_name, const char *source, size_t count, ...) {
-    va_list ap;
-    va_start(ap, count);
-
+static TestCase *add_compile_fail_case_extra(const char *case_name, const char *source, bool check_unused,
+        size_t count, va_list ap)
+{
     TestCase *test_case = allocate<TestCase>(1);
     test_case->case_name = case_name;
     test_case->source_files.resize(1);
@@ -122,13 +121,30 @@ static TestCase *add_compile_fail_case(const char *case_name, const char *source
 
     test_case->compiler_args.append("--release");
     test_case->compiler_args.append("--strip");
-    test_case->compiler_args.append("--check-unused");
+
+    if (check_unused) {
+        test_case->compiler_args.append("--check-unused");
+    }
 
     test_cases.append(test_case);
 
-    va_end(ap);
-
     return test_case;
+}
+
+static TestCase *add_compile_fail_case_no_check_unused(const char *case_name, const char *source, size_t count, ...) {
+    va_list ap;
+    va_start(ap, count);
+    TestCase *result = add_compile_fail_case_extra(case_name, source, false, count, ap);
+    va_end(ap);
+    return result;
+}
+
+static TestCase *add_compile_fail_case(const char *case_name, const char *source, size_t count, ...) {
+    va_list ap;
+    va_start(ap, count);
+    TestCase *result = add_compile_fail_case_extra(case_name, source, true, count, ap);
+    va_end(ap);
+    return result;
 }
 
 static void add_debug_safety_case(const char *case_name, const char *source) {
@@ -1645,6 +1661,22 @@ fn bar(x: &const u3) -> u3 {
     return *x;
 }
     )SOURCE", 1, ".tmp_source.zig:12:26: error: expected type '&const u3', found '&:3:6 const u3'");
+
+    add_compile_fail_case_no_check_unused("referring to a struct that is invalid without --check-unused", R"SOURCE(
+const UsbDeviceRequest = struct {
+    Type: u8,
+};
+
+export fn foo() {
+    comptime assert(@sizeOf(UsbDeviceRequest) == 0x8);
+}
+
+fn assert(ok: bool) {
+    if (!ok) @unreachable();
+}
+    )SOURCE", 2,
+            ".tmp_source.zig:11:14: error: unable to evaluate constant expression",
+            ".tmp_source.zig:7:20: note: called from here");
 
 }
 
