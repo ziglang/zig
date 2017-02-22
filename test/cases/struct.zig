@@ -285,8 +285,10 @@ const Foo96Bits = packed struct {
 fn packedStruct24Bits() {
     @setFnTest(this);
 
-    comptime assert(@sizeOf(Foo24Bits) == 3);
-    comptime assert(@sizeOf(Foo96Bits) == 12);
+    comptime {
+        assert(@sizeOf(Foo24Bits) == 3);
+        assert(@sizeOf(Foo96Bits) == 12);
+    }
 
     var value = Foo96Bits {
         .a = 0,
@@ -317,4 +319,53 @@ fn packedStruct24Bits() {
     assert(value.b == 1);
     assert(value.c == 1);
     assert(value.d == 1);
+}
+
+const FooArray24Bits = packed struct {
+    a: u16,
+    b: [2]Foo24Bits,
+    c: u16,
+};
+
+fn packedArray24Bits() {
+    @setFnTest(this);
+
+    comptime {
+        assert(@sizeOf([9]Foo24Bits) == 9 * 3);
+        assert(@sizeOf(FooArray24Bits) == 2 + 2 * 3 + 2);
+    }
+
+    var bytes = []u8{0} ** (@sizeOf(FooArray24Bits) + 1);
+    bytes[bytes.len - 1] = 0xaa;
+    const ptr = &([]FooArray24Bits)(bytes[0...bytes.len - 1])[0];
+    assert(ptr.a == 0);
+    assert(ptr.b[0].field == 0);
+    assert(ptr.b[1].field == 0);
+    assert(ptr.c == 0);
+
+    ptr.a = @maxValue(u16);
+    assert(ptr.a == @maxValue(u16));
+    assert(ptr.b[0].field == 0);
+    assert(ptr.b[1].field == 0);
+    assert(ptr.c == 0);
+
+    ptr.b[0].field = @maxValue(u24);
+    assert(ptr.a == @maxValue(u16));
+    assert(ptr.b[0].field == @maxValue(u24));
+    assert(ptr.b[1].field == 0);
+    assert(ptr.c == 0);
+
+    ptr.b[1].field = @maxValue(u24);
+    assert(ptr.a == @maxValue(u16));
+    assert(ptr.b[0].field == @maxValue(u24));
+    assert(ptr.b[1].field == @maxValue(u24));
+    assert(ptr.c == 0);
+
+    ptr.c = @maxValue(u16);
+    assert(ptr.a == @maxValue(u16));
+    assert(ptr.b[0].field == @maxValue(u24));
+    assert(ptr.b[1].field == @maxValue(u24));
+    assert(ptr.c == @maxValue(u16));
+
+    assert(bytes[bytes.len - 1] == 0xaa);
 }

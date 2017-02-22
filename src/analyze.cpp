@@ -163,6 +163,7 @@ static TypeTableEntry *new_container_type_entry(TypeTableEntryId id, AstNode *so
 }
 
 
+// TODO no reason to limit to 8/16/32/64
 static size_t bits_needed_for_unsigned(uint64_t x) {
     if (x <= UINT8_MAX) {
         return 8;
@@ -262,6 +263,14 @@ uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry) {
     if (canon_type->id == TypeTableEntryIdStruct && canon_type->data.structure.layout == ContainerLayoutPacked) {
         uint64_t size_in_bits = type_size_bits(g, type_entry);
         return (size_in_bits + 7) / 8;
+    } else if (canon_type->id == TypeTableEntryIdArray) {
+        TypeTableEntry *canon_child_type = get_underlying_type(canon_type->data.array.child_type);
+        if (canon_child_type->id == TypeTableEntryIdStruct &&
+            canon_child_type->data.structure.layout == ContainerLayoutPacked)
+        {
+            uint64_t size_in_bits = type_size_bits(g, type_entry);
+            return (size_in_bits + 7) / 8;
+        }
     }
 
     return LLVMStoreSizeOfType(g->target_data_ref, type_entry->type_ref);
@@ -280,6 +289,13 @@ uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry) {
             result += type_size_bits(g, canon_type->data.structure.fields[i].type_entry);
         }
         return result;
+    } else if (canon_type->id == TypeTableEntryIdArray) {
+        TypeTableEntry *canon_child_type = get_underlying_type(canon_type->data.array.child_type);
+        if (canon_child_type->id == TypeTableEntryIdStruct &&
+            canon_child_type->data.structure.layout == ContainerLayoutPacked)
+        {
+            return canon_type->data.array.len * type_size_bits(g, canon_child_type);
+        }
     }
 
     return LLVMSizeOfTypeInBits(g->target_data_ref, canon_type->type_ref);
@@ -536,14 +552,6 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
     }
 
     ensure_complete_type(g, child_type);
-
-    TypeTableEntry *canon_child_type = get_underlying_type(child_type);
-    if (canon_child_type->id == TypeTableEntryIdStruct &&
-        canon_child_type->data.structure.layout == ContainerLayoutPacked &&
-        type_size_bits(g, canon_child_type) != 8 * type_size(g, canon_child_type))
-    {
-        zig_panic("TODO array of packed struct with unaligned size");
-    }
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
     entry->zero_bits = (array_size == 0) || child_type->zero_bits;
@@ -1459,15 +1467,16 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
                 type_struct_field->packed_bits_offset = packed_bits_offset - first_packed_bits_offset_misalign;
                 type_struct_field->unaligned_bit_count = field_size_in_bits;
 
-                if (next_packed_bits_offset % 8 == 0) {
-                    // next field recovers byte alignment
-                    size_t full_bit_count = next_packed_bits_offset - first_packed_bits_offset_misalign;
-                    element_types[gen_field_index] = LLVMIntType(full_bit_count);
+                size_t full_bit_count = next_packed_bits_offset - first_packed_bits_offset_misalign;
+                LLVMTypeRef int_type_ref = LLVMIntType(full_bit_count);
+                if (8 * LLVMStoreSizeOfType(g->target_data_ref, int_type_ref) == full_bit_count) {
+                    // next field recovers store alignment
+                    element_types[gen_field_index] = int_type_ref;
                     gen_field_index += 1;
 
                     first_packed_bits_offset_misalign = SIZE_MAX;
                 }
-            } else if (next_packed_bits_offset % 8 != 0) {
+            } else if (8 * LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref) != field_size_in_bits) {
                 first_packed_bits_offset_misalign = packed_bits_offset;
                 type_struct_field->packed_bits_offset = 0;
                 type_struct_field->unaligned_bit_count = field_size_in_bits;
@@ -1489,7 +1498,9 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     }
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
-        element_types[gen_field_index] = LLVMIntType(full_bit_count);
+        LLVMTypeRef int_type_ref = LLVMIntType(full_bit_count);
+        size_t store_bit_count = 8 * LLVMStoreSizeOfType(g->target_data_ref, int_type_ref);
+        element_types[gen_field_index] = LLVMIntType(store_bit_count);
         gen_field_index += 1;
     }
 
@@ -3620,33 +3631,22 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
     zig_unreachable();
 }
 
-static uint64_t max_unsigned_val(TypeTableEntry *type_entry) {
+uint64_t max_unsigned_val(TypeTableEntry *type_entry) {
     assert(type_entry->id == TypeTableEntryIdInt);
     if (type_entry->data.integral.bit_count == 64) {
         return UINT64_MAX;
-    } else if (type_entry->data.integral.bit_count == 32) {
-        return UINT32_MAX;
-    } else if (type_entry->data.integral.bit_count == 16) {
-        return UINT16_MAX;
-    } else if (type_entry->data.integral.bit_count == 8) {
-        return UINT8_MAX;
     } else {
-        zig_unreachable();
+        return (((uint64_t)1) << type_entry->data.integral.bit_count) - 1;
     }
 }
 
 static int64_t max_signed_val(TypeTableEntry *type_entry) {
     assert(type_entry->id == TypeTableEntryIdInt);
+
     if (type_entry->data.integral.bit_count == 64) {
         return INT64_MAX;
-    } else if (type_entry->data.integral.bit_count == 32) {
-        return INT32_MAX;
-    } else if (type_entry->data.integral.bit_count == 16) {
-        return INT16_MAX;
-    } else if (type_entry->data.integral.bit_count == 8) {
-        return INT8_MAX;
     } else {
-        zig_unreachable();
+        return (((uint64_t)1) << (type_entry->data.integral.bit_count - 1)) - 1;
     }
 }
 
@@ -3654,14 +3654,8 @@ int64_t min_signed_val(TypeTableEntry *type_entry) {
     assert(type_entry->id == TypeTableEntryIdInt);
     if (type_entry->data.integral.bit_count == 64) {
         return INT64_MIN;
-    } else if (type_entry->data.integral.bit_count == 32) {
-        return INT32_MIN;
-    } else if (type_entry->data.integral.bit_count == 16) {
-        return INT16_MIN;
-    } else if (type_entry->data.integral.bit_count == 8) {
-        return INT8_MIN;
     } else {
-        zig_unreachable();
+        return -((int64_t)(((uint64_t)1) << (type_entry->data.integral.bit_count - 1)));
     }
 }
 

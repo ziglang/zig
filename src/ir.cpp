@@ -7412,21 +7412,6 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     return ira->codegen->builtin_types.entry_bool;
 }
 
-static uint64_t max_unsigned_val(TypeTableEntry *type_entry) {
-    assert(type_entry->id == TypeTableEntryIdInt);
-    if (type_entry->data.integral.bit_count == 64) {
-        return UINT64_MAX;
-    } else if (type_entry->data.integral.bit_count == 32) {
-        return UINT32_MAX;
-    } else if (type_entry->data.integral.bit_count == 16) {
-        return UINT16_MAX;
-    } else if (type_entry->data.integral.bit_count == 8) {
-        return UINT8_MAX;
-    } else {
-        zig_unreachable();
-    }
-}
-
 static int ir_eval_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
         ConstExprValue *out_val, bool (*bignum_fn)(BigNum *, BigNum *, BigNum *),
         TypeTableEntry *type, bool wrapping_op)
@@ -8844,8 +8829,21 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                     buf_sprintf("index 0 outside array of size 0"));
         }
         TypeTableEntry *child_type = array_type->data.array.child_type;
-        return_type = get_pointer_to_type_extra(ira->codegen, child_type,
-                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, 0, 0);
+        if (ptr_type->data.pointer.unaligned_bit_count == 0) {
+            return_type = get_pointer_to_type_extra(ira->codegen, child_type,
+                    ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, 0, 0);
+        } else {
+            ConstExprValue *elem_val = ir_resolve_const(ira, elem_index, UndefBad);
+            if (!elem_val)
+                return ira->codegen->builtin_types.entry_invalid;
+
+            size_t bit_width = type_size_bits(ira->codegen, child_type);
+            size_t bit_offset = bit_width * elem_val->data.x_bignum.data.x_uint;
+
+            return_type = get_pointer_to_type_extra(ira->codegen, child_type,
+                    ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+                    bit_offset, bit_width);
+        }
     } else if (array_type->id == TypeTableEntryIdPointer) {
         return_type = array_type;
     } else if (is_slice(array_type)) {
@@ -9072,9 +9070,13 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                     return ptr_type;
                 }
             }
+            size_t ptr_bit_offset = container_ptr->value.type->data.pointer.bit_offset;
+            size_t ptr_unaligned_bit_count = container_ptr->value.type->data.pointer.unaligned_bit_count;
+            size_t unaligned_bit_count_for_result_type = (ptr_unaligned_bit_count == 0) ?
+                field->unaligned_bit_count : type_size_bits(ira->codegen, field->type_entry);
             ir_build_struct_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
-            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const,
-                    is_volatile, field->packed_bits_offset, field->unaligned_bit_count);
+            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
+                    ptr_bit_offset + field->packed_bits_offset, unaligned_bit_count_for_result_type);
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
                 field_ptr_instruction, container_ptr, container_type);

@@ -1466,6 +1466,27 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
                     array_type->data.array.len, false);
             add_bounds_check(g, subscript_value, LLVMIntEQ, nullptr, LLVMIntULT, end);
         }
+        if (array_ptr_type->data.pointer.unaligned_bit_count != 0) {
+            return array_ptr_ptr;
+        }
+        TypeTableEntry *canon_child_type = get_underlying_type(array_type->data.array.child_type);
+        if (canon_child_type->id == TypeTableEntryIdStruct &&
+            canon_child_type->data.structure.layout == ContainerLayoutPacked)
+        {
+            LLVMTypeRef ptr_u8_type_ref = LLVMPointerType(LLVMInt8Type(), 0);
+            LLVMValueRef u8_array_ptr = LLVMBuildBitCast(g->builder, array_ptr, ptr_u8_type_ref, "");
+            size_t unaligned_bit_count = instruction->base.value.type->data.pointer.unaligned_bit_count;
+            assert(unaligned_bit_count != 0);
+            assert(unaligned_bit_count % 8 == 0);
+            LLVMValueRef elem_size_bytes = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+                    unaligned_bit_count / 8, false);
+            LLVMValueRef byte_offset = LLVMBuildNUWMul(g->builder, subscript_value, elem_size_bytes, "");
+            LLVMValueRef indices[] = {
+                byte_offset
+            };
+            LLVMValueRef elem_byte_ptr = LLVMBuildInBoundsGEP(g->builder, u8_array_ptr, indices, 1, "");
+            return LLVMBuildBitCast(g->builder, elem_byte_ptr, LLVMPointerType(canon_child_type->type_ref, 0), "");
+        }
         LLVMValueRef indices[] = {
             LLVMConstNull(g->builtin_types.entry_usize->type_ref),
             subscript_value
@@ -1552,10 +1573,18 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
     IrInstructionStructFieldPtr *instruction)
 {
     LLVMValueRef struct_ptr = ir_llvm_value(g, instruction->struct_ptr);
+    // not necessarily a pointer. could be TypeTableEntryIdStruct
+    TypeTableEntry *struct_ptr_type = instruction->struct_ptr->value.type;
     TypeStructField *field = instruction->field;
 
     if (!type_has_bits(field->type_entry))
         return nullptr;
+
+    if (struct_ptr_type->id == TypeTableEntryIdPointer &&
+        struct_ptr_type->data.pointer.unaligned_bit_count != 0)
+    {
+        return struct_ptr;
+    }
 
     assert(field->gen_index != SIZE_MAX);
     return LLVMBuildStructGEP(g->builder, struct_ptr, field->gen_index, "");

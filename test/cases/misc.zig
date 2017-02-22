@@ -50,27 +50,39 @@ fn intTypeBuiltin() {
     assert(!usize.is_signed);
 }
 
+const u1 = @intType(false, 1);
+const u63 = @intType(false, 63);
+const i1 = @intType(true, 1);
+const i63 = @intType(true, 63);
+
 fn minValueAndMaxValue() {
     @setFnTest(this);
 
+    assert(@maxValue(u1) == 1);
     assert(@maxValue(u8) == 255);
     assert(@maxValue(u16) == 65535);
     assert(@maxValue(u32) == 4294967295);
     assert(@maxValue(u64) == 18446744073709551615);
 
+    assert(@maxValue(i1) == 0);
     assert(@maxValue(i8) == 127);
     assert(@maxValue(i16) == 32767);
     assert(@maxValue(i32) == 2147483647);
+    assert(@maxValue(i63) == 4611686018427387903);
     assert(@maxValue(i64) == 9223372036854775807);
 
+    assert(@minValue(u1) == 0);
     assert(@minValue(u8) == 0);
     assert(@minValue(u16) == 0);
     assert(@minValue(u32) == 0);
+    assert(@minValue(u63) == 0);
     assert(@minValue(u64) == 0);
 
+    assert(@minValue(i1) == -1);
     assert(@minValue(i8) == -128);
     assert(@minValue(i16) == -32768);
     assert(@minValue(i32) == -2147483648);
+    assert(@minValue(i63) == -4611686018427387904);
     assert(@minValue(i64) == -9223372036854775808);
 }
 
