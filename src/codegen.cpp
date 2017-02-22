@@ -1473,19 +1473,20 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
         if (canon_child_type->id == TypeTableEntryIdStruct &&
             canon_child_type->data.structure.layout == ContainerLayoutPacked)
         {
-            LLVMTypeRef ptr_u8_type_ref = LLVMPointerType(LLVMInt8Type(), 0);
-            LLVMValueRef u8_array_ptr = LLVMBuildBitCast(g->builder, array_ptr, ptr_u8_type_ref, "");
             size_t unaligned_bit_count = instruction->base.value.type->data.pointer.unaligned_bit_count;
-            assert(unaligned_bit_count != 0);
-            assert(unaligned_bit_count % 8 == 0);
-            LLVMValueRef elem_size_bytes = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
-                    unaligned_bit_count / 8, false);
-            LLVMValueRef byte_offset = LLVMBuildNUWMul(g->builder, subscript_value, elem_size_bytes, "");
-            LLVMValueRef indices[] = {
-                byte_offset
-            };
-            LLVMValueRef elem_byte_ptr = LLVMBuildInBoundsGEP(g->builder, u8_array_ptr, indices, 1, "");
-            return LLVMBuildBitCast(g->builder, elem_byte_ptr, LLVMPointerType(canon_child_type->type_ref, 0), "");
+            if (unaligned_bit_count != 0) {
+                LLVMTypeRef ptr_u8_type_ref = LLVMPointerType(LLVMInt8Type(), 0);
+                LLVMValueRef u8_array_ptr = LLVMBuildBitCast(g->builder, array_ptr, ptr_u8_type_ref, "");
+                assert(unaligned_bit_count % 8 == 0);
+                LLVMValueRef elem_size_bytes = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
+                        unaligned_bit_count / 8, false);
+                LLVMValueRef byte_offset = LLVMBuildNUWMul(g->builder, subscript_value, elem_size_bytes, "");
+                LLVMValueRef indices[] = {
+                    byte_offset
+                };
+                LLVMValueRef elem_byte_ptr = LLVMBuildInBoundsGEP(g->builder, u8_array_ptr, indices, 1, "");
+                return LLVMBuildBitCast(g->builder, elem_byte_ptr, LLVMPointerType(canon_child_type->type_ref, 0), "");
+            }
         }
         LLVMValueRef indices[] = {
             LLVMConstNull(g->builtin_types.entry_usize->type_ref),

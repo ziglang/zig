@@ -369,3 +369,29 @@ fn packedArray24Bits() {
 
     assert(bytes[bytes.len - 1] == 0xaa);
 }
+
+const FooStructAligned = packed struct {
+    a: u8,
+    b: u8,
+};
+
+const FooArrayOfAligned = packed struct {
+    a: [2]FooStructAligned,
+};
+
+fn alignedArrayOfPackedStruct() {
+    @setFnTest(this);
+
+    comptime {
+        assert(@sizeOf(FooStructAligned) == 2);
+        assert(@sizeOf(FooArrayOfAligned) == 2 * 2);
+    }
+
+    var bytes = []u8{0xbb} ** @sizeOf(FooArrayOfAligned);
+    const ptr = &([]FooArrayOfAligned)(bytes[0...bytes.len])[0];
+
+    assert(ptr.a[0].a == 0xbb);
+    assert(ptr.a[0].b == 0xbb);
+    assert(ptr.a[1].a == 0xbb);
+    assert(ptr.a[1].b == 0xbb);
+}
