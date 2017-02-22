@@ -8952,7 +8952,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                 }
                 if (new_index >= mem_size) {
                     ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
-                        buf_sprintf("index %" PRIu64 " outside pointer of size %" PRIu64, index, old_size));
+                        buf_sprintf("index %" PRIu64 " outside pointer of size %zu", index, old_size));
                     return ira->codegen->builtin_types.entry_invalid;
                 }
             } else if (is_slice(array_type)) {
