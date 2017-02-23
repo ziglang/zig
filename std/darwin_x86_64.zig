@@ -11,6 +11,7 @@ pub const SYSCALL_CLASS_DIAG = 4; // Diagnostics
 
 // TODO: use the above constants to create the below values
 
+pub const SYS_exit = 0x2000001;
 pub const SYS_read = 0x2000003;
 pub const SYS_write = 0x2000004;
 pub const SYS_open = 0x2000005;

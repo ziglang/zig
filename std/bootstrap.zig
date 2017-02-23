@@ -2,14 +2,17 @@
 
 const root = @import("@root");
 const std = @import("std");
-const linux = std.linux;
-const cstr = std.cstr;
 
 const want_start_symbol = switch(@compileVar("os")) {
     Os.linux => true,
     else => false,
 };
 const want_main_symbol = !want_start_symbol;
+
+const exit = switch(@compileVar("os")) {
+    Os.linux => std.linux.exit,
+    Os.darwin => std.darwin.exit,
+};
 
 var argc: usize = undefined;
 var argv: &&u8 = undefined;
@@ -35,14 +38,14 @@ fn callMain() -> %void {
     const args = @alloca([]u8, argc);
     for (args) |_, i| {
         const ptr = argv[i];
-        args[i] = ptr[0...cstr.len(ptr)];
+        args[i] = ptr[0...std.cstr.len(ptr)];
     }
     return root.main(args);
 }
 
 fn callMainAndExit() -> unreachable {
-    callMain() %% linux.exit(1);
-    linux.exit(0);
+    callMain() %% exit(1);
+    exit(0);
 }
 
 export fn main(c_argc: i32, c_argv: &&u8) -> i32 {

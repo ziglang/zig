@@ -48,6 +48,11 @@ pub const SIGPWR    = 30;
 pub const SIGSYS    = 31;
 pub const SIGUNUSED = SIGSYS;
 
+pub fn exit(status: usize) -> unreachable {
+    arch.syscall1(arch.SYS_exit, status);
+    @unreachable()
+}
+
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) -> usize {
     const signed_r = *(&isize)(&r);
@@ -67,7 +72,7 @@ pub fn open_c(path: &const u8, flags: usize, perm: usize) -> usize {
 }
 
 pub fn open(path: []const u8, flags: usize, perm: usize) -> usize {
-    var buf: [path.len + 1]u8 = undefined;
+    const buf = @alloca(u8, path.len + 1);
     @memcpy(&buf[0], &path[0], path.len);
     buf[path.len] = 0;
     return open_c(buf.ptr, flags, perm);
