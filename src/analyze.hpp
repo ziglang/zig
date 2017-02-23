@@ -49,7 +49,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
 // TODO move these over, these used to be static
 bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type);
 VariableTableEntry *find_variable(CodeGen *g, Scope *orig_context, Buf *name);
-Tld *find_decl(Scope *scope, Buf *name);
+Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
 void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only);
 bool type_is_codegen_pointer(TypeTableEntry *type);
 TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry);

@@ -2110,7 +2110,7 @@ VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
                 variable_entry->value.type = g->builtin_types.entry_invalid;
             } else {
-                Tld *tld = find_decl(parent_scope, name);
+                Tld *tld = find_decl(g, parent_scope, name);
                 if (tld && tld->id != TldIdVar) {
                     ErrorMsg *msg = add_node_error(g, source_node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
@@ -2357,7 +2357,17 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
     return false;
 }
 
-Tld *find_decl(Scope *scope, Buf *name) {
+Tld *find_decl(CodeGen *g, Scope *scope, Buf *name) {
+    // we must resolve all the use decls
+    ImportTableEntry *import = get_scope_import(scope);
+    for (size_t i = 0; i < import->use_decls.length; i += 1) {
+        AstNode *use_decl_node = import->use_decls.at(i);
+        if (use_decl_node->data.use.resolution == TldResolutionUnresolved) {
+            preview_use_decl(g, use_decl_node);
+        }
+        resolve_use_decl(g, use_decl_node);
+    }
+
     while (scope) {
         if (scope->id == ScopeIdDecls) {
             ScopeDecls *decls_scope = (ScopeDecls *)scope;

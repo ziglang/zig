@@ -3180,7 +3180,7 @@ static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Sco
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
                 variable_entry->value.type = codegen->builtin_types.entry_invalid;
             } else {
-                Tld *tld = find_decl(parent_scope, name);
+                Tld *tld = find_decl(codegen, parent_scope, name);
                 if (tld && tld->id != TldIdVar) {
                     ErrorMsg *msg = add_node_error(codegen, node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
@@ -3676,7 +3676,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
             return ir_build_load_ptr(irb, scope, node, var_ptr);
     }
 
-    Tld *tld = find_decl(scope, variable_name);
+    Tld *tld = find_decl(irb->codegen, scope, variable_name);
     if (tld)
         return ir_gen_decl_ref(irb, node, tld, lval, scope);
 
@@ -4210,7 +4210,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return irb->codegen->invalid_instruction;
                 }
                 Buf *variable_name = arg0_node->data.symbol_expr.symbol;
-                Tld *tld = find_decl(scope, variable_name);
+                Tld *tld = find_decl(irb->codegen, scope, variable_name);
                 if (!tld) {
                     add_node_error(irb->codegen, node, buf_sprintf("use of undeclared identifier '%s'",
                                 buf_ptr(variable_name)));
@@ -9333,19 +9333,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
 
         ImportTableEntry *namespace_import = namespace_val->data.x_import;
 
-        Tld *tld = find_decl(&namespace_import->decls_scope->base, field_name);
-        if (!tld) {
-            // we must now resolve all the use decls
-            // TODO move this check to find_decl?
-            for (size_t i = 0; i < namespace_import->use_decls.length; i += 1) {
-                AstNode *use_decl_node = namespace_import->use_decls.at(i);
-                if (use_decl_node->data.use.resolution == TldResolutionUnresolved) {
-                    preview_use_decl(ira->codegen, use_decl_node);
-                }
-                resolve_use_decl(ira->codegen, use_decl_node);
-            }
-            tld = find_decl(&namespace_import->decls_scope->base, field_name);
-        }
+        Tld *tld = find_decl(ira->codegen, &namespace_import->decls_scope->base, field_name);
         if (tld) {
             if (tld->visib_mod == VisibModPrivate &&
                 tld->import != source_node->owner)
