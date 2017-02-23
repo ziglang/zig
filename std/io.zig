@@ -101,6 +101,7 @@ pub const OutStream = struct {
         CloseBrace,
         Integer,
         IntegerWidth,
+        Character,
     };
 
     /// Calls print and then flushes the buffer.
@@ -155,6 +156,9 @@ pub const OutStream = struct {
                         width = 0;
                         state = State.Integer;
                     },
+                    'c' => {
+                        state = State.Character;
+                    },
                     else => @compileError("Unknown format character: " ++ []u8{c}),
                 },
                 State.CloseBrace => switch (c) {
@@ -186,6 +190,15 @@ pub const OutStream = struct {
                         start_index = i + 1;
                     },
                     '0' ... '9' => {},
+                    else => @compileError("Unexpected character in format string: " ++ []u8{c}),
+                },
+                State.Character => switch (c) {
+                    '}' => {
+                        self.printAsciiChar(args[next_arg]);
+                        next_arg += 1;
+                        state = State.Start;
+                        start_index = i + 1;
+                    },
                     else => @compileError("Unexpected character in format string: " ++ []u8{c}),
                 },
             }
@@ -226,6 +239,14 @@ pub const OutStream = struct {
         }
         const amt_printed = bufPrintInt(self.buffer[self.index...], x, base, uppercase, width);
         self.index += amt_printed;
+    }
+
+    pub fn printAsciiChar(self: &OutStream, c: u8) -> %void {
+        if (self.index + 1 >= self.buffer.len) {
+            %return self.flush();
+        }
+        self.buffer[self.index] = c;
+        self.index += 1;
     }
 
     pub fn flush(self: &OutStream) -> %void {
