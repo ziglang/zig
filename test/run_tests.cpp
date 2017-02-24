@@ -1678,6 +1678,19 @@ fn assert(ok: bool) {
             ".tmp_source.zig:11:14: error: unable to evaluate constant expression",
             ".tmp_source.zig:7:20: note: called from here");
 
+    add_compile_fail_case("control flow uses comptime var at runtime", R"SOURCE(
+fn foo() {
+    comptime var i = 0;
+    while (i < 5; i += 1) {
+        bar();
+    }
+}
+
+fn bar() { }
+    )SOURCE", 2,
+            ".tmp_source.zig:4:5: error: control flow attempts to use compile-time variable at runtime",
+            ".tmp_source.zig:4:21: note: compile-time variable assigned here");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////

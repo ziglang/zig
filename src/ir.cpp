@@ -8601,6 +8601,15 @@ static TypeTableEntry *ir_analyze_instruction_br(IrAnalyze *ira, IrInstructionBr
         return ir_inline_bb(ira, &br_instruction->base, old_dest_block);
 
     IrBasicBlock *new_bb = ir_get_new_bb(ira, old_dest_block, &br_instruction->base);
+
+    if (new_bb->must_be_comptime_source_instr) {
+        ErrorMsg *msg = ir_add_error(ira, &br_instruction->base,
+            buf_sprintf("control flow attempts to use compile-time variable at runtime"));
+        add_error_note(ira->codegen, msg, new_bb->must_be_comptime_source_instr->source_node,
+                buf_sprintf("compile-time variable assigned here"));
+        return ir_unreach_error(ira);
+    }
+
     ir_build_br_from(&ira->new_irb, &br_instruction->base, new_bb);
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
@@ -9392,6 +9401,9 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
                 ConstExprValue *dest_val = const_ptr_pointee(&ptr->value);
                 if (dest_val->special != ConstValSpecialRuntime) {
                     *dest_val = casted_value->value;
+                    if (!ira->new_irb.current_basic_block->must_be_comptime_source_instr) {
+                        ira->new_irb.current_basic_block->must_be_comptime_source_instr = &store_ptr_instruction->base;
+                    }
                     return ir_analyze_void(ira, &store_ptr_instruction->base);
                 }
             }

@@ -1589,6 +1589,10 @@ struct IrBasicBlock {
     // analyze the basic block. If the same instruction wants us to emit
     // the same basic block, then we re-generate it instead of saving it.
     IrInstruction *ref_instruction;
+    // When this is non-null, a branch to this basic block is only allowed
+    // if the branch is comptime. The instruction points to the reason
+    // the basic block must be comptime.
+    IrInstruction *must_be_comptime_source_instr;
 };
 
 enum IrInstructionId {
