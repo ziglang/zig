@@ -218,7 +218,7 @@ export fn __umoddi3(a: du_int, b: du_int) -> du_int {
     @setDebugSafety(this, false);
 
     var r: du_int = undefined;
-    __udivmoddi4(a, b, &r);
+    _ = __udivmoddi4(a, b, &r);
     return r;
 }
 

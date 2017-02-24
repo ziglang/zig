@@ -2928,6 +2928,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                 render_const_val_global(g, const_val, "");
                 switch (const_val->data.x_ptr.special) {
                     case ConstPtrSpecialInvalid:
+                    case ConstPtrSpecialDiscard:
                         zig_unreachable();
                     case ConstPtrSpecialRef:
                         {

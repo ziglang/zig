@@ -230,7 +230,7 @@ static void add_compiling_test_cases(void) {
     add_simple_case_libc("hello world with libc", R"SOURCE(
 const c = @cImport(@cInclude("stdio.h"));
 export fn main(argc: c_int, argv: &&u8) -> c_int {
-    c.puts(c"Hello, world!");
+    _ = c.puts(c"Hello, world!");
     return 0;
 }
     )SOURCE", "Hello, world!" NL);
@@ -344,84 +344,84 @@ pub fn main(args: [][]u8) -> %void {
 const c = @cImport(@cInclude("stdio.h"));
 
 export fn main(argc: c_int, argv: &&u8) -> c_int {
-    c.printf(c"\n");
+    _ = c.printf(c"\n");
 
-    c.printf(c"0: %llu\n",
+    _ = c.printf(c"0: %llu\n",
              u64(0));
-    c.printf(c"320402575052271: %llu\n",
+    _ = c.printf(c"320402575052271: %llu\n",
          u64(320402575052271));
-    c.printf(c"0x01236789abcdef: %llu\n",
+    _ = c.printf(c"0x01236789abcdef: %llu\n",
          u64(0x01236789abcdef));
-    c.printf(c"0xffffffffffffffff: %llu\n",
+    _ = c.printf(c"0xffffffffffffffff: %llu\n",
          u64(0xffffffffffffffff));
-    c.printf(c"0x000000ffffffffffffffff: %llu\n",
+    _ = c.printf(c"0x000000ffffffffffffffff: %llu\n",
          u64(0x000000ffffffffffffffff));
-    c.printf(c"0o1777777777777777777777: %llu\n",
+    _ = c.printf(c"0o1777777777777777777777: %llu\n",
          u64(0o1777777777777777777777));
-    c.printf(c"0o0000001777777777777777777777: %llu\n",
+    _ = c.printf(c"0o0000001777777777777777777777: %llu\n",
          u64(0o0000001777777777777777777777));
-    c.printf(c"0b1111111111111111111111111111111111111111111111111111111111111111: %llu\n",
+    _ = c.printf(c"0b1111111111111111111111111111111111111111111111111111111111111111: %llu\n",
          u64(0b1111111111111111111111111111111111111111111111111111111111111111));
-    c.printf(c"0b0000001111111111111111111111111111111111111111111111111111111111111111: %llu\n",
+    _ = c.printf(c"0b0000001111111111111111111111111111111111111111111111111111111111111111: %llu\n",
          u64(0b0000001111111111111111111111111111111111111111111111111111111111111111));
 
-    c.printf(c"\n");
+    _ = c.printf(c"\n");
 
-    c.printf(c"0.0: %a\n",
+    _ = c.printf(c"0.0: %a\n",
          f64(0.0));
-    c.printf(c"0e0: %a\n",
+    _ = c.printf(c"0e0: %a\n",
          f64(0e0));
-    c.printf(c"0.0e0: %a\n",
+    _ = c.printf(c"0.0e0: %a\n",
          f64(0.0e0));
-    c.printf(c"000000000000000000000000000000000000000000000000000000000.0e0: %a\n",
+    _ = c.printf(c"000000000000000000000000000000000000000000000000000000000.0e0: %a\n",
          f64(000000000000000000000000000000000000000000000000000000000.0e0));
-    c.printf(c"0.000000000000000000000000000000000000000000000000000000000e0: %a\n",
+    _ = c.printf(c"0.000000000000000000000000000000000000000000000000000000000e0: %a\n",
          f64(0.000000000000000000000000000000000000000000000000000000000e0));
-    c.printf(c"0.0e000000000000000000000000000000000000000000000000000000000: %a\n",
+    _ = c.printf(c"0.0e000000000000000000000000000000000000000000000000000000000: %a\n",
          f64(0.0e000000000000000000000000000000000000000000000000000000000));
-    c.printf(c"1.0: %a\n",
+    _ = c.printf(c"1.0: %a\n",
          f64(1.0));
-    c.printf(c"10.0: %a\n",
+    _ = c.printf(c"10.0: %a\n",
          f64(10.0));
-    c.printf(c"10.5: %a\n",
+    _ = c.printf(c"10.5: %a\n",
          f64(10.5));
-    c.printf(c"10.5e5: %a\n",
+    _ = c.printf(c"10.5e5: %a\n",
          f64(10.5e5));
-    c.printf(c"10.5e+5: %a\n",
+    _ = c.printf(c"10.5e+5: %a\n",
          f64(10.5e+5));
-    c.printf(c"50.0e-2: %a\n",
+    _ = c.printf(c"50.0e-2: %a\n",
          f64(50.0e-2));
-    c.printf(c"50e-2: %a\n",
+    _ = c.printf(c"50e-2: %a\n",
          f64(50e-2));
 
-    c.printf(c"\n");
+    _ = c.printf(c"\n");
 
-    c.printf(c"0x1.0: %a\n",
+    _ = c.printf(c"0x1.0: %a\n",
          f64(0x1.0));
-    c.printf(c"0x10.0: %a\n",
+    _ = c.printf(c"0x10.0: %a\n",
          f64(0x10.0));
-    c.printf(c"0x100.0: %a\n",
+    _ = c.printf(c"0x100.0: %a\n",
          f64(0x100.0));
-    c.printf(c"0x103.0: %a\n",
+    _ = c.printf(c"0x103.0: %a\n",
          f64(0x103.0));
-    c.printf(c"0x103.7: %a\n",
+    _ = c.printf(c"0x103.7: %a\n",
          f64(0x103.7));
-    c.printf(c"0x103.70: %a\n",
+    _ = c.printf(c"0x103.70: %a\n",
          f64(0x103.70));
-    c.printf(c"0x103.70p4: %a\n",
+    _ = c.printf(c"0x103.70p4: %a\n",
          f64(0x103.70p4));
-    c.printf(c"0x103.70p5: %a\n",
+    _ = c.printf(c"0x103.70p5: %a\n",
          f64(0x103.70p5));
-    c.printf(c"0x103.70p+5: %a\n",
+    _ = c.printf(c"0x103.70p+5: %a\n",
          f64(0x103.70p+5));
-    c.printf(c"0x103.70p-5: %a\n",
+    _ = c.printf(c"0x103.70p-5: %a\n",
          f64(0x103.70p-5));
 
-    c.printf(c"\n");
+    _ = c.printf(c"\n");
 
-    c.printf(c"0b10100.00010e0: %a\n",
+    _ = c.printf(c"0b10100.00010e0: %a\n",
          f64(0b10100.00010e0));
-    c.printf(c"0o10700.00010e0: %a\n",
+    _ = c.printf(c"0o10700.00010e0: %a\n",
          f64(0o10700.00010e0));
 
     return 0;
@@ -520,7 +520,7 @@ export fn main(argc: c_int, argv: &&u8) -> c_int {
     const x: f64 = small;
     const y = i32(x);
     const z = f64(y);
-    c.printf(c"%.2f\n%d\n%.2f\n%.2f\n", x, y, z, f64(-0.4));
+    _ = c.printf(c"%.2f\n%d\n%.2f\n%.2f\n", x, y, z, f64(-0.4));
     return 0;
 }
     )SOURCE", "3.25\n3\n3.00\n-0.40\n");
@@ -1691,6 +1691,12 @@ fn bar() { }
             ".tmp_source.zig:4:5: error: control flow attempts to use compile-time variable at runtime",
             ".tmp_source.zig:4:21: note: compile-time variable assigned here");
 
+    add_compile_fail_case("ignored return value", R"SOURCE(
+fn foo() {
+    bar();
+}
+fn bar() -> i32 { 0 }
+    )SOURCE", 1, ".tmp_source.zig:3:8: error: return value ignored");
 }
 
 //////////////////////////////////////////////////////////////////////////////

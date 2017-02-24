@@ -3091,6 +3091,9 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
                         hash_val += 4048518294;
                         hash_val += hash_size(const_val->data.x_ptr.data.hard_coded_addr.addr);
                         return hash_val;
+                    case ConstPtrSpecialDiscard:
+                        hash_val += 2010123162;
+                        return hash_val;
                 }
                 zig_unreachable();
             }
@@ -3601,6 +3604,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
                     if (a->data.x_ptr.data.hard_coded_addr.addr != b->data.x_ptr.data.hard_coded_addr.addr)
                         return false;
                     return true;
+                case ConstPtrSpecialDiscard:
+                    return true;
             }
             zig_unreachable();
         case TypeTableEntryIdArray:
@@ -3784,6 +3789,9 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                 case ConstPtrSpecialHardCodedAddr:
                     buf_appendf(buf, "(&%s)(%" PRIx64 ")", buf_ptr(&canon_type->data.pointer.child_type->name),
                             const_val->data.x_ptr.data.hard_coded_addr.addr);
+                    return;
+                case ConstPtrSpecialDiscard:
+                    buf_append_str(buf, "&_");
                     return;
             }
             zig_unreachable();

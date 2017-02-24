@@ -30,8 +30,8 @@ pub fn getRandomBytes(buf: []u8) -> %void {
 pub coldcc fn abort() -> unreachable {
     switch (@compileVar("os")) {
         Os.linux, Os.darwin => {
-            system.raise(system.SIGABRT);
-            system.raise(system.SIGKILL);
+            _ = system.raise(system.SIGABRT);
+            _ = system.raise(system.SIGKILL);
             while (true) {}
         },
         else => @compileError("unsupported os"),

@@ -170,7 +170,7 @@ pub const OutStream = struct {
                 },
                 State.Integer => switch (c) {
                     '}' => {
-                        self.printInt(args[next_arg], radix, uppercase, width);
+                        %return self.printInt(args[next_arg], radix, uppercase, width);
                         next_arg += 1;
                         state = State.Start;
                         start_index = i + 1;
@@ -184,7 +184,7 @@ pub const OutStream = struct {
                 State.IntegerWidth => switch (c) {
                     '}' => {
                         width = comptime %%parseUnsigned(usize, format[width_start...i], 10);
-                        self.printInt(args[next_arg], radix, uppercase, width);
+                        %return self.printInt(args[next_arg], radix, uppercase, width);
                         next_arg += 1;
                         state = State.Start;
                         start_index = i + 1;
@@ -194,7 +194,7 @@ pub const OutStream = struct {
                 },
                 State.Character => switch (c) {
                     '}' => {
-                        self.printAsciiChar(args[next_arg]);
+                        %return self.printAsciiChar(args[next_arg]);
                         next_arg += 1;
                         state = State.Start;
                         start_index = i + 1;

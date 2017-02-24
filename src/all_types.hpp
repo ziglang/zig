@@ -117,6 +117,9 @@ enum ConstPtrSpecial {
     // emit a binary with a compile time known address.
     // In this case index is the numeric address value.
     ConstPtrSpecialHardCodedAddr,
+    // This means that the pointer represents memory of assigning to _.
+    // That is, storing discards the data, and loading is invalid.
+    ConstPtrSpecialDiscard,
 };
 
 enum ConstPtrMut {

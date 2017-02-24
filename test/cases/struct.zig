@@ -193,7 +193,7 @@ const EmptyStruct = struct {
 fn returnEmptyStructFromFn() {
     @setFnTest(this);
 
-    testReturnEmptyStructFromFn();
+    _ = testReturnEmptyStructFromFn();
 }
 const EmptyStruct2 = struct {};
 fn testReturnEmptyStructFromFn() -> EmptyStruct2 {

@@ -77,6 +77,8 @@ ConstExprValue *const_ptr_pointee(ConstExprValue *const_val) {
                 const_val->data.x_ptr.data.base_struct.field_index];
         case ConstPtrSpecialHardCodedAddr:
             zig_unreachable();
+        case ConstPtrSpecialDiscard:
+            zig_unreachable();
     }
     zig_unreachable();
 }
@@ -3655,6 +3657,15 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
     assert(node->type == NodeTypeSymbol);
 
     Buf *variable_name = node->data.symbol_expr.symbol;
+
+    if (buf_eql_str(variable_name, "_") && lval.is_ptr) {
+        IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, node);
+        const_instruction->base.value.type = get_pointer_to_type(irb->codegen,
+                irb->codegen->builtin_types.entry_void, false);
+        const_instruction->base.value.special = ConstValSpecialStatic;
+        const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialDiscard;
+        return &const_instruction->base;
+    }
 
     auto primitive_table_entry = irb->codegen->primitive_type_table.maybe_get(variable_name);
     if (primitive_table_entry) {
@@ -8927,6 +8938,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                 size_t old_size;
                 switch (array_ptr_val->data.x_ptr.special) {
                     case ConstPtrSpecialInvalid:
+                    case ConstPtrSpecialDiscard:
                         zig_unreachable();
                     case ConstPtrSpecialRef:
                         mem_size = 1;
@@ -8977,6 +8989,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                 out_val->data.x_ptr.mut = ptr_field->data.x_ptr.mut;
                 switch (ptr_field->data.x_ptr.special) {
                     case ConstPtrSpecialInvalid:
+                    case ConstPtrSpecialDiscard:
                         zig_unreachable();
                     case ConstPtrSpecialRef:
                         out_val->data.x_ptr.special = ConstPtrSpecialRef;
@@ -9384,6 +9397,10 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
         return value->value.type;
 
     assert(ptr->value.type->id == TypeTableEntryIdPointer);
+    if (ptr->value.data.x_ptr.special == ConstPtrSpecialDiscard) {
+        return ir_analyze_void(ira, &store_ptr_instruction->base);
+    }
+
     if (ptr->value.type->data.pointer.is_const && !store_ptr_instruction->base.is_gen) {
         ir_add_error(ira, &store_ptr_instruction->base, buf_sprintf("cannot assign to constant"));
         return ira->codegen->builtin_types.entry_invalid;
@@ -11365,6 +11382,7 @@ static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructi
         size_t bound_end;
         switch (dest_ptr_val->data.x_ptr.special) {
             case ConstPtrSpecialInvalid:
+            case ConstPtrSpecialDiscard:
                 zig_unreachable();
             case ConstPtrSpecialRef:
                 dest_elements = dest_ptr_val->data.x_ptr.data.ref.pointee;
@@ -11455,6 +11473,7 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
         size_t dest_end;
         switch (dest_ptr_val->data.x_ptr.special) {
             case ConstPtrSpecialInvalid:
+            case ConstPtrSpecialDiscard:
                 zig_unreachable();
             case ConstPtrSpecialRef:
                 dest_elements = dest_ptr_val->data.x_ptr.data.ref.pointee;
@@ -11487,6 +11506,7 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
 
         switch (src_ptr_val->data.x_ptr.special) {
             case ConstPtrSpecialInvalid:
+            case ConstPtrSpecialDiscard:
                 zig_unreachable();
             case ConstPtrSpecialRef:
                 src_elements = src_ptr_val->data.x_ptr.data.ref.pointee;
@@ -11595,6 +11615,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
             parent_ptr = const_ptr_pointee(&ptr_ptr->value);
             switch (parent_ptr->data.x_ptr.special) {
                 case ConstPtrSpecialInvalid:
+                case ConstPtrSpecialDiscard:
                     zig_unreachable();
                 case ConstPtrSpecialRef:
                     array_val = nullptr;
@@ -11619,6 +11640,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
 
             switch (parent_ptr->data.x_ptr.special) {
                 case ConstPtrSpecialInvalid:
+                case ConstPtrSpecialDiscard:
                     zig_unreachable();
                 case ConstPtrSpecialRef:
                     array_val = nullptr;
@@ -11676,6 +11698,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
             } else {
                 switch (parent_ptr->data.x_ptr.special) {
                     case ConstPtrSpecialInvalid:
+                    case ConstPtrSpecialDiscard:
                         zig_unreachable();
                     case ConstPtrSpecialRef:
                         init_const_ptr_ref(ira->codegen, ptr_val,
@@ -12302,6 +12325,14 @@ static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *ins
                instruction_type->id == TypeTableEntryIdUnreachable);
         instruction->other = instruction;
     }
+    if (instruction_type->id != TypeTableEntryIdInvalid &&
+        instruction_type->id != TypeTableEntryIdVoid &&
+        instruction_type->id != TypeTableEntryIdUnreachable &&
+        instruction->ref_count == 0)
+    {
+        ir_add_error(ira, instruction, buf_sprintf("return value ignored"));
+    }
+
     return instruction_type;
 }
 

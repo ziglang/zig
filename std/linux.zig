@@ -298,7 +298,7 @@ pub fn lseek(fd: i32, offset: usize, ref_pos: usize) -> usize {
 }
 
 pub fn exit(status: i32) -> unreachable {
-    arch.syscall1(arch.SYS_exit, usize(status));
+    _ = arch.syscall1(arch.SYS_exit, usize(status));
     @unreachable()
 }
 
@@ -325,15 +325,15 @@ pub fn raise(sig: i32) -> i32 {
 }
 
 fn blockAllSignals(set: &sigset_t) {
-    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, usize(&all_mask), usize(set), NSIG/8);
+    _ = arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, usize(&all_mask), usize(set), NSIG/8);
 }
 
 fn blockAppSignals(set: &sigset_t) {
-    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, usize(&app_mask), usize(set), NSIG/8);
+    _ = arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, usize(&app_mask), usize(set), NSIG/8);
 }
 
 fn restoreSignals(set: &sigset_t) {
-    arch.syscall4(arch.SYS_rt_sigprocmask, SIG_SETMASK, usize(set), 0, NSIG/8);
+    _ = arch.syscall4(arch.SYS_rt_sigprocmask, SIG_SETMASK, usize(set), 0, NSIG/8);
 }
 
 
@@ -432,8 +432,8 @@ pub fn shutdown(fd: i32, how: i32) -> usize {
     arch.syscall2(arch.SYS_shutdown, usize(fd), usize(how))
 }
 
-pub fn bind(fd: i32, addr: &const sockaddr, len: socklen_t) {
-    arch.syscall3(arch.SYS_bind, usize(fd), usize(addr), usize(len));
+pub fn bind(fd: i32, addr: &const sockaddr, len: socklen_t) -> usize {
+    arch.syscall3(arch.SYS_bind, usize(fd), usize(addr), usize(len))
 }
 
 pub fn listen(fd: i32, backlog: i32) -> usize {
