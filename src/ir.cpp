@@ -12423,7 +12423,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCheckSwitchProngs:
         case IrInstructionIdSetGlobalAlign:
         case IrInstructionIdSetGlobalSection:
-        case IrInstructionIdUnwrapErrPayload:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
@@ -12491,6 +12490,12 @@ bool ir_has_side_effects(IrInstruction *instruction) {
             {
                 IrInstructionAsm *asm_instruction = (IrInstructionAsm *)instruction;
                 return asm_instruction->has_side_effects;
+            }
+        case IrInstructionIdUnwrapErrPayload:
+            {
+                IrInstructionUnwrapErrPayload *unwrap_err_payload_instruction =
+                    (IrInstructionUnwrapErrPayload *)instruction;
+                return unwrap_err_payload_instruction->safety_check_on;
             }
     }
     zig_unreachable();
