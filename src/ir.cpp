@@ -12423,6 +12423,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCheckSwitchProngs:
         case IrInstructionIdSetGlobalAlign:
         case IrInstructionIdSetGlobalSection:
+        case IrInstructionIdUnwrapErrPayload:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
@@ -12471,7 +12472,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdFrameAddress:
         case IrInstructionIdTestErr:
         case IrInstructionIdUnwrapErrCode:
-        case IrInstructionIdUnwrapErrPayload:
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:

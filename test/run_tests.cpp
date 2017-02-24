@@ -1896,6 +1896,20 @@ fn unsigned_cast(x: i32) -> u32 {
 }
     )SOURCE");
 
+    add_debug_safety_case("unwrap error", R"SOURCE(
+pub fn panic(message: []const u8) -> unreachable {
+    @breakpoint();
+    while (true) {}
+}
+error Whatever;
+pub fn main(args: [][]u8) -> %void {
+    %%bar();
+}
+fn bar() -> %void {
+    return error.Whatever;
+}
+    )SOURCE");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
