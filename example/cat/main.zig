@@ -1,12 +1,12 @@
 const std = @import("std");
 const io = std.io;
-const str = std.str;
+const mem = std.mem;
 
 pub fn main(args: [][]u8) -> %void {
     const exe = args[0];
     var catted_anything = false;
     for (args[1...]) |arg| {
-        if (str.eql(arg, "-")) {
+        if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
             %return cat_stream(&io.stdin);
         } else if (arg[0] == '-') {
@@ -38,7 +38,7 @@ fn cat_stream(is: &io.InStream) -> %void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {
-        const bytes_read = is.read(buf) %% |err| {
+        const bytes_read = is.read(buf[0...]) %% |err| {
             %%io.stderr.printf("Unable to read from stream: {}\n", @errorName(err));
             return err;
         };

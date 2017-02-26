@@ -18,7 +18,7 @@ pub fn main(args: [][]u8) -> %void {
         %%io.stdout.printf("\nGuess a number between 1 and 100: ");
         var line_buf : [20]u8 = undefined;
 
-        const line_len = io.stdin.read(line_buf) %% |err| {
+        const line_len = io.stdin.read(line_buf[0...]) %% |err| {
             %%io.stdout.printf("Unable to read from stdin: {}\n", @errorName(err));
             return err;
         };
