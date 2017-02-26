@@ -201,3 +201,18 @@ fn smallIntAddition() {
 
     assert(result == 0);
 }
+
+fn testFloatEquality() {
+    @setFnTest(this);
+
+    const x: f64 = 0.012;
+    const y: f64 = x + 1.0;
+
+    testFloatEqualityImpl(x, y);
+    comptime testFloatEqualityImpl(x, y);
+}
+
+fn testFloatEqualityImpl(x: f64, y: f64) {
+    const y2 = x + 1.0;
+    assert(y == y2);
+}
