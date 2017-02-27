@@ -10567,7 +10567,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
         if (existing_assign_node) {
             ErrorMsg *msg = ir_add_error_node(ira, field->source_node, buf_sprintf("duplicate field"));
             add_error_note(ira->codegen, msg, existing_assign_node, buf_sprintf("other field here"));
-            continue;
+            return ira->codegen->builtin_types.entry_invalid;
         }
         field_assign_nodes[field_index] = field->source_node;
 
@@ -10602,6 +10602,17 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
     if (const_val.special == ConstValSpecialStatic) {
         ConstExprValue *out_val = ir_build_const_from(ira, instruction);
         *out_val = const_val;
+
+        for (size_t i = 0; i < instr_field_count; i += 1) {
+            ConstExprValue *field_val = &out_val->data.x_struct.fields[i];
+            ConstParent *parent = get_const_val_parent(field_val);
+            if (parent != nullptr) {
+                parent->id = ConstParentIdStruct;
+                parent->data.p_struct.field_index = i;
+                parent->data.p_struct.struct_val = out_val;
+            }
+        }
+
         return container_type;
     }
 
@@ -10681,10 +10692,11 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
                 *out_val = const_val;
                 for (size_t i = 0; i < elem_count; i += 1) {
                     ConstExprValue *elem_val = &out_val->data.x_array.elements[i];
-                    if (elem_val->type->id == TypeTableEntryIdArray) {
-                        elem_val->data.x_array.parent.id = ConstParentIdArray;
-                        elem_val->data.x_array.parent.data.p_array.array_val = out_val;
-                        elem_val->data.x_array.parent.data.p_array.elem_index = i;
+                    ConstParent *parent = get_const_val_parent(elem_val);
+                    if (parent != nullptr) {
+                        parent->id = ConstParentIdArray;
+                        parent->data.p_array.array_val = out_val;
+                        parent->data.p_array.elem_index = i;
                     }
                 }
                 return fixed_size_array_type;

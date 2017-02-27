@@ -70,3 +70,26 @@ fn nestedArrays() {
         if (i == 4) assert(mem.eql(u8, s, "thing"));
     }
 }
+
+
+// TODO
+//var s_array: [8]Sub = undefined;
+//const Sub = struct {
+//    b: u8,
+//};
+//const Str = struct {
+//    a: []Sub,
+//};
+//fn setGlobalVarArrayViaSliceEmbeddedInStruct() {
+//    @setFnTest(this);
+//
+//    var s = Str { .a = s_array[0...]};
+//
+//    s.a[0].b = 1;
+//    s.a[1].b = 2;
+//    s.a[2].b = 3;
+//
+//    assert(s_array[0].b == 1);
+//    assert(s_array[1].b == 2);
+//    assert(s_array[2].b == 3);
+//}

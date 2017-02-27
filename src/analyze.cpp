@@ -3485,10 +3485,11 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
             ConstExprValue *element_val = &const_val->data.x_array.elements[i];
             element_val->type = canon_wanted_type->data.array.child_type;
             init_const_undefined(g, element_val);
-            if (get_underlying_type(element_val->type)->id == TypeTableEntryIdArray) {
-                element_val->data.x_array.parent.id = ConstParentIdArray;
-                element_val->data.x_array.parent.data.p_array.array_val = const_val;
-                element_val->data.x_array.parent.data.p_array.elem_index = i;
+            ConstParent *parent = get_const_val_parent(element_val);
+            if (parent != nullptr) {
+                parent->id = ConstParentIdArray;
+                parent->data.p_array.array_val = const_val;
+                parent->data.p_array.elem_index = i;
             }
         }
     } else if (canon_wanted_type->id == TypeTableEntryIdStruct) {
@@ -3502,6 +3503,12 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
             field_val->type = canon_wanted_type->data.structure.fields[i].type_entry;
             assert(field_val->type);
             init_const_undefined(g, field_val);
+            ConstParent *parent = get_const_val_parent(field_val);
+            if (parent != nullptr) {
+                parent->id = ConstParentIdStruct;
+                parent->data.p_struct.struct_val = const_val;
+                parent->data.p_struct.field_index = i;
+            }
         }
     } else {
         const_val->special = ConstValSpecialUndef;
@@ -4067,4 +4074,15 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
                 (a.data.overflow_arithmetic.is_signed == b.data.overflow_arithmetic.is_signed);
     }
     zig_unreachable();
+}
+
+ConstParent *get_const_val_parent(ConstExprValue *value) {
+    assert(value->type);
+    TypeTableEntry *canon_type = get_underlying_type(value->type);
+    if (canon_type->id == TypeTableEntryIdArray) {
+        return &value->data.x_array.parent;
+    } else if (canon_type->id == TypeTableEntryIdStruct) {
+        return &value->data.x_struct.parent;
+    }
+    return nullptr;
 }
