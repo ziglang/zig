@@ -1430,7 +1430,7 @@ enum VarLinkage {
 
 struct VariableTableEntry {
     Buf name;
-    ConstExprValue value;
+    ConstExprValue *value;
     LLVMValueRef value_ref;
     bool src_is_const;
     bool gen_is_const;

@@ -1235,7 +1235,7 @@ static void process_symbol_macros(Context *c) {
         // variable is non-null and calls it.
         if (existing_tld->id == TldIdVar) {
             TldVar *tld_var = (TldVar *)existing_tld;
-            TypeTableEntry *var_type = tld_var->var->value.type;
+            TypeTableEntry *var_type = tld_var->var->value->type;
             if (var_type->id == TypeTableEntryIdMaybe && !tld_var->var->src_is_const) {
                 TypeTableEntry *child_type = var_type->data.maybe.child_type;
                 if (child_type->id == TypeTableEntryIdFn) {

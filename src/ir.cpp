@@ -3164,6 +3164,7 @@ static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Sco
     variable_entry->mem_slot_index = SIZE_MAX;
     variable_entry->is_comptime = is_comptime;
     variable_entry->src_arg_index = SIZE_MAX;
+    variable_entry->value = allocate<ConstExprValue>(1);
 
     if (name) {
         buf_init_from_buf(&variable_entry->name, name);
@@ -3173,21 +3174,21 @@ static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Sco
             ErrorMsg *msg = add_node_error(codegen, node,
                     buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
             add_error_note(codegen, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
-            variable_entry->value.type = codegen->builtin_types.entry_invalid;
+            variable_entry->value->type = codegen->builtin_types.entry_invalid;
         } else {
             auto primitive_table_entry = codegen->primitive_type_table.maybe_get(name);
             if (primitive_table_entry) {
                 TypeTableEntry *type = primitive_table_entry->value;
                 add_node_error(codegen, node,
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
-                variable_entry->value.type = codegen->builtin_types.entry_invalid;
+                variable_entry->value->type = codegen->builtin_types.entry_invalid;
             } else {
                 Tld *tld = find_decl(codegen, parent_scope, name);
                 if (tld && tld->id != TldIdVar) {
                     ErrorMsg *msg = add_node_error(codegen, node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                     add_error_note(codegen, msg, tld->source_node, buf_sprintf("previous definition is here"));
-                    variable_entry->value.type = codegen->builtin_types.entry_invalid;
+                    variable_entry->value->type = codegen->builtin_types.entry_invalid;
                 }
             }
         }
@@ -4516,7 +4517,7 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     // is inside var->child_scope
 
     if (!is_extern && !variable_declaration->expr) {
-        var->value.type = irb->codegen->builtin_types.entry_invalid;
+        var->value->type = irb->codegen->builtin_types.entry_invalid;
         add_node_error(irb->codegen, node, buf_sprintf("variables must be initialized"));
         return irb->codegen->invalid_instruction;
     }
@@ -5387,7 +5388,7 @@ static bool render_instance_name_recursive(Buf *name, Scope *outer_scope, Scope 
     ScopeVarDecl *var_scope = (ScopeVarDecl *)inner_scope;
     if (need_comma)
         buf_append_char(name, ',');
-    render_const_value(name, &var_scope->var->value);
+    render_const_value(name, var_scope->var->value);
     return true;
 }
 
@@ -7827,8 +7828,8 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
 
     IrInstruction *init_value = decl_var_instruction->init_value->other;
     if (type_is_invalid(init_value->value.type)) {
-        var->value.type = ira->codegen->builtin_types.entry_invalid;
-        return var->value.type;
+        var->value->type = ira->codegen->builtin_types.entry_invalid;
+        return var->value->type;
     }
 
     AstNodeVariableDeclaration *variable_declaration = &var->decl_node->data.variable_declaration;
@@ -7844,8 +7845,8 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         TypeTableEntry *proposed_type = ir_resolve_type(ira, var_type);
         explicit_type = validate_var_type(ira->codegen, var_type->source_node, proposed_type);
         if (type_is_invalid(explicit_type)) {
-            var->value.type = ira->codegen->builtin_types.entry_invalid;
-            return var->value.type;
+            var->value->type = ira->codegen->builtin_types.entry_invalid;
+            return var->value->type;
         }
     }
 
@@ -7906,8 +7907,8 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
             break;
     }
 
-    var->value.type = result_type;
-    assert(var->value.type);
+    var->value->type = result_type;
+    assert(var->value->type);
 
     if (type_is_invalid(result_type)) {
         decl_var_instruction->base.other = &decl_var_instruction->base;
@@ -7930,7 +7931,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     } else if (is_comptime) {
         ir_add_error(ira, &decl_var_instruction->base,
                 buf_sprintf("cannot store runtime value in compile time variable"));
-        var->value.type = ira->codegen->builtin_types.entry_invalid;
+        var->value->type = ira->codegen->builtin_types.entry_invalid;
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -8766,24 +8767,24 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
 static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
         VariableTableEntry *var, bool is_const_ptr, bool is_volatile_ptr)
 {
-    assert(var->value.type);
-    if (type_is_invalid(var->value.type))
-        return var->value.type;
+    assert(var->value->type);
+    if (type_is_invalid(var->value->type))
+        return var->value->type;
 
     bool comptime_var_mem = ir_get_var_is_comptime(var);
 
     ConstExprValue *mem_slot = nullptr;
     FnTableEntry *fn_entry = scope_fn_entry(var->parent_scope);
-    if (var->value.special == ConstValSpecialStatic) {
-        mem_slot = &var->value;
+    if (var->value->special == ConstValSpecialStatic) {
+        mem_slot = var->value;
     } else if (fn_entry) {
         // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
         if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const))
             mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
     }
 
-    bool is_const = (var->value.type->id == TypeTableEntryIdMetaType) ? is_const_ptr : var->src_is_const;
-    bool is_volatile = (var->value.type->id == TypeTableEntryIdMetaType) ? is_volatile_ptr : false;
+    bool is_const = (var->value->type->id == TypeTableEntryIdMetaType) ? is_const_ptr : var->src_is_const;
+    bool is_volatile = (var->value->type->id == TypeTableEntryIdMetaType) ? is_volatile_ptr : false;
     if (mem_slot && mem_slot->special != ConstValSpecialRuntime) {
         ConstPtrMut ptr_mut;
         if (comptime_var_mem) {
@@ -8794,11 +8795,11 @@ static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruc
             assert(!comptime_var_mem);
             ptr_mut = ConstPtrMutRuntimeVar;
         }
-        return ir_analyze_const_ptr(ira, instruction, mem_slot, var->value.type, ptr_mut, is_const, is_volatile);
+        return ir_analyze_const_ptr(ira, instruction, mem_slot, var->value->type, ptr_mut, is_const, is_volatile);
     } else {
         ir_build_var_ptr_from(&ira->new_irb, instruction, var, is_const, is_volatile);
-        type_ensure_zero_bits_known(ira->codegen, var->value.type);
-        return get_pointer_to_type(ira->codegen, var->value.type, var->src_is_const);
+        type_ensure_zero_bits_known(ira->codegen, var->value->type);
+        return get_pointer_to_type(ira->codegen, var->value->type, var->src_is_const);
     }
 }
 
@@ -12520,8 +12521,8 @@ FnTableEntry *ir_create_inline_fn(CodeGen *codegen, Buf *fn_name, VariableTableE
     fn_entry->fndef_scope = create_fndef_scope(nullptr, parent_scope, fn_entry);
     fn_entry->child_scope = &fn_entry->fndef_scope->base;
 
-    assert(var->value.type->id == TypeTableEntryIdMaybe);
-    TypeTableEntry *src_fn_type = var->value.type->data.maybe.child_type;
+    assert(var->value->type->id == TypeTableEntryIdMaybe);
+    TypeTableEntry *src_fn_type = var->value->type->data.maybe.child_type;
     assert(src_fn_type->id == TypeTableEntryIdFn);
 
     FnTypeId new_fn_type = src_fn_type->data.fn.fn_type_id;

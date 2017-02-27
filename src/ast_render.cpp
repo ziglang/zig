@@ -964,26 +964,26 @@ static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
     const char *extern_str = extern_string(var->linkage == VarLinkageExternal);
     fprintf(ar->f, "%s%s%s %s", visib_mod_str, extern_str, const_or_var, buf_ptr(name));
 
-    if (var->value.type->id == TypeTableEntryIdNumLitFloat ||
-        var->value.type->id == TypeTableEntryIdNumLitInt ||
-        var->value.type->id == TypeTableEntryIdMetaType)
+    if (var->value->type->id == TypeTableEntryIdNumLitFloat ||
+        var->value->type->id == TypeTableEntryIdNumLitInt ||
+        var->value->type->id == TypeTableEntryIdMetaType)
     {
         // skip type
     } else {
-        fprintf(ar->f, ": %s", buf_ptr(&var->value.type->name));
+        fprintf(ar->f, ": %s", buf_ptr(&var->value->type->name));
     }
 
-    if (var->value.special == ConstValSpecialRuntime) {
+    if (var->value->special == ConstValSpecialRuntime) {
         fprintf(ar->f, ";\n");
         return;
     }
 
     fprintf(ar->f, " = ");
 
-    if (var->value.special == ConstValSpecialStatic &&
-        var->value.type->id == TypeTableEntryIdMetaType)
+    if (var->value->special == ConstValSpecialStatic &&
+        var->value->type->id == TypeTableEntryIdMetaType)
     {
-        TypeTableEntry *type_entry = var->value.data.x_type;
+        TypeTableEntry *type_entry = var->value->data.x_type;
         if (type_entry->id == TypeTableEntryIdStruct) {
             const char *layout_str = layout_string(type_entry->data.structure.layout);
             fprintf(ar->f, "%sstruct {\n", layout_str);
@@ -1022,7 +1022,7 @@ static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
     } else {
         Buf buf = BUF_INIT;
         buf_resize(&buf, 0);
-        render_const_value(&buf, &var->value);
+        render_const_value(&buf, var->value);
         fprintf(ar->f, "%s", buf_ptr(&buf));
     }
 

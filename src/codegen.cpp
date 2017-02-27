@@ -1316,7 +1316,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
 {
     VariableTableEntry *var = decl_var_instruction->var;
 
-    if (!type_has_bits(var->value.type))
+    if (!type_has_bits(var->value->type))
         return nullptr;
 
     if (var->ref_count == 0 && g->is_release_build)
@@ -1331,16 +1331,16 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         have_init_expr = true;
 
     if (have_init_expr) {
-        assert(var->value.type == init_value->value.type);
-        gen_assign_raw(g, var->value_ref, ir_llvm_value(g, init_value), var->value.type);
+        assert(var->value->type == init_value->value.type);
+        gen_assign_raw(g, var->value_ref, ir_llvm_value(g, init_value), var->value->type);
     } else {
         bool ignore_uninit = false;
         // handle runtime stack allocation
         bool want_safe = ir_want_debug_safety(g, &decl_var_instruction->base);
         if (!ignore_uninit && want_safe) {
             TypeTableEntry *usize = g->builtin_types.entry_usize;
-            uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, var->value.type->type_ref);
-            uint64_t align_bytes = get_type_alignment(g, var->value.type);
+            uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, var->value->type->type_ref);
+            uint64_t align_bytes = get_type_alignment(g, var->value->type);
 
             // memset uninitialized memory to 0xa
             LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
@@ -1437,7 +1437,7 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
 
 static LLVMValueRef ir_render_var_ptr(CodeGen *g, IrExecutable *executable, IrInstructionVarPtr *instruction) {
     VariableTableEntry *var = instruction->var;
-    if (type_has_bits(var->value.type)) {
+    if (type_has_bits(var->value->type)) {
         assert(var->value_ref);
         return var->value_ref;
     } else {
@@ -3203,9 +3203,9 @@ static void do_code_gen(CodeGen *g) {
         TldVar *tld_var = g->global_vars.at(i);
         VariableTableEntry *var = tld_var->var;
 
-        if (var->value.type->id == TypeTableEntryIdNumLitFloat) {
+        if (var->value->type->id == TypeTableEntryIdNumLitFloat) {
             // Generate debug info for it but that's it.
-            ConstExprValue *const_val = &var->value;
+            ConstExprValue *const_val = var->value;
             assert(const_val->special != ConstValSpecialRuntime);
             TypeTableEntry *var_type = g->builtin_types.entry_f64;
             LLVMValueRef init_val = LLVMConstReal(var_type->type_ref, const_val->data.x_bignum.data.x_float);
@@ -3213,9 +3213,9 @@ static void do_code_gen(CodeGen *g) {
             continue;
         }
 
-        if (var->value.type->id == TypeTableEntryIdNumLitInt) {
+        if (var->value->type->id == TypeTableEntryIdNumLitInt) {
             // Generate debug info for it but that's it.
-            ConstExprValue *const_val = &var->value;
+            ConstExprValue *const_val = var->value;
             assert(const_val->special != ConstValSpecialRuntime);
             TypeTableEntry *var_type = const_val->data.x_bignum.is_negative ?
                 g->builtin_types.entry_isize : g->builtin_types.entry_usize;
@@ -3225,22 +3225,22 @@ static void do_code_gen(CodeGen *g) {
             continue;
         }
 
-        if (!type_has_bits(var->value.type))
+        if (!type_has_bits(var->value->type))
             continue;
 
         assert(var->decl_node);
 
         LLVMValueRef global_value;
         if (var->linkage == VarLinkageExternal) {
-            global_value = LLVMAddGlobal(g->module, var->value.type->type_ref, buf_ptr(&var->name));
+            global_value = LLVMAddGlobal(g->module, var->value->type->type_ref, buf_ptr(&var->name));
 
             // TODO debug info for the extern variable
 
             LLVMSetLinkage(global_value, LLVMExternalLinkage);
         } else {
-            render_const_val(g, &var->value);
-            render_const_val_global(g, &var->value, buf_ptr(&var->name));
-            global_value = var->value.llvm_global;
+            render_const_val(g, var->value);
+            render_const_val_global(g, var->value, buf_ptr(&var->name));
+            global_value = var->value->llvm_global;
 
             if (var->linkage == VarLinkageExport) {
                 LLVMSetLinkage(global_value, LLVMExternalLinkage);
@@ -3249,11 +3249,11 @@ static void do_code_gen(CodeGen *g) {
                 LLVMSetSection(global_value, buf_ptr(tld_var->section_name));
             }
             LLVMSetAlignment(global_value, tld_var->alignment ?
-                    tld_var->alignment : get_type_alignment(g, var->value.type));
+                    tld_var->alignment : get_type_alignment(g, var->value->type));
 
             // TODO debug info for function pointers
-            if (var->gen_is_const && var->value.type->id != TypeTableEntryIdFn) {
-                gen_global_var(g, var, var->value.llvm_value, var->value.type);
+            if (var->gen_is_const && var->value->type->id != TypeTableEntryIdFn) {
+                gen_global_var(g, var, var->value->llvm_value, var->value->type);
             }
         }
 
@@ -3432,30 +3432,30 @@ static void do_code_gen(CodeGen *g) {
         for (size_t var_i = 0; var_i < fn_table_entry->variable_list.length; var_i += 1) {
             VariableTableEntry *var = fn_table_entry->variable_list.at(var_i);
 
-            if (!type_has_bits(var->value.type)) {
+            if (!type_has_bits(var->value->type)) {
                 continue;
             }
             if (ir_get_var_is_comptime(var))
                 continue;
-            if (type_requires_comptime(var->value.type))
+            if (type_requires_comptime(var->value->type))
                 continue;
 
             if (var->src_arg_index == SIZE_MAX) {
-                var->value_ref = build_alloca(g, var->value.type, buf_ptr(&var->name));
+                var->value_ref = build_alloca(g, var->value->type, buf_ptr(&var->name));
 
                 var->di_loc_var = ZigLLVMCreateAutoVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
                         buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
-                        var->value.type->di_type, !g->strip_debug_symbols, 0);
+                        var->value->type->di_type, !g->strip_debug_symbols, 0);
 
             } else {
                 assert(var->gen_arg_index != SIZE_MAX);
                 TypeTableEntry *gen_type;
-                if (handle_is_ptr(var->value.type)) {
+                if (handle_is_ptr(var->value->type)) {
                     gen_type = fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index].type;
                     var->value_ref = LLVMGetParam(fn, var->gen_arg_index);
                 } else {
-                    gen_type = var->value.type;
-                    var->value_ref = build_alloca(g, var->value.type, buf_ptr(&var->name));
+                    gen_type = var->value->type;
+                    var->value_ref = build_alloca(g, var->value->type, buf_ptr(&var->name));
                 }
                 if (var->decl_node) {
                     var->di_loc_var = ZigLLVMCreateParameterVariable(g->dbuilder, get_di_scope(g, var->parent_scope),
@@ -3483,7 +3483,7 @@ static void do_code_gen(CodeGen *g) {
             assert(variable);
             assert(variable->value_ref);
 
-            if (!handle_is_ptr(variable->value.type)) {
+            if (!handle_is_ptr(variable->value->type)) {
                 clear_debug_source_node(g);
                 LLVMBuildStore(g->builder, LLVMGetParam(fn, variable->gen_arg_index), variable->value_ref);
             }

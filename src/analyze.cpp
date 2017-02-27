@@ -2085,7 +2085,7 @@ VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent
     assert(value);
 
     VariableTableEntry *variable_entry = allocate<VariableTableEntry>(1);
-    variable_entry->value = *value;
+    variable_entry->value = value;
     variable_entry->parent_scope = parent_scope;
     variable_entry->shadowable = false;
     variable_entry->mem_slot_index = SIZE_MAX;
@@ -2101,21 +2101,21 @@ VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent
             ErrorMsg *msg = add_node_error(g, source_node,
                     buf_sprintf("redeclaration of variable '%s'", buf_ptr(name)));
             add_error_note(g, msg, existing_var->decl_node, buf_sprintf("previous declaration is here"));
-            variable_entry->value.type = g->builtin_types.entry_invalid;
+            variable_entry->value->type = g->builtin_types.entry_invalid;
         } else {
             auto primitive_table_entry = g->primitive_type_table.maybe_get(name);
             if (primitive_table_entry) {
                 TypeTableEntry *type = primitive_table_entry->value;
                 add_node_error(g, source_node,
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
-                variable_entry->value.type = g->builtin_types.entry_invalid;
+                variable_entry->value->type = g->builtin_types.entry_invalid;
             } else {
                 Tld *tld = find_decl(g, parent_scope, name);
                 if (tld && tld->id != TldIdVar) {
                     ErrorMsg *msg = add_node_error(g, source_node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                     add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
-                    variable_entry->value.type = g->builtin_types.entry_invalid;
+                    variable_entry->value->type = g->builtin_types.entry_invalid;
                 }
             }
         }
@@ -3181,7 +3181,7 @@ uint32_t fn_eval_hash(Scope* scope) {
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
-            result += hash_const_val(&var_scope->var->value);
+            result += hash_const_val(var_scope->var->value);
         } else if (scope->id == ScopeIdFnDef) {
             ScopeFnDef *fn_scope = (ScopeFnDef *)scope;
             result += hash_ptr(fn_scope->fn_entry);
@@ -3203,9 +3203,9 @@ bool fn_eval_eql(Scope *a, Scope *b) {
         if (a->id == ScopeIdVarDecl) {
             ScopeVarDecl *a_var_scope = (ScopeVarDecl *)a;
             ScopeVarDecl *b_var_scope = (ScopeVarDecl *)b;
-            if (a_var_scope->var->value.type != b_var_scope->var->value.type)
+            if (a_var_scope->var->value->type != b_var_scope->var->value->type)
                 return false;
-            if (!const_values_equal(&a_var_scope->var->value, &b_var_scope->var->value))
+            if (!const_values_equal(a_var_scope->var->value, b_var_scope->var->value))
                 return false;
         } else if (a->id == ScopeIdFnDef) {
             ScopeFnDef *a_fn_scope = (ScopeFnDef *)a;
