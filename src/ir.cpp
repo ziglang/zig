@@ -10233,6 +10233,8 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
 
     for (size_t i = 0; i < case_count; i += 1) {
         IrInstructionSwitchBrCase *new_case = &cases[i];
+        if (new_case->value == ira->codegen->invalid_instruction)
+            return ir_unreach_error(ira);
         new_case->block->ref_instruction = &switch_br_instruction->base;
     }
 
