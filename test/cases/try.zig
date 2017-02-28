@@ -3,6 +3,12 @@ const assert = @import("std").debug.assert;
 fn tryOnErrorUnion() {
     @setFnTest(this);
 
+    tryOnErrorUnionImpl();
+    comptime tryOnErrorUnionImpl();
+
+}
+
+fn tryOnErrorUnionImpl() {
     const x = try (const val = returnsTen()) {
         val + 1
     } else |err| switch (err) {
@@ -12,19 +18,6 @@ fn tryOnErrorUnion() {
     assert(x == 11);
 }
 
-fn tryOnErrorUnionComptime() {
-    @setFnTest(this);
-
-    comptime {
-        const x = try (const val = returnsTen()) {
-            val + 1
-        } else |err| switch (err) {
-            error.ItBroke, error.NoMem => 1,
-            error.CrappedOut => i32(2),
-        };
-        assert(x == 11);
-    }
-}
 error ItBroke;
 error NoMem;
 error CrappedOut;
@@ -57,3 +50,14 @@ fn failIfTrue(ok: bool) -> %void {
         return;
     }
 }
+
+// TODO
+//fn tryThenNotExecutedWithAssignment() {
+//    @setFnTest(this);
+//
+//    try (_ = failIfTrue(true)) {
+//        @unreachable();
+//    } else |err| {
+//        assert(err == error.ItBroke);
+//    }
+//}

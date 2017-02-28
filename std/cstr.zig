@@ -34,131 +34,142 @@ pub fn toSlice(str: &u8) -> []u8 {
 
 
 /// A buffer that allocates memory and maintains a null byte at the end.
-pub const CBuf = struct {
+pub const Buffer0 = struct {
     list: List(u8),
 
     /// Must deinitialize with deinit.
-    pub fn initEmpty(allocator: &Allocator) -> %CBuf {
-        var self = CBuf {
-            .list = List(u8).init(allocator),
-        };
-        %return self.resize(0);
-        return self;
+    pub fn initEmpty(allocator: &Allocator) -> %Buffer0 {
+        return initSize(allocator, 0);
     }
 
     /// Must deinitialize with deinit.
-    pub fn initFromMem(allocator: &Allocator, m: []const u8) -> %CBuf {
-        var self = CBuf {
-            .list = List(u8).init(allocator),
-        };
-        %return self.resize(m.len);
+    pub fn initFromMem(allocator: &Allocator, m: []const u8) -> %Buffer0 {
+        var self = %return initSize(allocator, m.len);
         mem.copy(u8, self.list.items, m);
         return self;
     }
 
     /// Must deinitialize with deinit.
-    pub fn initFromCStr(allocator: &Allocator, s: &const u8) -> %CBuf {
-        return CBuf.initFromMem(allocator, s[0...strlen(s)]);
+    pub fn initFromCStr(allocator: &Allocator, s: &const u8) -> %Buffer0 {
+        return Buffer0.initFromMem(allocator, s[0...strlen(s)]);
     }
 
     /// Must deinitialize with deinit.
-    pub fn initFromCBuf(cbuf: &const CBuf) -> %CBuf {
-        return CBuf.initFromMem(cbuf.list.allocator, cbuf.list.items[0...cbuf.len()]);
+    pub fn initFromOther(cbuf: &const Buffer0) -> %Buffer0 {
+        return Buffer0.initFromMem(cbuf.list.allocator, cbuf.list.items[0...cbuf.len()]);
     }
 
     /// Must deinitialize with deinit.
-    pub fn initFromSlice(other: &const CBuf, start: usize, end: usize) -> %CBuf {
-        return CBuf.initFromMem(other.list.allocator, other.list.items[start...end]);
+    pub fn initFromSlice(other: &const Buffer0, start: usize, end: usize) -> %Buffer0 {
+        return Buffer0.initFromMem(other.list.allocator, other.list.items[start...end]);
     }
 
-    pub fn deinit(self: &CBuf) {
+    /// Must deinitialize with deinit.
+    pub fn initSize(allocator: &Allocator, size: usize) -> %Buffer0 {
+        var self = Buffer0 {
+            .list = List(u8).init(allocator),
+        };
+        %return self.resize(size);
+        return self;
+    }
+
+    pub fn deinit(self: &Buffer0) {
         self.list.deinit();
     }
 
-    pub fn resize(self: &CBuf, new_len: usize) -> %void {
+    pub fn toSlice(self: &Buffer0) -> []u8 {
+        return self.list.toSlice()[0...self.len()];
+    }
+
+    pub fn toSliceConst(self: &const Buffer0) -> []const u8 {
+        return self.list.toSliceConst()[0...self.len()];
+    }
+
+    pub fn resize(self: &Buffer0, new_len: usize) -> %void {
         %return self.list.resize(new_len + 1);
         self.list.items[self.len()] = 0;
     }
 
-    pub fn len(self: &const CBuf) -> usize {
+    pub fn len(self: &const Buffer0) -> usize {
         return self.list.len - 1;
     }
 
-    pub fn appendMem(self: &CBuf, m: []const u8) -> %void {
+    pub fn appendMem(self: &Buffer0, m: []const u8) -> %void {
         const old_len = self.len();
         %return self.resize(old_len + m.len);
-        mem.copy(u8, self.list.items[old_len...], m);
+        mem.copy(u8, self.list.toSlice()[old_len...], m);
     }
 
-    pub fn appendCStr(self: &CBuf, s: &const u8) -> %void {
+    pub fn appendOther(self: &Buffer0, other: &const Buffer0) -> %void {
+        return self.appendMem(other.toSliceConst());
+    }
+
+    pub fn appendCStr(self: &Buffer0, s: &const u8) -> %void {
         self.appendMem(s[0...strlen(s)])
     }
 
-    pub fn appendChar(self: &CBuf, c: u8) -> %void {
+    pub fn appendByte(self: &Buffer0, byte: u8) -> %void {
         %return self.resize(self.len() + 1);
-        self.list.items[self.len() - 1] = c;
+        self.list.items[self.len() - 1] = byte;
     }
 
-    pub fn eqlMem(self: &const CBuf, m: []const u8) -> bool {
+    pub fn eqlMem(self: &const Buffer0, m: []const u8) -> bool {
         if (self.len() != m.len) return false;
         return mem.cmp(u8, self.list.items[0...m.len], m) == mem.Cmp.Equal;
     }
 
-    pub fn eqlCStr(self: &const CBuf, s: &const u8) -> bool {
+    pub fn eqlCStr(self: &const Buffer0, s: &const u8) -> bool {
         self.eqlMem(s[0...strlen(s)])
     }
 
-    pub fn eqlCBuf(self: &const CBuf, other: &const CBuf) -> bool {
+    pub fn eqlOther(self: &const Buffer0, other: &const Buffer0) -> bool {
         self.eqlMem(other.list.items[0...other.len()])
     }
 
-    pub fn startsWithMem(self: &const CBuf, m: []const u8) -> bool {
+    pub fn startsWithMem(self: &const Buffer0, m: []const u8) -> bool {
         if (self.len() < m.len) return false;
         return mem.cmp(u8, self.list.items[0...m.len], m) == mem.Cmp.Equal;
     }
 
-    pub fn startsWithCBuf(self: &const CBuf, other: &const CBuf) -> bool {
+    pub fn startsWithOther(self: &const Buffer0, other: &const Buffer0) -> bool {
         self.startsWithMem(other.list.items[0...other.len()])
     }
 
-    pub fn startsWithCStr(self: &const CBuf, s: &const u8) -> bool {
+    pub fn startsWithCStr(self: &const Buffer0, s: &const u8) -> bool {
         self.startsWithMem(s[0...strlen(s)])
     }
 };
 
-fn testSimpleCBuf() {
+fn testSimpleBuffer0() {
     @setFnTest(this);
 
-    var buf = %%CBuf.initEmpty(&debug.global_allocator);
+    var buf = %%Buffer0.initEmpty(&debug.global_allocator);
     assert(buf.len() == 0);
     %%buf.appendCStr(c"hello");
-    %%buf.appendChar(' ');
+    %%buf.appendByte(' ');
     %%buf.appendMem("world");
     assert(buf.eqlCStr(c"hello world"));
     assert(buf.eqlMem("hello world"));
+    assert(mem.eql(u8, buf.toSliceConst(), "hello world"));
 
-    var buf2 = %%CBuf.initFromCBuf(&buf);
-    assert(buf.eqlCBuf(&buf2));
+    var buf2 = %%Buffer0.initFromOther(&buf);
+    assert(buf.eqlOther(&buf2));
 
     assert(buf.startsWithMem("hell"));
     assert(buf.startsWithCStr(c"hell"));
 
     %%buf2.resize(4);
-    assert(buf.startsWithCBuf(&buf2));
+    assert(buf.startsWithOther(&buf2));
 }
 
-// TODO do this without globals
-
-fn testCompileTimeStrCmp() {
+fn testCStrFns() {
     @setFnTest(this);
 
-    assert(test_compile_time_str_cmp_result);
+    comptime testCStrFnsImpl();
+    testCStrFnsImpl();
 }
-const test_compile_time_str_cmp_result = (cmp(c"aoeu", c"aoez") == -1);
 
-fn testCompileTimeStrLen() {
-    @setFnTest(this);
-
-    assert(test_comptime_str_len_result);
+fn testCStrFnsImpl() {
+    assert(cmp(c"aoeu", c"aoez") == -1);
+    assert(len(c"123456789") == 9);
 }
-const test_comptime_str_len_result = (len(c"123456789") == 9);

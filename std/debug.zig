@@ -164,7 +164,7 @@ const Die = struct {
     };
 
     fn getAttr(self: &const Die, id: u64) -> ?&const FormValue {
-        for (self.attrs.toSlice()) |*attr| {
+        for (self.attrs.toSliceConst()) |*attr| {
             if (attr.id == id)
                 return &attr.value;
         }
@@ -362,7 +362,7 @@ fn getAbbrevTable(st: &ElfStackTrace, abbrev_offset: u64) -> %&const AbbrevTable
 }
 
 fn getAbbrevTableEntry(abbrev_table: &const AbbrevTable, abbrev_code: u64) -> ?&const AbbrevTableEntry {
-    for (abbrev_table.toSlice()) |*table_entry| {
+    for (abbrev_table.toSliceConst()) |*table_entry| {
         if (table_entry.abbrev_code == abbrev_code)
             return table_entry;
     }
@@ -379,7 +379,7 @@ fn parseDie(in_stream: &io.InStream, abbrev_table: &const AbbrevTable, is_64: bo
         .attrs = List(Die.Attr).init(&global_allocator),
     };
     %return result.attrs.resize(table_entry.attrs.len);
-    for (table_entry.attrs.toSlice()) |attr, i| {
+    for (table_entry.attrs.toSliceConst()) |attr, i| {
         result.attrs.items[i] = Die.Attr {
             .id = attr.attr_id,
             .value = %return parseFormValue(in_stream, attr.form_id, is_64),

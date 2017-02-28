@@ -10,6 +10,7 @@ const debug = @import("debug.zig");
 const assert = debug.assert;
 const os = @import("os.zig");
 const mem = @import("mem.zig");
+const Buffer0 = @import("cstr.zig").Buffer0;
 
 pub const stdin_fileno = 0;
 pub const stdout_fileno = 1;
@@ -485,6 +486,23 @@ pub const InStream = struct {
         }
 
         return usize(stat.size);
+    }
+
+    pub fn readAll(is: &InStream, buf: &Buffer0) -> %void {
+        %return buf.resize(buffer_size);
+
+        var actual_buf_len: usize = 0;
+        while (true) {
+            const dest_slice = buf.toSlice()[actual_buf_len...];
+            const bytes_read = %return is.read(dest_slice);
+            actual_buf_len += bytes_read;
+
+            if (bytes_read != dest_slice.len) {
+                return buf.resize(actual_buf_len);
+            }
+
+            %return buf.resize(actual_buf_len + buffer_size);
+        }
     }
 };
 
