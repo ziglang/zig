@@ -1697,6 +1697,13 @@ fn foo() {
 }
 fn bar() -> i32 { 0 }
     )SOURCE", 1, ".tmp_source.zig:3:8: error: return value ignored");
+
+    add_compile_fail_case("integer literal on a non-comptime var", R"SOURCE(
+fn foo() {
+    var i = 0;
+    while (i < 10; i += 1) { }
+}
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: unable to infer variable type");
 }
 
 //////////////////////////////////////////////////////////////////////////////

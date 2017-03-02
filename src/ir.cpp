@@ -7858,6 +7858,8 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         result_type = ira->codegen->builtin_types.entry_invalid;
     }
 
+    bool is_comptime_var = ir_get_var_is_comptime(var); 
+
     switch (result_type->id) {
         case TypeTableEntryIdTypeDecl:
             zig_unreachable();
@@ -7865,7 +7867,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
             break; // handled above
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
-            if (is_export || is_extern || casted_init_value->value.special == ConstValSpecialRuntime) {
+            if (is_export || is_extern || (!var->src_is_const && !is_comptime_var)) {
                 ir_add_error_node(ira, source_node, buf_sprintf("unable to infer variable type"));
                 result_type = ira->codegen->builtin_types.entry_invalid;
             }
