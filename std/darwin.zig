@@ -49,7 +49,7 @@ pub const SIGSYS    = 31;
 pub const SIGUNUSED = SIGSYS;
 
 pub fn exit(status: usize) -> unreachable {
-    arch.syscall1(arch.SYS_exit, status);
+    _ = arch.syscall1(arch.SYS_exit, status);
     @unreachable()
 }
 
