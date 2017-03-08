@@ -9399,7 +9399,12 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
     if (type_is_invalid(value->value.type))
         return value->value.type;
 
-    assert(ptr->value.type->id == TypeTableEntryIdPointer);
+    if (ptr->value.type->id != TypeTableEntryIdPointer) {
+        ir_add_error(ira, ptr,
+            buf_sprintf("attempt to dereference non pointer type '%s'", buf_ptr(&ptr->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     if (ptr->value.data.x_ptr.special == ConstPtrSpecialDiscard) {
         return ir_analyze_void(ira, &store_ptr_instruction->base);
     }

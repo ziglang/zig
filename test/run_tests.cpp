@@ -1704,6 +1704,15 @@ fn foo() {
     while (i < 10; i += 1) { }
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: unable to infer variable type");
+
+    add_compile_fail_case("dereference an array", R"SOURCE(
+var s_buffer: [10]u8 = undefined;
+pub fn pass(in: []u8) -> []u8 {
+    var out = &s_buffer;
+    *out[0] = in[0];
+    return (*out)[0...1];
+}
+    )SOURCE", 1, ".tmp_source.zig:5:5: error: attempt to dereference non pointer type '[10]u8'");
 }
 
 //////////////////////////////////////////////////////////////////////////////
