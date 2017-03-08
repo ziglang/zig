@@ -4349,7 +4349,7 @@ static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *
 
     // We needed a pointer to a value, but we got a value. So we create
     // an instruction which just makes a const pointer of it.
-    return ir_build_ref(irb, scope, value->source_node, value, true, false);
+    return ir_build_ref(irb, scope, value->source_node, value, lval.is_const, lval.is_volatile);
 }
 
 static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *node,
@@ -9420,7 +9420,10 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
         return ira->codegen->builtin_types.entry_invalid;
 
     if (instr_is_comptime(ptr) && ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
-        assert(ptr->value.data.x_ptr.mut != ConstPtrMutComptimeConst);
+        if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeConst) {
+            ir_add_error(ira, &store_ptr_instruction->base, buf_sprintf("cannot assign to constant"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
         if (ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar) {
             if (instr_is_comptime(casted_value)) {
                 ConstExprValue *dest_val = const_ptr_pointee(&ptr->value);

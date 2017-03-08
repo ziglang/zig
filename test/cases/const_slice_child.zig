@@ -1,6 +1,6 @@
 const assert = @import("std").debug.assert;
 
-var argv: &&const u8 = undefined;
+var argv: &const &const u8 = undefined;
 
 fn constSliceChild() {
     @setFnTest(this);

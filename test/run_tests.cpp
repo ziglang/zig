@@ -1713,6 +1713,17 @@ pub fn pass(in: []u8) -> []u8 {
     return (*out)[0...1];
 }
     )SOURCE", 1, ".tmp_source.zig:5:5: error: attempt to dereference non pointer type '[10]u8'");
+
+    add_compile_fail_case("pass const ptr to mutable ptr fn", R"SOURCE(
+fn foo() -> bool {
+    const a = ([]const u8)("a");
+    const b = &a;
+    return ptrEql(b, b);
+}
+fn ptrEql(a: &[]const u8, b: &[]const u8) -> bool {
+    return true;
+}
+    )SOURCE", 1, ".tmp_source.zig:5:19: error: expected type '&[]const u8', found '&const []const u8'");
 }
 
 //////////////////////////////////////////////////////////////////////////////

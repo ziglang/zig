@@ -450,7 +450,7 @@ fn pointerComparison() {
     const b = &a;
     assert(ptrEql(b, b));
 }
-fn ptrEql(a: &[]const u8, b: &[]const u8) -> bool {
+fn ptrEql(a: &const []const u8, b: &const []const u8) -> bool {
     a == b
 }
 
