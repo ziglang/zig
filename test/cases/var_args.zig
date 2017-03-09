@@ -25,3 +25,15 @@ fn sendVoidArgToVarArgs() {
 
     readFirstVarArg({});
 }
+
+fn testPassArgsDirectly() {
+    @setFnTest(this);
+
+    assert(addSomeStuff(i32(1), i32(2), i32(3), i32(4)) == 10);
+    assert(addSomeStuff(i32(1234)) == 1234);
+    assert(addSomeStuff() == 0);
+}
+
+fn addSomeStuff(args: ...) -> i32 {
+    return add(args);
+}

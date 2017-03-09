@@ -790,16 +790,6 @@ static IrInstruction *ir_build_var_ptr(IrBuilder *irb, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_var_ptr_from(IrBuilder *irb, IrInstruction *old_instruction,
-        VariableTableEntry *var, bool is_const, bool is_volatile)
-{
-    IrInstruction *new_instruction = ir_build_var_ptr(irb, old_instruction->scope,
-            old_instruction->source_node, var, is_const, is_volatile);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
-
-}
-
 static IrInstruction *ir_build_elem_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *array_ptr,
         IrInstruction *elem_index, bool safety_check_on)
 {
@@ -8048,6 +8038,65 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     return true;
 }
 
+static VariableTableEntry *get_fn_var_by_index(FnTableEntry *fn_entry, size_t index) {
+    size_t next_var_i = 0;
+    FnGenParamInfo *gen_param_info = fn_entry->type_entry->data.fn.gen_param_info;
+    for (size_t param_i = 0; param_i < index; param_i += 1) {
+        FnGenParamInfo *info = &gen_param_info[param_i];
+        if (info->gen_index == SIZE_MAX)
+            continue;
+
+        next_var_i += 1;
+    }
+    FnGenParamInfo *info = &gen_param_info[index];
+    if (info->gen_index == SIZE_MAX)
+        return nullptr;
+
+    return fn_entry->variable_list.at(next_var_i);
+}
+
+static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
+        VariableTableEntry *var, bool is_const_ptr, bool is_volatile_ptr)
+{
+    assert(var->value->type);
+    if (type_is_invalid(var->value->type))
+        return ira->codegen->invalid_instruction;
+
+    bool comptime_var_mem = ir_get_var_is_comptime(var);
+
+    ConstExprValue *mem_slot = nullptr;
+    FnTableEntry *fn_entry = scope_fn_entry(var->parent_scope);
+    if (var->value->special == ConstValSpecialStatic) {
+        mem_slot = var->value;
+    } else if (fn_entry) {
+        // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
+        if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const))
+            mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
+    }
+
+    bool is_const = (var->value->type->id == TypeTableEntryIdMetaType) ? is_const_ptr : var->src_is_const;
+    bool is_volatile = (var->value->type->id == TypeTableEntryIdMetaType) ? is_volatile_ptr : false;
+    if (mem_slot && mem_slot->special != ConstValSpecialRuntime) {
+        ConstPtrMut ptr_mut;
+        if (comptime_var_mem) {
+            ptr_mut = ConstPtrMutComptimeVar;
+        } else if (var->gen_is_const) {
+            ptr_mut = ConstPtrMutComptimeConst;
+        } else {
+            assert(!comptime_var_mem);
+            ptr_mut = ConstPtrMutRuntimeVar;
+        }
+        return ir_get_const_ptr(ira, instruction, mem_slot, var->value->type,
+                ptr_mut, is_const, is_volatile);
+    } else {
+        IrInstruction *var_ptr_instruction = ir_build_var_ptr(&ira->new_irb,
+                instruction->scope, instruction->source_node, var, is_const, is_volatile);
+        var_ptr_instruction->value.type = get_pointer_to_type(ira->codegen, var->value->type, var->src_is_const);
+        type_ensure_zero_bits_known(ira->codegen, var->value->type);
+        return var_ptr_instruction;
+    }
+}
+
 static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instruction,
     FnTableEntry *fn_entry, TypeTableEntry *fn_type, IrInstruction *fn_ref,
     IrInstruction *first_arg_ptr, bool inline_fn_call)
@@ -8149,17 +8198,31 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     if (fn_type->data.fn.is_generic) {
         assert(fn_entry);
 
-        IrInstruction **casted_args = allocate<IrInstruction *>(call_param_count);
+        // Count the arguments of the function type id we are creating
+        size_t new_fn_arg_count = 0;
+        for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
+            IrInstruction *arg = call_instruction->args[call_i]->other;
+            if (type_is_invalid(arg->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+
+            if (arg->value.type->id == TypeTableEntryIdArgTuple) {
+                new_fn_arg_count += arg->value.data.x_arg_tuple.end_index - arg->value.data.x_arg_tuple.start_index;
+            } else {
+                new_fn_arg_count += 1;
+            }
+        }
+
+        IrInstruction **casted_args = allocate<IrInstruction *>(new_fn_arg_count);
 
         // Fork a scope of the function with known values for the parameters.
         Scope *parent_scope = fn_entry->fndef_scope->base.parent;
         FnTableEntry *impl_fn = create_fn(fn_proto_node);
-        impl_fn->param_source_nodes = allocate<AstNode *>(call_param_count);
+        impl_fn->param_source_nodes = allocate<AstNode *>(new_fn_arg_count);
         buf_init_from_buf(&impl_fn->symbol_name, &fn_entry->symbol_name);
         impl_fn->fndef_scope = create_fndef_scope(impl_fn->fn_def_node, parent_scope, impl_fn);
         impl_fn->child_scope = &impl_fn->fndef_scope->base;
         FnTypeId inst_fn_type_id = {0};
-        init_fn_type_id(&inst_fn_type_id, fn_proto_node, call_param_count);
+        init_fn_type_id(&inst_fn_type_id, fn_proto_node, new_fn_arg_count);
         inst_fn_type_id.param_count = 0;
         inst_fn_type_id.is_var_args = false;
 
@@ -8168,7 +8231,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         GenericFnTypeId *generic_id = allocate<GenericFnTypeId>(1);
         generic_id->fn_entry = fn_entry;
         generic_id->param_count = 0;
-        generic_id->params = allocate<ConstExprValue>(call_param_count);
+        generic_id->params = allocate<ConstExprValue>(new_fn_arg_count);
         size_t next_proto_i = 0;
 
         if (first_arg_ptr) {
@@ -8191,6 +8254,9 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         bool found_first_var_arg = false;
         size_t first_var_arg = inst_fn_type_id.param_count;
+
+        FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
+        assert(parent_fn_entry);
         for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
             IrInstruction *arg = call_instruction->args[call_i]->other;
             if (type_is_invalid(arg->value.type))
@@ -8204,7 +8270,27 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                 found_first_var_arg = true;
             }
 
-            if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg, &impl_fn->child_scope,
+            if (arg->value.type->id == TypeTableEntryIdArgTuple) {
+                for (size_t arg_tuple_i = arg->value.data.x_arg_tuple.start_index;
+                    arg_tuple_i < arg->value.data.x_arg_tuple.end_index; arg_tuple_i += 1)
+                {
+                    VariableTableEntry *arg_var = get_fn_var_by_index(parent_fn_entry, arg_tuple_i);
+                    assert(arg_var != nullptr);
+                    IrInstruction *arg_var_ptr_inst = ir_get_var_ptr(ira, arg, arg_var, true, false);
+                    if (type_is_invalid(arg_var_ptr_inst->value.type))
+                        return ira->codegen->builtin_types.entry_invalid;
+
+                    IrInstruction *arg_tuple_arg = ir_get_deref(ira, arg, arg_var_ptr_inst);
+                    if (type_is_invalid(arg_tuple_arg->value.type))
+                        return ira->codegen->builtin_types.entry_invalid;
+
+                    if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg_tuple_arg, &impl_fn->child_scope,
+                        &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
+                    {
+                        return ira->codegen->builtin_types.entry_invalid;
+                    }
+                }
+            } else if (!ir_analyze_fn_call_generic_arg(ira, fn_proto_node, arg, &impl_fn->child_scope,
                 &next_proto_i, generic_id, &inst_fn_type_id, casted_args, impl_fn))
             {
                 return ira->codegen->builtin_types.entry_invalid;
@@ -8769,63 +8855,15 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
 static TypeTableEntry *ir_analyze_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
         VariableTableEntry *var, bool is_const_ptr, bool is_volatile_ptr)
 {
-    assert(var->value->type);
-    if (type_is_invalid(var->value->type))
-        return var->value->type;
-
-    bool comptime_var_mem = ir_get_var_is_comptime(var);
-
-    ConstExprValue *mem_slot = nullptr;
-    FnTableEntry *fn_entry = scope_fn_entry(var->parent_scope);
-    if (var->value->special == ConstValSpecialStatic) {
-        mem_slot = var->value;
-    } else if (fn_entry) {
-        // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
-        if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const))
-            mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
-    }
-
-    bool is_const = (var->value->type->id == TypeTableEntryIdMetaType) ? is_const_ptr : var->src_is_const;
-    bool is_volatile = (var->value->type->id == TypeTableEntryIdMetaType) ? is_volatile_ptr : false;
-    if (mem_slot && mem_slot->special != ConstValSpecialRuntime) {
-        ConstPtrMut ptr_mut;
-        if (comptime_var_mem) {
-            ptr_mut = ConstPtrMutComptimeVar;
-        } else if (var->gen_is_const) {
-            ptr_mut = ConstPtrMutComptimeConst;
-        } else {
-            assert(!comptime_var_mem);
-            ptr_mut = ConstPtrMutRuntimeVar;
-        }
-        return ir_analyze_const_ptr(ira, instruction, mem_slot, var->value->type, ptr_mut, is_const, is_volatile);
-    } else {
-        ir_build_var_ptr_from(&ira->new_irb, instruction, var, is_const, is_volatile);
-        type_ensure_zero_bits_known(ira->codegen, var->value->type);
-        return get_pointer_to_type(ira->codegen, var->value->type, var->src_is_const);
-    }
+    IrInstruction *result = ir_get_var_ptr(ira, instruction, var, is_const_ptr, is_volatile_ptr);
+    ir_link_new_instruction(result, instruction);
+    return result->value.type;
 }
 
 static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstructionVarPtr *var_ptr_instruction) {
     VariableTableEntry *var = var_ptr_instruction->var;
     return ir_analyze_var_ptr(ira, &var_ptr_instruction->base, var, var_ptr_instruction->is_const,
             var_ptr_instruction->is_volatile);
-}
-
-static VariableTableEntry *get_fn_var_by_index(FnTableEntry *fn_entry, size_t index) {
-    size_t next_var_i = 0;
-    FnGenParamInfo *gen_param_info = fn_entry->type_entry->data.fn.gen_param_info;
-    for (size_t param_i = 0; param_i < index; param_i += 1) {
-        FnGenParamInfo *info = &gen_param_info[param_i];
-        if (info->gen_index == SIZE_MAX)
-            continue;
-
-        next_var_i += 1;
-    }
-    FnGenParamInfo *info = &gen_param_info[index];
-    if (info->gen_index == SIZE_MAX)
-        return nullptr;
-
-    return fn_entry->variable_list.at(next_var_i);
 }
 
 static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionElemPtr *elem_ptr_instruction) {
