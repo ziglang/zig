@@ -351,6 +351,8 @@ void resolve_target_object_format(ZigTarget *target) {
         case ZigLLVM_r600:
         case ZigLLVM_renderscript32:
         case ZigLLVM_renderscript64:
+        case ZigLLVM_riscv32:
+        case ZigLLVM_riscv64:
         case ZigLLVM_shave:
         case ZigLLVM_sparc:
         case ZigLLVM_sparcel:
@@ -359,6 +361,7 @@ void resolve_target_object_format(ZigTarget *target) {
         case ZigLLVM_spir64:
         case ZigLLVM_systemz:
         case ZigLLVM_tce:
+        case ZigLLVM_tcele:
         case ZigLLVM_thumbeb:
         case ZigLLVM_wasm32:
         case ZigLLVM_wasm64:
@@ -396,9 +399,11 @@ static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_nvptx:
         case ZigLLVM_ppc:
         case ZigLLVM_r600:
+        case ZigLLVM_riscv32:
         case ZigLLVM_sparc:
         case ZigLLVM_sparcel:
         case ZigLLVM_tce:
+        case ZigLLVM_tcele:
         case ZigLLVM_thumb:
         case ZigLLVM_thumbeb:
         case ZigLLVM_x86:
@@ -424,6 +429,7 @@ static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_nvptx64:
         case ZigLLVM_ppc64:
         case ZigLLVM_ppc64le:
+        case ZigLLVM_riscv64:
         case ZigLLVM_sparcv9:
         case ZigLLVM_systemz:
         case ZigLLVM_x86_64:
@@ -515,6 +521,8 @@ int get_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case ZigLLVM_TvOS:
         case ZigLLVM_WatchOS:
         case ZigLLVM_Mesa3D:
+        case ZigLLVM_Fuchsia:
+        case ZigLLVM_Contiki:
             zig_panic("TODO c type size in bits for this target");
     }
     zig_unreachable();

@@ -3950,9 +3950,7 @@ TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, size_t size_in_bits) {
     }
 
     uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-    uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
-    entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-            debug_size_in_bits, debug_align_in_bits, dwarf_tag);
+    entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), debug_size_in_bits, dwarf_tag);
     entry->data.integral.is_signed = is_signed;
     entry->data.integral.bit_count = size_in_bits;
     return entry;

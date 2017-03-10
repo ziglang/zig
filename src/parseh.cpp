@@ -466,6 +466,9 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     case CC_X86_64SysV:  // __attribute__((sysv_abi))
                         emit_warning(c, decl, "function type has x86 64sysv calling convention");
                         return c->codegen->builtin_types.entry_invalid;
+                    case CC_X86RegCall:
+                        emit_warning(c, decl, "function type has x86 reg calling convention");
+                        return c->codegen->builtin_types.entry_invalid;
                     case CC_AAPCS:       // __attribute__((pcs("aapcs")))
                         emit_warning(c, decl, "function type has aapcs calling convention");
                         return c->codegen->builtin_types.entry_invalid;
@@ -598,6 +601,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
         case Type::ObjCObjectPointer:
         case Type::Atomic:
         case Type::Pipe:
+        case Type::ObjCTypeParam:
             emit_warning(c, decl, "missed a '%s' type", ty->getTypeClassName());
             return c->codegen->builtin_types.entry_invalid;
     }

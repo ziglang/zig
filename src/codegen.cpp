@@ -236,6 +236,21 @@ static void render_const_val(CodeGen *g, ConstExprValue *const_val);
 static void render_const_val_global(CodeGen *g, ConstExprValue *const_val, const char *name);
 static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val);
 
+static void addLLVMAttr(LLVMValueRef val, LLVMAttributeIndex attr_index, const char *attr_name) {
+    unsigned kind_id = LLVMGetEnumAttributeKindForName(attr_name, strlen(attr_name));
+    assert(kind_id != 0);
+    LLVMAttributeRef llvm_attr = LLVMCreateEnumAttribute(LLVMGetGlobalContext(), kind_id, 0);
+    LLVMAddAttributeAtIndex(val, attr_index, llvm_attr);
+}
+
+static void addLLVMFnAttr(LLVMValueRef fn_val, const char *attr_name) {
+    return addLLVMAttr(fn_val, -1, attr_name);
+}
+
+static void addLLVMArgAttr(LLVMValueRef arg_val, unsigned param_index, const char *attr_name) {
+    return addLLVMAttr(arg_val, param_index + 1, attr_name);
+}
+
 static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (fn_table_entry->llvm_value)
         return fn_table_entry->llvm_value;
@@ -252,29 +267,29 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
 
     switch (fn_table_entry->fn_inline) {
         case FnInlineAlways:
-            LLVMAddFunctionAttr(fn_table_entry->llvm_value, LLVMAlwaysInlineAttribute);
+            addLLVMFnAttr(fn_table_entry->llvm_value, "alwaysinline");
             break;
         case FnInlineNever:
-            LLVMAddFunctionAttr(fn_table_entry->llvm_value, LLVMNoInlineAttribute);
+            addLLVMFnAttr(fn_table_entry->llvm_value, "noinline");
             break;
         case FnInlineAuto:
             break;
     }
     if (fn_type->data.fn.fn_type_id.is_naked) {
-        LLVMAddFunctionAttr(fn_table_entry->llvm_value, LLVMNakedAttribute);
+        addLLVMFnAttr(fn_table_entry->llvm_value, "naked");
     }
 
     LLVMSetLinkage(fn_table_entry->llvm_value, fn_table_entry->internal_linkage ?
         LLVMInternalLinkage : LLVMExternalLinkage);
 
     if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdUnreachable) {
-        LLVMAddFunctionAttr(fn_table_entry->llvm_value, LLVMNoReturnAttribute);
+        addLLVMFnAttr(fn_table_entry->llvm_value, "noreturn");
     }
     LLVMSetFunctionCallConv(fn_table_entry->llvm_value, fn_type->data.fn.calling_convention);
     if (fn_type->data.fn.fn_type_id.is_cold) {
         ZigLLVMAddFunctionAttrCold(fn_table_entry->llvm_value);
     }
-    LLVMAddFunctionAttr(fn_table_entry->llvm_value, LLVMNoUnwindAttribute);
+    addLLVMFnAttr(fn_table_entry->llvm_value, "nounwind");
     if (!g->is_release_build && fn_table_entry->fn_inline != FnInlineAlways) {
         ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim-non-leaf", nullptr);
@@ -891,7 +906,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, LLVMValueRef val
         if (type_entry->data.integral.is_signed) {
             return LLVMBuildExactSDiv(g->builder, val1, val2, "");
         } else {
-            return ZigLLVMBuildExactUDiv(g->builder, val1, val2, "");
+            return LLVMBuildExactUDiv(g->builder, val1, val2, "");
         }
     } else {
         if (type_entry->data.integral.is_signed) {
@@ -1125,7 +1140,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
 
                         LLVMPositionBuilderAtEnd(g->builder, ok_block);
                     }
-                    new_len = ZigLLVMBuildExactUDiv(g->builder, src_len, dest_size_val, "");
+                    new_len = LLVMBuildExactUDiv(g->builder, src_len, dest_size_val, "");
                 } else {
                     zig_unreachable();
                 }
@@ -3183,7 +3198,8 @@ static void gen_global_var(CodeGen *g, VariableTableEntry *var, LLVMValueRef ini
     bool is_local_to_unit = true;
     ZigLLVMCreateGlobalVariable(g->dbuilder, get_di_scope(g, var->parent_scope), buf_ptr(&var->name),
         buf_ptr(&var->name), import->di_file, var->decl_node->line + 1,
-        type_entry->di_type, is_local_to_unit, init_val);
+        type_entry->di_type, is_local_to_unit);
+    // TODO ^^ make an actual global variable
 }
 
 static LLVMValueRef build_alloca(CodeGen *g, TypeTableEntry *type_entry, const char *name) {
@@ -3284,13 +3300,12 @@ static void do_code_gen(CodeGen *g) {
         } else if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdPointer ||
                    fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdFn)
         {
-            ZigLLVMAddNonNullAttr(fn_val, 0);
+            addLLVMAttr(fn_val, 0, "nonnull");
         } else if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type) &&
                 !fn_type->data.fn.fn_type_id.is_extern)
         {
-            LLVMValueRef first_arg = LLVMGetParam(fn_val, 0);
-            LLVMAddAttribute(first_arg, LLVMStructRetAttribute);
-            ZigLLVMAddNonNullAttr(fn_val, 1);
+            addLLVMArgAttr(fn_val, 0, "sret");
+            addLLVMArgAttr(fn_val, 0, "nonnull");
         }
 
 
@@ -3307,19 +3322,17 @@ static void do_code_gen(CodeGen *g) {
             FnTypeParamInfo *param_info = &fn_type_id->param_info[param_i];
 
             TypeTableEntry *param_type = gen_info->type;
-            LLVMValueRef argument_val = LLVMGetParam(fn_val, gen_index);
             if (param_info->is_noalias) {
-                LLVMAddAttribute(argument_val, LLVMNoAliasAttribute);
+                addLLVMArgAttr(fn_val, gen_index, "noalias");
             }
             if ((param_type->id == TypeTableEntryIdPointer && param_type->data.pointer.is_const) || is_byval) {
-                LLVMAddAttribute(argument_val, LLVMReadOnlyAttribute);
+                addLLVMArgAttr(fn_val, gen_index, "readonly");
             }
             if (param_type->id == TypeTableEntryIdPointer) {
-                ZigLLVMAddNonNullAttr(fn_val, gen_index + 1);
+                addLLVMArgAttr(fn_val, gen_index, "nonnull");
             }
             if (is_byval) {
-                // TODO
-                //LLVMAddAttribute(argument_val, LLVMByValAttribute);
+                // TODO add byval attr?
             }
         }
 
@@ -3613,10 +3626,8 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, info->name);
 
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
-                debug_align_in_bits,
                 is_signed ? ZigLLVMEncoding_DW_ATE_signed() : ZigLLVMEncoding_DW_ATE_unsigned());
         entry->data.integral.is_signed = is_signed;
         entry->data.integral.bit_count = size_in_bits;
@@ -3630,10 +3641,8 @@ static void define_builtin_types(CodeGen *g) {
         entry->type_ref = LLVMInt1Type();
         buf_init_from_str(&entry->name, "bool");
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
-                debug_align_in_bits,
                 ZigLLVMEncoding_DW_ATE_boolean());
         g->builtin_types.entry_bool = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -3653,10 +3662,8 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.integral.bit_count = g->pointer_size_bytes * 8;
 
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
-                debug_align_in_bits,
                 is_signed ? ZigLLVMEncoding_DW_ATE_signed() : ZigLLVMEncoding_DW_ATE_unsigned());
         g->primitive_type_table.put(&entry->name, entry);
 
@@ -3673,10 +3680,8 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.floating.bit_count = 32;
 
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
-                debug_align_in_bits,
                 ZigLLVMEncoding_DW_ATE_float());
         g->builtin_types.entry_f32 = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -3688,10 +3693,8 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.floating.bit_count = 64;
 
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
-                debug_align_in_bits,
                 ZigLLVMEncoding_DW_ATE_float());
         g->builtin_types.entry_f64 = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -3703,10 +3706,8 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.floating.bit_count = 80;
 
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
-        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
-                debug_align_in_bits,
                 ZigLLVMEncoding_DW_ATE_float());
         g->builtin_types.entry_c_long_double = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -3717,7 +3718,6 @@ static void define_builtin_types(CodeGen *g) {
         entry->zero_bits = true;
         buf_init_from_str(&entry->name, "void");
         entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                0,
                 0,
                 ZigLLVMEncoding_DW_ATE_unsigned());
         g->builtin_types.entry_void = entry;
@@ -4098,9 +4098,10 @@ static void init(CodeGen *g, Buf *source_path) {
     bool is_optimized = g->is_release_build;
     const char *flags = "";
     unsigned runtime_version = 0;
+    ZigLLVMDIFile *compile_unit_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(source_path),
+            buf_ptr(&g->root_package->root_src_dir));
     g->compile_unit = ZigLLVMCreateCompileUnit(g->dbuilder, ZigLLVMLang_DW_LANG_C99(),
-            buf_ptr(source_path), buf_ptr(&g->root_package->root_src_dir),
-            buf_ptr(producer), is_optimized, flags, runtime_version,
+            compile_unit_file, buf_ptr(producer), is_optimized, flags, runtime_version,
             "", 0, !g->strip_debug_symbols);
 
     // This is for debug stuff that doesn't have a real file.

@@ -87,8 +87,8 @@ the Zig compiler itself:
 These libraries must be installed on your system, with the development files
 available. The Zig compiler dynamically links against them.
 
- * LLVM == 3.9.x
- * libclang == 3.9.x
+ * LLVM == 4.x
+ * libclang == 4.x
 
 ### Debug / Development Build
 
