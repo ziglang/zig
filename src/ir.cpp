@@ -8199,7 +8199,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         assert(fn_entry);
 
         // Count the arguments of the function type id we are creating
-        size_t new_fn_arg_count = 0;
+        size_t new_fn_arg_count = first_arg_1_or_0;
         for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
             IrInstruction *arg = call_instruction->args[call_i]->other;
             if (type_is_invalid(arg->value.type))
