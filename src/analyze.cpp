@@ -2954,14 +2954,14 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdUnion:
-             return true;
+             return type_has_bits(type_entry);
         case TypeTableEntryIdErrorUnion:
              return type_has_bits(type_entry->data.error.child_type);
         case TypeTableEntryIdEnum:
              assert(type_entry->data.enumeration.complete);
              return type_entry->data.enumeration.gen_field_count != 0;
         case TypeTableEntryIdMaybe:
-             return !type_entry->data.maybe.child_type->zero_bits &&
+             return type_has_bits(type_entry->data.maybe.child_type) &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdFn;
         case TypeTableEntryIdTypeDecl:
