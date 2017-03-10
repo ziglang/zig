@@ -51,9 +51,19 @@ fn rhsMaybeUnwrapReturn() {
 fn maybeReturn() {
     @setFnTest(this);
 
+    maybeReturnImpl();
+    comptime maybeReturnImpl();
+}
+
+fn maybeReturnImpl() {
     assert(??foo(1235));
     assert(if (const _ ?= foo(null)) false else true);
     assert(!??foo(1234));
+}
+
+fn foo(x: ?i32) -> ?bool {
+    const value = ?return x;
+    return value > 1234;
 }
 
 
@@ -97,12 +107,6 @@ const here_is_a_null_literal = SillyStruct {
 };
 
 
-// TODO test static eval maybe return
-fn foo(x: ?i32) -> ?bool {
-    const value = ?return x;
-    return value > 1234;
-}
-
 fn testNullRuntime() {
     @setFnTest(this);
 
@@ -111,4 +115,24 @@ fn testNullRuntime() {
 fn testTestNullRuntime(x: ?i32) {
     assert(x == null);
     assert(!(x != null));
+}
+
+fn nullableVoid() {
+    @setFnTest(this);
+
+    nullableVoidImpl();
+    comptime nullableVoidImpl();
+}
+
+fn nullableVoidImpl() {
+    assert(bar(null) == null);
+    assert(bar({}) != null);
+}
+
+fn bar(x: ?void) -> ?void {
+    if (const _  ?= x) {
+        return {};
+    } else {
+        return null;
+    }
 }

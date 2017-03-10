@@ -1755,12 +1755,16 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
 static LLVMValueRef gen_non_null_bit(CodeGen *g, TypeTableEntry *maybe_type, LLVMValueRef maybe_handle) {
     assert(maybe_type->id == TypeTableEntryIdMaybe);
     TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
-    bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
-    if (maybe_is_ptr) {
-        return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(maybe_type->type_ref), "");
+    if (child_type->zero_bits) {
+        return maybe_handle;
     } else {
-        LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_handle, maybe_null_index, "");
-        return LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+        bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
+        if (maybe_is_ptr) {
+            return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(maybe_type->type_ref), "");
+        } else {
+            LLVMValueRef maybe_field_ptr = LLVMBuildStructGEP(g->builder, maybe_handle, maybe_null_index, "");
+            return LLVMBuildLoad(g->builder, maybe_field_ptr, "");
+        }
     }
 }
 
@@ -1779,7 +1783,6 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
     TypeTableEntry *maybe_type = ptr_type->data.pointer.child_type;
     assert(maybe_type->id == TypeTableEntryIdMaybe);
     TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
-    bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
     LLVMValueRef maybe_ptr = ir_llvm_value(g, instruction->value);
     LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type, is_volatile);
     if (ir_want_debug_safety(g, &instruction->base) && instruction->safety_check_on) {
@@ -1793,11 +1796,16 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
-    if (maybe_is_ptr) {
-        return maybe_ptr;
+    if (child_type->zero_bits) {
+        return nullptr;
     } else {
-        LLVMValueRef maybe_struct_ref = get_handle_value(g, maybe_ptr, maybe_type, is_volatile);
-        return LLVMBuildStructGEP(g->builder, maybe_struct_ref, maybe_child_index, "");
+        bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
+        if (maybe_is_ptr) {
+            return maybe_ptr;
+        } else {
+            LLVMValueRef maybe_struct_ref = get_handle_value(g, maybe_ptr, maybe_type, is_volatile);
+            return LLVMBuildStructGEP(g->builder, maybe_struct_ref, maybe_child_index, "");
+        }
     }
 }
 
@@ -2319,6 +2327,10 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
 
     TypeTableEntry *child_type = wanted_type->data.maybe.child_type;
 
+    if (child_type->zero_bits) {
+        return LLVMConstInt(LLVMInt1Type(), 1, false);
+    }
+
     LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
     if (child_type->id == TypeTableEntryIdPointer ||
         child_type->id == TypeTableEntryIdFn)
@@ -2806,7 +2818,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
         case TypeTableEntryIdMaybe:
             {
                 TypeTableEntry *child_type = canon_type->data.maybe.child_type;
-                if (child_type->id == TypeTableEntryIdPointer ||
+                if (child_type->zero_bits) {
+                    return LLVMConstInt(LLVMInt1Type(), const_val->data.x_maybe ? 1 : 0, false);
+                } else if (child_type->id == TypeTableEntryIdPointer ||
                     child_type->id == TypeTableEntryIdFn)
                 {
                     if (const_val->data.x_maybe) {
@@ -4322,7 +4336,10 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
         case TypeTableEntryIdMaybe:
             {
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
-                if (child_type->id == TypeTableEntryIdPointer ||
+                if (child_type->zero_bits) {
+                    buf_init_from_str(out_buf, "bool");
+                    return;
+                } else if (child_type->id == TypeTableEntryIdPointer ||
                     child_type->id == TypeTableEntryIdFn)
                 {
                     return get_c_type(g, child_type, out_buf);

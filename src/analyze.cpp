@@ -397,7 +397,10 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
 
-        if (child_type->id == TypeTableEntryIdPointer ||
+        if (child_type->zero_bits) {
+            entry->type_ref = LLVMInt1Type();
+            entry->di_type = g->builtin_types.entry_bool->di_type;
+        } else if (child_type->id == TypeTableEntryIdPointer ||
             child_type->id == TypeTableEntryIdFn)
         {
             // this is an optimization but also is necessary for calling C
@@ -2958,7 +2961,8 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
              assert(type_entry->data.enumeration.complete);
              return type_entry->data.enumeration.gen_field_count != 0;
         case TypeTableEntryIdMaybe:
-             return type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
+             return !type_entry->data.maybe.child_type->zero_bits &&
+                    type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdFn;
         case TypeTableEntryIdTypeDecl:
              return handle_is_ptr(type_entry->data.type_decl.canonical_type);
@@ -3632,7 +3636,11 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdNullLit:
             zig_panic("TODO");
         case TypeTableEntryIdMaybe:
-            zig_panic("TODO");
+            if (a->data.x_maybe == nullptr || b->data.x_maybe == nullptr) {
+                return (a->data.x_maybe == nullptr && b->data.x_maybe == nullptr);
+            } else {
+                return const_values_equal(a->data.x_maybe, b->data.x_maybe);
+            }
         case TypeTableEntryIdErrorUnion:
             zig_panic("TODO");
         case TypeTableEntryIdTypeDecl:
