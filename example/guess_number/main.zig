@@ -1,5 +1,6 @@
 const std = @import("std");
 const io = std.io;
+const fmt = std.fmt;
 const Rand = std.rand.Rand;
 const os = std.os;
 
@@ -23,7 +24,7 @@ pub fn main(args: [][]u8) -> %void {
             return err;
         };
 
-        const guess = io.parseUnsigned(u8, line_buf[0...line_len - 1], 10) %% {
+        const guess = fmt.parseUnsigned(u8, line_buf[0...line_len - 1], 10) %% {
             %%io.stdout.printf("Invalid number.\n");
             continue;
         };
