@@ -90,6 +90,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
         g->libc_static_lib_dir = buf_create_from_str("");
         g->libc_include_dir = buf_create_from_str("");
         g->darwin_linker_version = buf_create_from_str("");
+        g->each_lib_rpath = false;
     } else {
         // native compilation, we can rely on the configuration stuff
         g->is_native_target = true;
@@ -100,6 +101,9 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
         g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
         g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
         g->darwin_linker_version = buf_create_from_str(ZIG_HOST_LINK_VERSION);
+#ifdef ZIG_EACH_LIB_RPATH
+        g->each_lib_rpath = true;
+#endif
 
         if (g->zig_target.os == ZigLLVM_Darwin ||
             g->zig_target.os == ZigLLVM_MacOSX ||
@@ -136,6 +140,10 @@ void codegen_set_verbose(CodeGen *g, bool verbose) {
 
 void codegen_set_check_unused(CodeGen *g, bool check_unused) {
     g->check_unused = check_unused;
+}
+
+void codegen_set_each_lib_rpath(CodeGen *g, bool each_lib_rpath) {
+    g->each_lib_rpath = each_lib_rpath;
 }
 
 void codegen_set_errmsg_color(CodeGen *g, ErrColor err_color) {

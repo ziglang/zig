@@ -10,6 +10,7 @@
 
 #include "list.hpp"
 #include "buffer.hpp"
+#include "error.hpp"
 
 #include <stdio.h>
 
@@ -40,7 +41,6 @@ bool os_path_is_absolute(Buf *path);
 
 void os_write_file(Buf *full_path, Buf *contents);
 
-
 int os_fetch_file(FILE *file, Buf *out_contents);
 int os_fetch_file_path(Buf *full_path, Buf *out_contents);
 
@@ -50,5 +50,7 @@ bool os_stderr_tty(void);
 
 int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path);
 int os_delete_file(Buf *path);
+
+int os_file_exists(Buf *full_path, bool *result);
 
 #endif

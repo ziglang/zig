@@ -1413,6 +1413,7 @@ struct CodeGen {
     uint32_t test_fn_count;
 
     bool check_unused;
+    bool each_lib_rpath;
 
     ZigList<AstNode *> error_decls;
     bool generate_error_name_table;

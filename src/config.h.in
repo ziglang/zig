@@ -21,6 +21,7 @@
 #define ZIG_DYNAMIC_LINKER "@ZIG_DYNAMIC_LINKER@"
 #define ZIG_HOST_LINK_VERSION "@ZIG_HOST_LINK_VERSION@"
 
+#cmakedefine ZIG_EACH_LIB_RPATH
 #cmakedefine ZIG_LLVM_OLD_CXX_ABI
 
 // Only used for running tests before installing.

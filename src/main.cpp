@@ -58,7 +58,8 @@ static int usage(const char *arg0) {
         "  -framework [name]            (darwin only) link against framework\n"
         "  --check-unused               perform semantic analysis on unused declarations\n"
         "  --linker-script [path]       use a custom linker script\n"
-        "  -rpath [path]                add a directory to the runtime library search path\n"
+        "  -rpath [path]                add directory to the runtime library search path\n"
+        "  --each-lib-rpath             add rpath for each used dynamic library\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -143,6 +144,7 @@ int main(int argc, char **argv) {
     bool check_unused = false;
     const char *linker_script = nullptr;
     ZigList<const char *> rpath_list = {0};
+    bool each_lib_rpath = false;
 
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
@@ -166,6 +168,8 @@ int main(int argc, char **argv) {
                 rdynamic = true;
             } else if (strcmp(arg, "--check-unused") == 0) {
                 check_unused = true;
+            } else if (strcmp(arg, "--each-lib-rpath") == 0) {
+                each_lib_rpath = true;
             } else if (arg[1] == 'L' && arg[2] != 0) {
                 // alias for --library-path
                 lib_dirs.append(&arg[2]);
@@ -351,6 +355,8 @@ int main(int argc, char **argv) {
             codegen_set_is_test(g, cmd == CmdTest);
             codegen_set_linker_script(g, linker_script);
             codegen_set_check_unused(g, check_unused);
+            if (each_lib_rpath)
+                codegen_set_each_lib_rpath(g, each_lib_rpath);
 
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);
             codegen_set_strip(g, strip);

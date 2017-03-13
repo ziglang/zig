@@ -218,6 +218,15 @@ int os_fetch_file(FILE *f, Buf *out_buf) {
     zig_unreachable();
 }
 
+int os_file_exists(Buf *full_path, bool *result) {
+#if defined(ZIG_OS_POSIX)
+    *result = access(buf_ptr(full_path), F_OK) != -1;
+    return 0;
+#else
+    zig_panic("TODO implement os_file_exists for non-posix");
+#endif
+}
+
 #if defined(ZIG_OS_POSIX)
 static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)

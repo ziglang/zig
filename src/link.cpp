@@ -17,6 +17,7 @@ struct LinkJob {
     ZigList<const char *> args;
     bool link_in_crt;
     Buf out_file_o;
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> rpath_table;
 };
 
 static const char *get_libc_file(CodeGen *g, const char *file) {
@@ -148,6 +149,16 @@ static const char *getLDMOption(const ZigTarget *t) {
     }
 }
 
+static void add_rpath(LinkJob *lj, Buf *rpath) {
+    if (lj->rpath_table.maybe_get(rpath) != nullptr)
+        return;
+
+    lj->args.append("-rpath");
+    lj->args.append(buf_ptr(rpath));
+
+    lj->rpath_table.put(rpath, true);
+}
+
 static void construct_linker_job_elf(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
@@ -205,8 +216,24 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     for (size_t i = 0; i < g->rpath_list.length; i += 1) {
         Buf *rpath = g->rpath_list.at(i);
-        lj->args.append("-rpath");
-        lj->args.append(buf_ptr(rpath));
+        add_rpath(lj, rpath);
+    }
+    if (g->each_lib_rpath) {
+        for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
+            const char *lib_dir = g->lib_dirs.at(i);
+            for (size_t i = 0; i < g->link_libs.length; i += 1) {
+                Buf *link_lib = g->link_libs.at(i);
+                bool does_exist;
+                Buf *test_path = buf_sprintf("%s/lib%s.so", lib_dir, buf_ptr(link_lib));
+                if (os_file_exists(test_path, &does_exist) != ErrorNone) {
+                    zig_panic("link: unable to check if file exists: %s", buf_ptr(test_path));
+                }
+                if (does_exist) {
+                    add_rpath(lj, buf_create_from_str(lib_dir));
+                    break;
+                }
+            }
+        }
     }
 
     for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
@@ -708,6 +735,7 @@ static void construct_linker_job(LinkJob *lj) {
 
 void codegen_link(CodeGen *g, const char *out_file) {
     LinkJob lj = {0};
+    lj.rpath_table.init(4);
     lj.codegen = g;
     if (out_file) {
         buf_init_from_str(&lj.out_file, out_file);
