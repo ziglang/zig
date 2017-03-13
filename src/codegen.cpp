@@ -89,8 +89,6 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
         g->libc_lib_dir = buf_create_from_str("");
         g->libc_static_lib_dir = buf_create_from_str("");
         g->libc_include_dir = buf_create_from_str("");
-        g->linker_path = buf_create_from_str("");
-        g->ar_path = buf_create_from_str("");
         g->darwin_linker_version = buf_create_from_str("");
     } else {
         // native compilation, we can rely on the configuration stuff
@@ -101,8 +99,6 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
         g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
         g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
         g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
-        g->linker_path = buf_create_from_str(ZIG_LD_PATH);
-        g->ar_path = buf_create_from_str(ZIG_AR_PATH);
         g->darwin_linker_version = buf_create_from_str(ZIG_HOST_LINK_VERSION);
 
         if (g->zig_target.os == ZigLLVM_Darwin ||
@@ -180,16 +176,12 @@ void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker) {
     g->dynamic_linker = dynamic_linker;
 }
 
-void codegen_set_linker_path(CodeGen *g, Buf *linker_path) {
-    g->linker_path = linker_path;
-}
-
-void codegen_set_ar_path(CodeGen *g, Buf *ar_path) {
-    g->ar_path = ar_path;
-}
-
 void codegen_add_lib_dir(CodeGen *g, const char *dir) {
     g->lib_dirs.append(dir);
+}
+
+void codegen_add_rpath(CodeGen *g, const char *name) {
+    g->rpath_list.append(buf_create_from_str(name));
 }
 
 void codegen_add_link_lib(CodeGen *g, const char *lib) {

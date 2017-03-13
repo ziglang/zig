@@ -11,7 +11,7 @@ find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
         /usr/lib/llvm-4/include
         /mingw64/include)
 
-macro(FIND_AND_ADD_CLANG_LIB _libname_)
+    macro(FIND_AND_ADD_CLANG_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
     find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
         PATHS

@@ -103,6 +103,7 @@ static const char *get_darwin_arch_string(const ZigTarget *t) {
     }
 }
 
+
 static const char *getLDMOption(const ZigTarget *t) {
     switch (t->arch.arch) {
         case ZigLLVM_x86:
@@ -147,7 +148,7 @@ static const char *getLDMOption(const ZigTarget *t) {
     }
 }
 
-static void construct_linker_job_linux(LinkJob *lj) {
+static void construct_linker_job_elf(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
     if (lj->link_in_crt) {
@@ -200,6 +201,12 @@ static void construct_linker_job_linux(LinkJob *lj) {
         lj->args.append(get_libc_file(g, crt1o));
         lj->args.append(get_libc_file(g, "crti.o"));
         lj->args.append(get_libc_static_file(g, crtbegino));
+    }
+
+    for (size_t i = 0; i < g->rpath_list.length; i += 1) {
+        Buf *rpath = g->rpath_list.at(i);
+        lj->args.append("-rpath");
+        lj->args.append(buf_ptr(rpath));
     }
 
     for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
@@ -293,7 +300,7 @@ static bool is_target_cyg_mingw(const ZigTarget *target) {
         (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_GNU);
 }
 
-static void construct_linker_job_mingw(LinkJob *lj) {
+static void construct_linker_job_coff(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
     if (lj->link_in_crt) {
@@ -546,7 +553,7 @@ static bool darwin_version_lt(DarwinPlatform *platform, int major, int minor) {
     return false;
 }
 
-static void construct_linker_job_darwin(LinkJob *lj) {
+static void construct_linker_job_macho(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
     int ver_major;
@@ -686,85 +693,16 @@ static void construct_linker_job_darwin(LinkJob *lj) {
 }
 
 static void construct_linker_job(LinkJob *lj) {
-    switch (lj->codegen->zig_target.os) {
-        case ZigLLVM_UnknownOS: // freestanding
-            // TODO we want to solve this problem with LLD, but for now let's
-            // assume gnu binutils
-            // http://lists.llvm.org/pipermail/llvm-dev/2017-February/109835.html
-            return construct_linker_job_linux(lj);
-        case ZigLLVM_Linux:
-            if (lj->codegen->zig_target.arch.arch == ZigLLVM_hexagon) {
-                zig_panic("TODO construct hexagon_TC linker job");
-            } else {
-                return construct_linker_job_linux(lj);
-            }
-        case ZigLLVM_CloudABI:
-            zig_panic("TODO construct CloudABI linker job");
-        case ZigLLVM_Darwin:
-        case ZigLLVM_MacOSX:
-        case ZigLLVM_IOS:
-            return construct_linker_job_darwin(lj);
-        case ZigLLVM_DragonFly:
-            zig_panic("TODO construct DragonFly linker job");
-        case ZigLLVM_OpenBSD:
-            zig_panic("TODO construct OpenBSD linker job");
-        case ZigLLVM_Bitrig:
-            zig_panic("TODO construct Bitrig linker job");
-        case ZigLLVM_NetBSD:
-            zig_panic("TODO construct NetBSD linker job");
-        case ZigLLVM_FreeBSD:
-            zig_panic("TODO construct FreeBSD linker job");
-        case ZigLLVM_Minix:
-            zig_panic("TODO construct Minix linker job");
-        case ZigLLVM_NaCl:
-            zig_panic("TODO construct NaCl_TC linker job");
-        case ZigLLVM_Solaris:
-            zig_panic("TODO construct Solaris linker job");
-        case ZigLLVM_Win32:
-            switch (lj->codegen->zig_target.env_type) {
-                default:
-                    if (lj->codegen->zig_target.oformat == ZigLLVM_ELF) {
-                        zig_panic("TODO construct Generic_ELF linker job");
-                    } else if (lj->codegen->zig_target.oformat == ZigLLVM_MachO) {
-                        zig_panic("TODO construct MachO linker job");
-                    } else {
-                        zig_panic("TODO construct Generic_GCC linker job");
-                    }
-                case ZigLLVM_GNU:
-                    return construct_linker_job_mingw(lj);
-                case ZigLLVM_Itanium:
-                    zig_panic("TODO construct CrossWindowsToolChain linker job");
-                case ZigLLVM_MSVC:
-                case ZigLLVM_UnknownEnvironment:
-                    zig_panic("TODO construct MSVC linker job");
-            }
-        case ZigLLVM_CUDA:
-            zig_panic("TODO construct Cuda linker job");
-        default:
-            // Of these targets, Hexagon is the only one that might have
-            // an OS of Linux, in which case it got handled above already.
-            if (lj->codegen->zig_target.arch.arch == ZigLLVM_tce) {
-                zig_panic("TODO construct TCE linker job");
-            } else if (lj->codegen->zig_target.arch.arch == ZigLLVM_hexagon) {
-                zig_panic("TODO construct Hexagon_TC linker job");
-            } else if (lj->codegen->zig_target.arch.arch == ZigLLVM_xcore) {
-                zig_panic("TODO construct XCore linker job");
-            } else if (lj->codegen->zig_target.arch.arch == ZigLLVM_shave) {
-                zig_panic("TODO construct SHAVE linker job");
-            } else if (lj->codegen->zig_target.oformat == ZigLLVM_ELF) {
-                zig_panic("TODO construct Generic_ELF linker job");
-            } else if (lj->codegen->zig_target.oformat == ZigLLVM_MachO) {
-                zig_panic("TODO construct MachO linker job");
-            } else {
-                zig_panic("TODO construct Generic_GCC linker job");
-            }
+    switch (lj->codegen->zig_target.oformat) {
+        case ZigLLVM_UnknownObjectFormat:
+            zig_unreachable();
 
-    }
-}
-
-static void ensure_we_have_linker_path(CodeGen *g) {
-    if (!g->linker_path || buf_len(g->linker_path) == 0) {
-        zig_panic("zig does not know the path to the linker");
+        case ZigLLVM_COFF:
+            return construct_linker_job_coff(lj);
+        case ZigLLVM_ELF:
+            return construct_linker_job_elf(lj);
+        case ZigLLVM_MachO:
+            return construct_linker_job_macho(lj);
     }
 }
 
@@ -838,44 +776,23 @@ void codegen_link(CodeGen *g, const char *out_file) {
     }
 
     lj.link_in_crt = (g->link_libc && g->out_type == OutTypeExe);
-    ensure_we_have_linker_path(g);
 
     construct_linker_job(&lj);
 
 
     if (g->verbose) {
-        fprintf(stderr, "%s", buf_ptr(g->linker_path));
+        fprintf(stderr, "link");
         for (size_t i = 0; i < lj.args.length; i += 1) {
             fprintf(stderr, " %s", lj.args.at(i));
         }
         fprintf(stderr, "\n");
     }
 
-    Buf ld_stderr = BUF_INIT;
-    Buf ld_stdout = BUF_INIT;
-    Termination term;
-    int err = os_exec_process(buf_ptr(g->linker_path), lj.args, &term, &ld_stderr, &ld_stdout);
-    if (err) {
-        fprintf(stderr, "linker not found: '%s'\n", buf_ptr(g->linker_path));
-        exit(1);
-    }
+    Buf diag = BUF_INIT;
 
-    if (term.how != TerminationIdClean || term.code != 0) {
-        if (term.how == TerminationIdClean) {
-            fprintf(stderr, "linker failed with return code %d\n", term.code);
-        } else if (term.how == TerminationIdSignaled) {
-            fprintf(stderr, "linker failed with signal %d\n", term.code);
-        } else {
-            fprintf(stderr, "linker failed\n");
-        }
-        fprintf(stderr, "%s ", buf_ptr(g->linker_path));
-        for (size_t i = 0; i < lj.args.length; i += 1) {
-            fprintf(stderr, "%s ", lj.args.at(i));
-        }
-        fprintf(stderr, "\n%s\n", buf_ptr(&ld_stderr));
+    if (!ZigLLDLink(g->zig_target.oformat, lj.args.items, lj.args.length, &diag)) {
+        fprintf(stderr, "%s\n", buf_ptr(&diag));
         exit(1);
-    } else if (buf_len(&ld_stderr)) {
-        fprintf(stderr, "%s\n", buf_ptr(&ld_stderr));
     }
 
     if (g->out_type == OutTypeLib ||

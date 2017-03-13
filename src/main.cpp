@@ -43,6 +43,7 @@ static int usage(const char *arg0) {
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  --library-path [dir]         add a directory to the library search path\n"
+        "  -L[dir]                      alias for --library-path\n"
         "  --library [lib]              link against lib\n"
         "  --target-arch [name]         specify target architecture\n"
         "  --target-os [name]           specify target operating system\n"
@@ -57,6 +58,7 @@ static int usage(const char *arg0) {
         "  -framework [name]            (darwin only) link against framework\n"
         "  --check-unused               perform semantic analysis on unused declarations\n"
         "  --linker-script [path]       use a custom linker script\n"
+        "  -rpath [path]                add a directory to the runtime library search path\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -123,8 +125,6 @@ int main(int argc, char **argv) {
     const char *libc_include_dir = nullptr;
     const char *zig_std_dir = nullptr;
     const char *dynamic_linker = nullptr;
-    const char *linker_path = nullptr;
-    const char *ar_path = nullptr;
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> lib_dirs = {0};
     ZigList<const char *> link_libs = {0};
@@ -142,6 +142,7 @@ int main(int argc, char **argv) {
     const char *mios_version_min = nullptr;
     bool check_unused = false;
     const char *linker_script = nullptr;
+    ZigList<const char *> rpath_list = {0};
 
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
@@ -165,6 +166,9 @@ int main(int argc, char **argv) {
                 rdynamic = true;
             } else if (strcmp(arg, "--check-unused") == 0) {
                 check_unused = true;
+            } else if (arg[1] == 'L' && arg[2] != 0) {
+                // alias for --library-path
+                lib_dirs.append(&arg[2]);
             } else if (i + 1 >= argc) {
                 return usage(arg0);
             } else {
@@ -205,17 +209,13 @@ int main(int argc, char **argv) {
                     zig_std_dir = argv[i];
                 } else if (strcmp(arg, "--dynamic-linker") == 0) {
                     dynamic_linker = argv[i];
-                } else if (strcmp(arg, "--ld-path") == 0) {
-                    linker_path = argv[i];
-                } else if (strcmp(arg, "--ar-path") == 0) {
-                    ar_path = argv[i];
                 } else if (strcmp(arg, "-isystem") == 0) {
                     clang_argv.append("-isystem");
                     clang_argv.append(argv[i]);
                 } else if (strcmp(arg, "-dirafter") == 0) {
                     clang_argv.append("-dirafter");
                     clang_argv.append(argv[i]);
-                } else if (strcmp(arg, "--library-path") == 0) {
+                } else if (strcmp(arg, "--library-path") == 0 || strcmp(arg, "-L") == 0) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0) {
                     link_libs.append(argv[i]);
@@ -235,6 +235,8 @@ int main(int argc, char **argv) {
                     frameworks.append(argv[i]);
                 } else if (strcmp(arg, "--linker-script") == 0) {
                     linker_script = argv[i];
+                } else if (strcmp(arg, "-rpath") == 0) {
+                    rpath_list.append(argv[i]);
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return usage(arg0);
@@ -373,10 +375,6 @@ int main(int argc, char **argv) {
                 codegen_set_zig_std_dir(g, buf_create_from_str(zig_std_dir));
             if (dynamic_linker)
                 codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
-            if (linker_path)
-                codegen_set_linker_path(g, buf_create_from_str(linker_path));
-            if (ar_path)
-                codegen_set_ar_path(g, buf_create_from_str(ar_path));
             codegen_set_verbose(g, verbose);
             codegen_set_errmsg_color(g, color);
 
@@ -388,6 +386,9 @@ int main(int argc, char **argv) {
             }
             for (size_t i = 0; i < frameworks.length; i += 1) {
                 codegen_add_framework(g, frameworks.at(i));
+            }
+            for (size_t i = 0; i < rpath_list.length; i += 1) {
+                codegen_add_rpath(g, rpath_list.at(i));
             }
 
             codegen_set_windows_subsystem(g, mwindows, mconsole);

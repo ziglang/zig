@@ -17,8 +17,6 @@ message("Configuring zig version ${ZIG_VERSION}")
 set(ZIG_LIBC_LIB_DIR "" CACHE STRING "Default native target libc directory where crt1.o can be found")
 set(ZIG_LIBC_STATIC_LIB_DIR "" CACHE STRING "Default native target libc directory where crtbeginT.o can be found")
 set(ZIG_LIBC_INCLUDE_DIR "/usr/include" CACHE STRING "Default native target libc include directory")
-set(ZIG_LD_PATH "ld" CACHE STRING "Path to ld for the native target")
-set(ZIG_AR_PATH "ar" CACHE STRING "Path to ar for the native target")
 set(ZIG_DYNAMIC_LINKER "" CACHE STRING "Override dynamic linker for native target")
 
 option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
@@ -31,6 +29,9 @@ link_directories(${LLVM_LIBDIRS})
 
 find_package(clang)
 include_directories(${CLANG_INCLUDE_DIRS})
+
+find_package(lld)
+include_directories(${LLD_INCLUDE_DIRS})
 
 include_directories(
     ${CMAKE_SOURCE_DIR}
@@ -192,6 +193,7 @@ set_target_properties(zig PROPERTIES
 )
 target_link_libraries(zig LINK_PUBLIC
     ${CLANG_LIBRARIES}
+    ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
 )
 install(TARGETS zig DESTINATION bin)

@@ -42,6 +42,8 @@
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Scalar.h>
 
+#include <lld/Driver/Driver.h>
+
 using namespace llvm;
 
 void ZigLLVMInitializeLoopStrengthReducePass(LLVMPassRegistryRef R) {
@@ -790,3 +792,36 @@ Buf *get_dynamic_linker(LLVMTargetMachineRef target_machine_ref) {
     }
 }
 
+bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count, Buf *diag_buf) {
+    ArrayRef<const char *> array_ref_args(args, arg_count);
+
+    buf_resize(diag_buf, 0);
+    class MyOStream: public raw_ostream {
+        public:
+            MyOStream(Buf *_diag_buf) : raw_ostream(true), diag_buf(_diag_buf) {
+
+            }
+            void write_impl(const char *ptr, size_t len) override {
+                buf_append_mem(diag_buf, ptr, len);
+            }
+            uint64_t current_pos() const override {
+                return buf_len(diag_buf);
+            }
+            Buf *diag_buf;
+    } diag(diag_buf);
+
+    switch (oformat) {
+        case ZigLLVM_UnknownObjectFormat:
+            zig_unreachable();
+
+        case ZigLLVM_COFF:
+            return lld::coff::link(array_ref_args);
+
+        case ZigLLVM_ELF:
+            return lld::elf::link(array_ref_args, false, diag);
+
+        case ZigLLVM_MachO:
+            return lld::mach_o::link(array_ref_args, diag);
+    }
+    zig_unreachable();
+}

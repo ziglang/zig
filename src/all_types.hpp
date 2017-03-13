@@ -1268,6 +1268,9 @@ struct CodeGen {
     ZigList<Buf *> link_libs; // non-libc link libs
     // add -framework [name] args to linker
     ZigList<Buf *> darwin_frameworks;
+    // add -rpath [name] args to linker
+    ZigList<Buf *> rpath_list;
+
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
@@ -1342,7 +1345,6 @@ struct CodeGen {
     Buf *libc_include_dir;
     Buf *zig_std_dir;
     Buf *dynamic_linker;
-    Buf *linker_path;
     Buf *ar_path;
     Buf triple_str;
     bool is_release_build;
