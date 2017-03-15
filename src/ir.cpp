@@ -8538,11 +8538,13 @@ static TypeTableEntry *ir_analyze_dereference(IrAnalyze *ira, IrInstructionUnOp 
     // this dereference is always an rvalue because in the IR gen we identify lvalue and emit
     // one of the ptr instructions
 
-    if (value->value.special != ConstValSpecialRuntime) {
-        ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
+    if (instr_is_comptime(value)) {
         ConstExprValue *pointee = const_ptr_pointee(&value->value);
-        *out_val = *pointee;
-        return child_type;
+        if (pointee->type == child_type) {
+            ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
+            *out_val = *pointee;
+            return child_type;
+        }
     }
 
     ir_build_load_ptr_from(&ira->new_irb, &un_op_instruction->base, value);
