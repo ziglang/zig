@@ -1,8 +1,6 @@
 const assert = @import("std").debug.assert;
 
-fn nullableType() {
-    @setFnTest(this);
-
+test "nullableType" {
     const x : ?bool = @generatedCode(true);
 
     if (const y ?= x) {
@@ -28,9 +26,7 @@ fn nullableType() {
     assert(num == 13);
 }
 
-fn assignToIfVarPtr() {
-    @setFnTest(this);
-
+test "assignToIfVarPtr" {
     var maybe_bool: ?bool = true;
 
     if (const *b ?= maybe_bool) {
@@ -40,17 +36,13 @@ fn assignToIfVarPtr() {
     assert(??maybe_bool == false);
 }
 
-fn rhsMaybeUnwrapReturn() {
-    @setFnTest(this);
-
+test "rhsMaybeUnwrapReturn" {
     const x: ?bool = @generatedCode(true);
     const y = x ?? return;
 }
 
 
-fn maybeReturn() {
-    @setFnTest(this);
-
+test "maybeReturn" {
     maybeReturnImpl();
     comptime maybeReturnImpl();
 }
@@ -67,9 +59,7 @@ fn foo(x: ?i32) -> ?bool {
 }
 
 
-fn ifVarMaybePointer() {
-    @setFnTest(this);
-
+test "ifVarMaybePointer" {
     assert(shouldBeAPlus1(Particle {.a = 14, .b = 1, .c = 1, .d = 1}) == 15);
 }
 fn shouldBeAPlus1(p: Particle) -> u64 {
@@ -90,9 +80,7 @@ const Particle = struct {
 };
 
 
-fn nullLiteralOutsideFunction() {
-    @setFnTest(this);
-
+test "nullLiteralOutsideFunction" {
     const is_null = here_is_a_null_literal.context == null;
     assert(is_null);
 
@@ -107,9 +95,7 @@ const here_is_a_null_literal = SillyStruct {
 };
 
 
-fn testNullRuntime() {
-    @setFnTest(this);
-
+test "testNullRuntime" {
     testTestNullRuntime(null);
 }
 fn testTestNullRuntime(x: ?i32) {
@@ -117,9 +103,7 @@ fn testTestNullRuntime(x: ?i32) {
     assert(!(x != null));
 }
 
-fn nullableVoid() {
-    @setFnTest(this);
-
+test "nullableVoid" {
     nullableVoidImpl();
     comptime nullableVoidImpl();
 }

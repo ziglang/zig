@@ -56,7 +56,6 @@ static int usage(const char *arg0) {
         "  -mmacosx-version-min [ver]   (darwin only) set Mac OS X deployment target\n"
         "  -mios-version-min [ver]      (darwin only) set iOS deployment target\n"
         "  -framework [name]            (darwin only) link against framework\n"
-        "  --check-unused               perform semantic analysis on unused declarations\n"
         "  --linker-script [path]       use a custom linker script\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
         "  --each-lib-rpath             add rpath for each used dynamic library\n"
@@ -141,7 +140,6 @@ int main(int argc, char **argv) {
     bool rdynamic = false;
     const char *mmacosx_version_min = nullptr;
     const char *mios_version_min = nullptr;
-    bool check_unused = false;
     const char *linker_script = nullptr;
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
@@ -166,8 +164,6 @@ int main(int argc, char **argv) {
                 municode = true;
             } else if (strcmp(arg, "-rdynamic") == 0) {
                 rdynamic = true;
-            } else if (strcmp(arg, "--check-unused") == 0) {
-                check_unused = true;
             } else if (strcmp(arg, "--each-lib-rpath") == 0) {
                 each_lib_rpath = true;
             } else if (arg[1] == 'L' && arg[2] != 0) {
@@ -354,7 +350,6 @@ int main(int argc, char **argv) {
             codegen_set_is_release(g, is_release_build);
             codegen_set_is_test(g, cmd == CmdTest);
             codegen_set_linker_script(g, linker_script);
-            codegen_set_check_unused(g, check_unused);
             if (each_lib_rpath)
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
 

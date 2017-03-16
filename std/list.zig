@@ -64,9 +64,7 @@ pub fn List(comptime T: type) -> type{
     }
 }
 
-fn basicListTest() {
-    @setFnTest(this);
-
+test "basicListTest" {
     var list = List(i32).init(&debug.global_allocator);
     defer list.deinit();
 

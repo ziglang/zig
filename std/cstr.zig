@@ -140,9 +140,7 @@ pub const Buffer0 = struct {
     }
 };
 
-fn testSimpleBuffer0() {
-    @setFnTest(this);
-
+test "simple Buffer0" {
     var buf = %%Buffer0.initEmpty(&debug.global_allocator);
     assert(buf.len() == 0);
     %%buf.appendCStr(c"hello");
@@ -162,9 +160,7 @@ fn testSimpleBuffer0() {
     assert(buf.startsWithOther(&buf2));
 }
 
-fn testCStrFns() {
-    @setFnTest(this);
-
+test "cstr fns" {
     comptime testCStrFnsImpl();
     testCStrFnsImpl();
 }

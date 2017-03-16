@@ -1,8 +1,6 @@
 const assert = @import("std").debug.assert;
 
-fn whileLoop() {
-    @setFnTest(this);
-
+test "whileLoop" {
     var i : i32 = 0;
     while (i < 4) {
         i += 1;
@@ -18,9 +16,7 @@ fn whileLoop2() -> i32 {
         return 1;
     }
 }
-fn staticEvalWhile() {
-    @setFnTest(this);
-
+test "staticEvalWhile" {
     assert(static_eval_while_number == 1);
 }
 const static_eval_while_number = staticWhileLoop1();
@@ -33,9 +29,7 @@ fn staticWhileLoop2() -> i32 {
     }
 }
 
-fn continueAndBreak() {
-    @setFnTest(this);
-
+test "continueAndBreak" {
     runContinueAndBreakTest();
     assert(continue_and_break_counter == 8);
 }
@@ -53,9 +47,7 @@ fn runContinueAndBreakTest() {
     assert(i == 4);
 }
 
-fn returnWithImplicitCastFromWhileLoop() {
-    @setFnTest(this);
-
+test "returnWithImplicitCastFromWhileLoop" {
     %%returnWithImplicitCastFromWhileLoopTest();
 }
 fn returnWithImplicitCastFromWhileLoopTest() -> %void {
@@ -64,9 +56,7 @@ fn returnWithImplicitCastFromWhileLoopTest() -> %void {
     }
 }
 
-fn whileWithContinueExpr() {
-    @setFnTest(this);
-
+test "whileWithContinueExpr" {
     var sum: i32 = 0;
     {var i: i32 = 0; while (i < 10; i += 1) {
         if (i == 5) continue;

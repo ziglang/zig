@@ -1,8 +1,6 @@
 const assert = @import("std").debug.assert;
 
-fn compileTimeRecursion() {
-    @setFnTest(this);
-
+test "compileTimeRecursion" {
     assert(some_data.len == 21);
 }
 var some_data: [usize(fibonacci(7))]u8 = undefined;
@@ -17,14 +15,11 @@ fn unwrapAndAddOne(blah: ?i32) -> i32 {
     return ??blah + 1;
 }
 const should_be_1235 = unwrapAndAddOne(1234);
-fn testStaticAddOne() {
-    @setFnTest(this);
+test "testStaticAddOne" {
     assert(should_be_1235 == 1235);
 }
 
-fn inlinedLoop() {
-    @setFnTest(this);
-
+test "inlinedLoop" {
     comptime var i = 0;
     comptime var sum = 0;
     inline while (i <= 5; i += 1)
@@ -38,25 +33,20 @@ fn gimme1or2(comptime a: bool) -> i32 {
     comptime var z: i32 = if (a) x else y;
     return z;
 }
-fn inlineVariableGetsResultOfConstIf() {
-    @setFnTest(this);
+test "inlineVariableGetsResultOfConstIf" {
     assert(gimme1or2(true) == 1);
     assert(gimme1or2(false) == 2);
 }
 
 
-fn staticFunctionEvaluation() {
-    @setFnTest(this);
-
+test "staticFunctionEvaluation" {
     assert(statically_added_number == 3);
 }
 const statically_added_number = staticAdd(1, 2);
 fn staticAdd(a: i32, b: i32) -> i32 { a + b }
 
 
-fn constExprEvalOnSingleExprBlocks() {
-    @setFnTest(this);
-
+test "constExprEvalOnSingleExprBlocks" {
     assert(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
 }
 
@@ -75,9 +65,7 @@ fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) -> i32 {
 
 
 
-fn staticallyInitalizedList() {
-    @setFnTest(this);
-
+test "staticallyInitalizedList" {
     assert(static_point_list[0].x == 1);
     assert(static_point_list[0].y == 2);
     assert(static_point_list[1].x == 3);
@@ -96,9 +84,7 @@ fn makePoint(x: i32, y: i32) -> Point {
 }
 
 
-fn staticEvalListInit() {
-    @setFnTest(this);
-
+test "staticEvalListInit" {
     assert(static_vec3.data[2] == 1.0);
     assert(vec3(0.0, 0.0, 3.0).data[2] == 3.0);
 }
@@ -113,18 +99,14 @@ pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
 }
 
 
-fn constantExpressions() {
-    @setFnTest(this);
-
+test "constantExpressions" {
     var array : [array_size]u8 = undefined;
     assert(@sizeOf(@typeOf(array)) == 20);
 }
 const array_size : u8 = 20;
 
 
-fn constantStructWithNegation() {
-    @setFnTest(this);
-
+test "constantStructWithNegation" {
     assert(vertices[0].x == -0.6);
 }
 const Vertex = struct {
@@ -141,9 +123,7 @@ const vertices = []Vertex {
 };
 
 
-fn staticallyInitalizedStruct() {
-    @setFnTest(this);
-
+test "staticallyInitalizedStruct" {
     st_init_str_foo.x += 1;
     assert(st_init_str_foo.x == 14);
 }
@@ -154,18 +134,14 @@ const StInitStrFoo = struct {
 var st_init_str_foo = StInitStrFoo { .x = 13, .y = true, };
 
 
-fn staticallyInitializedArrayLiteral() {
-    @setFnTest(this);
-
+test "staticallyInitializedArrayLiteral" {
     const y : [4]u8 = st_init_arr_lit_x;
     assert(y[3] == 4);
 }
 const st_init_arr_lit_x = []u8{1,2,3,4};
 
 
-fn constSlice() {
-    @setFnTest(this);
-
+test "constSlice" {
     comptime {
         const a = "1234567890";
         assert(a.len == 10);
@@ -175,9 +151,7 @@ fn constSlice() {
     }
 }
 
-fn tryToTrickEvalWithRuntimeIf() {
-    @setFnTest(this);
-
+test "tryToTrickEvalWithRuntimeIf" {
     assert(testTryToTrickEvalWithRuntimeIf(true) == 10);
 }
 
@@ -203,9 +177,7 @@ fn max(comptime T: type, a: T, b: T) -> T {
 fn letsTryToCompareBools(a: bool, b: bool) -> bool {
     max(bool, a, b)
 }
-fn inlinedBlockAndRuntimeBlockPhi() {
-    @setFnTest(this);
-
+test "inlinedBlockAndRuntimeBlockPhi" {
     assert(letsTryToCompareBools(true, true));
     assert(letsTryToCompareBools(true, false));
     assert(letsTryToCompareBools(false, true));
@@ -244,17 +216,13 @@ fn performFn(comptime prefix_char: u8, start_value: i32) -> i32 {
     return result;
 }
 
-fn comptimeIterateOverFnPtrList() {
-    @setFnTest(this);
-
+test "comptimeIterateOverFnPtrList" {
     assert(performFn('t', 1) == 6);
     assert(performFn('o', 0) == 1);
     assert(performFn('w', 99) == 99);
 }
 
-fn evalSetDebugSafetyAtCompileTime() {
-    @setFnTest(this);
-
+test "evalSetDebugSafetyAtCompileTime" {
     const result = comptime fnWithSetDebugSafety();
     assert(result == 1234);
 }
@@ -278,17 +246,13 @@ var simple_struct = SimpleStruct{ .field = 1234, };
 
 const bound_fn = simple_struct.method;
 
-fn callMethodOnBoundFnReferringToVarInstance() {
-    @setFnTest(this);
-
+test "callMethodOnBoundFnReferringToVarInstance" {
     assert(bound_fn() == 1237);
 }
 
 
 
-fn ptrToLocalArrayArgumentAtComptime() {
-    @setFnTest(this);
-
+test "ptrToLocalArrayArgumentAtComptime" {
     comptime {
         var bytes: [10]u8 = undefined;
         modifySomeBytes(bytes[0...]);

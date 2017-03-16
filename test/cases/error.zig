@@ -15,9 +15,7 @@ pub fn baz() -> %i32 {
     return y + 1;
 }
 
-fn errorWrapping() {
-    @setFnTest(this);
-
+test "errorWrapping" {
     assert(%%baz() == 15);
 }
 
@@ -26,8 +24,7 @@ fn gimmeItBroke() -> []const u8 {
     @errorName(error.ItBroke)
 }
 
-fn errorName() {
-    @setFnTest(this);
+test "errorName" {
     assert(mem.eql(u8, @errorName(error.AnError), "AnError"));
     assert(mem.eql(u8, @errorName(error.ALongerErrorName), "ALongerErrorName"));
 }
@@ -35,9 +32,7 @@ error AnError;
 error ALongerErrorName;
 
 
-fn errorValues() {
-    @setFnTest(this);
-
+test "errorValues" {
     const a = i32(error.err1);
     const b = i32(error.err2);
     assert(a != b);
@@ -46,9 +41,7 @@ error err1;
 error err2;
 
 
-fn redefinitionOfErrorValuesAllowed() {
-    @setFnTest(this);
-
+test "redefinitionOfErrorValuesAllowed" {
     shouldBeNotEqual(error.AnError, error.SecondError);
 }
 error AnError;
@@ -59,9 +52,7 @@ fn shouldBeNotEqual(a: error, b: error) {
 }
 
 
-fn errBinaryOperator() {
-    @setFnTest(this);
-
+test "errBinaryOperator" {
     const a = errBinaryOperatorG(true) %% 3;
     const b = errBinaryOperatorG(false) %% 3;
     assert(a == 3);
@@ -77,18 +68,14 @@ fn errBinaryOperatorG(x: bool) -> %isize {
 }
 
 
-fn unwrapSimpleValueFromError() {
-    @setFnTest(this);
-
+test "unwrapSimpleValueFromError" {
     const i = %%unwrapSimpleValueFromErrorDo();
     assert(i == 13);
 }
 fn unwrapSimpleValueFromErrorDo() -> %isize { 13 }
 
 
-fn errReturnInAssignment() {
-    @setFnTest(this);
-
+test "errReturnInAssignment" {
     %%doErrReturnInAssignment();
 }
 

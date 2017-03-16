@@ -170,6 +170,8 @@ static const char *node_type_str(NodeType node_type) {
             return "TypeDecl";
         case NodeTypeErrorValueDecl:
             return "ErrorValueDecl";
+        case NodeTypeTestDecl:
+            return "TestDecl";
         case NodeTypeNumberLiteral:
             return "NumberLiteral";
         case NodeTypeStringLiteral:
@@ -915,6 +917,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeFnDecl:
         case NodeTypeParamDecl:
         case NodeTypeErrorValueDecl:
+        case NodeTypeTestDecl:
         case NodeTypeStructField:
         case NodeTypeUse:
             zig_panic("TODO more ast rendering");

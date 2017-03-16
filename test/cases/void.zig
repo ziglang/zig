@@ -6,9 +6,7 @@ const Foo = struct {
     c: void,
 };
 
-fn compareVoidWithVoidCompileTimeKnown() {
-    @setFnTest(this);
-
+test "compareVoidWithVoidCompileTimeKnown" {
     comptime {
         const foo = Foo {
             .a = {},

@@ -138,10 +138,6 @@ void codegen_set_verbose(CodeGen *g, bool verbose) {
     g->verbose = verbose;
 }
 
-void codegen_set_check_unused(CodeGen *g, bool check_unused) {
-    g->check_unused = check_unused;
-}
-
 void codegen_set_each_lib_rpath(CodeGen *g, bool each_lib_rpath) {
     g->each_lib_rpath = each_lib_rpath;
 }
@@ -323,7 +319,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
                 return get_di_scope(g, scope->parent);
             unsigned line_number = fn_table_entry->proto_node->line + 1;
             unsigned scope_line = line_number;
-            bool is_definition = fn_table_entry->fn_def_node != nullptr;
+            bool is_definition = fn_table_entry->body_node != nullptr;
             unsigned flags = 0;
             bool is_optimized = g->is_release_build;
             ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
@@ -2492,7 +2488,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdToPtrType:
         case IrInstructionIdPtrTypeChild:
         case IrInstructionIdFieldPtr:
-        case IrInstructionIdSetFnTest:
         case IrInstructionIdSetFnVisible:
         case IrInstructionIdSetDebugSafety:
         case IrInstructionIdArrayType:
@@ -4054,7 +4049,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "intType", 2);
     create_builtin_fn(g, BuiltinFnIdUnreachable, "unreachable", 0);
-    create_builtin_fn(g, BuiltinFnIdSetFnTest, "setFnTest", 1);
     create_builtin_fn(g, BuiltinFnIdSetFnVisible, "setFnVisible", 2);
     create_builtin_fn(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
     create_builtin_fn(g, BuiltinFnIdAlloca, "alloca", 2);

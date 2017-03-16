@@ -1,16 +1,12 @@
 const assert = @import("std").debug.assert;
 
-fn cmpxchg() {
-    @setFnTest(this);
-
+test "cmpxchg" {
     var x: i32 = 1234;
     while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
     assert(x == 5678);
 }
 
-fn fence() {
-    @setFnTest(this);
-
+test "fence" {
     var x: i32 = 1234;
     @fence(AtomicOrder.SeqCst);
     x = 5678;

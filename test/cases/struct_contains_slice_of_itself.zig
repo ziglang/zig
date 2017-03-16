@@ -5,9 +5,7 @@ const Node = struct {
     children: []Node,
 };
 
-fn structContainsSliceOfItself() {
-    @setFnTest(this);
-
+test "structContainsSliceOfItself" {
     var nodes = []Node {
         Node {
             .payload = 1,

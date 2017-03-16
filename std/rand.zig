@@ -158,9 +158,7 @@ fn MersenneTwister(
     }
 }
 
-fn testFloat32() {
-    @setFnTest(this);
-
+test "testFloat32" {
     var r: Rand = undefined;
     r.init(42);
 
@@ -171,9 +169,7 @@ fn testFloat32() {
     }}
 }
 
-fn testMT19937_64() {
-    @setFnTest(this);
-
+test "testMT19937_64" {
     var rng: MT19937_64 = undefined;
     rng.init(rand_test.mt64_seed);
     for (rand_test.mt64_data) |value| {
@@ -181,9 +177,7 @@ fn testMT19937_64() {
     }
 }
 
-fn testMT19937_32() {
-    @setFnTest(this);
-
+test "testMT19937_32" {
     var rng: MT19937_32 = undefined;
     rng.init(rand_test.mt32_seed);
     for (rand_test.mt32_data) |value| {

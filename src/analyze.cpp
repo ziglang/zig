@@ -130,7 +130,6 @@ Scope *create_loop_scope(AstNode *node, Scope *parent) {
 }
 
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry) {
-    assert(!node || node->type == NodeTypeFnDef);
     ScopeFnDef *scope = allocate<ScopeFnDef>(1);
     init_scope(&scope->base, ScopeIdFnDef, node, parent);
     scope->fn_entry = fn_entry;
@@ -1756,7 +1755,8 @@ FnTableEntry *create_fn(AstNode *proto_node) {
     FnTableEntry *fn_entry = create_fn_raw(inline_value, internal_linkage);
 
     fn_entry->proto_node = proto_node;
-    fn_entry->fn_def_node = proto_node->data.fn_proto.fn_def_node;
+    fn_entry->body_node = (proto_node->data.fn_proto.fn_def_node == nullptr) ? nullptr :
+        proto_node->data.fn_proto.fn_def_node->data.fn_def.body;
 
     return fn_entry;
 }
@@ -1799,76 +1799,107 @@ static void typecheck_panic_fn(CodeGen *g) {
     }
 }
 
+static TypeTableEntry *get_test_fn_type(CodeGen *g) {
+    if (g->test_fn_type)
+        return g->test_fn_type;
+
+    FnTypeId fn_type_id = {0};
+    fn_type_id.return_type = g->builtin_types.entry_void;
+    g->test_fn_type = get_fn_type(g, &fn_type_id);
+    return g->test_fn_type;
+}
+
 static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     ImportTableEntry *import = tld_fn->base.import;
-    AstNode *proto_node = tld_fn->base.source_node;
-    assert(proto_node->type == NodeTypeFnProto);
-    AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
+    AstNode *source_node = tld_fn->base.source_node;
+    if (source_node->type == NodeTypeFnProto) {
+        AstNodeFnProto *fn_proto = &source_node->data.fn_proto;
 
-    AstNode *fn_def_node = fn_proto->fn_def_node;
+        AstNode *fn_def_node = fn_proto->fn_def_node;
 
-    FnTableEntry *fn_table_entry = create_fn(tld_fn->base.source_node);
-    get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
+        FnTableEntry *fn_table_entry = create_fn(source_node);
+        get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
 
-    tld_fn->fn_entry = fn_table_entry;
+        tld_fn->fn_entry = fn_table_entry;
 
-    if (fn_table_entry->fn_def_node) {
-        fn_table_entry->fndef_scope = create_fndef_scope(
-            fn_table_entry->fn_def_node, tld_fn->base.parent_scope, fn_table_entry);
+        if (fn_table_entry->body_node) {
+            fn_table_entry->fndef_scope = create_fndef_scope(
+                fn_table_entry->body_node, tld_fn->base.parent_scope, fn_table_entry);
 
-        for (size_t i = 0; i < fn_proto->params.length; i += 1) {
-            AstNode *param_node = fn_proto->params.at(i);
-            assert(param_node->type == NodeTypeParamDecl);
-            if (buf_len(param_node->data.param_decl.name) == 0) {
-                add_node_error(g, param_node, buf_sprintf("missing parameter name"));
-            }
-        }
-    }
-
-    Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
-    fn_table_entry->type_entry = analyze_fn_type(g, proto_node, child_scope);
-
-    if (fn_table_entry->type_entry->id == TypeTableEntryIdInvalid) {
-        tld_fn->base.resolution = TldResolutionInvalid;
-        return;
-    }
-
-    if (!fn_table_entry->type_entry->data.fn.is_generic) {
-        g->fn_protos.append(fn_table_entry);
-
-        if (fn_def_node)
-            g->fn_defs.append(fn_table_entry);
-
-        if (import == g->root_import && scope_is_root_decls(tld_fn->base.parent_scope)) {
-            if (buf_eql_str(&fn_table_entry->symbol_name, "main")) {
-                g->main_fn = fn_table_entry;
-
-                if (!g->link_libc && tld_fn->base.visib_mod != VisibModExport) {
-                    TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
-                    TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
-                    if (actual_return_type != err_void) {
-                        add_node_error(g, fn_proto->return_type,
-                                buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
-                                    buf_ptr(&actual_return_type->name)));
-                    }
+            for (size_t i = 0; i < fn_proto->params.length; i += 1) {
+                AstNode *param_node = fn_proto->params.at(i);
+                assert(param_node->type == NodeTypeParamDecl);
+                if (buf_len(param_node->data.param_decl.name) == 0) {
+                    add_node_error(g, param_node, buf_sprintf("missing parameter name"));
                 }
-            } else if (buf_eql_str(&fn_table_entry->symbol_name, "panic")) {
-                g->panic_fn = fn_table_entry;
-                typecheck_panic_fn(g);
-            }
-        } else if (import->package == g->panic_package && scope_is_root_decls(tld_fn->base.parent_scope)) {
-            if (buf_eql_str(&fn_table_entry->symbol_name, "panic")) {
-                g->panic_fn = fn_table_entry;
-                typecheck_panic_fn(g);
             }
         }
+
+        Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
+        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope);
+
+        if (fn_table_entry->type_entry->id == TypeTableEntryIdInvalid) {
+            tld_fn->base.resolution = TldResolutionInvalid;
+            return;
+        }
+
+        if (!fn_table_entry->type_entry->data.fn.is_generic) {
+            g->fn_protos.append(fn_table_entry);
+
+            if (fn_def_node)
+                g->fn_defs.append(fn_table_entry);
+
+            if (import == g->root_import && scope_is_root_decls(tld_fn->base.parent_scope)) {
+                if (buf_eql_str(&fn_table_entry->symbol_name, "main")) {
+                    g->main_fn = fn_table_entry;
+
+                    if (!g->link_libc && tld_fn->base.visib_mod != VisibModExport) {
+                        TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
+                        TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
+                        if (actual_return_type != err_void) {
+                            add_node_error(g, fn_proto->return_type,
+                                    buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
+                                        buf_ptr(&actual_return_type->name)));
+                        }
+                    }
+                } else if (buf_eql_str(&fn_table_entry->symbol_name, "panic")) {
+                    g->panic_fn = fn_table_entry;
+                    typecheck_panic_fn(g);
+                }
+            } else if (import->package == g->panic_package && scope_is_root_decls(tld_fn->base.parent_scope)) {
+                if (buf_eql_str(&fn_table_entry->symbol_name, "panic")) {
+                    g->panic_fn = fn_table_entry;
+                    typecheck_panic_fn(g);
+                }
+            }
+        }
+    } else if (source_node->type == NodeTypeTestDecl) {
+        FnTableEntry *fn_table_entry = create_fn_raw(FnInlineAuto, false);
+
+        get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
+
+        tld_fn->fn_entry = fn_table_entry;
+
+        fn_table_entry->proto_node = source_node;
+        fn_table_entry->fndef_scope = create_fndef_scope(source_node, tld_fn->base.parent_scope, fn_table_entry);
+        fn_table_entry->type_entry = get_test_fn_type(g);
+        fn_table_entry->body_node = source_node->data.test_decl.body;
+        fn_table_entry->is_test = true;
+        g->test_fn_count += 1;
+
+        g->fn_protos.append(fn_table_entry);
+        g->fn_defs.append(fn_table_entry);
+
+    } else {
+        zig_unreachable();
     }
 }
 
 static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
-    if (g->check_unused || g->is_test_build || tld->visib_mod == VisibModExport ||
+    if (tld->visib_mod == VisibModExport ||
         (buf_eql_str(tld->name, "panic") &&
-         (decls_scope->import->package == g->panic_package || decls_scope->import == g->root_import)))
+            (decls_scope->import->package == g->panic_package || decls_scope->import == g->root_import)) ||
+        (tld->id == TldIdVar && g->is_test_build))
     {
         g->resolve_queue.append(tld);
     }
@@ -1880,6 +1911,27 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
         add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition is here"));
         return;
     }
+}
+
+static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
+    assert(node->type == NodeTypeTestDecl);
+
+    if (node->data.test_decl.visib_mod != VisibModPrivate) {
+        add_node_error(g, node, buf_sprintf("tests require no visibility modifier"));
+    }
+
+    if (!g->is_test_build)
+        return;
+
+    ImportTableEntry *import = get_scope_import(&decls_scope->base);
+    if (import->package != g->root_package)
+        return;
+
+    Buf *test_name = node->data.test_decl.name;
+
+    TldFn *tld_fn = allocate<TldFn>(1);
+    init_tld(&tld_fn->base, TldIdFn, test_name, VisibModPrivate, node, &decls_scope->base);
+    g->resolve_queue.append(&tld_fn->base);
 }
 
 static void preview_error_value_decl(CodeGen *g, AstNode *node) {
@@ -1974,6 +2026,9 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeErrorValueDecl:
             // error value declarations do not depend on other top level decls
             preview_error_value_decl(g, node);
+            break;
+        case NodeTypeTestDecl:
+            preview_test_decl(g, node, decls_scope);
             break;
         case NodeTypeContainerDecl:
         case NodeTypeParamDecl:
@@ -2650,7 +2705,8 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
 
     fn_table_entry->anal_state = FnAnalStateProbing;
 
-    AstNode *return_type_node = fn_table_entry->proto_node->data.fn_proto.return_type;
+    AstNode *return_type_node = (fn_table_entry->proto_node != nullptr) ?
+        fn_table_entry->proto_node->data.fn_proto.return_type : fn_table_entry->fndef_scope->base.source_node;
 
     assert(fn_table_entry->fndef_scope);
     if (!fn_table_entry->child_scope)
@@ -2674,7 +2730,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
     if (g->verbose) {
         fprintf(stderr, "\n");
-        ast_render(stderr, fn_table_entry->fn_def_node, 4);
+        ast_render(stderr, fn_table_entry->body_node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
         ir_print(stderr, &fn_table_entry->ir_executable, 4);
         fprintf(stderr, "}\n");

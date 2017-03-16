@@ -1,8 +1,6 @@
 const assert = @import("std").debug.assert;
 
-fn gotoAndLabels() {
-    @setFnTest(this);
-
+test "gotoAndLabels" {
     gotoLoop();
     assert(goto_counter == 10);
 }
@@ -21,9 +19,7 @@ var goto_counter: i32 = 0;
 
 
 
-fn gotoLeaveDeferScope() {
-    @setFnTest(this);
-
+test "gotoLeaveDeferScope" {
     testGotoLeaveDeferScope(true);
 }
 fn testGotoLeaveDeferScope(b: bool) {

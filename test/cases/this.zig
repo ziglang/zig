@@ -28,15 +28,11 @@ fn factorial(x: i32) -> i32 {
     }
 }
 
-fn thisReferToModuleCallPrivateFn() {
-    @setFnTest(this);
-
+test "thisReferToModuleCallPrivateFn" {
     assert(module.add(1, 2) == 3);
 }
 
-fn thisReferToContainer() {
-    @setFnTest(this);
-
+test "thisReferToContainer" {
     var pt = Point(i32) {
         .x = 12,
         .y = 34,
@@ -46,8 +42,6 @@ fn thisReferToContainer() {
     assert(pt.y == 35);
 }
 
-fn thisReferToFn() {
-    @setFnTest(this);
-
+test "thisReferToFn" {
     assert(factorial(5) == 120);
 }

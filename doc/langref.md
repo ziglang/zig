@@ -5,7 +5,9 @@
 ```
 Root = many(TopLevelItem) "EOF"
 
-TopLevelItem = ErrorValueDecl | Block | TopLevelDecl
+TopLevelItem = ErrorValueDecl | Block | TopLevelDecl | TestDecl
+
+TestDecl = "test" String Block
 
 TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | TypeDecl | UseDecl)
 

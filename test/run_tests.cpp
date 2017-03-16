@@ -14,6 +14,12 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+enum TestSpecial {
+    TestSpecialNone,
+    TestSpecialSelfHosted,
+    TestSpecialStd,
+};
+
 struct TestSourceFile {
     const char *relative_path;
     const char *source_code;
@@ -32,7 +38,7 @@ struct TestCase {
     ZigList<const char *> compiler_args;
     ZigList<const char *> program_args;
     bool is_parseh;
-    bool is_self_hosted;
+    TestSpecial special;
     bool is_release_mode;
     bool is_debug_safety;
     AllowWarnings allow_warnings;
@@ -79,7 +85,6 @@ static TestCase *add_simple_case(const char *case_name, const char *source, cons
     test_case->compiler_args.append("--strip");
     test_case->compiler_args.append("--color");
     test_case->compiler_args.append("on");
-    test_case->compiler_args.append("--check-unused");
 
     test_cases.append(test_case);
 
@@ -93,9 +98,10 @@ static TestCase *add_simple_case_libc(const char *case_name, const char *source,
     return tc;
 }
 
-static TestCase *add_compile_fail_case_extra(const char *case_name, const char *source, bool check_unused,
-        size_t count, va_list ap)
-{
+static TestCase *add_compile_fail_case(const char *case_name, const char *source, size_t count, ...) {
+    va_list ap;
+    va_start(ap, count);
+
     TestCase *test_case = allocate<TestCase>(1);
     test_case->case_name = case_name;
     test_case->source_files.resize(1);
@@ -122,29 +128,9 @@ static TestCase *add_compile_fail_case_extra(const char *case_name, const char *
     test_case->compiler_args.append("--release");
     test_case->compiler_args.append("--strip");
 
-    if (check_unused) {
-        test_case->compiler_args.append("--check-unused");
-    }
-
     test_cases.append(test_case);
 
     return test_case;
-}
-
-static TestCase *add_compile_fail_case_no_check_unused(const char *case_name, const char *source, size_t count, ...) {
-    va_list ap;
-    va_start(ap, count);
-    TestCase *result = add_compile_fail_case_extra(case_name, source, false, count, ap);
-    va_end(ap);
-    return result;
-}
-
-static TestCase *add_compile_fail_case(const char *case_name, const char *source, size_t count, ...) {
-    va_list ap;
-    va_start(ap, count);
-    TestCase *result = add_compile_fail_case_extra(case_name, source, true, count, ap);
-    va_end(ap);
-    return result;
 }
 
 static void add_debug_safety_case(const char *case_name, const char *source) {
@@ -674,24 +660,27 @@ static void add_compile_failure_test_cases(void) {
     add_compile_fail_case("multiple function definitions", R"SOURCE(
 fn a() {}
 fn a() {}
+export fn entry() { a(); }
     )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of 'a'");
 
     add_compile_fail_case("unreachable with return", R"SOURCE(
 fn a() -> unreachable {return;}
+export fn entry() { a(); }
     )SOURCE", 1, ".tmp_source.zig:2:24: error: expected type 'unreachable', found 'void'");
 
     add_compile_fail_case("control reaches end of non-void function", R"SOURCE(
 fn a() -> i32 {}
+export fn entry() { _ = a(); }
     )SOURCE", 1, ".tmp_source.zig:2:15: error: expected type 'i32', found 'void'");
 
     add_compile_fail_case("undefined function call", R"SOURCE(
-fn a() {
+export fn a() {
     b();
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: use of undeclared identifier 'b'");
 
     add_compile_fail_case("wrong number of arguments", R"SOURCE(
-fn a() {
+export fn a() {
     b(1);
 }
 fn b(a: i32, b: i32, c: i32) { }
@@ -699,14 +688,16 @@ fn b(a: i32, b: i32, c: i32) { }
 
     add_compile_fail_case("invalid type", R"SOURCE(
 fn a() -> bogus {}
+export fn entry() { _ = a(); }
     )SOURCE", 1, ".tmp_source.zig:2:11: error: use of undeclared identifier 'bogus'");
 
     add_compile_fail_case("pointer to unreachable", R"SOURCE(
 fn a() -> &unreachable {}
+export fn entry() { _ = a(); }
     )SOURCE", 1, ".tmp_source.zig:2:12: error: pointer to unreachable not allowed");
 
     add_compile_fail_case("unreachable code", R"SOURCE(
-fn a() {
+export fn a() {
     return;
     b();
 }
@@ -716,10 +707,11 @@ fn b() {}
 
     add_compile_fail_case("bad import", R"SOURCE(
 const bogus = @import("bogus-does-not-exist.zig");
+export fn entry() { bogus.bogo(); }
     )SOURCE", 1, ".tmp_source.zig:2:15: error: unable to find 'bogus-does-not-exist.zig'");
 
     add_compile_fail_case("undeclared identifier", R"SOURCE(
-fn a() {
+export fn a() {
     b +
     c
 }
@@ -730,10 +722,11 @@ fn a() {
     add_compile_fail_case("parameter redeclaration", R"SOURCE(
 fn f(a : i32, a : i32) {
 }
+export fn entry() { f(1, 2); }
     )SOURCE", 1, ".tmp_source.zig:2:15: error: redeclaration of variable 'a'");
 
     add_compile_fail_case("local variable redeclaration", R"SOURCE(
-fn f() {
+export fn f() {
     const a : i32 = 0;
     const a = 0;
 }
@@ -743,71 +736,73 @@ fn f() {
 fn f(a : i32) {
     const a = 0;
 }
+export fn entry() { f(1); }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: redeclaration of variable 'a'");
 
     add_compile_fail_case("variable has wrong type", R"SOURCE(
-fn f() -> i32 {
+export fn f() -> i32 {
     const a = c"a";
     a
 }
     )SOURCE", 1, ".tmp_source.zig:4:5: error: expected type 'i32', found '&const u8'");
 
     add_compile_fail_case("if condition is bool, not int", R"SOURCE(
-fn f() {
+export fn f() {
     if (0) {}
 }
     )SOURCE", 1, ".tmp_source.zig:3:9: error: integer value 0 cannot be implicitly casted to type 'bool'");
 
     add_compile_fail_case("assign unreachable", R"SOURCE(
-fn f() {
+export fn f() {
     const a = return;
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: unreachable code");
 
     add_compile_fail_case("unreachable variable", R"SOURCE(
-fn f() {
+export fn f() {
     const a : unreachable = {};
 }
     )SOURCE", 1, ".tmp_source.zig:3:15: error: variable of type 'unreachable' not allowed");
 
     add_compile_fail_case("unreachable parameter", R"SOURCE(
 fn f(a : unreachable) {}
+export fn entry() { f(); }
     )SOURCE", 1, ".tmp_source.zig:2:10: error: parameter of type 'unreachable' not allowed");
 
     add_compile_fail_case("bad assignment target", R"SOURCE(
-fn f() {
+export fn f() {
     3 = 3;
 }
     )SOURCE", 1, ".tmp_source.zig:3:7: error: cannot assign to constant");
 
     add_compile_fail_case("assign to constant variable", R"SOURCE(
-fn f() {
+export fn f() {
     const a = 3;
     a = 4;
 }
     )SOURCE", 1, ".tmp_source.zig:4:7: error: cannot assign to constant");
 
     add_compile_fail_case("use of undeclared identifier", R"SOURCE(
-fn f() {
+export fn f() {
     b = 3;
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: use of undeclared identifier 'b'");
 
     add_compile_fail_case("const is a statement, not an expression", R"SOURCE(
-fn f() {
+export fn f() {
     (const a = 0);
 }
     )SOURCE", 1, ".tmp_source.zig:3:6: error: invalid token: 'const'");
 
     add_compile_fail_case("array access of undeclared identifier", R"SOURCE(
-fn f() {
+export fn f() {
     i[i] = i[i];
 }
     )SOURCE", 2, ".tmp_source.zig:3:5: error: use of undeclared identifier 'i'",
                  ".tmp_source.zig:3:12: error: use of undeclared identifier 'i'");
 
     add_compile_fail_case("array access of non array", R"SOURCE(
-fn f() {
+export fn f() {
     var bad : bool = undefined;
     bad[bad] = bad[bad];
 }
@@ -815,7 +810,7 @@ fn f() {
                  ".tmp_source.zig:4:19: error: array access of non-array type 'bool'");
 
     add_compile_fail_case("array access with non integer index", R"SOURCE(
-fn f() {
+export fn f() {
     var array = "aoeu";
     var bad = false;
     array[bad] = array[bad];
@@ -828,6 +823,7 @@ const x : i32 = 99;
 fn f() {
     x = 1;
 }
+export fn entry() { f(); }
     )SOURCE", 1, ".tmp_source.zig:4:7: error: cannot assign to constant");
 
 
@@ -836,22 +832,25 @@ fn f(b: bool) {
     const x : i32 = if (b) { 1 };
     const y = if (b) { i32(1) };
 }
+export fn entry() { f(true); }
     )SOURCE", 2, ".tmp_source.zig:3:30: error: integer value 1 cannot be implicitly casted to type 'void'",
                  ".tmp_source.zig:4:15: error: incompatible types: 'i32' and 'void'");
 
     add_compile_fail_case("direct struct loop", R"SOURCE(
 const A = struct { a : A, };
+export fn entry() -> usize { @sizeOf(A) }
     )SOURCE", 1, ".tmp_source.zig:2:11: error: struct 'A' contains itself");
 
     add_compile_fail_case("indirect struct loop", R"SOURCE(
 const A = struct { b : B, };
 const B = struct { c : C, };
 const C = struct { a : A, };
+export fn entry() -> usize { @sizeOf(A) }
     )SOURCE", 1, ".tmp_source.zig:2:11: error: struct 'A' contains itself");
 
     add_compile_fail_case("invalid struct field", R"SOURCE(
 const A = struct { x : i32, };
-fn f() {
+export fn f() {
     var a : A = undefined;
     a.foo = 1;
     const y = a.bar;
@@ -873,7 +872,9 @@ const A = enum {};
     add_compile_fail_case("redefinition of global variables", R"SOURCE(
 var a : i32 = 1;
 var a : i32 = 2;
-    )SOURCE", 1, ".tmp_source.zig:3:1: error: redeclaration of variable 'a'");
+    )SOURCE", 2,
+            ".tmp_source.zig:3:1: error: redefinition of 'a'",
+            ".tmp_source.zig:2:1: note: previous definition is here");
 
     add_compile_fail_case("byvalue struct parameter in exported function", R"SOURCE(
 const A = struct { x : i32, };
@@ -893,7 +894,7 @@ const A = struct {
     y : i32,
     z : i32,
 };
-fn f() {
+export fn f() {
     const a = A {
         .z = 1,
         .y = 2,
@@ -909,7 +910,7 @@ const A = struct {
     y : i32,
     z : i32,
 };
-fn f() {
+export fn f() {
     // we want the error on the '{' not the 'A' because
     // the A could be a complicated expression
     const a = A {
@@ -925,7 +926,7 @@ const A = struct {
     y : i32,
     z : i32,
 };
-fn f() {
+export fn f() {
     const a = A {
         .z = 4,
         .y = 2,
@@ -935,19 +936,19 @@ fn f() {
     )SOURCE", 1, ".tmp_source.zig:11:9: error: no member named 'foo' in 'A'");
 
     add_compile_fail_case("invalid break expression", R"SOURCE(
-fn f() {
+export fn f() {
     break;
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: 'break' expression outside loop");
 
     add_compile_fail_case("invalid continue expression", R"SOURCE(
-fn f() {
+export fn f() {
     continue;
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: 'continue' expression outside loop");
 
     add_compile_fail_case("invalid maybe type", R"SOURCE(
-fn f() {
+export fn f() {
     if (const x ?= true) { }
 }
     )SOURCE", 1, ".tmp_source.zig:3:20: error: expected nullable type, found 'bool'");
@@ -956,42 +957,39 @@ fn f() {
 fn f() -> i32 {
     i32(return 1)
 }
+export fn entry() { _ = f(); }
     )SOURCE", 1, ".tmp_source.zig:3:8: error: unreachable code");
 
     add_compile_fail_case("invalid builtin fn", R"SOURCE(
 fn f() -> @bogus(foo) {
 }
+export fn entry() { _ = f(); }
     )SOURCE", 1, ".tmp_source.zig:2:11: error: invalid builtin function: 'bogus'");
 
     add_compile_fail_case("top level decl dependency loop", R"SOURCE(
 const a : @typeOf(b) = 0;
 const b : @typeOf(a) = 0;
+export fn entry() {
+    const c = a + b;
+}
     )SOURCE", 1, ".tmp_source.zig:2:1: error: 'a' depends on itself");
 
     add_compile_fail_case("noalias on non pointer param", R"SOURCE(
 fn f(noalias x: i32) {}
+export fn entry() { f(1234); }
     )SOURCE", 1, ".tmp_source.zig:2:6: error: noalias on non-pointer parameter");
 
     add_compile_fail_case("struct init syntax for array", R"SOURCE(
 const foo = []u16{.x = 1024,};
+export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
     )SOURCE", 1, ".tmp_source.zig:2:18: error: type '[]u16' does not support struct initialization syntax");
 
     add_compile_fail_case("type variables must be constant", R"SOURCE(
 var foo = u8;
-    )SOURCE", 1, ".tmp_source.zig:2:1: error: variable of type 'type' must be constant");
-
-    add_compile_fail_case("variables shadowing types", R"SOURCE(
-const Foo = struct {};
-const Bar = struct {};
-
-fn f(Foo: i32) {
-    var Bar : i32 = undefined;
+export fn entry() -> foo {
+    return 1;
 }
-    )SOURCE", 4,
-            ".tmp_source.zig:5:6: error: redeclaration of variable 'Foo'",
-            ".tmp_source.zig:2:1: note: previous declaration is here",
-            ".tmp_source.zig:6:5: error: redeclaration of variable 'Bar'",
-            ".tmp_source.zig:3:1: note: previous declaration is here");
+    )SOURCE", 1, ".tmp_source.zig:2:1: error: variable of type 'type' must be constant");
 
     add_compile_fail_case("multiple else prongs in a switch", R"SOURCE(
 fn f(x: u32) {
@@ -1001,27 +999,35 @@ fn f(x: u32) {
         else => true,
     };
 }
+export fn entry() {
+    f(1234);
+}
     )SOURCE", 1, ".tmp_source.zig:6:9: error: multiple else prongs in switch expression");
 
     add_compile_fail_case("global variable initializer must be constant expression", R"SOURCE(
 extern fn foo() -> i32;
 const x = foo();
+export fn entry() -> i32 { x }
     )SOURCE", 1, ".tmp_source.zig:3:11: error: unable to evaluate constant expression");
 
     add_compile_fail_case("array concatenation with wrong type", R"SOURCE(
 const src = "aoeu";
 const derp = usize(1234);
 const a = derp ++ "foo";
+
+export fn entry() -> usize { @sizeOf(@typeOf(a)) }
     )SOURCE", 1, ".tmp_source.zig:4:11: error: expected array or C string literal, found 'usize'");
 
     add_compile_fail_case("non compile time array concatenation", R"SOURCE(
 fn f(s: [10]u8) -> []u8 {
     s ++ "foo"
 }
+export fn entry() -> usize { @sizeOf(@typeOf(f)) }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: unable to evaluate constant expression");
 
     add_compile_fail_case("@cImport with bogus include", R"SOURCE(
 const c = @cImport(@cInclude("bogus.h"));
+export fn entry() -> usize { @sizeOf(@typeOf(c.bogo)) }
     )SOURCE", 2, ".tmp_source.zig:2:11: error: C import failed",
                  ".h:1:10: note: 'bogus.h' file not found");
 
@@ -1029,14 +1035,17 @@ const c = @cImport(@cInclude("bogus.h"));
 const x = 3;
 const y = &x;
 fn foo() -> &const i32 { y }
+export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
     )SOURCE", 1, ".tmp_source.zig:4:26: error: expected type '&const i32', found '&const (integer literal)'");
 
     add_compile_fail_case("integer overflow error", R"SOURCE(
 const x : u8 = 300;
+export fn entry() -> usize { @sizeOf(@typeOf(x)) }
     )SOURCE", 1, ".tmp_source.zig:2:16: error: integer value 300 cannot be implicitly casted to type 'u8'");
 
     add_compile_fail_case("incompatible number literals", R"SOURCE(
 const x = 2 == 2.0;
+export fn entry() -> usize { @sizeOf(@typeOf(x)) }
     )SOURCE", 1, ".tmp_source.zig:2:11: error: integer value 2 cannot be implicitly casted to type '(float literal)'");
 
     add_compile_fail_case("missing function call param", R"SOURCE(
@@ -1061,11 +1070,14 @@ const members = []member_fn_type {
 fn f(foo: Foo, index: usize) {
     const result = members[index]();
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(f)) }
     )SOURCE", 1, ".tmp_source.zig:21:34: error: expected 1 arguments, found 0");
 
     add_compile_fail_case("missing function name and param name", R"SOURCE(
 fn () {}
 fn f(i32) {}
+export fn entry() -> usize { @sizeOf(@typeOf(f)) }
     )SOURCE", 2,
             ".tmp_source.zig:2:1: error: missing function name",
             ".tmp_source.zig:3:6: error: missing parameter name");
@@ -1075,6 +1087,7 @@ const fns = []fn(){ a, b, c };
 fn a() -> i32 {0}
 fn b() -> i32 {1}
 fn c() -> i32 {2}
+export fn entry() -> usize { @sizeOf(@typeOf(fns)) }
     )SOURCE", 1, ".tmp_source.zig:2:21: error: expected type 'fn()', found 'fn() -> i32'");
 
     add_compile_fail_case("extern function pointer mismatch", R"SOURCE(
@@ -1082,18 +1095,23 @@ const fns = [](fn(i32)->i32){ a, b, c };
 pub fn a(x: i32) -> i32 {x + 0}
 pub fn b(x: i32) -> i32 {x + 1}
 export fn c(x: i32) -> i32 {x + 2}
+
+export fn entry() -> usize { @sizeOf(@typeOf(fns)) }
     )SOURCE", 1, ".tmp_source.zig:2:37: error: expected type 'fn(i32) -> i32', found 'extern fn(i32) -> i32'");
 
 
     add_compile_fail_case("implicit cast from f64 to f32", R"SOURCE(
 const x : f64 = 1.0;
 const y : f32 = x;
+
+export fn entry() -> usize { @sizeOf(@typeOf(y)) }
     )SOURCE", 1, ".tmp_source.zig:3:17: error: expected type 'f32', found 'f64'");
 
 
     add_compile_fail_case("colliding invalid top level functions", R"SOURCE(
 fn func() -> bogus {}
 fn func() -> bogus {}
+export fn entry() -> usize { @sizeOf(@typeOf(func)) }
     )SOURCE", 2,
             ".tmp_source.zig:3:1: error: redefinition of 'func'",
             ".tmp_source.zig:2:14: error: use of undeclared identifier 'bogus'");
@@ -1101,6 +1119,7 @@ fn func() -> bogus {}
 
     add_compile_fail_case("bogus compile var", R"SOURCE(
 const x = @compileVar("bogus");
+export fn entry() -> usize { @sizeOf(@typeOf(x)) }
     )SOURCE", 1, ".tmp_source.zig:2:23: error: unrecognized compile variable: 'bogus'");
 
 
@@ -1110,6 +1129,8 @@ const Foo = struct {
 };
 var global_var: usize = 1;
 fn get() -> usize { global_var }
+
+export fn entry() -> usize { @sizeOf(@typeOf(Foo)) }
     )SOURCE", 3,
             ".tmp_source.zig:6:21: error: unable to evaluate constant expression",
             ".tmp_source.zig:3:12: note: called from here",
@@ -1121,6 +1142,8 @@ const Foo = struct {
     field: i32,
 };
 const x = Foo {.field = 1} + Foo {.field = 2};
+
+export fn entry() -> usize { @sizeOf(@typeOf(x)) }
     )SOURCE", 1, ".tmp_source.zig:5:28: error: invalid operands to binary expression: 'Foo' and 'Foo'");
 
 
@@ -1129,6 +1152,11 @@ const lit_int_x = 1 / 0;
 const lit_float_x = 1.0 / 0.0;
 const int_x = i32(1) / i32(0);
 const float_x = f32(1.0) / f32(0.0);
+
+export fn entry1() -> usize { @sizeOf(@typeOf(lit_int_x)) }
+export fn entry2() -> usize { @sizeOf(@typeOf(lit_float_x)) }
+export fn entry3() -> usize { @sizeOf(@typeOf(int_x)) }
+export fn entry4() -> usize { @sizeOf(@typeOf(float_x)) }
     )SOURCE", 4,
             ".tmp_source.zig:2:21: error: division by zero is undefined",
             ".tmp_source.zig:3:25: error: division by zero is undefined",
@@ -1150,16 +1178,22 @@ fn f(n: Number) -> i32 {
         Number.Three => i32(3),
     }
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(f)) }
     )SOURCE", 1, ".tmp_source.zig:9:5: error: enumeration value 'Number.Four' not handled in switch");
 
     add_compile_fail_case("normal string with newline", R"SOURCE(
 const foo = "a
 b";
+
+export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
     )SOURCE", 1, ".tmp_source.zig:2:13: error: newline not allowed in string literal");
 
     add_compile_fail_case("invalid comparison for function pointers", R"SOURCE(
 fn foo() {}
 const invalid = foo > foo;
+
+export fn entry() -> usize { @sizeOf(@typeOf(invalid)) }
     )SOURCE", 1, ".tmp_source.zig:3:21: error: operator not allowed for type 'fn()'");
 
     add_compile_fail_case("generic function instance with non-constant expression", R"SOURCE(
@@ -1167,10 +1201,12 @@ fn foo(comptime x: i32, y: i32) -> i32 { return x + y; }
 fn test1(a: i32, b: i32) -> i32 {
     return foo(a, b);
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(test1)) }
     )SOURCE", 1, ".tmp_source.zig:4:16: error: unable to evaluate constant expression");
 
     add_compile_fail_case("goto jumping into block", R"SOURCE(
-fn f() {
+export fn f() {
     {
 a_label:
     }
@@ -1185,15 +1221,19 @@ fn f(b: bool) {
 label:
 }
 fn derp(){}
+
+export fn entry() -> usize { @sizeOf(@typeOf(f)) }
     )SOURCE", 1, ".tmp_source.zig:3:12: error: no label in scope named 'label'");
 
     add_compile_fail_case("assign null to non-nullable pointer", R"SOURCE(
 const a: &u8 = null;
+
+export fn entry() -> usize { @sizeOf(@typeOf(a)) }
     )SOURCE", 1, ".tmp_source.zig:2:16: error: expected type '&u8', found '(null)'");
 
     add_compile_fail_case("indexing an array of size zero", R"SOURCE(
 const array = []u8{};
-fn foo() {
+export fn foo() {
     const pointer = &array[0];
 }
     )SOURCE", 1, ".tmp_source.zig:4:27: error: index 0 outside array of size 0");
@@ -1203,12 +1243,16 @@ const y = foo(0);
 fn foo(x: i32) -> i32 {
     1 / x
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(y)) }
     )SOURCE", 2,
             ".tmp_source.zig:4:7: error: division by zero is undefined",
             ".tmp_source.zig:2:14: note: called from here");
 
     add_compile_fail_case("branch on undefined value", R"SOURCE(
 const x = if (undefined) true else false;
+
+export fn entry() -> usize { @sizeOf(@typeOf(x)) }
     )SOURCE", 1, ".tmp_source.zig:2:15: error: use of undefined value");
 
 
@@ -1217,12 +1261,16 @@ const seventh_fib_number = fibbonaci(7);
 fn fibbonaci(x: i32) -> i32 {
     return fibbonaci(x - 1) + fibbonaci(x - 2);
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(seventh_fib_number)) }
     )SOURCE", 2,
             ".tmp_source.zig:4:21: error: evaluation exceeded 1000 backwards branches",
             ".tmp_source.zig:4:21: note: called from here");
 
     add_compile_fail_case("@embedFile with bogus file", R"SOURCE(
 const resource = @embedFile("bogus.txt");
+
+export fn entry() -> usize { @sizeOf(@typeOf(resource)) }
     )SOURCE", 1, ".tmp_source.zig:2:29: error: unable to find './bogus.txt'");
 
 
@@ -1232,6 +1280,8 @@ const Foo = struct {
 };
 const a = Foo {.x = get_it()};
 extern fn get_it() -> i32;
+
+export fn entry() -> usize { @sizeOf(@typeOf(a)) }
     )SOURCE", 1, ".tmp_source.zig:5:21: error: unable to evaluate constant expression");
 
     add_compile_fail_case("non-const expression function call with struct return value outside function", R"SOURCE(
@@ -1245,12 +1295,13 @@ fn get_it() -> Foo {
 }
 var global_side_effect = false;
 
+export fn entry() -> usize { @sizeOf(@typeOf(a)) }
     )SOURCE", 2,
             ".tmp_source.zig:7:24: error: unable to evaluate constant expression",
             ".tmp_source.zig:5:17: note: called from here");
 
     add_compile_fail_case("undeclared identifier error should mark fn as impure", R"SOURCE(
-fn foo() {
+export fn foo() {
     test_a_thing();
 }
 fn test_a_thing() {
@@ -1269,12 +1320,15 @@ const EnumWithData = enum {
 fn bad_eql_2(a: EnumWithData, b: EnumWithData) -> bool {
     a == b
 }
+
+export fn entry1() -> usize { @sizeOf(@typeOf(bad_eql_1)) }
+export fn entry2() -> usize { @sizeOf(@typeOf(bad_eql_2)) }
     )SOURCE", 2,
             ".tmp_source.zig:3:7: error: operator not allowed for type '[]u8'",
             ".tmp_source.zig:10:7: error: operator not allowed for type 'EnumWithData'");
 
     add_compile_fail_case("non-const switch number literal", R"SOURCE(
-fn foo() {
+export fn foo() {
     const x = switch (bar()) {
         1, 2 => 1,
         3, 4 => 2,
@@ -1284,18 +1338,17 @@ fn foo() {
 fn bar() -> i32 {
     2
 }
-
     )SOURCE", 1, ".tmp_source.zig:3:15: error: unable to infer expression type");
 
     add_compile_fail_case("atomic orderings of cmpxchg - failure stricter than success", R"SOURCE(
-fn f() {
+export fn f() {
     var x: i32 = 1234;
     while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Monotonic, AtomicOrder.SeqCst)) {}
 }
     )SOURCE", 1, ".tmp_source.zig:4:72: error: failure atomic ordering must be no stricter than success");
 
     add_compile_fail_case("atomic orderings of cmpxchg - success Monotonic or stricter", R"SOURCE(
-fn f() {
+export fn f() {
     var x: i32 = 1234;
     while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Unordered, AtomicOrder.Unordered)) {}
 }
@@ -1306,6 +1359,8 @@ const y = neg(-128);
 fn neg(x: i8) -> i8 {
     -x
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(y)) }
     )SOURCE", 2,
             ".tmp_source.zig:4:5: error: negation caused overflow",
             ".tmp_source.zig:2:14: note: called from here");
@@ -1315,6 +1370,8 @@ const y = add(65530, 10);
 fn add(a: u16, b: u16) -> u16 {
     a + b
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(y)) }
     )SOURCE", 2,
             ".tmp_source.zig:4:7: error: operation caused overflow",
             ".tmp_source.zig:2:14: note: called from here");
@@ -1325,6 +1382,8 @@ const y = sub(10, 20);
 fn sub(a: u16, b: u16) -> u16 {
     a - b
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(y)) }
     )SOURCE", 2,
             ".tmp_source.zig:4:7: error: operation caused overflow",
             ".tmp_source.zig:2:14: note: called from here");
@@ -1334,6 +1393,8 @@ const y = mul(300, 6000);
 fn mul(a: u16, b: u16) -> u16 {
     a * b
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(y)) }
     )SOURCE", 2,
             ".tmp_source.zig:4:7: error: operation caused overflow",
             ".tmp_source.zig:2:14: note: called from here");
@@ -1343,10 +1404,12 @@ fn f() -> i8 {
     const x: u32 = 10;
     @truncate(i8, x)
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(f)) }
     )SOURCE", 1, ".tmp_source.zig:4:19: error: expected signed integer type, found 'u32'");
 
     add_compile_fail_case("%return in function with non error return type", R"SOURCE(
-fn f() {
+export fn f() {
     %return something();
 }
 fn something() -> %void { }
@@ -1361,7 +1424,7 @@ pub fn main(args: [][]u8) { }
     add_compile_fail_case("invalid pointer for var type", R"SOURCE(
 extern fn ext() -> usize;
 var bytes: [ext()]u8 = undefined;
-fn f() {
+export fn f() {
     for (bytes) |*b, i| {
         *b = u8(i);
     }
@@ -1379,10 +1442,11 @@ extern fn foo(comptime x: i32, y: i32) -> i32;
 fn f() -> i32 {
     foo(1, 2)
 }
+export fn entry() -> usize { @sizeOf(@typeOf(f)) }
     )SOURCE", 1, ".tmp_source.zig:2:15: error: comptime parameter not allowed in extern function");
 
     add_compile_fail_case("convert fixed size array to slice with invalid size", R"SOURCE(
-fn f() {
+export fn f() {
     var array: [5]u8 = undefined;
     var foo = ([]const u32)(array)[0];
 }
@@ -1403,7 +1467,7 @@ pub fn SmallList(comptime T: type, comptime STATIC_SIZE: usize) -> type {
     }
 }
 
-fn function_with_return_type_type() {
+export fn function_with_return_type_type() {
     var list: List(i32) = undefined;
     list.length = 10;
 }
@@ -1417,6 +1481,7 @@ var self = "aoeu";
 fn f(m: []const u8) {
     m.copy(u8, self[0...], m);
 }
+export fn entry() -> usize { @sizeOf(@typeOf(f)) }
     )SOURCE", 1, ".tmp_source.zig:4:6: error: no member named 'copy' in '[]const u8'");
 
     add_compile_fail_case("wrong number of arguments for method fn call", R"SOURCE(
@@ -1427,17 +1492,18 @@ fn f(foo: &const Foo) {
 
     foo.method(1, 2);
 }
+export fn entry() -> usize { @sizeOf(@typeOf(f)) }
     )SOURCE", 1, ".tmp_source.zig:7:15: error: expected 2 arguments, found 3");
 
     add_compile_fail_case("assign through constant pointer", R"SOURCE(
-fn f() {
+export fn f() {
   var cstr = c"Hat";
   cstr[0] = 'W';
 }
     )SOURCE", 1, ".tmp_source.zig:4:11: error: cannot assign to constant");
 
     add_compile_fail_case("assign through constant slice", R"SOURCE(
-pub fn f() {
+export fn f() {
   var cstr: []const u8 = "Hat";
   cstr[0] = 'W';
 }
@@ -1451,6 +1517,7 @@ pub fn main(args: [][]bogus) -> %void {}
 fn foo(blah: []u8) {
     for (blah) { }
 }
+export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: for loop expression missing element parameter");
 
     add_compile_fail_case("misspelled type with pointer only reference", R"SOURCE(
@@ -1482,6 +1549,8 @@ fn foo() {
     jll.init(1234);
     var jd = JsonNode {.kind = JsonType.JSONArray , .jobject = JsonOA.JSONArray {jll} };
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
     )SOURCE", 1, ".tmp_source.zig:6:16: error: use of undeclared identifier 'JsonList'");
 
     add_compile_fail_case("method call with first arg type primitive", R"SOURCE(
@@ -1495,7 +1564,7 @@ const Foo = struct {
     }
 };
 
-fn f() {
+export fn f() {
     const derp = Foo.init(3);
 
     derp.init();
@@ -1523,7 +1592,7 @@ pub const Allocator = struct {
     field: i32,
 };
 
-fn foo() {
+export fn foo() {
     var x = List.init(&global_allocator);
     x.init();
 }
@@ -1533,13 +1602,15 @@ fn foo() {
 const TINY_QUANTUM_SHIFT = 4;
 const TINY_QUANTUM_SIZE = 1 << TINY_QUANTUM_SHIFT;
 var block_aligned_stuff: usize = (4 + TINY_QUANTUM_SIZE) & ~(TINY_QUANTUM_SIZE - 1);
+
+export fn entry() -> usize { @sizeOf(@typeOf(block_aligned_stuff)) }
     )SOURCE", 1, ".tmp_source.zig:4:60: error: unable to perform binary not operation on type '(integer literal)'");
 
     {
         TestCase *tc = add_compile_fail_case("multiple files with private function error", R"SOURCE(
 const foo = @import("foo.zig");
 
-fn callPrivFunction() {
+export fn callPrivFunction() {
     foo.privateFunction();
 }
         )SOURCE", 2, 
@@ -1554,13 +1625,15 @@ fn privateFunction() { }
     add_compile_fail_case("container init with non-type", R"SOURCE(
 const zero: i32 = 0;
 const a = zero{1};
+
+export fn entry() -> usize { @sizeOf(@typeOf(a)) }
     )SOURCE", 1, ".tmp_source.zig:3:11: error: expected type, found 'i32'");
 
     add_compile_fail_case("assign to constant field", R"SOURCE(
 const Foo = struct {
     field: i32,
 };
-fn derp() {
+export fn derp() {
     const f = Foo {.field = 1234,};
     f.field = 0;
 }
@@ -1580,6 +1653,8 @@ fn canFail() -> %void { }
 pub fn maybeInt() -> ?i32 {
     return 0;
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(testTrickyDefer)) }
     )SOURCE", 1, ".tmp_source.zig:5:11: error: cannot return from defer expression");
 
     add_compile_fail_case("attempt to access var args out of bounds", R"SOURCE(
@@ -1590,6 +1665,8 @@ fn add(args: ...) -> i32 {
 fn foo() -> i32 {
     add(i32(1234))
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
     )SOURCE", 2,
             ".tmp_source.zig:3:19: error: index 1 outside argument list of size 1",
             ".tmp_source.zig:7:8: note: called from here");
@@ -1606,10 +1683,12 @@ fn add(args: ...) -> i32 {
 fn bar() -> i32 {
     add(1, 2, 3, 4)
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(bar)) }
     )SOURCE", 1, ".tmp_source.zig:11:9: error: parameter of type '(integer literal)' requires comptime");
 
     add_compile_fail_case("assign too big number to u16", R"SOURCE(
-fn foo() {
+export fn foo() {
     var vga_mem: u16 = 0xB8000;
 }
     )SOURCE", 1, ".tmp_source.zig:3:24: error: integer value 753664 cannot be implicitly casted to type 'u16'");
@@ -1619,10 +1698,11 @@ const some_data: [100]u8 = {
     @setGlobalAlign(some_data, 3);
     undefined
 };
+export fn entry() -> usize { @sizeOf(@typeOf(some_data)) }
     )SOURCE", 1, ".tmp_source.zig:3:32: error: alignment value must be power of 2");
 
     add_compile_fail_case("compile log", R"SOURCE(
-fn foo() {
+export fn foo() {
     comptime bar(12, "hi");
 }
 fn bar(a: i32, b: []const u8) {
@@ -1660,9 +1740,11 @@ fn foo(bit_field: &const BitField) -> u3 {
 fn bar(x: &const u3) -> u3 {
     return *x;
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
     )SOURCE", 1, ".tmp_source.zig:12:26: error: expected type '&const u3', found '&:3:6 const u3'");
 
-    add_compile_fail_case_no_check_unused("referring to a struct that is invalid without --check-unused", R"SOURCE(
+    add_compile_fail_case("referring to a struct that is invalid", R"SOURCE(
 const UsbDeviceRequest = struct {
     Type: u8,
 };
@@ -1679,7 +1761,7 @@ fn assert(ok: bool) {
             ".tmp_source.zig:7:20: note: called from here");
 
     add_compile_fail_case("control flow uses comptime var at runtime", R"SOURCE(
-fn foo() {
+export fn foo() {
     comptime var i = 0;
     while (i < 5; i += 1) {
         bar();
@@ -1692,14 +1774,14 @@ fn bar() { }
             ".tmp_source.zig:4:21: note: compile-time variable assigned here");
 
     add_compile_fail_case("ignored return value", R"SOURCE(
-fn foo() {
+export fn foo() {
     bar();
 }
 fn bar() -> i32 { 0 }
     )SOURCE", 1, ".tmp_source.zig:3:8: error: return value ignored");
 
     add_compile_fail_case("integer literal on a non-comptime var", R"SOURCE(
-fn foo() {
+export fn foo() {
     var i = 0;
     while (i < 10; i += 1) { }
 }
@@ -1712,6 +1794,8 @@ pub fn pass(in: []u8) -> []u8 {
     *out[0] = in[0];
     return (*out)[0...1];
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(pass)) }
     )SOURCE", 1, ".tmp_source.zig:5:5: error: attempt to dereference non pointer type '[10]u8'");
 
     add_compile_fail_case("pass const ptr to mutable ptr fn", R"SOURCE(
@@ -1723,6 +1807,8 @@ fn foo() -> bool {
 fn ptrEql(a: &[]const u8, b: &[]const u8) -> bool {
     return true;
 }
+
+export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
     )SOURCE", 1, ".tmp_source.zig:5:19: error: expected type '&[]const u8', found '&const []const u8'");
 }
 
@@ -2159,22 +2245,68 @@ static void run_self_hosted_test(bool is_release_mode) {
     }
 }
 
+static void run_std_lib_test(bool is_release_mode) {
+    Buf std_index_file = BUF_INIT;
+    os_path_join(buf_create_from_str(ZIG_STD_DIR),
+        buf_create_from_str("index.zig"), &std_index_file);
+
+    Buf zig_stderr = BUF_INIT;
+    Buf zig_stdout = BUF_INIT;
+    ZigList<const char *> args = {0};
+    args.append("test");
+    args.append(buf_ptr(&std_index_file));
+    if (is_release_mode) {
+        args.append("--release");
+    }
+    Termination term;
+    os_exec_process(zig_exe, args, &term, &zig_stderr, &zig_stdout);
+
+    if (term.how != TerminationIdClean || term.code != 0) {
+        printf("\nstd lib tests failed:\n");
+        printf("./zig");
+        for (size_t i = 0; i < args.length; i += 1) {
+            printf(" %s", args.at(i));
+        }
+        printf("\n%s\n", buf_ptr(&zig_stderr));
+        exit(1);
+    }
+}
+
+
 static void add_self_hosted_tests(void) {
     {
         TestCase *test_case = allocate<TestCase>(1);
         test_case->case_name = "self hosted tests (debug)";
-        test_case->is_self_hosted = true;
+        test_case->special = TestSpecialSelfHosted;
         test_case->is_release_mode = false;
         test_cases.append(test_case);
     }
     {
         TestCase *test_case = allocate<TestCase>(1);
         test_case->case_name = "self hosted tests (release)";
-        test_case->is_self_hosted = true;
+        test_case->special = TestSpecialSelfHosted;
         test_case->is_release_mode = true;
         test_cases.append(test_case);
     }
 }
+
+static void add_std_lib_tests(void) {
+    {
+        TestCase *test_case = allocate<TestCase>(1);
+        test_case->case_name = "std (debug)";
+        test_case->special = TestSpecialStd;
+        test_case->is_release_mode = false;
+        test_cases.append(test_case);
+    }
+    {
+        TestCase *test_case = allocate<TestCase>(1);
+        test_case->case_name = "std (release)";
+        test_case->special = TestSpecialStd;
+        test_case->is_release_mode = true;
+        test_cases.append(test_case);
+    }
+}
+
 
 static void print_compiler_invocation(TestCase *test_case) {
     printf("%s", zig_exe);
@@ -2193,8 +2325,10 @@ static void print_exe_invocation(TestCase *test_case) {
 }
 
 static void run_test(TestCase *test_case) {
-    if (test_case->is_self_hosted) {
+    if (test_case->special == TestSpecialSelfHosted) {
         return run_self_hosted_test(test_case->is_release_mode);
+    } else if (test_case->special == TestSpecialStd) {
+        return run_std_lib_test(test_case->is_release_mode);
     }
 
     for (size_t i = 0; i < test_case->source_files.length; i += 1) {
@@ -2366,6 +2500,7 @@ int main(int argc, char **argv) {
     add_compile_failure_test_cases();
     add_parseh_test_cases();
     add_self_hosted_tests();
+    add_std_lib_tests();
     run_all_tests(reverse);
     cleanup();
 }

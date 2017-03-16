@@ -291,9 +291,7 @@ fn digitToChar(digit: u8, uppercase: bool) -> u8 {
     };
 }
 
-fn testBufPrintInt() {
-    @setFnTest(this);
-
+test "testBufPrintInt" {
     var buffer: [max_int_digits]u8 = undefined;
     const buf = buffer[0...];
     assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 2, false, 0), "-101111000110000101001110"));
@@ -315,9 +313,7 @@ fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, width: u
     return buf[0...formatIntBuf(buf, value, base, uppercase, width)];
 }
 
-fn testParseU64DigitTooBig() {
-    @setFnTest(this);
-
+test "testParseU64DigitTooBig" {
     parseUnsigned(u64, "123a", 10) %% |err| {
         if (err == error.InvalidChar) return;
         @unreachable();
@@ -325,9 +321,7 @@ fn testParseU64DigitTooBig() {
     @unreachable();
 }
 
-fn testParseUnsignedComptime() {
-    @setFnTest(this);
-
+test "testParseUnsignedComptime" {
     comptime {
         assert(%%parseUnsigned(usize, "2", 10) == 2);
     }

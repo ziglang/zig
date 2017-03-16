@@ -322,9 +322,7 @@ export fn __udivsi3(n: su_int, d: su_int) -> su_int {
     return q;
 }
 
-fn test_umoddi3() {
-    @setFnTest(this);
-
+test "test_umoddi3" {
     test_one_umoddi3(0, 1, 0);
     test_one_umoddi3(2, 1, 0);
     test_one_umoddi3(0x8000000000000000, 1, 0x0);
@@ -337,9 +335,7 @@ fn test_one_umoddi3(a: du_int, b: du_int, expected_r: du_int) {
     assert(r == expected_r);
 }
 
-fn test_udivmoddi4() {
-    @setFnTest(this);
-
+test "test_udivmoddi4" {
     const cases = [][4]du_int {
         []du_int{0x0000000000000000, 0x0000000000000001, 0x0000000000000000, 0x0000000000000000},
         []du_int{0x0000000080000000, 0x0000000100000001, 0x0000000000000000, 0x0000000080000000},
@@ -367,9 +363,7 @@ fn test_one_udivmoddi4(a: du_int, b: du_int, expected_q: du_int, expected_r: du_
     assert(r == expected_r);
 }
 
-fn test_udivsi3() {
-    @setFnTest(this);
-
+test "test_udivsi3" {
     const cases = [][3]su_int {
         []su_int{0x00000000, 0x00000001, 0x00000000},
         []su_int{0x00000000, 0x00000002, 0x00000000},

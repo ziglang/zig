@@ -2418,6 +2418,27 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, size_t *token_index
 }
 
 /*
+TestDecl = "test" String Block
+*/
+static AstNode *ast_parse_test_decl_node(ParseContext *pc, size_t *token_index, VisibMod visib_mod) {
+    Token *first_token = &pc->tokens->at(*token_index);
+
+    if (first_token->id != TokenIdKeywordTest) {
+        return nullptr;
+    }
+    *token_index += 1;
+
+    Token *name_tok = ast_eat_token(pc, token_index, TokenIdStringLiteral);
+
+    AstNode *node = ast_create_node(pc, NodeTypeTestDecl, first_token);
+    node->data.test_decl.visib_mod = visib_mod;
+    node->data.test_decl.name = token_buf(name_tok);
+    node->data.test_decl.body = ast_parse_block(pc, token_index, true);
+
+    return node;
+}
+
+/*
 TypeDecl = "type" "Symbol" "=" TypeExpr ";"
 */
 static AstNode *ast_parse_type_decl(ParseContext *pc, size_t *token_index, VisibMod visib_mod) {
@@ -2443,7 +2464,7 @@ static AstNode *ast_parse_type_decl(ParseContext *pc, size_t *token_index, Visib
 }
 
 /*
-TopLevelItem = ErrorValueDecl | Block | TopLevelDecl
+TopLevelItem = ErrorValueDecl | Block | TopLevelDecl | TestDecl
 TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | TypeDecl | UseDecl)
 */
 static void ast_parse_top_level_decls(ParseContext *pc, size_t *token_index, ZigList<AstNode *> *top_level_decls) {
@@ -2488,6 +2509,12 @@ static void ast_parse_top_level_decls(ParseContext *pc, size_t *token_index, Zig
         AstNode *error_value_node = ast_parse_error_value_decl(pc, token_index, visib_mod);
         if (error_value_node) {
             top_level_decls->append(error_value_node);
+            continue;
+        }
+
+        AstNode *test_decl_node = ast_parse_test_decl_node(pc, token_index, visib_mod);
+        if (test_decl_node) {
+            top_level_decls->append(test_decl_node);
             continue;
         }
 
@@ -2584,6 +2611,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeErrorValueDecl:
             // none
+            break;
+        case NodeTypeTestDecl:
+            visit_field(&node->data.test_decl.body, visit, context);
             break;
         case NodeTypeBinOpExpr:
             visit_field(&node->data.bin_op_expr.op1, visit, context);

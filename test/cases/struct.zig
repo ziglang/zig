@@ -5,27 +5,25 @@ const StructWithNoFields = struct {
 };
 const empty_global_instance = StructWithNoFields {};
 
-fn callStructStaticMethod() {
-    @setFnTest(this);
+test "callStructStaticMethod" {
     const result = StructWithNoFields.add(3, 4);
     assert(result == 7);
 }
 
+test "returnEmptyStructInstance" {
+    _ = returnEmptyStructInstance();
+}
 fn returnEmptyStructInstance() -> StructWithNoFields {
-    @setFnTest(this);
     return empty_global_instance;
 }
 
 const should_be_11 = StructWithNoFields.add(5, 6);
 
-fn invokeStaticMethodInGlobalScope() {
-    @setFnTest(this);
+test "invokeStaticMethodInGlobalScope" {
     assert(should_be_11 == 11);
 }
 
-fn voidStructFields() {
-    @setFnTest(this);
-
+test "voidStructFields" {
     const foo = VoidStructFieldsFoo {
         .a = void{},
         .b = 1,
@@ -41,9 +39,7 @@ const VoidStructFieldsFoo = struct {
 };
 
 
-pub fn structs() {
-    @setFnTest(this);
-
+test "fn" {
     var foo: StructFoo = undefined;
     @memset((&u8)(&foo), 0, @sizeOf(StructFoo));
     foo.a += 1;
@@ -74,9 +70,7 @@ const Val = struct {
     x: i32,
 };
 
-fn structPointToSelf() {
-    @setFnTest(this);
-
+test "structPointToSelf" {
     var root : Node = undefined;
     root.val.x = 1;
 
@@ -89,9 +83,7 @@ fn structPointToSelf() {
     assert(node.next.next.next.val.x == 1);
 }
 
-fn structByvalAssign() {
-    @setFnTest(this);
-
+test "structByvalAssign" {
     var foo1 : StructFoo = undefined;
     var foo2 : StructFoo = undefined;
 
@@ -108,9 +100,7 @@ fn structInitializer() {
 }
 
 
-fn fnCallOfStructField() {
-    @setFnTest(this);
-
+test "fnCallOfStructField" {
     assert(callStructField(Foo {.ptr = aFunc,}) == 13);
 }
 
@@ -125,9 +115,7 @@ fn callStructField(foo: Foo) -> i32 {
 }
 
 
-fn storeMemberFunctionInVariable() {
-    @setFnTest(this);
-
+test "storeMemberFunctionInVariable" {
     const instance = MemberFnTestFoo { .x = 1234, };
     const memberFn = MemberFnTestFoo.member;
     const result = memberFn(instance);
@@ -139,17 +127,13 @@ const MemberFnTestFoo = struct {
 };
 
 
-fn callMemberFunctionDirectly() {
-    @setFnTest(this);
-
+test "callMemberFunctionDirectly" {
     const instance = MemberFnTestFoo { .x = 1234, };
     const result = MemberFnTestFoo.member(instance);
     assert(result == 1234);
 }
 
-fn memberFunctions() {
-    @setFnTest(this);
-
+test "memberFunctions" {
     const r = MemberFnRand {.seed = 1234};
     assert(r.getSeed() == 1234);
 }
@@ -160,9 +144,7 @@ const MemberFnRand = struct {
     }
 };
 
-fn returnStructByvalFromFunction() {
-    @setFnTest(this);
-
+test "returnStructByvalFromFunction" {
     const bar = makeBar(1234, 5678);
     assert(bar.y == 5678);
 }
@@ -177,9 +159,7 @@ fn makeBar(x: i32, y: i32) -> Bar {
     }
 }
 
-fn emptyStructMethodCall() {
-    @setFnTest(this);
-
+test "emptyStructMethodCall" {
     const es = EmptyStruct{};
     assert(es.method() == 1234);
 }
@@ -190,9 +170,7 @@ const EmptyStruct = struct {
 };
 
 
-fn returnEmptyStructFromFn() {
-    @setFnTest(this);
-
+test "returnEmptyStructFromFn" {
     _ = testReturnEmptyStructFromFn();
 }
 const EmptyStruct2 = struct {};
@@ -200,9 +178,7 @@ fn testReturnEmptyStructFromFn() -> EmptyStruct2 {
     EmptyStruct2 {}
 }
 
-fn passSliceOfEmptyStructToFn() {
-    @setFnTest(this);
-
+test "passSliceOfEmptyStructToFn" {
     assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{ EmptyStruct2{} }) == 1);
 }
 fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) -> usize {
@@ -214,9 +190,7 @@ const APackedStruct = packed struct {
     y: u8,
 };
 
-fn packedStruct() {
-    @setFnTest(this);
-
+test "packedStruct" {
     var foo = APackedStruct {
         .x = 1,
         .y = 2,
@@ -242,9 +216,7 @@ const bit_field_1 = BitField1 {
     .c = 3,
 };
 
-fn bitFieldAccess() {
-    @setFnTest(this);
-
+test "bitFieldAccess" {
     var data = bit_field_1;
     assert(getA(&data) == 1);
     assert(getB(&data) == 2);
@@ -282,9 +254,7 @@ const Foo96Bits = packed struct {
     d: u24,
 };
 
-fn packedStruct24Bits() {
-    @setFnTest(this);
-
+test "packedStruct24Bits" {
     comptime {
         assert(@sizeOf(Foo24Bits) == 3);
         assert(@sizeOf(Foo96Bits) == 12);
@@ -327,9 +297,7 @@ const FooArray24Bits = packed struct {
     c: u16,
 };
 
-fn packedArray24Bits() {
-    @setFnTest(this);
-
+test "packedArray24Bits" {
     comptime {
         assert(@sizeOf([9]Foo24Bits) == 9 * 3);
         assert(@sizeOf(FooArray24Bits) == 2 + 2 * 3 + 2);
@@ -379,9 +347,7 @@ const FooArrayOfAligned = packed struct {
     a: [2]FooStructAligned,
 };
 
-fn alignedArrayOfPackedStruct() {
-    @setFnTest(this);
-
+test "alignedArrayOfPackedStruct" {
     comptime {
         assert(@sizeOf(FooStructAligned) == 2);
         assert(@sizeOf(FooArrayOfAligned) == 2 * 2);

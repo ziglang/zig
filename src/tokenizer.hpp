@@ -74,6 +74,7 @@ enum TokenId {
     TokenIdKeywordReturn,
     TokenIdKeywordStruct,
     TokenIdKeywordSwitch,
+    TokenIdKeywordTest,
     TokenIdKeywordThis,
     TokenIdKeywordTrue,
     TokenIdKeywordTry,

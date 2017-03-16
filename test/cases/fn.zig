@@ -1,8 +1,6 @@
 const assert = @import("std").debug.assert;
 
-fn params() {
-    @setFnTest(this);
-
+test "params" {
     assert(testParamsAdd(22, 11) == 33);
 }
 fn testParamsAdd(a: i32, b: i32) -> i32 {
@@ -10,9 +8,7 @@ fn testParamsAdd(a: i32, b: i32) -> i32 {
 }
 
 
-fn localVariables() {
-    @setFnTest(this);
-
+test "localVariables" {
     testLocVars(2);
 }
 fn testLocVars(b: i32) {
@@ -21,9 +17,7 @@ fn testLocVars(b: i32) {
 }
 
 
-fn voidParameters() {
-    @setFnTest(this);
-
+test "voidParameters" {
     voidFun(1, void{}, 2, {});
 }
 fn voidFun(a: i32, b: void, c: i32, d: void) {
@@ -34,9 +28,7 @@ fn voidFun(a: i32, b: void, c: i32, d: void) {
 }
 
 
-fn mutableLocalVariables() {
-    @setFnTest(this);
-
+test "mutableLocalVariables" {
     var zero : i32 = 0;
     assert(zero == 0);
 
@@ -47,9 +39,7 @@ fn mutableLocalVariables() {
     assert(i == 3);
 }
 
-fn separateBlockScopes() {
-    @setFnTest(this);
-
+test "separateBlockScopes" {
     {
         const no_conflict : i32 = 5;
         assert(no_conflict == 5);
@@ -62,22 +52,21 @@ fn separateBlockScopes() {
     assert(c == 10);
 }
 
-fn callFnWithEmptyString() {
-    @setFnTest(this);
-
+test "callFnWithEmptyString" {
     acceptsString("");
 }
 
 fn acceptsString(foo: []u8) { }
 
 
-fn @"weird function name"() {
-    @setFnTest(this);
+fn @"weird function name"() -> i32 {
+    return 1234;
+}
+test "weird function name" {
+    assert(@"weird function name"() == 1234);
 }
 
-fn implicitCastFnUnreachableReturn() {
-    @setFnTest(this);
-
+test "implicitCastFnUnreachableReturn" {
     wantsFnWithVoid(fnWithUnreachable);
 }
 
@@ -88,9 +77,7 @@ fn fnWithUnreachable() -> unreachable {
 }
 
 
-fn functionPointers() {
-    @setFnTest(this);
-
+test "functionPointers" {
     const fns = []@typeOf(fn1) { fn1, fn2, fn3, fn4, };
     for (fns) |f, i| {
         assert(f() == u32(i) + 5);

@@ -8,9 +8,7 @@ fn add(args: ...) -> i32 {
     return sum;
 }
 
-fn testAddArbitraryArgs() {
-    @setFnTest(this);
-
+test "testAddArbitraryArgs" {
     assert(add(i32(1), i32(2), i32(3), i32(4)) == 10);
     assert(add(i32(1234)) == 1234);
     assert(add() == 0);
@@ -20,15 +18,11 @@ fn readFirstVarArg(args: ...) {
     const value = args[0];
 }
 
-fn sendVoidArgToVarArgs() {
-    @setFnTest(this);
-
+test "sendVoidArgToVarArgs" {
     readFirstVarArg({});
 }
 
-fn testPassArgsDirectly() {
-    @setFnTest(this);
-
+test "testPassArgsDirectly" {
     assert(addSomeStuff(i32(1), i32(2), i32(3), i32(4)) == 10);
     assert(addSomeStuff(i32(1234)) == 1234);
     assert(addSomeStuff() == 0);

@@ -1,60 +1,46 @@
 const assert = @import("std").debug.assert;
 
-fn exactDivision() {
-    @setFnTest(this);
-
+test "exactDivision" {
     assert(divExact(55, 11) == 5);
 }
 fn divExact(a: u32, b: u32) -> u32 {
     @divExact(a, b)
 }
 
-fn floatDivision() {
-    @setFnTest(this);
-
+test "floatDivision" {
     assert(fdiv32(12.0, 3.0) == 4.0);
 }
 fn fdiv32(a: f32, b: f32) -> f32 {
     a / b
 }
 
-fn overflowIntrinsics() {
-    @setFnTest(this);
-
+test "overflowIntrinsics" {
     var result: u8 = undefined;
     assert(@addWithOverflow(u8, 250, 100, &result));
     assert(!@addWithOverflow(u8, 100, 150, &result));
     assert(result == 250);
 }
 
-fn shlWithOverflow() {
-    @setFnTest(this);
-
+test "shlWithOverflow" {
     var result: u16 = undefined;
     assert(@shlWithOverflow(u16, 0b0010111111111111, 3, &result));
     assert(!@shlWithOverflow(u16, 0b0010111111111111, 2, &result));
     assert(result == 0b1011111111111100);
 }
 
-fn countLeadingZeroes() {
-    @setFnTest(this);
-
+test "countLeadingZeroes" {
     assert(@clz(u8(0b00001010)) == 4);
     assert(@clz(u8(0b10001010)) == 0);
     assert(@clz(u8(0b00000000)) == 8);
 }
 
-fn countTrailingZeroes() {
-    @setFnTest(this);
-
+test "countTrailingZeroes" {
     assert(@ctz(u8(0b10100000)) == 5);
     assert(@ctz(u8(0b10001010)) == 1);
     assert(@ctz(u8(0b00000000)) == 8);
 }
 
-fn modifyOperators() {
-    @setFnTest(this);
-
+test "modifyOperators" {
     var i : i32 = 0;
     i += 5;  assert(i == 5);
     i -= 2;  assert(i == 3);
@@ -70,9 +56,7 @@ fn modifyOperators() {
     i |= 3;  assert(i == 7);
 }
 
-fn threeExprInARow() {
-    @setFnTest(this);
-    testThreeExprInARow(false, true);
+test "threeExprInARow" {
 }
 fn testThreeExprInARow(f: bool, t: bool) {
     assertFalse(f || f || f);
@@ -94,9 +78,7 @@ fn assertFalse(b: bool) {
 }
 
 
-fn constNumberLiteral() {
-    @setFnTest(this);
-
+test "constNumberLiteral" {
     const one = 1;
     const eleven = ten + one;
 
@@ -106,9 +88,7 @@ const ten = 10;
 
 
 
-fn unsignedWrapping() {
-    @setFnTest(this);
-
+test "unsignedWrapping" {
     testUnsignedWrappingEval(@maxValue(u32));
 }
 fn testUnsignedWrappingEval(x: u32) {
@@ -118,9 +98,7 @@ fn testUnsignedWrappingEval(x: u32) {
     assert(orig == @maxValue(u32));
 }
 
-fn signedWrapping() {
-    @setFnTest(this);
-
+test "signedWrapping" {
     testSignedWrappingEval(@maxValue(i32));
 }
 fn testSignedWrappingEval(x: i32) {
@@ -130,9 +108,7 @@ fn testSignedWrappingEval(x: i32) {
     assert(max_val == @maxValue(i32));
 }
 
-fn negationWrapping() {
-    @setFnTest(this);
-
+test "negationWrapping" {
     testNegationWrappingEval(@minValue(i16));
 }
 fn testNegationWrappingEval(x: i16) {
@@ -141,9 +117,7 @@ fn testNegationWrappingEval(x: i16) {
     assert(neg == -32768);
 }
 
-fn shlWrapping() {
-    @setFnTest(this);
-
+test "shlWrapping" {
     testShlWrappingEval(@maxValue(u16));
 }
 fn testShlWrappingEval(x: u16) {
@@ -151,9 +125,7 @@ fn testShlWrappingEval(x: u16) {
     assert(shifted == 65534);
 }
 
-fn unsigned64BitDivision() {
-    @setFnTest(this);
-
+test "unsigned64BitDivision" {
     const result = div(1152921504606846976, 34359738365);
     assert(result.quotient == 33554432);
     assert(result.remainder == 100663296);
@@ -169,9 +141,7 @@ const DivResult = struct {
     remainder: u64,
 };
 
-fn binaryNot() {
-    @setFnTest(this);
-
+test "binaryNot" {
     assert(comptime {~u16(0b1010101010101010) == 0b0101010101010101});
     assert(comptime {~u64(2147483647) == 18446744071562067968});
     testBinaryNot(0b1010101010101010);
@@ -181,9 +151,7 @@ fn testBinaryNot(x: u16) {
     assert(~x == 0b0101010101010101);
 }
 
-fn smallIntAddition() {
-    @setFnTest(this);
-
+test "smallIntAddition" {
     var x: @intType(false, 2) = 0;
     assert(x == 0);
 
@@ -202,9 +170,7 @@ fn smallIntAddition() {
     assert(result == 0);
 }
 
-fn testFloatEquality() {
-    @setFnTest(this);
-
+test "testFloatEquality" {
     const x: f64 = 0.012;
     const y: f64 = x + 1.0;
 

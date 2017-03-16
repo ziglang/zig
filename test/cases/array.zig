@@ -1,9 +1,7 @@
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
-fn arrays() {
-    @setFnTest(this);
-
+test "arrays" {
     var array : [5]u32 = undefined;
 
     var i : u32 = 0;
@@ -27,9 +25,7 @@ fn getArrayLen(a: []const u32) -> usize {
     a.len
 }
 
-fn voidArrays() {
-    @setFnTest(this);
-
+test "voidArrays" {
     var array: [4]void = undefined;
     array[0] = void{};
     array[1] = array[2];
@@ -37,18 +33,14 @@ fn voidArrays() {
     assert(array.len == 4);
 }
 
-fn arrayLiteral() {
-    @setFnTest(this);
-
+test "arrayLiteral" {
     const hex_mult = []u16{4096, 256, 16, 1};
 
     assert(hex_mult.len == 4);
     assert(hex_mult[1] == 256);
 }
 
-fn arrayDotLenConstExpr() {
-    @setFnTest(this);
-
+test "arrayDotLenConstExpr" {
     assert(comptime {some_array.len == 4});
 }
 
@@ -58,9 +50,7 @@ const ArrayDotLenConstExpr = struct {
 const some_array = []u8 {0, 1, 2, 3};
 
 
-fn nestedArrays() {
-    @setFnTest(this);
-
+test "nestedArrays" {
     const array_of_strings = [][]const u8 {"hello", "this", "is", "my", "thing"};
     for (array_of_strings) |s, i| {
         if (i == 0) assert(mem.eql(u8, s, "hello"));
@@ -79,9 +69,7 @@ const Sub = struct {
 const Str = struct {
     a: []Sub,
 };
-fn setGlobalVarArrayViaSliceEmbeddedInStruct() {
-    @setFnTest(this);
-
+test "setGlobalVarArrayViaSliceEmbeddedInStruct" {
     var s = Str { .a = s_array[0...]};
 
     s.a[0].b = 1;

@@ -1,8 +1,6 @@
 const assert = @import("std").debug.assert;
 
-fn switchWithNumbers() {
-    @setFnTest(this);
-
+test "switchWithNumbers" {
     testSwitchWithNumbers(13);
 }
 
@@ -15,9 +13,7 @@ fn testSwitchWithNumbers(x: u32) {
     assert(result);
 }
 
-fn switchWithAllRanges() {
-    @setFnTest(this);
-
+test "switchWithAllRanges" {
     assert(testSwitchWithAllRanges(50, 3) == 1);
     assert(testSwitchWithAllRanges(101, 0) == 2);
     assert(testSwitchWithAllRanges(300, 5) == 3);
@@ -33,9 +29,7 @@ fn testSwitchWithAllRanges(x: u32, y: u32) -> u32 {
     }
 }
 
-fn implicitComptimeSwitch() {
-    @setFnTest(this);
-
+test "implicitComptimeSwitch" {
     const x = 3 + 4;
     const result = switch (x) {
         3 => 10,
@@ -50,9 +44,7 @@ fn implicitComptimeSwitch() {
     }
 }
 
-fn switchOnEnum() {
-    @setFnTest(this);
-
+test "switchOnEnum" {
     const fruit = Fruit.Orange;
     nonConstSwitchOnEnum(fruit);
 }
@@ -70,9 +62,7 @@ fn nonConstSwitchOnEnum(fruit: Fruit) {
 }
 
 
-fn switchStatement() {
-    @setFnTest(this);
-
+test "switchStatement" {
     nonConstSwitch(SwitchStatmentFoo.C);
 }
 fn nonConstSwitch(foo: SwitchStatmentFoo) {
@@ -92,9 +82,7 @@ const SwitchStatmentFoo = enum {
 };
 
 
-fn switchProngWithVar() {
-    @setFnTest(this);
-
+test "switchProngWithVar" {
     switchProngWithVarFn(SwitchProngWithVarEnum.One {13});
     switchProngWithVarFn(SwitchProngWithVarEnum.Two {13.0});
     switchProngWithVarFn(SwitchProngWithVarEnum.Meh);
@@ -119,9 +107,7 @@ fn switchProngWithVarFn(a: SwitchProngWithVarEnum) {
 }
 
 
-fn switchWithMultipleExpressions() {
-    @setFnTest(this);
-
+test "switchWithMultipleExpressions" {
     const x = switch (returnsFive()) {
         1, 2, 3 => 1,
         4, 5, 6 => 2,
@@ -149,8 +135,6 @@ fn returnsFalse() -> bool {
         Number.Three => |x| return x > 12.34,
     }
 }
-fn switchOnConstEnumWithVar() {
-    @setFnTest(this);
-
+test "switchOnConstEnumWithVar" {
     assert(!returnsFalse());
 }

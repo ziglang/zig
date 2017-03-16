@@ -339,12 +339,6 @@ static void ir_print_enum_field_ptr(IrPrint *irp, IrInstructionEnumFieldPtr *ins
     fprintf(irp->f, ")");
 }
 
-static void ir_print_set_fn_test(IrPrint *irp, IrInstructionSetFnTest *instruction) {
-    fprintf(irp->f, "@setFnTest(");
-    ir_print_other_instruction(irp, instruction->fn_value);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_set_fn_visible(IrPrint *irp, IrInstructionSetFnVisible *instruction) {
     fprintf(irp->f, "@setFnVisible(");
     ir_print_other_instruction(irp, instruction->fn_value);
@@ -931,9 +925,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdEnumFieldPtr:
             ir_print_enum_field_ptr(irp, (IrInstructionEnumFieldPtr *)instruction);
-            break;
-        case IrInstructionIdSetFnTest:
-            ir_print_set_fn_test(irp, (IrInstructionSetFnTest *)instruction);
             break;
         case IrInstructionIdSetFnVisible:
             ir_print_set_fn_visible(irp, (IrInstructionSetFnVisible *)instruction);

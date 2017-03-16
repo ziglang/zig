@@ -311,6 +311,7 @@ enum NodeType {
     NodeTypeVariableDeclaration,
     NodeTypeTypeDecl,
     NodeTypeErrorValueDecl,
+    NodeTypeTestDecl,
     NodeTypeBinOpExpr,
     NodeTypeUnwrapErrorExpr,
     NodeTypeNumberLiteral,
@@ -433,6 +434,14 @@ struct AstNodeErrorValueDecl {
     Buf *name;
 
     ErrorTableEntry *err;
+};
+
+struct AstNodeTestDecl {
+    // always invalid if it's not VisibModPrivate but can be parsed that way
+    VisibMod visib_mod;
+    Buf *name;
+
+    AstNode *body;
 };
 
 enum BinOpType {
@@ -781,6 +790,7 @@ struct AstNode {
         AstNodeVariableDeclaration variable_declaration;
         AstNodeTypeDecl type_decl;
         AstNodeErrorValueDecl error_value_decl;
+        AstNodeTestDecl test_decl;
         AstNodeBinOpExpr bin_op_expr;
         AstNodeUnwrapErrorExpr unwrap_err_expr;
         AstNodePrefixOpExpr prefix_op_expr;
@@ -1091,7 +1101,7 @@ enum FnInline {
 struct FnTableEntry {
     LLVMValueRef llvm_value;
     AstNode *proto_node;
-    AstNode *fn_def_node;
+    AstNode *body_node;
     ScopeFnDef *fndef_scope; // parent should be the top level decls or container decls
     Scope *child_scope; // parent is scope for last parameter
     ScopeBlock *def_scope; // parent is child_scope
@@ -1161,7 +1171,6 @@ enum BuiltinFnId {
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
     BuiltinFnIdUnreachable,
-    BuiltinFnIdSetFnTest,
     BuiltinFnIdSetFnVisible,
     BuiltinFnIdSetDebugSafety,
     BuiltinFnIdAlloca,
@@ -1411,8 +1420,8 @@ struct CodeGen {
     ZigList<const char *> lib_dirs;
 
     uint32_t test_fn_count;
+    TypeTableEntry *test_fn_type;
 
-    bool check_unused;
     bool each_lib_rpath;
 
     ZigList<AstNode *> error_decls;
@@ -1630,7 +1639,6 @@ enum IrInstructionId {
     IrInstructionIdTypeOf,
     IrInstructionIdToPtrType,
     IrInstructionIdPtrTypeChild,
-    IrInstructionIdSetFnTest,
     IrInstructionIdSetFnVisible,
     IrInstructionIdSetDebugSafety,
     IrInstructionIdArrayType,
@@ -1971,12 +1979,6 @@ struct IrInstructionPtrTypeChild {
     IrInstruction base;
 
     IrInstruction *value;
-};
-
-struct IrInstructionSetFnTest {
-    IrInstruction base;
-
-    IrInstruction *fn_value;
 };
 
 struct IrInstructionSetFnVisible {

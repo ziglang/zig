@@ -21,9 +21,7 @@ fn runSomeMaybeDefers(x: bool) -> ?bool {
     return if (x) x else null;
 }
 
-fn mixingNormalAndErrorDefers() {
-    @setFnTest(this);
-
+test "mixingNormalAndErrorDefers" {
     assert(%%runSomeErrorDefers(true));
     assert(result[0] == 'c');
     assert(result[1] == 'a');
@@ -38,9 +36,7 @@ fn mixingNormalAndErrorDefers() {
     assert(result[2] == 'a');
 }
 
-fn mixingNormalAndMaybeDefers() {
-    @setFnTest(this);
-
+test "mixingNormalAndMaybeDefers" {
     assert(??runSomeMaybeDefers(true));
     assert(result[0] == 'c');
     assert(result[1] == 'a');

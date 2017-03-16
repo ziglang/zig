@@ -2,9 +2,7 @@ const assert = @import("std").debug.assert;
 
 var argv: &const &const u8 = undefined;
 
-fn constSliceChild() {
-    @setFnTest(this);
-
+test "constSliceChild" {
     const strs = ([]&const u8) {
         c"one",
         c"two",

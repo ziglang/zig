@@ -117,17 +117,13 @@ pub fn writeInt(buf: []u8, value: var, big_endian: bool) {
     assert(bits == 0);
 }
 
-fn testStringEquality() {
-    @setFnTest(this);
-
+test "testStringEquality" {
     assert(eql(u8, "abcd", "abcd"));
     assert(!eql(u8, "abcdef", "abZdef"));
     assert(!eql(u8, "abcdefg", "abcdef"));
 }
 
-fn testReadInt() {
-    @setFnTest(this);
-
+test "testReadInt" {
     testReadIntImpl();
     comptime testReadIntImpl();
 }
@@ -149,9 +145,7 @@ fn testReadIntImpl() {
     }
 }
 
-fn testWriteInt() {
-    @setFnTest(this);
-
+test "testWriteInt" {
     testWriteIntImpl();
     comptime testWriteIntImpl();
 }

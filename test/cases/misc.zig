@@ -5,23 +5,21 @@ const cstr = @import("std").cstr;
 // normal comment
 /// this is a documentation comment
 /// doc comment line 2
-fn emptyFunctionWithComments() {
-    @setFnTest(this);
+fn emptyFunctionWithComments() {}
+
+test "emptyFunctionWithComments" {
+    emptyFunctionWithComments();
 }
 
 export fn disabledExternFn() {
     @setFnVisible(this, false);
 }
 
-fn callDisabledExternFn() {
-    @setFnTest(this);
-
+test "callDisabledExternFn" {
     disabledExternFn();
 }
 
-fn intTypeBuiltin() {
-    @setFnTest(this);
-
+test "intTypeBuiltin" {
     assert(@intType(true, 8) == i8);
     assert(@intType(true, 16) == i16);
     assert(@intType(true, 32) == i32);
@@ -55,9 +53,7 @@ const u63 = @intType(false, 63);
 const i1 = @intType(true, 1);
 const i63 = @intType(true, 63);
 
-fn minValueAndMaxValue() {
-    @setFnTest(this);
-
+test "minValueAndMaxValue" {
     assert(@maxValue(u1) == 1);
     assert(@maxValue(u8) == 255);
     assert(@maxValue(u16) == 65535);
@@ -86,9 +82,7 @@ fn minValueAndMaxValue() {
     assert(@minValue(i64) == -9223372036854775808);
 }
 
-fn maxValueType() {
-    @setFnTest(this);
-
+test "maxValueType" {
     // If the type of @maxValue(i32) was i32 then this implicit cast to
     // u32 would not work. But since the value is a number literal,
     // it works fine.
@@ -96,8 +90,7 @@ fn maxValueType() {
     assert(x == 2147483647);
 }
 
-fn shortCircuit() {
-    @setFnTest(this);
+test "shortCircuit" {
     testShortCircuit(false, true);
 }
 
@@ -128,18 +121,14 @@ fn testShortCircuit(f: bool, t: bool) {
     assert(hit_4);
 }
 
-fn truncate() {
-    @setFnTest(this);
-
+test "truncate" {
     assert(testTruncate(0x10fd) == 0xfd);
 }
 fn testTruncate(x: u32) -> u8 {
     @truncate(u8, x)
 }
 
-fn assignToIfVarPtr() {
-    @setFnTest(this);
-
+test "assignToIfVarPtr" {
     var maybe_bool: ?bool = true;
 
     if (const *b ?= maybe_bool) {
@@ -153,27 +142,21 @@ fn first4KeysOfHomeRow() -> []const u8 {
     "aoeu"
 }
 
-fn ReturnStringFromFunction() {
-    @setFnTest(this);
-
+test "ReturnStringFromFunction" {
     assert(mem.eql(u8, first4KeysOfHomeRow(), "aoeu"));
 }
 
 const g1 : i32 = 1233 + 1;
 var g2 : i32 = 0;
 
-fn globalVariables() {
-    @setFnTest(this);
-
+test "globalVariables" {
     assert(g2 == 0);
     g2 = g1;
     assert(g2 == 1234);
 }
 
 
-fn memcpyAndMemsetIntrinsics() {
-    @setFnTest(this);
-
+test "memcpyAndMemsetIntrinsics" {
     var foo : [20]u8 = undefined;
     var bar : [20]u8 = undefined;
 
@@ -183,16 +166,12 @@ fn memcpyAndMemsetIntrinsics() {
     if (bar[11] != 'A') @unreachable();
 }
 
-fn builtinStaticEval() {
-    @setFnTest(this);
-
+test "builtinStaticEval" {
     const x : i32 = comptime {1 + 2 + 3};
     assert(x == comptime 6);
 }
 
-fn slicing() {
-    @setFnTest(this);
-
+test "slicing" {
     var array : [20]i32 = undefined;
 
     array[5] = 1234;
@@ -209,9 +188,7 @@ fn slicing() {
 }
 
 
-fn constantEqualFunctionPointers() {
-    @setFnTest(this);
-
+test "constantEqualFunctionPointers" {
     const alias = emptyFn;
     assert(comptime {emptyFn == alias});
 }
@@ -219,27 +196,19 @@ fn constantEqualFunctionPointers() {
 fn emptyFn() {}
 
 
-fn hexEscape() {
-    @setFnTest(this);
-
+test "hexEscape" {
     assert(mem.eql(u8, "\x68\x65\x6c\x6c\x6f", "hello"));
 }
 
-fn stringConcatenation() {
-    @setFnTest(this);
-
+test "stringConcatenation" {
     assert(mem.eql(u8, "OK" ++ " IT " ++ "WORKED", "OK IT WORKED"));
 }
 
-fn arrayMultOperator() {
-    @setFnTest(this);
-
+test "arrayMultOperator" {
     assert(mem.eql(u8, "ab" ** 5, "ababababab"));
 }
 
-fn stringEscapes() {
-    @setFnTest(this);
-
+test "stringEscapes" {
     assert(mem.eql(u8, "\"", "\x22"));
     assert(mem.eql(u8, "\'", "\x27"));
     assert(mem.eql(u8, "\n", "\x0a"));
@@ -249,9 +218,7 @@ fn stringEscapes() {
     assert(mem.eql(u8, "\u1234\u0069", "\xe1\x88\xb4\x69"));
 }
 
-fn multilineString() {
-    @setFnTest(this);
-
+test "multilineString" {
     const s1 =
         \\one
         \\two)
@@ -261,9 +228,7 @@ fn multilineString() {
     assert(mem.eql(u8, s1, s2));
 }
 
-fn multilineCString() {
-    @setFnTest(this);
-
+test "multilineCString" {
     const s1 =
         c\\one
         c\\two)
@@ -274,9 +239,7 @@ fn multilineCString() {
 }
 
 
-fn typeEquality() {
-    @setFnTest(this);
-
+test "typeEquality" {
     assert(&const u8 != &u8);
 }
 
@@ -284,22 +247,17 @@ fn typeEquality() {
 const global_a: i32 = 1234;
 const global_b: &const i32 = &global_a;
 const global_c: &const f32 = (&const f32)(global_b);
-fn compileTimeGlobalReinterpret() {
-    @setFnTest(this);
+test "compileTimeGlobalReinterpret" {
     const d = (&const i32)(global_c);
     assert(*d == 1234);
 }
 
-fn explicitCastMaybePointers() {
-    @setFnTest(this);
-
+test "explicitCastMaybePointers" {
     const a: ?&i32 = undefined;
     const b: ?&f32 = (?&f32)(a);
 }
 
-fn genericMallocFree() {
-    @setFnTest(this);
-
+test "genericMallocFree" {
     const a = %%memAlloc(u8, 10);
     memFree(u8, a);
 }
@@ -310,9 +268,7 @@ fn memAlloc(comptime T: type, n: usize) -> %[]T {
 fn memFree(comptime T: type, memory: []T) { }
 
 
-fn castUndefined() {
-    @setFnTest(this);
-
+test "castUndefined" {
     const array: [100]u8 = undefined;
     const slice = ([]const u8)(array);
     testCastUndefined(slice);
@@ -320,9 +276,7 @@ fn castUndefined() {
 fn testCastUndefined(x: []const u8) {}
 
 
-fn castSmallUnsignedToLargerSigned() {
-    @setFnTest(this);
-
+test "castSmallUnsignedToLargerSigned" {
     assert(castSmallUnsignedToLargerSigned1(200) == i16(200));
     assert(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
 }
@@ -330,9 +284,7 @@ fn castSmallUnsignedToLargerSigned1(x: u8) -> i16 { x }
 fn castSmallUnsignedToLargerSigned2(x: u16) -> i64 { x }
 
 
-fn implicitCastAfterUnreachable() {
-    @setFnTest(this);
-
+test "implicitCastAfterUnreachable" {
     assert(outer() == 1234);
 }
 fn inner() -> i32 { 1234 }
@@ -341,9 +293,7 @@ fn outer() -> i64 {
 }
 
 
-fn pointerDereferencing() {
-    @setFnTest(this);
-
+test "pointerDereferencing" {
     var x = i32(3);
     const y = &x;
 
@@ -353,9 +303,7 @@ fn pointerDereferencing() {
     assert(*y == 4);
 }
 
-fn callResultOfIfElseExpression() {
-    @setFnTest(this);
-
+test "callResultOfIfElseExpression" {
     assert(mem.eql(u8, f2(true), "a"));
     assert(mem.eql(u8, f2(false), "b"));
 }
@@ -366,9 +314,7 @@ fn fA() -> []const u8 { "a" }
 fn fB() -> []const u8 { "b" }
 
 
-fn constExpressionEvalHandlingOfVariables() {
-    @setFnTest(this);
-
+test "constExpressionEvalHandlingOfVariables" {
     var x = true;
     while (x) {
         x = false;
@@ -377,9 +323,7 @@ fn constExpressionEvalHandlingOfVariables() {
 
 
 
-fn constantEnumInitializationWithDifferingSizes() {
-    @setFnTest(this);
-
+test "constantEnumInitializationWithDifferingSizes" {
     test3_1(test3_foo);
     test3_2(test3_bar);
 }
@@ -413,18 +357,14 @@ fn test3_2(f: Test3Foo) {
 }
 
 
-fn characterLiterals() {
-    @setFnTest(this);
-
+test "characterLiterals" {
     assert('\'' == single_quote);
 }
 const single_quote = '\'';
 
 
 
-fn takeAddressOfParameter() {
-    @setFnTest(this);
-
+test "takeAddressOfParameter" {
     testTakeAddressOfParameter(12.34);
 }
 fn testTakeAddressOfParameter(f: f32) {
@@ -433,9 +373,7 @@ fn testTakeAddressOfParameter(f: f32) {
 }
 
 
-fn intToPtrCast() {
-    @setFnTest(this);
-
+test "intToPtrCast" {
     const x = isize(13);
     const y = (&u8)(x);
     const z = usize(y);
@@ -443,9 +381,7 @@ fn intToPtrCast() {
 }
 
 
-fn pointerComparison() {
-    @setFnTest(this);
-
+test "pointerComparison" {
     const a = ([]const u8)("a");
     const b = &a;
     assert(ptrEql(b, b));
@@ -455,9 +391,7 @@ fn ptrEql(a: &const []const u8, b: &const []const u8) -> bool {
 }
 
 
-fn cStringConcatenation() {
-    @setFnTest(this);
-
+test "cStringConcatenation" {
     const a = c"OK" ++ c" IT " ++ c"WORKED";
     const b = c"OK IT WORKED";
 
@@ -470,9 +404,7 @@ fn cStringConcatenation() {
     assert(b[len] == 0);
 }
 
-fn castSliceToU8Slice() {
-    @setFnTest(this);
-
+test "castSliceToU8Slice" {
     assert(@sizeOf(i32) == 4);
     var big_thing_array = []i32{1, 2, 3, 4};
     const big_thing_slice: []i32 = big_thing_array[0...];
@@ -492,9 +424,7 @@ fn castSliceToU8Slice() {
     assert(bytes[11] == @maxValue(u8));
 }
 
-fn pointerToVoidReturnType() {
-    @setFnTest(this);
-
+test "pointerToVoidReturnType" {
     %%testPointerToVoidReturnType();
 }
 fn testPointerToVoidReturnType() -> %void {
@@ -507,17 +437,14 @@ fn testPointerToVoidReturnType2() -> &const void {
 }
 
 
-fn nonConstPtrToAliasedType() {
-    @setFnTest(this);
+test "nonConstPtrToAliasedType" {
     const int = i32;
     assert(?&int == ?&i32);
 }
 
 
 
-fn array2DConstDoublePtr() {
-    @setFnTest(this);
-
+test "array2DConstDoublePtr" {
     const rect_2d_vertexes = [][1]f32 {
         []f32{1.0},
         []f32{2.0},
@@ -530,9 +457,7 @@ fn testArray2DConstDoublePtr(ptr: &const f32) {
     assert(ptr[1] == 2.0);
 }
 
-fn isInteger() {
-    @setFnTest(this);
-
+test "isInteger" {
     comptime {
         assert(@isInteger(i8));
         assert(@isInteger(u8));
@@ -545,9 +470,7 @@ fn isInteger() {
     }
 }
 
-fn isFloat() {
-    @setFnTest(this);
-
+test "isFloat" {
     comptime {
         assert(!@isFloat(i8));
         assert(!@isFloat(u8));
@@ -560,9 +483,7 @@ fn isFloat() {
     }
 }
 
-fn canImplicitCast() {
-    @setFnTest(this);
-
+test "canImplicitCast" {
     comptime {
         assert(@canImplicitCast(i64, i32(3)));
         assert(!@canImplicitCast(i32, f32(1.234)));
@@ -570,18 +491,14 @@ fn canImplicitCast() {
     }
 }
 
-fn typeName() {
-    @setFnTest(this);
-
+test "typeName" {
     comptime {
         assert(mem.eql(u8, @typeName(i64), "i64"));
         assert(mem.eql(u8, @typeName(&usize), "&usize"));
     }
 }
 
-fn volatileLoadAndStore() {
-    @setFnTest(this);
-
+test "volatileLoadAndStore" {
     var number: i32 = 1234;
     const ptr = &volatile number;
     *ptr += 1;

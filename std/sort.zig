@@ -58,9 +58,7 @@ fn reverse(was: Cmp) -> Cmp {
 // ---------------------------------------
 // tests
 
-fn testSort() {
-    @setFnTest(this);
-
+test "testSort" {
     const u8cases = [][]const []const u8 {
         [][]const u8{"", ""},
         [][]const u8{"a", "a"},
@@ -96,9 +94,7 @@ fn testSort() {
     }
 }
 
-fn testSortDesc() {
-    @setFnTest(this);
-
+test "testSortDesc" {
     const rev_cases = [][]const []const i32 {
         [][]const i32{[]i32{}, []i32{}},
         [][]const i32{[]i32{1}, []i32{1}},

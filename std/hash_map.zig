@@ -219,9 +219,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
     }
 }
 
-fn basicHashMapTest() {
-    @setFnTest(this);
-
+test "basicHashMapTest" {
     var map: HashMap(i32, i32, hash_i32, eql_i32) = undefined;
     map.init(&debug.global_allocator);
     defer map.deinit();

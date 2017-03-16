@@ -282,10 +282,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrTypeChild *) 
     return IrInstructionIdPtrTypeChild;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionSetFnTest *) {
-    return IrInstructionIdSetFnTest;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSetFnVisible *) {
     return IrInstructionIdSetFnVisible;
 }
@@ -1143,17 +1139,6 @@ static IrInstruction *ir_build_ptr_type_child(IrBuilder *irb, Scope *scope, AstN
     instruction->value = value;
 
     ir_ref_instruction(value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_set_fn_test(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *fn_value)
-{
-    IrInstructionSetFnTest *instruction = ir_build_instruction<IrInstructionSetFnTest>(irb, scope, source_node);
-    instruction->fn_value = fn_value;
-
-    ir_ref_instruction(fn_value, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -2287,13 +2272,6 @@ static IrInstruction *ir_instruction_ptrtypechild_get_dep(IrInstructionPtrTypeCh
     }
 }
 
-static IrInstruction *ir_instruction_setfntest_get_dep(IrInstructionSetFnTest *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->fn_value;
-        default: return nullptr;
-    }
-}
-
 static IrInstruction *ir_instruction_setfnvisible_get_dep(IrInstructionSetFnVisible *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->fn_value;
@@ -2807,8 +2785,6 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_toptrtype_get_dep((IrInstructionToPtrType *) instruction, index);
         case IrInstructionIdPtrTypeChild:
             return ir_instruction_ptrtypechild_get_dep((IrInstructionPtrTypeChild *) instruction, index);
-        case IrInstructionIdSetFnTest:
-            return ir_instruction_setfntest_get_dep((IrInstructionSetFnTest *) instruction, index);
         case IrInstructionIdSetFnVisible:
             return ir_instruction_setfnvisible_get_dep((IrInstructionSetFnVisible *) instruction, index);
         case IrInstructionIdSetDebugSafety:
@@ -3809,15 +3785,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg == irb->codegen->invalid_instruction)
                     return arg;
                 return ir_build_typeof(irb, scope, node, arg);
-            }
-        case BuiltinFnIdSetFnTest:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_instruction)
-                    return arg0_value;
-
-                return ir_build_set_fn_test(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdSetFnVisible:
             {
@@ -5543,6 +5510,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             zig_panic("TODO IR gen NodeTypeErrorValueDecl");
         case NodeTypeTypeDecl:
             zig_panic("TODO IR gen NodeTypeTypeDecl");
+        case NodeTypeTestDecl:
+            zig_panic("TODO IR gen NodeTypeTestDecl");
     }
     zig_unreachable();
 }
@@ -5633,10 +5602,7 @@ bool ir_gen_fn(CodeGen *codegen, FnTableEntry *fn_entry) {
     assert(fn_entry);
 
     IrExecutable *ir_executable = &fn_entry->ir_executable;
-    AstNode *fn_def_node = fn_entry->fn_def_node;
-    assert(fn_def_node->type == NodeTypeFnDef);
-
-    AstNode *body_node = fn_def_node->data.fn_def.body;
+    AstNode *body_node = fn_entry->body_node;
 
     assert(fn_entry->child_scope);
 
@@ -8180,7 +8146,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             result = entry->value;
         } else {
             // Analyze the fn body block like any other constant expression.
-            AstNode *body_node = fn_entry->fn_def_node->data.fn_def.body;
+            AstNode *body_node = fn_entry->body_node;
             result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
                 ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry,
                 nullptr, call_instruction->base.source_node, nullptr, ira->new_irb.exec);
@@ -8219,7 +8185,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         FnTableEntry *impl_fn = create_fn(fn_proto_node);
         impl_fn->param_source_nodes = allocate<AstNode *>(new_fn_arg_count);
         buf_init_from_buf(&impl_fn->symbol_name, &fn_entry->symbol_name);
-        impl_fn->fndef_scope = create_fndef_scope(impl_fn->fn_def_node, parent_scope, impl_fn);
+        impl_fn->fndef_scope = create_fndef_scope(impl_fn->body_node, parent_scope, impl_fn);
         impl_fn->child_scope = &impl_fn->fndef_scope->base;
         FnTypeId inst_fn_type_id = {0};
         init_fn_type_id(&inst_fn_type_id, fn_proto_node, new_fn_arg_count);
@@ -9580,24 +9546,6 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type_child(IrAnalyze *ira,
     ConstExprValue *out_val = ir_build_const_from(ira, &ptr_type_child_instruction->base);
     out_val->data.x_type = type_entry->data.pointer.child_type;
     return ira->codegen->builtin_types.entry_type;
-}
-
-static TypeTableEntry *ir_analyze_instruction_set_fn_test(IrAnalyze *ira,
-        IrInstructionSetFnTest *set_fn_test_instruction)
-{
-    IrInstruction *fn_value = set_fn_test_instruction->fn_value->other;
-
-    FnTableEntry *fn_entry = ir_resolve_fn(ira, fn_value);
-    if (!fn_entry)
-        return ira->codegen->builtin_types.entry_invalid;
-
-    if (!fn_entry->is_test) {
-        fn_entry->is_test = true;
-        ira->codegen->test_fn_count += 1;
-    }
-
-    ir_build_const_from(ira, &set_fn_test_instruction->base);
-    return ira->codegen->builtin_types.entry_void;
 }
 
 static TypeTableEntry *ir_analyze_instruction_set_fn_visible(IrAnalyze *ira,
@@ -12253,8 +12201,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_to_ptr_type(ira, (IrInstructionToPtrType *)instruction);
         case IrInstructionIdPtrTypeChild:
             return ir_analyze_instruction_ptr_type_child(ira, (IrInstructionPtrTypeChild *)instruction);
-        case IrInstructionIdSetFnTest:
-            return ir_analyze_instruction_set_fn_test(ira, (IrInstructionSetFnTest *)instruction);
         case IrInstructionIdSetFnVisible:
             return ir_analyze_instruction_set_fn_visible(ira, (IrInstructionSetFnVisible *)instruction);
         case IrInstructionIdSetGlobalAlign:
@@ -12469,7 +12415,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCall:
         case IrInstructionIdReturn:
         case IrInstructionIdUnreachable:
-        case IrInstructionIdSetFnTest:
         case IrInstructionIdSetFnVisible:
         case IrInstructionIdSetDebugSafety:
         case IrInstructionIdImport:

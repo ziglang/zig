@@ -5,8 +5,6 @@ type int = u8;
 fn add(a: int, b: int) -> int {
     a + b
 }
-fn typedef() {
-    @setFnTest(this);
-
+test "typedef" {
     assert(add(12, 34) == 46);
 }

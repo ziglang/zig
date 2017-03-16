@@ -68,9 +68,7 @@ fn getReturnTypeForAbs(comptime T: type) -> type {
     }
 }
 
-fn testMath() {
-    @setFnTest(this);
-
+test "testMath" {
     testMathImpl();
     comptime testMathImpl();
 }

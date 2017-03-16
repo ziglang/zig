@@ -133,6 +133,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"return", TokenIdKeywordReturn},
     {"struct", TokenIdKeywordStruct},
     {"switch", TokenIdKeywordSwitch},
+    {"test", TokenIdKeywordTest},
     {"this", TokenIdKeywordThis},
     {"true", TokenIdKeywordTrue},
     {"try", TokenIdKeywordTry},
@@ -1508,6 +1509,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordReturn: return "return";
         case TokenIdKeywordStruct: return "struct";
         case TokenIdKeywordSwitch: return "switch";
+        case TokenIdKeywordTest: return "test";
         case TokenIdKeywordThis: return "this";
         case TokenIdKeywordTrue: return "true";
         case TokenIdKeywordTry: return "try";

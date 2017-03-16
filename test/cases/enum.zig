@@ -1,8 +1,6 @@
 const assert = @import("std").debug.assert;
 
-fn enumType() {
-    @setFnTest(this);
-
+test "enumType" {
     const foo1 = Foo.One {13};
     const foo2 = Foo.Two { Point { .x = 1234, .y = 5678, }};
     const bar = Bar.B;
@@ -15,9 +13,7 @@ fn enumType() {
     assert(@sizeOf(Bar) == 1);
 }
 
-fn enumAsReturnValue () {
-    @setFnTest(this);
-
+test "enumAsReturnValue" {
     switch (returnAnInt(13)) {
         Foo.One => |value| assert(value == 13),
         else => @unreachable(),
@@ -45,9 +41,7 @@ fn returnAnInt(x: i32) -> Foo {
 }
 
 
-fn constantEnumWithPayload() {
-    @setFnTest(this);
-
+test "constantEnumWithPayload" {
     var empty = AnEnumWithPayload.Empty;
     var full = AnEnumWithPayload.Full {13};
     shouldBeEmpty(empty);
@@ -83,9 +77,7 @@ const Number = enum {
     Four,
 };
 
-fn enumToInt() {
-    @setFnTest(this);
-
+test "enumToInt" {
     shouldEqual(Number.Zero, 0);
     shouldEqual(Number.One, 1);
     shouldEqual(Number.Two, 2);
@@ -98,9 +90,7 @@ fn shouldEqual(n: Number, expected: usize) {
 }
 
 
-fn intToEnum() {
-    @setFnTest(this);
-
+test "intToEnum" {
     testIntToEnumEval(3);
 }
 fn testIntToEnumEval(x: i32) {

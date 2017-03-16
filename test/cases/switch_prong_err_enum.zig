@@ -21,9 +21,7 @@ fn doThing(form_id: u64) -> %FormValue {
     }
 }
 
-fn switchProngReturnsErrorEnum() {
-    @setFnTest(this);
-
+test "switchProngReturnsErrorEnum" {
     %%doThing(17);
     assert(read_count == 1);
 }
