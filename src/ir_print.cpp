@@ -849,6 +849,13 @@ static void ir_print_set_global_section(IrPrint *irp, IrInstructionSetGlobalSect
     fprintf(irp->f, ")");
 }
 
+static void ir_print_decl_ref(IrPrint *irp, IrInstructionDeclRef *instruction) {
+    const char *ptr_str = instruction->lval.is_ptr ? "ptr " : "";
+    const char *const_str = instruction->lval.is_const ? "const " : "";
+    const char *volatile_str = instruction->lval.is_volatile ? "volatile " : "";
+    fprintf(irp->f, "declref %s%s%s%s", const_str, volatile_str, ptr_str, buf_ptr(instruction->tld->name));
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1120,6 +1127,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSetGlobalSection:
             ir_print_set_global_section(irp, (IrInstructionSetGlobalSection *)instruction);
+            break;
+        case IrInstructionIdDeclRef:
+            ir_print_decl_ref(irp, (IrInstructionDeclRef *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

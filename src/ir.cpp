@@ -44,12 +44,6 @@ struct IrAnalyze {
     IrBasicBlock *const_predecessor_bb;
 };
 
-struct LVal {
-    bool is_ptr;
-    bool is_const;
-    bool is_volatile;
-};
-
 static const LVal LVAL_NONE = { false, false, false };
 static const LVal LVAL_PTR = { true, false, false };
 
@@ -534,6 +528,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSetGlobalSection
     return IrInstructionIdSetGlobalSection;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionDeclRef *) {
+    return IrInstructionIdDeclRef;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -686,12 +684,18 @@ static IrInstruction *ir_build_const_type(IrBuilder *irb, Scope *scope, AstNode 
     return instruction;
 }
 
-static IrInstruction *ir_build_const_fn(IrBuilder *irb, Scope *scope, AstNode *source_node, FnTableEntry *fn_entry) {
-    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
+static IrInstruction *ir_create_const_fn(IrBuilder *irb, Scope *scope, AstNode *source_node, FnTableEntry *fn_entry) {
+    IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = fn_entry->type_entry;
     const_instruction->base.value.special = ConstValSpecialStatic;
     const_instruction->base.value.data.x_fn = fn_entry;
     return &const_instruction->base;
+}
+
+static IrInstruction *ir_build_const_fn(IrBuilder *irb, Scope *scope, AstNode *source_node, FnTableEntry *fn_entry) {
+    IrInstruction *instruction = ir_create_const_fn(irb, scope, source_node, fn_entry);
+    ir_instruction_append(irb->current_basic_block, instruction);
+    return instruction;
 }
 
 static IrInstruction *ir_build_const_import(IrBuilder *irb, Scope *scope, AstNode *source_node, ImportTableEntry *import) {
@@ -2088,6 +2092,17 @@ static IrInstruction *ir_build_set_global_section(IrBuilder *irb, Scope *scope, 
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_decl_ref(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        Tld *tld, LVal lval)
+{
+    IrInstructionDeclRef *instruction = ir_build_instruction<IrInstructionDeclRef>(
+            irb, scope, source_node);
+    instruction->tld = tld;
+    instruction->lval = lval;
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_instruction_br_get_dep(IrInstructionBr *instruction, size_t index) {
     return nullptr;
 }
@@ -2727,6 +2742,10 @@ static IrInstruction *ir_instruction_setglobalsection_get_dep(IrInstructionSetGl
     }
 }
 
+static IrInstruction *ir_instruction_declref_get_dep(IrInstructionDeclRef *instruction, size_t index) {
+    return nullptr;
+}
+
 static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t index) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -2909,6 +2928,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_setglobalalign_get_dep((IrInstructionSetGlobalAlign *) instruction, index);
         case IrInstructionIdSetGlobalSection:
             return ir_instruction_setglobalsection_get_dep((IrInstructionSetGlobalSection *) instruction, index);
+        case IrInstructionIdDeclRef:
+            return ir_instruction_declref_get_dep((IrInstructionDeclRef *) instruction, index);
     }
     zig_unreachable();
 }
@@ -3574,52 +3595,6 @@ static IrInstruction *ir_gen_var_literal(IrBuilder *irb, Scope *scope, AstNode *
     return ir_build_const_type(irb, scope, node, irb->codegen->builtin_types.entry_var);
 }
 
-static IrInstruction *ir_gen_decl_ref(IrBuilder *irb, AstNode *source_node, Tld *tld,
-        LVal lval, Scope *scope)
-{
-    resolve_top_level_decl(irb->codegen, tld, lval.is_ptr);
-    if (tld->resolution == TldResolutionInvalid)
-        return irb->codegen->invalid_instruction;
-
-    switch (tld->id) {
-        case TldIdContainer:
-            zig_unreachable();
-        case TldIdVar:
-        {
-            TldVar *tld_var = (TldVar *)tld;
-            VariableTableEntry *var = tld_var->var;
-            IrInstruction *var_ptr = ir_build_var_ptr(irb, scope, source_node, var,
-                    !lval.is_ptr || lval.is_const, lval.is_ptr && lval.is_volatile);
-            if (lval.is_ptr)
-                return var_ptr;
-            else
-                return ir_build_load_ptr(irb, scope, source_node, var_ptr);
-        }
-        case TldIdFn:
-        {
-            TldFn *tld_fn = (TldFn *)tld;
-            FnTableEntry *fn_entry = tld_fn->fn_entry;
-            assert(fn_entry->type_entry);
-            IrInstruction *ref_instruction = ir_build_const_fn(irb, scope, source_node, fn_entry);
-            if (lval.is_ptr)
-                return ir_build_ref(irb, scope, source_node, ref_instruction, true, false);
-            else
-                return ref_instruction;
-        }
-        case TldIdTypeDef:
-        {
-            TldTypeDef *tld_typedef = (TldTypeDef *)tld;
-            TypeTableEntry *typedef_type = tld_typedef->type_entry;
-            IrInstruction *ref_instruction = ir_build_const_type(irb, scope, source_node, typedef_type);
-            if (lval.is_ptr)
-                return ir_build_ref(irb, scope, source_node, ref_instruction, true, false);
-            else
-                return ref_instruction;
-        }
-    }
-    zig_unreachable();
-}
-
 static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
     assert(node->type == NodeTypeSymbol);
 
@@ -3656,7 +3631,7 @@ static IrInstruction *ir_gen_symbol(IrBuilder *irb, Scope *scope, AstNode *node,
 
     Tld *tld = find_decl(irb->codegen, scope, variable_name);
     if (tld)
-        return ir_gen_decl_ref(irb, node, tld, lval, scope);
+        return ir_build_decl_ref(irb, scope, node, tld, lval);
 
     if (node->owner->any_imports_failed) {
         // skip the error message since we had a failing import in this file
@@ -12152,6 +12127,75 @@ static TypeTableEntry *ir_analyze_instruction_can_implicit_cast(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_bool;
 }
 
+static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
+        IrInstructionDeclRef *instruction)
+{
+    Tld *tld = instruction->tld;
+    LVal lval = instruction->lval;
+
+    resolve_top_level_decl(ira->codegen, tld, lval.is_ptr);
+    if (tld->resolution == TldResolutionInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    switch (tld->id) {
+        case TldIdContainer:
+            zig_unreachable();
+        case TldIdVar:
+        {
+            TldVar *tld_var = (TldVar *)tld;
+            VariableTableEntry *var = tld_var->var;
+
+            IrInstruction *var_ptr = ir_get_var_ptr(ira, &instruction->base, var,
+                    !lval.is_ptr || lval.is_const, lval.is_ptr && lval.is_volatile);
+            if (type_is_invalid(var_ptr->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+
+            if (lval.is_ptr) {
+                ir_link_new_instruction(var_ptr, &instruction->base);
+                return var_ptr->value.type;
+            } else {
+                IrInstruction *loaded_instr = ir_get_deref(ira, &instruction->base, var_ptr);
+                ir_link_new_instruction(loaded_instr, &instruction->base);
+                return loaded_instr->value.type;
+            }
+        }
+        case TldIdFn:
+        {
+            TldFn *tld_fn = (TldFn *)tld;
+            FnTableEntry *fn_entry = tld_fn->fn_entry;
+            assert(fn_entry->type_entry);
+
+            IrInstruction *ref_instruction = ir_create_const_fn(&ira->new_irb, instruction->base.scope,
+                    instruction->base.source_node, fn_entry);
+            if (lval.is_ptr) {
+                IrInstruction *ptr_instr = ir_get_ref(ira, &instruction->base, ref_instruction, true, false);
+                ir_link_new_instruction(ptr_instr, &instruction->base);
+                return ptr_instr->value.type;
+            } else {
+                ir_link_new_instruction(ref_instruction, &instruction->base);
+                return ref_instruction->value.type;
+            }
+        }
+        case TldIdTypeDef:
+        {
+            TldTypeDef *tld_typedef = (TldTypeDef *)tld;
+            TypeTableEntry *typedef_type = tld_typedef->type_entry;
+
+            IrInstruction *ref_instruction = ir_create_const_type(&ira->new_irb, instruction->base.scope,
+                    instruction->base.source_node, typedef_type);
+            if (lval.is_ptr) {
+                IrInstruction *ptr_inst = ir_get_ref(ira, &instruction->base, ref_instruction, true, false);
+                ir_link_new_instruction(ptr_inst, &instruction->base);
+                return ptr_inst->value.type;
+            } else {
+                ir_link_new_instruction(ref_instruction, &instruction->base);
+                return ref_instruction->value.type;
+            }
+        }
+    }
+    zig_unreachable();
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -12317,6 +12361,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_test_type(ira, (IrInstructionTestType *)instruction);
         case IrInstructionIdCanImplicitCast:
             return ir_analyze_instruction_can_implicit_cast(ira, (IrInstructionCanImplicitCast *)instruction);
+        case IrInstructionIdDeclRef:
+            return ir_analyze_instruction_decl_ref(ira, (IrInstructionDeclRef *)instruction);
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
@@ -12495,6 +12541,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTestType:
         case IrInstructionIdTypeName:
         case IrInstructionIdCanImplicitCast:
+        case IrInstructionIdDeclRef:
             return false;
         case IrInstructionIdAsm:
             {

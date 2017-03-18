@@ -1610,6 +1610,12 @@ struct IrBasicBlock {
     IrInstruction *must_be_comptime_source_instr;
 };
 
+struct LVal {
+    bool is_ptr;
+    bool is_const;
+    bool is_volatile;
+};
+
 enum IrInstructionId {
     IrInstructionIdInvalid,
     IrInstructionIdBr,
@@ -1701,6 +1707,7 @@ enum IrInstructionId {
     IrInstructionIdCanImplicitCast,
     IrInstructionIdSetGlobalAlign,
     IrInstructionIdSetGlobalSection,
+    IrInstructionIdDeclRef,
 };
 
 struct IrInstruction {
@@ -2419,6 +2426,13 @@ struct IrInstructionSetGlobalSection {
 
     Tld *tld;
     IrInstruction *value;
+};
+
+struct IrInstructionDeclRef {
+    IrInstruction base;
+
+    Tld *tld;
+    LVal lval;
 };
 
 static const size_t slice_ptr_index = 0;

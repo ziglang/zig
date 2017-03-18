@@ -2519,6 +2519,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCanImplicitCast:
         case IrInstructionIdSetGlobalAlign:
         case IrInstructionIdSetGlobalSection:
+        case IrInstructionIdDeclRef:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
