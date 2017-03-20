@@ -69,7 +69,7 @@ FnTableEntry *scope_fn_entry(Scope *scope);
 ImportTableEntry *get_scope_import(Scope *scope);
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node, Scope *parent_scope);
 VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    bool is_const, ConstExprValue *init_value);
+    bool is_const, ConstExprValue *init_value, Tld *src_tld);
 TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 FnTableEntry *create_fn(AstNode *proto_node);
 FnTableEntry *create_fn_raw(FnInline inline_value, bool internal_linkage);

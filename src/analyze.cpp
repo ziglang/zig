@@ -2138,7 +2138,7 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
 // Set name to nullptr to make the variable anonymous (not visible to programmer).
 // TODO merge with definition of add_local_var in ir.cpp
 VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent_scope, Buf *name,
-    bool is_const, ConstExprValue *value)
+    bool is_const, ConstExprValue *value, Tld *src_tld)
 {
     assert(value);
 
@@ -2167,9 +2167,9 @@ VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent
                 add_node_error(g, source_node,
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
                 variable_entry->value->type = g->builtin_types.entry_invalid;
-            } else {
+            } else if (src_tld == nullptr) {
                 Tld *tld = find_decl(g, parent_scope, name);
-                if (tld && tld->id != TldIdVar) {
+                if (tld) {
                     ErrorMsg *msg = add_node_error(g, source_node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                     add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
@@ -2263,7 +2263,8 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
 
     ConstExprValue *init_val = init_value ? &init_value->value : create_const_runtime(type);
 
-    tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol, is_const, init_val);
+    tld_var->var = add_variable(g, source_node, tld_var->base.parent_scope, var_decl->symbol,
+            is_const, init_val, &tld_var->base);
     tld_var->var->linkage = linkage;
 
     g->global_vars.append(tld_var);
@@ -2653,7 +2654,7 @@ void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, Vari
         }
 
         VariableTableEntry *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
-                param_name, true, create_const_runtime(param_type));
+                param_name, true, create_const_runtime(param_type), nullptr);
         var->src_arg_index = i;
         fn_table_entry->child_scope = var->child_scope;
         var->shadowable = var->shadowable || is_var_args;

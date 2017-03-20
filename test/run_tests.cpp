@@ -991,6 +991,24 @@ export fn entry() -> foo {
 }
     )SOURCE", 1, ".tmp_source.zig:2:1: error: variable of type 'type' must be constant");
 
+
+    add_compile_fail_case("variables shadowing types", R"SOURCE(
+const Foo = struct {};
+const Bar = struct {};
+
+fn f(Foo: i32) {
+    var Bar : i32 = undefined;
+}
+
+export fn entry() {
+    f(1234);
+}
+    )SOURCE", 4,
+            ".tmp_source.zig:5:6: error: redefinition of 'Foo'",
+            ".tmp_source.zig:2:1: note: previous definition is here",
+            ".tmp_source.zig:6:5: error: redefinition of 'Bar'",
+            ".tmp_source.zig:3:1: note: previous definition is here");
+
     add_compile_fail_case("multiple else prongs in a switch", R"SOURCE(
 fn f(x: u32) {
     const value: bool = switch (x) {

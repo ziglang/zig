@@ -3171,7 +3171,7 @@ static VariableTableEntry *create_local_var(CodeGen *codegen, AstNode *node, Sco
                 variable_entry->value->type = codegen->builtin_types.entry_invalid;
             } else {
                 Tld *tld = find_decl(codegen, parent_scope, name);
-                if (tld && tld->id != TldIdVar) {
+                if (tld != nullptr) {
                     ErrorMsg *msg = add_node_error(codegen, node,
                             buf_sprintf("redefinition of '%s'", buf_ptr(name)));
                     add_error_note(codegen, msg, tld->source_node, buf_sprintf("previous definition is here"));
@@ -7897,7 +7897,7 @@ static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node
 
     Buf *param_name = param_decl_node->data.param_decl.name;
     VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
-        *exec_scope, param_name, true, arg_val);
+        *exec_scope, param_name, true, arg_val, nullptr);
     *exec_scope = var->child_scope;
     *next_proto_i += 1;
 
@@ -7954,7 +7954,7 @@ static bool ir_analyze_fn_call_generic_arg(IrAnalyze *ira, AstNode *fn_proto_nod
     Buf *param_name = param_decl_node->data.param_decl.name;
     if (!is_var_args) {
         VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
-            *child_scope, param_name, true, arg_val);
+            *child_scope, param_name, true, arg_val, nullptr);
         *child_scope = var->child_scope;
         var->shadowable = !comptime_arg;
 
@@ -8245,7 +8245,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             ConstExprValue *var_args_val = create_const_arg_tuple(ira->codegen,
                     first_var_arg, inst_fn_type_id.param_count);
             VariableTableEntry *var = add_variable(ira->codegen, param_decl_node,
-                impl_fn->child_scope, param_name, true, var_args_val);
+                impl_fn->child_scope, param_name, true, var_args_val, nullptr);
             impl_fn->child_scope = var->child_scope;
         }
         {
