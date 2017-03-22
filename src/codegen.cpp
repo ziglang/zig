@@ -115,6 +115,15 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
 
     }
 
+    // On Darwin/MacOS/iOS, we always link libSystem which contains libc.
+    if (g->zig_target.os == ZigLLVM_Darwin ||
+        g->zig_target.os == ZigLLVM_MacOSX ||
+        g->zig_target.os == ZigLLVM_IOS)
+    {
+        g->link_libc = true;
+        g->link_libs.append(buf_create_from_str("c"));
+    }
+
     return g;
 }
 
@@ -191,6 +200,8 @@ void codegen_add_rpath(CodeGen *g, const char *name) {
 
 void codegen_add_link_lib(CodeGen *g, const char *lib) {
     if (strcmp(lib, "c") == 0) {
+        if (g->link_libc)
+            return;
         g->link_libc = true;
     }
     g->link_libs.append(buf_create_from_str(lib));
