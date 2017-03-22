@@ -9869,27 +9869,10 @@ static TypeTableEntry *ir_analyze_instruction_compile_var(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
 
     ConstExprValue *out_val = ir_build_const_from(ira, &compile_var_instruction->base);
-    if (buf_eql_str(var_name, "is_big_endian")) {
-        out_val->data.x_bool = ira->codegen->is_big_endian;
-        return ira->codegen->builtin_types.entry_bool;
-    } else if (buf_eql_str(var_name, "is_release")) {
-        out_val->data.x_bool = ira->codegen->is_release_build;
-        return ira->codegen->builtin_types.entry_bool;
-    } else if (buf_eql_str(var_name, "is_test")) {
-        out_val->data.x_bool = ira->codegen->is_test_build;
-        return ira->codegen->builtin_types.entry_bool;
-    } else if (buf_eql_str(var_name, "os")) {
-        out_val->data.x_enum.tag = ira->codegen->target_os_index;
-        return ira->codegen->builtin_types.entry_os_enum;
-    } else if (buf_eql_str(var_name, "arch")) {
-        out_val->data.x_enum.tag = ira->codegen->target_arch_index;
-        return ira->codegen->builtin_types.entry_arch_enum;
-    } else if (buf_eql_str(var_name, "environ")) {
-        out_val->data.x_enum.tag = ira->codegen->target_environ_index;
-        return ira->codegen->builtin_types.entry_environ_enum;
-    } else if (buf_eql_str(var_name, "object_format")) {
-        out_val->data.x_enum.tag = ira->codegen->target_oformat_index;
-        return ira->codegen->builtin_types.entry_oformat_enum;
+    auto entry = ira->codegen->compile_vars.maybe_get(var_name);
+    if (entry) {
+        *out_val = *entry->value;
+        return out_val->type;
     } else {
         ir_add_error_node(ira, name_value->source_node,
             buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(var_name)));

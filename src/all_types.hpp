@@ -1291,6 +1291,7 @@ struct CodeGen {
     HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
     HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
+    HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> compile_vars;
 
     ZigList<ImportTableEntry *> import_queue;
     size_t import_queue_index;
@@ -1346,8 +1347,8 @@ struct CodeGen {
     bool is_static;
     bool strip_debug_symbols;
     bool want_h_file;
-    bool have_exported_main;
-    bool have_exported_panic;
+    bool have_pub_main;
+    bool have_pub_panic;
     bool link_libc;
     Buf *libc_lib_dir;
     Buf *libc_static_lib_dir;

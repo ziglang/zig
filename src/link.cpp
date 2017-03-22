@@ -47,6 +47,12 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
     CodeGen *child_gen = codegen_create(std_dir_path, child_target);
     child_gen->link_libc = parent_gen->link_libc;
+
+    child_gen->link_libs.resize(parent_gen->link_libs.length);
+    for (size_t i = 0; i < parent_gen->link_libs.length; i += 1) {
+        child_gen->link_libs.items[i] = parent_gen->link_libs.items[i];
+    }
+
     child_gen->want_h_file = false;
 
     codegen_set_is_release(child_gen, parent_gen->is_release_build);
@@ -223,6 +229,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
             const char *lib_dir = g->lib_dirs.at(i);
             for (size_t i = 0; i < g->link_libs.length; i += 1) {
                 Buf *link_lib = g->link_libs.at(i);
+                if (buf_eql_str(link_lib, "c")) {
+                    continue;
+                }
                 bool does_exist;
                 Buf *test_path = buf_sprintf("%s/lib%s.so", lib_dir, buf_ptr(link_lib));
                 if (os_file_exists(test_path, &does_exist) != ErrorNone) {
@@ -267,8 +276,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
     lj->args.append((const char *)buf_ptr(&lj->out_file_o));
 
     if (g->is_test_build) {
-        const char *test_runner_name = g->link_libc ? "test_runner_libc" : "test_runner_nolibc";
-        Buf *test_runner_o_path = build_o(g, test_runner_name);
+        Buf *test_runner_o_path = build_o(g, "test_runner");
         lj->args.append(buf_ptr(test_runner_o_path));
     }
 
@@ -282,6 +290,9 @@ static void construct_linker_job_elf(LinkJob *lj) {
 
     for (size_t i = 0; i < g->link_libs.length; i += 1) {
         Buf *link_lib = g->link_libs.at(i);
+        if (buf_eql_str(link_lib, "c")) {
+            continue;
+        }
         Buf *arg;
         if (buf_starts_with_str(link_lib, "/") || buf_ends_with_str(link_lib, ".a") ||
             buf_ends_with_str(link_lib, ".so"))
@@ -408,8 +419,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
     lj->args.append((const char *)buf_ptr(&lj->out_file_o));
 
     if (g->is_test_build) {
-        const char *test_runner_name = g->link_libc ? "test_runner_libc" : "test_runner_nolibc";
-        Buf *test_runner_o_path = build_o(g, test_runner_name);
+        Buf *test_runner_o_path = build_o(g, "test_runner");
         lj->args.append(buf_ptr(test_runner_o_path));
     }
 
@@ -424,6 +434,9 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     for (size_t i = 0; i < g->link_libs.length; i += 1) {
         Buf *link_lib = g->link_libs.at(i);
+        if (buf_eql_str(link_lib, "c")) {
+            continue;
+        }
         Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
         lj->args.append(buf_ptr(arg));
     }
@@ -685,13 +698,15 @@ static void construct_linker_job_macho(LinkJob *lj) {
     lj->args.append((const char *)buf_ptr(&lj->out_file_o));
 
     if (g->is_test_build) {
-        const char *test_runner_name = g->link_libc ? "test_runner_libc" : "test_runner_nolibc";
-        Buf *test_runner_o_path = build_o(g, test_runner_name);
+        Buf *test_runner_o_path = build_o(g, "test_runner");
         lj->args.append(buf_ptr(test_runner_o_path));
     }
 
     for (size_t i = 0; i < g->link_libs.length; i += 1) {
         Buf *link_lib = g->link_libs.at(i);
+        if (buf_eql_str(link_lib, "c")) {
+            continue;
+        }
         Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
         lj->args.append(buf_ptr(arg));
     }

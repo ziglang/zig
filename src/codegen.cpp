@@ -66,6 +66,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->generic_table.init(16);
     g->llvm_fn_table.init(16);
     g->memoized_fn_eval_table.init(16);
+    g->compile_vars.init(16);
     g->is_release_build = false;
     g->is_test_build = false;
     g->want_h_file = true;
@@ -191,9 +192,8 @@ void codegen_add_rpath(CodeGen *g, const char *name) {
 void codegen_add_link_lib(CodeGen *g, const char *lib) {
     if (strcmp(lib, "c") == 0) {
         g->link_libc = true;
-    } else {
-        g->link_libs.append(buf_create_from_str(lib));
     }
+    g->link_libs.append(buf_create_from_str(lib));
 }
 
 void codegen_add_framework(CodeGen *g, const char *framework) {
@@ -4057,6 +4057,36 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSetGlobalSection, "setGlobalSection", 2);
 }
 
+static void add_compile_var(CodeGen *g, const char *name, ConstExprValue *value) {
+    g->compile_vars.put_unique(buf_create_from_str(name), value);
+}
+
+static void define_builtin_compile_vars(CodeGen *g) {
+    add_compile_var(g, "is_big_endian", create_const_bool(g, g->is_big_endian));
+    add_compile_var(g, "is_release", create_const_bool(g, g->is_release_build));
+    add_compile_var(g, "is_test", create_const_bool(g, g->is_test_build));
+    add_compile_var(g, "os", create_const_enum_tag(g->builtin_types.entry_os_enum, g->target_os_index));
+    add_compile_var(g, "arch", create_const_enum_tag(g->builtin_types.entry_arch_enum, g->target_arch_index));
+    add_compile_var(g, "environ", create_const_enum_tag(g->builtin_types.entry_environ_enum, g->target_environ_index));
+    add_compile_var(g, "object_format", create_const_enum_tag(
+                g->builtin_types.entry_oformat_enum, g->target_oformat_index));
+
+    {
+        TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
+        ConstExprValue *const_val = allocate<ConstExprValue>(1);
+        const_val->special = ConstValSpecialStatic;
+        const_val->type = get_array_type(g, str_type, g->link_libs.length);
+        const_val->data.x_array.elements = allocate<ConstExprValue>(g->link_libs.length);
+        for (size_t i = 0; i < g->link_libs.length; i += 1) {
+            Buf *link_lib_buf = g->link_libs.at(i);
+            ConstExprValue *array_val = create_const_str_lit(g, link_lib_buf);
+            init_const_slice(g, &const_val->data.x_array.elements[i], array_val, 0, buf_len(link_lib_buf), true);
+        }
+
+        add_compile_var(g, "link_libs", const_val);
+    }
+}
+
 static void init(CodeGen *g, Buf *source_path) {
     g->module = LLVMModuleCreateWithName(buf_ptr(source_path));
 
@@ -4120,6 +4150,7 @@ static void init(CodeGen *g, Buf *source_path) {
 
     define_builtin_types(g);
     define_builtin_fns(g);
+    define_builtin_compile_vars(g);
 
     g->invalid_instruction = allocate<IrInstruction>(1);
     g->invalid_instruction->value.type = g->builtin_types.entry_invalid;
@@ -4209,12 +4240,10 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
     assert(g->root_out_name);
     assert(g->out_type != OutTypeUnknown);
 
-    if (!g->link_libc && !g->is_test_build) {
-        if (g->have_exported_main && (g->out_type == OutTypeObj || g->out_type == OutTypeExe)) {
-            g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g), "bootstrap.zig");
-        }
+    if (!g->is_test_build && g->have_pub_main && (g->out_type == OutTypeObj || g->out_type == OutTypeExe)) {
+        g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g), "bootstrap.zig");
     }
-    if (!g->have_exported_panic) {
+    if (!g->have_pub_panic) {
         g->panic_package = create_panic_pkg(g);
         add_special_code(g, g->panic_package, "panic.zig");
     }

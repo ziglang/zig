@@ -1,17 +1,16 @@
 // This file is in a package which has the root source file exposed as "@root".
+// It is included in the compilation unit when exporting an executable.
 
 const root = @import("@root");
 const std = @import("std");
 
-const want_start_symbol = switch(@compileVar("os")) {
-    Os.linux => true,
-    else => false,
-};
-const want_main_symbol = !want_start_symbol;
+const want_main_symbol = std.build.linkingLibrary("c");
+const want_start_symbol = !want_main_symbol;
 
 const exit = switch(@compileVar("os")) {
     Os.linux => std.linux.exit,
     Os.darwin => std.darwin.exit,
+    else => @compileError("Unsupported OS"),
 };
 
 var argc: usize = undefined;

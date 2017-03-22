@@ -2878,9 +2878,9 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
 
             if (is_pub) {
                 if (buf_eql_str(proto_name, "main")) {
-                    g->have_exported_main = true;
+                    g->have_pub_main = true;
                 } else if (buf_eql_str(proto_name, "panic")) {
-                    g->have_exported_panic = true;
+                    g->have_pub_panic = true;
                 }
             }
         }
