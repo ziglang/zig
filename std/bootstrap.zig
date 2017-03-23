@@ -24,12 +24,12 @@ export nakedcc fn _start() -> unreachable {
 
     switch (@compileVar("arch")) {
         Arch.x86_64 => {
-            argc = asm("mov (%%rsp), %[argc]": [argc] "=r" (-> usize));
-            argv = asm("lea 0x8(%%rsp), %[argv]": [argv] "=r" (-> &&u8));
+            argc = asm("mov %[argc], [rsp]": [argc] "=r" (-> usize));
+            argv = asm("lea %[argv], [rsp + 8h]": [argv] "=r" (-> &&u8));
         },
         Arch.i386 => {
-            argc = asm("mov (%%esp), %[argc]": [argc] "=r" (-> usize));
-            argv = asm("lea 0x4(%%esp), %[argv]": [argv] "=r" (-> &&u8));
+            argc = asm("mov %[argc], [esp]": [argc] "=r" (-> usize));
+            argv = asm("lea %[argv], [esp + 4h]": [argv] "=r" (-> &&u8));
         },
         else => @compileError("unsupported arch"),
     }

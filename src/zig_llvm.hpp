@@ -39,6 +39,9 @@ void ZigLLVMOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef 
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, unsigned CC, const char *Name);
 
+LLVMValueRef ZigLLVMConstInlineAsm(LLVMTypeRef Ty, const char *AsmString,
+        const char *Constraints, bool HasSideEffects, bool IsAlignStack, bool is_x86);
+
 LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
         LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
         LLVMAtomicOrdering failure_ordering);

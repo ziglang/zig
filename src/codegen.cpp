@@ -1772,9 +1772,10 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     }
     LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, input_and_output_count, false);
 
+    bool is_x86 = (g->zig_target.arch.arch == ZigLLVM_x86 || g->zig_target.arch.arch == ZigLLVM_x86_64);
     bool is_volatile = asm_expr->is_volatile || (asm_expr->output_list.length == 0);
-    LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
-            buf_ptr(&constraint_buf), is_volatile, false);
+    LLVMValueRef asm_fn = ZigLLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
+            buf_ptr(&constraint_buf), is_volatile, false, is_x86);
 
     return LLVMBuildCall(g->builder, asm_fn, param_values, input_and_output_count, "");
 }

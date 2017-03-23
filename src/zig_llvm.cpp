@@ -22,22 +22,23 @@
  * 3. Prevent C++ from infecting the rest of the project.
  */
 
-#include <llvm/InitializePasses.h>
-#include <llvm/PassRegistry.h>
-#include <llvm/MC/SubtargetFeature.h>
-#include <llvm/Support/raw_ostream.h>
-#include <llvm/Support/FileSystem.h>
-#include <llvm/Support/TargetParser.h>
-#include <llvm/Target/TargetMachine.h>
+#include <llvm/Analysis/TargetLibraryInfo.h>
+#include <llvm/Analysis/TargetTransformInfo.h>
+#include <llvm/IR/DIBuilder.h>
+#include <llvm/IR/DiagnosticInfo.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/InlineAsm.h>
+#include <llvm/IR/Instructions.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
-#include <llvm/IR/Instructions.h>
-#include <llvm/IR/IRBuilder.h>
-#include <llvm/IR/DIBuilder.h>
-#include <llvm/IR/DiagnosticInfo.h>
-#include <llvm/Analysis/TargetLibraryInfo.h>
-#include <llvm/Analysis/TargetTransformInfo.h>
+#include <llvm/InitializePasses.h>
+#include <llvm/MC/SubtargetFeature.h>
+#include <llvm/PassRegistry.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/TargetParser.h>
+#include <llvm/Support/raw_ostream.h>
+#include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Scalar.h>
@@ -137,6 +138,18 @@ LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *A
     CallInst *call_inst = CallInst::Create(unwrap(Fn), makeArrayRef(unwrap(Args), NumArgs), Name);
     call_inst->setCallingConv(CC);
     return wrap(unwrap(B)->Insert(call_inst));
+}
+
+LLVMValueRef ZigLLVMConstInlineAsm(LLVMTypeRef Ty, const char *AsmString,
+        const char *Constraints, bool HasSideEffects, bool IsAlignStack, bool is_x86)
+{
+    if (is_x86) {
+        return wrap(InlineAsm::get(dyn_cast<FunctionType>(unwrap(Ty)), AsmString,
+                                Constraints, HasSideEffects, IsAlignStack, InlineAsm::AD_Intel));
+    } else {
+        return wrap(InlineAsm::get(dyn_cast<FunctionType>(unwrap(Ty)), AsmString,
+                                Constraints, HasSideEffects, IsAlignStack));
+    }
 }
 
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
