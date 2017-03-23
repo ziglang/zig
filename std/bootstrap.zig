@@ -4,7 +4,7 @@
 const root = @import("@root");
 const std = @import("std");
 
-const want_main_symbol = std.build.linkingLibrary("c");
+const want_main_symbol = std.build.linking_libc;
 const want_start_symbol = !want_main_symbol;
 
 const exit = switch(@compileVar("os")) {
@@ -18,6 +18,9 @@ var argv: &&u8 = undefined;
 
 export nakedcc fn _start() -> unreachable {
     @setFnVisible(this, want_start_symbol);
+    if (!want_start_symbol) {
+        @unreachable();
+    }
 
     switch (@compileVar("arch")) {
         Arch.x86_64 => {
@@ -49,6 +52,9 @@ fn callMainAndExit() -> unreachable {
 
 export fn main(c_argc: i32, c_argv: &&u8) -> i32 {
     @setFnVisible(this, want_main_symbol);
+    if (!want_main_symbol) {
+        @unreachable();
+    }
 
     argc = usize(c_argc);
     argv = c_argv;

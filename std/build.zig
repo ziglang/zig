@@ -1,5 +1,7 @@
 const mem = @import("mem.zig");
 
+pub const linking_libc = linkingLibrary("c");
+
 pub fn linkingLibrary(lib_name: []const u8) -> bool {
     // TODO shouldn't need this if
     if (@compileVar("link_libs").len != 0) {

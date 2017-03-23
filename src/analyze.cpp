@@ -2423,8 +2423,8 @@ Tld *find_decl(CodeGen *g, Scope *scope, Buf *name) {
         AstNode *use_decl_node = import->use_decls.at(i);
         if (use_decl_node->data.use.resolution == TldResolutionUnresolved) {
             preview_use_decl(g, use_decl_node);
+            resolve_use_decl(g, use_decl_node);
         }
-        resolve_use_decl(g, use_decl_node);
     }
 
     while (scope) {
@@ -2795,14 +2795,18 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
 void resolve_use_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeUse);
 
-    if (node->data.use.resolution != TldResolutionUnresolved)
+    if (node->data.use.resolution == TldResolutionOk ||
+        node->data.use.resolution == TldResolutionInvalid)
+    {
         return;
+    }
     add_symbols_from_import(g, node, node);
 }
 
 void preview_use_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeUse);
 
+    node->data.use.resolution = TldResolutionResolving;
     IrInstruction *result = analyze_const_value(g, &node->owner->decls_scope->base,
         node->data.use.expr, g->builtin_types.entry_namespace, nullptr);
 

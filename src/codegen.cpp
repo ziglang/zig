@@ -272,7 +272,17 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
 
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
-    fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_type->data.fn.raw_type_ref);
+    LLVMTypeRef fn_llvm_type = fn_type->data.fn.raw_type_ref;
+    if (!fn_table_entry->internal_linkage && fn_table_entry->body_node == nullptr) {
+        LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, buf_ptr(symbol_name));
+        if (existing_llvm_fn) {
+            fn_table_entry->llvm_value = LLVMConstBitCast(existing_llvm_fn, LLVMPointerType(fn_llvm_type, 0));
+        } else {
+            fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
+        }
+    } else {
+        fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
+    }
 
     switch (fn_table_entry->fn_inline) {
         case FnInlineAlways:

@@ -246,6 +246,7 @@ enum TldId {
 
 enum TldResolution {
     TldResolutionUnresolved,
+    TldResolutionResolving,
     TldResolutionInvalid,
     TldResolutionOk,
 };
