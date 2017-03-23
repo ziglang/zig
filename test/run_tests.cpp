@@ -1631,7 +1631,7 @@ const foo = @import("foo.zig");
 export fn callPrivFunction() {
     foo.privateFunction();
 }
-        )SOURCE", 2, 
+        )SOURCE", 2,
             ".tmp_source.zig:5:8: error: 'privateFunction' is private",
             "foo.zig:2:1: note: declared here");
 
@@ -1828,6 +1828,23 @@ fn ptrEql(a: &[]const u8, b: &[]const u8) -> bool {
 
 export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
     )SOURCE", 1, ".tmp_source.zig:5:19: error: expected type '&[]const u8', found '&const []const u8'");
+
+    {
+        TestCase *tc = add_compile_fail_case("export collision", R"SOURCE(
+const foo = @import("foo.zig");
+
+export fn bar() -> usize {
+    return foo.baz;
+}
+        )SOURCE", 2,
+            "foo.zig:2:8: error: exported symbol collision: 'bar'",
+            ".tmp_source.zig:4:8: note: other symbol is here");
+
+        add_source_file(tc, "foo.zig", R"SOURCE(
+export fn bar() {}
+pub const baz = 1234;
+        )SOURCE");
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////

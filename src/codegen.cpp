@@ -67,6 +67,7 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->llvm_fn_table.init(16);
     g->memoized_fn_eval_table.init(16);
     g->compile_vars.init(16);
+    g->external_symbol_names.init(8);
     g->is_release_build = false;
     g->is_test_build = false;
     g->want_h_file = true;
@@ -260,16 +261,25 @@ static void addLLVMArgAttr(LLVMValueRef arg_val, unsigned param_index, const cha
     return addLLVMAttr(arg_val, param_index + 1, attr_name);
 }
 
+static Buf *get_mangled_name(CodeGen *g, Buf *original_name, bool external_linkage) {
+    if (external_linkage || g->external_symbol_names.maybe_get(original_name) == nullptr) {
+        return original_name;
+    }
+
+    int n = 0;
+    for (;; n += 1) {
+        Buf *new_name = buf_sprintf("%s.%d", buf_ptr(original_name), n);
+        if (g->external_symbol_names.maybe_get(new_name) == nullptr) {
+            return new_name;
+        }
+    }
+}
+
 static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (fn_table_entry->llvm_value)
         return fn_table_entry->llvm_value;
 
-    Buf *symbol_name;
-    if (!fn_table_entry->internal_linkage) {
-        symbol_name = &fn_table_entry->symbol_name;
-    } else {
-        symbol_name = buf_sprintf("_%s", buf_ptr(&fn_table_entry->symbol_name));
-    }
+    Buf *symbol_name = get_mangled_name(g, &fn_table_entry->symbol_name, !fn_table_entry->internal_linkage);
 
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     LLVMTypeRef fn_llvm_type = fn_type->data.fn.raw_type_ref;
@@ -3288,7 +3298,7 @@ static void do_code_gen(CodeGen *g) {
             LLVMSetLinkage(global_value, LLVMExternalLinkage);
         } else {
             render_const_val(g, var->value);
-            render_const_val_global(g, var->value, buf_ptr(&var->name));
+            render_const_val_global(g, var->value, buf_ptr(get_mangled_name(g, &var->name, false)));
             global_value = var->value->llvm_global;
 
             if (var->linkage == VarLinkageExport) {

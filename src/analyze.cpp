@@ -1904,6 +1904,16 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
         g->resolve_queue.append(tld);
     }
 
+    if (tld->visib_mod == VisibModExport) {
+        auto entry = g->external_symbol_names.put_unique(tld->name, tld);
+        if (entry) {
+            Tld *other_tld = entry->value;
+            ErrorMsg *msg = add_node_error(g, tld->source_node,
+                    buf_sprintf("exported symbol collision: '%s'", buf_ptr(tld->name)));
+            add_error_note(g, msg, other_tld->source_node, buf_sprintf("other symbol is here"));
+        }
+    }
+
     auto entry = decls_scope->decl_table.put_unique(tld->name, tld);
     if (entry) {
         Tld *other_tld = entry->value;

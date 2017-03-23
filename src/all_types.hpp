@@ -1293,6 +1293,7 @@ struct CodeGen {
     HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> compile_vars;
+    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_symbol_names;
 
     ZigList<ImportTableEntry *> import_queue;
     size_t import_queue_index;
