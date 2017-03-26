@@ -1205,6 +1205,7 @@ enum PanicMsgId {
     PanicMsgIdIntegerOverflow,
     PanicMsgIdShiftOverflowedBits,
     PanicMsgIdDivisionByZero,
+    PanicMsgIdRemainderDivisionByZero,
     PanicMsgIdExactDivisionRemainder,
     PanicMsgIdSliceWidenRemainder,
     PanicMsgIdUnwrapMaybeFail,
@@ -1828,7 +1829,7 @@ enum IrBinOp {
     IrBinOpMult,
     IrBinOpMultWrap,
     IrBinOpDiv,
-    IrBinOpMod,
+    IrBinOpRem,
     IrBinOpArrayCat,
     IrBinOpArrayMult,
 };

@@ -212,7 +212,7 @@ bool bignum_div(BigNum *dest, BigNum *op1, BigNum *op2) {
     return false;
 }
 
-bool bignum_mod(BigNum *dest, BigNum *op1, BigNum *op2) {
+bool bignum_rem(BigNum *dest, BigNum *op1, BigNum *op2) {
     assert(op1->kind == op2->kind);
     dest->kind = op1->kind;
 
@@ -220,7 +220,7 @@ bool bignum_mod(BigNum *dest, BigNum *op1, BigNum *op2) {
         dest->data.x_float = fmod(op1->data.x_float, op2->data.x_float);
     } else {
         if (op1->is_negative || op2->is_negative) {
-            zig_panic("TODO handle mod with negative numbers");
+            zig_panic("TODO handle remainder division with negative numbers");
         }
         dest->data.x_uint = op1->data.x_uint % op2->data.x_uint;
         bignum_normalize(dest);

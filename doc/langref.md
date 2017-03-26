@@ -165,17 +165,17 @@ ContainerDecl = option("extern" | "packed") ("struct" | "enum" | "union") "{" ma
 
 ```
 x() x[] x.y
-!x -x ~x *x &x ?x %x %%x
+!x -x -%x ~x *x &x ?x %x %%x ??x
 x{}
-* / %
-+ - ++
+* / % ** *%
++ - ++ +% -%
 << >>
 &
 ^
 |
 == != < > <= >=
-&&
-||
+and
+or
 ?? %%
 = *= /= %= += -= <<= >>= &= ^= |=
 ```

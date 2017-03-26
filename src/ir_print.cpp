@@ -110,7 +110,7 @@ static const char *ir_bin_op_id_str(IrBinOp op_id) {
             return "*%";
         case IrBinOpDiv:
             return "/";
-        case IrBinOpMod:
+        case IrBinOpRem:
             return "%";
         case IrBinOpArrayCat:
             return "++";

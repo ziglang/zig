@@ -512,6 +512,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("left shift overflowed bits");
         case PanicMsgIdDivisionByZero:
             return buf_create_from_str("division by zero");
+        case PanicMsgIdRemainderDivisionByZero:
+            return buf_create_from_str("remainder division by zero");
         case PanicMsgIdExactDivisionRemainder:
             return buf_create_from_str("exact division produced remainder");
         case PanicMsgIdSliceWidenRemainder:
@@ -956,6 +958,59 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, LLVMValueRef val
     }
 }
 
+static LLVMValueRef gen_rem(CodeGen *g, bool want_debug_safety, LLVMValueRef val1, LLVMValueRef val2,
+        TypeTableEntry *type_entry)
+{
+
+    if (want_debug_safety) {
+        LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
+        LLVMValueRef is_zero_bit;
+        if (type_entry->id == TypeTableEntryIdInt) {
+            is_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
+        } else if (type_entry->id == TypeTableEntryIdFloat) {
+            is_zero_bit = LLVMBuildFCmp(g->builder, LLVMRealOEQ, val2, zero, "");
+        } else {
+            zig_unreachable();
+        }
+        LLVMBasicBlockRef rem_zero_ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "RemZeroOk");
+        LLVMBasicBlockRef rem_zero_fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "RemZeroFail");
+        LLVMBuildCondBr(g->builder, is_zero_bit, rem_zero_fail_block, rem_zero_ok_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, rem_zero_fail_block);
+        gen_debug_safety_crash(g, PanicMsgIdRemainderDivisionByZero);
+
+        LLVMPositionBuilderAtEnd(g->builder, rem_zero_ok_block);
+
+        if (type_entry->id == TypeTableEntryIdInt && type_entry->data.integral.is_signed) {
+            LLVMValueRef neg_1_value = LLVMConstInt(type_entry->type_ref, -1, true);
+            LLVMValueRef int_min_value = LLVMConstInt(type_entry->type_ref, min_signed_val(type_entry), true);
+            LLVMBasicBlockRef overflow_ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "RemOverflowOk");
+            LLVMBasicBlockRef overflow_fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "RemOverflowFail");
+            LLVMValueRef num_is_int_min = LLVMBuildICmp(g->builder, LLVMIntEQ, val1, int_min_value, "");
+            LLVMValueRef den_is_neg_1 = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, neg_1_value, "");
+            LLVMValueRef overflow_fail_bit = LLVMBuildAnd(g->builder, num_is_int_min, den_is_neg_1, "");
+            LLVMBuildCondBr(g->builder, overflow_fail_bit, overflow_fail_block, overflow_ok_block);
+
+            LLVMPositionBuilderAtEnd(g->builder, overflow_fail_block);
+            gen_debug_safety_crash(g, PanicMsgIdIntegerOverflow);
+
+            LLVMPositionBuilderAtEnd(g->builder, overflow_ok_block);
+        }
+    }
+
+    if (type_entry->id == TypeTableEntryIdFloat) {
+        return LLVMBuildFRem(g->builder, val1, val2, "");
+    } else {
+        assert(type_entry->id == TypeTableEntryIdInt);
+        if (type_entry->data.integral.is_signed) {
+            return LLVMBuildSRem(g->builder, val1, val2, "");
+        } else {
+            return LLVMBuildURem(g->builder, val1, val2, "");
+        }
+    }
+
+}
+
 static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         IrInstructionBinOp *bin_op_instruction)
 {
@@ -1092,17 +1147,8 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
             }
         case IrBinOpDiv:
             return gen_div(g, want_debug_safety, op1_value, op2_value, canon_type, false);
-        case IrBinOpMod:
-            if (canon_type->id == TypeTableEntryIdFloat) {
-                return LLVMBuildFRem(g->builder, op1_value, op2_value, "");
-            } else {
-                assert(canon_type->id == TypeTableEntryIdInt);
-                if (canon_type->data.integral.is_signed) {
-                    return LLVMBuildSRem(g->builder, op1_value, op2_value, "");
-                } else {
-                    return LLVMBuildURem(g->builder, op1_value, op2_value, "");
-                }
-            }
+        case IrBinOpRem:
+            return gen_rem(g, want_debug_safety, op1_value, op2_value, canon_type);
     }
     zig_unreachable();
 }

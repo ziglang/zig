@@ -3487,7 +3487,7 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
         case BinOpTypeAssignDiv:
             return ir_gen_assign_op(irb, scope, node, IrBinOpDiv);
         case BinOpTypeAssignMod:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpMod);
+            return ir_gen_assign_op(irb, scope, node, IrBinOpRem);
         case BinOpTypeAssignPlus:
             return ir_gen_assign_op(irb, scope, node, IrBinOpAdd);
         case BinOpTypeAssignPlusWrap:
@@ -3555,7 +3555,7 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
         case BinOpTypeDiv:
             return ir_gen_bin_op_id(irb, scope, node, IrBinOpDiv);
         case BinOpTypeMod:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpMod);
+            return ir_gen_bin_op_id(irb, scope, node, IrBinOpRem);
         case BinOpTypeArrayCat:
             return ir_gen_bin_op_id(irb, scope, node, IrBinOpArrayCat);
         case BinOpTypeArrayMult:
@@ -7394,7 +7394,7 @@ static int ir_eval_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
 {
     bool is_int = false;
     bool is_float = false;
-    if (bignum_fn == bignum_div || bignum_fn == bignum_mod) {
+    if (bignum_fn == bignum_div || bignum_fn == bignum_rem) {
         if (type->id == TypeTableEntryIdInt ||
             type->id == TypeTableEntryIdNumLitInt)
         {
@@ -7480,8 +7480,8 @@ static int ir_eval_math_op(TypeTableEntry *canon_type, ConstExprValue *op1_val,
             return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mul, canon_type, true);
         case IrBinOpDiv:
             return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div, canon_type, false);
-        case IrBinOpMod:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mod, canon_type, false);
+        case IrBinOpRem:
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_rem, canon_type, false);
     }
     zig_unreachable();
 }
@@ -7506,7 +7506,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
             op_id == IrBinOpSub ||
             op_id == IrBinOpMult ||
             op_id == IrBinOpDiv ||
-            op_id == IrBinOpMod))
+            op_id == IrBinOpRem))
     {
         // float
     } else {
@@ -7777,7 +7777,7 @@ static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructi
         case IrBinOpMult:
         case IrBinOpMultWrap:
         case IrBinOpDiv:
-        case IrBinOpMod:
+        case IrBinOpRem:
             return ir_analyze_bin_op_math(ira, bin_op_instruction);
         case IrBinOpArrayCat:
             return ir_analyze_array_cat(ira, bin_op_instruction);
@@ -11211,7 +11211,7 @@ static TypeTableEntry *ir_analyze_instruction_div_exact(IrAnalyze *ira, IrInstru
         }
 
         BigNum remainder;
-        if (bignum_mod(&remainder, &op1_val->data.x_bignum, &op2_val->data.x_bignum)) {
+        if (bignum_rem(&remainder, &op1_val->data.x_bignum, &op2_val->data.x_bignum)) {
             ir_add_error(ira, &instruction->base, buf_sprintf("integer overflow"));
             return ira->codegen->builtin_types.entry_invalid;
         }
