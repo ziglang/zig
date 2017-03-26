@@ -1,14 +1,14 @@
 const system = switch(@compileVar("os")) {
-    Os.linux => @import("linux.zig"),
-    Os.darwin => @import("darwin.zig"),
+    Os.linux => @import("os/linux.zig"),
+    Os.darwin => @import("os/darwin.zig"),
     else => @compileError("Unsupported OS"),
 };
 
-const errno = @import("errno.zig");
+const errno = @import("os/errno.zig");
 const math = @import("math.zig");
 const debug = @import("debug.zig");
 const assert = debug.assert;
-const os = @import("os.zig");
+const os = @import("os/index.zig");
 const mem = @import("mem.zig");
 const Buffer0 = @import("cstr.zig").Buffer0;
 const fmt = @import("fmt.zig");

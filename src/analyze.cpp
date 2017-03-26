@@ -2874,11 +2874,8 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
         Buf *abs_full_path, Buf *src_dirname, Buf *src_basename, Buf *source_code)
 {
-    Buf *full_path = buf_alloc();
-    os_path_join(src_dirname, src_basename, full_path);
-
     if (g->verbose) {
-        fprintf(stderr, "\nOriginal Source (%s):\n", buf_ptr(full_path));
+        fprintf(stderr, "\nOriginal Source (%s):\n", buf_ptr(abs_full_path));
         fprintf(stderr, "----------------\n");
         fprintf(stderr, "%s\n", buf_ptr(source_code));
 
@@ -2890,7 +2887,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
     tokenize(source_code, &tokenization);
 
     if (tokenization.err) {
-        ErrorMsg *err = err_msg_create_with_line(full_path, tokenization.err_line, tokenization.err_column,
+        ErrorMsg *err = err_msg_create_with_line(abs_full_path, tokenization.err_line, tokenization.err_column,
                 source_code, tokenization.line_offsets, tokenization.err);
 
         print_err_msg(err, g->err_color);
@@ -2908,7 +2905,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
     import_entry->package = package;
     import_entry->source_code = source_code;
     import_entry->line_offsets = tokenization.line_offsets;
-    import_entry->path = full_path;
+    import_entry->path = abs_full_path;
 
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color,
             &g->next_node_index);

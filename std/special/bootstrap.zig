@@ -4,14 +4,10 @@
 const root = @import("@root");
 const std = @import("std");
 
-const want_main_symbol = std.build.linking_libc;
+const want_main_symbol = std.target.linking_libc;
 const want_start_symbol = !want_main_symbol;
 
-const exit = switch(@compileVar("os")) {
-    Os.linux => std.linux.exit,
-    Os.darwin => std.darwin.exit,
-    else => @compileError("Unsupported OS"),
-};
+const exit = std.os.posix.exit;
 
 var argc: usize = undefined;
 var argv: &&u8 = undefined;

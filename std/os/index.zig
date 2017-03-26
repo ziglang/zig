@@ -1,12 +1,16 @@
-const posix = switch(@compileVar("os")) {
-    Os.linux => @import("linux.zig"),
-    Os.darwin, Os.macosx, Os.ios => @import("darwin.zig"),
+pub const windows = @import("windows.zig");
+pub const darwin = @import("darwin.zig");
+pub const linux = @import("linux.zig");
+pub const posix = switch(@compileVar("os")) {
+    Os.linux => linux,
+    Os.darwin, Os.macosx, Os.ios => darwin,
+    Os.windows => windows,
     else => @compileError("Unsupported OS"),
 };
-const windows = @import("windows.zig");
+
 const errno = @import("errno.zig");
-const linking_libc = @import("build.zig").linking_libc;
-const c = @import("c/index.zig");
+const linking_libc = @import("../target.zig").linking_libc;
+const c = @import("../c/index.zig");
 
 error Unexpected;
 

@@ -10385,7 +10385,10 @@ static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructi
         // try it as a filename
         target_package = import->package;
         import_target_path = import_target_str;
-        search_dir = &import->package->root_src_dir;
+
+        // search relative to importing file
+        search_dir = buf_alloc();
+        os_path_dirname(import->path, search_dir);
     }
 
     Buf full_path = BUF_INIT;

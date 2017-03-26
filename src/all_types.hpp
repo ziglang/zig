@@ -1362,6 +1362,7 @@ struct CodeGen {
     Buf *libc_static_lib_dir;
     Buf *libc_include_dir;
     Buf *zig_std_dir;
+    Buf *zig_std_special_dir;
     Buf *dynamic_linker;
     Buf *ar_path;
     Buf triple_str;

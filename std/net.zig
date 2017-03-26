@@ -1,5 +1,5 @@
-const linux = @import("linux.zig");
-const errno = @import("errno.zig");
+const linux = @import("os/linux.zig");
+const errno = @import("os/errno.zig");
 const assert = @import("debug.zig").assert;
 const endian = @import("endian.zig");
 

@@ -1254,8 +1254,7 @@ export fn entry() -> usize { @sizeOf(@typeOf(seventh_fib_number)) }
 const resource = @embedFile("bogus.txt");
 
 export fn entry() -> usize { @sizeOf(@typeOf(resource)) }
-    )SOURCE", 1, ".tmp_source.zig:2:29: error: unable to find './bogus.txt'");
-
+    )SOURCE", 2, ".tmp_source.zig:2:29: error: unable to find '", "/bogus.txt'");
 
     add_compile_fail_case("non-const expression in struct literal outside function", R"SOURCE(
 const Foo = struct {

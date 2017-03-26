@@ -42,10 +42,9 @@ static const char *get_o_file_extension(CodeGen *g) {
 
 static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     Buf *source_basename = buf_sprintf("%s.zig", oname);
-    Buf *std_dir_path = parent_gen->zig_std_dir;
 
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
-    CodeGen *child_gen = codegen_create(std_dir_path, child_target);
+    CodeGen *child_gen = codegen_create(parent_gen->zig_std_special_dir, child_target);
     child_gen->link_libc = parent_gen->link_libc;
 
     child_gen->link_libs.resize(parent_gen->link_libs.length);
@@ -70,13 +69,14 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     codegen_set_mios_version_min(child_gen, parent_gen->mios_version_min);
 
     Buf *full_path = buf_alloc();
-    os_path_join(std_dir_path, source_basename, full_path);
+    os_path_join(parent_gen->zig_std_special_dir, source_basename, full_path);
+
     Buf source_code = BUF_INIT;
     if (os_fetch_file_path(full_path, &source_code)) {
         zig_panic("unable to fetch file: %s\n", buf_ptr(full_path));
     }
 
-    codegen_add_root_code(child_gen, std_dir_path, source_basename, &source_code);
+    codegen_add_root_code(child_gen, parent_gen->zig_std_special_dir, source_basename, &source_code);
     const char *o_ext = get_o_file_extension(child_gen);
     Buf *o_out = buf_sprintf("%s%s", oname, o_ext);
     codegen_link(child_gen, buf_ptr(o_out));

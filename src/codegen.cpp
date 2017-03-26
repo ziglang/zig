@@ -80,6 +80,9 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
     g->zig_std_dir = buf_create_from_str(ZIG_STD_DIR);
 
+    g->zig_std_special_dir = buf_alloc();
+    os_path_join(g->zig_std_dir, buf_sprintf("special"), g->zig_std_special_dir);
+
 
     if (target) {
         // cross compiling, so we can't rely on all the configured stuff since
@@ -4237,10 +4240,9 @@ void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source
 }
 
 static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package, const char *basename) {
-    Buf *std_dir = g->zig_std_dir;
     Buf *code_basename = buf_create_from_str(basename);
     Buf path_to_code_src = BUF_INIT;
-    os_path_join(std_dir, code_basename, &path_to_code_src);
+    os_path_join(g->zig_std_special_dir, code_basename, &path_to_code_src);
     Buf *abs_full_path = buf_alloc();
     int err;
     if ((err = os_path_real(&path_to_code_src, abs_full_path))) {
@@ -4251,18 +4253,18 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
         zig_panic("unable to open '%s': %s", buf_ptr(&path_to_code_src), err_str(err));
     }
 
-    return add_source_file(g, package, abs_full_path, std_dir, code_basename, import_code);
+    return add_source_file(g, package, abs_full_path, g->zig_std_special_dir, code_basename, import_code);
 }
 
 static PackageTableEntry *create_bootstrap_pkg(CodeGen *g) {
-    PackageTableEntry *package = new_package(buf_ptr(g->zig_std_dir), "");
+    PackageTableEntry *package = new_package(buf_ptr(g->zig_std_special_dir), "");
     package->package_table.put(buf_create_from_str("std"), g->std_package);
     package->package_table.put(buf_create_from_str("@root"), g->root_package);
     return package;
 }
 
 static PackageTableEntry *create_panic_pkg(CodeGen *g) {
-    PackageTableEntry *package = new_package(buf_ptr(g->zig_std_dir), "");
+    PackageTableEntry *package = new_package(buf_ptr(g->zig_std_special_dir), "");
     package->package_table.put(buf_create_from_str("std"), g->std_package);
     return package;
 }

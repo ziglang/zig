@@ -1,6 +1,6 @@
 const mem = @import("mem.zig");
 const io = @import("io.zig");
-const os = @import("os.zig");
+const os = @import("os/index.zig");
 const elf = @import("elf.zig");
 const DW = @import("dwarf.zig");
 const List = @import("list.zig").List;

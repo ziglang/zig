@@ -1,4 +1,4 @@
-const other = @import("cases/pub_enum/other.zig");
+const other = @import("other.zig");
 const assert = @import("std").debug.assert;
 
 test "pubEnum" {
