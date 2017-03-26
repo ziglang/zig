@@ -7349,6 +7349,39 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         return ira->codegen->builtin_types.entry_bool;
     }
 
+    // some comparisons with unsigned numbers can be evaluated
+    if (resolved_type->id == TypeTableEntryIdInt && !resolved_type->data.integral.is_signed) {
+        ConstExprValue *known_left_val;
+        IrBinOp flipped_op_id;
+        if (value_is_comptime(op1_val)) {
+            known_left_val = op1_val;
+            flipped_op_id = op_id;
+        } else if (value_is_comptime(op2_val)) {
+            known_left_val = op2_val;
+            if (op_id == IrBinOpCmpLessThan) {
+                flipped_op_id = IrBinOpCmpGreaterThan;
+            } else if (op_id == IrBinOpCmpGreaterThan) {
+                flipped_op_id = IrBinOpCmpLessThan;
+            } else if (op_id == IrBinOpCmpLessOrEq) {
+                flipped_op_id = IrBinOpCmpGreaterOrEq;
+            } else if (op_id == IrBinOpCmpGreaterOrEq) {
+                flipped_op_id = IrBinOpCmpLessOrEq;
+            } else {
+                flipped_op_id = op_id;
+            }
+        } else {
+            known_left_val = nullptr;
+        }
+        if (known_left_val != nullptr && known_left_val->data.x_bignum.data.x_uint == 0 &&
+            (flipped_op_id == IrBinOpCmpLessOrEq || flipped_op_id == IrBinOpCmpGreaterThan))
+        {
+            bool answer = (flipped_op_id == IrBinOpCmpLessOrEq);
+            ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base);
+            out_val->data.x_bool = answer;
+            return ira->codegen->builtin_types.entry_bool;
+        }
+    }
+
     ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id,
             casted_op1, casted_op2, bin_op_instruction->safety_check_on);
 

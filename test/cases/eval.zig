@@ -265,3 +265,22 @@ fn modifySomeBytes(bytes: []u8) {
     bytes[0] = 'a';
     bytes[9] = 'b';
 }
+
+
+test "comparisons 0 <= uint and 0 > uint should be comptime" {
+    testCompTimeUIntComparisons(1234);
+}
+fn testCompTimeUIntComparisons(x: u32) {
+    if (!(0 <= x)) {
+        @compileError("this condition should be comptime known");
+    }
+    if (0 > x) {
+        @compileError("this condition should be comptime known");
+    }
+    if (!(x >= 0)) {
+        @compileError("this condition should be comptime known");
+    }
+    if (x < 0) {
+        @compileError("this condition should be comptime known");
+    }
+}
