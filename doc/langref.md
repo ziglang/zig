@@ -155,7 +155,7 @@ GotoExpression = "goto" Symbol
 
 GroupedExpression = "(" Expression ")"
 
-KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this"
+KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this" | "unreachable"
 
 ContainerDecl = option("extern" | "packed") ("struct" | "enum" | "union") "{" many(ContainerMember) "}"
 
@@ -212,60 +212,6 @@ c_void          void                for ABI compatibility with C
 f32             float               32-bit floating point
 f64             double              64-bit floating point
 ```
-
-### Boolean Type
-
-The boolean type has the name `bool` and represents either true or false.
-
-### Function Type
-
-TODO
-
-### Fixed-Size Array Type
-
-Example: The string `"aoeu"` has type `[4]u8`.
-
-The size is known at compile time and is part of the type.
-
-### Slice Type
-
-A slice can be obtained with the slicing syntax: `array[start...end]`
-
-Example: `"aoeu"[0...2]` has type `[]u8`.
-
-### Struct Type
-
-TODO
-
-### Enum Type
-
-TODO
-
-### Maybe Type
-
-TODO
-
-### Pure Error Type
-
-TODO
-
-### Error Union Type
-
-TODO
-
-### Pointer Type
-
-TODO
-
-### Unreachable Type
-
-The unreachable type has the name `unreachable`. TODO explanation
-
-### Void Type
-
-The void type has the name `void`. void types are zero bits and are omitted
-from codegen.
-
 
 ## Expressions
 
@@ -346,31 +292,6 @@ has a terminating null byte.
  Binary integer     | 0b11110000  | N/A
  Floating point     | 123.0E+77   | Optional
  Hex floating point | 0x103.70p-5 | Optional
-
-### Identifiers
-
-TODO
-
-### Declarations
-
-Declarations have type `void`.
-
-#### Function Declarations
-
-TODO
-
-#### Variable Declarations
-
-TODO
-
-#### Struct Declarations
-
-TODO
-
-#### Enum Declarations
-
-TODO
-
 
 ## Built-in Functions
 
@@ -681,10 +602,6 @@ code.
 ### @intType(comptime is_signed: bool, comptime bit_count: u8) -> type
 
 This function returns an integer type with the given signness and bit count.
-
-### @setFnTest(func)
-
-Makes the target function a test function.
 
 ### @setDebugSafety(scope, safety_on: bool)
 

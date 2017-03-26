@@ -334,6 +334,7 @@ enum NodeType {
     NodeTypeNullLiteral,
     NodeTypeUndefinedLiteral,
     NodeTypeThisLiteral,
+    NodeTypeUnreachable,
     NodeTypeIfBoolExpr,
     NodeTypeIfVarExpr,
     NodeTypeWhileExpr,
@@ -758,6 +759,9 @@ struct AstNodeBreakExpr {
 
 struct AstNodeContinueExpr {
 };
+struct AstNodeUnreachableExpr {
+};
+
 
 struct AstNodeArrayType {
     AstNode *size;
@@ -827,6 +831,7 @@ struct AstNode {
         AstNodeBoolLiteral bool_literal;
         AstNodeBreakExpr break_expr;
         AstNodeContinueExpr continue_expr;
+        AstNodeUnreachableExpr unreachable_expr;
         AstNodeArrayType array_type;
         AstNodeErrorType error_type;
         AstNodeTypeLiteral type_literal;
@@ -1173,7 +1178,6 @@ enum BuiltinFnId {
     BuiltinFnIdDivExact,
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
-    BuiltinFnIdUnreachable,
     BuiltinFnIdSetFnVisible,
     BuiltinFnIdSetDebugSafety,
     BuiltinFnIdAlloca,

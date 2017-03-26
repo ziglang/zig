@@ -46,8 +46,8 @@ pub fn getRandomBytes(buf: []u8) -> %void {
         };
         if (err > 0) {
             return switch (err) {
-                errno.EINVAL => @unreachable(),
-                errno.EFAULT => @unreachable(),
+                errno.EINVAL => unreachable,
+                errno.EFAULT => unreachable,
                 errno.EINTR  => continue,
                 else         => error.Unexpected,
             }
@@ -59,7 +59,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
 /// Raises a signal in the current kernel thread, ending its execution.
 /// If linking against libc, this calls the abort() libc function. Otherwise
 /// it uses the zig standard library implementation.
-pub coldcc fn abort() -> unreachable {
+pub coldcc fn abort() -> noreturn {
     if (linking_libc) {
         c.abort();
     }

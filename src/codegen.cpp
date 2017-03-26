@@ -3786,7 +3786,7 @@ static void define_builtin_types(CodeGen *g) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUnreachable);
         entry->type_ref = LLVMVoidType();
         entry->zero_bits = true;
-        buf_init_from_str(&entry->name, "unreachable");
+        buf_init_from_str(&entry->name, "noreturn");
         entry->di_type = g->builtin_types.entry_void->di_type;
         g->builtin_types.entry_unreachable = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -4096,7 +4096,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "intType", 2);
-    create_builtin_fn(g, BuiltinFnIdUnreachable, "unreachable", 0);
     create_builtin_fn(g, BuiltinFnIdSetFnVisible, "setFnVisible", 2);
     create_builtin_fn(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
     create_builtin_fn(g, BuiltinFnIdAlloca, "alloca", 2);

@@ -3,7 +3,7 @@
 // If this file wants to import other files *by name*, support for that would
 // have to be added in the compiler.
 
-pub coldcc fn panic(message: []const u8) -> unreachable {
+pub coldcc fn panic(message: []const u8) -> noreturn {
     if (@compileVar("os") == Os.freestanding) {
         while (true) {}
     } else {

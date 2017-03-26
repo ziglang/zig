@@ -55,9 +55,9 @@ const Fruit = enum {
 };
 fn nonConstSwitchOnEnum(fruit: Fruit) {
     switch (fruit) {
-        Fruit.Apple => @unreachable(),
+        Fruit.Apple => unreachable,
         Fruit.Orange => {},
-        Fruit.Banana => @unreachable(),
+        Fruit.Banana => unreachable,
     }
 }
 
@@ -72,7 +72,7 @@ fn nonConstSwitch(foo: SwitchStatmentFoo) {
         SwitchStatmentFoo.C => 3,
         SwitchStatmentFoo.D => 4,
     };
-    if (val != 3) @unreachable();
+    if (val != 3) unreachable;
 }
 const SwitchStatmentFoo = enum {
     A,
@@ -95,10 +95,10 @@ const SwitchProngWithVarEnum = enum {
 fn switchProngWithVarFn(a: &const SwitchProngWithVarEnum) {
     switch(*a) {
         SwitchProngWithVarEnum.One => |x| {
-            if (x != 13) @unreachable();
+            if (x != 13) unreachable;
         },
         SwitchProngWithVarEnum.Two => |x| {
-            if (x != 13.0) @unreachable();
+            if (x != 13.0) unreachable;
         },
         SwitchProngWithVarEnum.Meh => |x| {
             const v: void = x;

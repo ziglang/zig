@@ -163,7 +163,7 @@ test "memcpyAndMemsetIntrinsics" {
     @memset(&foo[0], 'A', foo.len);
     @memcpy(&bar[0], &foo[0], bar.len);
 
-    if (bar[11] != 'A') @unreachable();
+    if (bar[11] != 'A') unreachable;
 }
 
 test "builtinStaticEval" {
@@ -178,13 +178,13 @@ test "slicing" {
 
     var slice = array[5...10];
 
-    if (slice.len != 5) @unreachable();
+    if (slice.len != 5) unreachable;
 
     const ptr = &slice[0];
-    if (ptr[0] != 1234) @unreachable();
+    if (ptr[0] != 1234) unreachable;
 
     var slice_rest = array[10...];
-    if (slice_rest.len != 10) @unreachable();
+    if (slice_rest.len != 10) unreachable;
 }
 
 
@@ -344,7 +344,7 @@ fn test3_1(f: &const Test3Foo) {
             assert(pt.x == 3);
             assert(pt.y == 4);
         },
-        else => @unreachable(),
+        else => unreachable,
     }
 }
 fn test3_2(f: &const Test3Foo) {
@@ -352,7 +352,7 @@ fn test3_2(f: &const Test3Foo) {
         Test3Foo.Two => |x| {
             assert(x == 13);
         },
-        else => @unreachable(),
+        else => unreachable,
     }
 }
 

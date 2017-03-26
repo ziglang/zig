@@ -16,10 +16,10 @@ const exit = switch(@compileVar("os")) {
 var argc: usize = undefined;
 var argv: &&u8 = undefined;
 
-export nakedcc fn _start() -> unreachable {
+export nakedcc fn _start() -> noreturn {
     @setFnVisible(this, want_start_symbol);
     if (!want_start_symbol) {
-        @unreachable();
+        unreachable;
     }
 
     switch (@compileVar("arch")) {
@@ -45,7 +45,7 @@ fn callMain() -> %void {
     return root.main(args);
 }
 
-fn callMainAndExit() -> unreachable {
+fn callMainAndExit() -> noreturn {
     callMain() %% exit(1);
     exit(0);
 }
@@ -53,7 +53,7 @@ fn callMainAndExit() -> unreachable {
 export fn main(c_argc: i32, c_argv: &&u8) -> i32 {
     @setFnVisible(this, want_main_symbol);
     if (!want_main_symbol) {
-        @unreachable();
+        unreachable;
     }
 
     argc = usize(c_argc);

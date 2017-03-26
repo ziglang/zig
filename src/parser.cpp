@@ -705,7 +705,7 @@ static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index, bool m
 
 /*
 PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
-KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this"
+KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this" | "unreachable"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -755,6 +755,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         return node;
     } else if (token->id == TokenIdKeywordThis) {
         AstNode *node = ast_create_node(pc, NodeTypeThisLiteral, token);
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordUnreachable) {
+        AstNode *node = ast_create_node(pc, NodeTypeUnreachable, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordType) {
@@ -2726,6 +2730,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             // none
             break;
         case NodeTypeContinue:
+            // none
+            break;
+        case NodeTypeUnreachable:
             // none
             break;
         case NodeTypeAsmExpr:

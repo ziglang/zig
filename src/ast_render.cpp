@@ -216,6 +216,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Break";
         case NodeTypeContinue:
             return "Continue";
+        case NodeTypeUnreachable:
+            return "Unreachable";
         case NodeTypeAsmExpr:
             return "AsmExpr";
         case NodeTypeFieldAccessExpr:
@@ -888,6 +890,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeContinue:
             {
                 fprintf(ar->f, "continue");
+                break;
+            }
+        case NodeTypeUnreachable:
+            {
+                fprintf(ar->f, "unreachable");
                 break;
             }
         case NodeTypeSliceExpr:

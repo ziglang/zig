@@ -50,7 +50,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
                         return entry;
                     }
                 }
-                @unreachable() // no next item
+                unreachable // no next item
             }
         };
 
@@ -125,9 +125,9 @@ pub fn HashMap(comptime K: type, comptime V: type,
                     entry.distance_from_start_index -= 1;
                     entry = next_entry;
                 }
-                @unreachable() // shifting everything in the table
+                unreachable // shifting everything in the table
             }}
-            @unreachable() // key not found
+            unreachable // key not found
         }
 
         pub fn entryIterator(hm: &Self) -> Iterator {
@@ -198,7 +198,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
                 };
                 return;
             }
-            @unreachable() // put into a full map
+            unreachable // put into a full map
         }
 
         fn internalGet(hm: &Self, key: K) -> ?&Entry {

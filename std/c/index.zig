@@ -7,7 +7,7 @@ pub use switch(@compileVar("os")) {
     else => empty_import,
 };
 
-pub extern fn abort() -> unreachable;
+pub extern fn abort() -> noreturn;
 
 
 const empty_import = @import("empty.zig");

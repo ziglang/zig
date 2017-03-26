@@ -30,7 +30,7 @@ exit:
     if (it_worked) {
         return;
     }
-    @unreachable();
+    unreachable;
 entry:
     defer it_worked = true;
     if (b) goto exit;

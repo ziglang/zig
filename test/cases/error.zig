@@ -48,7 +48,7 @@ error AnError;
 error AnError;
 error SecondError;
 fn shouldBeNotEqual(a: error, b: error) {
-    if (a == b) @unreachable()
+    if (a == b) unreachable
 }
 
 

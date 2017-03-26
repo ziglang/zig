@@ -471,8 +471,8 @@ const foo : i32 = 0;
 const c = @cImport(@cInclude("stdlib.h"));
 
 export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
-    const a_int = (&i32)(a ?? @unreachable());
-    const b_int = (&i32)(b ?? @unreachable());
+    const a_int = (&i32)(a ?? unreachable);
+    const b_int = (&i32)(b ?? unreachable);
     if (*a_int < *b_int) {
         -1
     } else if (*a_int > *b_int) {
@@ -628,9 +628,9 @@ export fn entry() { a(); }
     )SOURCE", 1, ".tmp_source.zig:3:1: error: redefinition of 'a'");
 
     add_compile_fail_case("unreachable with return", R"SOURCE(
-fn a() -> unreachable {return;}
+fn a() -> noreturn {return;}
 export fn entry() { a(); }
-    )SOURCE", 1, ".tmp_source.zig:2:24: error: expected type 'unreachable', found 'void'");
+    )SOURCE", 1, ".tmp_source.zig:2:21: error: expected type 'noreturn', found 'void'");
 
     add_compile_fail_case("control reaches end of non-void function", R"SOURCE(
 fn a() -> i32 {}
@@ -656,7 +656,7 @@ export fn entry() { _ = a(); }
     )SOURCE", 1, ".tmp_source.zig:2:11: error: use of undeclared identifier 'bogus'");
 
     add_compile_fail_case("pointer to unreachable", R"SOURCE(
-fn a() -> &unreachable {}
+fn a() -> &noreturn {}
 export fn entry() { _ = a(); }
     )SOURCE", 1, ".tmp_source.zig:2:12: error: pointer to unreachable not allowed");
 
@@ -724,14 +724,14 @@ export fn f() {
 
     add_compile_fail_case("unreachable variable", R"SOURCE(
 export fn f() {
-    const a : unreachable = {};
+    const a: noreturn = {};
 }
-    )SOURCE", 1, ".tmp_source.zig:3:15: error: variable of type 'unreachable' not allowed");
+    )SOURCE", 1, ".tmp_source.zig:3:14: error: variable of type 'noreturn' not allowed");
 
     add_compile_fail_case("unreachable parameter", R"SOURCE(
-fn f(a : unreachable) {}
+fn f(a: noreturn) {}
 export fn entry() { f(); }
-    )SOURCE", 1, ".tmp_source.zig:2:10: error: parameter of type 'unreachable' not allowed");
+    )SOURCE", 1, ".tmp_source.zig:2:9: error: parameter of type 'noreturn' not allowed");
 
     add_compile_fail_case("bad assignment target", R"SOURCE(
 export fn f() {
@@ -1737,7 +1737,7 @@ export fn foo() {
 }
 
 fn assert(ok: bool) {
-    if (!ok) @unreachable();
+    if (!ok) unreachable;
 }
     )SOURCE", 2,
             ".tmp_source.zig:11:14: error: unable to evaluate constant expression",
@@ -1830,7 +1830,7 @@ export fn entry() {
 
 static void add_debug_safety_test_cases(void) {
     add_debug_safety_case("out of bounds slice access", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -1845,7 +1845,7 @@ fn baz(a: i32) { }
     )SOURCE");
 
     add_debug_safety_case("integer addition overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -1860,7 +1860,7 @@ fn add(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer subtraction overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -1875,7 +1875,7 @@ fn sub(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer multiplication overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -1890,7 +1890,7 @@ fn mul(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer negation overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -1905,7 +1905,7 @@ fn neg(a: i16) -> i16 {
     )SOURCE");
 
     add_debug_safety_case("signed integer division overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -1920,7 +1920,7 @@ fn div(a: i16, b: i16) -> i16 {
     )SOURCE");
 
     add_debug_safety_case("signed shift left overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -1935,7 +1935,7 @@ fn shl(a: i16, b: i16) -> i16 {
     )SOURCE");
 
     add_debug_safety_case("unsigned shift left overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -1950,7 +1950,7 @@ fn shl(a: u16, b: u16) -> u16 {
     )SOURCE");
 
     add_debug_safety_case("integer division by zero", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -1964,7 +1964,7 @@ fn div0(a: i32, b: i32) -> i32 {
     )SOURCE");
 
     add_debug_safety_case("exact division failure", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -1979,7 +1979,7 @@ fn divExact(a: i32, b: i32) -> i32 {
     )SOURCE");
 
     add_debug_safety_case("cast []u8 to bigger slice of wrong size", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -1994,7 +1994,7 @@ fn widenSlice(slice: []const u8) -> []const i32 {
     )SOURCE");
 
     add_debug_safety_case("value does not fit in shortening cast", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -2009,7 +2009,7 @@ fn shorten_cast(x: i32) -> i8 {
     )SOURCE");
 
     add_debug_safety_case("signed integer not fitting in cast to unsigned integer", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -2024,7 +2024,7 @@ fn unsigned_cast(x: i32) -> u32 {
     )SOURCE");
 
     add_debug_safety_case("unwrap error", R"SOURCE(
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
@@ -2055,7 +2055,7 @@ void baz(int8_t a, int16_t b, int32_t c, int64_t d);
 
     add_parseh_case("noreturn attribute", AllowWarningsNo, R"SOURCE(
 void foo(void) __attribute__((noreturn));
-    )SOURCE", 1, R"OUTPUT(pub extern fn foo() -> unreachable;)OUTPUT");
+    )SOURCE", 1, R"OUTPUT(pub extern fn foo() -> noreturn;)OUTPUT");
 
     add_parseh_case("enums", AllowWarningsNo, R"SOURCE(
 enum Foo {

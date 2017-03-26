@@ -52,7 +52,7 @@ fn failIfTrue(ok: bool) -> %void {
 //    @setFnTest(this);
 //
 //    try (_ = failIfTrue(true)) {
-//        @unreachable();
+//        unreachable;
 //    } else |err| {
 //        assert(err == error.ItBroke);
 //    }

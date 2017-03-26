@@ -16,7 +16,7 @@ test "enumType" {
 test "enumAsReturnValue" {
     switch (returnAnInt(13)) {
         Foo.One => |value| assert(value == 13),
-        else => @unreachable(),
+        else => unreachable,
     }
 }
 
@@ -51,13 +51,13 @@ test "constantEnumWithPayload" {
 fn shouldBeEmpty(x: &const AnEnumWithPayload) {
     switch (*x) {
         AnEnumWithPayload.Empty => {},
-        else => @unreachable(),
+        else => unreachable,
     }
 }
 
 fn shouldBeNotEmpty(x: &const AnEnumWithPayload) {
     switch (*x) {
-        AnEnumWithPayload.Empty => @unreachable(),
+        AnEnumWithPayload.Empty => unreachable,
         else => {},
     }
 }

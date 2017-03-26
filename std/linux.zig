@@ -297,9 +297,9 @@ pub fn lseek(fd: i32, offset: usize, ref_pos: usize) -> usize {
     arch.syscall3(arch.SYS_lseek, usize(fd), offset, ref_pos)
 }
 
-pub fn exit(status: i32) -> unreachable {
+pub fn exit(status: i32) -> noreturn {
     _ = arch.syscall1(arch.SYS_exit, usize(status));
-    @unreachable()
+    unreachable
 }
 
 pub fn getrandom(buf: &u8, count: usize, flags: u32) -> usize {

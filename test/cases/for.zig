@@ -12,7 +12,7 @@ test "continueInForLoop" {
         }
         break;
     }
-    if (sum != 6) @unreachable()
+    if (sum != 6) unreachable
 }
 
 test "forLoopWithPointerElemVar" {

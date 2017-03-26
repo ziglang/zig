@@ -7,10 +7,10 @@ test "nullableType" {
         if (y) {
             // OK
         } else {
-            @unreachable();
+            unreachable;
         }
     } else {
-        @unreachable();
+        unreachable;
     }
 
     const next_x : ?i32 = @generatedCode(null);
@@ -21,7 +21,7 @@ test "nullableType" {
 
     const final_x : ?i32 = @generatedCode(13);
 
-    const num = final_x ?? @unreachable();
+    const num = final_x ?? unreachable;
 
     assert(num == 13);
 }

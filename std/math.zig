@@ -57,7 +57,7 @@ pub fn abs(x: var) -> @typeOf(x) {
     } else if (@isFloat(T)) {
         @compileError("TODO implement abs for floats");
     } else {
-        @unreachable();
+        unreachable;
     }
 }
 fn getReturnTypeForAbs(comptime T: type) -> type {

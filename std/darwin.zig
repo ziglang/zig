@@ -48,9 +48,9 @@ pub const SIGPWR    = 30;
 pub const SIGSYS    = 31;
 pub const SIGUNUSED = SIGSYS;
 
-pub fn exit(status: usize) -> unreachable {
+pub fn exit(status: usize) -> noreturn {
     _ = arch.syscall1(arch.SYS_exit, status);
-    @unreachable()
+    unreachable
 }
 
 /// Get the errno from a syscall return value, or 0 for no error.

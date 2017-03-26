@@ -31,6 +31,6 @@ export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
 }
 
 // Avoid dragging in the debug safety mechanisms into this .o file.
-pub fn panic(message: []const u8) -> unreachable {
-    @unreachable();
+pub fn panic(message: []const u8) -> noreturn {
+    unreachable;
 }

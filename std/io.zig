@@ -129,7 +129,7 @@ pub const OutStream = struct {
             if (write_err > 0) {
                 return switch (write_err) {
                     errno.EINTR  => continue,
-                    errno.EINVAL => @unreachable(),
+                    errno.EINVAL => unreachable,
                     errno.EDQUOT => error.DiskQuota,
                     errno.EFBIG  => error.FileTooBig,
                     errno.EIO    => error.Io,
@@ -171,8 +171,8 @@ pub const InStream = struct {
                         return switch (err) {
                             errno.EINTR => continue,
 
-                            errno.EFAULT => @unreachable(),
-                            errno.EINVAL => @unreachable(),
+                            errno.EFAULT => unreachable,
+                            errno.EINVAL => unreachable,
                             errno.EACCES => error.BadPerm,
                             errno.EFBIG, errno.EOVERFLOW => error.FileTooBig,
                             errno.EISDIR => error.IsDir,
@@ -235,8 +235,8 @@ pub const InStream = struct {
                         switch (read_err) {
                             errno.EINTR  => continue,
 
-                            errno.EINVAL => @unreachable(),
-                            errno.EFAULT => @unreachable(),
+                            errno.EINVAL => unreachable,
+                            errno.EFAULT => unreachable,
                             errno.EBADF  => return error.BadFd,
                             errno.EIO    => return error.Io,
                             else         => return error.Unexpected,

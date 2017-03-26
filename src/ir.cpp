@@ -3751,8 +3751,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
     switch (builtin_fn->id) {
         case BuiltinFnIdInvalid:
             zig_unreachable();
-        case BuiltinFnIdUnreachable:
-            return ir_build_unreachable(irb, scope, node);
         case BuiltinFnIdTypeof:
             {
                 AstNode *arg_node = node->data.fn_call_expr.params.at(0);
@@ -5467,6 +5465,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_break(irb, scope, node), lval);
         case NodeTypeContinue:
             return ir_lval_wrap(irb, scope, ir_gen_continue(irb, scope, node), lval);
+        case NodeTypeUnreachable:
+            return ir_lval_wrap(irb, scope, ir_build_unreachable(irb, scope, node), lval);
         case NodeTypeDefer:
             return ir_lval_wrap(irb, scope, ir_gen_defer(irb, scope, node), lval);
         case NodeTypeSliceExpr:

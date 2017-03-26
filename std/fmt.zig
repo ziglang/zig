@@ -287,7 +287,7 @@ fn digitToChar(digit: u8, uppercase: bool) -> u8 {
     return switch (digit) {
         0 ... 9 => digit + '0',
         10 ... 35 => digit + ((if (uppercase) u8('A') else u8('a')) - 10),
-        else => @unreachable(),
+        else => unreachable,
     };
 }
 
@@ -316,9 +316,9 @@ fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, width: u
 test "testParseU64DigitTooBig" {
     parseUnsigned(u64, "123a", 10) %% |err| {
         if (err == error.InvalidChar) return;
-        @unreachable();
+        unreachable;
     };
-    @unreachable();
+    unreachable;
 }
 
 test "testParseUnsignedComptime" {

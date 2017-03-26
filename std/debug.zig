@@ -10,12 +10,12 @@ error InvalidDebugInfo;
 error UnsupportedDebugInfo;
 
 pub fn assert(ok: bool) {
-    if (!ok) @unreachable()
+    if (!ok) unreachable
 }
 
 var panicking = false;
 /// This is the default panic implementation.
-pub coldcc fn panic(message: []const u8) -> unreachable {
+pub coldcc fn panic(message: []const u8) -> noreturn {
     // TODO
     // if (@atomicRmw(AtomicOp.XChg, &panicking, true, AtomicOrder.SeqCst)) { }
     if (panicking) {
@@ -252,7 +252,7 @@ fn parseFormValueTargetAddrSize(in_stream: &io.InStream) -> %u64 {
     } else if (@sizeOf(usize) == 8) {
         %return in_stream.readIntLe(u64)
     } else {
-        @unreachable();
+        unreachable;
     };
 }
 

@@ -13,7 +13,7 @@ test "localVariables" {
 }
 fn testLocVars(b: i32) {
     const a: i32 = 1;
-    if (a + b != 3) @unreachable();
+    if (a + b != 3) unreachable;
 }
 
 
@@ -72,8 +72,8 @@ test "implicitCastFnUnreachableReturn" {
 
 fn wantsFnWithVoid(f: fn()) { }
 
-fn fnWithUnreachable() -> unreachable {
-    @unreachable()
+fn fnWithUnreachable() -> noreturn {
+    unreachable
 }
 
 

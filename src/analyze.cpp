@@ -2110,6 +2110,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeGoto:
         case NodeTypeBreak:
         case NodeTypeContinue:
+        case NodeTypeUnreachable:
         case NodeTypeAsmExpr:
         case NodeTypeFieldAccessExpr:
         case NodeTypeStructField:

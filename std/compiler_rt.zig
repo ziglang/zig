@@ -1,10 +1,10 @@
 // Avoid dragging in the debug safety mechanisms into this .o file,
 // unless we're trying to test this file.
-pub fn panic(message: []const u8) -> unreachable {
+pub fn panic(message: []const u8) -> noreturn {
     if (@compileVar("is_test")) {
         @import("std").debug.panic(message);
     } else {
-        @unreachable();
+        unreachable;
     }
 }
 
@@ -259,7 +259,7 @@ export nakedcc fn __aeabi_uidivmod() {
             \\ add     sp, sp, #4
             \\ pop     { pc }
         ::: "r2", "r1");
-        @unreachable();
+        unreachable;
     }
 
     @setFnVisible(this, false);
@@ -511,5 +511,5 @@ fn test_one_udivsi3(a: su_int, b: su_int, expected_q: su_int) {
 
 
 fn assert(ok: bool) {
-    if (!ok) @unreachable();
+    if (!ok) unreachable;
 }

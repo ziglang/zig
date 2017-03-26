@@ -6,20 +6,20 @@ test "ifStatements" {
 }
 fn shouldBeEqual(a: i32, b: i32) {
     if (a != b) {
-        @unreachable();
+        unreachable;
     } else {
         return;
     }
 }
 fn firstEqlThird(a: i32, b: i32, c: i32) {
     if (a == b) {
-        @unreachable();
+        unreachable;
     } else if (b == c) {
-        @unreachable();
+        unreachable;
     } else if (a == c) {
         return;
     } else {
-        @unreachable();
+        unreachable;
     }
 }
 
