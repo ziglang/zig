@@ -335,7 +335,7 @@ fn parseAbbrevTable(in_stream: &io.InStream) -> %AbbrevTable {
         while (true) {
             const attr_id = %return readULeb128(in_stream);
             const form_id = %return readULeb128(in_stream);
-            if (attr_id == 0 && form_id == 0)
+            if (attr_id == 0 and form_id == 0)
                 break;
             %return attrs.append(AbbrevAttr {
                 .attr_id = attr_id,
@@ -447,7 +447,7 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
 
 fn findCompileUnit(st: &ElfStackTrace, target_address: u64) -> ?&const CompileUnit {
     for (st.compile_unit_list.toSlice()) |*compile_unit| {
-        if (target_address >= compile_unit.pc_start && target_address < compile_unit.pc_end)
+        if (target_address >= compile_unit.pc_start and target_address < compile_unit.pc_end)
             return compile_unit;
     }
     return null;
@@ -499,7 +499,7 @@ fn readILeb128(in_stream: &io.InStream) -> %i64 {
         shift += 7;
 
         if ((byte & 0b10000000) == 0) {
-            if (shift < @sizeOf(i64) * 8 && (byte & 0b01000000) != 0)
+            if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0)
                 result |= -(i64(1) << shift);
 
             return result;

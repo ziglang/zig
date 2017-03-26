@@ -11,7 +11,7 @@ let b:current_syntax = "zig"
 syn keyword zigStorage const var extern packed export pub noalias inline comptime nakedcc coldcc volatile
 syn keyword zigStructure struct enum union
 syn keyword zigStatement goto break return continue asm defer unreachable
-syn keyword zigConditional if else switch try
+syn keyword zigConditional if else switch try and or
 syn keyword zigRepeat while for
 
 syn keyword zigConstant null undefined this
@@ -22,7 +22,7 @@ syn keyword zigType c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ul
 
 syn keyword zigBoolean true false
 
-syn match zigOperator display "\%(+%\?\|-%\?\|/\|*%\?\|=\|\^\|&\|?\||\|!\|>\|<\|%\|<<%\?\|>>\|&&\|||\)=\?"
+syn match zigOperator display "\%(+%\?\|-%\?\|/\|*%\?\|=\|\^\|&\|?\||\|!\|>\|<\|%\|<<%\?\|>>\)=\?"
 syn match zigArrowCharacter display "->"
 
 syn match zigDecNumber display "\<[0-9]*\%(.[0-9]\+\)\=\%([eE][+-]\?[0-9]\+\)\="

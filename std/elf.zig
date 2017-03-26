@@ -152,8 +152,8 @@ pub const Elf = struct {
         %return elf.in_stream.seekForward(4);
 
         const header_size = %return elf.in_stream.readInt(elf.is_big_endian, u16);
-        if ((elf.is_64 && header_size != 64) ||
-            (!elf.is_64 && header_size != 52))
+        if ((elf.is_64 and header_size != 64) or
+            (!elf.is_64 and header_size != 52))
         {
             return error.InvalidFormat;
         }
@@ -172,7 +172,7 @@ pub const Elf = struct {
         const end_ph = %return math.addOverflow(u64, elf.program_header_offset, ph_byte_count);
 
         const stream_end = %return elf.in_stream.getEndPos();
-        if (stream_end < end_sh || stream_end < end_ph) {
+        if (stream_end < end_sh or stream_end < end_ph) {
             return error.InvalidFormat;
         }
 
@@ -245,7 +245,7 @@ pub const Elf = struct {
 
             for (name) |expected_c| {
                 const target_c = %return elf.in_stream.readByte();
-                if (target_c == 0 || expected_c != target_c) goto next_section;
+                if (target_c == 0 or expected_c != target_c) goto next_section;
             }
 
             {

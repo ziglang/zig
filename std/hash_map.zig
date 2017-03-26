@@ -116,7 +116,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
                 while (roll_over < hm.entries.len; roll_over += 1) {
                     const next_index = (start_index + roll_over + 1) % hm.entries.len;
                     const next_entry = &hm.entries[next_index];
-                    if (!next_entry.used || next_entry.distance_from_start_index == 0) {
+                    if (!next_entry.used or next_entry.distance_from_start_index == 0) {
                         entry.used = false;
                         hm.size -= 1;
                         return;
@@ -164,7 +164,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
                 const index = (start_index + roll_over) % hm.entries.len;
                 const entry = &hm.entries[index];
 
-                if (entry.used && !eql(entry.key, key)) {
+                if (entry.used and !eql(entry.key, key)) {
                     if (entry.distance_from_start_index < distance_from_start_index) {
                         // robin hood to the rescue
                         const tmp = *entry;

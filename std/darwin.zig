@@ -56,7 +56,7 @@ pub fn exit(status: usize) -> noreturn {
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) -> usize {
     const signed_r = *(&isize)(&r);
-    if (signed_r > -4096 && signed_r < 0) usize(-signed_r) else 0
+    if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0
 }
 
 pub fn write(fd: i32, buf: &const u8, count: usize) -> usize {

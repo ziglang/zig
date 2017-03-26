@@ -100,17 +100,17 @@ fn testShortCircuit(f: bool, t: bool) {
     var hit_3 = f;
     var hit_4 = f;
 
-    if (t || {assert(f); f}) {
+    if (t or {assert(f); f}) {
         hit_1 = t;
     }
-    if (f || { hit_2 = t; f }) {
+    if (f or { hit_2 = t; f }) {
         assert(f);
     }
 
-    if (t && { hit_3 = t; f }) {
+    if (t and { hit_3 = t; f }) {
         assert(f);
     }
-    if (f && {assert(f); f}) {
+    if (f and {assert(f); f}) {
         assert(f);
     } else {
         hit_4 = t;

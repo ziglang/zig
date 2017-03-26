@@ -167,7 +167,7 @@ fn testTryToTrickEvalWithRuntimeIf(b: bool) -> usize {
 
 fn max(comptime T: type, a: T, b: T) -> T {
     if (T == bool) {
-        return a || b;
+        return a or b;
     } else if (a > b) {
         return a;
     } else {

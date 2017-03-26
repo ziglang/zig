@@ -14,7 +14,7 @@ pub fn len(ptr: &const u8) -> usize {
 
 pub fn cmp(a: &const u8, b: &const u8) -> i8 {
     var index: usize = 0;
-    while (a[index] == b[index] && a[index] != 0; index += 1) {}
+    while (a[index] == b[index] and a[index] != 0; index += 1) {}
     if (a[index] > b[index]) {
         return 1;
     } else if (a[index] < b[index]) {

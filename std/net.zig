@@ -166,11 +166,11 @@ pub fn parseIpLiteral(buf: []const u8) -> %Address {
 
 fn hexDigit(c: u8) -> u8 {
     // TODO use switch with range
-    if ('0' <= c && c <= '9') {
+    if ('0' <= c and c <= '9') {
         c - '0'
-    } else if ('A' <= c && c <= 'Z') {
+    } else if ('A' <= c and c <= 'Z') {
         c - 'A' + 10
-    } else if ('a' <= c && c <= 'z') {
+    } else if ('a' <= c and c <= 'z') {
         c - 'a' + 10
     } else {
         @maxValue(u8)
@@ -194,7 +194,7 @@ fn parseIp6(buf: []const u8) -> %Address {
     var scope_id = false;
     for (buf) |c| {
         if (scope_id) {
-            if (c >= '0' && c <= '9') {
+            if (c >= '0' and c <= '9') {
                 const digit = c - '0';
                 if (@mulWithOverflow(u32, result.scope_id, 10, &result.scope_id)) {
                     return error.Overflow;
@@ -255,7 +255,7 @@ fn parseIp6(buf: []const u8) -> %Address {
 //		if (isdigit(*++p)) scopeid = strtoull(p, &z, 10);
 //		else z = p-1;
 //		if (*z) {
-//			if (!IN6_IS_ADDR_LINKLOCAL(&a6) &&
+//			if (!IN6_IS_ADDR_LINKLOCAL(&a6) and
 //			    !IN6_IS_ADDR_MC_LINKLOCAL(&a6))
 //				return EAI_NONAME;
 //			scopeid = if_nametoindex(p);
@@ -297,7 +297,7 @@ fn parseIp4(buf: []const u8) -> %u32 {
             index += 1;
             x = 0;
             saw_any_digits = false;
-        } else if (c >= '0' && c <= '9') {
+        } else if (c >= '0' and c <= '9') {
             saw_any_digits = true;
             const digit = c - '0';
             if (@mulWithOverflow(u8, x, 10, &x)) {
@@ -310,7 +310,7 @@ fn parseIp4(buf: []const u8) -> %u32 {
             return error.InvalidChar;
         } 
     }
-    if (index == 3 && saw_any_digits) {
+    if (index == 3 and saw_any_digits) {
         out_ptr[index] = x;
         return result;
     }

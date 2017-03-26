@@ -25,18 +25,6 @@ fn testBoolCmp(a: bool, b: bool) -> bool {
     a == b
 }
 
-test "shortCircuitAndOr" {
-    var a = true;
-    a &&= false;
-    assert(!a);
-    a &&= true;
-    assert(!a);
-    a ||= false;
-    assert(!a);
-    a ||= true;
-    assert(a);
-}
-
 const global_f = false;
 const global_t = true;
 const not_global_f = !global_f;

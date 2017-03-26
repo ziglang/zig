@@ -59,8 +59,8 @@ test "modifyOperators" {
 test "threeExprInARow" {
 }
 fn testThreeExprInARow(f: bool, t: bool) {
-    assertFalse(f || f || f);
-    assertFalse(t && t && f);
+    assertFalse(f or f or f);
+    assertFalse(t and t and f);
     assertFalse(1 | 2 | 4 != 7);
     assertFalse(3 ^ 6 ^ 8 != 13);
     assertFalse(7 & 14 & 28 != 4);

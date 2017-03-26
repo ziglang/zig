@@ -49,7 +49,7 @@ pub fn log(comptime base: usize, value: var) -> @typeOf(value) {
 
 /// x must be an integer or a float
 /// Note that this causes undefined behavior if
-/// @typeOf(x).is_signed && x == @minValue(@typeOf(x)).
+/// @typeOf(x).is_signed and x == @minValue(@typeOf(x)).
 pub fn abs(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     if (@isInteger(T)) {

@@ -148,7 +148,7 @@ pub const OutStream = struct {
         while (true) {
             const close_ret = system.close(self.fd);
             const close_err = system.getErrno(close_ret);
-            if (close_err > 0 && close_err == errno.EINTR)
+            if (close_err > 0 and close_err == errno.EINTR)
                 continue;
             return;
         }

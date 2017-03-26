@@ -69,7 +69,7 @@ UnwrapError = "%%" option("|" Symbol "|") Expression
 
 AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | UnwrapExpression
 
-AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||=" | "*%=" | "+%=" | "-%=" | "<<%="
+AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "*%=" | "+%=" | "-%=" | "<<%="
 
 BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression | CompTimeExpression | TryExpression
 
@@ -85,7 +85,7 @@ WhileExpression = option("inline") "while" "(" Expression option(";" Expression)
 
 ForExpression = option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") Expression
 
-BoolOrExpression = BoolAndExpression "||" BoolOrExpression | BoolAndExpression
+BoolOrExpression = BoolAndExpression "or" BoolOrExpression | BoolAndExpression
 
 ReturnExpression = option("%" | "?") "return" option(Expression)
 
@@ -101,7 +101,7 @@ IfVarExpression = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeE
 
 Else = "else" Expression
 
-BoolAndExpression = ComparisonExpression "&&" BoolAndExpression | ComparisonExpression
+BoolAndExpression = ComparisonExpression "and" BoolAndExpression | ComparisonExpression
 
 ComparisonExpression = BinaryOrExpression ComparisonOperator BinaryOrExpression | BinaryOrExpression
 

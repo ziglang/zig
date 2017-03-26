@@ -33,7 +33,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->bool,
         switch (state) {
             State.Start => switch (c) {
                 '{' => {
-                    // TODO if you make this an if statement with && then it breaks
+                    // TODO if you make this an if statement with `and` then it breaks
                     if (start_index < i) {
                         if (!output(context, fmt[start_index...i]))
                             return false;

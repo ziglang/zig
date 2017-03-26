@@ -107,6 +107,7 @@ struct ZigKeyword {
 };
 
 static const struct ZigKeyword zig_keywords[] = {
+    {"and", TokenIdKeywordAnd},
     {"asm", TokenIdKeywordAsm},
     {"break", TokenIdKeywordBreak},
     {"coldcc", TokenIdKeywordColdCC},
@@ -128,6 +129,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"nakedcc", TokenIdKeywordNakedCC},
     {"noalias", TokenIdKeywordNoAlias},
     {"null", TokenIdKeywordNull},
+    {"or", TokenIdKeywordOr},
     {"packed", TokenIdKeywordPacked},
     {"pub", TokenIdKeywordPub},
     {"return", TokenIdKeywordReturn},
@@ -189,10 +191,8 @@ enum TokenizeState {
     TokenizeStateSawDash,
     TokenizeStateSawMinusPercent,
     TokenizeStateSawAmpersand,
-    TokenizeStateSawAmpersandAmpersand,
     TokenizeStateSawCaret,
     TokenizeStateSawPipe,
-    TokenizeStateSawPipePipe,
     TokenizeStateLineComment,
     TokenizeStateLineString,
     TokenizeStateLineStringEnd,
@@ -824,26 +824,8 @@ void tokenize(Buf *buf, Tokenization *out) {
                 break;
             case TokenizeStateSawAmpersand:
                 switch (c) {
-                    case '&':
-                        set_token_id(&t, t.cur_tok, TokenIdBoolAnd);
-                        t.state = TokenizeStateSawAmpersandAmpersand;
-                        break;
                     case '=':
                         set_token_id(&t, t.cur_tok, TokenIdBitAndEq);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        break;
-                    default:
-                        t.pos -= 1;
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        continue;
-                }
-                break;
-            case TokenizeStateSawAmpersandAmpersand:
-                switch (c) {
-                    case '=':
-                        set_token_id(&t, t.cur_tok, TokenIdBoolAndEq);
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
@@ -870,26 +852,8 @@ void tokenize(Buf *buf, Tokenization *out) {
                 break;
             case TokenizeStateSawPipe:
                 switch (c) {
-                    case '|':
-                        set_token_id(&t, t.cur_tok, TokenIdBoolOr);
-                        t.state = TokenizeStateSawPipePipe;
-                        break;
                     case '=':
                         set_token_id(&t, t.cur_tok, TokenIdBitOrEq);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        break;
-                    default:
-                        t.pos -= 1;
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        continue;
-                }
-                break;
-            case TokenizeStateSawPipePipe:
-                switch (c) {
-                    case '=':
-                        set_token_id(&t, t.cur_tok, TokenIdBoolOrEq);
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
@@ -1401,10 +1365,8 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawPlus:
         case TokenizeStateSawDash:
         case TokenizeStateSawAmpersand:
-        case TokenizeStateSawAmpersandAmpersand:
         case TokenizeStateSawCaret:
         case TokenizeStateSawPipe:
-        case TokenizeStateSawPipePipe:
         case TokenizeStateSawEq:
         case TokenizeStateSawBang:
         case TokenizeStateSawLessThan:
@@ -1463,10 +1425,6 @@ const char * token_name(TokenId id) {
         case TokenIdBitShiftRight: return ">>";
         case TokenIdBitShiftRightEq: return ">>=";
         case TokenIdBitXorEq: return "^=";
-        case TokenIdBoolAnd: return "&&";
-        case TokenIdBoolAndEq: return "&&=";
-        case TokenIdBoolOr: return "||";
-        case TokenIdBoolOrEq: return "||=";
         case TokenIdCharLiteral: return "CharLiteral";
         case TokenIdCmpEq: return "==";
         case TokenIdCmpGreaterOrEq: return ">=";
@@ -1484,6 +1442,7 @@ const char * token_name(TokenId id) {
         case TokenIdEof: return "EOF";
         case TokenIdEq: return "=";
         case TokenIdFatArrow: return "=>";
+        case TokenIdKeywordAnd: return "and";
         case TokenIdKeywordAsm: return "asm";
         case TokenIdKeywordBreak: return "break";
         case TokenIdKeywordColdCC: return "coldcc";
@@ -1505,6 +1464,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordNakedCC: return "nakedcc";
         case TokenIdKeywordNoAlias: return "noalias";
         case TokenIdKeywordNull: return "null";
+        case TokenIdKeywordOr: return "or";
         case TokenIdKeywordPacked: return "packed";
         case TokenIdKeywordPub: return "pub";
         case TokenIdKeywordReturn: return "return";

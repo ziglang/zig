@@ -1007,7 +1007,6 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdPercent: return PrefixOpError;
         case TokenIdPercentPercent: return PrefixOpUnwrapError;
         case TokenIdDoubleQuestion: return PrefixOpUnwrapMaybe;
-        case TokenIdBoolAnd: return PrefixOpAddressOf;
         case TokenIdStarStar: return PrefixOpDereference;
         default: return PrefixOpInvalid;
     }
@@ -1036,15 +1035,7 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, 
 
     AstNode *node = ast_create_node(pc, NodeTypePrefixOpExpr, token);
     AstNode *parent_node = node;
-    if (token->id == TokenIdBoolAnd) {
-        // pretend that we got 2 ampersand tokens
-
-        parent_node = ast_create_node(pc, NodeTypePrefixOpExpr, token);
-        parent_node->data.prefix_op_expr.primary_expr = node;
-        parent_node->data.prefix_op_expr.prefix_op = PrefixOpAddressOf;
-
-        node->column += 1;
-    } else if (token->id == TokenIdStarStar) {
+    if (token->id == TokenIdStarStar) {
         // pretend that we got 2 star tokens
 
         parent_node = ast_create_node(pc, NodeTypePrefixOpExpr, token);
@@ -1362,7 +1353,7 @@ static AstNode *ast_parse_comparison_expr(ParseContext *pc, size_t *token_index,
 }
 
 /*
-BoolAndExpression : ComparisonExpression token(BoolAnd) BoolAndExpression | ComparisonExpression
+BoolAndExpression = ComparisonExpression "and" BoolAndExpression | ComparisonExpression
  */
 static AstNode *ast_parse_bool_and_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_comparison_expr(pc, token_index, mandatory);
@@ -1371,7 +1362,7 @@ static AstNode *ast_parse_bool_and_expr(ParseContext *pc, size_t *token_index, b
 
     while (true) {
         Token *token = &pc->tokens->at(*token_index);
-        if (token->id != TokenIdBoolAnd)
+        if (token->id != TokenIdKeywordAnd)
             return operand_1;
         *token_index += 1;
 
@@ -1629,7 +1620,7 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
 }
 
 /*
-BoolOrExpression : BoolAndExpression token(BoolOr) BoolOrExpression | BoolAndExpression
+BoolOrExpression = BoolAndExpression "or" BoolOrExpression | BoolAndExpression
 */
 static AstNode *ast_parse_bool_or_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *operand_1 = ast_parse_bool_and_expr(pc, token_index, mandatory);
@@ -1638,7 +1629,7 @@ static AstNode *ast_parse_bool_or_expr(ParseContext *pc, size_t *token_index, bo
 
     while (true) {
         Token *token = &pc->tokens->at(*token_index);
-        if (token->id != TokenIdBoolOr)
+        if (token->id != TokenIdKeywordOr)
             return operand_1;
         *token_index += 1;
 
@@ -1924,14 +1915,12 @@ static BinOpType tok_to_ass_op(Token *token) {
         case TokenIdBitAndEq: return BinOpTypeAssignBitAnd;
         case TokenIdBitXorEq: return BinOpTypeAssignBitXor;
         case TokenIdBitOrEq: return BinOpTypeAssignBitOr;
-        case TokenIdBoolAndEq: return BinOpTypeAssignBoolAnd;
-        case TokenIdBoolOrEq: return BinOpTypeAssignBoolOr;
         default: return BinOpTypeInvalid;
     }
 }
 
 /*
-AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "&&=" | "||=" | "*%=" | "+%=" | "-%=" | "<<%="
+AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "*%=" | "+%=" | "-%=" | "<<%="
 */
 static BinOpType ast_parse_ass_op(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
