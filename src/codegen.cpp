@@ -261,6 +261,13 @@ static void addLLVMArgAttr(LLVMValueRef arg_val, unsigned param_index, const cha
     return addLLVMAttr(arg_val, param_index + 1, attr_name);
 }
 
+static void addLLVMCallsiteAttr(LLVMValueRef call_instr, unsigned param_index, const char *attr_name) {
+    unsigned kind_id = LLVMGetEnumAttributeKindForName(attr_name, strlen(attr_name));
+    assert(kind_id != 0);
+    LLVMAttributeRef llvm_attr = LLVMCreateEnumAttribute(LLVMGetGlobalContext(), kind_id, 0);
+    LLVMAddCallSiteAttribute(call_instr, param_index + 1, llvm_attr);
+}
+
 static Buf *get_mangled_name(CodeGen *g, Buf *original_name, bool external_linkage) {
     if (external_linkage || g->external_symbol_names.maybe_get(original_name) == nullptr) {
         return original_name;
@@ -1578,11 +1585,12 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         fn_type = instruction->fn_ref->value.type;
     }
 
-    TypeTableEntry *src_return_type = fn_type->data.fn.fn_type_id.return_type;
+    FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
+    TypeTableEntry *src_return_type = fn_type_id->return_type;
     bool ret_has_bits = type_has_bits(src_return_type);
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type);
     size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0);
-    bool is_var_args = fn_type->data.fn.fn_type_id.is_var_args;
+    bool is_var_args = fn_type_id->is_var_args;
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
     size_t gen_param_index = 0;
     if (first_arg_ret) {
@@ -1602,6 +1610,13 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
     LLVMValueRef result = ZigLLVMBuildCall(g->builder, fn_val,
             gen_param_values, gen_param_index, fn_type->data.fn.calling_convention, "");
+
+    for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
+        FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
+        if (gen_info->is_byval) {
+            addLLVMCallsiteAttr(result, gen_info->gen_index, "byval");
+        }
+    }
 
     if (src_return_type->id == TypeTableEntryIdUnreachable) {
         return LLVMBuildUnreachable(g->builder);
@@ -3376,7 +3391,7 @@ static void do_code_gen(CodeGen *g) {
                 addLLVMArgAttr(fn_val, gen_index, "nonnull");
             }
             if (is_byval) {
-                // TODO add byval attr?
+                addLLVMArgAttr(fn_val, gen_index, "byval");
             }
         }
 

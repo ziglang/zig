@@ -34,9 +34,9 @@ pub fn List(comptime T: type) -> type{
             return l.items[0...l.len];
         }
 
-        pub fn append(l: &Self, item: T) -> %void {
+        pub fn append(l: &Self, item: &const T) -> %void {
             const new_item_ptr = %return l.addOne();
-            *new_item_ptr = item;
+            *new_item_ptr = *item;
         }
 
         pub fn resize(l: &Self, new_len: usize) -> %void {

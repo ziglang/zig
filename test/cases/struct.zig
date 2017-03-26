@@ -53,10 +53,10 @@ const StructFoo = struct {
     b : bool,
     c : f32,
 };
-fn testFoo(foo : StructFoo) {
+fn testFoo(foo: &const StructFoo) {
     assert(foo.b);
 }
-fn testMutation(foo : &StructFoo) {
+fn testMutation(foo: &StructFoo) {
     foo.c = 100;
 }
 
@@ -110,7 +110,7 @@ const Foo = struct {
 
 fn aFunc() -> i32 { 13 }
 
-fn callStructField(foo: Foo) -> i32 {
+fn callStructField(foo: &const Foo) -> i32 {
     return foo.ptr();
 }
 
@@ -123,7 +123,7 @@ test "storeMemberFunctionInVariable" {
 }
 const MemberFnTestFoo = struct {
     x: i32,
-    fn member(foo: MemberFnTestFoo) -> i32 { foo.x }
+    fn member(foo: &const MemberFnTestFoo) -> i32 { foo.x }
 };
 
 

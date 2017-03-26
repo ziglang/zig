@@ -300,6 +300,18 @@ uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry) {
     return LLVMSizeOfTypeInBits(g->target_data_ref, canon_type->type_ref);
 }
 
+static bool type_is_copyable(CodeGen *g, TypeTableEntry *type_entry) {
+    type_ensure_zero_bits_known(g, type_entry);
+    if (!type_has_bits(type_entry))
+        return true;
+
+    if (!handle_is_ptr(type_entry))
+        return true;
+
+    ensure_complete_type(g, type_entry);
+    return type_entry->is_copyable;
+}
+
 static bool is_slice(TypeTableEntry *type) {
     return type->id == TypeTableEntryIdStruct && type->data.structure.is_slice;
 }
@@ -336,6 +348,7 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
     type_ensure_zero_bits_known(g, child_type);
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
+    entry->is_copyable = true;
 
     const char *const_str = is_const ? "const " : "";
     const char *volatile_str = is_volatile ? "volatile " : "";
@@ -392,6 +405,7 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
         assert(child_type->type_ref);
         assert(child_type->di_type);
+        entry->is_copyable = type_is_copyable(g, child_type);
 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
@@ -471,6 +485,7 @@ TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
         return child_type->error_parent;
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdErrorUnion);
+    entry->is_copyable = true;
     assert(child_type->type_ref);
     assert(child_type->di_type);
     ensure_complete_type(g, child_type);
@@ -557,6 +572,7 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArray);
     entry->zero_bits = (array_size == 0) || child_type->zero_bits;
+    entry->is_copyable = false;
 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
@@ -614,6 +630,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
     } else if (is_const) {
         TypeTableEntry *var_peer = get_slice_type(g, child_type, false);
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
+        entry->is_copyable = true;
 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "[]const %s", buf_ptr(&child_type->name));
@@ -629,6 +646,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
         return entry;
     } else {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
+        entry->is_copyable = true;
 
         // If the child type is []const T then we need to make sure the type ref
         // and debug info is the same as if the child type were []T.
@@ -752,6 +770,7 @@ TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *
 
     buf_init_from_str(&entry->name, name);
 
+    entry->is_copyable = type_is_copyable(g, child_type);
     entry->type_ref = child_type->type_ref;
     entry->di_type = child_type->di_type;
     entry->zero_bits = child_type->zero_bits;
@@ -768,6 +787,7 @@ TypeTableEntry *get_bound_fn_type(CodeGen *g, FnTableEntry *fn_entry) {
         return fn_type->data.fn.bound_fn_parent;
 
     TypeTableEntry *bound_fn_type = new_type_table_entry(TypeTableEntryIdBoundFn);
+    bound_fn_type->is_copyable = false;
     bound_fn_type->data.bound_fn.fn_type = fn_type;
     bound_fn_type->zero_bits = true;
 
@@ -786,6 +806,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     ensure_complete_type(g, fn_type_id->return_type);
 
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
+    fn_type->is_copyable = true;
     fn_type->data.fn.fn_type_id = *fn_type_id;
 
     if (fn_type_id->is_cold) {
@@ -972,6 +993,7 @@ TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
 
 static TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
+    fn_type->is_copyable = false;
     buf_init_from_str(&fn_type->name, "fn(");
     size_t i = 0;
     for (; i < fn_type_id->next_param_index; i += 1) {
@@ -1078,6 +1100,12 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdFn:
             case TypeTableEntryIdTypeDecl:
             case TypeTableEntryIdEnumTag:
+                ensure_complete_type(g, type_entry);
+                if (!fn_type_id.is_extern && !type_is_copyable(g, type_entry)) {
+                    add_node_error(g, param_node->data.param_decl.type,
+                        buf_sprintf("type '%s' is not copyable; cannot pass by value", buf_ptr(&type_entry->name)));
+                    return g->builtin_types.entry_invalid;
+                }
                 break;
         }
         FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
@@ -1159,6 +1187,7 @@ static TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_typ
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "@enumTagType(%s)", buf_ptr(&enum_type->name));
 
+    entry->is_copyable = true;
     entry->data.enum_tag.enum_type = enum_type;
     entry->data.enum_tag.int_type = int_type;
     entry->type_ref = int_type->type_ref;
@@ -4007,6 +4036,7 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
 
 TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, size_t size_in_bits) {
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
+    entry->is_copyable = true;
     entry->type_ref = LLVMIntType(size_in_bits);
 
     const char u_or_i = is_signed ? 'i' : 'u';

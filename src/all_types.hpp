@@ -1037,6 +1037,7 @@ struct TypeTableEntry {
     ZigLLVMDIType *di_type;
 
     bool zero_bits;
+    bool is_copyable;
 
     union {
         TypeTableEntryPointer pointer;

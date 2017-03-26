@@ -48,15 +48,15 @@ test "constantEnumWithPayload" {
     shouldBeNotEmpty(full);
 }
 
-fn shouldBeEmpty(x: AnEnumWithPayload) {
-    switch (x) {
+fn shouldBeEmpty(x: &const AnEnumWithPayload) {
+    switch (*x) {
         AnEnumWithPayload.Empty => {},
         else => @unreachable(),
     }
 }
 
-fn shouldBeNotEmpty(x: AnEnumWithPayload) {
-    switch (x) {
+fn shouldBeNotEmpty(x: &const AnEnumWithPayload) {
+    switch (*x) {
         AnEnumWithPayload.Empty => @unreachable(),
         else => {},
     }

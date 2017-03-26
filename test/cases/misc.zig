@@ -338,8 +338,8 @@ const Test3Point = struct {
 };
 const test3_foo = Test3Foo.Three{Test3Point {.x = 3, .y = 4}};
 const test3_bar = Test3Foo.Two{13};
-fn test3_1(f: Test3Foo) {
-    switch (f) {
+fn test3_1(f: &const Test3Foo) {
+    switch (*f) {
         Test3Foo.Three => |pt| {
             assert(pt.x == 3);
             assert(pt.y == 4);
@@ -347,8 +347,8 @@ fn test3_1(f: Test3Foo) {
         else => @unreachable(),
     }
 }
-fn test3_2(f: Test3Foo) {
-    switch (f) {
+fn test3_2(f: &const Test3Foo) {
+    switch (*f) {
         Test3Foo.Two => |x| {
             assert(x == 13);
         },

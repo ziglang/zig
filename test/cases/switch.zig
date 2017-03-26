@@ -92,8 +92,8 @@ const SwitchProngWithVarEnum = enum {
     Two: f32,
     Meh,
 };
-fn switchProngWithVarFn(a: SwitchProngWithVarEnum) {
-    switch(a) {
+fn switchProngWithVarFn(a: &const SwitchProngWithVarEnum) {
+    switch(*a) {
         SwitchProngWithVarEnum.One => |x| {
             if (x != 13) @unreachable();
         },

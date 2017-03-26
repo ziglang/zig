@@ -9905,7 +9905,6 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdMetaType:
-        case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdArgTuple:
             ir_add_error_node(ira, size_of_instruction->base.source_node,
@@ -9925,6 +9924,7 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdFn:
             {
                 uint64_t size_in_bytes = type_size(ira->codegen, type_entry);
                 ConstExprValue *out_val = ir_build_const_from(ira, &size_of_instruction->base);

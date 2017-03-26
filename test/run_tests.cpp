@@ -512,42 +512,6 @@ export fn main(argc: c_int, argv: &&u8) -> c_int {
     )SOURCE", "3.25\n3\n3.00\n-0.40\n");
 
 
-    add_simple_case("incomplete struct parameter top level decl", R"SOURCE(
-const io = @import("std").io;
-const A = struct {
-    b: B,
-};
-
-const B = struct {
-    c: C,
-};
-
-const C = struct {
-    x: i32,
-
-    fn d(c: &const C) {
-        %%io.stdout.printf("OK\n");
-    }
-};
-
-fn foo(a: A) {
-    a.b.c.d();
-}
-
-pub fn main(args: [][]u8) -> %void {
-    const a = A {
-        .b = B {
-            .c = C {
-                .x = 13,
-            },
-        },
-    };
-    foo(a);
-}
-
-    )SOURCE", "OK\n");
-
-
     add_simple_case("same named methods in incomplete struct", R"SOURCE(
 const io = @import("std").io;
 
@@ -1037,9 +1001,10 @@ export fn entry() -> usize { @sizeOf(@typeOf(a)) }
     )SOURCE", 1, ".tmp_source.zig:4:11: error: expected array or C string literal, found 'usize'");
 
     add_compile_fail_case("non compile time array concatenation", R"SOURCE(
-fn f(s: [10]u8) -> []u8 {
+fn f() -> []u8 {
     s ++ "foo"
 }
+var s: [10]u8 = undefined;
 export fn entry() -> usize { @sizeOf(@typeOf(f)) }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: unable to evaluate constant expression");
 
@@ -1071,10 +1036,10 @@ const Foo = struct {
     a: i32,
     b: i32,
 
-    fn member_a(foo: Foo) -> i32 {
+    fn member_a(foo: &const Foo) -> i32 {
         return foo.a;
     }
-    fn member_b(foo: Foo) -> i32 {
+    fn member_b(foo: &const Foo) -> i32 {
         return foo.b;
     }
 };
@@ -1085,7 +1050,7 @@ const members = []member_fn_type {
     Foo.member_b,
 };
 
-fn f(foo: Foo, index: usize) {
+fn f(foo: &const Foo, index: usize) {
     const result = members[index]();
 }
 
@@ -1335,15 +1300,15 @@ const EnumWithData = enum {
     One,
     Two: i32,
 };
-fn bad_eql_2(a: EnumWithData, b: EnumWithData) -> bool {
-    a == b
+fn bad_eql_2(a: &const EnumWithData, b: &const EnumWithData) -> bool {
+    *a == *b
 }
 
 export fn entry1() -> usize { @sizeOf(@typeOf(bad_eql_1)) }
 export fn entry2() -> usize { @sizeOf(@typeOf(bad_eql_2)) }
     )SOURCE", 2,
             ".tmp_source.zig:3:7: error: operator not allowed for type '[]u8'",
-            ".tmp_source.zig:10:7: error: operator not allowed for type 'EnumWithData'");
+            ".tmp_source.zig:10:8: error: operator not allowed for type 'EnumWithData'");
 
     add_compile_fail_case("non-const switch number literal", R"SOURCE(
 export fn foo() {
@@ -1845,6 +1810,12 @@ export fn bar() {}
 pub const baz = 1234;
         )SOURCE");
     }
+
+    add_compile_fail_case("pass non-copyable type by value to function", R"SOURCE(
+const Point = struct { x: i32, y: i32, };
+fn foo(p: Point) { }
+export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+    )SOURCE", 1, ".tmp_source.zig:3:11: error: type 'Point' is not copyable; cannot pass by value");
 }
 
 //////////////////////////////////////////////////////////////////////////////

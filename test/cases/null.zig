@@ -62,8 +62,8 @@ fn foo(x: ?i32) -> ?bool {
 test "ifVarMaybePointer" {
     assert(shouldBeAPlus1(Particle {.a = 14, .b = 1, .c = 1, .d = 1}) == 15);
 }
-fn shouldBeAPlus1(p: Particle) -> u64 {
-    var maybe_particle: ?Particle = p;
+fn shouldBeAPlus1(p: &const Particle) -> u64 {
+    var maybe_particle: ?Particle = *p;
     if (const *particle ?= maybe_particle) {
         particle.a += 1;
     }
