@@ -1816,6 +1816,14 @@ const Point = struct { x: i32, y: i32, };
 fn foo(p: Point) { }
 export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
     )SOURCE", 1, ".tmp_source.zig:3:11: error: type 'Point' is not copyable; cannot pass by value");
+
+    add_compile_fail_case("implicit cast from array to mutable slice", R"SOURCE(
+var global_array: [10]i32 = undefined;
+fn foo(param: []i32) {}
+export fn entry() {
+    foo(global_array);
+}
+    )SOURCE", 1, ".tmp_source.zig:5:9: error: expected type '[]i32', found '[10]i32'");
 }
 
 //////////////////////////////////////////////////////////////////////////////
