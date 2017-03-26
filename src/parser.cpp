@@ -2399,7 +2399,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
 /*
 ErrorValueDecl : "error" "Symbol" ";"
 */
-static AstNode *ast_parse_error_value_decl(ParseContext *pc, size_t *token_index, VisibMod visib_mod) {
+static AstNode *ast_parse_error_value_decl(ParseContext *pc, size_t *token_index) {
     Token *first_token = &pc->tokens->at(*token_index);
 
     if (first_token->id != TokenIdKeywordError) {
@@ -2411,7 +2411,6 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, size_t *token_index
     ast_eat_token(pc, token_index, TokenIdSemicolon);
 
     AstNode *node = ast_create_node(pc, NodeTypeErrorValueDecl, first_token);
-    node->data.error_value_decl.visib_mod = visib_mod;
     node->data.error_value_decl.name = token_buf(name_tok);
 
     return node;
@@ -2420,7 +2419,7 @@ static AstNode *ast_parse_error_value_decl(ParseContext *pc, size_t *token_index
 /*
 TestDecl = "test" String Block
 */
-static AstNode *ast_parse_test_decl_node(ParseContext *pc, size_t *token_index, VisibMod visib_mod) {
+static AstNode *ast_parse_test_decl_node(ParseContext *pc, size_t *token_index) {
     Token *first_token = &pc->tokens->at(*token_index);
 
     if (first_token->id != TokenIdKeywordTest) {
@@ -2431,7 +2430,6 @@ static AstNode *ast_parse_test_decl_node(ParseContext *pc, size_t *token_index, 
     Token *name_tok = ast_eat_token(pc, token_index, TokenIdStringLiteral);
 
     AstNode *node = ast_create_node(pc, NodeTypeTestDecl, first_token);
-    node->data.test_decl.visib_mod = visib_mod;
     node->data.test_decl.name = token_buf(name_tok);
     node->data.test_decl.body = ast_parse_block(pc, token_index, true);
 
@@ -2464,11 +2462,29 @@ static AstNode *ast_parse_type_decl(ParseContext *pc, size_t *token_index, Visib
 }
 
 /*
-TopLevelItem = ErrorValueDecl | Block | TopLevelDecl | TestDecl
+TopLevelItem = ErrorValueDecl | CompTimeExpression | TopLevelDecl | TestDecl
 TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | TypeDecl | UseDecl)
 */
 static void ast_parse_top_level_decls(ParseContext *pc, size_t *token_index, ZigList<AstNode *> *top_level_decls) {
     for (;;) {
+        AstNode *comptime_expr_node = ast_parse_comptime_expr(pc, token_index, false);
+        if (comptime_expr_node) {
+            top_level_decls->append(comptime_expr_node);
+            continue;
+        }
+
+        AstNode *error_value_node = ast_parse_error_value_decl(pc, token_index);
+        if (error_value_node) {
+            top_level_decls->append(error_value_node);
+            continue;
+        }
+
+        AstNode *test_decl_node = ast_parse_test_decl_node(pc, token_index);
+        if (test_decl_node) {
+            top_level_decls->append(test_decl_node);
+            continue;
+        }
+
         Token *visib_tok = &pc->tokens->at(*token_index);
         VisibMod visib_mod;
         if (visib_tok->id == TokenIdKeywordPub) {
@@ -2503,18 +2519,6 @@ static void ast_parse_top_level_decls(ParseContext *pc, size_t *token_index, Zig
         if (var_decl_node) {
             ast_eat_token(pc, token_index, TokenIdSemicolon);
             top_level_decls->append(var_decl_node);
-            continue;
-        }
-
-        AstNode *error_value_node = ast_parse_error_value_decl(pc, token_index, visib_mod);
-        if (error_value_node) {
-            top_level_decls->append(error_value_node);
-            continue;
-        }
-
-        AstNode *test_decl_node = ast_parse_test_decl_node(pc, token_index, visib_mod);
-        if (test_decl_node) {
-            top_level_decls->append(test_decl_node);
             continue;
         }
 

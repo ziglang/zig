@@ -9114,6 +9114,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
 
     switch (tld->id) {
         case TldIdContainer:
+        case TldIdCompTime:
             zig_unreachable();
         case TldIdVar:
         {
@@ -12122,6 +12123,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
 
     switch (tld->id) {
         case TldIdContainer:
+        case TldIdCompTime:
             zig_unreachable();
         case TldIdVar:
         {

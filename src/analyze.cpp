@@ -1924,6 +1924,12 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     }
 }
 
+static void resolve_decl_comptime(CodeGen *g, TldCompTime *tld_comptime) {
+    assert(tld_comptime->base.source_node->type == NodeTypeCompTime);
+    AstNode *expr_node = tld_comptime->base.source_node->data.comptime_expr.expr;
+    analyze_const_value(g, tld_comptime->base.parent_scope, expr_node, g->builtin_types.entry_void, nullptr);
+}
+
 static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
     if (tld->visib_mod == VisibModExport ||
         (buf_eql_str(tld->name, "panic") &&
@@ -1955,10 +1961,6 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
 static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
     assert(node->type == NodeTypeTestDecl);
 
-    if (node->data.test_decl.visib_mod != VisibModPrivate) {
-        add_node_error(g, node, buf_sprintf("tests require no visibility modifier"));
-    }
-
     if (!g->is_test_build)
         return;
 
@@ -1975,10 +1977,6 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
 
 static void preview_error_value_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeErrorValueDecl);
-
-    if (node->data.error_value_decl.visib_mod != VisibModPrivate) {
-        add_node_error(g, node, buf_sprintf("error values require no visibility modifier"));
-    }
 
     ErrorTableEntry *err = allocate<ErrorTableEntry>(1);
 
@@ -1999,6 +1997,15 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
 
     node->data.error_value_decl.err = err;
 }
+
+static void preview_comptime_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
+    assert(node->type == NodeTypeCompTime);
+
+    TldCompTime *tld_comptime = allocate<TldCompTime>(1);
+    init_tld(&tld_comptime->base, TldIdCompTime, nullptr, VisibModPrivate, node, &decls_scope->base);
+    g->resolve_queue.append(&tld_comptime->base);
+}
+
 
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node,
     Scope *parent_scope)
@@ -2069,6 +2076,9 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeTestDecl:
             preview_test_decl(g, node, decls_scope);
             break;
+        case NodeTypeCompTime:
+            preview_comptime_decl(g, node, decls_scope);
+            break;
         case NodeTypeContainerDecl:
         case NodeTypeParamDecl:
         case NodeTypeFnDecl:
@@ -2098,7 +2108,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeSwitchRange:
         case NodeTypeLabel:
         case NodeTypeGoto:
-        case NodeTypeCompTime:
         case NodeTypeBreak:
         case NodeTypeContinue:
         case NodeTypeAsmExpr:
@@ -2355,6 +2364,12 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only) {
             {
                 TldTypeDef *tld_typedef = (TldTypeDef *)tld;
                 resolve_decl_typedef(g, tld_typedef);
+                break;
+            }
+        case TldIdCompTime:
+            {
+                TldCompTime *tld_comptime = (TldCompTime *)tld;
+                resolve_decl_comptime(g, tld_comptime);
                 break;
             }
     }

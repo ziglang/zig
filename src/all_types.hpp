@@ -242,6 +242,7 @@ enum TldId {
     TldIdFn,
     TldIdContainer,
     TldIdTypeDef,
+    TldIdCompTime,
 };
 
 enum TldResolution {
@@ -291,6 +292,10 @@ struct TldTypeDef {
     Tld base;
 
     TypeTableEntry *type_entry;
+};
+
+struct TldCompTime {
+    Tld base;
 };
 
 struct TypeEnumField {
@@ -430,16 +435,12 @@ struct AstNodeTypeDecl {
 };
 
 struct AstNodeErrorValueDecl {
-    // always invalid if it's not VisibModPrivate but can be parsed that way
-    VisibMod visib_mod;
     Buf *name;
 
     ErrorTableEntry *err;
 };
 
 struct AstNodeTestDecl {
-    // always invalid if it's not VisibModPrivate but can be parsed that way
-    VisibMod visib_mod;
     Buf *name;
 
     AstNode *body;

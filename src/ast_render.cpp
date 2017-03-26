@@ -1055,7 +1055,7 @@ void ast_render_decls(FILE *f, int indent_size, ImportTableEntry *import) {
 
         Tld *tld = entry->value;
 
-        if (!buf_eql_buf(entry->key, tld->name)) {
+        if (tld->name != nullptr && !buf_eql_buf(entry->key, tld->name)) {
             fprintf(ar.f, "pub const ");
             print_symbol(&ar, entry->key);
             fprintf(ar.f, " = %s;\n", buf_ptr(tld->name));
@@ -1074,6 +1074,9 @@ void ast_render_decls(FILE *f, int indent_size, ImportTableEntry *import) {
                 break;
             case TldIdTypeDef:
                 ast_render_tld_typedef(&ar, entry->key, (TldTypeDef *)tld);
+                break;
+            case TldIdCompTime:
+                fprintf(stdout, "comptime\n");
                 break;
         }
     }

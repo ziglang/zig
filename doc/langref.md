@@ -5,7 +5,7 @@
 ```
 Root = many(TopLevelItem) "EOF"
 
-TopLevelItem = ErrorValueDecl | Block | TopLevelDecl | TestDecl
+TopLevelItem = ErrorValueDecl | CompTimeExpression | TopLevelDecl | TestDecl
 
 TestDecl = "test" String Block
 
