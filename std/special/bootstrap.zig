@@ -13,7 +13,7 @@ var argc: usize = undefined;
 var argv: &&u8 = undefined;
 
 export nakedcc fn _start() -> noreturn {
-    @setFnVisible(this, want_start_symbol);
+    @setGlobalLinkage(_start, if (want_start_symbol) GlobalLinkage.Strong else GlobalLinkage.Internal);
     if (!want_start_symbol) {
         unreachable;
     }
@@ -47,7 +47,7 @@ fn callMainAndExit() -> noreturn {
 }
 
 export fn main(c_argc: i32, c_argv: &&u8) -> i32 {
-    @setFnVisible(this, want_main_symbol);
+    @setGlobalLinkage(main, if (want_main_symbol) GlobalLinkage.Strong else GlobalLinkage.Internal);
     if (!want_main_symbol) {
         unreachable;
     }

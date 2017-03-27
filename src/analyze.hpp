@@ -72,7 +72,7 @@ VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent
     bool is_const, ConstExprValue *init_value, Tld *src_tld);
 TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node);
 FnTableEntry *create_fn(AstNode *proto_node);
-FnTableEntry *create_fn_raw(FnInline inline_value, bool internal_linkage);
+FnTableEntry *create_fn_raw(FnInline inline_value, GlobalLinkageId linkage);
 void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_count_alloc);
 AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index);
 FnTableEntry *scope_get_fn_if_root(Scope *scope);
@@ -148,5 +148,6 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val);
 
 TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, size_t size_in_bits);
 ConstParent *get_const_val_parent(ConstExprValue *value);
+FnTableEntry *get_extern_panic_fn(CodeGen *g);
 
 #endif

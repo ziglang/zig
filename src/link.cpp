@@ -52,6 +52,7 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
         child_gen->link_libs.items[i] = parent_gen->link_libs.items[i];
     }
 
+    codegen_set_omit_zigrt(child_gen, true);
     child_gen->want_h_file = false;
 
     codegen_set_is_release(child_gen, parent_gen->is_release_build);

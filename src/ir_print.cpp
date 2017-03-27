@@ -339,14 +339,6 @@ static void ir_print_enum_field_ptr(IrPrint *irp, IrInstructionEnumFieldPtr *ins
     fprintf(irp->f, ")");
 }
 
-static void ir_print_set_fn_visible(IrPrint *irp, IrInstructionSetFnVisible *instruction) {
-    fprintf(irp->f, "@setFnVisible(");
-    ir_print_other_instruction(irp, instruction->fn_value);
-    fprintf(irp->f, ", ");
-    ir_print_other_instruction(irp, instruction->is_visible);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_set_debug_safety(IrPrint *irp, IrInstructionSetDebugSafety *instruction) {
     fprintf(irp->f, "@setDebugSafety(");
     ir_print_other_instruction(irp, instruction->scope_value);
@@ -849,12 +841,26 @@ static void ir_print_set_global_section(IrPrint *irp, IrInstructionSetGlobalSect
     fprintf(irp->f, ")");
 }
 
+static void ir_print_set_global_linkage(IrPrint *irp, IrInstructionSetGlobalLinkage *instruction) {
+    fprintf(irp->f, "@setGlobalLinkage(%s,", buf_ptr(instruction->tld->name));
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+
 static void ir_print_decl_ref(IrPrint *irp, IrInstructionDeclRef *instruction) {
     const char *ptr_str = instruction->lval.is_ptr ? "ptr " : "";
     const char *const_str = instruction->lval.is_const ? "const " : "";
     const char *volatile_str = instruction->lval.is_volatile ? "volatile " : "";
     fprintf(irp->f, "declref %s%s%s%s", const_str, volatile_str, ptr_str, buf_ptr(instruction->tld->name));
 }
+
+static void ir_print_panic(IrPrint *irp, IrInstructionPanic *instruction) {
+    fprintf(irp->f, "@panic(");
+    ir_print_other_instruction(irp, instruction->msg);
+    fprintf(irp->f, ")");
+}
+
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
@@ -932,9 +938,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdEnumFieldPtr:
             ir_print_enum_field_ptr(irp, (IrInstructionEnumFieldPtr *)instruction);
-            break;
-        case IrInstructionIdSetFnVisible:
-            ir_print_set_fn_visible(irp, (IrInstructionSetFnVisible *)instruction);
             break;
         case IrInstructionIdSetDebugSafety:
             ir_print_set_debug_safety(irp, (IrInstructionSetDebugSafety *)instruction);
@@ -1128,8 +1131,14 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdSetGlobalSection:
             ir_print_set_global_section(irp, (IrInstructionSetGlobalSection *)instruction);
             break;
+        case IrInstructionIdSetGlobalLinkage:
+            ir_print_set_global_linkage(irp, (IrInstructionSetGlobalLinkage *)instruction);
+            break;
         case IrInstructionIdDeclRef:
             ir_print_decl_ref(irp, (IrInstructionDeclRef *)instruction);
+            break;
+        case IrInstructionIdPanic:
+            ir_print_panic(irp, (IrInstructionPanic *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

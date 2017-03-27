@@ -626,3 +626,10 @@ Sets the alignment property of a global variable.
 ### @setGlobalSection(global_variable_name, section_name: []u8) -> bool
 
 Puts the global variable in the specified section.
+
+### @panic(message: []const u8) -> noreturn
+
+Invokes the panic handler function. By default the panic handler function
+calls the public `panic` function exposed in the root source file, or
+if there is not one specified, invokes the one provided in
+`std/special/panic.zig`.

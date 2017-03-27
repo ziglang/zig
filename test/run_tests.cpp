@@ -1828,6 +1828,18 @@ export fn entry() {
 //////////////////////////////////////////////////////////////////////////////
 
 static void add_debug_safety_test_cases(void) {
+    add_debug_safety_case("calling panic", R"SOURCE(
+pub fn panic(message: []const u8) -> noreturn {
+    @breakpoint();
+    while (true) {}
+}
+pub fn main(args: [][]u8) -> %void {
+    if (!@compileVar("is_release")) {
+        @panic("oh no");
+    }
+}
+    )SOURCE");
+
     add_debug_safety_case("out of bounds slice access", R"SOURCE(
 pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();

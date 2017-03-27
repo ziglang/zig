@@ -635,8 +635,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     }
     assert(fn_type->id == TypeTableEntryIdFn);
 
-    bool internal_linkage = false;
-    FnTableEntry *fn_entry = create_fn_raw(FnInlineAuto, internal_linkage);
+    FnTableEntry *fn_entry = create_fn_raw(FnInlineAuto, GlobalLinkageIdStrong);
     buf_init_from_buf(&fn_entry->symbol_name, fn_name);
     fn_entry->type_entry = fn_type;
 

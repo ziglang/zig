@@ -67,7 +67,8 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->llvm_fn_table.init(16);
     g->memoized_fn_eval_table.init(16);
     g->compile_vars.init(16);
-    g->external_symbol_names.init(8);
+    g->exported_symbol_names.init(8);
+    g->external_prototypes.init(8);
     g->is_release_build = false;
     g->is_test_build = false;
     g->want_h_file = true;
@@ -138,6 +139,10 @@ void codegen_set_clang_argv(CodeGen *g, const char **args, size_t len) {
 
 void codegen_set_is_release(CodeGen *g, bool is_release_build) {
     g->is_release_build = is_release_build;
+}
+
+void codegen_set_omit_zigrt(CodeGen *g, bool omit_zigrt) {
+    g->omit_zigrt = omit_zigrt;
 }
 
 void codegen_set_is_test(CodeGen *g, bool is_test_build) {
@@ -256,8 +261,20 @@ static void addLLVMAttr(LLVMValueRef val, LLVMAttributeIndex attr_index, const c
     LLVMAddAttributeAtIndex(val, attr_index, llvm_attr);
 }
 
+static void addLLVMAttrStr(LLVMValueRef val, LLVMAttributeIndex attr_index,
+        const char *attr_name, const char *attr_val)
+{
+    LLVMAttributeRef llvm_attr = LLVMCreateStringAttribute(LLVMGetGlobalContext(),
+            attr_name, strlen(attr_name), attr_val, strlen(attr_val));
+    LLVMAddAttributeAtIndex(val, attr_index, llvm_attr);
+}
+
 static void addLLVMFnAttr(LLVMValueRef fn_val, const char *attr_name) {
     return addLLVMAttr(fn_val, -1, attr_name);
+}
+
+static void addLLVMFnAttrStr(LLVMValueRef fn_val, const char *attr_name, const char *attr_val) {
+    return addLLVMAttrStr(fn_val, -1, attr_name, attr_val);
 }
 
 static void addLLVMArgAttr(LLVMValueRef arg_val, unsigned param_index, const char *attr_name) {
@@ -271,15 +288,19 @@ static void addLLVMCallsiteAttr(LLVMValueRef call_instr, unsigned param_index, c
     LLVMAddCallSiteAttribute(call_instr, param_index + 1, llvm_attr);
 }
 
+static bool is_symbol_available(CodeGen *g, Buf *name) {
+    return g->exported_symbol_names.maybe_get(name) == nullptr && g->external_prototypes.maybe_get(name) == nullptr;
+}
+
 static Buf *get_mangled_name(CodeGen *g, Buf *original_name, bool external_linkage) {
-    if (external_linkage || g->external_symbol_names.maybe_get(original_name) == nullptr) {
+    if (external_linkage || is_symbol_available(g, original_name)) {
         return original_name;
     }
 
     int n = 0;
     for (;; n += 1) {
         Buf *new_name = buf_sprintf("%s.%d", buf_ptr(original_name), n);
-        if (g->external_symbol_names.maybe_get(new_name) == nullptr) {
+        if (is_symbol_available(g, new_name)) {
             return new_name;
         }
     }
@@ -289,11 +310,12 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (fn_table_entry->llvm_value)
         return fn_table_entry->llvm_value;
 
-    Buf *symbol_name = get_mangled_name(g, &fn_table_entry->symbol_name, !fn_table_entry->internal_linkage);
+    bool external_linkage = (fn_table_entry->linkage != GlobalLinkageIdInternal);
+    Buf *symbol_name = get_mangled_name(g, &fn_table_entry->symbol_name, external_linkage);
 
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     LLVMTypeRef fn_llvm_type = fn_type->data.fn.raw_type_ref;
-    if (!fn_table_entry->internal_linkage && fn_table_entry->body_node == nullptr) {
+    if (external_linkage && fn_table_entry->body_node == nullptr) {
         LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, buf_ptr(symbol_name));
         if (existing_llvm_fn) {
             fn_table_entry->llvm_value = LLVMConstBitCast(existing_llvm_fn, LLVMPointerType(fn_llvm_type, 0));
@@ -318,12 +340,35 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         addLLVMFnAttr(fn_table_entry->llvm_value, "naked");
     }
 
-    LLVMSetLinkage(fn_table_entry->llvm_value, fn_table_entry->internal_linkage ?
-        LLVMInternalLinkage : LLVMExternalLinkage);
+    switch (fn_table_entry->linkage) {
+        case GlobalLinkageIdInternal:
+            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMInternalLinkage);
+            break;
+        case GlobalLinkageIdStrong:
+            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMExternalLinkage);
+            break;
+        case GlobalLinkageIdWeak:
+            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMWeakODRLinkage);
+            break;
+        case GlobalLinkageIdLinkOnce:
+            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMLinkOnceODRLinkage);
+            break;
+    }
 
     if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdUnreachable) {
         addLLVMFnAttr(fn_table_entry->llvm_value, "noreturn");
     }
+
+    if (fn_table_entry->body_node != nullptr) {
+        bool want_fn_safety = !g->is_release_build && !fn_table_entry->def_scope->safety_off;
+        if (want_fn_safety) {
+            if (g->link_libc) {
+                addLLVMFnAttr(fn_table_entry->llvm_value, "sspstrong");
+                addLLVMFnAttrStr(fn_table_entry->llvm_value, "stack-protector-buffer-size", "4");
+            }
+        }
+    }
+
     LLVMSetFunctionCallConv(fn_table_entry->llvm_value, fn_type->data.fn.calling_convention);
     if (fn_type->data.fn.fn_type_id.is_cold) {
         ZigLLVMAddFunctionAttrCold(fn_table_entry->llvm_value);
@@ -363,10 +408,11 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             bool is_definition = fn_table_entry->body_node != nullptr;
             unsigned flags = 0;
             bool is_optimized = g->is_release_build;
+            bool is_internal_linkage = (fn_table_entry->linkage == GlobalLinkageIdInternal);
             ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
                 get_di_scope(g, scope->parent), buf_ptr(&fn_table_entry->symbol_name), "",
                 import->di_file, line_number,
-                fn_table_entry->type_entry->di_type, fn_table_entry->internal_linkage,
+                fn_table_entry->type_entry->di_type, is_internal_linkage,
                 is_definition, scope_line, flags, is_optimized, nullptr);
 
             scope->di_scope = ZigLLVMSubprogramToScope(subprogram);
@@ -544,11 +590,26 @@ static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
     return val->llvm_global;
 }
 
-static void gen_debug_safety_crash(CodeGen *g, PanicMsgId msg_id) {
-    LLVMValueRef fn_val = fn_llvm_value(g, g->panic_fn);
-    LLVMValueRef msg_arg = get_panic_msg_ptr_val(g, msg_id);
-    ZigLLVMBuildCall(g->builder, fn_val, &msg_arg, 1, g->panic_fn->type_entry->data.fn.calling_convention, "");
+static void gen_panic(CodeGen *g, LLVMValueRef msg_arg) {
+    FnTableEntry *panic_fn = get_extern_panic_fn(g);
+    LLVMValueRef fn_val = fn_llvm_value(g, panic_fn);
+
+    TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
+    size_t ptr_index = str_type->data.structure.fields[slice_ptr_index].gen_index;
+    size_t len_index = str_type->data.structure.fields[slice_len_index].gen_index;
+    LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, msg_arg, ptr_index, "");
+    LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, msg_arg, len_index, "");
+
+    LLVMValueRef args[] = {
+        LLVMBuildLoad(g->builder, ptr_ptr, ""),
+        LLVMBuildLoad(g->builder, len_ptr, ""),
+    };
+    ZigLLVMBuildCall(g->builder, fn_val, args, 2, panic_fn->type_entry->data.fn.calling_convention, "");
     LLVMBuildUnreachable(g->builder);
+}
+
+static void gen_debug_safety_crash(CodeGen *g, PanicMsgId msg_id) {
+    gen_panic(g, get_panic_msg_ptr_val(g, msg_id));
 }
 
 static void add_bounds_check(CodeGen *g, LLVMValueRef target_val,
@@ -2564,6 +2625,11 @@ static LLVMValueRef ir_render_container_init_list(CodeGen *g, IrExecutable *exec
     return tmp_array_ptr;
 }
 
+static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInstructionPanic *instruction) {
+    gen_panic(g, ir_llvm_value(g, instruction->msg));
+    return nullptr;
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -2584,7 +2650,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdToPtrType:
         case IrInstructionIdPtrTypeChild:
         case IrInstructionIdFieldPtr:
-        case IrInstructionIdSetFnVisible:
         case IrInstructionIdSetDebugSafety:
         case IrInstructionIdArrayType:
         case IrInstructionIdSliceType:
@@ -2615,7 +2680,9 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCanImplicitCast:
         case IrInstructionIdSetGlobalAlign:
         case IrInstructionIdSetGlobalSection:
+        case IrInstructionIdSetGlobalLinkage:
         case IrInstructionIdDeclRef:
+        case IrInstructionIdSwitchVar:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -2721,8 +2788,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_int_to_enum(g, executable, (IrInstructionIntToEnum *)instruction);
         case IrInstructionIdContainerInitList:
             return ir_render_container_init_list(g, executable, (IrInstructionContainerInitList *)instruction);
-        case IrInstructionIdSwitchVar:
-            zig_panic("TODO render switch var instruction to LLVM");
+        case IrInstructionIdPanic:
+            return ir_render_panic(g, executable, (IrInstructionPanic *)instruction);
     }
     zig_unreachable();
 }
@@ -3659,6 +3726,18 @@ static const CIntTypeInfo c_int_type_infos[] = {
 
 static const bool is_signed_list[] = { false, true, };
 
+struct GlobalLinkageValue {
+    GlobalLinkageId id;
+    const char *name;
+};
+
+static const GlobalLinkageValue global_linkage_values[] = {
+    {GlobalLinkageIdInternal, "Internal"},
+    {GlobalLinkageIdStrong, "Strong"},
+    {GlobalLinkageIdWeak, "Weak"},
+    {GlobalLinkageIdLinkOnce, "LinkOnce"},
+};
+
 static void define_builtin_types(CodeGen *g) {
     {
         // if this type is anywhere in the AST, we should never hit codegen.
@@ -3998,6 +4077,30 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
         entry->zero_bits = true; // only allowed at compile time
+        buf_init_from_str(&entry->name, "GlobalLinkage");
+        uint32_t field_count = array_length(global_linkage_values);
+        entry->data.enumeration.src_field_count = field_count;
+        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+        for (uint32_t i = 0; i < field_count; i += 1) {
+            TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
+            const GlobalLinkageValue *value = &global_linkage_values[i];
+            type_enum_field->name = buf_create_from_str(value->name);
+            type_enum_field->value = i;
+            type_enum_field->type_entry = g->builtin_types.entry_void;
+        }
+        entry->data.enumeration.complete = true;
+        entry->data.enumeration.zero_bits_known = true;
+
+        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
+        entry->data.enumeration.tag_type = tag_type_entry;
+
+        g->builtin_types.entry_global_linkage_enum = entry;
+        g->primitive_type_table.put(&entry->name, entry);
+    }
+
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
+        entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "AtomicOrder");
         uint32_t field_count = 6;
         entry->data.enumeration.src_field_count = field_count;
@@ -4145,11 +4248,12 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "intType", 2);
-    create_builtin_fn(g, BuiltinFnIdSetFnVisible, "setFnVisible", 2);
     create_builtin_fn(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
     create_builtin_fn(g, BuiltinFnIdAlloca, "alloca", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalAlign, "setGlobalAlign", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalSection, "setGlobalSection", 2);
+    create_builtin_fn(g, BuiltinFnIdSetGlobalLinkage, "setGlobalLinkage", 2);
+    create_builtin_fn(g, BuiltinFnIdPanic, "panic", 1);
 }
 
 static void add_compile_var(CodeGen *g, const char *name, ConstExprValue *value) {
@@ -4180,6 +4284,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
 
         add_compile_var(g, "link_libs", const_val);
     }
+    add_compile_var(g, "panic_implementation_provided", create_const_bool(g, false));
 }
 
 static void init(CodeGen *g, Buf *source_path) {
@@ -4309,9 +4414,10 @@ static PackageTableEntry *create_bootstrap_pkg(CodeGen *g) {
     return package;
 }
 
-static PackageTableEntry *create_panic_pkg(CodeGen *g) {
+static PackageTableEntry *create_zigrt_pkg(CodeGen *g) {
     PackageTableEntry *package = new_package(buf_ptr(g->zig_std_special_dir), "");
     package->package_table.put(buf_create_from_str("std"), g->std_package);
+    package->package_table.put(buf_create_from_str("@root"), g->root_package);
     return package;
 }
 
@@ -4337,9 +4443,9 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
     if (!g->is_test_build && g->have_pub_main && (g->out_type == OutTypeObj || g->out_type == OutTypeExe)) {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g), "bootstrap.zig");
     }
-    if (!g->have_pub_panic) {
-        g->panic_package = create_panic_pkg(g);
-        add_special_code(g, g->panic_package, "panic.zig");
+    if (!g->omit_zigrt) {
+        g->zigrt_package = create_zigrt_pkg(g);
+        add_special_code(g, g->zigrt_package, "zigrt.zig");
     }
 
     if (g->verbose) {
@@ -4509,7 +4615,7 @@ void codegen_generate_h_file(CodeGen *g) {
     for (size_t fn_def_i = 0; fn_def_i < g->fn_defs.length; fn_def_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_defs.at(fn_def_i);
 
-        if (fn_table_entry->internal_linkage)
+        if (fn_table_entry->linkage == GlobalLinkageIdInternal)
             continue;
 
         FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;

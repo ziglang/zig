@@ -1,13 +1,3 @@
-// Avoid dragging in the debug safety mechanisms into this .o file,
-// unless we're trying to test this file.
-pub fn panic(message: []const u8) -> noreturn {
-    if (@compileVar("is_test")) {
-        @import("std").debug.panic(message);
-    } else {
-        unreachable;
-    }
-}
-
 const CHAR_BIT = 8;
 const du_int = u64;
 const di_int = i64;
@@ -262,7 +252,7 @@ export nakedcc fn __aeabi_uidivmod() {
         unreachable;
     }
 
-    @setFnVisible(this, false);
+    @setGlobalLinkage(__aeabi_uidivmod, GlobalLinkage.Internal);
 }
 
 export fn __udivmodsi4(a: su_int, b: su_int, rem: &su_int) -> su_int {

@@ -12,7 +12,7 @@ test "emptyFunctionWithComments" {
 }
 
 export fn disabledExternFn() {
-    @setFnVisible(this, false);
+    @setGlobalLinkage(disabledExternFn, GlobalLinkage.Internal);
 }
 
 test "callDisabledExternFn" {

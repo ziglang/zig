@@ -237,6 +237,13 @@ enum VisibMod {
     VisibModExport,
 };
 
+enum GlobalLinkageId {
+    GlobalLinkageIdInternal,
+    GlobalLinkageIdStrong,
+    GlobalLinkageIdWeak,
+    GlobalLinkageIdLinkOnce,
+};
+
 enum TldId {
     TldIdVar,
     TldIdFn,
@@ -273,6 +280,8 @@ struct TldVar {
     uint64_t alignment;
     AstNode *set_global_section_node;
     Buf *section_name;
+    AstNode *set_global_linkage_node;
+    GlobalLinkageId linkage;
 };
 
 struct TldFn {
@@ -1116,8 +1125,6 @@ struct FnTableEntry {
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
     TypeTableEntry *implicit_return_type;
-    bool internal_linkage;
-    bool disable_export;
     bool is_test;
     FnInline fn_inline;
     FnAnalState anal_state;
@@ -1128,7 +1135,6 @@ struct FnTableEntry {
     Buf **param_names;
 
     AstNode *fn_no_inline_set_node;
-    AstNode *fn_export_set_node;
     AstNode *fn_static_eval_set_node;
 
     ZigList<IrInstruction *> alloca_list;
@@ -1138,6 +1144,8 @@ struct FnTableEntry {
     uint64_t alignment;
     AstNode *set_global_section_node;
     Buf *section_name;
+    AstNode *set_global_linkage_node;
+    GlobalLinkageId linkage;
 };
 
 uint32_t fn_table_entry_hash(FnTableEntry*);
@@ -1178,7 +1186,6 @@ enum BuiltinFnId {
     BuiltinFnIdDivExact,
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
-    BuiltinFnIdSetFnVisible,
     BuiltinFnIdSetDebugSafety,
     BuiltinFnIdAlloca,
     BuiltinFnIdTypeName,
@@ -1187,6 +1194,8 @@ enum BuiltinFnId {
     BuiltinFnIdCanImplicitCast,
     BuiltinFnIdSetGlobalAlign,
     BuiltinFnIdSetGlobalSection,
+    BuiltinFnIdSetGlobalLinkage,
+    BuiltinFnIdPanic,
 };
 
 struct BuiltinFnEntry {
@@ -1300,7 +1309,8 @@ struct CodeGen {
     HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> compile_vars;
-    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_symbol_names;
+    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> exported_symbol_names;
+    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
 
     ZigList<ImportTableEntry *> import_queue;
     size_t import_queue_index;
@@ -1346,6 +1356,7 @@ struct CodeGen {
         TypeTableEntry *entry_environ_enum;
         TypeTableEntry *entry_oformat_enum;
         TypeTableEntry *entry_atomic_order_enum;
+        TypeTableEntry *entry_global_linkage_enum;
         TypeTableEntry *entry_arg_tuple;
     } builtin_types;
 
@@ -1378,7 +1389,7 @@ struct CodeGen {
     bool is_native_target;
     PackageTableEntry *root_package;
     PackageTableEntry *std_package;
-    PackageTableEntry *panic_package;
+    PackageTableEntry *zigrt_package;
     Buf *root_out_name;
     bool windows_subsystem_windows;
     bool windows_subsystem_console;
@@ -1388,6 +1399,7 @@ struct CodeGen {
     Buf *mios_version_min;
     bool linker_rdynamic;
     const char *linker_script;
+    bool omit_zigrt;
 
     // The function definitions this module includes. There must be a corresponding
     // fn_protos entry.
@@ -1401,7 +1413,8 @@ struct CodeGen {
     OutType out_type;
     FnTableEntry *cur_fn;
     FnTableEntry *main_fn;
-    FnTableEntry *panic_fn;
+    FnTableEntry *user_panic_fn;
+    FnTableEntry *extern_panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
     ZigList<LLVMBasicBlockRef> break_block_stack;
@@ -1656,7 +1669,6 @@ enum IrInstructionId {
     IrInstructionIdTypeOf,
     IrInstructionIdToPtrType,
     IrInstructionIdPtrTypeChild,
-    IrInstructionIdSetFnVisible,
     IrInstructionIdSetDebugSafety,
     IrInstructionIdArrayType,
     IrInstructionIdSliceType,
@@ -1718,7 +1730,9 @@ enum IrInstructionId {
     IrInstructionIdCanImplicitCast,
     IrInstructionIdSetGlobalAlign,
     IrInstructionIdSetGlobalSection,
+    IrInstructionIdSetGlobalLinkage,
     IrInstructionIdDeclRef,
+    IrInstructionIdPanic,
 };
 
 struct IrInstruction {
@@ -1997,13 +2011,6 @@ struct IrInstructionPtrTypeChild {
     IrInstruction base;
 
     IrInstruction *value;
-};
-
-struct IrInstructionSetFnVisible {
-    IrInstruction base;
-
-    IrInstruction *fn_value;
-    IrInstruction *is_visible;
 };
 
 struct IrInstructionSetDebugSafety {
@@ -2439,11 +2446,24 @@ struct IrInstructionSetGlobalSection {
     IrInstruction *value;
 };
 
+struct IrInstructionSetGlobalLinkage {
+    IrInstruction base;
+
+    Tld *tld;
+    IrInstruction *value;
+};
+
 struct IrInstructionDeclRef {
     IrInstruction base;
 
     Tld *tld;
     LVal lval;
+};
+
+struct IrInstructionPanic {
+    IrInstruction base;
+
+    IrInstruction *msg;
 };
 
 static const size_t slice_ptr_index = 0;
