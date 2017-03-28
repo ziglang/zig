@@ -17,10 +17,7 @@ pub const Allocator = struct {
     /// Aborts the program if an allocation fails.
     fn checkedAlloc(self: &Allocator, comptime T: type, n: usize) -> []T {
         alloc(self, T, n) %% |err| {
-            // TODO var args printf
-            %%io.stderr.write("allocation failure: ");
-            %%io.stderr.write(@errorName(err));
-            %%io.stderr.printf("\n");
+            %%io.stderr.printf("allocation failure: {}\n", @errorName(err));
             os.abort()
         }
     }
