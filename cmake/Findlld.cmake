@@ -8,14 +8,14 @@
 
 find_path(LLD_INCLUDE_DIRS NAMES lld/Driver/Driver.h
     PATHS
-        /usr/lib/llvm-4/include
+        /usr/lib/llvm-4.0/include
         /mingw64/include)
 
     macro(FIND_AND_ADD_LLD_LIB _libname_)
     string(TOUPPER ${_libname_} _prettylibname_)
     find_library(LLD_${_prettylibname_}_LIB NAMES ${_libname_}
         PATHS
-            /usr/lib/llvm-4/lib
+            /usr/lib/llvm-4.0/lib
             /mingw64/lib)
         if(LLD_${_prettylibname_}_LIB)
             set(LLD_LIBRARIES ${LLD_LIBRARIES} ${LLD_${_prettylibname_}_LIB})

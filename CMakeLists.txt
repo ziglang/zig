@@ -34,6 +34,8 @@ include_directories(${CLANG_INCLUDE_DIRS})
 find_package(lld)
 include_directories(${LLD_INCLUDE_DIRS})
 
+find_package(Threads)
+
 include_directories(
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_BINARY_DIR}
@@ -196,6 +198,7 @@ target_link_libraries(zig LINK_PUBLIC
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
+    ${CMAKE_THREAD_LIBS_INIT}
 )
 install(TARGETS zig DESTINATION bin)
 
