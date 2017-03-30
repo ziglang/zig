@@ -1,2 +1,5 @@
 build/
 build-release/
+/.cproject
+/.project
+/.settings/
