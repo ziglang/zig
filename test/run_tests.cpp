@@ -460,8 +460,8 @@ const foo : i32 = 0;
 const c = @cImport(@cInclude("stdlib.h"));
 
 export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
-    const a_int = @bitcast(&i32, a ?? unreachable);
-    const b_int = @bitcast(&i32, b ?? unreachable);
+    const a_int = @ptrcast(&i32, a ?? unreachable);
+    const b_int = @ptrcast(&i32, b ?? unreachable);
     if (*a_int < *b_int) {
         -1
     } else if (*a_int > *b_int) {
@@ -474,7 +474,7 @@ export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
 export fn main(args: c_int, argv: &&u8) -> c_int {
     var array = []u32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
 
-    c.qsort(@bitcast(&c_void, &array[0]), c_ulong(array.len), @sizeOf(i32), compare_fn);
+    c.qsort(@ptrcast(&c_void, &array[0]), c_ulong(array.len), @sizeOf(i32), compare_fn);
 
     for (array) |item, i| {
         if (item != i) {
@@ -1812,6 +1812,12 @@ export fn entry() {
     foo(global_array);
 }
     )SOURCE", 1, ".tmp_source.zig:5:9: error: expected type '[]i32', found '[10]i32'");
+
+    add_compile_fail_case("ptrcast to non-pointer", R"SOURCE(
+export fn entry(a: &i32) -> usize {
+    return @ptrcast(usize, a);
+}
+    )SOURCE", 1, ".tmp_source.zig:3:21: error: expected pointer, found 'usize'");
 }
 
 //////////////////////////////////////////////////////////////////////////////

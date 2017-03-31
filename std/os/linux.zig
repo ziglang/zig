@@ -239,7 +239,7 @@ pub const AF_MAX = PF_MAX;
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) -> usize {
-    const signed_r = *@bitcast(&isize, &r);
+    const signed_r = *@ptrcast(&isize, &r);
     if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0
 }
 

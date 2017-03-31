@@ -634,9 +634,6 @@ calls the public `panic` function exposed in the root source file, or
 if there is not one specified, invokes the one provided in
 `std/special/panic.zig`.
 
-### @bitcast(comptime DestType: type, value: var) -> DestType
+### @ptrcast(comptime DestType: type, value: var) -> DestType
 
-Transmutes memory from one type to another without changing any bits.
-The source and destination types must have the same size. This function
-can be used to, for example, reinterpret a pointer, or convert a `f32` to a
-`u32`.
+Converts a pointer of one type to a pointer of another type.

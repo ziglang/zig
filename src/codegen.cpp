@@ -1345,12 +1345,12 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
     zig_unreachable();
 }
 
-static LLVMValueRef ir_render_bitcast(CodeGen *g, IrExecutable *executable,
-        IrInstructionBitCast *instruction)
+static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
+        IrInstructionPtrCast *instruction)
 {
     TypeTableEntry *wanted_type = instruction->base.value.type;
-    LLVMValueRef target = ir_llvm_value(g, instruction->target);
-    return LLVMBuildBitCast(g->builder, target, wanted_type->type_ref, "");
+    LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
+    return LLVMBuildBitCast(g->builder, ptr, wanted_type->type_ref, "");
 }
 
 static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executable,
@@ -2776,8 +2776,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_init_enum(g, executable, (IrInstructionInitEnum *)instruction);
         case IrInstructionIdStructInit:
             return ir_render_struct_init(g, executable, (IrInstructionStructInit *)instruction);
-        case IrInstructionIdBitCast:
-            return ir_render_bitcast(g, executable, (IrInstructionBitCast *)instruction);
+        case IrInstructionIdPtrCast:
+            return ir_render_ptr_cast(g, executable, (IrInstructionPtrCast *)instruction);
         case IrInstructionIdWidenOrShorten:
             return ir_render_widen_or_shorten(g, executable, (IrInstructionWidenOrShorten *)instruction);
         case IrInstructionIdPtrToInt:
@@ -4260,7 +4260,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSetGlobalSection, "setGlobalSection", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalLinkage, "setGlobalLinkage", 2);
     create_builtin_fn(g, BuiltinFnIdPanic, "panic", 1);
-    create_builtin_fn(g, BuiltinFnIdBitCast, "bitcast", 2);
+    create_builtin_fn(g, BuiltinFnIdPtrCast, "ptrcast", 2);
 }
 
 static void add_compile_var(CodeGen *g, const char *name, ConstExprValue *value) {

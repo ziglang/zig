@@ -74,7 +74,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
                 const name = %return compile_unit.die.getAttrString(st, DW.AT_name);
 
                 %return out_stream.printf("{}  -> {}\n", return_address, name);
-                maybe_fp = *@bitcast(&const ?&const u8, fp);
+                maybe_fp = *@ptrcast(&const ?&const u8, fp);
             }
         },
         ObjectFormat.coff => {

@@ -41,7 +41,7 @@ const VoidStructFieldsFoo = struct {
 
 test "fn" {
     var foo: StructFoo = undefined;
-    @memset(@bitcast(&u8, &foo), 0, @sizeOf(StructFoo));
+    @memset(@ptrcast(&u8, &foo), 0, @sizeOf(StructFoo));
     foo.a += 1;
     foo.b = foo.a == 1;
     testFoo(foo);
