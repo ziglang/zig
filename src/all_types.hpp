@@ -403,6 +403,9 @@ struct AstNodeParamDecl {
 };
 
 struct AstNodeBlock {
+    // the final statement is the returned expression.
+    // if there are no statements, the returned expression is void.
+    // the final statement is never a label.
     ZigList<AstNode *> statements;
 };
 

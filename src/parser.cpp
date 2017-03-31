@@ -2094,16 +2094,14 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
 
     AstNode *node = ast_create_node(pc, NodeTypeBlock, last_token);
 
-    // {}   -> {void}
-    // {;}  -> {void;void}
-    // {2}  -> {2}
-    // {2;} -> {2;void}
-    // {;2} -> {void;2}
     for (;;) {
         AstNode *statement_node = ast_parse_label(pc, token_index, false);
+        bool need_implicit_final_void_statement = false;
         bool semicolon_expected;
         if (statement_node) {
             semicolon_expected = false;
+            // if a label is the last thing in a block, add a void statement.
+            need_implicit_final_void_statement = true;
         } else {
             statement_node = ast_parse_variable_declaration_expr(pc, token_index, false, VisibModPrivate);
             if (!statement_node) {
@@ -2117,16 +2115,22 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
                 if (!statement_node) {
                     statement_node = ast_parse_non_block_expr(pc, token_index, false);
                     if (!statement_node) {
-                        statement_node = ast_create_void_expr(pc, last_token);
+                        // final semicolon means add a void statement.
+                        need_implicit_final_void_statement = true;
                     }
                 }
             }
         }
-        node->data.block.statements.append(statement_node);
+        if (statement_node)
+            node->data.block.statements.append(statement_node);
 
         last_token = &pc->tokens->at(*token_index);
         if (last_token->id == TokenIdRBrace) {
             *token_index += 1;
+
+            if (node->data.block.statements.length > 0 && need_implicit_final_void_statement) {
+                node->data.block.statements.append(ast_create_void_expr(pc, last_token));
+            }
 
             return node;
         } else if (!semicolon_expected) {

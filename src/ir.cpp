@@ -3269,6 +3269,11 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         fn_entry->def_scope = scope_block;
     }
 
+    if (block_node->data.block.statements.length == 0) {
+        // {}
+        return ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
+    }
+
     IrInstruction *return_value = nullptr;
     for (size_t i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
@@ -3292,7 +3297,8 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
                 scope_block->label_table.put(label_name, label);
             }
 
-            if (!return_value || !instr_is_unreachable(return_value)) {
+            if (!(return_value && instr_is_unreachable(return_value))) {
+                // fall through into new labeled basic block
                 IrInstruction *is_comptime = ir_mark_gen(ir_build_const_bool(irb, child_scope, statement_node,
                         ir_should_inline(irb->exec, child_scope)));
                 ir_mark_gen(ir_build_br(irb, child_scope, statement_node, label_block, is_comptime));
@@ -3321,8 +3327,8 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         }
     }
 
-    if (!return_value)
-        return_value = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
+    // labels are never the last statement
+    assert(return_value != nullptr);
 
     if (!instr_is_unreachable(return_value))
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false, false);
