@@ -480,8 +480,8 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionInitEnum *) {
     return IrInstructionIdInitEnum;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionPointerReinterpret *) {
-    return IrInstructionIdPointerReinterpret;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionBitCast *) {
+    return IrInstructionIdBitCast;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionWidenOrShorten *) {
@@ -1940,14 +1940,16 @@ static IrInstruction *ir_build_init_enum_from(IrBuilder *irb, IrInstruction *old
     return new_instruction;
 }
 
-static IrInstruction *ir_build_pointer_reinterpret(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *ptr)
+static IrInstruction *ir_build_bit_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *dest_type, IrInstruction *target)
 {
-    IrInstructionPointerReinterpret *instruction = ir_build_instruction<IrInstructionPointerReinterpret>(
+    IrInstructionBitCast *instruction = ir_build_instruction<IrInstructionBitCast>(
             irb, scope, source_node);
-    instruction->ptr = ptr;
+    instruction->dest_type = dest_type;
+    instruction->target = target;
 
-    ir_ref_instruction(ptr, irb->current_basic_block);
+    if (dest_type) ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -2664,11 +2666,12 @@ static IrInstruction *ir_instruction_initenum_get_dep(IrInstructionInitEnum *ins
     }
 }
 
-static IrInstruction *ir_instruction_pointerreinterpret_get_dep(IrInstructionPointerReinterpret *instruction,
+static IrInstruction *ir_instruction_bitcast_get_dep(IrInstructionBitCast *instruction,
         size_t index)
 {
     switch (index) {
-        case 0: return instruction->ptr;
+        case 0: return instruction->dest_type;
+        case 1: return instruction->target;
         default: return nullptr;
     }
 }
@@ -2925,8 +2928,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_testcomptime_get_dep((IrInstructionTestComptime *) instruction, index);
         case IrInstructionIdInitEnum:
             return ir_instruction_initenum_get_dep((IrInstructionInitEnum *) instruction, index);
-        case IrInstructionIdPointerReinterpret:
-            return ir_instruction_pointerreinterpret_get_dep((IrInstructionPointerReinterpret *) instruction, index);
+        case IrInstructionIdBitCast:
+            return ir_instruction_bitcast_get_dep((IrInstructionBitCast *) instruction, index);
         case IrInstructionIdWidenOrShorten:
             return ir_instruction_widenorshorten_get_dep((IrInstructionWidenOrShorten *) instruction, index);
         case IrInstructionIdIntToPtr:
@@ -4196,6 +4199,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 return ir_build_panic(irb, scope, node, arg0_value);
+            }
+        case BuiltinFnIdBitCast:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_bit_cast(irb, scope, node, arg0_value, arg1_value);
             }
     }
     zig_unreachable();
@@ -6364,34 +6381,6 @@ static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *sourc
     return result;
 }
 
-static IrInstruction *ir_analyze_pointer_reinterpret(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *ptr, TypeTableEntry *wanted_type)
-{
-    if (ptr->value.type->id != TypeTableEntryIdPointer &&
-        ptr->value.type->id != TypeTableEntryIdMaybe)
-    {
-        ir_add_error(ira, ptr, buf_sprintf("expected pointer, found '%s'", buf_ptr(&ptr->value.type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    if (instr_is_comptime(ptr)) {
-        ConstExprValue *val = ir_resolve_const(ira, ptr, UndefOk);
-        if (!val)
-            return ira->codegen->invalid_instruction;
-
-        IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
-                source_instr->scope, source_instr->source_node);
-        const_instruction->base.value = *val;
-        const_instruction->base.value.type = wanted_type;
-        return &const_instruction->base;
-    }
-
-    IrInstruction *result = ir_build_pointer_reinterpret(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, ptr);
-    result->value.type = wanted_type;
-    return result;
-}
-
 static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *value, TypeTableEntry *wanted_type)
 {
@@ -6827,24 +6816,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                         buf_ptr(&actual_type->name), buf_ptr(&wanted_type->name)));
             return ira->codegen->invalid_instruction;
         }
-    }
-
-    // explicit cast from pointer to another pointer
-    if ((actual_type->id == TypeTableEntryIdPointer || actual_type->id == TypeTableEntryIdFn) &&
-        (wanted_type->id == TypeTableEntryIdPointer || wanted_type->id == TypeTableEntryIdFn))
-    {
-        return ir_analyze_pointer_reinterpret(ira, source_instr, value, wanted_type);
-    }
-
-    // explicit cast from maybe pointer to another maybe pointer
-    if (actual_type->id == TypeTableEntryIdMaybe &&
-        (actual_type->data.maybe.child_type->id == TypeTableEntryIdPointer ||
-            actual_type->data.maybe.child_type->id == TypeTableEntryIdFn) &&
-        wanted_type->id == TypeTableEntryIdMaybe &&
-        (wanted_type->data.maybe.child_type->id == TypeTableEntryIdPointer ||
-            wanted_type->data.maybe.child_type->id == TypeTableEntryIdFn))
-    {
-        return ir_analyze_pointer_reinterpret(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from child type of maybe type to maybe type
@@ -8986,6 +8957,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
 
         ConstExprValue *array_ptr_val;
         if (array_ptr->value.special != ConstValSpecialRuntime &&
+            array_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar &&
             (array_ptr_val = const_ptr_pointee(&array_ptr->value)) &&
             array_ptr_val->special != ConstValSpecialRuntime &&
             (array_type->id != TypeTableEntryIdPointer ||
@@ -12210,6 +12182,50 @@ static TypeTableEntry *ir_analyze_instruction_panic(IrAnalyze *ira, IrInstructio
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
 
+static TypeTableEntry *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstructionBitCast *instruction) {
+    IrInstruction *dest_type_value = instruction->dest_type->other;
+    TypeTableEntry *dest_type = ir_resolve_type(ira, dest_type_value);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *target = instruction->target->other;
+    TypeTableEntry *src_type = target->value.type;
+    if (type_is_invalid(src_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ensure_complete_type(ira->codegen, dest_type);
+    ensure_complete_type(ira->codegen, src_type);
+
+    uint64_t dest_size_bytes = type_size(ira->codegen, dest_type);
+    uint64_t src_size_bytes = type_size(ira->codegen, src_type);
+    if (dest_size_bytes != src_size_bytes) {
+        ir_add_error(ira, &instruction->base,
+            buf_sprintf("destination type '%s' has size %" PRIu64 " but source type '%s' has size %" PRIu64,
+                buf_ptr(&dest_type->name), dest_size_bytes,
+                buf_ptr(&src_type->name), src_size_bytes));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (instr_is_comptime(target) && src_type->id == dest_type->id &&
+        (src_type->id == TypeTableEntryIdPointer || src_type->id == TypeTableEntryIdMaybe))
+    {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefOk);
+        if (!val)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        *out_val = *val;
+        out_val->type = dest_type;
+        return dest_type;
+    }
+
+    IrInstruction *result = ir_build_bit_cast(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, nullptr, target);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = dest_type;
+    return dest_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
         IrInstructionDeclRef *instruction)
 {
@@ -12283,7 +12299,6 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
-        case IrInstructionIdPointerReinterpret:
         case IrInstructionIdWidenOrShorten:
         case IrInstructionIdIntToPtr:
         case IrInstructionIdPtrToInt:
@@ -12449,6 +12464,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_decl_ref(ira, (IrInstructionDeclRef *)instruction);
         case IrInstructionIdPanic:
             return ir_analyze_instruction_panic(ira, (IrInstructionPanic *)instruction);
+        case IrInstructionIdBitCast:
+            return ir_analyze_instruction_bit_cast(ira, (IrInstructionBitCast *)instruction);
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
@@ -12620,7 +12637,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
         case IrInstructionIdInitEnum:
-        case IrInstructionIdPointerReinterpret:
+        case IrInstructionIdBitCast:
         case IrInstructionIdWidenOrShorten:
         case IrInstructionIdPtrToInt:
         case IrInstructionIdIntToPtr:

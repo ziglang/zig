@@ -246,15 +246,15 @@ test "typeEquality" {
 
 const global_a: i32 = 1234;
 const global_b: &const i32 = &global_a;
-const global_c: &const f32 = (&const f32)(global_b);
+const global_c: &const f32 = @bitcast(&const f32, global_b);
 test "compileTimeGlobalReinterpret" {
-    const d = (&const i32)(global_c);
+    const d = @bitcast(&const i32, global_c);
     assert(*d == 1234);
 }
 
 test "explicitCastMaybePointers" {
     const a: ?&i32 = undefined;
-    const b: ?&f32 = (?&f32)(a);
+    const b: ?&f32 = @bitcast(?&f32, a);
 }
 
 test "genericMallocFree" {
@@ -263,7 +263,7 @@ test "genericMallocFree" {
 }
 const some_mem : [100]u8 = undefined;
 fn memAlloc(comptime T: type, n: usize) -> %[]T {
-    return (&T)(&some_mem[0])[0...n];
+    return @bitcast(&T, &some_mem[0])[0...n];
 }
 fn memFree(comptime T: type, memory: []T) { }
 

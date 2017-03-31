@@ -15,7 +15,7 @@ pub fn assert(ok: bool) {
 
 var panicking = false;
 /// This is the default panic implementation.
-pub coldcc fn panic(message: []const u8) -> noreturn {
+pub coldcc fn panic(comptime format: []const u8, args: ...) -> noreturn {
     // TODO
     // if (@atomicRmw(AtomicOp.XChg, &panicking, true, AtomicOrder.SeqCst)) { }
     if (panicking) {
@@ -28,7 +28,7 @@ pub coldcc fn panic(message: []const u8) -> noreturn {
         panicking = true;
     }
 
-    %%io.stderr.printf("{}\n", message);
+    %%io.stderr.printf(format, args);
     %%printStackTrace();
 
     os.abort();
@@ -74,7 +74,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
                 const name = %return compile_unit.die.getAttrString(st, DW.AT_name);
 
                 %return out_stream.printf("{}  -> {}\n", return_address, name);
-                maybe_fp = *(&const ?&const u8)(fp);
+                maybe_fp = *@bitcast(&const ?&const u8, fp);
             }
         },
         ObjectFormat.coff => {
@@ -511,7 +511,6 @@ pub var global_allocator = mem.Allocator {
     .allocFn = globalAlloc,
     .reallocFn = globalRealloc,
     .freeFn = globalFree,
-    .context = null,
 };
 
 var some_mem: [100 * 1024]u8 = undefined;

@@ -3355,7 +3355,6 @@ bool type_has_bits(TypeTableEntry *type_entry) {
 bool type_requires_comptime(TypeTableEntry *type_entry) {
     switch (get_underlying_type(type_entry)->id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVar:
         case TypeTableEntryIdTypeDecl:
             zig_unreachable();
@@ -3383,6 +3382,7 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdVoid:
+        case TypeTableEntryIdUnreachable:
             return false;
     }
     zig_unreachable();

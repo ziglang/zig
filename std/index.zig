@@ -1,3 +1,4 @@
+pub const build = @import("build.zig");
 pub const c = @import("c/index.zig");
 pub const cstr = @import("cstr.zig");
 pub const debug = @import("debug.zig");

@@ -765,9 +765,9 @@ static void ir_print_init_enum(IrPrint *irp, IrInstructionInitEnum *instruction)
     fprintf(irp->f, "}");
 }
 
-static void ir_print_pointer_reinterpret(IrPrint *irp, IrInstructionPointerReinterpret *instruction) {
-    fprintf(irp->f, "@pointerReinterpret(");
-    ir_print_other_instruction(irp, instruction->ptr);
+static void ir_print_bit_cast(IrPrint *irp, IrInstructionBitCast *instruction) {
+    fprintf(irp->f, "@bitcast(");
+    ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
 }
 
@@ -1098,8 +1098,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdInitEnum:
             ir_print_init_enum(irp, (IrInstructionInitEnum *)instruction);
             break;
-        case IrInstructionIdPointerReinterpret:
-            ir_print_pointer_reinterpret(irp, (IrInstructionPointerReinterpret *)instruction);
+        case IrInstructionIdBitCast:
+            ir_print_bit_cast(irp, (IrInstructionBitCast *)instruction);
             break;
         case IrInstructionIdWidenOrShorten:
             ir_print_widen_or_shorten(irp, (IrInstructionWidenOrShorten *)instruction);

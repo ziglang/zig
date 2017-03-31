@@ -19,46 +19,48 @@
 static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options]\n"
         "Commands:\n"
-        "  build [sources]              create executable, object, or library from source\n"
-        "  test [sources]               create and run a test build\n"
+        "  build                        build project from build.zig\n"
+        "  build_exe [source]           create executable from source\n"
+        "  build_lib [source]           create library from source\n"
+        "  build_obj [source]           create object from source\n"
         "  parseh [source]              convert a c header file to zig extern declarations\n"
-        "  version                      print version number and exit\n"
         "  targets                      list available compilation targets\n"
+        "  test [source]                create and run a test build\n"
+        "  version                      print version number and exit\n"
         "Options:\n"
+        "  --ar-path [path]             set the path to ar\n"
+        "  --color [auto|off|on]        enable or disable colored error messages\n"
+        "  --dynamic-linker [path]      set the path to ld.so\n"
+        "  --each-lib-rpath             add rpath for each used dynamic library\n"
+        "  --ld-path [path]             set the path to the linker\n"
+        "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
+        "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
+        "  --libc-static-lib-dir [path] directory where libc crtbegin.o resides\n"
+        "  --library [lib]              link against lib\n"
+        "  --library-path [dir]         add a directory to the library search path\n"
+        "  --linker-script [path]       use a custom linker script\n"
+        "  --name [name]                override output name\n"
+        "  --output [file]              override destination path\n"
         "  --release                    build with optimizations on and debug protection off\n"
         "  --static                     output will be statically linked\n"
         "  --strip                      exclude debug symbols\n"
-        "  --export [exe|lib|obj]       override output type\n"
-        "  --name [name]                override output name\n"
-        "  --output [file]              override destination path\n"
-        "  --verbose                    turn on compiler debug output\n"
-        "  --color [auto|off|on]        enable or disable colored error messages\n"
-        "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
-        "  --libc-static-lib-dir [path] directory where libc crtbegin.o resides\n"
-        "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
-        "  --zig-std-dir [path]         directory where zig standard library resides\n"
-        "  --dynamic-linker [path]      set the path to ld.so\n"
-        "  --ld-path [path]             set the path to the linker\n"
-        "  --ar-path [path]             set the path to ar\n"
-        "  -isystem [dir]               add additional search path for other .h files\n"
-        "  -dirafter [dir]              same as -isystem but do it last\n"
-        "  --library-path [dir]         add a directory to the library search path\n"
-        "  -L[dir]                      alias for --library-path\n"
-        "  --library [lib]              link against lib\n"
         "  --target-arch [name]         specify target architecture\n"
-        "  --target-os [name]           specify target operating system\n"
         "  --target-environ [name]      specify target environment\n"
-        "  -mwindows                    (windows only) --subsystem windows to the linker\n"
-        "  -mconsole                    (windows only) --subsystem console to the linker\n"
-        "  -municode                    (windows only) link with unicode\n"
-        "  -mlinker-version [ver]       (darwin only) override linker version\n"
-        "  -rdynamic                    add all symbols to the dynamic symbol table\n"
-        "  -mmacosx-version-min [ver]   (darwin only) set Mac OS X deployment target\n"
-        "  -mios-version-min [ver]      (darwin only) set iOS deployment target\n"
+        "  --target-os [name]           specify target operating system\n"
+        "  --verbose                    turn on compiler debug output\n"
+        "  --zig-std-dir [path]         directory where zig standard library resides\n"
+        "  -L[dir]                      alias for --library-path\n"
+        "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -framework [name]            (darwin only) link against framework\n"
-        "  --linker-script [path]       use a custom linker script\n"
+        "  -isystem [dir]               add additional search path for other .h files\n"
+        "  -mconsole                    (windows only) --subsystem console to the linker\n"
+        "  -mios-version-min [ver]      (darwin only) set iOS deployment target\n"
+        "  -mlinker-version [ver]       (darwin only) override linker version\n"
+        "  -mmacosx-version-min [ver]   (darwin only) set Mac OS X deployment target\n"
+        "  -municode                    (windows only) link with unicode\n"
+        "  -mwindows                    (windows only) --subsystem windows to the linker\n"
+        "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
-        "  --each-lib-rpath             add rpath for each used dynamic library\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -144,6 +146,62 @@ int main(int argc, char **argv) {
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
 
+    if (argc >= 2 && strcmp(argv[1], "build") == 0) {
+        const char *zig_exe_path = arg0;
+
+        init_all_targets();
+
+        Buf *zig_std_dir = buf_create_from_str(ZIG_STD_DIR);
+        Buf *special_dir = buf_alloc();
+        os_path_join(zig_std_dir, buf_sprintf("special"), special_dir);
+
+        Buf *build_runner_path = buf_alloc();
+        os_path_join(special_dir, buf_create_from_str("build_runner.zig"), build_runner_path);
+
+        ZigList<const char *> args = {0};
+        args.append(zig_exe_path);
+        for (int i = 2; i < argc; i += 1) {
+            if (strcmp(argv[i], "--verbose") == 0) {
+                verbose = true;
+                args.append(argv[i]);
+            } else {
+                args.append(argv[i]);
+            }
+        }
+
+
+        Buf root_source_dir = BUF_INIT;
+        Buf root_source_code = BUF_INIT;
+        Buf root_source_name = BUF_INIT;
+        os_path_split(build_runner_path, &root_source_dir, &root_source_name);
+        if ((err = os_fetch_file_path(build_runner_path, &root_source_code))) {
+            fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(build_runner_path), err_str(err));
+            return 1;
+        }
+        CodeGen *g = codegen_create(&root_source_dir, nullptr);
+        codegen_set_out_name(g, buf_create_from_str("build"));
+        codegen_set_out_type(g, OutTypeExe);
+        codegen_set_verbose(g, verbose);
+
+        PackageTableEntry *build_pkg = new_package(".", "build.zig");
+        build_pkg->package_table.put(buf_create_from_str("std"), g->std_package);
+        g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
+        codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);
+        codegen_link(g, "build");
+
+        Termination term;
+        os_spawn_process("./build", args, &term);
+        if (term.how != TerminationIdClean || term.code != 0) {
+            fprintf(stderr, "\nBuild failed. Use the following command to reproduce the failure:\n");
+            fprintf(stderr, "./build");
+            for (size_t i = 0; i < args.length; i += 1) {
+                fprintf(stderr, " \"%s\"", args.at(i));
+            }
+            fprintf(stderr, "\n");
+        }
+        return (term.how == TerminationIdClean) ? term.code : -1;
+    }
+
     for (int i = 1; i < argc; i += 1) {
         char *arg = argv[i];
 
@@ -177,16 +235,6 @@ int main(int argc, char **argv) {
                     return usage(arg0);
                 } else if (strcmp(arg, "--output") == 0) {
                     out_file = argv[i];
-                } else if (strcmp(arg, "--export") == 0) {
-                    if (strcmp(argv[i], "exe") == 0) {
-                        out_type = OutTypeExe;
-                    } else if (strcmp(argv[i], "lib") == 0) {
-                        out_type = OutTypeLib;
-                    } else if (strcmp(argv[i], "obj") == 0) {
-                        out_type = OutTypeObj;
-                    } else {
-                        return usage(arg0);
-                    }
                 } else if (strcmp(arg, "--color") == 0) {
                     if (strcmp(argv[i], "auto") == 0) {
                         color = ErrColorAuto;
@@ -243,8 +291,15 @@ int main(int argc, char **argv) {
                 }
             }
         } else if (cmd == CmdInvalid) {
-            if (strcmp(arg, "build") == 0) {
+            if (strcmp(arg, "build_exe") == 0) {
                 cmd = CmdBuild;
+                out_type = OutTypeExe;
+            } else if (strcmp(arg, "build_obj") == 0) {
+                cmd = CmdBuild;
+                out_type = OutTypeObj;
+            } else if (strcmp(arg, "build_lib") == 0) {
+                cmd = CmdBuild;
+                out_type = OutTypeLib;
             } else if (strcmp(arg, "version") == 0) {
                 cmd = CmdVersion;
             } else if (strcmp(arg, "parseh") == 0) {
@@ -285,15 +340,7 @@ int main(int argc, char **argv) {
             if (!in_file)
                 return usage(arg0);
 
-            if (cmd == CmdBuild && !out_name) {
-                fprintf(stderr, "--name [name] not provided\n\n");
-                return usage(arg0);
-            }
-
-            if (cmd == CmdBuild && out_type == OutTypeUnknown) {
-                fprintf(stderr, "--export [exe|lib|obj] not provided\n\n");
-                return usage(arg0);
-            }
+            assert(cmd != CmdBuild || out_type != OutTypeUnknown);
 
             init_all_targets();
 
@@ -331,6 +378,9 @@ int main(int argc, char **argv) {
             Buf root_source_dir = BUF_INIT;
             Buf root_source_code = BUF_INIT;
             Buf root_source_name = BUF_INIT;
+
+            Buf *buf_out_name = (cmd == CmdTest) ? buf_create_from_str("test") :
+                (out_name == nullptr) ? nullptr : buf_create_from_str(out_name);
             if (buf_eql_str(&in_file_buf, "-")) {
                 os_get_cwd(&root_source_dir);
                 if ((err = os_fetch_file(stdin, &root_source_code))) {
@@ -338,12 +388,24 @@ int main(int argc, char **argv) {
                     return 1;
                 }
                 buf_init_from_str(&root_source_name, "");
+
             } else {
                 os_path_split(&in_file_buf, &root_source_dir, &root_source_name);
                 if ((err = os_fetch_file_path(buf_create_from_str(in_file), &root_source_code))) {
                     fprintf(stderr, "unable to open '%s': %s\n", in_file, err_str(err));
                     return 1;
                 }
+
+                if (cmd == CmdBuild && buf_out_name == nullptr) {
+                    buf_out_name = buf_alloc();
+                    Buf ext_name = BUF_INIT;
+                    os_path_extname(&root_source_name, buf_out_name, &ext_name);
+                }
+            }
+
+            if (cmd == CmdBuild && buf_out_name == nullptr) {
+                fprintf(stderr, "--name [name] not provided and unable to infer\n\n");
+                return usage(arg0);
             }
 
             CodeGen *g = codegen_create(&root_source_dir, target);
@@ -361,11 +423,7 @@ int main(int argc, char **argv) {
             } else if (cmd == CmdTest) {
                 codegen_set_out_type(g, OutTypeExe);
             }
-            if (out_name) {
-                codegen_set_out_name(g, buf_create_from_str(out_name));
-            } else if (cmd == CmdTest) {
-                codegen_set_out_name(g, buf_create_from_str("test"));
-            }
+            codegen_set_out_name(g, buf_out_name);
             if (libc_lib_dir)
                 codegen_set_libc_lib_dir(g, buf_create_from_str(libc_lib_dir));
             if (libc_static_lib_dir)

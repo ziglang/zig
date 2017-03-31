@@ -15,7 +15,18 @@ test "numLitIntToPtrCast" {
 test "pointerReinterpretConstFloatToInt" {
     const float: f64 = 5.99999999999994648725e-01;
     const float_ptr = &float;
-    const int_ptr = (&i32)(float_ptr);
+    const int_ptr = @bitcast(&i32, float_ptr);
     const int_val = *int_ptr;
     assert(int_val == 858993411);
+}
+
+test "implicitly cast a pointer to a const pointer of it" {
+    var x: i32 = 1;
+    const xp = &x;
+    funcWithConstPtrPtr(xp);
+    assert(x == 2);
+}
+
+fn funcWithConstPtrPtr(x: &const &i32) {
+    **x += 1;
 }

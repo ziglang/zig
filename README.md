@@ -82,13 +82,12 @@ the Zig compiler itself:
  * gcc >= 5.0.0 or clang >= 3.6.0
  * cmake >= 2.8.5
 
-#### Runtime Dependencies
+#### Library Dependencies
 
 These libraries must be installed on your system, with the development files
 available. The Zig compiler dynamically links against them.
 
- * LLVM == 4.x
- * libclang == 4.x
+ * LLVM, Clang, and LLD libraries == 4.x
 
 ### Debug / Development Build
 

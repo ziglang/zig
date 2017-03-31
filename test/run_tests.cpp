@@ -73,10 +73,8 @@ static TestCase *add_simple_case(const char *case_name, const char *source, cons
     test_case->source_files.at(0).relative_path = tmp_source_path;
     test_case->source_files.at(0).source_code = source;
 
-    test_case->compiler_args.append("build");
+    test_case->compiler_args.append("build_exe");
     test_case->compiler_args.append(tmp_source_path);
-    test_case->compiler_args.append("--export");
-    test_case->compiler_args.append("exe");
     test_case->compiler_args.append("--name");
     test_case->compiler_args.append("test");
     test_case->compiler_args.append("--output");
@@ -113,14 +111,11 @@ static TestCase *add_compile_fail_case(const char *case_name, const char *source
         test_case->compile_errors.append(arg);
     }
 
-    test_case->compiler_args.append("build");
+    test_case->compiler_args.append("build_obj");
     test_case->compiler_args.append(tmp_source_path);
 
     test_case->compiler_args.append("--name");
     test_case->compiler_args.append("test");
-
-    test_case->compiler_args.append("--export");
-    test_case->compiler_args.append("obj");
 
     test_case->compiler_args.append("--output");
     test_case->compiler_args.append(tmp_exe_path);
@@ -142,14 +137,11 @@ static void add_debug_safety_case(const char *case_name, const char *source) {
         test_case->source_files.at(0).relative_path = tmp_source_path;
         test_case->source_files.at(0).source_code = source;
 
-        test_case->compiler_args.append("build");
+        test_case->compiler_args.append("build_exe");
         test_case->compiler_args.append(tmp_source_path);
 
         test_case->compiler_args.append("--name");
         test_case->compiler_args.append("test");
-
-        test_case->compiler_args.append("--export");
-        test_case->compiler_args.append("exe");
 
         test_case->compiler_args.append("--output");
         test_case->compiler_args.append(tmp_exe_path);
@@ -164,14 +156,11 @@ static void add_debug_safety_case(const char *case_name, const char *source) {
         test_case->source_files.at(0).source_code = source;
         test_case->output = "";
 
-        test_case->compiler_args.append("build");
+        test_case->compiler_args.append("build_exe");
         test_case->compiler_args.append(tmp_source_path);
 
         test_case->compiler_args.append("--name");
         test_case->compiler_args.append("test");
-
-        test_case->compiler_args.append("--export");
-        test_case->compiler_args.append("exe");
 
         test_case->compiler_args.append("--output");
         test_case->compiler_args.append(tmp_exe_path);
@@ -471,8 +460,8 @@ const foo : i32 = 0;
 const c = @cImport(@cInclude("stdlib.h"));
 
 export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
-    const a_int = (&i32)(a ?? unreachable);
-    const b_int = (&i32)(b ?? unreachable);
+    const a_int = @bitcast(&i32, a ?? unreachable);
+    const b_int = @bitcast(&i32, b ?? unreachable);
     if (*a_int < *b_int) {
         -1
     } else if (*a_int > *b_int) {
@@ -485,7 +474,7 @@ export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
 export fn main(args: c_int, argv: &&u8) -> c_int {
     var array = []u32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
 
-    c.qsort((&c_void)(&array[0]), c_ulong(array.len), @sizeOf(i32), compare_fn);
+    c.qsort(@bitcast(&c_void, &array[0]), c_ulong(array.len), @sizeOf(i32), compare_fn);
 
     for (array) |item, i| {
         if (item != i) {

@@ -284,3 +284,18 @@ fn testCompTimeUIntComparisons(x: u32) {
         @compileError("this condition should be comptime known");
     }
 }
+
+
+
+test "const ptr to variable data changes at runtime" {
+    assert(foo_ref.name[0] == 'a');
+    foo_ref.name = "b";
+    assert(foo_ref.name[0] == 'b');
+}
+
+const Foo = struct {
+    name: []const u8,
+};
+
+var foo_contents = Foo { .name = "a", };
+const foo_ref = &foo_contents;

@@ -47,7 +47,7 @@ static void init_darwin_native(CodeGen *g) {
     }
 }
 
-static PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_path) {
+PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_path) {
     PackageTableEntry *entry = allocate<PackageTableEntry>(1);
     entry->package_table.init(4);
     buf_init_from_str(&entry->root_src_dir, root_src_dir);
@@ -1345,12 +1345,12 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
     zig_unreachable();
 }
 
-static LLVMValueRef ir_render_pointer_reinterpret(CodeGen *g, IrExecutable *executable,
-        IrInstructionPointerReinterpret *instruction)
+static LLVMValueRef ir_render_bitcast(CodeGen *g, IrExecutable *executable,
+        IrInstructionBitCast *instruction)
 {
     TypeTableEntry *wanted_type = instruction->base.value.type;
-    LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
-    return LLVMBuildBitCast(g->builder, ptr, wanted_type->type_ref, "");
+    LLVMValueRef target = ir_llvm_value(g, instruction->target);
+    return LLVMBuildBitCast(g->builder, target, wanted_type->type_ref, "");
 }
 
 static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executable,
@@ -2776,8 +2776,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_init_enum(g, executable, (IrInstructionInitEnum *)instruction);
         case IrInstructionIdStructInit:
             return ir_render_struct_init(g, executable, (IrInstructionStructInit *)instruction);
-        case IrInstructionIdPointerReinterpret:
-            return ir_render_pointer_reinterpret(g, executable, (IrInstructionPointerReinterpret *)instruction);
+        case IrInstructionIdBitCast:
+            return ir_render_bitcast(g, executable, (IrInstructionBitCast *)instruction);
         case IrInstructionIdWidenOrShorten:
             return ir_render_widen_or_shorten(g, executable, (IrInstructionWidenOrShorten *)instruction);
         case IrInstructionIdPtrToInt:
@@ -3638,8 +3638,14 @@ static void do_code_gen(CodeGen *g) {
             } else {
                 assert(var->gen_arg_index != SIZE_MAX);
                 TypeTableEntry *gen_type;
+                FnGenParamInfo *gen_info = &fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index];
+
                 if (handle_is_ptr(var->value->type)) {
-                    gen_type = fn_table_entry->type_entry->data.fn.gen_param_info[var->src_arg_index].type;
+                    if (gen_info->is_byval) {
+                        gen_type = var->value->type;
+                    } else {
+                        gen_type = gen_info->type;
+                    }
                     var->value_ref = LLVMGetParam(fn, var->gen_arg_index);
                 } else {
                     gen_type = var->value->type;
@@ -4254,6 +4260,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSetGlobalSection, "setGlobalSection", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalLinkage, "setGlobalLinkage", 2);
     create_builtin_fn(g, BuiltinFnIdPanic, "panic", 1);
+    create_builtin_fn(g, BuiltinFnIdBitCast, "bitcast", 2);
 }
 
 static void add_compile_var(CodeGen *g, const char *name, ConstExprValue *value) {

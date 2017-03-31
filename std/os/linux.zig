@@ -5,16 +5,29 @@ const arch = switch (@compileVar("arch")) {
 };
 const errno = @import("errno.zig");
 
-pub const MMAP_PROT_NONE =  0;
-pub const MMAP_PROT_READ =  1;
-pub const MMAP_PROT_WRITE = 2;
-pub const MMAP_PROT_EXEC =  4;
+pub const PROT_NONE      = 0;
+pub const PROT_READ      = 1;
+pub const PROT_WRITE     = 2;
+pub const PROT_EXEC      = 4;
+pub const PROT_GROWSDOWN = 0x01000000;
+pub const PROT_GROWSUP   = 0x02000000;
 
-pub const MMAP_MAP_FILE =    0;
-pub const MMAP_MAP_SHARED =  1;
-pub const MMAP_MAP_PRIVATE = 2;
-pub const MMAP_MAP_FIXED =   16;
-pub const MMAP_MAP_ANON =    32;
+pub const MAP_FAILED     = @maxValue(usize);
+pub const MAP_SHARED     = 0x01;
+pub const MAP_PRIVATE    = 0x02;
+pub const MAP_TYPE       = 0x0f;
+pub const MAP_FIXED      = 0x10;
+pub const MAP_ANONYMOUS  = 0x20;
+pub const MAP_NORESERVE  = 0x4000;
+pub const MAP_GROWSDOWN  = 0x0100;
+pub const MAP_DENYWRITE  = 0x0800;
+pub const MAP_EXECUTABLE = 0x1000;
+pub const MAP_LOCKED     = 0x2000;
+pub const MAP_POPULATE   = 0x8000;
+pub const MAP_NONBLOCK   = 0x10000;
+pub const MAP_STACK      = 0x20000;
+pub const MAP_HUGETLB    = 0x40000;
+pub const MAP_FILE       = 0;
 
 pub const SIGHUP    = 1;
 pub const SIGINT    = 2;
@@ -226,7 +239,7 @@ pub const AF_MAX = PF_MAX;
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) -> usize {
-    const signed_r = *(&isize)(&r);
+    const signed_r = *@bitcast(&isize, &r);
     if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0
 }
 

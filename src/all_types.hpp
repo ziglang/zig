@@ -1196,6 +1196,7 @@ enum BuiltinFnId {
     BuiltinFnIdSetGlobalSection,
     BuiltinFnIdSetGlobalLinkage,
     BuiltinFnIdPanic,
+    BuiltinFnIdBitCast,
 };
 
 struct BuiltinFnEntry {
@@ -1719,7 +1720,7 @@ enum IrInstructionId {
     IrInstructionIdFnProto,
     IrInstructionIdTestComptime,
     IrInstructionIdInitEnum,
-    IrInstructionIdPointerReinterpret,
+    IrInstructionIdBitCast,
     IrInstructionIdWidenOrShorten,
     IrInstructionIdIntToPtr,
     IrInstructionIdPtrToInt,
@@ -2369,10 +2370,11 @@ struct IrInstructionInitEnum {
     LLVMValueRef tmp_ptr;
 };
 
-struct IrInstructionPointerReinterpret {
+struct IrInstructionBitCast {
     IrInstruction base;
 
-    IrInstruction *ptr;
+    IrInstruction *dest_type;
+    IrInstruction *target;
 };
 
 struct IrInstructionWidenOrShorten {

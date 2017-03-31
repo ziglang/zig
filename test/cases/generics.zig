@@ -121,5 +121,5 @@ test "genericFnWithImplicitCast" {
 }
 fn getByte(ptr: ?&const u8) -> u8 {*??ptr}
 fn getFirstByte(comptime T: type, mem: []const T) -> u8 {
-    getByte((&const u8)(&mem[0]))
+    getByte(@bitcast(&const u8, &mem[0]))
 }

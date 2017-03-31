@@ -7,12 +7,10 @@ pub const Cmp = math.Cmp;
 
 error NoMem;
 
-pub type Context = u8;
 pub const Allocator = struct {
     allocFn: fn (self: &Allocator, n: usize) -> %[]u8,
     reallocFn: fn (self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8,
     freeFn: fn (self: &Allocator, mem: []u8),
-    context: ?&Context,
 
     /// Aborts the program if an allocation fails.
     fn checkedAlloc(self: &Allocator, comptime T: type, n: usize) -> []T {
@@ -20,6 +18,14 @@ pub const Allocator = struct {
             %%io.stderr.printf("allocation failure: {}\n", @errorName(err));
             os.abort()
         }
+    }
+
+    fn create(self: &Allocator, comptime T: type) -> %&T {
+        &(%return self.alloc(T, 1))[0]
+    }
+
+    fn destroy(self: &Allocator, ptr: var) {
+        self.free(ptr[0...1]);
     }
 
     fn alloc(self: &Allocator, comptime T: type, n: usize) -> %[]T {
@@ -34,6 +40,62 @@ pub const Allocator = struct {
 
     fn free(self: &Allocator, mem: var) {
         self.freeFn(self, ([]u8)(mem));
+    }
+};
+
+pub const IncrementingAllocator = struct {
+    allocator: Allocator,
+    bytes: []u8,
+    end_index: usize,
+
+    fn init(capacity: usize) -> %IncrementingAllocator {
+        switch (@compileVar("os")) {
+            Os.linux, Os.darwin, Os.macosx, Os.ios => {
+                const p = os.posix;
+                const addr = p.mmap(null, capacity, p.PROT_READ|p.PROT_WRITE,
+                    p.MAP_PRIVATE|p.MAP_ANONYMOUS|p.MAP_NORESERVE, -1, 0);
+                if (addr == p.MAP_FAILED) {
+                    return error.NoMem;
+                }
+                return IncrementingAllocator {
+                    .allocator = Allocator {
+                        .allocFn = alloc,
+                        .reallocFn = realloc,
+                        .freeFn = free,
+                    },
+                    .bytes = (&u8)(addr)[0...capacity],
+                    .end_index = 0,
+                };
+            },
+            else => @compileError("Unsupported OS"),
+        }
+    }
+
+    fn deinit(self: &IncrementingAllocator) {
+        _ = os.posix.munmap(self.bytes.ptr, self.bytes.len);
+    }
+
+    fn alloc(allocator: &Allocator, n: usize) -> %[]u8 {
+        // TODO
+        //const self = @fieldParentPtr(IncrementingAllocator, "allocator", allocator);
+        const self = @bitcast(&IncrementingAllocator, allocator);
+        const new_end_index = self.end_index + n;
+        if (new_end_index > self.bytes.len) {
+            return error.NoMem;
+        }
+        const result = self.bytes[self.end_index...new_end_index];
+        self.end_index = new_end_index;
+        return result;
+    }
+
+    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8 {
+        const result = %return alloc(allocator, new_size);
+        copy(u8, result, old_mem);
+        return result;
+    }
+
+    fn free(allocator: &Allocator, bytes: []u8) {
+        // Do nothing. That's the point of an incrementing allocator.
     }
 };
 

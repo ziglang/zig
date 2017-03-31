@@ -236,7 +236,7 @@ test "basicHashMapTest" {
 }
 
 fn hash_i32(x: i32) -> u32 {
-    *(&u32)(&x)
+    *@bitcast(&u32, &x)
 }
 fn eql_i32(a: i32, b: i32) -> bool {
     a == b
