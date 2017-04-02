@@ -7,6 +7,7 @@ pub const posix = switch(@compileVar("os")) {
     Os.windows => windows,
     else => @compileError("Unsupported OS"),
 };
+
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 
@@ -385,6 +386,8 @@ pub const ChildProcess = struct {
             .stdin = if (stdin == StdIo.Pipe) {
                 io.OutStream {
                     .fd = stdin_pipe[1],
+                    .buffer = undefined,
+                    .index = 0,
                 }
             } else {
                 null
@@ -392,8 +395,6 @@ pub const ChildProcess = struct {
             .stdout = if (stdout == StdIo.Pipe) {
                 io.InStream {
                     .fd = stdout_pipe[0],
-                    .buffer = undefined,
-                    .index = 0,
                 }
             } else {
                 null
@@ -401,8 +402,6 @@ pub const ChildProcess = struct {
             .stderr = if (stderr == StdIo.Pipe) {
                 io.InStream {
                     .fd = stderr_pipe[0],
-                    .buffer = undefined,
-                    .index = 0,
                 }
             } else {
                 null
@@ -419,3 +418,17 @@ pub const ChildProcess = struct {
         }
     }
 };
+
+pub const EnvPair = struct {
+    key: []const u8,
+    value: []const u8,
+};
+pub var environ: []const EnvPair = undefined;
+
+pub fn getEnv(key: []const u8) -> ?[]const u8 {
+    for (environ) |pair| {
+        if (mem.eql(u8, pair.key, key))
+            return pair.value;
+    }
+    return null;
+}
