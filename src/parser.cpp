@@ -212,6 +212,7 @@ static void ast_invalid_token_error(ParseContext *pc, Token *token) {
 }
 
 static AstNode *ast_parse_block_or_expression(ParseContext *pc, size_t *token_index, bool mandatory);
+static AstNode *ast_parse_block_expr_or_expression(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool mandatory);
@@ -701,7 +702,7 @@ static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index, bool m
             ast_eat_token(pc, token_index, TokenIdBinOr);
         }
 
-        node->data.try_expr.else_node = ast_parse_block_or_expression(pc, token_index, true);
+        node->data.try_expr.else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
     }
 
     return node;
@@ -1439,7 +1440,7 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool ma
         Token *else_token = &pc->tokens->at(*token_index);
         if (else_token->id == TokenIdKeywordElse) {
             *token_index += 1;
-            node->data.if_var_expr.else_node = ast_parse_block_or_expression(pc, token_index, true);
+            node->data.if_var_expr.else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
         }
 
         return node;
@@ -1452,7 +1453,7 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool ma
         Token *else_token = &pc->tokens->at(*token_index);
         if (else_token->id == TokenIdKeywordElse) {
             *token_index += 1;
-            node->data.if_bool_expr.else_node = ast_parse_block_or_expression(pc, token_index, true);
+            node->data.if_bool_expr.else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
         }
 
         return node;
@@ -1860,15 +1861,15 @@ static bool statement_has_block_body(AstNode *node) {
     switch (node->type) {
         case NodeTypeIfBoolExpr:
             if (node->data.if_bool_expr.else_node)
-                return node->data.if_bool_expr.else_node->type == NodeTypeBlock;
+                return statement_has_block_body(node->data.if_bool_expr.else_node);
             return node->data.if_bool_expr.then_block->type == NodeTypeBlock;
         case NodeTypeIfVarExpr:
             if (node->data.if_var_expr.else_node)
-                return node->data.if_var_expr.else_node->type == NodeTypeBlock;
+                return statement_has_block_body(node->data.if_var_expr.else_node);
             return node->data.if_var_expr.then_block->type == NodeTypeBlock;
         case NodeTypeTryExpr:
             if (node->data.try_expr.else_node)
-                return node->data.try_expr.else_node->type == NodeTypeBlock;
+                return statement_has_block_body(node->data.try_expr.else_node);
             return node->data.try_expr.then_node->type == NodeTypeBlock;
         case NodeTypeWhileExpr:
             return node->data.while_expr.body->type == NodeTypeBlock;
@@ -1882,7 +1883,7 @@ static bool statement_has_block_body(AstNode *node) {
         case NodeTypeDefer:
             return node->data.defer.expr->type == NodeTypeBlock;
         default:
-            zig_unreachable();
+            return false;
     }
 }
 
@@ -2028,6 +2029,14 @@ static AstNode *ast_parse_ass_expr(ParseContext *pc, size_t *token_index, bool m
     node->data.bin_op_expr.op2 = rhs;
 
     return node;
+}
+
+static AstNode *ast_parse_block_expr_or_expression(ParseContext *pc, size_t *token_index, bool mandatory) {
+    AstNode *block_expr = ast_parse_block_expr(pc, token_index, false);
+    if (block_expr)
+        return block_expr;
+
+    return ast_parse_expression(pc, token_index, mandatory);
 }
 
 /*

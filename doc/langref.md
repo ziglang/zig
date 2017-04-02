@@ -93,11 +93,11 @@ Defer(body) = option("%" | "?") "defer" body
 
 IfExpression(body) = IfVarExpression(body) | IfBoolExpression(body)
 
-IfBoolExpression(body) = "if" "(" Expression ")" body option("else" body)
+IfBoolExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-TryExpression(body) = "try" "(" option(("const" | "var") option("*") Symbol "=") Expression  ")" body option("else" option("|" Symbol "|") body)
+TryExpression(body) = "try" "(" option(("const" | "var") option("*") Symbol "=") Expression  ")" body option("else" option("|" Symbol "|") BlockExpression(body))
 
-IfVarExpression(body) = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" body Option("else" body)
+IfVarExpression(body) = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" body Option("else" BlockExpression(body))
 
 BoolAndExpression = ComparisonExpression "and" BoolAndExpression | ComparisonExpression
 
