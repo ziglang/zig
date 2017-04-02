@@ -615,9 +615,9 @@ static AstNode *ast_parse_goto_expr(ParseContext *pc, size_t *token_index, bool 
 }
 
 /*
-CompTimeExpression = "comptime" Expression
+CompTimeExpression(body) = "comptime" body
 */
-static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
+static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, bool require_block_body, bool mandatory) {
     Token *comptime_token = &pc->tokens->at(*token_index);
     if (comptime_token->id == TokenIdKeywordCompTime) {
         *token_index += 1;
@@ -629,7 +629,10 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
     }
 
     AstNode *node = ast_create_node(pc, NodeTypeCompTime, comptime_token);
-    node->data.comptime_expr.expr = ast_parse_expression(pc, token_index, true);
+    if (require_block_body)
+        node->data.comptime_expr.expr = ast_parse_block(pc, token_index, true);
+    else
+        node->data.comptime_expr.expr = ast_parse_expression(pc, token_index, true);
     return node;
 }
 
@@ -1884,7 +1887,7 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool
     if (block)
         return block;
 
-    AstNode *comptime_node = ast_parse_comptime_expr(pc, token_index, false);
+    AstNode *comptime_node = ast_parse_comptime_expr(pc, token_index, false, false);
     if (comptime_node)
         return comptime_node;
 
@@ -2459,12 +2462,12 @@ static AstNode *ast_parse_type_decl(ParseContext *pc, size_t *token_index, Visib
 }
 
 /*
-TopLevelItem = ErrorValueDecl | CompTimeExpression | TopLevelDecl | TestDecl
+TopLevelItem = ErrorValueDecl | CompTimeExpression(Block) | TopLevelDecl | TestDecl
 TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | TypeDecl | UseDecl)
 */
 static void ast_parse_top_level_decls(ParseContext *pc, size_t *token_index, ZigList<AstNode *> *top_level_decls) {
     for (;;) {
-        AstNode *comptime_expr_node = ast_parse_comptime_expr(pc, token_index, false);
+        AstNode *comptime_expr_node = ast_parse_comptime_expr(pc, token_index, true, false);
         if (comptime_expr_node) {
             top_level_decls->append(comptime_expr_node);
             continue;
