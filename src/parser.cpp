@@ -1856,7 +1856,7 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
     }
 }
 
-static bool block_expr_has_block_body(AstNode *node) {
+static bool statement_has_block_body(AstNode *node) {
     switch (node->type) {
         case NodeTypeIfBoolExpr:
             if (node->data.if_bool_expr.else_node)
@@ -1879,6 +1879,8 @@ static bool block_expr_has_block_body(AstNode *node) {
             return true;
         case NodeTypeCompTime:
             return node->data.comptime_expr.expr->type == NodeTypeBlock;
+        case NodeTypeDefer:
+            return node->data.defer.expr->type == NodeTypeBlock;
         default:
             zig_unreachable();
     }
@@ -2123,18 +2125,16 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
             statement_node = ast_parse_variable_declaration_expr(pc, token_index, false, VisibModPrivate);
             if (!statement_node) {
                 statement_node = ast_parse_defer_expr(pc, token_index);
-                if (!statement_node) {
+                if (!statement_node)
                     statement_node = ast_parse_block_expr(pc, token_index, false);
-                    if (statement_node) {
-                        if (block_expr_has_block_body(statement_node)) {
-                            semicolon_expected = false;
-                        }
-                    } else {
-                        statement_node = ast_parse_expression(pc, token_index, false);
-                        if (!statement_node) {
-                            // final semicolon means add a void statement.
-                            need_implicit_final_void_statement = true;
-                        }
+                if (statement_node) {
+                    if (statement_has_block_body(statement_node))
+                        semicolon_expected = false;
+                } else {
+                    statement_node = ast_parse_expression(pc, token_index, false);
+                    if (!statement_node) {
+                        // final semicolon means add a void statement.
+                        need_implicit_final_void_statement = true;
                     }
                 }
             }
