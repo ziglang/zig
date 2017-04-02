@@ -45,6 +45,8 @@ Label = Symbol ":"
 
 TypeExpr = PrefixOpExpression | "var"
 
+BlockOrExpression = Block | Expression
+
 Expression = ReturnExpression | AssignmentExpression
 
 AsmExpression = "asm" option("volatile") "(" String option(AsmOutput) ")"
@@ -143,7 +145,7 @@ StructLiteralField = "." Symbol "=" Expression
 
 PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%"
 
-PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(Expression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
+PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
 
 ArrayType = "[" option(Expression) "]" option("const") TypeExpr
 
