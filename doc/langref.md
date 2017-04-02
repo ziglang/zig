@@ -5,7 +5,7 @@
 ```
 Root = many(TopLevelItem) "EOF"
 
-TopLevelItem = ErrorValueDecl | CompTimeExpression | TopLevelDecl | TestDecl
+TopLevelItem = ErrorValueDecl | CompTimeExpression(Block) | TopLevelDecl | TestDecl
 
 TestDecl = "test" String Block
 
@@ -21,7 +21,7 @@ VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" Typ
 
 ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
 
-ContainerField = Symbol option(":" Expression) ",")
+ContainerField = Symbol option(":" Expression) ","
 
 UseDecl = "use" Expression ";"
 
@@ -37,17 +37,15 @@ ParamDeclList = "(" list(ParamDecl, ",") ")"
 
 ParamDecl = option("noalias" | "comptime") option(Symbol ":") (TypeExpr | "...")
 
-Block = "{" list(option(Statement), ";") "}"
+Block = "{" many(Statement) option(Expression) "}"
 
-Statement = Label | VariableDeclaration ";" | Defer ";" | NonBlockExpression ";" | BlockExpression
+Statement = Label | VariableDeclaration ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
 
 Label = Symbol ":"
 
-Expression = BlockExpression | NonBlockExpression
-
 TypeExpr = PrefixOpExpression | "var"
 
-NonBlockExpression = ReturnExpression | AssignmentExpression
+Expression = ReturnExpression | AssignmentExpression
 
 AsmExpression = "asm" option("volatile") "(" String option(AsmOutput) ")"
 
@@ -71,9 +69,9 @@ AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | Un
 
 AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "*%=" | "+%=" | "-%=" | "<<%="
 
-BlockExpression = IfExpression | Block | WhileExpression | ForExpression | SwitchExpression | CompTimeExpression | TryExpression
+BlockExpression(body) = Block | IfExpression(body) | TryExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body)
 
-CompTimeExpression = option("comptime") Expression
+CompTimeExpression(body) = "comptime" body
 
 SwitchExpression = "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 
@@ -81,25 +79,23 @@ SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" option("*") Symbo
 
 SwitchItem = Expression | (Expression "..." Expression)
 
-WhileExpression = option("inline") "while" "(" Expression option(";" Expression) ")" Expression
+WhileExpression(body) = option("inline") "while" "(" Expression option(";" Expression) ")" body
 
-ForExpression = option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") Expression
+ForExpression(body) = option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body
 
 BoolOrExpression = BoolAndExpression "or" BoolOrExpression | BoolAndExpression
 
 ReturnExpression = option("%" | "?") "return" option(Expression)
 
-Defer = option("%" | "?") "defer" Expression
+Defer(body) = option("%" | "?") "defer" body
 
-IfExpression = IfVarExpression | IfBoolExpression
+IfExpression(body) = IfVarExpression(body) | IfBoolExpression(body)
 
-IfBoolExpression = "if" "(" Expression ")" Expression option(Else)
+IfBoolExpression(body) = "if" "(" Expression ")" body option("else" body)
 
-TryExpression = "try" "(" option(("const" | "var") option("*") Symbol "=") Expression  ")" Expression option("else" option("|" Symbol "|") Expression)
+TryExpression(body) = "try" "(" option(("const" | "var") option("*") Symbol "=") Expression  ")" body option("else" option("|" Symbol "|") body)
 
-IfVarExpression = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" Expression Option(Else)
-
-Else = "else" Expression
+IfVarExpression(body) = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" body Option("else" body)
 
 BoolAndExpression = ComparisonExpression "and" BoolAndExpression | ComparisonExpression
 
@@ -147,7 +143,7 @@ StructLiteralField = "." Symbol "=" Expression
 
 PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%"
 
-PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
+PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(Expression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
 
 ArrayType = "[" option(Expression) "]" option("const") TypeExpr
 
@@ -158,7 +154,6 @@ GroupedExpression = "(" Expression ")"
 KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this" | "unreachable"
 
 ContainerDecl = option("extern" | "packed") ("struct" | "enum" | "union") "{" many(ContainerMember) "}"
-
 ```
 
 ## Operator Precedence
