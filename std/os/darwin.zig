@@ -6,6 +6,10 @@ const arch = switch (@compileVar("arch")) {
 
 const errno = @import("errno.zig");
 
+pub const STDIN_FILENO = 0;
+pub const STDOUT_FILENO = 1;
+pub const STDERR_FILENO = 2;
+
 pub const O_LARGEFILE = 0x0000;
 pub const O_RDONLY = 0x0000;
 

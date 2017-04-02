@@ -5,6 +5,10 @@ const arch = switch (@compileVar("arch")) {
 };
 const errno = @import("errno.zig");
 
+pub const STDIN_FILENO = 0;
+pub const STDOUT_FILENO = 1;
+pub const STDERR_FILENO = 2;
+
 pub const PROT_NONE      = 0;
 pub const PROT_READ      = 1;
 pub const PROT_WRITE     = 2;
@@ -237,10 +241,64 @@ pub const AF_NFC = PF_NFC;
 pub const AF_VSOCK = PF_VSOCK;
 pub const AF_MAX = PF_MAX;
 
+
+fn unsigned(s: i32) -> u32 { *@ptrcast(&u32, &s) }
+fn signed(s: u32) -> i32 { *@ptrcast(&i32, &s) }
+pub fn WEXITSTATUS(s: i32) -> i32 { signed((unsigned(s) & 0xff00) >> 8) }
+pub fn WTERMSIG(s: i32) -> i32 { signed(unsigned(s) & 0x7f) }
+pub fn WSTOPSIG(s: i32) -> i32 { WEXITSTATUS(s) }
+pub fn WIFEXITED(s: i32) -> bool { WTERMSIG(s) == 0 }
+pub fn WIFSTOPPED(s: i32) -> bool { (u16)(((unsigned(s)&0xffff)*%0x10001)>>8) > 0x7f00 }
+pub fn WIFSIGNALED(s: i32) -> bool { (unsigned(s)&0xffff)-%1 < 0xff }
+
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) -> usize {
     const signed_r = *@ptrcast(&isize, &r);
     if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0
+}
+
+pub fn dup2(old: i32, new: i32) -> usize {
+    arch.syscall2(arch.SYS_dup2, usize(old), usize(new))
+}
+
+pub fn execve_c(path: &const u8, argv: &const ?&const u8, envp: &const ?&const u8) -> usize {
+    arch.syscall3(arch.SYS_execve, path, argv, envp)
+}
+
+/// This function must allocate memory to add a null terminating bytes on path, each arg,
+/// and each environment variable line, as well as a null pointer after the arg list and
+/// environment variable list. We allocate stack memory since the process is about to get
+/// wiped anyway.
+pub fn execve(path: []const u8, argv: []const []const u8, envp: []const []const u8) -> usize {
+    const path_buf = @alloca(u8, path.len + 1);
+    @memcpy(&path_buf[0], &path[0], path.len);
+    path_buf[path.len] = 0;
+
+    const argv_buf = @alloca([]const ?&const u8, argv.len + 1);
+    for (argv) |arg, i| {
+        const arg_buf = @alloca(u8, arg.len + 1);
+        @memcpy(&arg_buf[0], &arg[0], arg.len);
+        arg_buf[arg.len] = 0;
+
+        argv[i] = arg_buf;
+    }
+    argv_buf[argv.len] = null;
+
+    const envp_buf = @alloca([]const ?&const u8, envp.len + 1);
+    for (envp) |env, i| {
+        const env_buf = @alloca(u8, env.len + 1);
+        @memcpy(&env_buf[0], &env[0], env.len);
+        env_buf[env.len] = 0;
+
+        envp[i] = env_buf;
+    }
+    envp_buf[envp.len] = null;
+
+    return execve_c(path_buf.ptr, argv_buf.ptr, envp_buf.ptr);
+}
+
+pub fn fork() -> usize {
+    arch.syscall0(arch.SYS_fork)
 }
 
 pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32, offset: usize)
@@ -259,6 +317,14 @@ pub fn read(fd: i32, buf: &u8, count: usize) -> usize {
 
 pub fn pread(fd: i32, buf: &u8, count: usize, offset: usize) -> usize {
     arch.syscall4(arch.SYS_pread, usize(fd), usize(buf), count, offset)
+}
+
+pub fn pipe(fd: &[2]i32) -> usize {
+    pipe2(fd, 0)
+}
+
+pub fn pipe2(fd: &[2]i32, flags: usize) -> usize {
+    arch.syscall2(arch.SYS_pipe2, usize(fd), flags)
 }
 
 pub fn write(fd: i32, buf: &const u8, count: usize) -> usize {
@@ -319,8 +385,12 @@ pub fn getrandom(buf: &u8, count: usize, flags: u32) -> usize {
     arch.syscall3(arch.SYS_getrandom, usize(buf), count, usize(flags))
 }
 
-pub fn kill(pid: i32, sig: i32) -> i32 {
-    i32(arch.syscall2(arch.SYS_kill, usize(pid), usize(sig)))
+pub fn kill(pid: i32, sig: i32) -> usize {
+    arch.syscall2(arch.SYS_kill, usize(pid), usize(sig))
+}
+
+pub fn waitpid(pid: i32, status: &i32, options: i32) -> usize {
+    arch.syscall4(arch.SYS_wait4, usize(pid), usize(status), usize(options), 0)
 }
 
 const NSIG = 65;

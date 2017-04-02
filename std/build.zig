@@ -3,8 +3,12 @@ const mem = @import("mem.zig");
 const debug = @import("debug.zig");
 const List = @import("list.zig").List;
 const Allocator = @import("mem.zig").Allocator;
+const os = @import("os/index.zig");
+const StdIo = os.ChildProcess.StdIo;
+const Term = os.ChildProcess.Term;
 
 error ExtraArg;
+error UncleanExit;
 
 pub const Builder = struct {
     zig_exe: []const u8,
@@ -33,9 +37,9 @@ pub const Builder = struct {
         return exe;
     }
 
-    pub fn make(self: &Builder, args: []const []const u8) -> %void {
+    pub fn make(self: &Builder, cli_args: []const []const u8) -> %void {
         var verbose = false;
-        for (args) |arg| {
+        for (cli_args) |arg| {
             if (mem.eql(u8, arg, "--verbose")) {
                 verbose = true;
             } else {
@@ -44,7 +48,27 @@ pub const Builder = struct {
             }
         }
         for (self.exe_list.toSlice()) |exe| {
-            %%io.stderr.printf("TODO: invoke this command:\nzig build_exe {} --name {}\n", exe.root_src, exe.name);
+            var zig_args = List([]const u8).init(self.allocator);
+            defer zig_args.deinit();
+
+            %return zig_args.append("build_exe"[0...]); // TODO issue #296
+            %return zig_args.append(exe.root_src);
+            %return zig_args.append("--name"[0...]); // TODO issue #296
+            %return zig_args.append(exe.name);
+
+            printInvocation(self.zig_exe, zig_args);
+            const TODO_env: []const []const u8 = undefined; // TODO
+            var child = %return os.ChildProcess.spawn(self.zig_exe, zig_args.toSliceConst(), TODO_env,
+                StdIo.Ignore, StdIo.Inherit, StdIo.Inherit);
+            const term = %return child.wait();
+            switch (term) {
+                Term.Clean => |code| {
+                    if (code != 0) {
+                        return error.UncleanExit;
+                    }
+                },
+                else => return error.UncleanExit,
+            }
         }
     }
 };
@@ -56,4 +80,12 @@ const Exe = struct {
 
 fn handleErr(err: error) -> noreturn {
     debug.panic("error: {}\n", @errorName(err));
+}
+
+fn printInvocation(exe_name: []const u8, args: &const List([]const u8)) {
+    %%io.stderr.printf("{}", exe_name);
+    for (args.toSliceConst()) |arg| {
+        %%io.stderr.printf(" {}", arg);
+    }
+    %%io.stderr.printf("\n");
 }

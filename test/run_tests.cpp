@@ -1758,6 +1758,13 @@ export fn foo() {
 }
     )SOURCE", 1, ".tmp_source.zig:3:5: error: unable to infer variable type");
 
+    add_compile_fail_case("undefined literal on a non-comptime var", R"SOURCE(
+export fn foo() {
+    var i = undefined;
+    i = i32(1);
+}
+    )SOURCE", 1, ".tmp_source.zig:3:5: error: unable to infer variable type");
+
     add_compile_fail_case("dereference an array", R"SOURCE(
 var s_buffer: [10]u8 = undefined;
 pub fn pass(in: []u8) -> []u8 {
@@ -1818,6 +1825,15 @@ export fn entry(a: &i32) -> usize {
     return @ptrcast(usize, a);
 }
     )SOURCE", 1, ".tmp_source.zig:3:21: error: expected pointer, found 'usize'");
+
+    add_compile_fail_case("too many error values to cast to small integer", R"SOURCE(
+error A; error B; error C; error D; error E; error F; error G; error H;
+const u2 = @intType(false, 2);
+fn foo(e: error) -> u2 {
+    return u2(e);
+}
+export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+    )SOURCE", 1, ".tmp_source.zig:5:14: error: too many error values to fit in 'u2'");
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -2043,6 +2059,18 @@ fn bar() -> %void {
 }
     )SOURCE");
 
+    add_debug_safety_case("cast integer to error and no code matches", R"SOURCE(
+pub fn panic(message: []const u8) -> noreturn {
+    @breakpoint();
+    while (true) {}
+}
+pub fn main(args: [][]u8) -> %void {
+    _ = bar(9999);
+}
+fn bar(x: u32) -> error {
+    return error(x);
+}
+    )SOURCE");
 }
 
 //////////////////////////////////////////////////////////////////////////////

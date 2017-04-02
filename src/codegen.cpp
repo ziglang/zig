@@ -570,6 +570,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("attempt to unwrap error");
         case PanicMsgIdUnreachable:
             return buf_create_from_str("reached unreachable code");
+        case PanicMsgIdInvalidErrorCode:
+            return buf_create_from_str("invalid error code");
     }
     zig_unreachable();
 }
@@ -1227,14 +1229,6 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             zig_unreachable();
         case CastOpNoop:
             return expr_val;
-        case CastOpErrToInt:
-            assert(actual_type->id == TypeTableEntryIdErrorUnion);
-            if (!type_has_bits(actual_type->data.error.child_type)) {
-                return gen_widen_or_shorten(g, ir_want_debug_safety(g, &cast_instruction->base),
-                    g->err_tag_type, wanted_type, expr_val);
-            } else {
-                zig_panic("TODO");
-            }
         case CastOpResizeSlice:
             {
                 assert(cast_instruction->tmp_ptr);
@@ -1400,6 +1394,66 @@ static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutable *executable, 
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     return gen_widen_or_shorten(g, ir_want_debug_safety(g, &instruction->base),
             instruction->target->value.type, wanted_int_type, target_val);
+}
+
+static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutable *executable, IrInstructionIntToErr *instruction) {
+    TypeTableEntry *wanted_type = instruction->base.value.type;
+    assert(wanted_type->id == TypeTableEntryIdPureError);
+
+    TypeTableEntry *actual_type = instruction->target->value.type;
+    assert(actual_type->id == TypeTableEntryIdInt);
+    assert(!actual_type->data.integral.is_signed);
+
+    LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+
+    if (ir_want_debug_safety(g, &instruction->base)) {
+        LLVMValueRef zero = LLVMConstNull(actual_type->type_ref);
+        LLVMValueRef neq_zero_bit = LLVMBuildICmp(g->builder, LLVMIntNE, target_val, zero, "");
+        LLVMValueRef ok_bit;
+        uint64_t biggest_possible_err_val = max_unsigned_val(actual_type);
+        if (biggest_possible_err_val < g->error_decls.length) {
+            ok_bit = neq_zero_bit;
+        } else {
+            LLVMValueRef error_value_count = LLVMConstInt(actual_type->type_ref, g->error_decls.length, false);
+            LLVMValueRef in_bounds_bit = LLVMBuildICmp(g->builder, LLVMIntULT, target_val, error_value_count, "");
+            ok_bit = LLVMBuildAnd(g->builder, neq_zero_bit, in_bounds_bit, "");
+        }
+
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "IntToErrOk");
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "IntToErrFail");
+
+        LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_debug_safety_crash(g, PanicMsgIdInvalidErrorCode);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    }
+
+    return gen_widen_or_shorten(g, false, actual_type, g->err_tag_type, target_val);
+}
+
+static LLVMValueRef ir_render_err_to_int(CodeGen *g, IrExecutable *executable, IrInstructionErrToInt *instruction) {
+    TypeTableEntry *wanted_type = instruction->base.value.type;
+    assert(wanted_type->id == TypeTableEntryIdInt);
+    assert(!wanted_type->data.integral.is_signed);
+
+    TypeTableEntry *actual_type = instruction->target->value.type;
+    LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+
+    if (actual_type->id == TypeTableEntryIdPureError) {
+        return gen_widen_or_shorten(g, ir_want_debug_safety(g, &instruction->base),
+            g->err_tag_type, wanted_type, target_val);
+    } else if (actual_type->id == TypeTableEntryIdErrorUnion) {
+        if (!type_has_bits(actual_type->data.error.child_type)) {
+            return gen_widen_or_shorten(g, ir_want_debug_safety(g, &instruction->base),
+                g->err_tag_type, wanted_type, target_val);
+        } else {
+            zig_panic("TODO");
+        }
+    } else {
+        zig_unreachable();
+    }
 }
 
 static LLVMValueRef ir_render_unreachable(CodeGen *g, IrExecutable *executable,
@@ -2786,6 +2840,10 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_int_to_ptr(g, executable, (IrInstructionIntToPtr *)instruction);
         case IrInstructionIdIntToEnum:
             return ir_render_int_to_enum(g, executable, (IrInstructionIntToEnum *)instruction);
+        case IrInstructionIdIntToErr:
+            return ir_render_int_to_err(g, executable, (IrInstructionIntToErr *)instruction);
+        case IrInstructionIdErrToInt:
+            return ir_render_err_to_int(g, executable, (IrInstructionErrToInt *)instruction);
         case IrInstructionIdContainerInitList:
             return ir_render_container_init_list(g, executable, (IrInstructionContainerInitList *)instruction);
         case IrInstructionIdPanic:

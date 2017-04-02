@@ -13,22 +13,18 @@ const mem = @import("mem.zig");
 const Buffer0 = @import("cstr.zig").Buffer0;
 const fmt = @import("fmt.zig");
 
-pub const stdin_fileno = 0;
-pub const stdout_fileno = 1;
-pub const stderr_fileno = 2;
-
 pub var stdin = InStream {
-    .fd = stdin_fileno,
+    .fd = system.STDIN_FILENO,
 };
 
 pub var stdout = OutStream {
-    .fd = stdout_fileno,
+    .fd = system.STDOUT_FILENO,
     .buffer = undefined,
     .index = 0,
 };
 
 pub var stderr = OutStream {
-    .fd = stderr_fileno,
+    .fd = system.STDERR_FILENO,
     .buffer = undefined,
     .index = 0,
 };
@@ -234,7 +230,6 @@ pub const InStream = struct {
                     if (read_err > 0) {
                         switch (read_err) {
                             errno.EINTR  => continue,
-
                             errno.EINVAL => unreachable,
                             errno.EFAULT => unreachable,
                             errno.EBADF  => return error.BadFd,
@@ -247,7 +242,7 @@ pub const InStream = struct {
                 }
                 return index;
             },
-            else => @compileError("unsupported OS"),
+            else => @compileError("Unsupported OS"),
         }
     }
 

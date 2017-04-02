@@ -520,7 +520,6 @@ struct AstNodeUnwrapErrorExpr {
 enum CastOp {
     CastOpNoCast, // signifies the function call expression is not a cast
     CastOpNoop, // fn call expr is a cast, but does nothing
-    CastOpErrToInt,
     CastOpIntToFloat,
     CastOpFloatToInt,
     CastOpBoolToInt,
@@ -1223,6 +1222,7 @@ enum PanicMsgId {
     PanicMsgIdSliceWidenRemainder,
     PanicMsgIdUnwrapMaybeFail,
     PanicMsgIdUnwrapErrFail,
+    PanicMsgIdInvalidErrorCode,
 
     PanicMsgIdCount,
 };
@@ -1728,6 +1728,8 @@ enum IrInstructionId {
     IrInstructionIdIntToPtr,
     IrInstructionIdPtrToInt,
     IrInstructionIdIntToEnum,
+    IrInstructionIdIntToErr,
+    IrInstructionIdErrToInt,
     IrInstructionIdCheckSwitchProngs,
     IrInstructionIdTestType,
     IrInstructionIdTypeName,
@@ -2399,6 +2401,18 @@ struct IrInstructionIntToPtr {
 };
 
 struct IrInstructionIntToEnum {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionIntToErr {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionErrToInt {
     IrInstruction base;
 
     IrInstruction *target;

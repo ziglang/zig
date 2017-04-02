@@ -799,6 +799,16 @@ static void ir_print_int_to_enum(IrPrint *irp, IrInstructionIntToEnum *instructi
     fprintf(irp->f, ")");
 }
 
+static void ir_print_int_to_err(IrPrint *irp, IrInstructionIntToErr *instruction) {
+    fprintf(irp->f, "inttoerr ");
+    ir_print_other_instruction(irp, instruction->target);
+}
+
+static void ir_print_err_to_int(IrPrint *irp, IrInstructionErrToInt *instruction) {
+    fprintf(irp->f, "errtoint ");
+    ir_print_other_instruction(irp, instruction->target);
+}
+
 static void ir_print_check_switch_prongs(IrPrint *irp, IrInstructionCheckSwitchProngs *instruction) {
     fprintf(irp->f, "@checkSwitchProngs(");
     ir_print_other_instruction(irp, instruction->target_value);
@@ -1116,6 +1126,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdIntToEnum:
             ir_print_int_to_enum(irp, (IrInstructionIntToEnum *)instruction);
+            break;
+        case IrInstructionIdIntToErr:
+            ir_print_int_to_err(irp, (IrInstructionIntToErr *)instruction);
+            break;
+        case IrInstructionIdErrToInt:
+            ir_print_err_to_int(irp, (IrInstructionErrToInt *)instruction);
             break;
         case IrInstructionIdCheckSwitchProngs:
             ir_print_check_switch_prongs(irp, (IrInstructionCheckSwitchProngs *)instruction);

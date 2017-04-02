@@ -30,3 +30,14 @@ test "implicitly cast a pointer to a const pointer of it" {
 fn funcWithConstPtrPtr(x: &const &i32) {
     **x += 1;
 }
+
+error ItBroke;
+test "explicit cast from integer to error type" {
+    testCastIntToErr(error.ItBroke);
+    comptime testCastIntToErr(error.ItBroke);
+}
+fn testCastIntToErr(err: error) {
+    const x = usize(err);
+    const y = error(x);
+    assert(error.ItBroke == y);
+}

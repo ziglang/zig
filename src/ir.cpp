@@ -500,6 +500,14 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionIntToEnum *) {
     return IrInstructionIdIntToEnum;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionIntToErr *) {
+    return IrInstructionIdIntToErr;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionErrToInt *) {
+    return IrInstructionIdErrToInt;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCheckSwitchProngs *) {
     return IrInstructionIdCheckSwitchProngs;
 }
@@ -2002,6 +2010,30 @@ static IrInstruction *ir_build_int_to_enum(IrBuilder *irb, Scope *scope, AstNode
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_int_to_err(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *target)
+{
+    IrInstructionIntToErr *instruction = ir_build_instruction<IrInstructionIntToErr>(
+            irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_err_to_int(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *target)
+{
+    IrInstructionErrToInt *instruction = ir_build_instruction<IrInstructionErrToInt>(
+            irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_check_switch_prongs(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *target_value, IrInstructionCheckSwitchProngsRange *ranges, size_t range_count)
 {
@@ -2704,6 +2736,20 @@ static IrInstruction *ir_instruction_inttoenum_get_dep(IrInstructionIntToEnum *i
     }
 }
 
+static IrInstruction *ir_instruction_inttoerr_get_dep(IrInstructionIntToErr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_errtoint_get_dep(IrInstructionErrToInt *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target;
+        default: return nullptr;
+    }
+}
+
 static IrInstruction *ir_instruction_checkswitchprongs_get_dep(IrInstructionCheckSwitchProngs *instruction,
         size_t index)
 {
@@ -2938,6 +2984,10 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_ptrtoint_get_dep((IrInstructionPtrToInt *) instruction, index);
         case IrInstructionIdIntToEnum:
             return ir_instruction_inttoenum_get_dep((IrInstructionIntToEnum *) instruction, index);
+        case IrInstructionIdIntToErr:
+            return ir_instruction_inttoerr_get_dep((IrInstructionIntToErr *) instruction, index);
+        case IrInstructionIdErrToInt:
+            return ir_instruction_errtoint_get_dep((IrInstructionErrToInt *) instruction, index);
         case IrInstructionIdCheckSwitchProngs:
             return ir_instruction_checkswitchprongs_get_dep((IrInstructionCheckSwitchProngs *) instruction, index);
         case IrInstructionIdTestType:
@@ -6001,20 +6051,6 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
         case CastOpBytesToSlice:
             // can't do it
             break;
-        case CastOpErrToInt:
-            {
-                uint64_t value;
-                if (other_type->id == TypeTableEntryIdErrorUnion) {
-                    value = other_val->data.x_err_union.err ? other_val->data.x_err_union.err->value : 0;
-                } else if (other_type->id == TypeTableEntryIdPureError) {
-                    value = other_val->data.x_pure_err->value;
-                } else {
-                    zig_unreachable();
-                }
-                bignum_init_unsigned(&const_val->data.x_bignum, value);
-                const_val->special = ConstValSpecialStatic;
-                break;
-            }
         case CastOpIntToFloat:
             bignum_cast_to_float(&const_val->data.x_bignum, &other_val->data.x_bignum);
             const_val->special = ConstValSpecialStatic;
@@ -6707,6 +6743,87 @@ static IrInstruction *ir_analyze_number_to_literal(IrAnalyze *ira, IrInstruction
     return result;
 }
 
+static IrInstruction *ir_analyze_int_to_err(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *target) {
+    assert(target->value.type->id == TypeTableEntryIdInt);
+    assert(!target->value.type->data.integral.is_signed);
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, ira->codegen->builtin_types.entry_pure_error);
+
+        uint64_t index = val->data.x_bignum.data.x_uint;
+        if (index == 0 || index >= ira->codegen->error_decls.length) {
+            ir_add_error(ira, source_instr,
+                buf_sprintf("integer value %" PRIu64 " represents no error", index));
+            return ira->codegen->invalid_instruction;
+        }
+
+        AstNode *error_decl_node = ira->codegen->error_decls.at(index);
+        result->value.data.x_pure_err = error_decl_node->data.error_value_decl.err;
+        return result;
+    }
+
+    IrInstruction *result = ir_build_int_to_err(&ira->new_irb, source_instr->scope, source_instr->source_node, target);
+    result->value.type = ira->codegen->builtin_types.entry_pure_error;
+    return result;
+}
+
+static IrInstruction *ir_analyze_err_to_int(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *target,
+        TypeTableEntry *wanted_type)
+{
+    assert(wanted_type->id == TypeTableEntryIdInt);
+
+    TypeTableEntry *err_type = target->value.type;
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, wanted_type);
+
+        ErrorTableEntry *err;
+        if (err_type->id == TypeTableEntryIdErrorUnion) {
+            err = val->data.x_err_union.err;
+        } else if (err_type->id == TypeTableEntryIdPureError) {
+            err = val->data.x_pure_err;
+        } else {
+            zig_unreachable();
+        }
+        result->value.type = wanted_type;
+        uint64_t err_value = err ? err->value : 0;
+        bignum_init_unsigned(&result->value.data.x_bignum, err_value);
+
+        if (!bignum_fits_in_bits(&result->value.data.x_bignum,
+            wanted_type->data.integral.bit_count, wanted_type->data.integral.is_signed))
+        {
+            ir_add_error_node(ira, source_instr->source_node,
+                    buf_sprintf("error code '%s' does not fit in '%s'",
+                        buf_ptr(&err->name), buf_ptr(&wanted_type->name)));
+            return ira->codegen->invalid_instruction;
+        }
+
+        return result;
+    }
+
+    BigNum bn;
+    bignum_init_unsigned(&bn, ira->codegen->error_decls.length);
+    if (!bignum_fits_in_bits(&bn, wanted_type->data.integral.bit_count, wanted_type->data.integral.is_signed)) {
+        ir_add_error_node(ira, source_instr->source_node,
+                buf_sprintf("too many error values to fit in '%s'", buf_ptr(&wanted_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    IrInstruction *result = ir_build_err_to_int(&ira->new_irb, source_instr->scope, source_instr->source_node, target);
+    result->value.type = wanted_type;
+    return result;
+}
+
 static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_instr,
     TypeTableEntry *wanted_type, IrInstruction *value)
 {
@@ -6781,7 +6898,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpFloatToInt, false);
     }
 
-    // explicit cast from array to slice
+    // explicit cast from [N]T to []const T
     if (is_slice(wanted_type) && actual_type->id == TypeTableEntryIdArray) {
         TypeTableEntry *ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
@@ -6909,17 +7026,14 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     if ((actual_type_is_void_err || actual_type_is_pure_err) &&
         wanted_type->id == TypeTableEntryIdInt)
     {
-        BigNum bn;
-        bignum_init_unsigned(&bn, ira->codegen->error_decls.length);
-        if (bignum_fits_in_bits(&bn, wanted_type->data.integral.bit_count,
-                    wanted_type->data.integral.is_signed))
-        {
-            return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpErrToInt, false);
-        } else {
-            ir_add_error_node(ira, source_instr->source_node,
-                    buf_sprintf("too many error values to fit in '%s'", buf_ptr(&wanted_type->name)));
-            return ira->codegen->invalid_instruction;
-        }
+        return ir_analyze_err_to_int(ira, source_instr, value, wanted_type);
+    }
+
+    // explicit cast from integer to pure error
+    if (wanted_type->id == TypeTableEntryIdPureError && actual_type->id == TypeTableEntryIdInt &&
+        !actual_type->data.integral.is_signed)
+    {
+        return ir_analyze_int_to_err(ira, source_instr, value);
     }
 
     // explicit cast from integer to enum type with no payload
@@ -7843,7 +7957,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         result_type = ira->codegen->builtin_types.entry_invalid;
     }
 
-    bool is_comptime_var = ir_get_var_is_comptime(var); 
+    bool is_comptime_var = ir_get_var_is_comptime(var);
 
     switch (result_type->id) {
         case TypeTableEntryIdTypeDecl:
@@ -7852,6 +7966,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
             break; // handled above
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
             if (is_export || is_extern || (!var->src_is_const && !is_comptime_var)) {
                 ir_add_error_node(ira, source_node, buf_sprintf("unable to infer variable type"));
                 result_type = ira->codegen->builtin_types.entry_invalid;
@@ -7873,7 +7988,6 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
                 result_type = ira->codegen->builtin_types.entry_invalid;
             }
             break;
-        case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
         case TypeTableEntryIdInt:
@@ -10765,6 +10879,8 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
         TypeTableEntry *this_field_type = field->type_entry;
 
         IrInstruction *init_value = instruction->items[0]->other;
+        if (type_is_invalid(init_value->value.type))
+            return ira->codegen->builtin_types.entry_invalid;
 
         IrInstruction *casted_init_value = ir_implicit_cast(ira, init_value, this_field_type);
         if (casted_init_value == ira->codegen->invalid_instruction)
@@ -12311,6 +12427,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdIntToPtr:
         case IrInstructionIdPtrToInt:
         case IrInstructionIdIntToEnum:
+        case IrInstructionIdIntToErr:
+        case IrInstructionIdErrToInt:
         case IrInstructionIdStructInit:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
@@ -12650,6 +12768,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdPtrToInt:
         case IrInstructionIdIntToPtr:
         case IrInstructionIdIntToEnum:
+        case IrInstructionIdIntToErr:
+        case IrInstructionIdErrToInt:
         case IrInstructionIdTestType:
         case IrInstructionIdTypeName:
         case IrInstructionIdCanImplicitCast:
