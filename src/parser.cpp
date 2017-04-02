@@ -1598,8 +1598,6 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
     *token_index += 1;
     if (eq_or_colon->id == TokenIdEq) {
         node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
-
-        return node;
     } else if (eq_or_colon->id == TokenIdColon) {
         node->data.variable_declaration.type = ast_parse_type_expr(pc, token_index, true);
         Token *eq_token = &pc->tokens->at(*token_index);
@@ -1608,11 +1606,15 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
 
             node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
         }
-
-        return node;
     } else {
         ast_invalid_token_error(pc, eq_or_colon);
     }
+
+    // peek ahead and ensure that all variable declarations are followed by a semicolon
+    Token *semicolon_token = &pc->tokens->at(*token_index);
+    ast_expect_token(pc, semicolon_token, TokenIdSemicolon);
+
+    return node;
 }
 
 /*
