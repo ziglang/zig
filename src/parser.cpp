@@ -2125,8 +2125,12 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
             statement_node = ast_parse_variable_declaration_expr(pc, token_index, false, VisibModPrivate);
             if (!statement_node) {
                 statement_node = ast_parse_defer_expr(pc, token_index);
-                if (!statement_node)
+                if (statement_node) {
+                    // don't let defer be the last statement in a block
+                    need_implicit_final_void_statement = true;
+                } else {
                     statement_node = ast_parse_block_expr(pc, token_index, false);
+                }
                 if (statement_node) {
                     if (statement_has_block_body(statement_node))
                         semicolon_expected = false;
