@@ -2118,6 +2118,7 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
         bool need_implicit_final_void_statement = false;
         bool semicolon_expected = true;
         if (statement_node) {
+            // label
             semicolon_expected = false;
             // if a label is the last thing in a block, add a void statement.
             need_implicit_final_void_statement = true;
@@ -2126,19 +2127,29 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
             if (!statement_node) {
                 statement_node = ast_parse_defer_expr(pc, token_index);
                 if (statement_node) {
-                    // don't let defer be the last statement in a block
-                    need_implicit_final_void_statement = true;
+                    // defer
+                    if (statement_has_block_body(statement_node)) {
+                        // don't let defer be the last statement in a block
+                        need_implicit_final_void_statement = true;
+                        semicolon_expected = false;
+                    } else {
+                        // defer without a block body requires a semicolon
+                        Token *token = &pc->tokens->at(*token_index);
+                        ast_expect_token(pc, token, TokenIdSemicolon);
+                    }
                 } else {
                     statement_node = ast_parse_block_expr(pc, token_index, false);
-                }
-                if (statement_node) {
-                    if (statement_has_block_body(statement_node))
-                        semicolon_expected = false;
-                } else {
-                    statement_node = ast_parse_expression(pc, token_index, false);
-                    if (!statement_node) {
-                        // final semicolon means add a void statement.
-                        need_implicit_final_void_statement = true;
+                    if (statement_node) {
+                        // block expr
+                        if (statement_has_block_body(statement_node))
+                            semicolon_expected = false;
+                    } else {
+                        statement_node = ast_parse_expression(pc, token_index, false);
+                        if (!statement_node) {
+                            // no statement.
+                            // final semicolon means add a void statement.
+                            need_implicit_final_void_statement = true;
+                        }
                     }
                 }
             }
