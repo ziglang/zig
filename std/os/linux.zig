@@ -253,7 +253,7 @@ pub fn WIFSIGNALED(s: i32) -> bool { (unsigned(s)&0xffff)-%1 < 0xff }
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) -> usize {
-    const signed_r = *@ptrcast(&isize, &r);
+    const signed_r = *@ptrcast(&const isize, &r);
     if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0
 }
 
