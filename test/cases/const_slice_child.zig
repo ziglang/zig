@@ -1,4 +1,5 @@
-const assert = @import("std").debug.assert;
+const debug = @import("std").debug;
+const assert = debug.assert;
 
 var argv: &const &const u8 = undefined;
 
@@ -20,7 +21,7 @@ fn foo(args: [][]const u8) {
 }
 
 fn bar(argc: usize) {
-    const args = @alloca([]u8, argc);
+    const args = %%debug.global_allocator.alloc([]u8, argc);
     for (args) |_, i| {
         const ptr = argv[i];
         args[i] = ptr[0...strlen(ptr)];

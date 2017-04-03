@@ -295,19 +295,6 @@ has a terminating null byte.
 Built-in functions are prefixed with `@`. Remember that the `comptime` keyword on
 a parameter means that the parameter must be known at compile time.
 
-### @alloca(comptime T: type, count: usize) -> []T
-
-Allocates memory in the stack frame of the caller. This temporary space is
-automatically freed when the function that called alloca returns to its caller,
-just like other stack variables.
-
-When using this function to allocate memory, you should know the upper bound
-of `count`. Consider putting a constant array on the stack with the upper bound
-instead of using alloca. If you do use alloca it is to save a few bytes off
-the memory size given that you didn't actually hit your upper bound.
-
-The allocated memory contents are undefined.
-
 ### @typeOf(expression) -> type
 
 This function returns a compile-time constant, which is the type of the

@@ -40,6 +40,8 @@ pub const Builder = struct {
     }
 
     pub fn make(self: &Builder, cli_args: []const []const u8) -> %void {
+        var env_map = %return os.getEnvMap(self.allocator);
+
         var verbose = false;
         for (cli_args) |arg| {
             if (mem.eql(u8, arg, "--verbose")) {
@@ -93,7 +95,7 @@ pub const Builder = struct {
             }
 
             printInvocation(self.zig_exe, zig_args);
-            var child = %return os.ChildProcess.spawn(self.zig_exe, zig_args.toSliceConst(), os.environ,
+            var child = %return os.ChildProcess.spawn(self.zig_exe, zig_args.toSliceConst(), env_map,
                 StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, self.allocator);
             const term = %return child.wait();
             switch (term) {

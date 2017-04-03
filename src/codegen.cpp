@@ -2190,26 +2190,6 @@ static LLVMValueRef ir_render_truncate(CodeGen *g, IrExecutable *executable, IrI
     }
 }
 
-static LLVMValueRef ir_render_alloca(CodeGen *g, IrExecutable *executable, IrInstructionAlloca *instruction) {
-    TypeTableEntry *slice_type = get_underlying_type(instruction->base.value.type);
-    TypeTableEntry *ptr_type = slice_type->data.structure.fields[slice_ptr_index].type_entry;
-    TypeTableEntry *child_type = ptr_type->data.pointer.child_type;
-    LLVMValueRef size_val = ir_llvm_value(g, instruction->count);
-    LLVMValueRef ptr_val = LLVMBuildArrayAlloca(g->builder, child_type->type_ref, size_val, "");
-
-    // TODO in debug mode, initialize all the bytes to 0xaa
-
-    // store the freshly allocated pointer in the slice
-    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, slice_ptr_index, "");
-    LLVMBuildStore(g->builder, ptr_val, ptr_field_ptr);
-
-    // store the size in the len field
-    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, slice_len_index, "");
-    LLVMBuildStore(g->builder, size_val, len_field_ptr);
-
-    return instruction->tmp_ptr;
-}
-
 static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrInstructionMemset *instruction) {
     LLVMValueRef dest_ptr = ir_llvm_value(g, instruction->dest_ptr);
     LLVMValueRef char_val = ir_llvm_value(g, instruction->byte);
@@ -2548,7 +2528,7 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
     assert(instruction->tmp_ptr);
 
     LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_child_index, "");
-    assert(child_type == instruction->value->value.type);
+    // child_type and instruction->value->value.type may differ by constness
     gen_assign_raw(g, val_ptr, payload_val, child_type);
     LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_null_index, "");
     LLVMBuildStore(g->builder, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr);
@@ -2796,8 +2776,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_truncate(g, executable, (IrInstructionTruncate *)instruction);
         case IrInstructionIdBoolNot:
             return ir_render_bool_not(g, executable, (IrInstructionBoolNot *)instruction);
-        case IrInstructionIdAlloca:
-            return ir_render_alloca(g, executable, (IrInstructionAlloca *)instruction);
         case IrInstructionIdMemset:
             return ir_render_memset(g, executable, (IrInstructionMemset *)instruction);
         case IrInstructionIdMemcpy:
@@ -3648,9 +3626,6 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdCall) {
                 IrInstructionCall *call_instruction = (IrInstructionCall *)instruction;
                 slot = &call_instruction->tmp_ptr;
-            } else if (instruction->id == IrInstructionIdAlloca) {
-                IrInstructionAlloca *alloca_instruction = (IrInstructionAlloca *)instruction;
-                slot = &alloca_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdSlice) {
                 IrInstructionSlice *slice_instruction = (IrInstructionSlice *)instruction;
                 slot = &slice_instruction->tmp_ptr;
@@ -4326,7 +4301,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "intType", 2);
     create_builtin_fn(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
-    create_builtin_fn(g, BuiltinFnIdAlloca, "alloca", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalAlign, "setGlobalAlign", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalSection, "setGlobalSection", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalLinkage, "setGlobalLinkage", 2);

@@ -29,7 +29,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
         };
 
         pub const Iterator = struct {
-            hm: &Self,
+            hm: &const Self,
             // how many items have we returned
             count: usize,
             // iterator through the entry array
@@ -99,17 +99,21 @@ pub fn HashMap(comptime K: type, comptime V: type,
         }
 
         pub fn get(hm: &Self, key: K) -> ?&Entry {
+            if (hm.entries.len == 0) {
+                return null;
+            }
             return hm.internalGet(key);
         }
 
-        pub fn remove(hm: &Self, key: K) {
+        pub fn remove(hm: &Self, key: K) -> ?&Entry {
             hm.incrementModificationCount();
             const start_index = hm.keyToIndex(key);
             {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index; roll_over += 1) {
                 const index = (start_index + roll_over) % hm.entries.len;
                 var entry = &hm.entries[index];
 
-                assert(entry.used); // key not found
+                if (!entry.used)
+                    return null;
 
                 if (!eql(entry.key, key)) continue;
 
@@ -119,7 +123,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
                     if (!next_entry.used or next_entry.distance_from_start_index == 0) {
                         entry.used = false;
                         hm.size -= 1;
-                        return;
+                        return entry;
                     }
                     *entry = *next_entry;
                     entry.distance_from_start_index -= 1;
@@ -127,10 +131,10 @@ pub fn HashMap(comptime K: type, comptime V: type,
                 }
                 unreachable // shifting everything in the table
             }}
-            unreachable // key not found
+            return null;
         }
 
-        pub fn entryIterator(hm: &Self) -> Iterator {
+        pub fn entryIterator(hm: &const Self) -> Iterator {
             return Iterator {
                 .hm = hm,
                 .count = 0,
@@ -231,7 +235,8 @@ test "basicHashMapTest" {
     %%map.put(5, 55);
 
     assert((??map.get(2)).value == 22);
-    map.remove(2);
+    _ = map.remove(2);
+    assert(map.remove(2) == null);
     assert(if (const entry ?= map.get(2)) false else true);
 }
 

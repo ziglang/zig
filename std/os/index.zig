@@ -21,6 +21,8 @@ const mem = @import("../mem.zig");
 const Allocator = mem.Allocator;
 
 const io = @import("../io.zig");
+const HashMap = @import("../hash_map.zig").HashMap;
+const cstr = @import("../cstr.zig");
 
 error Unexpected;
 error SysResources;
@@ -284,12 +286,12 @@ pub const ChildProcess = struct {
         Close,
     };
 
-    pub fn spawn(exe_path: []const u8, args: []const []const u8, env: []const EnvPair,
+    pub fn spawn(exe_path: []const u8, args: []const []const u8, env_map: &const EnvMap,
         stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
     {
         switch (@compileVar("os")) {
             Os.linux, Os.macosx, Os.ios, Os.darwin => {
-                return spawnPosix(exe_path, args, env, stdin, stdout, stderr, allocator);
+                return spawnPosix(exe_path, args, env_map, stdin, stdout, stderr, allocator);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -351,7 +353,7 @@ pub const ChildProcess = struct {
         };
     }
 
-    fn spawnPosix(exe_path: []const u8, args: []const []const u8, env: []const EnvPair,
+    fn spawnPosix(exe_path: []const u8, args: []const []const u8, env_map: &const EnvMap,
         stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
     {
         // TODO issue #295
@@ -408,7 +410,7 @@ pub const ChildProcess = struct {
             setUpChildIo(stderr, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) %%
                 |err| forkChildErrReport(err_pipe[1], err);
 
-            const err = posix.getErrno(%return execve(exe_path, args, env, allocator));
+            const err = posix.getErrno(%return execve(exe_path, args, env_map, allocator));
             assert(err > 0);
             forkChildErrReport(err_pipe[1], switch (err) {
                 errno.EFAULT => unreachable,
@@ -473,7 +475,7 @@ pub const ChildProcess = struct {
 /// It must also convert to KEY=VALUE\0 format for environment variables, and include null
 /// pointers after the args and after the environment variables.
 /// Also make the first arg equal to path.
-fn execve(path: []const u8, argv: []const []const u8, envp: []const EnvPair, allocator: &Allocator) -> %usize {
+fn execve(path: []const u8, argv: []const []const u8, env_map: &const EnvMap, allocator: &Allocator) -> %usize {
     const path_buf = %return allocator.alloc(u8, path.len + 1);
     defer allocator.free(path_buf);
     @memcpy(&path_buf[0], &path[0], path.len);
@@ -505,39 +507,149 @@ fn execve(path: []const u8, argv: []const []const u8, envp: []const EnvPair, all
     }
     argv_buf[argv.len + 1] = null;
 
-    const envp_buf = %return allocator.alloc(?&const u8, envp.len + 1);
+    const envp_count = env_map.count();
+    const envp_buf = %return allocator.alloc(?&const u8, envp_count + 1);
     mem.set(?&const u8, envp_buf, null);
     defer {
         for (envp_buf) |env, i| {
-            const env_buf = if (const ptr ?= env) ptr[0...envp[i].key.len + envp[i].value.len + 2] else break;
+            const env_buf = if (const ptr ?= env) ptr[0...cstr.len(ptr)] else break;
             allocator.free(env_buf);
         }
         allocator.free(envp_buf);
     }
-    for (envp) |pair, i| {
-        const env_buf = %return allocator.alloc(u8, pair.key.len + pair.value.len + 2);
-        @memcpy(&env_buf[0], pair.key.ptr, pair.key.len);
-        env_buf[pair.key.len] = '=';
-        @memcpy(&env_buf[pair.key.len + 1], pair.value.ptr, pair.value.len);
-        env_buf[env_buf.len - 1] = 0;
+    {
+        var it = env_map.iterator();
+        var i: usize = 0;
+        while (true; i += 1) {
+            const pair = it.next() ?? break;
 
-        envp_buf[i] = env_buf.ptr;
+            const env_buf = %return allocator.alloc(u8, pair.key.len + pair.value.len + 2);
+            @memcpy(&env_buf[0], pair.key.ptr, pair.key.len);
+            env_buf[pair.key.len] = '=';
+            @memcpy(&env_buf[pair.key.len + 1], pair.value.ptr, pair.value.len);
+            env_buf[env_buf.len - 1] = 0;
+
+            envp_buf[i] = env_buf.ptr;
+        }
+        assert(i == envp_count);
     }
-    envp_buf[envp.len] = null;
+    envp_buf[envp_count] = null;
 
     return posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr);
 }
 
-pub const EnvPair = struct {
-    key: []const u8,
-    value: []const u8,
+pub var environ_raw: []&u8 = undefined;
+
+pub const EnvMap = struct {
+    hash_map: EnvHashMap,
+
+    const EnvHashMap = HashMap([]const u8, []const u8, hash_slice_u8, eql_slice_u8);
+
+    pub fn init(allocator: &Allocator) -> EnvMap {
+        var self = EnvMap {
+            .hash_map = undefined,
+        };
+        self.hash_map.init(allocator);
+        return self;
+    }
+
+    pub fn deinit(self: &EnvMap) {
+        var it = self.hash_map.entryIterator();
+        while (true) {
+            const entry = it.next() ?? break; 
+            self.free(entry.key);
+            self.free(entry.value);
+        }
+
+        self.hash_map.deinit();
+    }
+
+    pub fn set(self: &EnvMap, key: []const u8, value: []const u8) -> %void {
+        if (const entry ?= self.hash_map.get(key)) {
+            const value_copy = %return self.copy(value);
+            %defer self.free(value_copy);
+            %return self.hash_map.put(key, value_copy);
+            self.free(entry.value);
+        } else {
+            const key_copy = %return self.copy(key);
+            %defer self.free(key_copy);
+            const value_copy = %return self.copy(value);
+            %defer self.free(value_copy);
+            %return self.hash_map.put(key_copy, value_copy);
+        }
+    }
+
+    pub fn delete(self: &EnvMap, key: []const u8) {
+        const entry = self.hash_map.remove(key) ?? return;
+        self.free(entry.key);
+        self.free(entry.value);
+    }
+
+    pub fn count(self: &const EnvMap) -> usize {
+        return self.hash_map.size;
+    }
+
+    pub fn iterator(self: &const EnvMap) -> EnvHashMap.Iterator {
+        return self.hash_map.entryIterator();
+    }
+
+    fn free(self: &EnvMap, value: []const u8) {
+        // remove the const
+        const mut_value = @ptrcast(&u8, value.ptr)[0...value.len];
+        self.hash_map.allocator.free(mut_value);
+    }
+
+    fn copy(self: &EnvMap, value: []const u8) -> %[]const u8 {
+        const result = %return self.hash_map.allocator.alloc(u8, value.len);
+        mem.copy(u8, result, value);
+        return result;
+    }
 };
-pub var environ: []const EnvPair = undefined;
+
+pub fn getEnvMap(allocator: &Allocator) -> %EnvMap {
+    var result = EnvMap.init(allocator);
+    %defer result.deinit();
+
+    for (environ_raw) |ptr| {
+        var line_i: usize = 0;
+        while (ptr[line_i] != 0 and ptr[line_i] != '='; line_i += 1) {}
+        const key = ptr[0...line_i];
+
+        var end_i: usize = line_i;
+        while (ptr[end_i] != 0; end_i += 1) {}
+        const value = ptr[line_i + 1...end_i];
+
+        %return result.set(key, value);
+    }
+    return result;
+}
 
 pub fn getEnv(key: []const u8) -> ?[]const u8 {
-    for (environ) |pair| {
-        if (mem.eql(u8, pair.key, key))
-            return pair.value;
+    for (environ_raw) |ptr| {
+        var line_i: usize = 0;
+        while (ptr[line_i] != 0 and ptr[line_i] != '='; line_i += 1) {}
+        const this_key = ptr[0...line_i];
+        if (!mem.eql(u8, key, this_key))
+            continue;
+
+        var end_i: usize = line_i;
+        while (ptr[end_i] != 0; end_i += 1) {}
+        const this_value = ptr[line_i + 1...end_i];
+
+        return this_value;
     }
     return null;
+}
+
+fn hash_slice_u8(k: []const u8) -> u32 {
+    // FNV 32-bit hash
+    var h: u32 = 2166136261;
+    for (k) |b| {
+        h = (h ^ b) *% 16777619;
+    }
+    return h;
+}
+
+fn eql_slice_u8(a: []const u8, b: []const u8) -> bool {
+    return mem.eql(u8, a, b);
 }

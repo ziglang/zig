@@ -1190,7 +1190,6 @@ enum BuiltinFnId {
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
     BuiltinFnIdSetDebugSafety,
-    BuiltinFnIdAlloca,
     BuiltinFnIdTypeName,
     BuiltinFnIdIsInteger,
     BuiltinFnIdIsFloat,
@@ -1706,7 +1705,6 @@ enum IrInstructionId {
     IrInstructionIdTruncate,
     IrInstructionIdIntType,
     IrInstructionIdBoolNot,
-    IrInstructionIdAlloca,
     IrInstructionIdMemset,
     IrInstructionIdMemcpy,
     IrInstructionIdSlice,
@@ -2232,14 +2230,6 @@ struct IrInstructionBoolNot {
     IrInstruction base;
 
     IrInstruction *value;
-};
-
-struct IrInstructionAlloca {
-    IrInstruction base;
-
-    IrInstruction *type_value;
-    IrInstruction *count;
-    LLVMValueRef tmp_ptr;
 };
 
 struct IrInstructionMemset {

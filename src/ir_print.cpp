@@ -601,14 +601,6 @@ static void ir_print_truncate(IrPrint *irp, IrInstructionTruncate *instruction) 
     fprintf(irp->f, ")");
 }
 
-static void ir_print_alloca(IrPrint *irp, IrInstructionAlloca *instruction) {
-    fprintf(irp->f, "@alloca(");
-    ir_print_other_instruction(irp, instruction->type_value);
-    fprintf(irp->f, ", ");
-    ir_print_other_instruction(irp, instruction->count);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_int_type(IrPrint *irp, IrInstructionIntType *instruction) {
     fprintf(irp->f, "@intType(");
     ir_print_other_instruction(irp, instruction->is_signed);
@@ -1048,9 +1040,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTruncate:
             ir_print_truncate(irp, (IrInstructionTruncate *)instruction);
-            break;
-        case IrInstructionIdAlloca:
-            ir_print_alloca(irp, (IrInstructionAlloca *)instruction);
             break;
         case IrInstructionIdIntType:
             ir_print_int_type(irp, (IrInstructionIntType *)instruction);

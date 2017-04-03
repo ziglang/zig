@@ -404,10 +404,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionBoolNot *) {
     return IrInstructionIdBoolNot;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionAlloca *) {
-    return IrInstructionIdAlloca;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionMemset *) {
     return IrInstructionIdMemset;
 }
@@ -1668,27 +1664,6 @@ static IrInstruction *ir_build_bool_not_from(IrBuilder *irb, IrInstruction *old_
     return new_instruction;
 }
 
-static IrInstruction *ir_build_alloca(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *type_value, IrInstruction *count)
-{
-    IrInstructionAlloca *instruction = ir_build_instruction<IrInstructionAlloca>(irb, scope, source_node);
-    instruction->type_value = type_value;
-    instruction->count = count;
-
-    ir_ref_instruction(type_value, irb->current_basic_block);
-    ir_ref_instruction(count, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_alloca_from(IrBuilder *irb, IrInstruction *old_instruction,
-    IrInstruction *type_value, IrInstruction *count)
-{
-    IrInstruction *new_instruction = ir_build_alloca(irb, old_instruction->scope, old_instruction->source_node, type_value, count);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
-}
-
 static IrInstruction *ir_build_memset(IrBuilder *irb, Scope *scope, AstNode *source_node,
     IrInstruction *dest_ptr, IrInstruction *byte, IrInstruction *count)
 {
@@ -2567,14 +2542,6 @@ static IrInstruction *ir_instruction_boolnot_get_dep(IrInstructionBoolNot *instr
     }
 }
 
-static IrInstruction *ir_instruction_alloca_get_dep(IrInstructionAlloca *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->type_value;
-        case 1: return instruction->count;
-        default: return nullptr;
-    }
-}
-
 static IrInstruction *ir_instruction_memset_get_dep(IrInstructionMemset *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->dest_ptr;
@@ -2938,8 +2905,6 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_inttype_get_dep((IrInstructionIntType *) instruction, index);
         case IrInstructionIdBoolNot:
             return ir_instruction_boolnot_get_dep((IrInstructionBoolNot *) instruction, index);
-        case IrInstructionIdAlloca:
-            return ir_instruction_alloca_get_dep((IrInstructionAlloca *) instruction, index);
         case IrInstructionIdMemset:
             return ir_instruction_memset_get_dep((IrInstructionMemset *) instruction, index);
         case IrInstructionIdMemcpy:
@@ -4099,20 +4064,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 return ir_build_int_type(irb, scope, node, arg0_value, arg1_value);
-            }
-        case BuiltinFnIdAlloca:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_instruction)
-                    return arg0_value;
-
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
-                if (arg1_value == irb->codegen->invalid_instruction)
-                    return arg1_value;
-
-                return ir_build_alloca(irb, scope, node, arg0_value, arg1_value);
             }
         case BuiltinFnIdMemcpy:
             {
@@ -11461,31 +11412,6 @@ static TypeTableEntry *ir_analyze_instruction_bool_not(IrAnalyze *ira, IrInstruc
     return bool_type;
 }
 
-static TypeTableEntry *ir_analyze_instruction_alloca(IrAnalyze *ira, IrInstructionAlloca *instruction) {
-    IrInstruction *type_value = instruction->type_value->other;
-    if (type_is_invalid(type_value->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    IrInstruction *count_value = instruction->count->other;
-    if (type_is_invalid(count_value->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    TypeTableEntry *child_type = ir_resolve_type(ira, type_value);
-
-    if (type_requires_comptime(child_type)) {
-        ir_add_error(ira, type_value,
-            buf_sprintf("invalid alloca type '%s'", buf_ptr(&child_type->name)));
-        // TODO if this is a typedecl, add error note showing the declaration of the type decl
-        return ira->codegen->builtin_types.entry_invalid;
-    } else {
-        TypeTableEntry *slice_type = get_slice_type(ira->codegen, child_type, false);
-        IrInstruction *new_instruction = ir_build_alloca_from(&ira->new_irb, &instruction->base, type_value, count_value);
-        ir_add_alloca(ira, new_instruction, slice_type);
-        return slice_type;
-    }
-    zig_unreachable();
-}
-
 static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructionMemset *instruction) {
     IrInstruction *dest_ptr = instruction->dest_ptr->other;
     if (type_is_invalid(dest_ptr->value.type))
@@ -12550,8 +12476,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_int_type(ira, (IrInstructionIntType *)instruction);
         case IrInstructionIdBoolNot:
             return ir_analyze_instruction_bool_not(ira, (IrInstructionBoolNot *)instruction);
-        case IrInstructionIdAlloca:
-            return ir_analyze_instruction_alloca(ira, (IrInstructionAlloca *)instruction);
         case IrInstructionIdMemset:
             return ir_analyze_instruction_memset(ira, (IrInstructionMemset *)instruction);
         case IrInstructionIdMemcpy:
@@ -12749,7 +12673,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTruncate:
         case IrInstructionIdIntType:
         case IrInstructionIdBoolNot:
-        case IrInstructionIdAlloca:
         case IrInstructionIdSlice:
         case IrInstructionIdMemberCount:
         case IrInstructionIdAlignOf:
