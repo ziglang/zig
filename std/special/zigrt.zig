@@ -11,6 +11,6 @@ export coldcc fn __zig_panic(message_ptr: &const u8, message_len: usize) -> nore
     } else if (@compileVar("os") == Os.freestanding) {
         while (true) {}
     } else {
-        @import("std").debug.panic("{}\n", message_ptr[0...message_len]);
+        @import("std").debug.panic("{}", message_ptr[0...message_len]);
     }
 }

@@ -69,6 +69,27 @@ pub const OutStream = struct {
     buffer: [buffer_size]u8,
     index: usize,
 
+    /// `path` may need to be copied in memory to add a null terminating byte. In this case
+    /// a fixed size buffer of size std.os.max_noalloc_path_len is an attempted solution. If the fixed
+    /// size buffer is too small, and the provided allocator is null, error.NameTooLong is returned.
+    /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
+    /// Call close to clean up.
+    pub fn open(path: []const u8, allocator: ?&mem.Allocator) -> %OutStream {
+        switch (@compileVar("os")) {
+            Os.linux, Os.darwin, Os.macosx, Os.ios => {
+                const flags = system.O_LARGEFILE|system.O_WRONLY|system.O_CREAT|system.O_CLOEXEC|system.O_TRUNC;
+                const fd = %return os.posixOpen(path, flags, 0o666, allocator);
+                return OutStream {
+                    .fd = fd,
+                    .index = 0,
+                    .buffer = undefined,
+                };
+            },
+            else => @compileError("Unsupported OS"),
+        }
+
+    }
+
     pub fn writeByte(self: &OutStream, b: u8) -> %void {
         if (self.buffer.len == self.index) %return self.flush();
         self.buffer[self.index] = b;
@@ -76,6 +97,11 @@ pub const OutStream = struct {
     }
 
     pub fn write(self: &OutStream, bytes: []const u8) -> %void {
+        if (bytes.len >= buffer_size) {
+            %return self.flush();
+            return os.posixWrite(self.fd, bytes);
+        }
+
         var src_index: usize = 0;
 
         while (src_index < bytes.len) {
@@ -119,35 +145,15 @@ pub const OutStream = struct {
     }
 
     pub fn flush(self: &OutStream) -> %void {
-        while (true) {
-            const write_ret = system.write(self.fd, &self.buffer[0], self.index);
-            const write_err = system.getErrno(write_ret);
-            if (write_err > 0) {
-                return switch (write_err) {
-                    errno.EINTR  => continue,
-                    errno.EINVAL => unreachable,
-                    errno.EDQUOT => error.DiskQuota,
-                    errno.EFBIG  => error.FileTooBig,
-                    errno.EIO    => error.Io,
-                    errno.ENOSPC => error.NoSpaceLeft,
-                    errno.EPERM  => error.BadPerm,
-                    errno.EPIPE  => error.PipeFail,
-                    else         => error.Unexpected,
-                }
-            }
+        if (self.index != 0) {
+            %return os.posixWrite(self.fd, self.buffer[0...self.index]);
             self.index = 0;
-            return;
         }
     }
 
     pub fn close(self: &OutStream) {
-        while (true) {
-            const close_ret = system.close(self.fd);
-            const close_err = system.getErrno(close_ret);
-            if (close_err > 0 and close_err == errno.EINTR)
-                continue;
-            return;
-        }
+        assert(self.index == 0);
+        os.posixClose(self.fd);
     }
 };
 
@@ -156,65 +162,32 @@ pub const OutStream = struct {
 pub const InStream = struct {
     fd: i32,
 
+    /// `path` may need to be copied in memory to add a null terminating byte. In this case
+    /// a fixed size buffer of size std.os.max_noalloc_path_len is an attempted solution. If the fixed
+    /// size buffer is too small, and the provided allocator is null, error.NameTooLong is returned.
+    /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
     /// Call close to clean up.
-    pub fn open(is: &InStream, path: []const u8) -> %void {
+    pub fn open(path: []const u8, allocator: ?&mem.Allocator) -> %InStream {
         switch (@compileVar("os")) {
-            Os.linux, Os.darwin => {
-                while (true) {
-                    const result = system.open(path, system.O_LARGEFILE|system.O_RDONLY, 0);
-                    const err = system.getErrno(result);
-                    if (err > 0) {
-                        return switch (err) {
-                            errno.EINTR => continue,
-
-                            errno.EFAULT => unreachable,
-                            errno.EINVAL => unreachable,
-                            errno.EACCES => error.BadPerm,
-                            errno.EFBIG, errno.EOVERFLOW => error.FileTooBig,
-                            errno.EISDIR => error.IsDir,
-                            errno.ELOOP => error.SymLinkLoop,
-                            errno.EMFILE => error.ProcessFdQuotaExceeded,
-                            errno.ENAMETOOLONG => error.NameTooLong,
-                            errno.ENFILE => error.SystemFdQuotaExceeded,
-                            errno.ENODEV => error.NoDevice,
-                            errno.ENOENT => error.PathNotFound,
-                            errno.ENOMEM => error.NoMem,
-                            errno.ENOSPC => error.NoSpaceLeft,
-                            errno.ENOTDIR => error.NotDir,
-                            errno.EPERM => error.BadPerm,
-                            else => error.Unexpected,
-                        }
-                    }
-                    is.fd = i32(result);
-                    return;
-                }
+            Os.linux, Os.darwin, Os.macosx, Os.ios => {
+                const flags = system.O_LARGEFILE|system.O_RDONLY;
+                const fd = %return os.posixOpen(path, flags, 0, allocator);
+                return InStream {
+                    .fd = fd,
+                };
             },
-            else => @compileError("unsupported OS"),
+            else => @compileError("Unsupported OS"),
         }
-
     }
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
-    pub fn close(is: &InStream) -> %void {
+    pub fn close(self: &InStream) {
         switch (@compileVar("os")) {
-            Os.linux, Os.darwin => {
-                while (true) {
-                    const close_ret = system.close(is.fd);
-                    const close_err = system.getErrno(close_ret);
-                    if (close_err > 0) {
-                        return switch (close_err) {
-                            errno.EINTR => continue,
-
-                            errno.EIO => error.Io,
-                            errno.EBADF => error.BadFd,
-                            else => error.Unexpected,
-                        }
-                    }
-                    return;
-                }
+            Os.linux, Os.darwin, Os.macosx, Os.ios => {
+                os.posixClose(self.fd);
             },
-            else => @compileError("unsupported OS"),
+            else => @compileError("Unsupported OS"),
         }
     }
 
@@ -373,15 +346,28 @@ pub const InStream = struct {
     }
 };
 
-pub fn openSelfExe(stream: &InStream) -> %void {
+pub fn openSelfExe() -> %InStream {
     switch (@compileVar("os")) {
         Os.linux => {
-            %return stream.open("/proc/self/exe");
+            return InStream.open("/proc/self/exe", null);
         },
         Os.darwin => {
-            %%stderr.printf("TODO: openSelfExe on Darwin\n");
-            os.abort();
+            debug.panic("TODO: openSelfExe on Darwin");
         },
-        else => @compileError("unsupported os"),
+        else => @compileError("Unsupported OS"),
     }
+}
+
+/// `path` may need to be copied in memory to add a null terminating byte. In this case
+/// a fixed size buffer of size std.os.max_noalloc_path_len is an attempted solution. If the fixed
+/// size buffer is too small, and the provided allocator is null, error.NameTooLong is returned.
+/// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
+pub fn writeFile(path: []const u8, data: []const u8, allocator: ?&mem.Allocator) -> %void {
+    // TODO have an unbuffered File abstraction and use that here.
+    // Then a buffered out stream abstraction can go on top of that for
+    // use cases like stdout and stderr.
+    var out_stream = %return OutStream.open(path, allocator);
+    defer out_stream.close();
+    %return out_stream.write(data);
+    %return out_stream.flush();
 }

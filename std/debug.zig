@@ -28,7 +28,7 @@ pub coldcc fn panic(comptime format: []const u8, args: ...) -> noreturn {
         panicking = true;
     }
 
-    %%io.stderr.printf(format, args);
+    %%io.stderr.printf(format ++ "\n", args);
     %%printStackTrace();
 
     os.abort();
@@ -52,8 +52,8 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
                 .compile_unit_list = List(CompileUnit).init(&global_allocator),
             };
             const st = &stack_trace;
-            %return io.openSelfExe(&st.self_exe_stream);
-            defer st.self_exe_stream.close() %% {};
+            st.self_exe_stream = %return io.openSelfExe();
+            defer st.self_exe_stream.close();
 
             %return st.elf.openStream(&global_allocator, &st.self_exe_stream);
             defer st.elf.close();

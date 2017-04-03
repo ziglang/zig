@@ -3802,6 +3802,35 @@ static const GlobalLinkageValue global_linkage_values[] = {
     {GlobalLinkageIdLinkOnce, "LinkOnce"},
 };
 
+static void init_enum_debug_info(CodeGen *g, TypeTableEntry *enum_type) {
+    uint32_t field_count = enum_type->data.enumeration.src_field_count;
+
+    TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
+    enum_type->data.enumeration.tag_type = tag_type_entry;
+
+    ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
+    for (uint32_t i = 0; i < field_count; i += 1) {
+        TypeEnumField *field = &enum_type->data.enumeration.fields[i];
+        di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(field->name), i);
+    }
+
+    // create debug type for tag
+    uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
+    uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
+    enum_type->di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
+            nullptr, buf_ptr(&enum_type->name),
+            nullptr, 0,
+            tag_debug_size_in_bits,
+            tag_debug_align_in_bits,
+            di_enumerators, field_count,
+            tag_type_entry->di_type, "");
+
+    enum_type->type_ref = tag_type_entry->type_ref;
+
+    enum_type->data.enumeration.complete = true;
+    enum_type->data.enumeration.zero_bits_known = true;
+}
+
 static void define_builtin_types(CodeGen *g) {
     {
         // if this type is anywhere in the AST, we should never hit codegen.
@@ -4022,7 +4051,6 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "Os");
         uint32_t field_count = target_os_count();
         entry->data.enumeration.src_field_count = field_count;
@@ -4038,11 +4066,8 @@ static void define_builtin_types(CodeGen *g) {
                 g->target_os_index = i;
             }
         }
-        entry->data.enumeration.complete = true;
-        entry->data.enumeration.zero_bits_known = true;
 
-        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
-        entry->data.enumeration.tag_type = tag_type_entry;
+        init_enum_debug_info(g, entry);
 
         g->builtin_types.entry_os_enum = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -4050,7 +4075,6 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "Arch");
         uint32_t field_count = target_arch_count();
         entry->data.enumeration.src_field_count = field_count;
@@ -4072,11 +4096,8 @@ static void define_builtin_types(CodeGen *g) {
                 g->target_arch_index = i;
             }
         }
-        entry->data.enumeration.complete = true;
-        entry->data.enumeration.zero_bits_known = true;
 
-        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
-        entry->data.enumeration.tag_type = tag_type_entry;
+        init_enum_debug_info(g, entry);
 
         g->builtin_types.entry_arch_enum = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -4084,7 +4105,6 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "Environ");
         uint32_t field_count = target_environ_count();
         entry->data.enumeration.src_field_count = field_count;
@@ -4100,11 +4120,8 @@ static void define_builtin_types(CodeGen *g) {
                 g->target_environ_index = i;
             }
         }
-        entry->data.enumeration.complete = true;
-        entry->data.enumeration.zero_bits_known = true;
 
-        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
-        entry->data.enumeration.tag_type = tag_type_entry;
+        init_enum_debug_info(g, entry);
 
         g->builtin_types.entry_environ_enum = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -4112,7 +4129,6 @@ static void define_builtin_types(CodeGen *g) {
 
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        entry->zero_bits = true; // only allowed at compile time
         buf_init_from_str(&entry->name, "ObjectFormat");
         uint32_t field_count = target_oformat_count();
         entry->data.enumeration.src_field_count = field_count;
@@ -4128,11 +4144,8 @@ static void define_builtin_types(CodeGen *g) {
                 g->target_oformat_index = i;
             }
         }
-        entry->data.enumeration.complete = true;
-        entry->data.enumeration.zero_bits_known = true;
 
-        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
-        entry->data.enumeration.tag_type = tag_type_entry;
+        init_enum_debug_info(g, entry);
 
         g->builtin_types.entry_oformat_enum = entry;
         g->primitive_type_table.put(&entry->name, entry);

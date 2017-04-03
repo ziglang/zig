@@ -71,15 +71,8 @@ pub fn close(fd: i32) -> usize {
     arch.syscall1(arch.SYS_close, usize(fd))
 }
 
-pub fn open_c(path: &const u8, flags: usize, perm: usize) -> usize {
+pub fn open(path: &const u8, flags: usize, perm: usize) -> usize {
     arch.syscall3(arch.SYS_open, usize(path), flags, perm)
-}
-
-pub fn open(path: []const u8, flags: usize, perm: usize) -> usize {
-    const buf = @alloca(u8, path.len + 1);
-    @memcpy(&buf[0], &path[0], path.len);
-    buf[path.len] = 0;
-    return open_c(buf.ptr, flags, perm);
 }
 
 pub fn read(fd: i32, buf: &u8, count: usize) -> usize {

@@ -303,37 +303,16 @@ pub fn pwrite(fd: i32, buf: &const u8, count: usize, offset: usize) -> usize {
     arch.syscall4(arch.SYS_pwrite, usize(fd), usize(buf), count, offset)
 }
 
-pub fn open_c(path: &const u8, flags: usize, perm: usize) -> usize {
+pub fn open(path: &const u8, flags: usize, perm: usize) -> usize {
     arch.syscall3(arch.SYS_open, usize(path), flags, perm)
 }
 
-pub fn open(path: []const u8, flags: usize, perm: usize) -> usize {
-    const buf = @alloca(u8, path.len + 1);
-    @memcpy(&buf[0], &path[0], path.len);
-    buf[path.len] = 0;
-    return open_c(buf.ptr, flags, perm);
-}
-
-pub fn create_c(path: &const u8, perm: usize) -> usize {
+pub fn create(path: &const u8, perm: usize) -> usize {
     arch.syscall2(arch.SYS_creat, usize(path), perm)
 }
 
-pub fn create(path: []const u8, perm: usize) -> usize {
-    const buf = @alloca(u8, path.len + 1);
-    @memcpy(&buf[0], &path[0], path.len);
-    buf[path.len] = 0;
-    return create_c(buf.ptr, perm);
-}
-
-pub fn openat_c(dirfd: i32, path: &const u8, flags: usize, mode: usize) -> usize {
+pub fn openat(dirfd: i32, path: &const u8, flags: usize, mode: usize) -> usize {
     arch.syscall4(arch.SYS_openat, usize(dirfd), usize(path), flags, mode)
-}
-
-pub fn openat(dirfd: i32, path: []const u8, flags: usize, mode: usize) -> usize {
-    const buf = @alloca(u8, path.len + 1);
-    @memcpy(&buf[0], &path[0], path.len);
-    buf[path.len] = 0;
-    return openat_c(dirfd, buf.ptr, flags, mode);
 }
 
 pub fn close(fd: i32) -> usize {

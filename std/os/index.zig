@@ -8,6 +8,8 @@ pub const posix = switch(@compileVar("os")) {
     else => @compileError("Unsupported OS"),
 };
 
+pub const max_noalloc_path_len = 1024;
+
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 
@@ -105,11 +107,12 @@ fn makePipe() -> %[2]i32 {
 }
 
 fn destroyPipe(pipe: &const [2]i32) {
-    closeNoIntr((*pipe)[0]);
-    closeNoIntr((*pipe)[1]);
+    posixClose((*pipe)[0]);
+    posixClose((*pipe)[1]);
 }
 
-fn closeNoIntr(fd: i32) {
+/// Calls POSIX close, and keeps trying if it gets interrupted.
+pub fn posixClose(fd: i32) {
     while (true) {
         const err = posix.getErrno(posix.close(fd));
         if (err == errno.EINTR) {
@@ -120,9 +123,56 @@ fn closeNoIntr(fd: i32) {
     }
 }
 
-fn openNoIntr(path: []const u8, flags: usize, perm: usize) -> %i32 {
+/// Calls POSIX write, and keeps trying if it gets interrupted.
+pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
     while (true) {
-        const result = posix.open(path, flags, perm);
+        const write_ret = posix.write(fd, bytes.ptr, bytes.len);
+        const write_err = posix.getErrno(write_ret);
+        if (write_err > 0) {
+            return switch (write_err) {
+                errno.EINTR  => continue,
+                errno.EINVAL => unreachable,
+                errno.EDQUOT => error.DiskQuota,
+                errno.EFBIG  => error.FileTooBig,
+                errno.EIO    => error.Io,
+                errno.ENOSPC => error.NoSpaceLeft,
+                errno.EPERM  => error.BadPerm,
+                errno.EPIPE  => error.PipeFail,
+                else         => error.Unexpected,
+            }
+        }
+        return;
+    }
+}
+
+
+/// ::path may need to be copied in memory to add a null terminating byte. In this case
+/// a fixed size buffer of size ::max_noalloc_path_len is an attempted solution. If the fixed
+/// size buffer is too small, and the provided allocator is null, ::error.NameTooLong is returned.
+/// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
+/// Calls POSIX open, keeps trying if it gets interrupted, and translates
+/// the return value into zig errors.
+pub fn posixOpen(path: []const u8, flags: usize, perm: usize, allocator: ?&Allocator) -> %i32 {
+    var stack_buf: [max_noalloc_path_len]u8 = undefined;
+    var path0: []u8 = undefined;
+    var need_free = false;
+
+    if (path.len < stack_buf.len) {
+        path0 = stack_buf[0...path.len + 1];
+    } else if (const a ?= allocator) {
+        path0 = %return a.alloc(u8, path.len + 1);
+        need_free = true;
+    } else {
+        return error.NameTooLong;
+    }
+    defer if (need_free) {
+        (??allocator).free(path0);
+    };
+    mem.copy(u8, path0, path);
+    path0[path.len] = 0;
+
+    while (true) {
+        const result = posix.open(path0.ptr, flags, perm);
         const err = posix.getErrno(result);
         if (err > 0) {
             return switch (err) {
@@ -247,8 +297,8 @@ pub const ChildProcess = struct {
 
     pub fn wait(self: &ChildProcess) -> %Term {
         defer {
-            closeNoIntr(self.err_pipe[0]);
-            closeNoIntr(self.err_pipe[1]);
+            posixClose(self.err_pipe[0]);
+            posixClose(self.err_pipe[1]);
         };
 
         var status: i32 = undefined;
@@ -328,13 +378,13 @@ pub const ChildProcess = struct {
         const any_ignore = (stdin == StdIo.Ignore or stdout == StdIo.Ignore or stderr == StdIo.Ignore);
         // TODO issue #295
         //const dev_null_fd = if (any_ignore) {
-        //    %return openNoIntr("/dev/null", posix.O_RDWR, 0)
+        //    %return posixOpen("/dev/null", posix.O_RDWR, 0, null)
         //} else {
         //    undefined
         //};
         var dev_null_fd: i32 = undefined;
         if (any_ignore)
-            dev_null_fd = %return openNoIntr("/dev/null", posix.O_RDWR, 0);
+            dev_null_fd = %return posixOpen("/dev/null", posix.O_RDWR, 0, null);
 
         // This pipe is used to communicate errors between the time of fork
         // and execve from the child process to the parent process.
@@ -374,10 +424,10 @@ pub const ChildProcess = struct {
         }
 
         // we are the parent
-        if (stdin == StdIo.Pipe) { closeNoIntr(stdin_pipe[0]); }
-        if (stdout == StdIo.Pipe) { closeNoIntr(stdout_pipe[1]); }
-        if (stderr == StdIo.Pipe) { closeNoIntr(stderr_pipe[1]); }
-        if (any_ignore) { closeNoIntr(dev_null_fd); }
+        if (stdin == StdIo.Pipe) { posixClose(stdin_pipe[0]); }
+        if (stdout == StdIo.Pipe) { posixClose(stdout_pipe[1]); }
+        if (stderr == StdIo.Pipe) { posixClose(stderr_pipe[1]); }
+        if (any_ignore) { posixClose(dev_null_fd); }
 
         return ChildProcess {
             .pid = i32(pid),
@@ -412,7 +462,7 @@ pub const ChildProcess = struct {
     fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) -> %void {
         switch (stdio) {
             StdIo.Pipe => %return dup2NoIntr(pipe_fd, std_fileno),
-            StdIo.Close => closeNoIntr(std_fileno),
+            StdIo.Close => posixClose(std_fileno),
             StdIo.Inherit => {},
             StdIo.Ignore => %return dup2NoIntr(dev_null_fd, std_fileno),
         }

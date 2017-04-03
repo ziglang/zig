@@ -33,6 +33,7 @@ export nakedcc fn _start() -> noreturn {
 }
 
 fn callMain(envp: &?&u8) -> %void {
+    // TODO issue #225
     const args = @alloca([]u8, argc);
     for (args) |_, i| {
         const ptr = argv[i];
@@ -41,6 +42,7 @@ fn callMain(envp: &?&u8) -> %void {
 
     var env_count: usize = 0;
     while (envp[env_count] != null; env_count += 1) {}
+    // TODO issue #225
     const environ = @alloca(std.os.EnvPair, env_count);
     for (environ) |_, env_i| {
         const ptr = ??envp[env_i];

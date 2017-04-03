@@ -944,6 +944,7 @@ struct TypeTableEntryEnum {
     AstNode *decl_node;
     ContainerLayout layout;
     uint32_t src_field_count;
+    // number of fields in the union. 0 if enum with no payload
     uint32_t gen_field_count;
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid
