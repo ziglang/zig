@@ -57,9 +57,8 @@ pub const Builder = struct {
             %return zig_args.append(exe.name);
 
             printInvocation(self.zig_exe, zig_args);
-            const TODO_env: []const []const u8 = undefined; // TODO
-            var child = %return os.ChildProcess.spawn(self.zig_exe, zig_args.toSliceConst(), TODO_env,
-                StdIo.Ignore, StdIo.Inherit, StdIo.Inherit);
+            var child = %return os.ChildProcess.spawn(self.zig_exe, zig_args.toSliceConst(), os.environ,
+                StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, self.allocator);
             const term = %return child.wait();
             switch (term) {
                 Term.Clean => |code| {

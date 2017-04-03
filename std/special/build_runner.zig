@@ -4,7 +4,13 @@ const io = std.io;
 const Builder = std.build.Builder;
 const mem = std.mem;
 
+error InvalidArgs;
+
 pub fn main(args: [][]u8) -> %void {
+    if (args.len < 2) {
+        %%io.stderr.printf("Expected first argument to be path to zig compiler\n");
+        return error.InvalidArgs;
+    }
     const zig_exe = args[1];
     const leftover_args = args[2...];
 

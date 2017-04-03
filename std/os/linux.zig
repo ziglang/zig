@@ -261,40 +261,8 @@ pub fn dup2(old: i32, new: i32) -> usize {
     arch.syscall2(arch.SYS_dup2, usize(old), usize(new))
 }
 
-pub fn execve_c(path: &const u8, argv: &const ?&const u8, envp: &const ?&const u8) -> usize {
-    arch.syscall3(arch.SYS_execve, path, argv, envp)
-}
-
-/// This function must allocate memory to add a null terminating bytes on path, each arg,
-/// and each environment variable line, as well as a null pointer after the arg list and
-/// environment variable list. We allocate stack memory since the process is about to get
-/// wiped anyway.
-pub fn execve(path: []const u8, argv: []const []const u8, envp: []const []const u8) -> usize {
-    const path_buf = @alloca(u8, path.len + 1);
-    @memcpy(&path_buf[0], &path[0], path.len);
-    path_buf[path.len] = 0;
-
-    const argv_buf = @alloca([]const ?&const u8, argv.len + 1);
-    for (argv) |arg, i| {
-        const arg_buf = @alloca(u8, arg.len + 1);
-        @memcpy(&arg_buf[0], &arg[0], arg.len);
-        arg_buf[arg.len] = 0;
-
-        argv[i] = arg_buf;
-    }
-    argv_buf[argv.len] = null;
-
-    const envp_buf = @alloca([]const ?&const u8, envp.len + 1);
-    for (envp) |env, i| {
-        const env_buf = @alloca(u8, env.len + 1);
-        @memcpy(&env_buf[0], &env[0], env.len);
-        env_buf[env.len] = 0;
-
-        envp[i] = env_buf;
-    }
-    envp_buf[envp.len] = null;
-
-    return execve_c(path_buf.ptr, argv_buf.ptr, envp_buf.ptr);
+pub fn execve(path: &const u8, argv: &const ?&const u8, envp: &const ?&const u8) -> usize {
+    arch.syscall3(arch.SYS_execve, usize(path), usize(argv), usize(envp))
 }
 
 pub fn fork() -> usize {

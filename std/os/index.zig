@@ -83,7 +83,7 @@ pub coldcc fn abort() -> noreturn {
         c.abort();
     }
     switch (@compileVar("os")) {
-        Os.linux => {
+        Os.linux, Os.darwin, Os.macosx, Os.ios => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
@@ -234,12 +234,12 @@ pub const ChildProcess = struct {
         Close,
     };
 
-    pub fn spawn(exe_path: []const u8, args: []const []const u8, env: []const []const u8,
-        stdin: StdIo, stdout: StdIo, stderr: StdIo) -> %ChildProcess
+    pub fn spawn(exe_path: []const u8, args: []const []const u8, env: []const EnvPair,
+        stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
     {
         switch (@compileVar("os")) {
             Os.linux, Os.macosx, Os.ios, Os.darwin => {
-                return spawnPosix(exe_path, args, env, stdin, stdout, stderr);
+                return spawnPosix(exe_path, args, env, stdin, stdout, stderr, allocator);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -301,8 +301,8 @@ pub const ChildProcess = struct {
         };
     }
 
-    fn spawnPosix(exe_path: []const u8, args: []const []const u8, env: []const []const u8,
-        stdin: StdIo, stdout: StdIo, stderr: StdIo) -> %ChildProcess
+    fn spawnPosix(exe_path: []const u8, args: []const []const u8, env: []const EnvPair,
+        stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
     {
         // TODO issue #295
         //const stdin_pipe = if (stdin == StdIo.Pipe) %return makePipe() else undefined;
@@ -358,7 +358,7 @@ pub const ChildProcess = struct {
             setUpChildIo(stderr, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) %%
                 |err| forkChildErrReport(err_pipe[1], err);
 
-            const err = posix.getErrno(posix.execve(exe_path, args, env));
+            const err = posix.getErrno(%return execve(exe_path, args, env, allocator));
             assert(err > 0);
             forkChildErrReport(err_pipe[1], switch (err) {
                 errno.EFAULT => unreachable,
@@ -418,6 +418,65 @@ pub const ChildProcess = struct {
         }
     }
 };
+
+/// This function must allocate memory to add a null terminating bytes on path and each arg.
+/// It must also convert to KEY=VALUE\0 format for environment variables, and include null
+/// pointers after the args and after the environment variables.
+/// Also make the first arg equal to path.
+fn execve(path: []const u8, argv: []const []const u8, envp: []const EnvPair, allocator: &Allocator) -> %usize {
+    const path_buf = %return allocator.alloc(u8, path.len + 1);
+    defer allocator.free(path_buf);
+    @memcpy(&path_buf[0], &path[0], path.len);
+    path_buf[path.len] = 0;
+
+    const argv_buf = %return allocator.alloc(?&const u8, argv.len + 2);
+    mem.set(?&const u8, argv_buf, null);
+    defer {
+        for (argv_buf) |arg, i| {
+            const arg_buf = if (const ptr ?= arg) ptr[0...argv[i].len + 1] else break;
+            allocator.free(arg_buf);
+        }
+        allocator.free(argv_buf);
+    }
+    {
+        // Add path to the first argument.
+        const arg_buf = %return allocator.alloc(u8, path.len + 1);
+        @memcpy(&arg_buf[0], path.ptr, path.len);
+        arg_buf[path.len] = 0;
+
+        argv_buf[0] = arg_buf.ptr;
+    }
+    for (argv) |arg, i| {
+        const arg_buf = %return allocator.alloc(u8, arg.len + 1);
+        @memcpy(&arg_buf[0], arg.ptr, arg.len);
+        arg_buf[arg.len] = 0;
+
+        argv_buf[i + 1] = arg_buf.ptr;
+    }
+    argv_buf[argv.len + 1] = null;
+
+    const envp_buf = %return allocator.alloc(?&const u8, envp.len + 1);
+    mem.set(?&const u8, envp_buf, null);
+    defer {
+        for (envp_buf) |env, i| {
+            const env_buf = if (const ptr ?= env) ptr[0...envp[i].key.len + envp[i].value.len + 2] else break;
+            allocator.free(env_buf);
+        }
+        allocator.free(envp_buf);
+    }
+    for (envp) |pair, i| {
+        const env_buf = %return allocator.alloc(u8, pair.key.len + pair.value.len + 2);
+        @memcpy(&env_buf[0], pair.key.ptr, pair.key.len);
+        env_buf[pair.key.len] = '=';
+        @memcpy(&env_buf[pair.key.len + 1], pair.value.ptr, pair.value.len);
+        env_buf[env_buf.len - 1] = 0;
+
+        envp_buf[i] = env_buf.ptr;
+    }
+    envp_buf[envp.len] = null;
+
+    return posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr);
+}
 
 pub const EnvPair = struct {
     key: []const u8,
