@@ -1834,6 +1834,20 @@ fn foo(e: error) -> u2 {
 }
 export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
     )SOURCE", 1, ".tmp_source.zig:5:14: error: too many error values to fit in 'u2'");
+
+    add_compile_fail_case("asm at compile time", R"SOURCE(
+comptime {
+    doSomeAsm();
+}
+
+fn doSomeAsm() {
+    asm volatile (
+        \\.globl aoeu;
+        \\.type aoeu, @function;
+        \\.set aoeu, derp;
+    );
+}
+    )SOURCE", 1, ".tmp_source.zig:7:5: error: unable to evaluate constant expression");
 }
 
 //////////////////////////////////////////////////////////////////////////////

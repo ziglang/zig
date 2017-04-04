@@ -1,5 +1,6 @@
 comptime {
     _ = @import("cases/array.zig");
+    _ = @import("cases/asm.zig");
     _ = @import("cases/atomics.zig");
     _ = @import("cases/bool.zig");
     _ = @import("cases/cast.zig");

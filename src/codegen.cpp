@@ -73,6 +73,8 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     g->is_test_build = false;
     g->want_h_file = true;
 
+    buf_resize(&g->global_asm, 0);
+
     // reserve index 0 to indicate no error
     g->error_decls.append(nullptr);
 
@@ -3724,6 +3726,10 @@ static void do_code_gen(CodeGen *g) {
 
     }
     assert(!g->errors.length);
+
+    if (buf_len(&g->global_asm) != 0) {
+        LLVMSetModuleInlineAsm(g->module, buf_ptr(&g->global_asm));
+    }
 
     ZigLLVMDIBuilderFinalize(g->dbuilder);
 

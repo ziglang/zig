@@ -1460,6 +1460,8 @@ struct CodeGen {
     ConstExprValue const_void_val;
 
     ConstExprValue panic_msg_vals[PanicMsgIdCount];
+
+    Buf global_asm;
 };
 
 enum VarLinkage {

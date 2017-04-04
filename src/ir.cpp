@@ -9896,12 +9896,29 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
 static TypeTableEntry *ir_analyze_instruction_asm(IrAnalyze *ira, IrInstructionAsm *asm_instruction) {
     assert(asm_instruction->base.source_node->type == NodeTypeAsmExpr);
 
+    AstNodeAsmExpr *asm_expr = &asm_instruction->base.source_node->data.asm_expr;
+
+    bool global_scope = (scope_fn_entry(asm_instruction->base.scope) == nullptr);
+    if (global_scope) {
+        if (asm_expr->output_list.length != 0 || asm_expr->input_list.length != 0 ||
+            asm_expr->clobber_list.length != 0)
+        {
+            ir_add_error(ira, &asm_instruction->base,
+                buf_sprintf("global assembly cannot have inputs, outputs, or clobbers"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        buf_append_char(&ira->codegen->global_asm, '\n');
+        buf_append_buf(&ira->codegen->global_asm, asm_expr->asm_template);
+
+        ir_build_const_from(ira, &asm_instruction->base);
+        return ira->codegen->builtin_types.entry_void;
+    }
+
     if (!ir_emit_global_runtime_side_effect(ira, &asm_instruction->base))
         return ira->codegen->builtin_types.entry_invalid;
 
     // TODO validate the output types and variable types
-
-    AstNodeAsmExpr *asm_expr = &asm_instruction->base.source_node->data.asm_expr;
 
     IrInstruction **input_list = allocate<IrInstruction *>(asm_expr->input_list.length);
     IrInstruction **output_types = allocate<IrInstruction *>(asm_expr->output_list.length);
