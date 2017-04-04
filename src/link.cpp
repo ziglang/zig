@@ -815,9 +815,9 @@ void codegen_link(CodeGen *g, const char *out_file) {
 
 
     if (g->verbose) {
-        fprintf(stderr, "link");
         for (size_t i = 0; i < lj.args.length; i += 1) {
-            fprintf(stderr, " %s", lj.args.at(i));
+            const char *space = (i != 0) ? " " : "";
+            fprintf(stderr, "%s%s", space, lj.args.at(i));
         }
         fprintf(stderr, "\n");
     }
