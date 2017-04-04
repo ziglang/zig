@@ -736,6 +736,11 @@ static void construct_linker_job(LinkJob *lj) {
 
 void codegen_link(CodeGen *g, const char *out_file) {
     LinkJob lj = {0};
+
+    // even though we're calling LLD as a library it thinks the first
+    // argument is its own exe name
+    lj.args.append("lld");
+
     lj.rpath_table.init(4);
     lj.codegen = g;
     if (out_file) {
