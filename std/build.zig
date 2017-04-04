@@ -150,9 +150,10 @@ pub const Builder = struct {
             }
 
             // TODO issue #301
-            var child = %return os.ChildProcess.spawn(self.zig_exe, zig_args.toSliceConst(), &env_map,
-                StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, self.allocator);
-            const term = %return child.wait();
+            var child = os.ChildProcess.spawn(self.zig_exe, zig_args.toSliceConst(), &env_map,
+                StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, self.allocator)
+                %% |err| debug.panic("Unable to spawn zig compiler: {}\n", @errorName(err));
+            const term = %%child.wait();
             const exe_result = switch (term) {
                 Term.Clean => |code| {
                     if (code != 0) {

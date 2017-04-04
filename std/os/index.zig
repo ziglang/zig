@@ -215,8 +215,8 @@ pub fn posixExecve(path: []const u8, argv: []const []const u8, env_map: &const B
     const argv_buf = %return allocator.alloc(?&const u8, argv.len + 2);
     mem.set(?&const u8, argv_buf, null);
     defer {
-        for (argv_buf) |arg, i| {
-            const arg_buf = if (const ptr ?= arg) ptr[0...argv[i].len + 1] else break;
+        for (argv_buf) |arg| {
+            const arg_buf = if (const ptr ?= arg) ptr[0...cstr.len(ptr)] else break;
             allocator.free(arg_buf);
         }
         allocator.free(argv_buf);
@@ -242,7 +242,7 @@ pub fn posixExecve(path: []const u8, argv: []const []const u8, env_map: &const B
     const envp_buf = %return allocator.alloc(?&const u8, envp_count + 1);
     mem.set(?&const u8, envp_buf, null);
     defer {
-        for (envp_buf) |env, i| {
+        for (envp_buf) |env| {
             const env_buf = if (const ptr ?= env) ptr[0...cstr.len(ptr)] else break;
             allocator.free(env_buf);
         }
