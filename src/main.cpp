@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "\nBuild failed. Use the following command to reproduce the failure:\n");
             fprintf(stderr, "./build");
             for (size_t i = 0; i < args.length; i += 1) {
-                fprintf(stderr, " \"%s\"", args.at(i));
+                fprintf(stderr, " %s", args.at(i));
             }
             fprintf(stderr, "\n");
         }

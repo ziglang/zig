@@ -6,6 +6,7 @@ const Allocator = @import("mem.zig").Allocator;
 const os = @import("os/index.zig");
 const StdIo = os.ChildProcess.StdIo;
 const Term = os.ChildProcess.Term;
+const BufSet = @import("buf_set.zig").BufSet;
 
 error ExtraArg;
 error UncleanExit;
@@ -14,13 +15,28 @@ pub const Builder = struct {
     zig_exe: []const u8,
     allocator: &Allocator,
     exe_list: List(&Exe),
+    lib_paths: List([]const u8),
+    include_paths: List([]const u8),
+    rpaths: List([]const u8),
 
     pub fn init(zig_exe: []const u8, allocator: &Allocator) -> Builder {
-        Builder {
+        var self = Builder {
             .zig_exe = zig_exe,
             .allocator = allocator,
             .exe_list = List(&Exe).init(allocator),
-        }
+            .lib_paths = List([]const u8).init(allocator),
+            .include_paths = List([]const u8).init(allocator),
+            .rpaths = List([]const u8).init(allocator),
+        };
+        self.processNixOSEnvVars();
+        return self;
+    }
+
+    pub fn deinit(self: &Builder) {
+        self.exe_list.deinit();
+        self.lib_paths.deinit();
+        self.include_paths.deinit();
+        self.rpaths.deinit();
     }
 
     pub fn addExe(self: &Builder, root_src: []const u8, name: []const u8) -> &Exe {
@@ -34,9 +50,22 @@ pub const Builder = struct {
             .name = name,
             .target = Target.Native,
             .linker_script = LinkerScript.None,
+            .link_libs = BufSet.init(self.allocator),
         };
         %return self.exe_list.append(exe);
         return exe;
+    }
+
+    pub fn addCIncludePath(self: &Builder, path: []const u8) {
+        %%self.include_paths.append(path);
+    }
+
+    pub fn addRPath(self: &Builder, path: []const u8) {
+        %%self.rpaths.append(path);
+    }
+
+    pub fn addLibPath(self: &Builder, path: []const u8) {
+        %%self.lib_paths.append(path);
     }
 
     pub fn make(self: &Builder, leftover_arg_index: usize) -> %void {
@@ -96,18 +125,85 @@ pub const Builder = struct {
                 },
             }
 
-            printInvocation(self.zig_exe, zig_args);
+            {
+                var it = exe.link_libs.iterator();
+                while (true) {
+                    const entry = it.next() ?? break;
+                    %return zig_args.append("--library"[0...]); // TODO issue #296
+                    %return zig_args.append(entry.key);
+                }
+            }
+
+            for (self.include_paths.toSliceConst()) |include_path| {
+                %return zig_args.append("-isystem"[0...]); // TODO issue #296
+                %return zig_args.append(include_path);
+            }
+
+            for (self.rpaths.toSliceConst()) |rpath| {
+                %return zig_args.append("-rpath"[0...]); // TODO issue #296
+                %return zig_args.append(rpath);
+            }
+
+            for (self.lib_paths.toSliceConst()) |lib_path| {
+                %return zig_args.append("--library-path"[0...]); // TODO issue #296
+                %return zig_args.append(lib_path);
+            }
+
             // TODO issue #301
             var child = %return os.ChildProcess.spawn(self.zig_exe, zig_args.toSliceConst(), &env_map,
                 StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, self.allocator);
             const term = %return child.wait();
-            switch (term) {
+            const exe_result = switch (term) {
                 Term.Clean => |code| {
                     if (code != 0) {
+                        %%io.stderr.printf("\nCompile failed with code {}. To reproduce:\n", code);
+                        printInvocation(self.zig_exe, zig_args);
                         return error.UncleanExit;
                     }
                 },
-                else => return error.UncleanExit,
+                else => {
+                    %%io.stderr.printf("\nCompile crashed. To reproduce:\n");
+                    printInvocation(self.zig_exe, zig_args);
+                    return error.UncleanExit;
+                },
+            };
+        }
+    }
+
+    fn processNixOSEnvVars(self: &Builder) {
+        if (const nix_cflags_compile ?= os.getEnv("NIX_CFLAGS_COMPILE")) {
+            var it = mem.split(nix_cflags_compile, ' ');
+            while (true) {
+                const word = it.next() ?? break;
+                if (mem.eql(u8, word, "-isystem")) {
+                    const include_path = it.next() ?? {
+                        %%io.stderr.printf("Expected argument after -isystem in NIX_CFLAGS_COMPILE\n");
+                        break;
+                    };
+                    self.addCIncludePath(include_path);
+                } else {
+                    %%io.stderr.printf("Unrecognized C flag from NIX_CFLAGS_COMPILE: {}\n", word);
+                    break;
+                }
+            }
+        }
+        if (const nix_ldflags ?= os.getEnv("NIX_LDFLAGS")) {
+            var it = mem.split(nix_ldflags, ' ');
+            while (true) {
+                const word = it.next() ?? break;
+                if (mem.eql(u8, word, "-rpath")) {
+                    const rpath = it.next() ?? {
+                        %%io.stderr.printf("Expected argument after -rpath in NIX_LDFLAGS\n");
+                        break;
+                    };
+                    self.addRPath(rpath);
+                } else if (word.len > 2 and word[0] == '-' and word[1] == 'L') {
+                    const lib_path = word[2...];
+                    self.addLibPath(lib_path);
+                } else {
+                    %%io.stderr.printf("Unrecognized C flag from NIX_LDFLAGS: {}\n", word);
+                    break;
+                }
             }
         }
     }
@@ -135,6 +231,11 @@ const Exe = struct {
     name: []const u8,
     target: Target,
     linker_script: LinkerScript,
+    link_libs: BufSet,
+
+    fn deinit(self: &Exe) {
+        self.link_libs.deinit();
+    }
 
     fn setTarget(self: &Exe, target_arch: Arch, target_os: Os, target_environ: Environ) {
         self.target = Target.Cross {
@@ -154,6 +255,10 @@ const Exe = struct {
 
     fn setLinkerScriptPath(self: &Exe, path: []const u8) {
         self.linker_script = LinkerScript.Path { path };
+    }
+
+    fn linkLibrary(self: &Exe, name: []const u8) {
+        %%self.link_libs.put(name);
     }
 };
 

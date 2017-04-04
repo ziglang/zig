@@ -204,6 +204,8 @@ install(TARGETS zig DESTINATION bin)
 
 install(FILES ${C_HEADERS} DESTINATION ${C_HEADERS_DEST})
 
+install(FILES "${CMAKE_SOURCE_DIR}/std/buf_map.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/buf_set.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/build.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/c/darwin.zig" DESTINATION "${ZIG_STD_DEST}/c")
 install(FILES "${CMAKE_SOURCE_DIR}/std/c/index.zig" DESTINATION "${ZIG_STD_DEST}/c")

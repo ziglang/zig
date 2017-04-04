@@ -6,6 +6,7 @@ const Allocator = mem.Allocator;
 const errno = @import("errno.zig");
 const debug = @import("../debug.zig");
 const assert = debug.assert;
+const BufMap = @import("../buf_map.zig").BufMap;
 
 pub const ChildProcess = struct {
     pid: i32,
@@ -29,7 +30,7 @@ pub const ChildProcess = struct {
         Close,
     };
 
-    pub fn spawn(exe_path: []const u8, args: []const []const u8, env_map: &const os.EnvMap,
+    pub fn spawn(exe_path: []const u8, args: []const []const u8, env_map: &const BufMap,
         stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
     {
         switch (@compileVar("os")) {
@@ -96,7 +97,7 @@ pub const ChildProcess = struct {
         };
     }
 
-    fn spawnPosix(exe_path: []const u8, args: []const []const u8, env_map: &const os.EnvMap,
+    fn spawnPosix(exe_path: []const u8, args: []const []const u8, env_map: &const BufMap,
         stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
     {
         // TODO issue #295

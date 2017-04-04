@@ -20,6 +20,7 @@ pub fn main() -> %void {
     defer inc_allocator.deinit();
 
     var builder = Builder.init(zig_exe, &inc_allocator.allocator);
+    defer builder.deinit();
     root.build(&builder);
     %return builder.make(leftover_arg_index);
 }

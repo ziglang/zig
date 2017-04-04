@@ -176,6 +176,49 @@ pub fn writeInt(buf: []u8, value: var, big_endian: bool) {
     assert(bits == 0);
 }
 
+
+pub fn hash_slice_u8(k: []const u8) -> u32 {
+    // FNV 32-bit hash
+    var h: u32 = 2166136261;
+    for (k) |b| {
+        h = (h ^ b) *% 16777619;
+    }
+    return h;
+}
+
+pub fn eql_slice_u8(a: []const u8, b: []const u8) -> bool {
+    return eql(u8, a, b);
+}
+
+pub fn split(s: []const u8, c: u8) -> SplitIterator {
+    SplitIterator {
+        .index = 0,
+        .s = s,
+        .c = c,
+    }
+}
+
+const SplitIterator = struct {
+    s: []const u8,
+    c: u8,
+    index: usize,
+
+    pub fn next(self: &SplitIterator) -> ?[]const u8 {
+        // move to beginning of token
+        while (self.index < self.s.len and self.s[self.index] == self.c; self.index += 1) {}
+        const start = self.index;
+        if (start == self.s.len) {
+            return null;
+        }
+
+        // move to end of token
+        while (self.index < self.s.len and self.s[self.index] != self.c; self.index += 1) {}
+        const end = self.index;
+
+        return self.s[start...end];
+    }
+};
+
 test "testStringEquality" {
     assert(eql(u8, "abcd", "abcd"));
     assert(!eql(u8, "abcdef", "abZdef"));
@@ -223,3 +266,4 @@ fn testWriteIntImpl() {
     writeInt(bytes[0...], u16(0x1234), false);
     assert(eql(u8, bytes, []u8{ 0x34, 0x12, 0x00, 0x00 }));
 }
+

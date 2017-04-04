@@ -21,7 +21,7 @@ const c = @import("../c/index.zig");
 const mem = @import("../mem.zig");
 const Allocator = mem.Allocator;
 
-const HashMap = @import("../hash_map.zig").HashMap;
+const BufMap = @import("../buf_map.zig").BufMap;
 const cstr = @import("../cstr.zig");
 
 error Unexpected;
@@ -204,7 +204,7 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
 /// It must also convert to KEY=VALUE\0 format for environment variables, and include null
 /// pointers after the args and after the environment variables.
 /// Also make the first arg equal to path.
-pub fn posixExecve(path: []const u8, argv: []const []const u8, env_map: &const EnvMap,
+pub fn posixExecve(path: []const u8, argv: []const []const u8, env_map: &const BufMap,
     allocator: &Allocator) -> %usize
 {
     const path_buf = %return allocator.alloc(u8, path.len + 1);
@@ -271,87 +271,8 @@ pub fn posixExecve(path: []const u8, argv: []const []const u8, env_map: &const E
 
 pub var environ_raw: []&u8 = undefined;
 
-pub const EnvMap = struct {
-    hash_map: EnvHashMap,
-
-    const EnvHashMap = HashMap([]const u8, []const u8, hash_slice_u8, eql_slice_u8);
-
-    pub fn init(allocator: &Allocator) -> EnvMap {
-        var self = EnvMap {
-            .hash_map = undefined,
-        };
-        self.hash_map.init(allocator);
-        return self;
-    }
-
-    pub fn deinit(self: &EnvMap) {
-        var it = self.hash_map.entryIterator();
-        while (true) {
-            const entry = it.next() ?? break; 
-            self.free(entry.key);
-            self.free(entry.value);
-        }
-
-        self.hash_map.deinit();
-    }
-
-    pub fn set(self: &EnvMap, key: []const u8, value: []const u8) -> %void {
-        if (const entry ?= self.hash_map.get(key)) {
-            const value_copy = %return self.copy(value);
-            %defer self.free(value_copy);
-            %return self.hash_map.put(key, value_copy);
-            self.free(entry.value);
-        } else {
-            const key_copy = %return self.copy(key);
-            %defer self.free(key_copy);
-            const value_copy = %return self.copy(value);
-            %defer self.free(value_copy);
-            %return self.hash_map.put(key_copy, value_copy);
-        }
-    }
-
-    pub fn delete(self: &EnvMap, key: []const u8) {
-        const entry = self.hash_map.remove(key) ?? return;
-        self.free(entry.key);
-        self.free(entry.value);
-    }
-
-    pub fn count(self: &const EnvMap) -> usize {
-        return self.hash_map.size;
-    }
-
-    pub fn iterator(self: &const EnvMap) -> EnvHashMap.Iterator {
-        return self.hash_map.entryIterator();
-    }
-
-    fn free(self: &EnvMap, value: []const u8) {
-        // remove the const
-        const mut_value = @ptrcast(&u8, value.ptr)[0...value.len];
-        self.hash_map.allocator.free(mut_value);
-    }
-
-    fn copy(self: &EnvMap, value: []const u8) -> %[]const u8 {
-        const result = %return self.hash_map.allocator.alloc(u8, value.len);
-        mem.copy(u8, result, value);
-        return result;
-    }
-
-    fn hash_slice_u8(k: []const u8) -> u32 {
-        // FNV 32-bit hash
-        var h: u32 = 2166136261;
-        for (k) |b| {
-            h = (h ^ b) *% 16777619;
-        }
-        return h;
-    }
-
-    fn eql_slice_u8(a: []const u8, b: []const u8) -> bool {
-        return mem.eql(u8, a, b);
-    }
-};
-
-pub fn getEnvMap(allocator: &Allocator) -> %EnvMap {
-    var result = EnvMap.init(allocator);
+pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
+    var result = BufMap.init(allocator);
     %defer result.deinit();
 
     for (environ_raw) |ptr| {
