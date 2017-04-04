@@ -597,24 +597,9 @@ static bool darwin_version_lt(DarwinPlatform *platform, int major, int minor) {
 static void construct_linker_job_macho(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
-    int ver_major;
-    int ver_minor;
-    int ver_micro;
-    bool had_extra;
+    lj->args.append("-demangle");
 
-    if (!darwin_get_release_version(buf_ptr(g->darwin_linker_version), &ver_major, &ver_minor, &ver_micro,
-                &had_extra) || had_extra)
-    {
-        zig_panic("invalid linker version number");
-    }
-
-    // Newer linkers support -demangle. Pass it if supported and not disabled by
-    // the user.
-    if (ver_major >= 100) {
-        lj->args.append("-demangle");
-    }
-
-    if (g->linker_rdynamic && ver_major >= 137) {
+    if (g->linker_rdynamic) {
         lj->args.append("-export_dynamic");
     }
 
