@@ -4,7 +4,7 @@ const fmt = std.fmt;
 const Rand = std.rand.Rand;
 const os = std.os;
 
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     %%io.stdout.printf("Welcome to the Guess Number Game in Zig.\n");
 
     var seed_bytes: [@sizeOf(usize)]u8 = undefined;

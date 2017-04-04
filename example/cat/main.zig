@@ -1,23 +1,25 @@
 const std = @import("std");
 const io = std.io;
 const mem = std.mem;
+const os = std.os;
 
-pub fn main(args: [][]u8) -> %void {
-    const exe = args[0];
+pub fn main() -> %void {
+    const exe = os.args.at(0);
     var catted_anything = false;
-    for (args[1...]) |arg| {
+    var arg_i: usize = 1;
+    while (arg_i < os.args.count(); arg_i += 1) {
+        const arg = os.args.at(arg_i);
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
             %return cat_stream(&io.stdin);
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
-            var is: io.InStream = undefined;
-            is.open(arg) %% |err| {
+            var is = io.InStream.open(arg, null) %% |err| {
                 %%io.stderr.printf("Unable to open file: {}\n", @errorName(err));
                 return err;
             };
-            defer %%is.close();
+            defer is.close();
 
             catted_anything = true;
             %return cat_stream(&is);
@@ -29,7 +31,7 @@ pub fn main(args: [][]u8) -> %void {
     %return io.stdout.flush();
 }
 
-fn usage(exe: []u8) -> %void {
+fn usage(exe: []const u8) -> %void {
     %%io.stderr.printf("Usage: {} [FILE]...\n", exe);
     return error.Invalid;
 }

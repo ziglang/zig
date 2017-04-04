@@ -9,6 +9,7 @@ pub const posix = switch(@compileVar("os")) {
 };
 
 pub const max_noalloc_path_len = 1024;
+pub const ChildProcess = @import("child_process.zig").ChildProcess;
 
 const debug = @import("../debug.zig");
 const assert = debug.assert;
@@ -20,7 +21,6 @@ const c = @import("../c/index.zig");
 const mem = @import("../mem.zig");
 const Allocator = mem.Allocator;
 
-const io = @import("../io.zig");
 const HashMap = @import("../hash_map.zig").HashMap;
 const cstr = @import("../cstr.zig");
 
@@ -94,23 +94,6 @@ pub coldcc fn abort() -> noreturn {
         },
         else => @compileError("Unsupported OS"),
     }
-}
-
-fn makePipe() -> %[2]i32 {
-    var fds: [2]i32 = undefined;
-    const err = posix.getErrno(posix.pipe(&fds));
-    if (err > 0) {
-        return switch (err) {
-            errno.EMFILE, errno.ENFILE => error.SysResources,
-            else => error.Unexpected,
-        }
-    }
-    return fds;
-}
-
-fn destroyPipe(pipe: &const [2]i32) {
-    posixClose((*pipe)[0]);
-    posixClose((*pipe)[1]);
 }
 
 /// Calls POSIX close, and keeps trying if it gets interrupted.
@@ -202,54 +185,7 @@ pub fn posixOpen(path: []const u8, flags: usize, perm: usize, allocator: ?&Alloc
     }
 }
 
-const ErrInt = @intType(false, @sizeOf(error) * 8);
-fn writeIntFd(fd: i32, value: ErrInt) -> %void {
-    var bytes: [@sizeOf(ErrInt)]u8 = undefined;
-    mem.writeInt(bytes[0...], value, true);
-
-    var index: usize = 0;
-    while (index < bytes.len) {
-        const amt_written = posix.write(fd, &bytes[index], bytes.len - index);
-        const err = posix.getErrno(amt_written);
-        if (err > 0) {
-            switch (err) {
-                errno.EINTR => continue,
-                errno.EINVAL => unreachable,
-                else => return error.SysResources,
-            }
-        }
-        index += amt_written;
-    }
-}
-
-fn readIntFd(fd: i32) -> %ErrInt {
-    var bytes: [@sizeOf(ErrInt)]u8 = undefined;
-
-    var index: usize = 0;
-    while (index < bytes.len) {
-        const amt_written = posix.read(fd, &bytes[index], bytes.len - index);
-        const err = posix.getErrno(amt_written);
-        if (err > 0) {
-            switch (err) {
-                errno.EINTR => continue,
-                errno.EINVAL => unreachable,
-                else => return error.SysResources,
-            }
-        }
-        index += amt_written;
-    }
-
-    return mem.readInt(bytes[0...], ErrInt, true);
-}
-
-// Child of fork calls this to report an error to the fork parent.
-// Then the child exits.
-fn forkChildErrReport(fd: i32, err: error) -> noreturn {
-    _ = writeIntFd(fd, ErrInt(err));
-    posix.exit(1);
-}
-
-fn dup2NoIntr(old_fd: i32, new_fd: i32) -> %void {
+pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
     while (true) {
         const err = posix.getErrno(posix.dup2(old_fd, new_fd));
         if (err > 0) {
@@ -264,218 +200,13 @@ fn dup2NoIntr(old_fd: i32, new_fd: i32) -> %void {
     }
 }
 
-pub const ChildProcess = struct {
-    pid: i32,
-    err_pipe: [2]i32,
-
-    stdin: ?io.OutStream,
-    stdout: ?io.InStream,
-    stderr: ?io.InStream,
-
-    pub const Term = enum {
-        Clean: i32,
-        Signal: i32,
-        Stopped: i32,
-        Unknown: i32,
-    };
-
-    pub const StdIo = enum {
-        Inherit,
-        Ignore,
-        Pipe,
-        Close,
-    };
-
-    pub fn spawn(exe_path: []const u8, args: []const []const u8, env_map: &const EnvMap,
-        stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
-    {
-        switch (@compileVar("os")) {
-            Os.linux, Os.macosx, Os.ios, Os.darwin => {
-                return spawnPosix(exe_path, args, env_map, stdin, stdout, stderr, allocator);
-            },
-            else => @compileError("Unsupported OS"),
-        }
-    }
-
-    pub fn wait(self: &ChildProcess) -> %Term {
-        defer {
-            posixClose(self.err_pipe[0]);
-            posixClose(self.err_pipe[1]);
-        };
-
-        var status: i32 = undefined;
-        while (true) {
-            const err = posix.getErrno(posix.waitpid(self.pid, &status, 0));
-            if (err > 0) {
-                switch (err) {
-                    errno.EINVAL, errno.ECHILD => unreachable,
-                    errno.EINTR => continue,
-                    else => {
-                        if (const *stdin ?= self.stdin) { stdin.close(); }
-                        if (const *stdout ?= self.stdin) { stdout.close(); }
-                        if (const *stderr ?= self.stdin) { stderr.close(); }
-                        return error.Unexpected;
-                    },
-                }
-            }
-            break;
-        }
-
-        if (const *stdin ?= self.stdin) { stdin.close(); }
-        if (const *stdout ?= self.stdin) { stdout.close(); }
-        if (const *stderr ?= self.stdin) { stderr.close(); }
-
-        // Write @maxValue(ErrInt) to the write end of the err_pipe. This is after
-        // waitpid, so this write is guaranteed to be after the child
-        // pid potentially wrote an error. This way we can do a blocking
-        // read on the error pipe and either get @maxValue(ErrInt) (no error) or
-        // an error code.
-        %return writeIntFd(self.err_pipe[1], @maxValue(ErrInt));
-        const err_int = %return readIntFd(self.err_pipe[0]);
-        // Here we potentially return the fork child's error
-        // from the parent pid.
-        if (err_int != @maxValue(ErrInt)) {
-            return error(err_int);
-        }
-
-        return statusToTerm(status);
-    }
-
-    fn statusToTerm(status: i32) -> Term {
-        return if (posix.WIFEXITED(status)) {
-            Term.Clean { posix.WEXITSTATUS(status) }
-        } else if (posix.WIFSIGNALED(status)) {
-            Term.Signal { posix.WTERMSIG(status) }
-        } else if (posix.WIFSTOPPED(status)) {
-            Term.Stopped { posix.WSTOPSIG(status) }
-        } else {
-            Term.Unknown { status }
-        };
-    }
-
-    fn spawnPosix(exe_path: []const u8, args: []const []const u8, env_map: &const EnvMap,
-        stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
-    {
-        // TODO issue #295
-        //const stdin_pipe = if (stdin == StdIo.Pipe) %return makePipe() else undefined;
-        var stdin_pipe: [2]i32 = undefined;
-        if (stdin == StdIo.Pipe)
-            stdin_pipe = %return makePipe();
-        %defer if (stdin == StdIo.Pipe) { destroyPipe(stdin_pipe); };
-
-        // TODO issue #295
-        //const stdout_pipe = if (stdout == StdIo.Pipe) %return makePipe() else undefined;
-        var stdout_pipe: [2]i32 = undefined;
-        if (stdout == StdIo.Pipe) 
-            stdout_pipe = %return makePipe();
-        %defer if (stdout == StdIo.Pipe) { destroyPipe(stdout_pipe); };
-
-        // TODO issue #295
-        //const stderr_pipe = if (stderr == StdIo.Pipe) %return makePipe() else undefined;
-        var stderr_pipe: [2]i32 = undefined;
-        if (stderr == StdIo.Pipe) 
-            stderr_pipe = %return makePipe();
-        %defer if (stderr == StdIo.Pipe) { destroyPipe(stderr_pipe); };
-
-        const any_ignore = (stdin == StdIo.Ignore or stdout == StdIo.Ignore or stderr == StdIo.Ignore);
-        // TODO issue #295
-        //const dev_null_fd = if (any_ignore) {
-        //    %return posixOpen("/dev/null", posix.O_RDWR, 0, null)
-        //} else {
-        //    undefined
-        //};
-        var dev_null_fd: i32 = undefined;
-        if (any_ignore)
-            dev_null_fd = %return posixOpen("/dev/null", posix.O_RDWR, 0, null);
-
-        // This pipe is used to communicate errors between the time of fork
-        // and execve from the child process to the parent process.
-        const err_pipe = %return makePipe();
-        %defer destroyPipe(err_pipe);
-
-        const pid = posix.fork();
-        const pid_err = linux.getErrno(pid);
-        if (pid_err > 0) {
-            return switch (pid_err) {
-                errno.EAGAIN, errno.ENOMEM, errno.ENOSYS => error.SysResources,
-                else => error.Unexpected,
-            };
-        }
-        if (pid == 0) {
-            // we are the child
-            setUpChildIo(stdin, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) %%
-                |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(stdout, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) %%
-                |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(stderr, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) %%
-                |err| forkChildErrReport(err_pipe[1], err);
-
-            const err = posix.getErrno(%return execve(exe_path, args, env_map, allocator));
-            assert(err > 0);
-            forkChildErrReport(err_pipe[1], switch (err) {
-                errno.EFAULT => unreachable,
-                errno.E2BIG, errno.EMFILE, errno.ENAMETOOLONG, errno.ENFILE, errno.ENOMEM => error.SysResources,
-                errno.EACCES, errno.EPERM => error.AccessDenied,
-                errno.EINVAL, errno.ENOEXEC => error.InvalidExe,
-                errno.EIO, errno.ELOOP => error.FileSystem,
-                errno.EISDIR => error.IsDir,
-                errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
-                errno.ETXTBSY => error.FileBusy,
-                else => error.Unexpected,
-            });
-        }
-
-        // we are the parent
-        if (stdin == StdIo.Pipe) { posixClose(stdin_pipe[0]); }
-        if (stdout == StdIo.Pipe) { posixClose(stdout_pipe[1]); }
-        if (stderr == StdIo.Pipe) { posixClose(stderr_pipe[1]); }
-        if (any_ignore) { posixClose(dev_null_fd); }
-
-        return ChildProcess {
-            .pid = i32(pid),
-            .err_pipe = err_pipe,
-
-            .stdin = if (stdin == StdIo.Pipe) {
-                io.OutStream {
-                    .fd = stdin_pipe[1],
-                    .buffer = undefined,
-                    .index = 0,
-                }
-            } else {
-                null
-            },
-            .stdout = if (stdout == StdIo.Pipe) {
-                io.InStream {
-                    .fd = stdout_pipe[0],
-                }
-            } else {
-                null
-            },
-            .stderr = if (stderr == StdIo.Pipe) {
-                io.InStream {
-                    .fd = stderr_pipe[0],
-                }
-            } else {
-                null
-            },
-        };
-    }
-
-    fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) -> %void {
-        switch (stdio) {
-            StdIo.Pipe => %return dup2NoIntr(pipe_fd, std_fileno),
-            StdIo.Close => posixClose(std_fileno),
-            StdIo.Inherit => {},
-            StdIo.Ignore => %return dup2NoIntr(dev_null_fd, std_fileno),
-        }
-    }
-};
-
 /// This function must allocate memory to add a null terminating bytes on path and each arg.
 /// It must also convert to KEY=VALUE\0 format for environment variables, and include null
 /// pointers after the args and after the environment variables.
 /// Also make the first arg equal to path.
-fn execve(path: []const u8, argv: []const []const u8, env_map: &const EnvMap, allocator: &Allocator) -> %usize {
+pub fn posixExecve(path: []const u8, argv: []const []const u8, env_map: &const EnvMap,
+    allocator: &Allocator) -> %usize
+{
     const path_buf = %return allocator.alloc(u8, path.len + 1);
     defer allocator.free(path_buf);
     @memcpy(&path_buf[0], &path[0], path.len);
@@ -604,6 +335,19 @@ pub const EnvMap = struct {
         mem.copy(u8, result, value);
         return result;
     }
+
+    fn hash_slice_u8(k: []const u8) -> u32 {
+        // FNV 32-bit hash
+        var h: u32 = 2166136261;
+        for (k) |b| {
+            h = (h ^ b) *% 16777619;
+        }
+        return h;
+    }
+
+    fn eql_slice_u8(a: []const u8, b: []const u8) -> bool {
+        return mem.eql(u8, a, b);
+    }
 };
 
 pub fn getEnvMap(allocator: &Allocator) -> %EnvMap {
@@ -641,15 +385,14 @@ pub fn getEnv(key: []const u8) -> ?[]const u8 {
     return null;
 }
 
-fn hash_slice_u8(k: []const u8) -> u32 {
-    // FNV 32-bit hash
-    var h: u32 = 2166136261;
-    for (k) |b| {
-        h = (h ^ b) *% 16777619;
-    }
-    return h;
-}
+pub const args = struct {
+    pub var raw: []&u8 = undefined;
 
-fn eql_slice_u8(a: []const u8, b: []const u8) -> bool {
-    return mem.eql(u8, a, b);
-}
+    pub fn count() -> usize {
+        return raw.len;
+    }
+    pub fn at(i: usize) -> []const u8 {
+        const s = raw[i];
+        return s[0...cstr.len(s)];
+    }
+};

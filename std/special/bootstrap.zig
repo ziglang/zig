@@ -37,20 +37,14 @@ fn callMainAndExit() -> noreturn {
     exit(0);
 }
 
-var args_data: [32][]u8 = undefined;
 fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {
-    // TODO create args API to make it work with > 32 args
-    const args = args_data[0...argc];
-    for (args) |_, i| {
-        const ptr = argv[i];
-        args[i] = ptr[0...std.cstr.len(ptr)];
-    }
+    std.os.args.raw = argv[0...argc];
 
     var env_count: usize = 0;
     while (envp[env_count] != null; env_count += 1) {}
     std.os.environ_raw = @ptrcast(&&u8, envp)[0...env_count];
 
-    return root.main(args);
+    return root.main();
 }
 
 export fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) -> i32 {

@@ -39,11 +39,13 @@ pub const Builder = struct {
         return exe;
     }
 
-    pub fn make(self: &Builder, cli_args: []const []const u8) -> %void {
+    pub fn make(self: &Builder, leftover_arg_index: usize) -> %void {
         var env_map = %return os.getEnvMap(self.allocator);
 
         var verbose = false;
-        for (cli_args) |arg| {
+        var arg_i: usize = leftover_arg_index;
+        while (arg_i < os.args.count(); arg_i += 1) {
+            const arg = os.args.at(arg_i);
             if (mem.eql(u8, arg, "--verbose")) {
                 verbose = true;
             } else {
@@ -95,7 +97,8 @@ pub const Builder = struct {
             }
 
             printInvocation(self.zig_exe, zig_args);
-            var child = %return os.ChildProcess.spawn(self.zig_exe, zig_args.toSliceConst(), env_map,
+            // TODO issue #301
+            var child = %return os.ChildProcess.spawn(self.zig_exe, zig_args.toSliceConst(), &env_map,
                 StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, self.allocator);
             const term = %return child.wait();
             switch (term) {

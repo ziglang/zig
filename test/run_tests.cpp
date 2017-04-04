@@ -215,7 +215,7 @@ export fn main(argc: c_int, argv: &&u8) -> c_int {
 use @import("std").io;
 use @import("foo.zig");
 
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     privateFunction();
     %%stdout.printf("OK 2\n");
 }
@@ -245,7 +245,7 @@ pub fn printText() {
 use @import("foo.zig");
 use @import("bar.zig");
 
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     foo_function();
     bar_function();
 }
@@ -281,7 +281,7 @@ pub fn foo_function() -> bool {
         TestCase *tc = add_simple_case("two files use import each other", R"SOURCE(
 use @import("a.zig");
 
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     ok();
 }
         )SOURCE", "OK\n");
@@ -309,7 +309,7 @@ pub const b_text = a_text;
     add_simple_case("hello world without libc", R"SOURCE(
 const io = @import("std").io;
 
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     %%io.stdout.printf("Hello, world!\n{d4} {x3} {c}\n", u32(12), u16(0x12), u8('a'));
 }
     )SOURCE", "Hello, world!\n0012 012 a\n");
@@ -446,7 +446,7 @@ const io = @import("std").io;
 const z = io.stdin_fileno;
 const x : @typeOf(y) = 1234;
 const y : u16 = 5678;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     var x_local : i32 = print_ok(x);
 }
 fn print_ok(val: @typeOf(x)) -> @typeOf(foo) {
@@ -471,7 +471,7 @@ export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
     }
 }
 
-export fn main(args: c_int, argv: &&u8) -> c_int {
+export fn main() -> c_int {
     var array = []u32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
 
     c.qsort(@ptrcast(&c_void, &array[0]), c_ulong(array.len), @sizeOf(i32), compare_fn);
@@ -516,7 +516,7 @@ const Bar = struct {
     fn method(b: &const Bar) -> bool { true }
 };
 
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const bar = Bar {.field2 = 13,};
     const foo = Foo {.field1 = bar,};
     if (!foo.method()) {
@@ -532,7 +532,7 @@ pub fn main(args: [][]u8) -> %void {
 
     add_simple_case("defer with only fallthrough", R"SOURCE(
 const io = @import("std").io;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     %%io.stdout.printf("before\n");
     defer %%io.stdout.printf("defer1\n");
     defer %%io.stdout.printf("defer2\n");
@@ -544,11 +544,12 @@ pub fn main(args: [][]u8) -> %void {
 
     add_simple_case("defer with return", R"SOURCE(
 const io = @import("std").io;
-pub fn main(args: [][]u8) -> %void {
+const os = @import("std").os;
+pub fn main() -> %void {
     %%io.stdout.printf("before\n");
     defer %%io.stdout.printf("defer1\n");
     defer %%io.stdout.printf("defer2\n");
-    if (args.len == 1) return;
+    if (os.args.count() == 1) return;
     defer %%io.stdout.printf("defer3\n");
     %%io.stdout.printf("after\n");
 }
@@ -557,7 +558,7 @@ pub fn main(args: [][]u8) -> %void {
 
     add_simple_case("%defer and it fails", R"SOURCE(
 const io = @import("std").io;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     do_test() %% return;
 }
 fn do_test() -> %void {
@@ -577,7 +578,7 @@ fn its_gonna_fail() -> %void {
 
     add_simple_case("%defer and it passes", R"SOURCE(
 const io = @import("std").io;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     do_test() %% return;
 }
 fn do_test() -> %void {
@@ -597,7 +598,7 @@ fn its_gonna_pass() -> %void { }
 const foo_txt = @embedFile("foo.txt");
 const io = @import("std").io;
 
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     %%io.stdout.printf(foo_txt);
 }
         )SOURCE", "1234\nabcd\n");
@@ -1388,9 +1389,13 @@ fn something() -> %void { }
             ".tmp_source.zig:3:5: error: expected type 'void', found 'error'");
 
     add_compile_fail_case("wrong return type for main", R"SOURCE(
-pub fn main(args: [][]u8) { }
-    )SOURCE", 1, ".tmp_source.zig:2:27: error: expected return type of main to be '%void', instead is 'void'");
+pub fn main() { }
+    )SOURCE", 1, ".tmp_source.zig:2:15: error: expected return type of main to be '%void', instead is 'void'");
 
+    add_compile_fail_case("double ?? on main return value", R"SOURCE(
+pub fn main() -> ??void {
+}
+    )SOURCE", 1, ".tmp_source.zig:2:18: error: expected return type of main to be '%void', instead is '??void'");
 
     add_compile_fail_case("invalid pointer for var type", R"SOURCE(
 extern fn ext() -> usize;
@@ -1689,11 +1694,6 @@ fn bar(a: i32, b: []const u8) {
         ".tmp_source.zig:8:5: error: found compile log statement",
         ".tmp_source.zig:3:17: note: called from here");
 
-    add_compile_fail_case("double ?? on main return value", R"SOURCE(
-pub fn main(args: [][]u8) -> ??void {
-}
-    )SOURCE", 1, ".tmp_source.zig:2:30: error: expected return type of main to be '%void', instead is '??void'");
-
     add_compile_fail_case("casting bit offset pointer to regular pointer", R"SOURCE(
 const u2 = @intType(false, 2);
 const u3 = @intType(false, 3);
@@ -1844,7 +1844,7 @@ pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     if (!@compileVar("is_release")) {
         @panic("oh no");
     }
@@ -1856,7 +1856,7 @@ pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const a = []i32{1, 2, 3, 4};
     baz(bar(a));
 }
@@ -1872,7 +1872,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = add(65530, 10);
     if (x == 0) return error.Whatever;
 }
@@ -1887,7 +1887,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = sub(10, 20);
     if (x == 0) return error.Whatever;
 }
@@ -1902,7 +1902,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = mul(300, 6000);
     if (x == 0) return error.Whatever;
 }
@@ -1917,7 +1917,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = neg(-32768);
     if (x == 32767) return error.Whatever;
 }
@@ -1932,7 +1932,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = div(-32768, -1);
     if (x == 32767) return error.Whatever;
 }
@@ -1947,7 +1947,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = shl(-16385, 1);
     if (x == 0) return error.Whatever;
 }
@@ -1962,7 +1962,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = shl(0b0010111111111111, 3);
     if (x == 0) return error.Whatever;
 }
@@ -1977,7 +1977,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = div0(999, 0);
 }
 fn div0(a: i32, b: i32) -> i32 {
@@ -1991,7 +1991,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = divExact(10, 3);
     if (x == 0) return error.Whatever;
 }
@@ -2006,7 +2006,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = widenSlice([]u8{1, 2, 3, 4, 5});
     if (x.len == 0) return error.Whatever;
 }
@@ -2021,7 +2021,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = shorten_cast(200);
     if (x == 0) return error.Whatever;
 }
@@ -2036,7 +2036,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     const x = unsigned_cast(-10);
     if (x == 0) return error.Whatever;
 }
@@ -2051,7 +2051,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 error Whatever;
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     %%bar();
 }
 fn bar() -> %void {
@@ -2064,7 +2064,7 @@ pub fn panic(message: []const u8) -> noreturn {
     @breakpoint();
     while (true) {}
 }
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     _ = bar(9999);
 }
 fn bar(x: u32) -> error {
@@ -2500,25 +2500,13 @@ static void run_test(TestCase *test_case) {
     }
 }
 
-static void run_all_tests(bool reverse) {
-    if (reverse) {
-        for (size_t i = test_cases.length;;) {
-            TestCase *test_case = test_cases.at(i);
-            printf("Test %zu/%zu %s...", i + 1, test_cases.length, test_case->case_name);
-            fflush(stdout);
-            run_test(test_case);
-            printf("OK\n");
-            if (i == 0) break;
-            i -= 1;
-        }
-    } else {
-        for (size_t i = 0; i < test_cases.length; i += 1) {
-            TestCase *test_case = test_cases.at(i);
-            printf("Test %zu/%zu %s...", i + 1, test_cases.length, test_case->case_name);
-            fflush(stdout);
-            run_test(test_case);
-            printf("OK\n");
-        }
+static void run_all_tests(void) {
+    for (size_t i = 0; i < test_cases.length; i += 1) {
+        TestCase *test_case = test_cases.at(i);
+        printf("Test %zu/%zu %s...", i + 1, test_cases.length, test_case->case_name);
+        fflush(stdout);
+        run_test(test_case);
+        printf("OK\n");
     }
     printf("%zu tests passed.\n", test_cases.length);
 }
@@ -2530,18 +2518,13 @@ static void cleanup(void) {
 }
 
 static int usage(const char *arg0) {
-    fprintf(stderr, "Usage: %s [--reverse]\n", arg0);
+    fprintf(stderr, "Usage: %s\n", arg0);
     return 1;
 }
 
 int main(int argc, char **argv) {
-    bool reverse = false;
     for (int i = 1; i < argc; i += 1) {
-        if (strcmp(argv[i], "--reverse") == 0) {
-            reverse = true;
-        } else {
-            return usage(argv[0]);
-        }
+        return usage(argv[0]);
     }
     add_compiling_test_cases();
     add_debug_safety_test_cases();
@@ -2549,6 +2532,6 @@ int main(int argc, char **argv) {
     add_parseh_test_cases();
     add_self_hosted_tests();
     add_std_lib_tests();
-    run_all_tests(reverse);
+    run_all_tests();
     cleanup();
 }

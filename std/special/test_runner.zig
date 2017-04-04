@@ -7,7 +7,7 @@ const TestFn = struct {
 
 extern var zig_test_fn_list: []TestFn;
 
-pub fn main(args: [][]u8) -> %void {
+pub fn main() -> %void {
     for (zig_test_fn_list) |testFn, i| {
         %%io.stderr.printf("Test {}/{} {}...", i + 1, zig_test_fn_list.len, testFn.name);
 
