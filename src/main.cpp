@@ -198,6 +198,8 @@ int main(int argc, char **argv) {
                 fprintf(stderr, " %s", args.at(i));
             }
             fprintf(stderr, "\n");
+        } else {
+            os_delete_file(buf_create_from_str("./build"));
         }
         return (term.how == TerminationIdClean) ? term.code : -1;
     }
