@@ -4535,6 +4535,22 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
     do_code_gen(g);
 }
 
+void codegen_add_root_assembly(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *source_code) {
+    Buf source_path = BUF_INIT;
+    os_path_join(src_dir, src_basename, &source_path);
+
+    init(g, &source_path);
+
+    assert(g->root_out_name);
+    assert(g->out_type != OutTypeUnknown);
+
+    buf_init_from_str(&g->global_asm, ".intel_syntax noprefix\n");
+    buf_append_buf(&g->global_asm, source_code);
+
+    do_code_gen(g);
+}
+
+
 static const char *c_int_type_names[] = {
     [CIntTypeShort] = "short",
     [CIntTypeUShort] = "unsigned short",

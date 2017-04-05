@@ -47,6 +47,7 @@ void codegen_set_omit_zigrt(CodeGen *g, bool omit_zigrt);
 
 PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_path);
 void codegen_add_root_code(CodeGen *g, Buf *source_dir, Buf *source_basename, Buf *source_code);
+void codegen_add_root_assembly(CodeGen *g, Buf *source_dir, Buf *source_basename, Buf *source_code);
 
 void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code);
 void codegen_render_ast(CodeGen *g, FILE *f, int indent_size);

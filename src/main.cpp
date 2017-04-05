@@ -19,6 +19,7 @@
 static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options]\n"
         "Commands:\n"
+        "  asm [source]                 create object from assembly\n"
         "  build                        build project from build.zig\n"
         "  build_exe [source]           create executable from source\n"
         "  build_lib [source]           create library from source\n"
@@ -106,6 +107,7 @@ enum Cmd {
     CmdVersion,
     CmdParseH,
     CmdTargets,
+    CmdAsm,
 };
 
 int main(int argc, char **argv) {
@@ -310,6 +312,8 @@ int main(int argc, char **argv) {
                 cmd = CmdTest;
             } else if (strcmp(arg, "targets") == 0) {
                 cmd = CmdTargets;
+            } else if (strcmp(arg, "asm") == 0) {
+                cmd = CmdAsm;
             } else {
                 fprintf(stderr, "Unrecognized command: %s\n", arg);
                 return usage(arg0);
@@ -319,6 +323,7 @@ int main(int argc, char **argv) {
                 case CmdBuild:
                 case CmdParseH:
                 case CmdTest:
+                case CmdAsm:
                     if (!in_file) {
                         in_file = arg;
                     } else {
@@ -338,6 +343,7 @@ int main(int argc, char **argv) {
     case CmdBuild:
     case CmdParseH:
     case CmdTest:
+    case CmdAsm:
         {
             if (!in_file)
                 return usage(arg0);
@@ -373,6 +379,7 @@ int main(int argc, char **argv) {
                 }
             }
 
+            bool need_name = (cmd == CmdBuild || cmd == CmdAsm);
 
             Buf in_file_buf = BUF_INIT;
             buf_init_from_str(&in_file_buf, in_file);
@@ -398,14 +405,14 @@ int main(int argc, char **argv) {
                     return 1;
                 }
 
-                if (cmd == CmdBuild && buf_out_name == nullptr) {
+                if (need_name && buf_out_name == nullptr) {
                     buf_out_name = buf_alloc();
                     Buf ext_name = BUF_INIT;
                     os_path_extname(&root_source_name, buf_out_name, &ext_name);
                 }
             }
 
-            if (cmd == CmdBuild && buf_out_name == nullptr) {
+            if (need_name && buf_out_name == nullptr) {
                 fprintf(stderr, "--name [name] not provided and unable to infer\n\n");
                 return usage(arg0);
             }
@@ -420,7 +427,9 @@ int main(int argc, char **argv) {
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);
             codegen_set_strip(g, strip);
             codegen_set_is_static(g, is_static);
-            if (out_type != OutTypeUnknown) {
+            if (cmd == CmdAsm) {
+                codegen_set_out_type(g, OutTypeObj);
+            } else if (out_type != OutTypeUnknown) {
                 codegen_set_out_type(g, out_type);
             } else if (cmd == CmdTest) {
                 codegen_set_out_type(g, OutTypeExe);
@@ -473,6 +482,10 @@ int main(int argc, char **argv) {
 
             if (cmd == CmdBuild) {
                 codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);
+                codegen_link(g, out_file);
+                return EXIT_SUCCESS;
+            } else if (cmd == CmdAsm) {
+                codegen_add_root_assembly(g, &root_source_dir, &root_source_name, &root_source_code);
                 codegen_link(g, out_file);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdParseH) {
