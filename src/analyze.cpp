@@ -1879,7 +1879,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             if (fn_def_node)
                 g->fn_defs.append(fn_table_entry);
 
-            if (import == g->root_import && scope_is_root_decls(tld_fn->base.parent_scope)) {
+            if (g->have_pub_main && import == g->root_import && scope_is_root_decls(tld_fn->base.parent_scope)) {
                 if (buf_eql_str(&fn_table_entry->symbol_name, "main")) {
                     g->main_fn = fn_table_entry;
 
