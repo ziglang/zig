@@ -72,4 +72,6 @@ void resolve_target_object_format(ZigTarget *target);
 
 int get_c_type_size_in_bits(const ZigTarget *target, CIntType id);
 
+const char *target_o_file_ext(ZigTarget *target);
+
 #endif

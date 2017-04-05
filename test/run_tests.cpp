@@ -18,6 +18,7 @@ enum TestSpecial {
     TestSpecialNone,
     TestSpecialSelfHosted,
     TestSpecialStd,
+    TestSpecialLinkStep,
 };
 
 struct TestSourceFile {
@@ -36,6 +37,7 @@ struct TestCase {
     ZigList<TestSourceFile> source_files;
     ZigList<const char *> compile_errors;
     ZigList<const char *> compiler_args;
+    ZigList<const char *> linker_args;
     ZigList<const char *> program_args;
     bool is_parseh;
     TestSpecial special;
@@ -89,6 +91,37 @@ static TestCase *add_simple_case(const char *case_name, const char *source, cons
     return test_case;
 }
 
+static TestCase *add_asm_case(const char *case_name, const char *source, const char *output) {
+    TestCase *test_case = allocate<TestCase>(1);
+    test_case->case_name = case_name;
+    test_case->output = output;
+    test_case->special = TestSpecialLinkStep;
+
+    test_case->source_files.resize(1);
+    test_case->source_files.at(0).relative_path = ".tmp_source.s";
+    test_case->source_files.at(0).source_code = source;
+
+    test_case->compiler_args.append("asm");
+    test_case->compiler_args.append(".tmp_source.s");
+    test_case->compiler_args.append("--name");
+    test_case->compiler_args.append("test");
+    test_case->compiler_args.append("--color");
+    test_case->compiler_args.append("on");
+
+    test_case->linker_args.append("link_exe");
+    test_case->linker_args.append("test.o");
+    test_case->linker_args.append("--name");
+    test_case->linker_args.append("test");
+    test_case->linker_args.append("--output");
+    test_case->linker_args.append(tmp_exe_path);
+    test_case->linker_args.append("--color");
+    test_case->linker_args.append("on");
+
+    test_cases.append(test_case);
+
+    return test_case;
+}
+
 static TestCase *add_simple_case_libc(const char *case_name, const char *source, const char *output) {
     TestCase *tc = add_simple_case(case_name, source, output);
     tc->compiler_args.append("--library");
@@ -129,46 +162,23 @@ static TestCase *add_compile_fail_case(const char *case_name, const char *source
 }
 
 static void add_debug_safety_case(const char *case_name, const char *source) {
-    {
-        TestCase *test_case = allocate<TestCase>(1);
-        test_case->is_debug_safety = true;
-        test_case->case_name = buf_ptr(buf_sprintf("%s (debug)", case_name));
-        test_case->source_files.resize(1);
-        test_case->source_files.at(0).relative_path = tmp_source_path;
-        test_case->source_files.at(0).source_code = source;
+    TestCase *test_case = allocate<TestCase>(1);
+    test_case->is_debug_safety = true;
+    test_case->case_name = buf_ptr(buf_sprintf("%s", case_name));
+    test_case->source_files.resize(1);
+    test_case->source_files.at(0).relative_path = tmp_source_path;
+    test_case->source_files.at(0).source_code = source;
 
-        test_case->compiler_args.append("build_exe");
-        test_case->compiler_args.append(tmp_source_path);
+    test_case->compiler_args.append("build_exe");
+    test_case->compiler_args.append(tmp_source_path);
 
-        test_case->compiler_args.append("--name");
-        test_case->compiler_args.append("test");
+    test_case->compiler_args.append("--name");
+    test_case->compiler_args.append("test");
 
-        test_case->compiler_args.append("--output");
-        test_case->compiler_args.append(tmp_exe_path);
+    test_case->compiler_args.append("--output");
+    test_case->compiler_args.append(tmp_exe_path);
 
-        test_cases.append(test_case);
-    }
-    {
-        TestCase *test_case = allocate<TestCase>(1);
-        test_case->case_name = buf_ptr(buf_sprintf("%s (release)", case_name));
-        test_case->source_files.resize(1);
-        test_case->source_files.at(0).relative_path = tmp_source_path;
-        test_case->source_files.at(0).source_code = source;
-        test_case->output = "";
-
-        test_case->compiler_args.append("build_exe");
-        test_case->compiler_args.append(tmp_source_path);
-
-        test_case->compiler_args.append("--name");
-        test_case->compiler_args.append("test");
-
-        test_case->compiler_args.append("--output");
-        test_case->compiler_args.append(tmp_exe_path);
-
-        test_case->compiler_args.append("--release");
-
-        test_cases.append(test_case);
-    }
+    test_cases.append(test_case);
 }
 
 static TestCase *add_parseh_case(const char *case_name, AllowWarnings allow_warnings,
@@ -1865,9 +1875,7 @@ pub fn panic(message: []const u8) -> noreturn {
     while (true) {}
 }
 pub fn main() -> %void {
-    if (!@compileVar("is_release")) {
-        @panic("oh no");
-    }
+    @panic("oh no");
 }
     )SOURCE");
 
@@ -2375,6 +2383,32 @@ static void add_std_lib_tests(void) {
     }
 }
 
+static void add_asm_tests(void) {
+#if defined(ZIG_OS_LINUX) && defined(ZIG_ARCH_X86_64)
+    add_asm_case("assemble and link hello world linux x86_64", R"SOURCE(
+.text
+.globl _start
+
+_start:
+    mov rax, 1
+    mov rdi, 1
+    lea rsi, msg
+    mov rdx, 14
+    syscall
+
+    mov rax, 60
+    mov rdi, 0
+    syscall
+
+.data
+
+msg:
+    .ascii "Hello, world!\n"
+    )SOURCE", "Hello, world!\n");
+
+#endif
+}
+
 
 static void print_compiler_invocation(TestCase *test_case) {
     printf("%s", zig_exe);
@@ -2383,6 +2417,15 @@ static void print_compiler_invocation(TestCase *test_case) {
     }
     printf("\n");
 }
+
+static void print_linker_invocation(TestCase *test_case) {
+    printf("%s", zig_exe);
+    for (size_t i = 0; i < test_case->linker_args.length; i += 1) {
+        printf(" %s", test_case->linker_args.at(i));
+    }
+    printf("\n");
+}
+
 
 static void print_exe_invocation(TestCase *test_case) {
     printf("%s", tmp_exe_path);
@@ -2470,6 +2513,23 @@ static void run_test(TestCase *test_case) {
             }
         }
     } else {
+        if (test_case->special == TestSpecialLinkStep) {
+            Buf link_stderr = BUF_INIT;
+            Buf link_stdout = BUF_INIT;
+            int err;
+            Termination term;
+            if ((err = os_exec_process(zig_exe, test_case->linker_args, &term, &link_stderr, &link_stdout))) {
+                fprintf(stderr, "Unable to exec %s: %s\n", zig_exe, err_str(err));
+            }
+
+            if (term.how != TerminationIdClean || term.code != 0) {
+                printf("\nLink failed:\n");
+                print_linker_invocation(test_case);
+                printf("%s\n", buf_ptr(&zig_stderr));
+                exit(1);
+            }
+        }
+
         Buf program_stderr = BUF_INIT;
         Buf program_stdout = BUF_INIT;
         os_exec_process(tmp_exe_path, test_case->program_args, &term, &program_stderr, &program_stdout);
@@ -2520,9 +2580,13 @@ static void run_test(TestCase *test_case) {
     }
 }
 
-static void run_all_tests(void) {
+static void run_all_tests(const char *grep_text) {
     for (size_t i = 0; i < test_cases.length; i += 1) {
         TestCase *test_case = test_cases.at(i);
+        if (grep_text != nullptr && strstr(test_case->case_name, grep_text) == nullptr) {
+            continue;
+        }
+
         printf("Test %zu/%zu %s...", i + 1, test_cases.length, test_case->case_name);
         fflush(stdout);
         run_test(test_case);
@@ -2538,13 +2602,24 @@ static void cleanup(void) {
 }
 
 static int usage(const char *arg0) {
-    fprintf(stderr, "Usage: %s\n", arg0);
+    fprintf(stderr, "Usage: %s [--grep text]\n", arg0);
     return 1;
 }
 
 int main(int argc, char **argv) {
+    const char *grep_text = nullptr;
     for (int i = 1; i < argc; i += 1) {
-        return usage(argv[0]);
+        const char *arg = argv[i];
+        if (i + 1 >= argc) {
+            return usage(argv[0]);
+        } else {
+            i += 1;
+            if (strcmp(arg, "--grep") == 0) {
+                grep_text = argv[i];
+            } else {
+                return usage(argv[0]);
+            }
+        }
     }
     add_compiling_test_cases();
     add_debug_safety_test_cases();
@@ -2552,6 +2627,7 @@ int main(int argc, char **argv) {
     add_parseh_test_cases();
     add_self_hosted_tests();
     add_std_lib_tests();
-    run_all_tests();
+    add_asm_tests();
+    run_all_tests(grep_text);
     cleanup();
 }

@@ -24,6 +24,8 @@ static int usage(const char *arg0) {
         "  build_exe [source]           create executable from source\n"
         "  build_lib [source]           create library from source\n"
         "  build_obj [source]           create object from source\n"
+        "  link_exe [objects]           create executable from objects\n"
+        "  link_lib [objects]           create library from objects\n"
         "  parseh [source]              convert a c header file to zig extern declarations\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
@@ -108,6 +110,7 @@ enum Cmd {
     CmdParseH,
     CmdTargets,
     CmdAsm,
+    CmdLink,
 };
 
 int main(int argc, char **argv) {
@@ -147,6 +150,7 @@ int main(int argc, char **argv) {
     const char *linker_script = nullptr;
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
+    ZigList<const char *> objects = {0};
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -304,6 +308,12 @@ int main(int argc, char **argv) {
             } else if (strcmp(arg, "build_lib") == 0) {
                 cmd = CmdBuild;
                 out_type = OutTypeLib;
+            } else if (strcmp(arg, "link_lib") == 0) {
+                cmd = CmdLink;
+                out_type = OutTypeLib;
+            } else if (strcmp(arg, "link_exe") == 0) {
+                cmd = CmdLink;
+                out_type = OutTypeExe;
             } else if (strcmp(arg, "version") == 0) {
                 cmd = CmdVersion;
             } else if (strcmp(arg, "parseh") == 0) {
@@ -330,6 +340,9 @@ int main(int argc, char **argv) {
                         return usage(arg0);
                     }
                     break;
+                case CmdLink:
+                    objects.append(arg);
+                    break;
                 case CmdVersion:
                 case CmdTargets:
                     return usage(arg0);
@@ -344,11 +357,24 @@ int main(int argc, char **argv) {
     case CmdParseH:
     case CmdTest:
     case CmdAsm:
+    case CmdLink:
         {
-            if (!in_file)
-                return usage(arg0);
+            bool one_source_input = (cmd == CmdBuild || cmd == CmdParseH || cmd == CmdTest || cmd == CmdAsm);
+            if (one_source_input) {
+                if (!in_file) {
+                    fprintf(stderr, "Expected source file argument.\n");
+                    return usage(arg0);
+                }
+            } else if (cmd == CmdLink) {
+                if (objects.length == 0) {
+                    fprintf(stderr, "Expected one or more object arguments.\n");
+                    return usage(arg0);
+                }
+            } else {
+                zig_unreachable();
+            }
 
-            assert(cmd != CmdBuild || out_type != OutTypeUnknown);
+            assert((cmd != CmdBuild && cmd != CmdLink) || out_type != OutTypeUnknown);
 
             init_all_targets();
 
@@ -379,10 +405,9 @@ int main(int argc, char **argv) {
                 }
             }
 
-            bool need_name = (cmd == CmdBuild || cmd == CmdAsm);
+            bool need_name = (cmd == CmdBuild || cmd == CmdAsm || cmd == CmdLink);
 
             Buf in_file_buf = BUF_INIT;
-            buf_init_from_str(&in_file_buf, in_file);
 
             Buf root_source_dir = BUF_INIT;
             Buf root_source_code = BUF_INIT;
@@ -390,26 +415,35 @@ int main(int argc, char **argv) {
 
             Buf *buf_out_name = (cmd == CmdTest) ? buf_create_from_str("test") :
                 (out_name == nullptr) ? nullptr : buf_create_from_str(out_name);
-            if (buf_eql_str(&in_file_buf, "-")) {
+
+            if (one_source_input) {
+                buf_init_from_str(&in_file_buf, in_file);
+
+                if (buf_eql_str(&in_file_buf, "-")) {
+                    os_get_cwd(&root_source_dir);
+                    if ((err = os_fetch_file(stdin, &root_source_code))) {
+                        fprintf(stderr, "unable to read stdin: %s\n", err_str(err));
+                        return 1;
+                    }
+                    buf_init_from_str(&root_source_name, "");
+
+                } else {
+                    os_path_split(&in_file_buf, &root_source_dir, &root_source_name);
+                    if ((err = os_fetch_file_path(buf_create_from_str(in_file), &root_source_code))) {
+                        fprintf(stderr, "unable to open '%s': %s\n", in_file, err_str(err));
+                        return 1;
+                    }
+
+                    if (need_name && buf_out_name == nullptr) {
+                        buf_out_name = buf_alloc();
+                        Buf ext_name = BUF_INIT;
+                        os_path_extname(&root_source_name, buf_out_name, &ext_name);
+                    }
+                }
+            } else if (cmd == CmdLink) {
                 os_get_cwd(&root_source_dir);
-                if ((err = os_fetch_file(stdin, &root_source_code))) {
-                    fprintf(stderr, "unable to read stdin: %s\n", err_str(err));
-                    return 1;
-                }
-                buf_init_from_str(&root_source_name, "");
-
             } else {
-                os_path_split(&in_file_buf, &root_source_dir, &root_source_name);
-                if ((err = os_fetch_file_path(buf_create_from_str(in_file), &root_source_code))) {
-                    fprintf(stderr, "unable to open '%s': %s\n", in_file, err_str(err));
-                    return 1;
-                }
-
-                if (need_name && buf_out_name == nullptr) {
-                    buf_out_name = buf_alloc();
-                    Buf ext_name = BUF_INIT;
-                    os_path_extname(&root_source_name, buf_out_name, &ext_name);
-                }
+                zig_unreachable();
             }
 
             if (need_name && buf_out_name == nullptr) {
@@ -482,6 +516,12 @@ int main(int argc, char **argv) {
 
             if (cmd == CmdBuild) {
                 codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);
+                codegen_link(g, out_file);
+                return EXIT_SUCCESS;
+            } else if (cmd == CmdLink) {
+                for (size_t i = 0; i < objects.length; i += 1) {
+                    codegen_add_object(g, buf_create_from_str(objects.at(i)));
+                }
                 codegen_link(g, out_file);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdAsm) {

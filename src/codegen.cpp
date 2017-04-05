@@ -3743,6 +3743,18 @@ static void do_code_gen(CodeGen *g) {
     char *error = nullptr;
     LLVMVerifyModule(g->module, LLVMAbortProcessAction, &error);
 #endif
+
+    char *err_msg = nullptr;
+    Buf *out_file_o = buf_create_from_buf(g->root_out_name);
+    const char *o_ext = target_o_file_ext(&g->zig_target);
+    buf_append_str(out_file_o, o_ext);
+    if (LLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(out_file_o),
+                LLVMObjectFile, &err_msg))
+    {
+        zig_panic("unable to write object file: %s", err_msg);
+    }
+
+    g->link_objects.append(out_file_o);
 }
 
 static const size_t int_sizes_in_bits[] = {
@@ -4548,6 +4560,10 @@ void codegen_add_root_assembly(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf 
     buf_append_buf(&g->global_asm, source_code);
 
     do_code_gen(g);
+}
+
+void codegen_add_object(CodeGen *g, Buf *object_path) {
+    g->link_objects.append(object_path);
 }
 
 

@@ -54,4 +54,20 @@ int os_delete_file(Buf *path);
 
 int os_file_exists(Buf *full_path, bool *result);
 
+#if defined(__APPLE__)
+#define ZIG_OS_DARWIN
+#elif defined(_WIN32)
+#define ZIG_OS_WINDOWS
+#elif defined(__linux__)
+#define ZIG_OS_LINUX
+#else
+#define ZIG_OS_UNKNOWN
+#endif
+
+#if defined(__x86_64__)
+#define ZIG_ARCH_X86_64
+#else
+#define ZIG_ARCH_UNKNOWN
+#endif
+
 #endif

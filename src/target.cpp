@@ -527,3 +527,12 @@ int get_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
     }
     zig_unreachable();
 }
+
+const char *target_o_file_ext(ZigTarget *target) {
+    if (target->env_type == ZigLLVM_MSVC) {
+        return ".obj";
+    } else {
+        return ".o";
+    }
+}
+

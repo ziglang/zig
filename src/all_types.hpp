@@ -1462,6 +1462,7 @@ struct CodeGen {
     ConstExprValue panic_msg_vals[PanicMsgIdCount];
 
     Buf global_asm;
+    ZigList<Buf *> link_objects;
 };
 
 enum VarLinkage {
