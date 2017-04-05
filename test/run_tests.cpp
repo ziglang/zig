@@ -1848,6 +1848,12 @@ fn doSomeAsm() {
     );
 }
     )SOURCE", 1, ".tmp_source.zig:7:5: error: unable to evaluate constant expression");
+
+    add_compile_fail_case("invalid member of builtin enum", R"SOURCE(
+export fn entry() {
+    const foo = Arch.x86;
+}
+    )SOURCE", 1, ".tmp_source.zig:3:21: error: container 'Arch' has no member called 'x86'");
 }
 
 //////////////////////////////////////////////////////////////////////////////

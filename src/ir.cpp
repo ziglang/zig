@@ -9396,10 +9396,12 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 }
             }
             ScopeDecls *container_scope = get_container_scope(child_type);
-            auto entry = container_scope->decl_table.maybe_get(field_name);
-            Tld *tld = entry ? entry->value : nullptr;
-            if (tld) {
-                return ir_analyze_decl_ref(ira, &field_ptr_instruction->base, tld);
+            if (container_scope != nullptr) {
+                auto entry = container_scope->decl_table.maybe_get(field_name);
+                Tld *tld = entry ? entry->value : nullptr;
+                if (tld) {
+                    return ir_analyze_decl_ref(ira, &field_ptr_instruction->base, tld);
+                }
             }
             ir_add_error(ira, &field_ptr_instruction->base,
                 buf_sprintf("container '%s' has no member called '%s'",
