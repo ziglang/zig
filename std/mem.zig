@@ -136,6 +136,16 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) -> bool {
     return true;
 }
 
+/// Linear search for the index of a scalar value inside a slice.
+pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) -> ?usize {
+    for (slice) |item, i| {
+        if (item == value) {
+            return i;
+        }
+    }
+    return null;
+}
+
 /// Reads an integer from memory with size equal to bytes.len.
 /// T specifies the return type, which must be large enough to store
 /// the result.

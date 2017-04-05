@@ -154,19 +154,8 @@ pub const ChildProcess = struct {
             setUpChildIo(stderr, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) %%
                 |err| forkChildErrReport(err_pipe[1], err);
 
-            const err = posix.getErrno(%return os.posixExecve(exe_path, args, env_map, allocator));
-            assert(err > 0);
-            forkChildErrReport(err_pipe[1], switch (err) {
-                errno.EFAULT => unreachable,
-                errno.E2BIG, errno.EMFILE, errno.ENAMETOOLONG, errno.ENFILE, errno.ENOMEM => error.SysResources,
-                errno.EACCES, errno.EPERM => error.AccessDenied,
-                errno.EINVAL, errno.ENOEXEC => error.InvalidExe,
-                errno.EIO, errno.ELOOP => error.FileSystem,
-                errno.EISDIR => error.IsDir,
-                errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
-                errno.ETXTBSY => error.FileBusy,
-                else => error.Unexpected,
-            });
+            os.posixExecve(exe_path, args, env_map, allocator) %%
+                |err| forkChildErrReport(err_pipe[1], err);
         }
 
         // we are the parent

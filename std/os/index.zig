@@ -203,15 +203,11 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
 /// This function must allocate memory to add a null terminating bytes on path and each arg.
 /// It must also convert to KEY=VALUE\0 format for environment variables, and include null
 /// pointers after the args and after the environment variables.
-/// Also make the first arg equal to path.
-pub fn posixExecve(path: []const u8, argv: []const []const u8, env_map: &const BufMap,
-    allocator: &Allocator) -> %usize
+/// Also make the first arg equal to exe_path.
+/// This function also uses the PATH environment variable to get the full path to the executable.
+pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &const BufMap,
+    allocator: &Allocator) -> %void
 {
-    const path_buf = %return allocator.alloc(u8, path.len + 1);
-    defer allocator.free(path_buf);
-    @memcpy(&path_buf[0], &path[0], path.len);
-    path_buf[path.len] = 0;
-
     const argv_buf = %return allocator.alloc(?&const u8, argv.len + 2);
     mem.set(?&const u8, argv_buf, null);
     defer {
@@ -222,10 +218,10 @@ pub fn posixExecve(path: []const u8, argv: []const []const u8, env_map: &const B
         allocator.free(argv_buf);
     }
     {
-        // Add path to the first argument.
-        const arg_buf = %return allocator.alloc(u8, path.len + 1);
-        @memcpy(&arg_buf[0], path.ptr, path.len);
-        arg_buf[path.len] = 0;
+        // Add exe_path to the first argument.
+        const arg_buf = %return allocator.alloc(u8, exe_path.len + 1);
+        @memcpy(&arg_buf[0], exe_path.ptr, exe_path.len);
+        arg_buf[exe_path.len] = 0;
 
         argv_buf[0] = arg_buf.ptr;
     }
@@ -266,7 +262,58 @@ pub fn posixExecve(path: []const u8, argv: []const []const u8, env_map: &const B
     }
     envp_buf[envp_count] = null;
 
-    return posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr);
+
+    if (mem.indexOfScalar(u8, exe_path, '/') != null) {
+        // +1 for the null terminating byte
+        const path_buf = %return allocator.alloc(u8, exe_path.len + 1);
+        defer allocator.free(path_buf);
+        @memcpy(&path_buf[0], &exe_path[0], exe_path.len);
+        path_buf[exe_path.len] = 0;
+        return posixExecveErrnoToErr(posix.getErrno(posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr)));
+    }
+
+    const PATH = getEnv("PATH") ?? ([]const u8)("/usr/local/bin:/bin/:/usr/bin"); // TODO issue #299
+    // PATH.len because it is >= the largest search_path
+    // +1 for the / to join the search path and exe_path
+    // +1 for the null terminating byte
+    const path_buf = %return allocator.alloc(u8, PATH.len + exe_path.len + 2);
+    defer allocator.free(path_buf);
+    var it = mem.split(PATH, ':');
+    var seen_eacces = false;
+    var err: usize = undefined;
+    while (true) {
+        const search_path = it.next() ?? break;
+        mem.copy(u8, path_buf, search_path);
+        path_buf[search_path.len] = '/';
+        mem.copy(u8, path_buf[search_path.len + 1 ...], exe_path);
+        path_buf[search_path.len + exe_path.len + 2] = 0;
+        err = posix.getErrno(posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr));
+        assert(err > 0);
+        if (err == errno.EACCES) {
+            seen_eacces = true;
+        } else if (err != errno.ENOENT) {
+            return posixExecveErrnoToErr(err);
+        }
+    }
+    if (seen_eacces) {
+        err = errno.EACCES;
+    }
+    return posixExecveErrnoToErr(err);
+}
+
+fn posixExecveErrnoToErr(err: usize) -> error {
+    assert(err > 0);
+    return switch (err) {
+        errno.EFAULT => unreachable,
+        errno.E2BIG, errno.EMFILE, errno.ENAMETOOLONG, errno.ENFILE, errno.ENOMEM => error.SysResources,
+        errno.EACCES, errno.EPERM => error.AccessDenied,
+        errno.EINVAL, errno.ENOEXEC => error.InvalidExe,
+        errno.EIO, errno.ELOOP => error.FileSystem,
+        errno.EISDIR => error.IsDir,
+        errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+        errno.ETXTBSY => error.FileBusy,
+        else => error.Unexpected,
+    };
 }
 
 pub var environ_raw: []&u8 = undefined;
