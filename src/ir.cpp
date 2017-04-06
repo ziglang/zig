@@ -5857,6 +5857,10 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     return ImplicitCastMatchResultNo;
 }
 
+static bool is_slice(TypeTableEntry *type) {
+    return type->id == TypeTableEntryIdStruct && type->data.structure.is_slice;
+}
+
 static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, IrInstruction **instructions, size_t instruction_count) {
     assert(instruction_count >= 1);
     IrInstruction *prev_inst = instructions[0];
@@ -5865,6 +5869,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
     }
     bool any_are_pure_error = (prev_inst->value.type->id == TypeTableEntryIdPureError);
     bool any_are_null = (prev_inst->value.type->id == TypeTableEntryIdNullLit);
+    bool convert_to_const_slice = false;
     for (size_t i = 1; i < instruction_count; i += 1) {
         IrInstruction *cur_inst = instructions[i];
         TypeTableEntry *cur_type = cur_inst->value.type;
@@ -5932,6 +5937,34 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             } else {
                 return ira->codegen->builtin_types.entry_invalid;
             }
+        } else if (cur_type->id == TypeTableEntryIdArray && prev_type->id == TypeTableEntryIdArray &&
+                cur_type->data.array.len != prev_type->data.array.len &&
+                types_match_const_cast_only(cur_type->data.array.child_type, prev_type->data.array.child_type))
+        {
+            convert_to_const_slice = true;
+            prev_inst = cur_inst;
+            continue;
+        } else if (cur_type->id == TypeTableEntryIdArray && prev_type->id == TypeTableEntryIdArray &&
+                cur_type->data.array.len != prev_type->data.array.len &&
+                types_match_const_cast_only(prev_type->data.array.child_type, cur_type->data.array.child_type))
+        {
+            convert_to_const_slice = true;
+            continue;
+        } else if (cur_type->id == TypeTableEntryIdArray && is_slice(prev_type) &&
+                prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const &&
+                types_match_const_cast_only(prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+                    cur_type->data.array.child_type))
+        {
+            convert_to_const_slice = false;
+            continue;
+        } else if (prev_type->id == TypeTableEntryIdArray && is_slice(cur_type) &&
+                cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const &&
+                types_match_const_cast_only(cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+                    prev_type->data.array.child_type))
+        {
+            prev_inst = cur_inst;
+            convert_to_const_slice = false;
+            continue;
         } else {
             ErrorMsg *msg = ir_add_error_node(ira, source_node,
                 buf_sprintf("incompatible types: '%s' and '%s'",
@@ -5944,7 +5977,10 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             return ira->codegen->builtin_types.entry_invalid;
         }
     }
-    if (any_are_pure_error && prev_inst->value.type->id != TypeTableEntryIdPureError) {
+    if (convert_to_const_slice) {
+        assert(prev_inst->value.type->id == TypeTableEntryIdArray);
+        return get_slice_type(ira->codegen, prev_inst->value.type->data.array.child_type, true);
+    } else if (any_are_pure_error && prev_inst->value.type->id != TypeTableEntryIdPureError) {
         if (prev_inst->value.type->id == TypeTableEntryIdNumLitInt ||
             prev_inst->value.type->id == TypeTableEntryIdNumLitFloat)
         {
@@ -6036,10 +6072,6 @@ static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
         return result;
     }
-}
-
-static bool is_slice(TypeTableEntry *type) {
-    return type->id == TypeTableEntryIdStruct && type->data.structure.is_slice;
 }
 
 static bool is_container(TypeTableEntry *type) {

@@ -1,4 +1,5 @@
 const assert = @import("std").debug.assert;
+const mem = @import("std").mem;
 
 test "intToPtrCast" {
     const x = isize(13);
@@ -40,4 +41,26 @@ fn testCastIntToErr(err: error) {
     const x = usize(err);
     const y = error(x);
     assert(error.ItBroke == y);
+}
+
+test "peer resolve arrays of different size to const slice" {
+    assert(mem.eql(u8, boolToStr(true), "true"));
+    assert(mem.eql(u8, boolToStr(false), "false"));
+    comptime assert(mem.eql(u8, boolToStr(true), "true"));
+    comptime assert(mem.eql(u8, boolToStr(false), "false"));
+}
+fn boolToStr(b: bool) -> []const u8 {
+    if (b) "true" else "false"
+}
+
+
+test "peer resolve array and const slice" {
+    testPeerResolveArrayConstSlice(true);
+    comptime testPeerResolveArrayConstSlice(true);
+}
+fn testPeerResolveArrayConstSlice(b: bool) {
+    const value1 = if (b) "aoeu" else ([]const u8)("zz");
+    const value2 = if (b) ([]const u8)("zz") else "aoeu";
+    assert(mem.eql(u8, value1, "aoeu"));
+    assert(mem.eql(u8, value2, "zz"));
 }
