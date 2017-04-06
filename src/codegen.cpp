@@ -849,16 +849,43 @@ static LLVMValueRef gen_struct_memcpy(CodeGen *g, LLVMValueRef src, LLVMValueRef
     return LLVMBuildCall(g->builder, g->memcpy_fn_val, params, 5, "");
 }
 
-static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef target_ref, LLVMValueRef value,
-        TypeTableEntry *child_type)
+static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, TypeTableEntry *ptr_type,
+        LLVMValueRef value)
 {
+    TypeTableEntry *child_type = get_underlying_type(ptr_type->data.pointer.child_type);
+
     if (!type_has_bits(child_type))
         return nullptr;
 
     if (handle_is_ptr(child_type))
-        return gen_struct_memcpy(g, value, target_ref, child_type);
+        return gen_struct_memcpy(g, value, ptr, child_type);
 
-    LLVMBuildStore(g->builder, value, target_ref);
+    uint32_t unaligned_bit_count = ptr_type->data.pointer.unaligned_bit_count;
+    if (unaligned_bit_count == 0) {
+        LLVMValueRef llvm_instruction = LLVMBuildStore(g->builder, value, ptr);
+        LLVMSetVolatile(llvm_instruction, ptr_type->data.pointer.is_volatile);
+        return nullptr;
+    }
+
+    LLVMValueRef containing_int = LLVMBuildLoad(g->builder, ptr, "");
+
+    uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
+    uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
+    uint32_t shift_amt = host_bit_count - bit_offset - unaligned_bit_count;
+    LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
+
+    LLVMValueRef mask_val = LLVMConstAllOnes(child_type->type_ref);
+    mask_val = LLVMConstZExt(mask_val, LLVMTypeOf(containing_int));
+    mask_val = LLVMConstShl(mask_val, shift_amt_val);
+    mask_val = LLVMConstNot(mask_val);
+
+    LLVMValueRef anded_containing_int = LLVMBuildAnd(g->builder, containing_int, mask_val, "");
+    LLVMValueRef extended_value = LLVMBuildZExt(g->builder, value, LLVMTypeOf(containing_int), "");
+    LLVMValueRef shifted_value = LLVMBuildShl(g->builder, extended_value, shift_amt_val, "");
+    LLVMValueRef ored_value = LLVMBuildOr(g->builder, shifted_value, anded_containing_int, "");
+
+    LLVMValueRef llvm_instruction = LLVMBuildStore(g->builder, ored_value, ptr);
+    LLVMSetVolatile(llvm_instruction, ptr_type->data.pointer.is_volatile);
     return nullptr;
 }
 
@@ -903,7 +930,7 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
             LLVMBuildRet(g->builder, by_val_value);
         } else {
             assert(g->cur_ret_ptr);
-            gen_assign_raw(g, g->cur_ret_ptr, value, return_type);
+            gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
             LLVMBuildRetVoid(g->builder);
         }
     } else {
@@ -1549,7 +1576,8 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
 
     if (have_init_expr) {
         assert(var->value->type == init_value->value.type);
-        gen_assign_raw(g, var->value_ref, ir_llvm_value(g, init_value), var->value->type);
+        gen_assign_raw(g, var->value_ref, get_pointer_to_type(g, var->value->type, false),
+                ir_llvm_value(g, init_value));
     } else {
         bool ignore_uninit = false;
         // handle runtime stack allocation
@@ -1615,40 +1643,9 @@ static LLVMValueRef ir_render_store_ptr(CodeGen *g, IrExecutable *executable, Ir
 
     assert(instruction->ptr->value.type->id == TypeTableEntryIdPointer);
     TypeTableEntry *ptr_type = get_underlying_type(instruction->ptr->value.type);
-    TypeTableEntry *child_type = get_underlying_type(ptr_type->data.pointer.child_type);
 
-    if (!type_has_bits(child_type))
-        return nullptr;
+    gen_assign_raw(g, ptr, ptr_type, value);
 
-    if (handle_is_ptr(child_type))
-        return gen_struct_memcpy(g, value, ptr, child_type);
-
-    uint32_t unaligned_bit_count = ptr_type->data.pointer.unaligned_bit_count;
-    if (unaligned_bit_count == 0) {
-        LLVMValueRef llvm_instruction = LLVMBuildStore(g->builder, value, ptr);
-        LLVMSetVolatile(llvm_instruction, ptr_type->data.pointer.is_volatile);
-        return nullptr;
-    }
-
-    LLVMValueRef containing_int = LLVMBuildLoad(g->builder, ptr, "");
-
-    uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
-    uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
-    uint32_t shift_amt = host_bit_count - bit_offset - unaligned_bit_count;
-    LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
-
-    LLVMValueRef mask_val = LLVMConstAllOnes(child_type->type_ref);
-    mask_val = LLVMConstZExt(mask_val, LLVMTypeOf(containing_int));
-    mask_val = LLVMConstShl(mask_val, shift_amt_val);
-    mask_val = LLVMConstNot(mask_val);
-
-    LLVMValueRef anded_containing_int = LLVMBuildAnd(g->builder, containing_int, mask_val, "");
-    LLVMValueRef extended_value = LLVMBuildZExt(g->builder, value, LLVMTypeOf(containing_int), "");
-    LLVMValueRef shifted_value = LLVMBuildShl(g->builder, extended_value, shift_amt_val, "");
-    LLVMValueRef ored_value = LLVMBuildOr(g->builder, shifted_value, anded_containing_int, "");
-
-    LLVMValueRef llvm_instruction = LLVMBuildStore(g->builder, ored_value, ptr);
-    LLVMSetVolatile(llvm_instruction, ptr_type->data.pointer.is_volatile);
     return nullptr;
 }
 
@@ -2531,7 +2528,7 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
 
     LLVMValueRef val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_child_index, "");
     // child_type and instruction->value->value.type may differ by constness
-    gen_assign_raw(g, val_ptr, payload_val, child_type);
+    gen_assign_raw(g, val_ptr, get_pointer_to_type(g, child_type, false), payload_val);
     LLVMValueRef maybe_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, maybe_null_index, "");
     LLVMBuildStore(g->builder, LLVMConstAllOnes(LLVMInt1Type()), maybe_ptr);
 
@@ -2577,7 +2574,7 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executa
     LLVMBuildStore(g->builder, ok_err_val, err_tag_ptr);
 
     LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_payload_index, "");
-    gen_assign_raw(g, payload_ptr, payload_val, child_type);
+    gen_assign_raw(g, payload_ptr, get_pointer_to_type(g, child_type, false), payload_val);
 
     return instruction->tmp_ptr;
 }
@@ -2617,7 +2614,7 @@ static LLVMValueRef ir_render_init_enum(CodeGen *g, IrExecutable *executable, Ir
         LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr,
                 LLVMPointerType(union_val_type->type_ref, 0), "");
 
-        gen_assign_raw(g, bitcasted_union_field_ptr, new_union_val, union_val_type);
+        gen_assign_raw(g, bitcasted_union_field_ptr, get_pointer_to_type(g, union_val_type, false), new_union_val);
     }
 
     return tmp_struct_ptr;
@@ -2632,7 +2629,12 @@ static LLVMValueRef ir_render_struct_init(CodeGen *g, IrExecutable *executable, 
 
         LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, type_struct_field->gen_index, "");
         LLVMValueRef value = ir_llvm_value(g, field->value);
-        gen_assign_raw(g, field_ptr, value, type_struct_field->type_entry);
+
+        TypeTableEntry *ptr_type = get_pointer_to_type_extra(g, type_struct_field->type_entry,
+                false, false,
+                type_struct_field->packed_bits_offset, type_struct_field->unaligned_bit_count);
+
+        gen_assign_raw(g, field_ptr, ptr_type, value);
     }
     return instruction->tmp_ptr;
 }
@@ -2655,7 +2657,7 @@ static LLVMValueRef ir_render_container_init_list(CodeGen *g, IrExecutable *exec
             LLVMConstInt(g->builtin_types.entry_usize->type_ref, i, false),
         };
         LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP(g->builder, tmp_array_ptr, indices, 2, "");
-        gen_assign_raw(g, elem_ptr, elem_val, child_type);
+        gen_assign_raw(g, elem_ptr, get_pointer_to_type(g, child_type, false), elem_val);
     }
 
     return tmp_array_ptr;

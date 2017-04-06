@@ -361,3 +361,25 @@ test "alignedArrayOfPackedStruct" {
     assert(ptr.a[1].a == 0xbb);
     assert(ptr.a[1].b == 0xbb);
 }
+
+
+
+test "runtime struct initialization of bitfield" {
+    const s1 = Nibbles { .x = x1, .y = x1 };
+    const s2 = Nibbles { .x = u4(x2), .y = u4(x2) };
+
+    assert(s1.x == x1);
+    assert(s1.y == x1);
+    assert(s2.x == u4(x2));
+    assert(s2.y == u4(x2));
+}
+
+const u4 = @intType(false, 4);
+
+var x1 = u4(1);
+var x2 = u8(2);
+
+const Nibbles = packed struct {
+    x: u4,
+    y: u4,
+};
