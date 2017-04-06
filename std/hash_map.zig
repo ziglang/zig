@@ -54,13 +54,15 @@ pub fn HashMap(comptime K: type, comptime V: type,
             }
         };
 
-        pub fn init(hm: &Self, allocator: &Allocator) {
-            hm.entries = []Entry{};
-            hm.allocator = allocator;
-            hm.size = 0;
-            hm.max_distance_from_start_index = 0;
-            // it doesn't actually matter what we set this to since we use wrapping integer arithmetic
-            hm.modification_count = undefined;
+        pub fn init(allocator: &Allocator) -> Self {
+            Self {
+                .entries = []Entry{},
+                .allocator = allocator,
+                .size = 0,
+                .max_distance_from_start_index = 0,
+                // it doesn't actually matter what we set this to since we use wrapping integer arithmetic
+                .modification_count = undefined,
+            }
         }
 
         pub fn deinit(hm: &Self) {
@@ -76,7 +78,8 @@ pub fn HashMap(comptime K: type, comptime V: type,
             hm.incrementModificationCount();
         }
 
-        pub fn put(hm: &Self, key: K, value: V) -> %void {
+        /// Returns the value that was already there.
+        pub fn put(hm: &Self, key: K, value: &const V) -> %?V {
             if (hm.entries.len == 0) {
                 %return hm.initCapacity(16);
             }
@@ -89,13 +92,13 @@ pub fn HashMap(comptime K: type, comptime V: type,
                 // dump all of the old elements into the new table
                 for (old_entries) |*old_entry| {
                     if (old_entry.used) {
-                        hm.internalPut(old_entry.key, old_entry.value);
+                        _ = hm.internalPut(old_entry.key, old_entry.value);
                     }
                 }
                 hm.allocator.free(old_entries);
             }
 
-            hm.internalPut(key, value);
+            return hm.internalPut(key, value);
         }
 
         pub fn get(hm: &Self, key: K) -> ?&Entry {
@@ -134,7 +137,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             return null;
         }
 
-        pub fn entryIterator(hm: &const Self) -> Iterator {
+        pub fn iterator(hm: &const Self) -> Iterator {
             return Iterator {
                 .hm = hm,
                 .count = 0,
@@ -158,9 +161,10 @@ pub fn HashMap(comptime K: type, comptime V: type,
             }
         }
 
-        fn internalPut(hm: &Self, orig_key: K, orig_value: V) {
+        /// Returns the value that was already there.
+        fn internalPut(hm: &Self, orig_key: K, orig_value: &const V) -> ?V {
             var key = orig_key;
-            var value = orig_value;
+            var value = *orig_value;
             const start_index = hm.keyToIndex(key);
             var roll_over: usize = 0;
             var distance_from_start_index: usize = 0;
@@ -187,7 +191,10 @@ pub fn HashMap(comptime K: type, comptime V: type,
                     continue;
                 }
 
-                if (!entry.used) {
+                var result: ?V = null;
+                if (entry.used) {
+                    result = entry.value;
+                } else {
                     // adding an entry. otherwise overwriting old value with
                     // same key
                     hm.size += 1;
@@ -200,7 +207,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
                     .key = key,
                     .value = value,
                 };
-                return;
+                return result;
             }
             unreachable // put into a full map
         }
@@ -224,15 +231,18 @@ pub fn HashMap(comptime K: type, comptime V: type,
 }
 
 test "basicHashMapTest" {
-    var map: HashMap(i32, i32, hash_i32, eql_i32) = undefined;
-    map.init(&debug.global_allocator);
+    var map = HashMap(i32, i32, hash_i32, eql_i32).init(&debug.global_allocator);
     defer map.deinit();
 
-    %%map.put(1, 11);
-    %%map.put(2, 22);
-    %%map.put(3, 33);
-    %%map.put(4, 44);
-    %%map.put(5, 55);
+    // TODO issue #311
+    assert(%%map.put(1, i32(11)) == null);
+    assert(%%map.put(2, i32(22)) == null);
+    assert(%%map.put(3, i32(33)) == null);
+    assert(%%map.put(4, i32(44)) == null);
+    assert(%%map.put(5, i32(55)) == null);
+
+    assert(??%%map.put(5, i32(66)) == 55);
+    assert(??%%map.put(5, i32(55)) == 66);
 
     assert((??map.get(2)).value == 22);
     _ = map.remove(2);
@@ -243,6 +253,7 @@ test "basicHashMapTest" {
 fn hash_i32(x: i32) -> u32 {
     *@ptrcast(&u32, &x)
 }
+
 fn eql_i32(a: i32, b: i32) -> bool {
     a == b
 }

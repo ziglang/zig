@@ -138,3 +138,15 @@ fn returnsFalse() -> bool {
 test "switchOnConstEnumWithVar" {
     assert(!returnsFalse());
 }
+
+test "switch on type" {
+    assert(trueIfBoolFalseOtherwise(bool));
+    assert(!trueIfBoolFalseOtherwise(i32));
+}
+
+fn trueIfBoolFalseOtherwise(comptime T: type) -> bool {
+    switch (T) {
+        bool => true,
+        else => false,
+    }
+}

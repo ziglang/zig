@@ -2,6 +2,7 @@ const io = @import("io.zig");
 const mem = @import("mem.zig");
 const debug = @import("debug.zig");
 const List = @import("list.zig").List;
+const HashMap = @import("hash_map.zig").HashMap;
 const Allocator = @import("mem.zig").Allocator;
 const os = @import("os/index.zig");
 const StdIo = os.ChildProcess.StdIo;
@@ -12,21 +13,58 @@ error ExtraArg;
 error UncleanExit;
 
 pub const Builder = struct {
-    zig_exe: []const u8,
     allocator: &Allocator,
     exe_list: List(&Exe),
     lib_paths: List([]const u8),
     include_paths: List([]const u8),
     rpaths: List([]const u8),
+    user_input_options: UserInputOptionsMap,
+    available_options_map: AvailableOptionsMap,
+    available_options_list: List(AvailableOption),
+    verbose: bool,
+    invalid_user_input: bool,
 
-    pub fn init(zig_exe: []const u8, allocator: &Allocator) -> Builder {
+    const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
+    const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
+
+    const AvailableOption = struct {
+        name: []const u8,
+        type_id: TypeId,
+        description: []const u8,
+    };
+
+    const UserInputOption = struct {
+        name: []const u8,
+        value: UserValue,
+        used: bool,
+    };
+
+    const UserValue = enum {
+        Flag,
+        Scalar: []const u8,
+        List: List([]const u8),
+    };
+
+    const TypeId = enum {
+        Bool,
+        Int,
+        Float,
+        String,
+        List,
+    };
+
+    pub fn init(allocator: &Allocator) -> Builder {
         var self = Builder {
-            .zig_exe = zig_exe,
+            .verbose = false,
+            .invalid_user_input = false,
             .allocator = allocator,
             .exe_list = List(&Exe).init(allocator),
             .lib_paths = List([]const u8).init(allocator),
             .include_paths = List([]const u8).init(allocator),
             .rpaths = List([]const u8).init(allocator),
+            .user_input_options = UserInputOptionsMap.init(allocator),
+            .available_options_map = AvailableOptionsMap.init(allocator),
+            .available_options_list = List(AvailableOption).init(allocator),
         };
         self.processNixOSEnvVars();
         return self;
@@ -46,6 +84,8 @@ pub const Builder = struct {
     pub fn addExeErr(self: &Builder, root_src: []const u8, name: []const u8) -> %&Exe {
         const exe = %return self.allocator.create(Exe);
         *exe = Exe {
+            .verbose = false,
+            .release = false,
             .root_src = root_src,
             .name = name,
             .target = Target.Native,
@@ -68,20 +108,13 @@ pub const Builder = struct {
         %%self.lib_paths.append(path);
     }
 
-    pub fn make(self: &Builder, leftover_arg_index: usize) -> %void {
+    pub fn make(self: &Builder, zig_exe: []const u8, targets: []const []const u8) -> %void {
+        if (targets.len != 0) {
+            debug.panic("TODO non default targets");
+        }
+
         var env_map = %return os.getEnvMap(self.allocator);
 
-        var verbose = false;
-        var arg_i: usize = leftover_arg_index;
-        while (arg_i < os.args.count(); arg_i += 1) {
-            const arg = os.args.at(arg_i);
-            if (mem.eql(u8, arg, "--verbose")) {
-                verbose = true;
-            } else {
-                %%io.stderr.printf("Unrecognized argument: '{}'\n", arg);
-                return error.ExtraArg;
-            }
-        }
         for (self.exe_list.toSlice()) |exe| {
             var zig_args = List([]const u8).init(self.allocator);
             defer zig_args.deinit();
@@ -89,8 +122,12 @@ pub const Builder = struct {
             %return zig_args.append("build_exe"[0...]); // TODO issue #296
             %return zig_args.append(exe.root_src);
 
-            if (verbose) {
+            if (exe.verbose) {
                 %return zig_args.append("--verbose"[0...]); // TODO issue #296
+            }
+
+            if (exe.release) {
+                %return zig_args.append("--release"[0...]); // TODO issue #296
             }
 
             %return zig_args.append("--name"[0...]); // TODO issue #296
@@ -149,22 +186,21 @@ pub const Builder = struct {
                 %return zig_args.append(lib_path);
             }
 
+            if (self.verbose) {
+                printInvocation(zig_exe, zig_args);
+            }
             // TODO issue #301
-            var child = os.ChildProcess.spawn(self.zig_exe, zig_args.toSliceConst(), &env_map,
+            var child = os.ChildProcess.spawn(zig_exe, zig_args.toSliceConst(), &env_map,
                 StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, self.allocator)
                 %% |err| debug.panic("Unable to spawn zig compiler: {}\n", @errorName(err));
             const term = %%child.wait();
-            const exe_result = switch (term) {
+            switch (term) {
                 Term.Clean => |code| {
                     if (code != 0) {
-                        %%io.stderr.printf("\nCompile failed with code {}. To reproduce:\n", code);
-                        printInvocation(self.zig_exe, zig_args);
                         return error.UncleanExit;
                     }
                 },
                 else => {
-                    %%io.stderr.printf("\nCompile crashed. To reproduce:\n");
-                    printInvocation(self.zig_exe, zig_args);
                     return error.UncleanExit;
                 },
             };
@@ -208,6 +244,144 @@ pub const Builder = struct {
             }
         }
     }
+
+    pub fn option(self: &Builder, comptime T: type, name: []const u8, description: []const u8) -> ?T {
+        const type_id = typeToEnum(T);
+        const available_option = AvailableOption {
+            .name = name,
+            .type_id = type_id,
+            .description = description,
+        };
+        if (const _ ?= %%self.available_options_map.put(name, available_option)) {
+            debug.panic("Option '{}' declared twice", name);
+        }
+        %%self.available_options_list.append(available_option);
+
+        const entry = self.user_input_options.get(name) ?? return null;
+        entry.value.used = true;
+        switch (type_id) {
+            TypeId.Bool => switch (entry.value.value) {
+                UserValue.Flag => return true,
+                UserValue.Scalar => |s| {
+                    if (mem.eql(u8, s, "true")) {
+                        return true;
+                    } else if (mem.eql(u8, s, "false")) {
+                        return false;
+                    } else {
+                        %%io.stderr.printf("Expected -O{} to be a boolean, but received '{}'\n", name, s);
+                        self.markInvalidUserInput();
+                        return null;
+                    }
+                },
+                UserValue.List => {
+                    %%io.stderr.printf("Expected -O{} to be a boolean, but received a list.\n", name);
+                    self.markInvalidUserInput();
+                    return null;
+                },
+            },
+            TypeId.Int => debug.panic("TODO integer options to build script"),
+            TypeId.Float => debug.panic("TODO float options to build script"),
+            TypeId.String => debug.panic("TODO string options to build script"),
+            TypeId.List => debug.panic("TODO list options to build script"),
+        }
+    }
+
+    pub fn addUserInputOption(self: &Builder, name: []const u8, value: []const u8) -> bool {
+        if (var prev_value ?= %%self.user_input_options.put(name, UserInputOption {
+            .name = name,
+            .value = UserValue.Scalar { value },
+            .used = false,
+        })) {
+            switch (prev_value.value) {
+                UserValue.Scalar => |s| {
+                    var list = List([]const u8).init(self.allocator);
+                    %%list.append(s);
+                    %%list.append(value);
+                    %%self.user_input_options.put(name, UserInputOption {
+                        .name = name,
+                        .value = UserValue.List { list },
+                        .used = false,
+                    });
+                },
+                UserValue.List => |*list| {
+                    %%list.append(value);
+                    %%self.user_input_options.put(name, UserInputOption {
+                        .name = name,
+                        .value = UserValue.List { *list },
+                        .used = false,
+                    });
+                },
+                UserValue.Flag => {
+                    %%io.stderr.printf("Option '-O{}={}' conflicts with flag '-O{}'.\n", name, value, name);
+                    return true;
+                },
+            }
+        }
+        return false;
+    }
+
+    pub fn addUserInputFlag(self: &Builder, name: []const u8) -> bool {
+        if (const prev_value ?= %%self.user_input_options.put(name, UserInputOption {
+            .name = name,
+            .value = UserValue.Flag,
+            .used = false,
+        })) {
+            switch (prev_value.value) {
+                UserValue.Scalar => |s| {
+                    %%io.stderr.printf("Flag '-O{}' conflicts with option '-O{}={}'.\n", name, name, s);
+                    return true;
+                },
+                UserValue.List => {
+                    %%io.stderr.printf("Flag '-O{}' conflicts with multiple options of the same name.\n", name);
+                    return true;
+                },
+                UserValue.Flag => {},
+            }
+        }
+        return false;
+    }
+
+    fn typeToEnum(comptime T: type) -> TypeId {
+        if (@isInteger(T)) {
+            TypeId.Int
+        } else if (@isFloat(T)) {
+            TypeId.Float
+        } else switch (T) {
+            bool => TypeId.Bool,
+            []const u8 => TypeId.String,
+            []const []const u8 => TypeId.List,
+            else => @compileError("Unsupported type: " ++ @typeName(T)),
+        }
+    }
+
+    fn markInvalidUserInput(self: &Builder) {
+        self.invalid_user_input = true;
+    }
+
+    pub fn typeIdName(id: TypeId) -> []const u8 {
+        return switch (id) {
+            TypeId.Bool => ([]const u8)("bool"), // TODO issue #125
+            TypeId.Int => ([]const u8)("int"), // TODO issue #125
+            TypeId.Float => ([]const u8)("float"), // TODO issue #125
+            TypeId.String => ([]const u8)("string"), // TODO issue #125
+            TypeId.List => ([]const u8)("list"), // TODO issue #125
+        };
+    }
+
+    pub fn validateUserInputDidItFail(self: &Builder) -> bool {
+        // make sure all args are used
+        var it = self.user_input_options.iterator();
+        while (true) {
+            const entry = it.next() ?? break;
+            if (!entry.value.used) {
+                %%io.stderr.printf("Invalid option: -O{}\n\n", entry.key);
+                self.markInvalidUserInput();
+            }
+        }
+
+        return self.invalid_user_input;
+    }
+
 };
 
 const CrossTarget = struct {
@@ -233,12 +407,14 @@ const Exe = struct {
     target: Target,
     linker_script: LinkerScript,
     link_libs: BufSet,
+    verbose: bool,
+    release: bool,
 
-    fn deinit(self: &Exe) {
+    pub fn deinit(self: &Exe) {
         self.link_libs.deinit();
     }
 
-    fn setTarget(self: &Exe, target_arch: Arch, target_os: Os, target_environ: Environ) {
+    pub fn setTarget(self: &Exe, target_arch: Arch, target_os: Os, target_environ: Environ) {
         self.target = Target.Cross {
             CrossTarget {
                 .arch = target_arch,
@@ -250,16 +426,24 @@ const Exe = struct {
 
     /// Exe keeps a reference to script for its lifetime or until this function
     /// is called again.
-    fn setLinkerScriptContents(self: &Exe, script: []const u8) {
+    pub fn setLinkerScriptContents(self: &Exe, script: []const u8) {
         self.linker_script = LinkerScript.Embed { script };
     }
 
-    fn setLinkerScriptPath(self: &Exe, path: []const u8) {
+    pub fn setLinkerScriptPath(self: &Exe, path: []const u8) {
         self.linker_script = LinkerScript.Path { path };
     }
 
-    fn linkLibrary(self: &Exe, name: []const u8) {
+    pub fn linkLibrary(self: &Exe, name: []const u8) {
         %%self.link_libs.put(name);
+    }
+
+    pub fn setVerbose(self: &Exe, value: bool) {
+        self.verbose = value;
+    }
+
+    pub fn setRelease(self: &Exe, value: bool) {
+        self.release = value;
     }
 };
 
@@ -401,3 +585,4 @@ fn targetEnvironName(target_environ: Environ) -> []const u8 {
         Environ.coreclr => ([]const u8)("coreclr"),
     };
 }
+

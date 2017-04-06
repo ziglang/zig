@@ -11,14 +11,13 @@ pub const BufMap = struct {
 
     pub fn init(allocator: &Allocator) -> BufMap {
         var self = BufMap {
-            .hash_map = undefined,
+            .hash_map = BufMapHashMap.init(allocator),
         };
-        self.hash_map.init(allocator);
         return self;
     }
 
     pub fn deinit(self: &BufMap) {
-        var it = self.hash_map.entryIterator();
+        var it = self.hash_map.iterator();
         while (true) {
             const entry = it.next() ?? break; 
             self.free(entry.key);
@@ -54,7 +53,7 @@ pub const BufMap = struct {
     }
 
     pub fn iterator(self: &const BufMap) -> BufMapHashMap.Iterator {
-        return self.hash_map.entryIterator();
+        return self.hash_map.iterator();
     }
 
     fn free(self: &BufMap, value: []const u8) {

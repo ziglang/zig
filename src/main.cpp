@@ -167,9 +167,8 @@ int main(int argc, char **argv) {
         ZigList<const char *> args = {0};
         args.append(zig_exe_path);
         for (int i = 2; i < argc; i += 1) {
-            if (strcmp(argv[i], "--verbose") == 0) {
+            if (strcmp(argv[i], "--debug-build-verbose") == 0) {
                 verbose = true;
-                args.append(argv[i]);
             } else {
                 args.append(argv[i]);
             }

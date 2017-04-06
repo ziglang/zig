@@ -57,6 +57,7 @@ static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *ins
 static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, TypeTableEntry *expected_type);
 
 ConstExprValue *const_ptr_pointee(ConstExprValue *const_val) {
+    assert(const_val->type->id == TypeTableEntryIdPointer);
     assert(const_val->special == ConstValSpecialStatic);
     switch (const_val->data.x_ptr.special) {
         case ConstPtrSpecialInvalid:
@@ -10350,10 +10351,21 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
     if (type_is_invalid(target_value_ptr->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
+    if (target_value_ptr->value.type->id == TypeTableEntryIdMetaType) {
+        assert(instr_is_comptime(target_value_ptr));
+        TypeTableEntry *ptr_type = target_value_ptr->value.data.x_type;
+        assert(ptr_type->id == TypeTableEntryIdPointer);
+        ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
+        out_val->type = ira->codegen->builtin_types.entry_type;
+        out_val->data.x_type = ptr_type->data.pointer.child_type;
+        return out_val->type;
+    }
+
     assert(target_value_ptr->value.type->id == TypeTableEntryIdPointer);
+
     TypeTableEntry *target_type = target_value_ptr->value.type->data.pointer.child_type;
     ConstExprValue *pointee_val = nullptr;
-    if (target_value_ptr->value.special != ConstValSpecialRuntime) {
+    if (instr_is_comptime(target_value_ptr)) {
         pointee_val = const_ptr_pointee(&target_value_ptr->value);
         if (pointee_val->special == ConstValSpecialRuntime)
             pointee_val = nullptr;

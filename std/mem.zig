@@ -208,6 +208,10 @@ pub fn split(s: []const u8, c: u8) -> SplitIterator {
     }
 }
 
+pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) -> bool {
+    return if (needle.len > haystack.len) false else eql(T, haystack[0...needle.len], needle);
+}
+
 const SplitIterator = struct {
     s: []const u8,
     c: u8,

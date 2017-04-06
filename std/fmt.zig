@@ -13,6 +13,8 @@ const State = enum { // TODO put inside format function and make sure the name a
     Integer,
     IntegerWidth,
     Character,
+    Buf,
+    BufWidth,
 };
 
 /// Renders fmt string with args, calling output with slices of bytes.
@@ -82,7 +84,20 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->bool,
                 'c' => {
                     state = State.Character;
                 },
+                's' => {
+                    state = State.Buf;
+                },
                 else => @compileError("Unknown format character: " ++ []u8{c}),
+            },
+            State.Buf => switch (c) {
+                '}' => {
+                    return output(context, args[next_arg]);
+                },
+                '0' ... '9' => {
+                    width_start = i;
+                    state = State.BufWidth;
+                },
+                else => @compileError("Unexpected character in format string: " ++ []u8{c}),
             },
             State.CloseBrace => switch (c) {
                 '}' => {
@@ -109,6 +124,18 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->bool,
                 '}' => {
                     width = comptime %%parseUnsigned(usize, fmt[width_start...i], 10);
                     if (!formatInt(args[next_arg], radix, uppercase, width, context, output))
+                        return false;
+                    next_arg += 1;
+                    state = State.Start;
+                    start_index = i + 1;
+                },
+                '0' ... '9' => {},
+                else => @compileError("Unexpected character in format string: " ++ []u8{c}),
+            },
+            State.BufWidth => switch (c) {
+                '}' => {
+                    width = comptime %%parseUnsigned(usize, fmt[width_start...i], 10);
+                    if (!formatBuf(args[next_arg], width, context, output))
                         return false;
                     next_arg += 1;
                     state = State.Start;
@@ -164,6 +191,23 @@ pub fn formatValue(value: var, context: var, output: fn(@typeOf(context), []cons
 pub fn formatAsciiChar(c: u8, context: var, output: fn(@typeOf(context), []const u8)->bool) -> bool {
     return output(context, (&c)[0...1]);
 }
+
+pub fn formatBuf(buf: []const u8, width: usize,
+    context: var, output: fn(@typeOf(context), []const u8)->bool) -> bool
+{
+    if (!output(context, buf))
+        return false;
+
+    var leftover_padding = if (width > buf.len) (width - buf.len) else return true;
+    const pad_byte: u8 = ' ';
+    while (leftover_padding > 0; leftover_padding -= 1) {
+        if (!output(context, (&pad_byte)[0...1]))
+            return false;
+    }
+
+    return true;
+}
+
 
 pub fn formatInt(value: var, base: u8, uppercase: bool, width: usize,
     context: var, output: fn(@typeOf(context), []const u8)->bool) -> bool
@@ -289,6 +333,34 @@ fn digitToChar(digit: u8, uppercase: bool) -> u8 {
         10 ... 35 => digit + ((if (uppercase) u8('A') else u8('a')) - 10),
         else => unreachable,
     };
+}
+
+const BufPrintContext = struct {
+    remaining: []u8,
+};
+
+fn bufPrintWrite(context: &BufPrintContext, bytes: []const u8) -> bool {
+    mem.copy(u8, context.remaining, bytes);
+    context.remaining = context.remaining[bytes.len...];
+    return true;
+}
+
+pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) {
+    var context = BufPrintContext { .remaining = buf, };
+    _ = format(&context, bufPrintWrite, fmt, args);
+}
+
+pub fn allocPrint(allocator: &mem.Allocator, comptime fmt: []const u8, args: ...) -> %[]u8 {
+    var size: usize = 0;
+    _ = format(&size, countSize, fmt, args);
+    const buf = %return allocator.alloc(u8, size);
+    bufPrint(buf, fmt, args);
+    return buf;
+}
+
+fn countSize(size: &usize, bytes: []const u8) -> bool {
+    *size += bytes.len;
+    return true;
 }
 
 test "testBufPrintInt" {
