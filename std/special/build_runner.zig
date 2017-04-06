@@ -25,10 +25,10 @@ pub fn main() -> %void {
     var arg_i: usize = 1;
     while (arg_i < os.args.count(); arg_i += 1) {
         const arg = os.args.at(arg_i);
-        if (mem.startsWith(u8, arg, "-O")) {
+        if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2...];
             if (option_contents.len == 0) {
-                %%io.stderr.printf("Expected option name after '-O'\n\n");
+                %%io.stderr.printf("Expected option name after '-D'\n\n");
                 return usage(&builder, maybe_zig_exe, false, &io.stderr);
             }
             if (const name_end ?= mem.indexOfScalar(u8, option_contents, '=')) {
@@ -95,7 +95,7 @@ fn usage(builder: &Builder, maybe_zig_exe: ?[]const u8, already_ran_build: bool,
         const allocator = builder.allocator;
         for (builder.available_options_list.toSliceConst()) |option| {
             const name = %%fmt.allocPrint(allocator,
-                "  -O{}=({})", option.name, Builder.typeIdName(option.type_id));
+                "  -D{}=({})", option.name, Builder.typeIdName(option.type_id));
             defer allocator.free(name);
             %%out_stream.printf("{s24} {}\n", name, option.description);
         }

@@ -268,13 +268,13 @@ pub const Builder = struct {
                     } else if (mem.eql(u8, s, "false")) {
                         return false;
                     } else {
-                        %%io.stderr.printf("Expected -O{} to be a boolean, but received '{}'\n", name, s);
+                        %%io.stderr.printf("Expected -D{} to be a boolean, but received '{}'\n", name, s);
                         self.markInvalidUserInput();
                         return null;
                     }
                 },
                 UserValue.List => {
-                    %%io.stderr.printf("Expected -O{} to be a boolean, but received a list.\n", name);
+                    %%io.stderr.printf("Expected -D{} to be a boolean, but received a list.\n", name);
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -312,7 +312,7 @@ pub const Builder = struct {
                     });
                 },
                 UserValue.Flag => {
-                    %%io.stderr.printf("Option '-O{}={}' conflicts with flag '-O{}'.\n", name, value, name);
+                    %%io.stderr.printf("Option '-D{}={}' conflicts with flag '-D{}'.\n", name, value, name);
                     return true;
                 },
             }
@@ -328,11 +328,11 @@ pub const Builder = struct {
         })) {
             switch (prev_value.value) {
                 UserValue.Scalar => |s| {
-                    %%io.stderr.printf("Flag '-O{}' conflicts with option '-O{}={}'.\n", name, name, s);
+                    %%io.stderr.printf("Flag '-D{}' conflicts with option '-D{}={}'.\n", name, name, s);
                     return true;
                 },
                 UserValue.List => {
-                    %%io.stderr.printf("Flag '-O{}' conflicts with multiple options of the same name.\n", name);
+                    %%io.stderr.printf("Flag '-D{}' conflicts with multiple options of the same name.\n", name);
                     return true;
                 },
                 UserValue.Flag => {},
@@ -374,7 +374,7 @@ pub const Builder = struct {
         while (true) {
             const entry = it.next() ?? break;
             if (!entry.value.used) {
-                %%io.stderr.printf("Invalid option: -O{}\n\n", entry.key);
+                %%io.stderr.printf("Invalid option: -D{}\n\n", entry.key);
                 self.markInvalidUserInput();
             }
         }
