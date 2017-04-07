@@ -8346,7 +8346,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         }
 
         bool found_first_var_arg = false;
-        size_t first_var_arg = inst_fn_type_id.param_count;
+        size_t first_var_arg;
 
         FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
         assert(parent_fn_entry);
@@ -8393,6 +8393,10 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         if (fn_proto_node->data.fn_proto.is_var_args) {
             AstNode *param_decl_node = fn_proto_node->data.fn_proto.params.at(next_proto_i);
             Buf *param_name = param_decl_node->data.param_decl.name;
+
+            if (!found_first_var_arg) {
+                first_var_arg = inst_fn_type_id.param_count;
+            }
 
             ConstExprValue *var_args_val = create_const_arg_tuple(ira->codegen,
                     first_var_arg, inst_fn_type_id.param_count);

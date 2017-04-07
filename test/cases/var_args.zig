@@ -31,3 +31,25 @@ test "testPassArgsDirectly" {
 fn addSomeStuff(args: ...) -> i32 {
     return add(args);
 }
+
+test "runtime parameter before var args" {
+    assert(extraFn(10) == 0);
+    assert(extraFn(10, false) == 1);
+    assert(extraFn(10, false, true) == 2);
+
+    //comptime {
+    //    assert(extraFn(10) == 0);
+    //    assert(extraFn(10, false) == 1);
+    //    assert(extraFn(10, false, true) == 2);
+    //}
+}
+
+fn extraFn(extra: u32, args: ...) -> usize {
+    if (args.len >= 1) {
+        assert(args[0] == false);
+    }
+    if (args.len >= 2) {
+        assert(args[1] == true);
+    }
+    return args.len;
+}
