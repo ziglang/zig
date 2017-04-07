@@ -63,7 +63,7 @@ pub const IncrementingAllocator = struct {
                         .reallocFn = realloc,
                         .freeFn = free,
                     },
-                    .bytes = (&u8)(addr)[0...capacity],
+                    .bytes = @intToPtr(&u8, addr)[0...capacity],
                     .end_index = 0,
                 };
             },
