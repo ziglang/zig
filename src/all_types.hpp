@@ -1199,6 +1199,7 @@ enum BuiltinFnId {
     BuiltinFnIdSetGlobalLinkage,
     BuiltinFnIdPanic,
     BuiltinFnIdPtrCast,
+    BuiltinFnIdIntToPtr,
 };
 
 struct BuiltinFnEntry {
@@ -2391,6 +2392,7 @@ struct IrInstructionPtrToInt {
 struct IrInstructionIntToPtr {
     IrInstruction base;
 
+    IrInstruction *dest_type;
     IrInstruction *target;
 };
 

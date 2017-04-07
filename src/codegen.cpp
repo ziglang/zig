@@ -4326,6 +4326,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSetGlobalLinkage, "setGlobalLinkage", 2);
     create_builtin_fn(g, BuiltinFnIdPanic, "panic", 1);
     create_builtin_fn(g, BuiltinFnIdPtrCast, "ptrcast", 2);
+    create_builtin_fn(g, BuiltinFnIdIntToPtr, "intToPtr", 2);
 }
 
 static void add_compile_var(CodeGen *g, const char *name, ConstExprValue *value) {

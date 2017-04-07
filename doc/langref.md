@@ -621,3 +621,7 @@ if there is not one specified, invokes the one provided in
 ### @ptrcast(comptime DestType: type, value: var) -> DestType
 
 Converts a pointer of one type to a pointer of another type.
+
+### @intToPtr(comptime DestType: type, int: usize) -> DestType
+
+Converts an integer to a pointer. To convert the other way, use `usize(ptr)`.

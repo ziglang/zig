@@ -68,7 +68,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream) -> %void {
             var maybe_fp: ?&const u8 = @frameAddress();
             while (true) {
                 const fp = maybe_fp ?? break;
-                const return_address = *(&const usize)(usize(fp) + @sizeOf(usize));
+                const return_address = *@intToPtr(&const usize, usize(fp) + @sizeOf(usize));
 
                 const compile_unit = findCompileUnit(st, return_address) ?? return error.MissingDebugInfo;
                 const name = %return compile_unit.die.getAttrString(st, DW.AT_name);

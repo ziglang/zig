@@ -234,15 +234,14 @@ test "basicHashMapTest" {
     var map = HashMap(i32, i32, hash_i32, eql_i32).init(&debug.global_allocator);
     defer map.deinit();
 
-    // TODO issue #311
-    assert(%%map.put(1, i32(11)) == null);
-    assert(%%map.put(2, i32(22)) == null);
-    assert(%%map.put(3, i32(33)) == null);
-    assert(%%map.put(4, i32(44)) == null);
-    assert(%%map.put(5, i32(55)) == null);
+    assert(%%map.put(1, 11) == null);
+    assert(%%map.put(2, 22) == null);
+    assert(%%map.put(3, 33) == null);
+    assert(%%map.put(4, 44) == null);
+    assert(%%map.put(5, 55) == null);
 
-    assert(??%%map.put(5, i32(66)) == 55);
-    assert(??%%map.put(5, i32(55)) == 66);
+    assert(??%%map.put(5, 66) == 55);
+    assert(??%%map.put(5, 55) == 66);
 
     assert((??map.get(2)).value == 22);
     _ = map.remove(2);

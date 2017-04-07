@@ -1,15 +1,15 @@
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
-test "intToPtrCast" {
-    const x = isize(13);
-    const y = (&u8)(x);
+test "int to ptr cast" {
+    const x = usize(13);
+    const y = @intToPtr(&u8, x);
     const z = usize(y);
     assert(z == 13);
 }
 
 test "numLitIntToPtrCast" {
-    const vga_mem = (&u16)(0xB8000);
+    const vga_mem = @intToPtr(&u16, 0xB8000);
     assert(usize(vga_mem) == 0xB8000);
 }
 
@@ -63,4 +63,10 @@ fn testPeerResolveArrayConstSlice(b: bool) {
     const value2 = if (b) ([]const u8)("zz") else "aoeu";
     assert(mem.eql(u8, value1, "aoeu"));
     assert(mem.eql(u8, value2, "zz"));
+}
+
+
+test "integer literal to &const int" {
+    const x: &const i32 = 3;
+    assert(*x == 3);
 }
