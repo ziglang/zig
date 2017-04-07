@@ -37,6 +37,7 @@ test "runtime parameter before var args" {
     assert(extraFn(10, false) == 1);
     assert(extraFn(10, false, true) == 2);
 
+    // TODO issue #313
     //comptime {
     //    assert(extraFn(10) == 0);
     //    assert(extraFn(10, false) == 1);

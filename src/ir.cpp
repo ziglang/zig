@@ -8252,6 +8252,13 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                 return ira->codegen->builtin_types.entry_invalid;
         }
 
+        if (fn_proto_node->data.fn_proto.is_var_args) {
+            ir_add_error(ira, &call_instruction->base,
+                    buf_sprintf("compiler bug: unable to call var args function at compile time. https://github.com/andrewrk/zig/issues/313"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+
         for (size_t call_i = 0; call_i < call_instruction->arg_count; call_i += 1) {
             IrInstruction *old_arg = call_instruction->args[call_i]->other;
             if (type_is_invalid(old_arg->value.type))
