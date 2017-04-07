@@ -70,3 +70,8 @@ test "integer literal to &const int" {
     const x: &const i32 = 3;
     assert(*x == 3);
 }
+
+test "string literal to &const []const u8" {
+    const x: &const []const u8 = "hello";
+    assert(mem.eql(u8, *x, "hello"));
+}

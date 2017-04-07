@@ -119,30 +119,30 @@ pub const Builder = struct {
             var zig_args = List([]const u8).init(self.allocator);
             defer zig_args.deinit();
 
-            %return zig_args.append("build_exe"[0...]); // TODO issue #296
+            %return zig_args.append("build_exe");
             %return zig_args.append(exe.root_src);
 
             if (exe.verbose) {
-                %return zig_args.append("--verbose"[0...]); // TODO issue #296
+                %return zig_args.append("--verbose");
             }
 
             if (exe.release) {
-                %return zig_args.append("--release"[0...]); // TODO issue #296
+                %return zig_args.append("--release");
             }
 
-            %return zig_args.append("--name"[0...]); // TODO issue #296
+            %return zig_args.append("--name");
             %return zig_args.append(exe.name);
 
             switch (exe.target) {
                 Target.Native => {},
                 Target.Cross => |cross_target| {
-                    %return zig_args.append("--target-arch"[0...]); // TODO issue #296
+                    %return zig_args.append("--target-arch");
                     %return zig_args.append(targetArchName(cross_target.arch));
 
-                    %return zig_args.append("--target-os"[0...]); // TODO issue #296
+                    %return zig_args.append("--target-os");
                     %return zig_args.append(targetOsName(cross_target.os));
 
-                    %return zig_args.append("--target-environ"[0...]); // TODO issue #296
+                    %return zig_args.append("--target-environ");
                     %return zig_args.append(targetEnvironName(cross_target.environ));
                 },
             }
@@ -153,11 +153,11 @@ pub const Builder = struct {
                     const tmp_file_name = "linker.ld.tmp"; // TODO issue #298
                     io.writeFile(tmp_file_name, script, self.allocator)
                         %% |err| debug.panic("unable to write linker script: {}\n", @errorName(err));
-                    %return zig_args.append("--linker-script"[0...]); // TODO issue #296
-                    %return zig_args.append(tmp_file_name[0...]); // TODO issue #296
+                    %return zig_args.append("--linker-script");
+                    %return zig_args.append(tmp_file_name);
                 },
                 LinkerScript.Path => |path| {
-                    %return zig_args.append("--linker-script"[0...]); // TODO issue #296
+                    %return zig_args.append("--linker-script");
                     %return zig_args.append(path);
                 },
             }
@@ -166,23 +166,23 @@ pub const Builder = struct {
                 var it = exe.link_libs.iterator();
                 while (true) {
                     const entry = it.next() ?? break;
-                    %return zig_args.append("--library"[0...]); // TODO issue #296
+                    %return zig_args.append("--library");
                     %return zig_args.append(entry.key);
                 }
             }
 
             for (self.include_paths.toSliceConst()) |include_path| {
-                %return zig_args.append("-isystem"[0...]); // TODO issue #296
+                %return zig_args.append("-isystem");
                 %return zig_args.append(include_path);
             }
 
             for (self.rpaths.toSliceConst()) |rpath| {
-                %return zig_args.append("-rpath"[0...]); // TODO issue #296
+                %return zig_args.append("-rpath");
                 %return zig_args.append(rpath);
             }
 
             for (self.lib_paths.toSliceConst()) |lib_path| {
-                %return zig_args.append("--library-path"[0...]); // TODO issue #296
+                %return zig_args.append("--library-path");
                 %return zig_args.append(lib_path);
             }
 
