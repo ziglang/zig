@@ -272,7 +272,7 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
         return posixExecveErrnoToErr(posix.getErrno(posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr)));
     }
 
-    const PATH = getEnv("PATH") ?? ([]const u8)("/usr/local/bin:/bin/:/usr/bin"); // TODO issue #299
+    const PATH = getEnv("PATH") ?? "/usr/local/bin:/bin/:/usr/bin";
     // PATH.len because it is >= the largest search_path
     // +1 for the / to join the search path and exe_path
     // +1 for the null terminating byte

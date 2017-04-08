@@ -816,15 +816,18 @@ static void ir_print_check_switch_prongs(IrPrint *irp, IrInstructionCheckSwitchP
 }
 
 static void ir_print_test_type(IrPrint *irp, IrInstructionTestType *instruction) {
-    fprintf(irp->f, "@testType(");
+    fprintf(irp->f, "testtype ");
     ir_print_other_instruction(irp, instruction->type_value);
-    fprintf(irp->f, ")");
 }
 
 static void ir_print_type_name(IrPrint *irp, IrInstructionTypeName *instruction) {
-    fprintf(irp->f, "@typeName(");
+    fprintf(irp->f, "typename ");
     ir_print_other_instruction(irp, instruction->type_value);
-    fprintf(irp->f, ")");
+}
+
+static void ir_print_enum_tag_name(IrPrint *irp, IrInstructionEnumTagName *instruction) {
+    fprintf(irp->f, "enumtagname ");
+    ir_print_other_instruction(irp, instruction->target);
 }
 
 static void ir_print_can_implicit_cast(IrPrint *irp, IrInstructionCanImplicitCast *instruction) {
@@ -1130,6 +1133,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTypeName:
             ir_print_type_name(irp, (IrInstructionTypeName *)instruction);
+            break;
+        case IrInstructionIdEnumTagName:
+            ir_print_enum_tag_name(irp, (IrInstructionEnumTagName *)instruction);
             break;
         case IrInstructionIdCanImplicitCast:
             ir_print_can_implicit_cast(irp, (IrInstructionCanImplicitCast *)instruction);

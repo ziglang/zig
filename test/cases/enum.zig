@@ -1,4 +1,5 @@
 const assert = @import("std").debug.assert;
+const mem = @import("std").mem;
 
 test "enumType" {
     const foo1 = Foo.One {13};
@@ -102,4 +103,20 @@ const IntToEnumNumber = enum {
     Two,
     Three,
     Four,
+};
+
+
+test "enumTagName builtin function" {
+    assert(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
+    comptime assert(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
+}
+
+fn testEnumTagNameBare(n: BareNumber) -> []const u8 {
+    return @enumTagName(n);
+}
+
+const BareNumber = enum {
+    One,
+    Two,
+    Three,
 };

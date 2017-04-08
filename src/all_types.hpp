@@ -966,6 +966,8 @@ struct TypeTableEntryEnum {
 struct TypeTableEntryEnumTag {
     TypeTableEntry *enum_type;
     TypeTableEntry *int_type;
+    bool generate_name_table;
+    LLVMValueRef name_table;
 };
 
 struct TypeTableEntryUnion {
@@ -1200,6 +1202,7 @@ enum BuiltinFnId {
     BuiltinFnIdPanic,
     BuiltinFnIdPtrCast,
     BuiltinFnIdIntToPtr,
+    BuiltinFnIdEnumTagName,
 };
 
 struct BuiltinFnEntry {
@@ -1464,6 +1467,8 @@ struct CodeGen {
 
     Buf global_asm;
     ZigList<Buf *> link_objects;
+
+    ZigList<TypeTableEntry *> name_table_enums;
 };
 
 enum VarLinkage {
@@ -1742,6 +1747,7 @@ enum IrInstructionId {
     IrInstructionIdSetGlobalLinkage,
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
+    IrInstructionIdEnumTagName,
 };
 
 struct IrInstruction {
@@ -2479,6 +2485,12 @@ struct IrInstructionPanic {
     IrInstruction base;
 
     IrInstruction *msg;
+};
+
+struct IrInstructionEnumTagName {
+    IrInstruction base;
+
+    IrInstruction *target;
 };
 
 static const size_t slice_ptr_index = 0;

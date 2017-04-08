@@ -625,3 +625,7 @@ Converts a pointer of one type to a pointer of another type.
 ### @intToPtr(comptime DestType: type, int: usize) -> DestType
 
 Converts an integer to a pointer. To convert the other way, use `usize(ptr)`.
+
+### @enumTagName(value: var) -> []const u8
+
+Converts an enum tag name to a slice of bytes. Example:

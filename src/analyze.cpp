@@ -1181,7 +1181,7 @@ bool type_is_invalid(TypeTableEntry *type_entry) {
 }
 
 
-static TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, TypeTableEntry *int_type) {
+TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, TypeTableEntry *int_type) {
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnumTag);
 
     buf_resize(&entry->name, 0);

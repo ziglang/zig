@@ -137,13 +137,13 @@ pub const Builder = struct {
                 Target.Native => {},
                 Target.Cross => |cross_target| {
                     %return zig_args.append("--target-arch");
-                    %return zig_args.append(targetArchName(cross_target.arch));
+                    %return zig_args.append(@enumTagName(cross_target.arch));
 
                     %return zig_args.append("--target-os");
-                    %return zig_args.append(targetOsName(cross_target.os));
+                    %return zig_args.append(@enumTagName(cross_target.os));
 
                     %return zig_args.append("--target-environ");
-                    %return zig_args.append(targetEnvironName(cross_target.environ));
+                    %return zig_args.append(@enumTagName(cross_target.environ));
                 },
             }
 
@@ -458,131 +458,3 @@ fn printInvocation(exe_name: []const u8, args: &const List([]const u8)) {
     }
     %%io.stderr.printf("\n");
 }
-
-// TODO issue #299
-fn targetOsName(target_os: Os) -> []const u8 {
-    return switch (target_os) {
-        Os.freestanding => "freestanding",
-        Os.cloudabi => "cloudabi",
-        Os.darwin => "darwin",
-        Os.dragonfly => "dragonfly",
-        Os.freebsd => "freebsd",
-        Os.ios => "ios",
-        Os.kfreebsd => "kfreebsd",
-        Os.linux => "linux",
-        Os.lv2 => "lv2",
-        Os.macosx => "macosx",
-        Os.netbsd => "netbsd",
-        Os.openbsd => "openbsd",
-        Os.solaris => "solaris",
-        Os.windows => "windows",
-        Os.haiku => "haiku",
-        Os.minix => "minix",
-        Os.rtems => "rtems",
-        Os.nacl => "nacl",
-        Os.cnk => "cnk",
-        Os.bitrig => "bitrig",
-        Os.aix => "aix",
-        Os.cuda => "cuda",
-        Os.nvcl => "nvcl",
-        Os.amdhsa => "amdhsa",
-        Os.ps4 => "ps4",
-        Os.elfiamcu => "elfiamcu",
-        Os.tvos => "tvos",
-        Os.watchos => "watchos",
-        Os.mesa3d => "mesa3d",
-    };
-}
-
-// TODO issue #299
-fn targetArchName(target_arch: Arch) -> []const u8 {
-    return switch (target_arch) {
-        Arch.armv8_2a => "armv8_2a",
-        Arch.armv8_1a => "armv8_1a",
-        Arch.armv8 => "armv8",
-        Arch.armv8m_baseline => "armv8m_baseline",
-        Arch.armv8m_mainline => "armv8m_mainline",
-        Arch.armv7 => "armv7",
-        Arch.armv7em => "armv7em",
-        Arch.armv7m => "armv7m",
-        Arch.armv7s => "armv7s",
-        Arch.armv7k => "armv7k",
-        Arch.armv6 => "armv6",
-        Arch.armv6m => "armv6m",
-        Arch.armv6k => "armv6k",
-        Arch.armv6t2 => "armv6t2",
-        Arch.armv5 => "armv5",
-        Arch.armv5te => "armv5te",
-        Arch.armv4t => "armv4t",
-        Arch.armeb => "armeb",
-        Arch.aarch64 => "aarch64",
-        Arch.aarch64_be => "aarch64_be",
-        Arch.avr => "avr",
-        Arch.bpfel => "bpfel",
-        Arch.bpfeb => "bpfeb",
-        Arch.hexagon => "hexagon",
-        Arch.mips => "mips",
-        Arch.mipsel => "mipsel",
-        Arch.mips64 => "mips64",
-        Arch.mips64el => "mips64el",
-        Arch.msp430 => "msp430",
-        Arch.powerpc => "powerpc",
-        Arch.powerpc64 => "powerpc64",
-        Arch.powerpc64le => "powerpc64le",
-        Arch.r600 => "r600",
-        Arch.amdgcn => "amdgcn",
-        Arch.sparc => "sparc",
-        Arch.sparcv9 => "sparcv9",
-        Arch.sparcel => "sparcel",
-        Arch.s390x => "s390x",
-        Arch.tce => "tce",
-        Arch.thumb => "thumb",
-        Arch.thumbeb => "thumbeb",
-        Arch.i386 => "i386",
-        Arch.x86_64 => "x86_64",
-        Arch.xcore => "xcore",
-        Arch.nvptx => "nvptx",
-        Arch.nvptx64 => "nvptx64",
-        Arch.le32 => "le32",
-        Arch.le64 => "le64",
-        Arch.amdil => "amdil",
-        Arch.amdil64 => "amdil64",
-        Arch.hsail => "hsail",
-        Arch.hsail64 => "hsail64",
-        Arch.spir => "spir",
-        Arch.spir64 => "spir64",
-        Arch.kalimbav3 => "kalimbav3",
-        Arch.kalimbav4 => "kalimbav4",
-        Arch.kalimbav5 => "kalimbav5",
-        Arch.shave => "shave",
-        Arch.lanai => "lanai",
-        Arch.wasm32 => "wasm32",
-        Arch.wasm64 => "wasm64",
-        Arch.renderscript32 => "renderscript32",
-        Arch.renderscript64 => "renderscript64",
-    };
-}
-
-// TODO issue #299
-fn targetEnvironName(target_environ: Environ) -> []const u8 {
-    return switch (target_environ) {
-        Environ.gnu => "gnu",
-        Environ.gnuabi64 => "gnuabi64",
-        Environ.gnueabi => "gnueabi",
-        Environ.gnueabihf => "gnueabihf",
-        Environ.gnux32 => "gnux32",
-        Environ.code16 => "code16",
-        Environ.eabi => "eabi",
-        Environ.eabihf => "eabihf",
-        Environ.android => "android",
-        Environ.musl => "musl",
-        Environ.musleabi => "musleabi",
-        Environ.musleabihf => "musleabihf",
-        Environ.msvc => "msvc",
-        Environ.itanium => "itanium",
-        Environ.cygnus => "cygnus",
-        Environ.amdopencl => "amdopencl",
-        Environ.coreclr => "coreclr",
-    };
-}
-

@@ -2134,6 +2134,29 @@ static LLVMValueRef ir_render_err_name(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildInBoundsGEP(g->builder, g->err_name_table, indices, 2, "");
 }
 
+static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable,
+        IrInstructionEnumTagName *instruction)
+{
+    TypeTableEntry *enum_tag_type = instruction->target->value.type;
+    assert(enum_tag_type->data.enum_tag.generate_name_table);
+
+    LLVMValueRef enum_tag_value = ir_llvm_value(g, instruction->target);
+    if (ir_want_debug_safety(g, &instruction->base)) {
+        TypeTableEntry *enum_type = enum_tag_type->data.enum_tag.enum_type;
+        size_t field_count = enum_type->data.enumeration.src_field_count;
+        LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(enum_tag_value));
+        LLVMValueRef end_val = LLVMConstInt(LLVMTypeOf(enum_tag_value), field_count, false);
+        add_bounds_check(g, enum_tag_value, LLVMIntUGE, zero, LLVMIntULT, end_val);
+    }
+
+    LLVMValueRef indices[] = {
+        LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+        enum_tag_value,
+    };
+    return LLVMBuildInBoundsGEP(g->builder, enum_tag_type->data.enum_tag.name_table, indices, 2, "");
+}
+
+
 static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
     switch (atomic_order) {
         case AtomicOrderUnordered: return LLVMAtomicOrderingUnordered;
@@ -2830,6 +2853,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_container_init_list(g, executable, (IrInstructionContainerInitList *)instruction);
         case IrInstructionIdPanic:
             return ir_render_panic(g, executable, (IrInstructionPanic *)instruction);
+        case IrInstructionIdEnumTagName:
+            return ir_render_enum_tag_name(g, executable, (IrInstructionEnumTagName *)instruction);
     }
     zig_unreachable();
 }
@@ -3390,6 +3415,46 @@ static void generate_error_name_table(CodeGen *g) {
     LLVMSetUnnamedAddr(g->err_name_table, true);
 }
 
+static void generate_enum_name_tables(CodeGen *g) {
+    TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
+    TypeTableEntry *u8_ptr_type = str_type->data.structure.fields[0].type_entry;
+
+    for (size_t enum_i = 0; enum_i < g->name_table_enums.length; enum_i += 1) {
+        TypeTableEntry *enum_tag_type = g->name_table_enums.at(enum_i);
+        assert(enum_tag_type->id == TypeTableEntryIdEnumTag);
+        TypeTableEntry *enum_type = enum_tag_type->data.enum_tag.enum_type;
+
+        size_t field_count = enum_type->data.enumeration.src_field_count;
+        LLVMValueRef *values = allocate<LLVMValueRef>(field_count);
+        for (size_t field_i = 0; field_i < field_count; field_i += 1) {
+            Buf *name = enum_type->data.enumeration.fields[field_i].name;
+
+            LLVMValueRef str_init = LLVMConstString(buf_ptr(name), buf_len(name), true);
+            LLVMValueRef str_global = LLVMAddGlobal(g->module, LLVMTypeOf(str_init), "");
+            LLVMSetInitializer(str_global, str_init);
+            LLVMSetLinkage(str_global, LLVMPrivateLinkage);
+            LLVMSetGlobalConstant(str_global, true);
+            LLVMSetUnnamedAddr(str_global, true);
+
+            LLVMValueRef fields[] = {
+                LLVMConstBitCast(str_global, u8_ptr_type->type_ref),
+                LLVMConstInt(g->builtin_types.entry_usize->type_ref, buf_len(name), false),
+            };
+            values[field_i] = LLVMConstNamedStruct(str_type->type_ref, fields, 2);
+        }
+
+        LLVMValueRef name_table_init = LLVMConstArray(str_type->type_ref, values, field_count);
+
+        Buf *table_name = buf_sprintf("%s_name_table", buf_ptr(&enum_type->name));
+        LLVMValueRef name_table = LLVMAddGlobal(g->module, LLVMTypeOf(name_table_init), buf_ptr(table_name));
+        LLVMSetInitializer(name_table, name_table_init);
+        LLVMSetLinkage(name_table, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(name_table, true);
+        LLVMSetUnnamedAddr(name_table, true);
+        enum_tag_type->data.enum_tag.name_table = name_table;
+    }
+}
+
 static void build_all_basic_blocks(CodeGen *g, FnTableEntry *fn) {
     IrExecutable *executable = &fn->analyzed_executable;
     assert(executable->basic_block_list.length > 0);
@@ -3428,6 +3493,7 @@ static void do_code_gen(CodeGen *g) {
 
     delete_unused_builtin_fns(g);
     generate_error_name_table(g);
+    generate_enum_name_tables(g);
 
     // Generate module level variables
     for (size_t i = 0; i < g->global_vars.length; i += 1) {
@@ -3800,7 +3866,8 @@ static const GlobalLinkageValue global_linkage_values[] = {
 static void init_enum_debug_info(CodeGen *g, TypeTableEntry *enum_type) {
     uint32_t field_count = enum_type->data.enumeration.src_field_count;
 
-    TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
+    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count);
+    TypeTableEntry *tag_type_entry = create_enum_tag_type(g, enum_type, tag_int_type);
     enum_type->data.enumeration.tag_type = tag_type_entry;
 
     ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
@@ -4327,6 +4394,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdPanic, "panic", 1);
     create_builtin_fn(g, BuiltinFnIdPtrCast, "ptrcast", 2);
     create_builtin_fn(g, BuiltinFnIdIntToPtr, "intToPtr", 2);
+    create_builtin_fn(g, BuiltinFnIdEnumTagName, "enumTagName", 1);
 }
 
 static void add_compile_var(CodeGen *g, const char *name, ConstExprValue *value) {

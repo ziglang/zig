@@ -149,5 +149,6 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val);
 TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, size_t size_in_bits);
 ConstParent *get_const_val_parent(ConstExprValue *value);
 FnTableEntry *get_extern_panic_fn(CodeGen *g);
+TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, TypeTableEntry *int_type);
 
 #endif
