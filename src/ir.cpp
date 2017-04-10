@@ -8212,10 +8212,9 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
     bool comptime_var_mem = ir_get_var_is_comptime(var);
 
     ConstExprValue *mem_slot = nullptr;
-    FnTableEntry *fn_entry = scope_fn_entry(var->parent_scope);
     if (var->value->special == ConstValSpecialStatic) {
         mem_slot = var->value;
-    } else if (fn_entry) {
+    } else {
         // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
         if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const))
             mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];

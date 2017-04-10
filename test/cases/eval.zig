@@ -299,3 +299,18 @@ const Foo = struct {
 
 var foo_contents = Foo { .name = "a", };
 const foo_ref = &foo_contents;
+
+
+
+test "create global array with for loop" {
+    assert(global_array[5] == 5 * 5);
+    assert(global_array[9] == 9 * 9);
+}
+
+const global_array = {
+    var result: [10]usize = undefined;
+    for (result) |*item, index| {
+        *item = index * index;
+    }
+    result
+};
