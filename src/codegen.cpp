@@ -3408,7 +3408,8 @@ static void generate_error_name_table(CodeGen *g) {
 
     LLVMValueRef err_name_table_init = LLVMConstArray(str_type->type_ref, values, g->error_decls.length);
 
-    g->err_name_table = LLVMAddGlobal(g->module, LLVMTypeOf(err_name_table_init), "err_name_table");
+    g->err_name_table = LLVMAddGlobal(g->module, LLVMTypeOf(err_name_table_init),
+            buf_ptr(get_mangled_name(g, buf_create_from_str("err_name_table"), false)));
     LLVMSetInitializer(g->err_name_table, err_name_table_init);
     LLVMSetLinkage(g->err_name_table, LLVMPrivateLinkage);
     LLVMSetGlobalConstant(g->err_name_table, true);
@@ -3445,7 +3446,7 @@ static void generate_enum_name_tables(CodeGen *g) {
 
         LLVMValueRef name_table_init = LLVMConstArray(str_type->type_ref, values, field_count);
 
-        Buf *table_name = buf_sprintf("%s_name_table", buf_ptr(&enum_type->name));
+        Buf *table_name = get_mangled_name(g, buf_sprintf("%s_name_table", buf_ptr(&enum_type->name)), false);
         LLVMValueRef name_table = LLVMAddGlobal(g->module, LLVMTypeOf(name_table_init), buf_ptr(table_name));
         LLVMSetInitializer(name_table, name_table_init);
         LLVMSetLinkage(name_table, LLVMPrivateLinkage);
@@ -3535,11 +3536,12 @@ static void do_code_gen(CodeGen *g) {
 
             LLVMSetLinkage(global_value, LLVMExternalLinkage);
         } else {
+            bool exported = (var->linkage == VarLinkageExport);
             render_const_val(g, var->value);
-            render_const_val_global(g, var->value, buf_ptr(get_mangled_name(g, &var->name, false)));
+            render_const_val_global(g, var->value, buf_ptr(get_mangled_name(g, &var->name, exported)));
             global_value = var->value->llvm_global;
 
-            if (var->linkage == VarLinkageExport) {
+            if (exported) {
                 LLVMSetLinkage(global_value, LLVMExternalLinkage);
             }
             if (tld_var->section_name) {
