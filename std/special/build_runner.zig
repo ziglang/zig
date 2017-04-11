@@ -77,11 +77,13 @@ fn usage(builder: &Builder, maybe_zig_exe: ?[]const u8, already_ran_build: bool,
         root.build(builder);
     }
 
+    // This usage text has to be synchronized with src/main.cpp
     %%out_stream.printf(
         \\Usage: {} build [options]
         \\
         \\General Options:
         \\  --help                 Print this help and exit.
+        \\  --build-file [file]    Override path to build.zig.
         \\  --verbose              Print commands before executing them.
         \\  --debug-build-verbose  Print verbose debugging information for the build system itself.
         \\

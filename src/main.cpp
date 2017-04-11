@@ -154,6 +154,8 @@ int main(int argc, char **argv) {
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
+        const char *build_file = "build.zig";
+        bool asked_for_help = false;
 
         init_all_targets();
 
@@ -169,6 +171,12 @@ int main(int argc, char **argv) {
         for (int i = 2; i < argc; i += 1) {
             if (strcmp(argv[i], "--debug-build-verbose") == 0) {
                 verbose = true;
+            } else if (strcmp(argv[i], "--help") == 0) {
+                asked_for_help = true;
+                args.append(argv[i]);
+            } else if (i + 1 < argc && strcmp(argv[i], "--build-file") == 0) {
+                build_file = argv[i + 1];
+                i += 1;
             } else {
                 args.append(argv[i]);
             }
@@ -188,7 +196,43 @@ int main(int argc, char **argv) {
         codegen_set_out_type(g, OutTypeExe);
         codegen_set_verbose(g, verbose);
 
-        PackageTableEntry *build_pkg = new_package(".", "build.zig");
+        Buf build_file_abs = BUF_INIT;
+        os_path_resolve(buf_create_from_str("."), buf_create_from_str(build_file), &build_file_abs);
+        Buf build_file_basename = BUF_INIT;
+        Buf build_file_dirname = BUF_INIT;
+        os_path_split(&build_file_abs, &build_file_dirname, &build_file_basename);
+
+        bool build_file_exists;
+        if ((err = os_file_exists(&build_file_abs, &build_file_exists))) {
+            fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(&build_file_abs), err_str(err));
+            return 1;
+        }
+        if (!build_file_exists) {
+            if (asked_for_help) {
+                // This usage text has to be synchronized with std/special/build_runner.zig
+                fprintf(stdout,
+                        "Usage: %s build [options]\n"
+                        "\n"
+                        "General Options:\n"
+                        "  --help                 Print this help and exit.\n"
+                        "  --build-file [file]    Override path to build.zig.\n"
+                        "  --verbose              Print commands before executing them.\n"
+                        "  --debug-build-verbose  Print verbose debugging information for the build system itself.\n"
+                , zig_exe_path);
+                return 0;
+            }
+            Buf *build_template_path = buf_alloc();
+            os_path_join(special_dir, buf_create_from_str("build_file_template.zig"), build_template_path);
+
+            if ((err = os_copy_file(build_template_path, &build_file_abs))) {
+                fprintf(stderr, "Unable to write build.zig template: %s\n", err_str(err));
+            } else {
+                fprintf(stderr, "Wrote build.zig template\n");
+            }
+            return 1;
+        }
+
+        PackageTableEntry *build_pkg = new_package(buf_ptr(&build_file_dirname), buf_ptr(&build_file_basename));
         build_pkg->package_table.put(buf_create_from_str("std"), g->std_package);
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
         codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);

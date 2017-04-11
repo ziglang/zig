@@ -490,6 +490,58 @@ void os_write_file(Buf *full_path, Buf *contents) {
         zig_panic("close failed");
 }
 
+int os_copy_file(Buf *src_path, Buf *dest_path) {
+    FILE *src_f = fopen(buf_ptr(src_path), "rb");
+    if (!src_f) {
+        int err = errno;
+        if (err == ENOENT) {
+            return ErrorFileNotFound;
+        } else if (err == EACCES || err == EPERM) {
+            return ErrorAccess;
+        } else {
+            return ErrorFileSystem;
+        }
+    }
+    FILE *dest_f = fopen(buf_ptr(dest_path), "wb");
+    if (!dest_f) {
+        int err = errno;
+        if (err == ENOENT) {
+            fclose(src_f);
+            return ErrorFileNotFound;
+        } else if (err == EACCES || err == EPERM) {
+            fclose(src_f);
+            return ErrorAccess;
+        } else {
+            fclose(src_f);
+            return ErrorFileSystem;
+        }
+    }
+
+    static const size_t buf_size = 2048;
+    char buf[buf_size];
+    for (;;) {
+        size_t amt_read = fread(buf, 1, buf_size, src_f);
+        if (amt_read != buf_size) {
+            if (ferror(src_f)) {
+                fclose(src_f);
+                fclose(dest_f);
+                return ErrorFileSystem;
+            }
+        }
+        size_t amt_written = fwrite(buf, 1, amt_read, dest_f);
+        if (amt_written != amt_read) {
+            fclose(src_f);
+            fclose(dest_f);
+            return ErrorFileSystem;
+        }
+        if (feof(src_f)) {
+            fclose(src_f);
+            fclose(dest_f);
+            return 0;
+        }
+    }
+}
+
 int os_fetch_file_path(Buf *full_path, Buf *out_contents) {
     FILE *f = fopen(buf_ptr(full_path), "rb");
     if (!f) {
