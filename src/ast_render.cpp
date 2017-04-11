@@ -409,8 +409,8 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "%s%s%sfn ", pub_str, inline_str, extern_str);
                 print_symbol(ar, node->data.fn_proto.name);
                 fprintf(ar->f, "(");
-                int arg_count = node->data.fn_proto.params.length;
-                for (int arg_i = 0; arg_i < arg_count; arg_i += 1) {
+                size_t arg_count = node->data.fn_proto.params.length;
+                for (size_t arg_i = 0; arg_i < arg_count; arg_i += 1) {
                     AstNode *param_decl = node->data.fn_proto.params.at(arg_i);
                     assert(param_decl->type == NodeTypeParamDecl);
                     if (buf_len(param_decl->data.param_decl.name) > 0) {

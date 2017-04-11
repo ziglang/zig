@@ -277,7 +277,7 @@ struct TldVar {
 
     VariableTableEntry *var;
     AstNode *set_global_align_node;
-    uint64_t alignment;
+    uint32_t alignment;
     AstNode *set_global_section_node;
     Buf *section_name;
     AstNode *set_global_linkage_node;
@@ -888,7 +888,7 @@ struct TypeTableEntryPointer {
 };
 
 struct TypeTableEntryInt {
-    size_t bit_count;
+    uint32_t bit_count;
     bool is_signed;
 };
 
@@ -1146,7 +1146,7 @@ struct FnTableEntry {
     ZigList<VariableTableEntry *> variable_list;
 
     AstNode *set_global_align_node;
-    uint64_t alignment;
+    uint32_t alignment;
     AstNode *set_global_section_node;
     Buf *section_name;
     AstNode *set_global_linkage_node;
@@ -1251,7 +1251,7 @@ struct TypeId {
         } array;
         struct {
             bool is_signed;
-            uint8_t bit_count;
+            uint32_t bit_count;
         } integer;
     } data;
 };

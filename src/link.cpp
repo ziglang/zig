@@ -503,21 +503,21 @@ static bool darwin_get_release_version(const char *str, int *major, int *minor, 
         return false;
 
     char *end;
-    *major = strtol(str, &end, 10);
+    *major = (int)strtol(str, &end, 10);
     if (*str != '\0' && *end == '\0')
         return true;
     if (*end != '.')
         return false;
 
     str = end + 1;
-    *minor = strtol(str, &end, 10);
+    *minor = (int)strtol(str, &end, 10);
     if (*str != '\0' && *end == '\0')
         return true;
     if (*end != '.')
         return false;
 
     str = end + 1;
-    *micro = strtol(str, &end, 10);
+    *micro = (int)strtol(str, &end, 10);
     if (*str != '\0' && *end == '\0')
         return true;
     if (str == end)

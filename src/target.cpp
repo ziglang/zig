@@ -161,7 +161,7 @@ size_t target_oformat_count(void) {
     return array_length(oformat_list);
 }
 
-const ZigLLVM_ObjectFormatType get_target_oformat(int index) {
+const ZigLLVM_ObjectFormatType get_target_oformat(size_t index) {
     return oformat_list[index];
 }
 
@@ -179,7 +179,7 @@ size_t target_arch_count(void) {
     return array_length(arch_list);
 }
 
-const ArchType *get_target_arch(int index) {
+const ArchType *get_target_arch(size_t index) {
     return &arch_list[index];
 }
 
@@ -187,14 +187,14 @@ size_t target_vendor_count(void) {
     return array_length(vendor_list);
 }
 
-ZigLLVM_VendorType get_target_vendor(int index) {
+ZigLLVM_VendorType get_target_vendor(size_t index) {
     return vendor_list[index];
 }
 
 size_t target_os_count(void) {
     return array_length(os_list);
 }
-ZigLLVM_OSType get_target_os(int index) {
+ZigLLVM_OSType get_target_os(size_t index) {
     return os_list[index];
 }
 
@@ -205,7 +205,7 @@ const char *get_target_os_name(ZigLLVM_OSType os_type) {
 size_t target_environ_count(void) {
     return array_length(environ_list);
 }
-ZigLLVM_EnvironmentType get_target_environ(int index) {
+ZigLLVM_EnvironmentType get_target_environ(size_t index) {
     return environ_list[index];
 }
 
@@ -443,7 +443,7 @@ static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
     zig_unreachable();
 }
 
-int get_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
+uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
     switch (target->os) {
         case ZigLLVM_UnknownOS:
             switch (id) {

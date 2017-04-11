@@ -69,7 +69,7 @@ struct ZigList {
 
         size_t better_capacity = capacity;
         do {
-            better_capacity = better_capacity * 1.4 + 8;
+            better_capacity = better_capacity * 5 / 2 + 8;
         } while (better_capacity < new_capacity);
 
         items = reallocate_nonzero(items, capacity, better_capacity);

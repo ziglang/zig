@@ -7295,7 +7295,7 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
         ConstExprValue *char_val = &array_val->data.x_array.elements[new_index];
         uint64_t big_c = char_val->data.x_bignum.data.x_uint;
         assert(big_c <= UINT8_MAX);
-        uint8_t c = big_c;
+        uint8_t c = (uint8_t)big_c;
         buf_ptr(result)[i] = c;
     }
     return result;
@@ -9062,7 +9062,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
 
             return_type = get_pointer_to_type_extra(ira->codegen, child_type,
                     ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
-                    bit_offset, bit_width);
+                    (uint32_t)bit_offset, (uint32_t)bit_width);
         }
     } else if (array_type->id == TypeTableEntryIdPointer) {
         return_type = array_type;
@@ -9299,7 +9299,8 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                 field->unaligned_bit_count : type_size_bits(ira->codegen, field->type_entry);
             ir_build_struct_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
             return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
-                    ptr_bit_offset + field->packed_bits_offset, unaligned_bit_count_for_result_type);
+                    (uint32_t)(ptr_bit_offset + field->packed_bits_offset),
+                    (uint32_t)unaligned_bit_count_for_result_type);
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
                 field_ptr_instruction, container_ptr, container_type);
@@ -9759,7 +9760,7 @@ static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
     }
 
     AstNode **set_global_align_node;
-    uint64_t *alignment_ptr;
+    uint32_t *alignment_ptr;
     if (tld->id == TldIdVar) {
         TldVar *tld_var = (TldVar *)tld;
         set_global_align_node = &tld_var->set_global_align_node;
@@ -9782,7 +9783,7 @@ static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
     *set_global_align_node = source_node;
-    *alignment_ptr = scalar_align;
+    *alignment_ptr = (uint32_t)scalar_align;
 
     ir_build_const_from(ira, &instruction->base);
     return ira->codegen->builtin_types.entry_void;
@@ -11547,7 +11548,7 @@ static TypeTableEntry *ir_analyze_instruction_int_type(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-    out_val->data.x_type = get_int_type(ira->codegen, is_signed, bit_count);
+    out_val->data.x_type = get_int_type(ira->codegen, is_signed, (uint32_t)bit_count);
     return ira->codegen->builtin_types.entry_type;
 }
 

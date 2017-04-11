@@ -309,7 +309,7 @@ static void end_float_token(Tokenize *t) {
     if (t->is_exp_negative) {
         specified_exponent = -specified_exponent;
     }
-    t->exponent_in_bin_or_dec += specified_exponent;
+    t->exponent_in_bin_or_dec = (int)(t->exponent_in_bin_or_dec + specified_exponent);
 
     uint64_t significand = t->cur_tok->data.num_lit.bignum.data.x_uint;
     uint64_t significand_bits;
@@ -352,7 +352,7 @@ static void end_token(Tokenize *t) {
         }
     } else if (t->cur_tok->id == TokenIdSymbol) {
         char *token_mem = buf_ptr(t->buf) + t->cur_tok->start_pos;
-        int token_len = t->cur_tok->end_pos - t->cur_tok->start_pos;
+        int token_len = (int)(t->cur_tok->end_pos - t->cur_tok->start_pos);
 
         for (size_t i = 0; i < array_length(zig_keywords); i += 1) {
             if (mem_eql_str(token_mem, token_len, zig_keywords[i].text)) {
@@ -1088,39 +1088,39 @@ void tokenize(Buf *buf, Tokenization *out) {
                         if (t.unicode) {
                             if (t.char_code <= 0x7f) {
                                 // 00000000 00000000 00000000 0xxxxxxx
-                                handle_string_escape(&t, t.char_code);
+                                handle_string_escape(&t, (uint8_t)t.char_code);
                             } else if (t.cur_tok->id == TokenIdCharLiteral) {
                                 tokenize_error(&t, "unicode value too large for character literal: %x", t.char_code);
                             } else if (t.char_code <= 0x7ff) {
                                 // 00000000 00000000 00000xxx xx000000
-                                handle_string_escape(&t, 0xc0 | (t.char_code >> 6));
+                                handle_string_escape(&t, (uint8_t)(0xc0 | (t.char_code >> 6)));
                                 // 00000000 00000000 00000000 00xxxxxx
-                                handle_string_escape(&t, 0x80 | (t.char_code & 0x3f));
+                                handle_string_escape(&t, (uint8_t)(0x80 | (t.char_code & 0x3f)));
                             } else if (t.char_code <= 0xffff) {
                                 // 00000000 00000000 xxxx0000 00000000
-                                handle_string_escape(&t, 0xe0 | (t.char_code >> 12));
+                                handle_string_escape(&t, (uint8_t)(0xe0 | (t.char_code >> 12)));
                                 // 00000000 00000000 0000xxxx xx000000
-                                handle_string_escape(&t, 0x80 | ((t.char_code >> 6) & 0x3f));
+                                handle_string_escape(&t, (uint8_t)(0x80 | ((t.char_code >> 6) & 0x3f)));
                                 // 00000000 00000000 00000000 00xxxxxx
-                                handle_string_escape(&t, 0x80 | (t.char_code & 0x3f));
+                                handle_string_escape(&t, (uint8_t)(0x80 | (t.char_code & 0x3f)));
                             } else if (t.char_code <= 0x10ffff) {
                                 // 00000000 000xxx00 00000000 00000000
-                                handle_string_escape(&t, 0xf0 | (t.char_code >> 18));
+                                handle_string_escape(&t, (uint8_t)(0xf0 | (t.char_code >> 18)));
                                 // 00000000 000000xx xxxx0000 00000000
-                                handle_string_escape(&t, 0x80 | ((t.char_code >> 12) & 0x3f));
+                                handle_string_escape(&t, (uint8_t)(0x80 | ((t.char_code >> 12) & 0x3f)));
                                 // 00000000 00000000 0000xxxx xx000000
-                                handle_string_escape(&t, 0x80 | ((t.char_code >> 6) & 0x3f));
+                                handle_string_escape(&t, (uint8_t)(0x80 | ((t.char_code >> 6) & 0x3f)));
                                 // 00000000 00000000 00000000 00xxxxxx
-                                handle_string_escape(&t, 0x80 | (t.char_code & 0x3f));
+                                handle_string_escape(&t, (uint8_t)(0x80 | (t.char_code & 0x3f)));
                             } else {
                                 tokenize_error(&t, "unicode value out of range: %x", t.char_code);
                             }
                         } else {
-                            if (t.cur_tok->id == TokenIdCharLiteral && t.char_code >= sizeof(uint8_t)) {
+                            if (t.cur_tok->id == TokenIdCharLiteral && t.char_code > UINT8_MAX) {
                                 tokenize_error(&t, "value too large for character literal: '%x'",
                                         t.char_code);
                             }
-                            handle_string_escape(&t, t.char_code);
+                            handle_string_escape(&t, (uint8_t)t.char_code);
                         }
                     }
                 }
@@ -1396,8 +1396,8 @@ void tokenize(Buf *buf, Tokenization *out) {
     if (t.state != TokenizeStateError) {
         if (t.tokens->length > 0) {
             Token *last_token = &t.tokens->last();
-            t.line = last_token->start_line;
-            t.column = last_token->start_column;
+            t.line = (int)last_token->start_line;
+            t.column = (int)last_token->start_column;
             t.pos = last_token->start_pos;
         } else {
             t.pos = 0;

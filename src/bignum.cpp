@@ -154,7 +154,7 @@ void bignum_cast_to_float(BigNum *dest, BigNum *op) {
     assert(op->kind == BigNumKindInt);
     dest->kind = BigNumKindFloat;
 
-    dest->data.x_float = op->data.x_uint;
+    dest->data.x_float = (double)op->data.x_uint;
 
     if (op->is_negative) {
         dest->data.x_float = -dest->data.x_float;
@@ -166,10 +166,10 @@ void bignum_cast_to_int(BigNum *dest, BigNum *op) {
     dest->kind = BigNumKindInt;
 
     if (op->data.x_float >= 0) {
-        dest->data.x_uint = op->data.x_float;
+        dest->data.x_uint = (unsigned long long)op->data.x_float;
         dest->is_negative = false;
     } else {
-        dest->data.x_uint = -op->data.x_float;
+        dest->data.x_uint = (unsigned long long)-op->data.x_float;
         dest->is_negative = true;
     }
 }

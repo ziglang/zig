@@ -169,7 +169,7 @@ uint32_t buf_hash(Buf *buf);
 
 static inline void buf_upcase(Buf *buf) {
     for (size_t i = 0; i < buf_len(buf); i += 1) {
-        buf_ptr(buf)[i] = toupper(buf_ptr(buf)[i]);
+        buf_ptr(buf)[i] = (char)toupper(buf_ptr(buf)[i]);
     }
 }
 

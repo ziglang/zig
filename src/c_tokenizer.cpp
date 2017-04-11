@@ -548,7 +548,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                     case '6':
                     case '7':
                         ctok->state = CTokStateStrOctal;
-                        ctok->cur_char = *c - '0';
+                        ctok->cur_char = (uint8_t)(*c - '0');
                         ctok->octal_index = 1;
                         break;
                     case 'x':
@@ -578,12 +578,12 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         if (((long)ctok->cur_char) * 8 >= 256) {
                             zig_panic("TODO");
                         }
-                        ctok->cur_char *= 8;
+                        ctok->cur_char = (uint8_t)(ctok->cur_char * (uint8_t)8);
                         // TODO @add_with_overflow
                         if (((long)ctok->cur_char) + (long)(*c - '0') >= 256) {
                             zig_panic("TODO");
                         }
-                        ctok->cur_char += *c - '0';
+                        ctok->cur_char = (uint8_t)(ctok->cur_char + (uint8_t)(*c - '0'));
                         ctok->octal_index += 1;
                         if (ctok->octal_index == 3) {
                             if (ctok->cur_tok->id == CTokIdStrLit) {

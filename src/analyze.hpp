@@ -20,8 +20,8 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
 bool is_node_void_expr(AstNode *node);
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry);
 uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry);
-TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint8_t size_in_bits);
-TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint8_t size_in_bits);
+TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_bits);
+TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 TypeTableEntry **get_c_int_type_ptr(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_c_int_type(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *child_type);
@@ -146,7 +146,7 @@ ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_
 
 void init_const_undefined(CodeGen *g, ConstExprValue *const_val);
 
-TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, size_t size_in_bits);
+TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 ConstParent *get_const_val_parent(ConstExprValue *value);
 FnTableEntry *get_extern_panic_fn(CodeGen *g);
 TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, TypeTableEntry *int_type);

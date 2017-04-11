@@ -39,22 +39,22 @@ enum CIntType {
 };
 
 size_t target_arch_count(void);
-const ArchType *get_target_arch(int index);
+const ArchType *get_target_arch(size_t index);
 void get_arch_name(char *out_str, const ArchType *arch);
 
 size_t target_vendor_count(void);
-ZigLLVM_VendorType get_target_vendor(int index);
+ZigLLVM_VendorType get_target_vendor(size_t index);
 
 size_t target_os_count(void);
-ZigLLVM_OSType get_target_os(int index);
+ZigLLVM_OSType get_target_os(size_t index);
 const char *get_target_os_name(ZigLLVM_OSType os_type);
 
 size_t target_environ_count(void);
-ZigLLVM_EnvironmentType get_target_environ(int index);
+ZigLLVM_EnvironmentType get_target_environ(size_t index);
 
 
 size_t target_oformat_count(void);
-const ZigLLVM_ObjectFormatType get_target_oformat(int index);
+const ZigLLVM_ObjectFormatType get_target_oformat(size_t index);
 const char *get_target_oformat_name(ZigLLVM_ObjectFormatType oformat);
 
 void get_native_target(ZigTarget *target);
@@ -70,7 +70,7 @@ void get_target_triple(Buf *triple, const ZigTarget *target);
 
 void resolve_target_object_format(ZigTarget *target);
 
-int get_c_type_size_in_bits(const ZigTarget *target, CIntType id);
+uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id);
 
 const char *target_o_file_ext(ZigTarget *target);
 

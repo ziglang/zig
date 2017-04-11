@@ -163,7 +163,7 @@ static TypeTableEntry *new_container_type_entry(TypeTableEntryId id, AstNode *so
 
 
 // TODO no reason to limit to 8/16/32/64
-static size_t bits_needed_for_unsigned(uint64_t x) {
+static uint8_t bits_needed_for_unsigned(uint64_t x) {
     if (x <= UINT8_MAX) {
         return 8;
     } else if (x <= UINT16_MAX) {
@@ -578,13 +578,14 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
     buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
 
     if (!entry->zero_bits) {
-        entry->type_ref = child_type->type_ref ? LLVMArrayType(child_type->type_ref, array_size) : nullptr;
+        entry->type_ref = child_type->type_ref ? LLVMArrayType(child_type->type_ref,
+                (unsigned int)array_size) : nullptr;
 
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, entry->type_ref);
 
         entry->di_type = ZigLLVMCreateDebugArrayType(g->dbuilder, debug_size_in_bits,
-                debug_align_in_bits, child_type->di_type, array_size);
+                debug_align_in_bits, child_type->di_type, (int)array_size);
     }
     entry->data.array.child_type = child_type;
     entry->data.array.len = array_size;
@@ -911,9 +912,9 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         fn_type->data.fn.gen_param_count = gen_param_index;
 
         fn_type->data.fn.raw_type_ref = LLVMFunctionType(gen_return_type->type_ref,
-                gen_param_types, gen_param_index, fn_type_id->is_var_args);
+                gen_param_types, (unsigned int)gen_param_index, fn_type_id->is_var_args);
         fn_type->type_ref = LLVMPointerType(fn_type->data.fn.raw_type_ref, 0);
-        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types, gen_param_index + 1, 0);
+        fn_type->di_type = ZigLLVMCreateSubroutineType(g->dbuilder, param_di_types, (int)(gen_param_index + 1), 0);
     }
 
     g->fn_type_table.put(&fn_type->data.fn.fn_type_id, fn_type);
@@ -954,13 +955,13 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKi
             break;
     }
 
-    unsigned line = decl_node ? decl_node->line : 0;
+    size_t line = decl_node ? decl_node->line : 0;
 
     ImportTableEntry *import = get_scope_import(scope);
     entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), name);
     entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
         ZigLLVMTag_DW_structure_type(), name,
-        ZigLLVMFileToScope(import->di_file), import->di_file, line + 1);
+        ZigLLVMFileToScope(import->di_file), import->di_file, (unsigned)(line + 1));
 
     buf_init_from_str(&entry->name, name);
 
@@ -1264,7 +1265,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
 
         union_inner_di_types[type_enum_field->gen_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
                 ZigLLVMTypeToScope(enum_type->di_type), buf_ptr(type_enum_field->name),
-                import->di_file, field_node->line + 1,
+                import->di_file, (unsigned)(field_node->line + 1),
                 debug_size_in_bits,
                 debug_align_in_bits,
                 0,
@@ -1307,13 +1308,15 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
-                    ZigLLVMTypeToScope(enum_type->di_type), "AnonEnum", import->di_file, decl_node->line + 1,
+                    ZigLLVMTypeToScope(enum_type->di_type), "AnonEnum",
+                    import->di_file, (unsigned)(decl_node->line + 1),
                     tag_debug_size_in_bits, tag_debug_align_in_bits, di_enumerators, field_count,
                     tag_type_entry->di_type, "");
 
             // create debug type for union
             ZigLLVMDIType *union_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
-                    ZigLLVMTypeToScope(enum_type->di_type), "AnonUnion", import->di_file, decl_node->line + 1,
+                    ZigLLVMTypeToScope(enum_type->di_type), "AnonUnion",
+                    import->di_file, (unsigned)(decl_node->line + 1),
                     biggest_union_member_size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
                     gen_field_count, 0, "");
 
@@ -1321,7 +1324,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             uint64_t tag_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, enum_type->type_ref, 0);
             ZigLLVMDIType *tag_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
                     ZigLLVMTypeToScope(enum_type->di_type), "tag_field",
-                    import->di_file, decl_node->line + 1,
+                    import->di_file, (unsigned)(decl_node->line + 1),
                     tag_debug_size_in_bits,
                     tag_debug_align_in_bits,
                     tag_offset_in_bits,
@@ -1330,7 +1333,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             uint64_t union_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, enum_type->type_ref, 1);
             ZigLLVMDIType *union_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
                     ZigLLVMTypeToScope(enum_type->di_type), "union_field",
-                    import->di_file, decl_node->line + 1,
+                    import->di_file, (unsigned)(decl_node->line + 1),
                     biggest_union_member_size_in_bits,
                     biggest_align_in_bits,
                     union_offset_in_bits,
@@ -1348,7 +1351,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
                     ZigLLVMFileToScope(import->di_file),
                     buf_ptr(&enum_type->name),
-                    import->di_file, decl_node->line + 1,
+                    import->di_file, (unsigned)(decl_node->line + 1),
                     debug_size_in_bits,
                     debug_align_in_bits,
                     0, nullptr, di_root_members, 2, 0, nullptr, "");
@@ -1364,7 +1367,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
             ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
                     ZigLLVMFileToScope(import->di_file), buf_ptr(&enum_type->name),
-                    import->di_file, decl_node->line + 1,
+                    import->di_file, (unsigned)(decl_node->line + 1),
                     tag_debug_size_in_bits,
                     tag_debug_align_in_bits,
                     di_enumerators, field_count,
@@ -1499,7 +1502,7 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
                 type_struct_field->unaligned_bit_count = field_size_in_bits;
 
                 size_t full_bit_count = next_packed_bits_offset - first_packed_bits_offset_misalign;
-                LLVMTypeRef int_type_ref = LLVMIntType(full_bit_count);
+                LLVMTypeRef int_type_ref = LLVMIntType((unsigned)(full_bit_count));
                 if (8 * LLVMStoreSizeOfType(g->target_data_ref, int_type_ref) == full_bit_count) {
                     // next field recovers store alignment
                     element_types[gen_field_index] = int_type_ref;
@@ -1529,9 +1532,9 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     }
     if (first_packed_bits_offset_misalign != SIZE_MAX) {
         size_t full_bit_count = packed_bits_offset - first_packed_bits_offset_misalign;
-        LLVMTypeRef int_type_ref = LLVMIntType(full_bit_count);
+        LLVMTypeRef int_type_ref = LLVMIntType((unsigned)full_bit_count);
         size_t store_bit_count = 8 * LLVMStoreSizeOfType(g->target_data_ref, int_type_ref);
-        element_types[gen_field_index] = LLVMIntType(store_bit_count);
+        element_types[gen_field_index] = LLVMIntType((unsigned)store_bit_count);
         gen_field_index += 1;
     }
 
@@ -1552,9 +1555,9 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
 
     // the count may have been adjusting from packing bit fields
     gen_field_count = gen_field_index;
-    struct_type->data.structure.gen_field_count = gen_field_count;
+    struct_type->data.structure.gen_field_count = (uint32_t)gen_field_count;
 
-    LLVMStructSetBody(struct_type->type_ref, element_types, gen_field_count, packed);
+    LLVMStructSetBody(struct_type->type_ref, element_types, (unsigned)gen_field_count, packed);
     assert(LLVMStoreSizeOfType(g->target_data_ref, struct_type->type_ref) > 0);
 
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(debug_field_count);
@@ -1593,15 +1596,16 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
             debug_size_in_bits = type_struct_field->packed_bits_size;
             debug_align_in_bits = 1;
             debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref,
-                    gen_field_index) + type_struct_field->packed_bits_offset;
+                    (unsigned)gen_field_index) + type_struct_field->packed_bits_offset;
         } else {
             debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
             debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_type->type_ref);
-            debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref, gen_field_index);
+            debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref,
+                    (unsigned)gen_field_index);
         }
         di_element_types[debug_field_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
                 ZigLLVMTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
-                import->di_file, field_node->line + 1,
+                import->di_file, (unsigned)(field_node->line + 1),
                 debug_size_in_bits,
                 debug_align_in_bits,
                 debug_offset_in_bits,
@@ -1616,10 +1620,10 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
             ZigLLVMFileToScope(import->di_file),
             buf_ptr(&struct_type->name),
-            import->di_file, decl_node->line + 1,
+            import->di_file, (unsigned)(decl_node->line + 1),
             debug_size_in_bits,
             debug_align_in_bits,
-            0, nullptr, di_element_types, debug_field_count, 0, nullptr, "");
+            0, nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
     struct_type->di_type = replacement_di_type;
@@ -1647,7 +1651,7 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
     assert(enum_type->di_type);
 
     assert(!enum_type->data.enumeration.fields);
-    uint32_t field_count = decl_node->data.container_decl.fields.length;
+    uint32_t field_count = (uint32_t)decl_node->data.container_decl.fields.length;
     enum_type->data.enumeration.src_field_count = field_count;
     enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
 
@@ -1700,7 +1704,7 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
 
     assert(!struct_type->data.structure.fields);
     size_t field_count = decl_node->data.container_decl.fields.length;
-    struct_type->data.structure.src_field_count = field_count;
+    struct_type->data.structure.src_field_count = (uint32_t)field_count;
     struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
 
     Scope *scope = &struct_type->data.structure.decls_scope->base;
@@ -1729,7 +1733,7 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
     }
 
     struct_type->data.structure.zero_bits_loop_flag = false;
-    struct_type->data.structure.gen_field_count = gen_field_index;
+    struct_type->data.structure.gen_field_count = (uint32_t)gen_field_index;
     struct_type->zero_bits = (gen_field_index == 0);
     struct_type->data.structure.zero_bits_known = true;
 }
@@ -1985,7 +1989,7 @@ static void preview_error_value_decl(CodeGen *g, AstNode *node) {
     } else {
         size_t error_value_count = g->error_decls.length;
         assert((uint32_t)error_value_count < (((uint32_t)1) << (uint32_t)g->err_tag_type->data.integral.bit_count));
-        err->value = error_value_count;
+        err->value = (uint32_t)error_value_count;
         g->error_decls.append(node);
         g->error_table.put(&err->name, err);
     }
@@ -2999,7 +3003,7 @@ bool is_node_void_expr(AstNode *node) {
     return false;
 }
 
-TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint8_t size_in_bits) {
+TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     size_t index;
     if (size_in_bits == 8) {
         index = 0;
@@ -3015,7 +3019,7 @@ TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint8_t size_in_bi
     return &g->builtin_types.entry_int[is_signed ? 0 : 1][index];
 }
 
-TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint8_t size_in_bits) {
+TypeTableEntry *get_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     TypeTableEntry **common_entry = get_int_type_ptr(g, is_signed, size_in_bits);
     if (common_entry)
         return *common_entry;
@@ -3104,11 +3108,11 @@ void find_libc_lib_path(CodeGen *g) {
 }
 
 static uint32_t hash_ptr(void *ptr) {
-    return ((uintptr_t)ptr) % UINT32_MAX;
+    return (uint32_t)(((uintptr_t)ptr) % UINT32_MAX);
 }
 
 static uint32_t hash_size(size_t x) {
-    return x % UINT32_MAX;
+    return (uint32_t)(x % UINT32_MAX);
 }
 
 uint32_t fn_table_entry_hash(FnTableEntry* value) {
@@ -3121,14 +3125,14 @@ bool fn_table_entry_eql(FnTableEntry *a, FnTableEntry *b) {
 
 uint32_t fn_type_id_hash(FnTypeId *id) {
     uint32_t result = 0;
-    result += id->is_extern ? 3349388391 : 0;
-    result += id->is_naked ? 608688877 : 0;
-    result += id->is_cold ? 3605523458 : 0;
-    result += id->is_var_args ? 1931444534 : 0;
+    result += id->is_extern ? (uint32_t)3349388391 : 0;
+    result += id->is_naked ? (uint32_t)608688877 : 0;
+    result += id->is_cold ? (uint32_t)3605523458 : 0;
+    result += id->is_var_args ? (uint32_t)1931444534 : 0;
     result += hash_ptr(id->return_type);
     for (size_t i = 0; i < id->param_count; i += 1) {
         FnTypeParamInfo *info = &id->param_info[i];
-        result += info->is_noalias ? 892356923 : 0;
+        result += info->is_noalias ? (uint32_t)892356923 : 0;
         result += hash_ptr(info->type);
     }
     return result;
@@ -3161,55 +3165,55 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
     assert(const_val->special == ConstValSpecialStatic);
     switch (const_val->type->id) {
         case TypeTableEntryIdBool:
-            return const_val->data.x_bool ? 127863866 : 215080464;
+            return const_val->data.x_bool ? (uint32_t)127863866 : (uint32_t)215080464;
         case TypeTableEntryIdMetaType:
             return hash_ptr(const_val->data.x_type);
         case TypeTableEntryIdVoid:
-            return 4149439618;
+            return (uint32_t)4149439618;
         case TypeTableEntryIdInt:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdEnumTag:
-            return ((uint32_t)(bignum_to_twos_complement(&const_val->data.x_bignum) % UINT32_MAX)) * 1331471175;
+            return ((uint32_t)(bignum_to_twos_complement(&const_val->data.x_bignum) % UINT32_MAX)) * (uint32_t)1331471175;
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdNumLitFloat:
-            return const_val->data.x_bignum.data.x_float * UINT32_MAX;
+            return (uint32_t)(const_val->data.x_bignum.data.x_float * (uint32_t)UINT32_MAX);
         case TypeTableEntryIdArgTuple:
-            return const_val->data.x_arg_tuple.start_index * 281907309 +
-                const_val->data.x_arg_tuple.end_index * 2290442768;
+            return (uint32_t)const_val->data.x_arg_tuple.start_index * (uint32_t)281907309 +
+                (uint32_t)const_val->data.x_arg_tuple.end_index * (uint32_t)2290442768;
         case TypeTableEntryIdPointer:
             {
                 uint32_t hash_val = 0;
                 switch (const_val->data.x_ptr.mut) {
                     case ConstPtrMutRuntimeVar:
-                        hash_val += 3500721036;
+                        hash_val += (uint32_t)3500721036;
                         break;
                     case ConstPtrMutComptimeConst:
-                        hash_val += 4214318515;
+                        hash_val += (uint32_t)4214318515;
                         break;
                     case ConstPtrMutComptimeVar:
-                        hash_val += 1103195694;
+                        hash_val += (uint32_t)1103195694;
                         break;
                 }
                 switch (const_val->data.x_ptr.special) {
                     case ConstPtrSpecialInvalid:
                         zig_unreachable();
                     case ConstPtrSpecialRef:
-                        hash_val += 2478261866;
+                        hash_val += (uint32_t)2478261866;
                         hash_val += hash_ptr(const_val->data.x_ptr.data.ref.pointee);
                         return hash_val;
                     case ConstPtrSpecialBaseArray:
-                        hash_val += 1764906839;
+                        hash_val += (uint32_t)1764906839;
                         hash_val += hash_ptr(const_val->data.x_ptr.data.base_array.array_val);
                         hash_val += hash_size(const_val->data.x_ptr.data.base_array.elem_index);
                         hash_val += const_val->data.x_ptr.data.base_array.is_cstr ? 1297263887 : 200363492;
                         return hash_val;
                     case ConstPtrSpecialBaseStruct:
-                        hash_val += 3518317043;
+                        hash_val += (uint32_t)3518317043;
                         hash_val += hash_ptr(const_val->data.x_ptr.data.base_struct.struct_val);
                         hash_val += hash_size(const_val->data.x_ptr.data.base_struct.field_index);
                         return hash_val;
                     case ConstPtrSpecialHardCodedAddr:
-                        hash_val += 4048518294;
+                        hash_val += (uint32_t)4048518294;
                         hash_val += hash_size(const_val->data.x_ptr.data.hard_coded_addr.addr);
                         return hash_val;
                     case ConstPtrSpecialDiscard:
@@ -3954,7 +3958,7 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                         ConstExprValue *child_value = &const_val->data.x_array.elements[i];
                         uint64_t big_c = child_value->data.x_bignum.data.x_uint;
                         assert(big_c <= UINT8_MAX);
-                        uint8_t c = big_c;
+                        uint8_t c = (uint8_t)big_c;
                         if (c == '"') {
                             buf_append_str(buf, "\\\"");
                         } else {
@@ -4051,14 +4055,14 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
     zig_unreachable();
 }
 
-TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, size_t size_in_bits) {
+TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
     entry->is_copyable = true;
     entry->type_ref = LLVMIntType(size_in_bits);
 
     const char u_or_i = is_signed ? 'i' : 'u';
     buf_resize(&entry->name, 0);
-    buf_appendf(&entry->name, "%c%zu", u_or_i, size_in_bits);
+    buf_appendf(&entry->name, "%c%" PRIu8, u_or_i, size_in_bits);
 
     unsigned dwarf_tag;
     if (is_signed) {
@@ -4111,16 +4115,16 @@ uint32_t type_id_hash(TypeId x) {
             zig_unreachable();
         case TypeTableEntryIdPointer:
             return hash_ptr(x.data.pointer.child_type) +
-                (x.data.pointer.is_const ? 2749109194 : 4047371087) +
-                (x.data.pointer.is_volatile ? 536730450 : 1685612214) +
-                (((uint32_t)x.data.pointer.bit_offset) * 2639019452) +
-                (((uint32_t)x.data.pointer.unaligned_bit_count) * 529908881);
+                (x.data.pointer.is_const ? (uint32_t)2749109194 : (uint32_t)4047371087) +
+                (x.data.pointer.is_volatile ? (uint32_t)536730450 : (uint32_t)1685612214) +
+                (((uint32_t)x.data.pointer.bit_offset) * (uint32_t)2639019452) +
+                (((uint32_t)x.data.pointer.unaligned_bit_count) * (uint32_t)529908881);
         case TypeTableEntryIdArray:
             return hash_ptr(x.data.array.child_type) +
-                (x.data.array.size * 2122979968);
+                ((uint32_t)x.data.array.size * (uint32_t)2122979968);
         case TypeTableEntryIdInt:
-            return (x.data.integer.is_signed ? 2652528194 : 163929201) +
-                    (((uint32_t)x.data.integer.bit_count) * 2998081557);
+            return (x.data.integer.is_signed ? (uint32_t)2652528194 : (uint32_t)163929201) +
+                    (((uint32_t)x.data.integer.bit_count) * (uint32_t)2998081557);
     }
     zig_unreachable();
 }
@@ -4173,13 +4177,13 @@ bool type_id_eql(TypeId a, TypeId b) {
 uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
     switch (x.id) {
         case ZigLLVMFnIdCtz:
-            return x.data.ctz.bit_count * 810453934;
+            return (uint32_t)(x.data.ctz.bit_count) * (uint32_t)810453934;
         case ZigLLVMFnIdClz:
-            return x.data.clz.bit_count * 2428952817;
+            return (uint32_t)(x.data.clz.bit_count) * (uint32_t)2428952817;
         case ZigLLVMFnIdOverflowArithmetic:
-            return (x.data.overflow_arithmetic.bit_count * 87135777) +
-                (x.data.overflow_arithmetic.add_sub_mul * 31640542) +
-                (x.data.overflow_arithmetic.is_signed ? 1062315172 : 314955820);
+            return ((uint32_t)(x.data.overflow_arithmetic.bit_count) * 87135777) +
+                ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
+                ((uint32_t)(x.data.overflow_arithmetic.is_signed) ? 1062315172 : 314955820);
     }
     zig_unreachable();
 }

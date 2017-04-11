@@ -556,7 +556,7 @@ static int os_buf_to_tmp_file_posix(Buf *contents, Buf *suffix, Buf *out_tmp_pat
     buf_resize(out_tmp_path, 0);
     buf_appendf(out_tmp_path, "%s/XXXXXX%s", tmp_dir, buf_ptr(suffix));
 
-    int fd = mkstemps(buf_ptr(out_tmp_path), buf_len(suffix));
+    int fd = mkstemps(buf_ptr(out_tmp_path), (int)buf_len(suffix));
     if (fd < 0) {
         return ErrorFileSystem;
     }
@@ -629,5 +629,5 @@ int os_delete_file(Buf *path) {
 }
 
 void os_init(void) {
-    srand(time(NULL));
+    srand((unsigned)time(NULL));
 }
