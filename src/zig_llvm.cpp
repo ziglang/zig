@@ -41,6 +41,7 @@
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/Scalar.h>
 
 #include <lld/Driver/Driver.h>
@@ -72,65 +73,107 @@ char *ZigLLVMGetNativeFeatures(void) {
     return strdup(features.getString().c_str());
 }
 
-static void addAddDiscriminatorsPass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
+static void addDiscriminatorsPass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
   PM.add(createAddDiscriminatorsPass());
 }
 
+#ifndef NDEBUG
+static const bool assertions_on = true;
+#else
+static const bool assertions_on = false;
+#endif
 
-void ZigLLVMOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref) {
+bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
+        const char *filename, LLVMCodeGenFileType file_type, char **error_message, bool is_debug)
+{
+    std::error_code EC;
+    raw_fd_ostream dest(filename, EC, sys::fs::F_None);
+    if (EC) {
+        *error_message = strdup(EC.message().c_str());
+        return true;
+    }
     TargetMachine* target_machine = reinterpret_cast<TargetMachine*>(targ_machine_ref);
+    target_machine->setO0WantsFastISel(true);
+
     Module* module = unwrap(module_ref);
-    TargetLibraryInfoImpl tlii(Triple(module->getTargetTriple()));
 
     PassManagerBuilder *PMBuilder = new PassManagerBuilder();
     PMBuilder->OptLevel = target_machine->getOptLevel();
     PMBuilder->SizeLevel = 0;
-    PMBuilder->BBVectorize = true;
-    PMBuilder->SLPVectorize = true;
-    PMBuilder->LoopVectorize = true;
 
-    PMBuilder->DisableUnitAtATime = false;
-    PMBuilder->DisableUnrollLoops = false;
-    PMBuilder->MergeFunctions = true;
-    PMBuilder->PrepareForLTO = true;
-    PMBuilder->RerollLoops = true;
+    PMBuilder->DisableTailCalls = is_debug;
+    PMBuilder->DisableUnitAtATime = is_debug;
+    PMBuilder->DisableUnrollLoops = is_debug;
+    PMBuilder->BBVectorize = !is_debug;
+    PMBuilder->SLPVectorize = !is_debug;
+    PMBuilder->LoopVectorize = !is_debug;
+    PMBuilder->RerollLoops = !is_debug;
+    PMBuilder->LoadCombine = !is_debug;
+    PMBuilder->NewGVN = !is_debug;
+    PMBuilder->DisableGVNLoadPRE = is_debug;
+    PMBuilder->VerifyInput = assertions_on;
+    PMBuilder->VerifyOutput = assertions_on;
+    PMBuilder->MergeFunctions = !is_debug;
+    PMBuilder->PrepareForLTO = false;
+    PMBuilder->PrepareForThinLTO = false;
+    PMBuilder->PerformThinLTO = false;
 
-    PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible, addAddDiscriminatorsPass);
-
+    TargetLibraryInfoImpl tlii(Triple(module->getTargetTriple()));
     PMBuilder->LibraryInfo = &tlii;
 
-    PMBuilder->Inliner = createFunctionInliningPass(PMBuilder->OptLevel, PMBuilder->SizeLevel);
+    if (is_debug) {
+        PMBuilder->Inliner = createAlwaysInlinerLegacyPass(false);
+    } else {
+        PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible,
+            [&](const PassManagerBuilder &, legacy::PassManagerBase &PM) {
+            target_machine->addEarlyAsPossiblePasses(PM);
+            });
+
+        PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible, addDiscriminatorsPass);
+        PMBuilder->Inliner = createFunctionInliningPass(PMBuilder->OptLevel, PMBuilder->SizeLevel);
+    }
 
     // Set up the per-function pass manager.
-    legacy::FunctionPassManager *FPM = new legacy::FunctionPassManager(module);
-    FPM->add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
-#ifndef NDEBUG
-    bool verify_module = true;
-#else
-    bool verify_module = false;
-#endif
-    if (verify_module) {
-        FPM->add(createVerifierPass());
+    legacy::FunctionPassManager FPM = legacy::FunctionPassManager(module);
+    FPM.add(new TargetLibraryInfoWrapperPass(tlii));
+    FPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
+    if (assertions_on) {
+        FPM.add(createVerifierPass());
     }
-    PMBuilder->populateFunctionPassManager(*FPM);
+    PMBuilder->populateFunctionPassManager(FPM);
 
     // Set up the per-module pass manager.
-    legacy::PassManager *MPM = new legacy::PassManager();
-    MPM->add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
+    legacy::PassManager MPM;
+    MPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
+    PMBuilder->populateModulePassManager(MPM);
 
-    PMBuilder->populateModulePassManager(*MPM);
-
+    TargetMachine::CodeGenFileType ft;
+    switch (file_type) {
+        case LLVMAssemblyFile:
+            ft = TargetMachine::CGFT_AssemblyFile;
+            break;
+        default:
+            ft = TargetMachine::CGFT_ObjectFile;
+            break;
+    }
+    if (target_machine->addPassesToEmitFile(MPM, dest, ft)) {
+        *error_message = strdup("TargetMachine can't emit a file of this type");
+        return true;
+    }
 
     // run per function optimization passes
-    FPM->doInitialization();
+    FPM.doInitialization();
     for (Function &F : *module)
       if (!F.isDeclaration())
-        FPM->run(F);
-    FPM->doFinalization();
+        FPM.run(F);
+    FPM.doFinalization();
 
-    // run per module optimization passes
-    MPM->run(*module);
+    MPM.run(*module);
+
+    dest.flush();
+    return false;
 }
+
 
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, unsigned CC, const char *Name)

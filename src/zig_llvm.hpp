@@ -34,7 +34,8 @@ void ZigLLVMInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R);
 char *ZigLLVMGetHostCPUName(void);
 char *ZigLLVMGetNativeFeatures(void);
 
-void ZigLLVMOptimizeModule(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref);
+bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
+        const char *filename, LLVMCodeGenFileType file_type, char **error_message, bool is_debug);
 
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, unsigned CC, const char *Name);

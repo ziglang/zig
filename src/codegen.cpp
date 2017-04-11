@@ -3826,8 +3826,8 @@ static void do_code_gen(CodeGen *g) {
     Buf *out_file_o = buf_create_from_buf(g->root_out_name);
     const char *o_ext = target_o_file_ext(&g->zig_target);
     buf_append_str(out_file_o, o_ext);
-    if (LLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(out_file_o),
-                LLVMObjectFile, &err_msg))
+    if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(out_file_o),
+                LLVMObjectFile, &err_msg, !g->is_release_build))
     {
         zig_panic("unable to write object file: %s", err_msg);
     }

@@ -746,18 +746,10 @@ void codegen_link(CodeGen *g, const char *out_file) {
         buf_resize(&lj.out_file, 0);
     }
 
-    bool is_optimized = g->is_release_build;
-    if (is_optimized) {
-        if (g->verbose) {
-            fprintf(stderr, "\nOptimization:\n");
-            fprintf(stderr, "---------------\n");
-        }
-
-        ZigLLVMOptimizeModule(g->target_machine, g->module);
-
-        if (g->verbose) {
-            LLVMDumpModule(g->module);
-        }
+    if (g->verbose) {
+        fprintf(stderr, "\nOptimization:\n");
+        fprintf(stderr, "---------------\n");
+        LLVMDumpModule(g->module);
     }
     if (g->verbose) {
         fprintf(stderr, "\nLink:\n");
