@@ -17,7 +17,6 @@ TypeTableEntry *new_type_table_entry(TypeTableEntryId id);
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
 TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type, bool is_const,
         bool is_volatile, uint32_t bit_offset, uint32_t unaligned_bit_count);
-bool is_node_void_expr(AstNode *node);
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry);
 uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry);
 TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_bits);
