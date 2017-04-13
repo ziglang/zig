@@ -7091,6 +7091,13 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 return ira->codegen->invalid_instruction;
                 
             return cast2;
+        } else if (actual_type->id == TypeTableEntryIdNullLit) {
+            IrInstruction *cast1 = ir_analyze_null_to_maybe(ira, source_instr, value, wanted_type->data.error.child_type);
+            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+            if (type_is_invalid(cast2->value.type))
+                return ira->codegen->invalid_instruction;
+                
+            return cast2;
         }
     }
 

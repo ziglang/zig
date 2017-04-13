@@ -91,3 +91,16 @@ fn castToMaybeTypeError() {
     const b: %?A = a;
     assert((??%%b).a == 1);
 }
+
+test "return null from fn() -> %?&T" {
+    const a = returnNullFromMaybeTypeErrorRef();
+    const b = returnNullLitFromMaybeTypeErrorRef();
+    assert(%%a == null and %%b == null);
+}
+fn returnNullFromMaybeTypeErrorRef() -> %?&A {
+    const a: ?&A = null;
+    return a;
+}
+fn returnNullLitFromMaybeTypeErrorRef() -> %?&A {
+    return null;
+}
