@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.zig": "c",
+        "type_traits": "cpp",
+        "*.inc": "cpp"
+    }
+}

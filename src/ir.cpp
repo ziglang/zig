@@ -7091,8 +7091,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 return ira->codegen->invalid_instruction;
                 
             return cast2;
-        } else {
-            return ira->codegen->invalid_instruction;
         }
     }
 

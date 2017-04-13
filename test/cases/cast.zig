@@ -88,6 +88,9 @@ fn castToMaybeTypeError() {
     const y: %?i32 = x;
     assert(??%%y == 1);
 
+    const g: %?i32 = 1;
+    assert( g == 1 );
+
     const a = A{ .a = 1 };
     const b: %?A = a;
     assert((??%%b).a == 1);
