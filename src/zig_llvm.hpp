@@ -363,6 +363,4 @@ void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *su
         ZigLLVM_ObjectFormatType *oformat);
 
 
-Buf *get_dynamic_linker(LLVMTargetMachineRef target_machine);
-
 #endif

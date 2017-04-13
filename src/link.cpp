@@ -256,7 +256,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(buf_ptr(g->dynamic_linker));
     } else {
         lj->args.append("-dynamic-linker");
-        lj->args.append(buf_ptr(get_dynamic_linker(g->target_machine)));
+        lj->args.append(buf_ptr(target_dynamic_linker(&g->zig_target)));
     }
 
     if (shared) {

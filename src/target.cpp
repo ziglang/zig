@@ -536,3 +536,80 @@ const char *target_o_file_ext(ZigTarget *target) {
     }
 }
 
+enum FloatAbi {
+    FloatAbiHard,
+    FloatAbiSoft,
+    FloatAbiSoftFp,
+};
+
+static FloatAbi get_float_abi(ZigTarget *target) {
+    const ZigLLVM_EnvironmentType env = target->env_type;
+    if (env == ZigLLVM_GNUEABIHF ||
+        env == ZigLLVM_EABIHF ||
+        env == ZigLLVM_MuslEABIHF)
+    {
+        return FloatAbiHard;
+    } else {
+        zig_panic("TODO: user needs to input if they want hard or soft floating point");
+    }
+}
+
+static bool is_64_bit(ZigLLVM_ArchType arch) {
+    return get_arch_pointer_bit_width(arch) == 64;
+}
+
+Buf *target_dynamic_linker(ZigTarget *target) {
+    const ZigLLVM_ArchType arch = target->arch.arch;
+    const ZigLLVM_EnvironmentType env = target->env_type;
+
+    if (env == ZigLLVM_Android) {
+        if (is_64_bit(arch)) {
+            return buf_create_from_str("/system/bin/linker64");
+        } else {
+            return buf_create_from_str("/system/bin/linker");
+        }
+    } else if (arch == ZigLLVM_x86 ||
+            arch == ZigLLVM_sparc ||
+            arch == ZigLLVM_sparcel)
+    {
+        return buf_create_from_str("/lib/ld-linux.so.2");
+    } else if (arch == ZigLLVM_aarch64) {
+        return buf_create_from_str("/lib/ld-linux-aarch64.so.1");
+    } else if (arch == ZigLLVM_aarch64_be) {
+        return buf_create_from_str("/lib/ld-linux-aarch64_be.so.1");
+    } else if (arch == ZigLLVM_arm || arch == ZigLLVM_thumb) {
+        if (get_float_abi(target) == FloatAbiHard) {
+            return buf_create_from_str("/lib/ld-linux-armhf.so.3");
+        } else {
+            return buf_create_from_str("/lib/ld-linux.so.3");
+        }
+    } else if (arch == ZigLLVM_armeb || arch == ZigLLVM_thumbeb) {
+        if (get_float_abi(target) == FloatAbiHard) {
+            return buf_create_from_str("/lib/ld-linux-armhf.so.3");
+        } else {
+            return buf_create_from_str("/lib/ld-linux.so.3");
+        }
+    } else if (arch == ZigLLVM_mips || arch == ZigLLVM_mipsel ||
+            arch == ZigLLVM_mips64 || arch == ZigLLVM_mips64el)
+    {
+        // when you want to solve this TODO, grep clang codebase for
+        // getLinuxDynamicLinker
+        zig_panic("TODO figure out MIPS dynamic linker name");
+    } else if (arch == ZigLLVM_ppc) {
+        return buf_create_from_str("/lib/ld.so.1");
+    } else if (arch == ZigLLVM_ppc64) {
+        return buf_create_from_str("/lib64/ld64.so.2");
+    } else if (arch == ZigLLVM_ppc64le) {
+        return buf_create_from_str("/lib64/ld64.so.2");
+    } else if (arch == ZigLLVM_systemz) {
+        return buf_create_from_str("/lib64/ld64.so.1");
+    } else if (arch == ZigLLVM_sparcv9) {
+        return buf_create_from_str("/lib64/ld-linux.so.2");
+    } else if (arch == ZigLLVM_x86_64 &&
+            env == ZigLLVM_GNUX32)
+    {
+        return buf_create_from_str("/libx32/ld-linux-x32.so.2");
+    } else {
+        return buf_create_from_str("/lib64/ld-linux-x86-64.so.2");
+    }
+}

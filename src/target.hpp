@@ -74,4 +74,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id);
 
 const char *target_o_file_ext(ZigTarget *target);
 
+Buf *target_dynamic_linker(ZigTarget *target);
+
+
 #endif
