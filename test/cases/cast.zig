@@ -92,6 +92,13 @@ fn castToMaybeTypeError() {
     assert((??%%b).a == 1);
 }
 
+test "implicitly cast from int to %?T" {
+    const f: %?i32 = 1;
+    comptime const g: %?i32 = 1;
+
+    const h: %?i8 = 104;
+}
+
 test "return null from fn() -> %?&T" {
     const a = returnNullFromMaybeTypeErrorRef();
     const b = returnNullLitFromMaybeTypeErrorRef();

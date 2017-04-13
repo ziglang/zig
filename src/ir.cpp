@@ -5824,11 +5824,12 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
         {
             return true;
         }
-    } else if ((other_type->id == TypeTableEntryIdNumLitFloat &&
-                const_val->data.x_bignum.kind == BigNumKindFloat) ||
-               (other_type->id == TypeTableEntryIdNumLitInt &&
-                const_val->data.x_bignum.kind == BigNumKindInt))
-    {
+    } else if ((other_type->id == TypeTableEntryIdNumLitFloat && const_val->data.x_bignum.kind == BigNumKindFloat) ||
+               (other_type->id == TypeTableEntryIdNumLitInt   && const_val->data.x_bignum.kind == BigNumKindInt  )) {
+        return true;
+    } else if ((other_type->id == TypeTableEntryIdMaybe &&
+                other_type->data.maybe.child_type->id == TypeTableEntryIdInt &&
+                const_val->data.x_bignum.kind == BigNumKindInt)) {
         return true;
     }
 
