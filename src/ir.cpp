@@ -5826,11 +5826,12 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
         {
             return true;
         }
-    } else if ((other_type->id == TypeTableEntryIdNumLitFloat &&
-                const_val->data.x_bignum.kind == BigNumKindFloat) ||
-               (other_type->id == TypeTableEntryIdNumLitInt &&
-                const_val->data.x_bignum.kind == BigNumKindInt))
-    {
+    } else if ((other_type->id == TypeTableEntryIdNumLitFloat && const_val->data.x_bignum.kind == BigNumKindFloat) ||
+               (other_type->id == TypeTableEntryIdNumLitInt   && const_val->data.x_bignum.kind == BigNumKindInt  )) {
+        return true;
+    } else if ((other_type->id == TypeTableEntryIdMaybe &&
+                other_type->data.maybe.child_type->id == TypeTableEntryIdInt &&
+                const_val->data.x_bignum.kind == BigNumKindInt)) {
         return true;
     }
 
@@ -5890,6 +5891,18 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     // implicit conversion from pure error to error union type
     if (expected_type->id == TypeTableEntryIdErrorUnion &&
         actual_type->id == TypeTableEntryIdPureError)
+    {
+        return ImplicitCastMatchResultYes;
+    }
+
+    // implicit conversion from T to %?T
+    if (expected_type->id == TypeTableEntryIdErrorUnion &&
+        expected_type->data.error.child_type->id == TypeTableEntryIdMaybe &&
+        ir_types_match_with_implicit_cast(
+            ira,
+            expected_type->data.error.child_type->data.maybe.child_type,
+            actual_type,
+            value))
     {
         return ImplicitCastMatchResultYes;
     }
@@ -7065,6 +7078,25 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == TypeTableEntryIdPureError)
     {
         return ir_analyze_err_wrap_code(ira, source_instr, value, wanted_type);
+    }
+
+    // explicit cast from T to %?T
+    if (wanted_type->id == TypeTableEntryIdErrorUnion &&
+        wanted_type->data.error.child_type->id == TypeTableEntryIdMaybe &&
+        actual_type->id != TypeTableEntryIdMaybe) {
+        if (types_match_const_cast_only(wanted_type->data.error.child_type->data.maybe.child_type, actual_type) || 
+            actual_type->id == TypeTableEntryIdNullLit ||
+            actual_type->id == TypeTableEntryIdNumLitInt ) {
+            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.error.child_type, value);
+            if (type_is_invalid(cast1->value.type))
+                return ira->codegen->invalid_instruction;
+
+            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+            if (type_is_invalid(cast2->value.type))
+                return ira->codegen->invalid_instruction;
+                
+            return cast2;
+        }
     }
 
     // explicit cast from number literal to another type
