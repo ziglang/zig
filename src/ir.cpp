@@ -3344,6 +3344,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         return ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
     }
 
+    bool is_continuation_unreachable = false;
     IrInstruction *return_value = nullptr;
     for (size_t i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
@@ -3367,7 +3368,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
                 scope_block->label_table.put(label_name, label);
             }
 
-            if (!(return_value && instr_is_unreachable(return_value))) {
+            if (!is_continuation_unreachable) {
                 // fall through into new labeled basic block
                 IrInstruction *is_comptime = ir_mark_gen(ir_build_const_bool(irb, child_scope, statement_node,
                         ir_should_inline(irb->exec, child_scope)));
@@ -3375,34 +3376,66 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
             }
             ir_set_cursor_at_end(irb, label_block);
 
+            // a label is an entry point
+            is_continuation_unreachable = false;
             return_value = nullptr;
             continue;
         }
 
-        if (return_value && instr_is_unreachable(return_value)) {
-            if (is_node_void_expr(statement_node))
+        if (is_continuation_unreachable) {
+            // if you put a semicolon after a return statement,
+            // then we get a void statement in the unreachable area.
+            // this is fine. ignore any void blocks we get from this happening.
+            if (statement_node->type == NodeTypeBlock && statement_node->data.block.statements.length == 0)
                 continue;
             add_node_error(irb->codegen, statement_node, buf_sprintf("unreachable code"));
         }
 
-        return_value = ir_gen_node(irb, statement_node, child_scope);
-        if (statement_node->type == NodeTypeDefer && return_value != irb->codegen->invalid_instruction) {
+        IrInstruction *statement_value = ir_gen_node(irb, statement_node, child_scope);
+        is_continuation_unreachable = instr_is_unreachable(statement_value);
+        if (is_continuation_unreachable)
+            return_value = statement_value;
+        else
+            return_value = nullptr;
+        if (statement_node->type == NodeTypeDefer && statement_value != irb->codegen->invalid_instruction) {
             // defer starts a new scope
             child_scope = statement_node->data.defer.child_scope;
             assert(child_scope);
-        } else if (return_value->id == IrInstructionIdDeclVar) {
+        } else if (statement_value->id == IrInstructionIdDeclVar) {
             // variable declarations start a new scope
-            IrInstructionDeclVar *decl_var_instruction = (IrInstructionDeclVar *)return_value;
+            IrInstructionDeclVar *decl_var_instruction = (IrInstructionDeclVar *)statement_value;
             child_scope = decl_var_instruction->var->child_scope;
+        } else {
+            // label, defer, variable declaration will never be the last statement
+            if (block_node->data.block.last_statement_is_result_expression &&
+                i == block_node->data.block.statements.length - 1) {
+                // this is the result value statement
+                return_value = statement_value;
+            } else {
+                // there are more statements ahead of this one. this statement's value must be void
+                TypeTableEntry *instruction_type = statement_value->value.type;
+                if (instruction_type &&
+                    instruction_type->id != TypeTableEntryIdInvalid &&
+                    instruction_type->id != TypeTableEntryIdVoid &&
+                    instruction_type->id != TypeTableEntryIdUnreachable) {
+                    add_node_error(irb->codegen, statement_node, buf_sprintf("expression valued ignored"));
+                }
+            }
         }
     }
 
-    // labels are never the last statement
-    assert(return_value != nullptr);
+    if (!is_continuation_unreachable) {
+        // control flow falls out of block
 
-    if (!instr_is_unreachable(return_value))
+        if (!block_node->data.block.last_statement_is_result_expression) {
+            assert(return_value == nullptr);
+            return_value = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
+        }
+
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false, false);
+    }
 
+    assert(return_value != nullptr);
     return return_value;
 }
 

@@ -2950,23 +2950,6 @@ void semantic_analyze(CodeGen *g) {
     }
 }
 
-bool is_node_void_expr(AstNode *node) {
-    if (node->type == NodeTypeContainerInitExpr &&
-        node->data.container_init_expr.kind == ContainerInitKindArray)
-    {
-        AstNode *type_node = node->data.container_init_expr.type;
-        if (type_node->type == NodeTypeSymbol &&
-            buf_eql_str(type_node->data.symbol_expr.symbol, "void"))
-        {
-            return true;
-        }
-    } else if (node->type == NodeTypeBlock && node->data.block.statements.length == 0) {
-        return true;
-    }
-
-    return false;
-}
-
 TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     size_t index;
     if (size_in_bits == 8) {
