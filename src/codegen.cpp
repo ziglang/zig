@@ -345,6 +345,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     switch (fn_table_entry->linkage) {
         case GlobalLinkageIdInternal:
             LLVMSetLinkage(fn_table_entry->llvm_value, LLVMInternalLinkage);
+            LLVMSetUnnamedAddr(fn_table_entry->llvm_value, true);
             break;
         case GlobalLinkageIdStrong:
             LLVMSetLinkage(fn_table_entry->llvm_value, LLVMExternalLinkage);
@@ -4743,9 +4744,14 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
                     zig_unreachable();
                 }
             }
+        case TypeTableEntryIdStruct:
+            {
+                // TODO add to table of structs we need to declare
+                buf_init_from_buf(out_buf, &type_entry->name);
+                return;
+            }
         case TypeTableEntryIdOpaque:
         case TypeTableEntryIdArray:
-        case TypeTableEntryIdStruct:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdEnum:
