@@ -65,7 +65,6 @@ fn testPeerResolveArrayConstSlice(b: bool) {
     assert(mem.eql(u8, value2, "zz"));
 }
 
-
 test "integer literal to &const int" {
     const x: &const i32 = 3;
     assert(*x == 3);
@@ -74,4 +73,22 @@ test "integer literal to &const int" {
 test "string literal to &const []const u8" {
     const x: &const []const u8 = "hello";
     assert(mem.eql(u8, *x, "hello"));
+}
+
+
+test "valToNullErrorCast" {
+    castToMaybeTypeError();
+    comptime castToMaybeTypeError();
+}
+const A = struct {
+    a: i32,
+};
+fn castToMaybeTypeError() {
+    const x = i32(1);
+    const y: %?i32 = x;
+    assert(??%%y == 1);
+
+    const a = A{ .a = 1 };
+    const b: %?A = a;
+    assert((??%%b).a == 1);
 }

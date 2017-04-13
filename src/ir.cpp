@@ -5892,6 +5892,18 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         return ImplicitCastMatchResultYes;
     }
 
+    // implicit conversion from T to %?T
+    if (expected_type->id == TypeTableEntryIdErrorUnion &&
+        expected_type->data.error.child_type->id == TypeTableEntryIdMaybe &&
+        ir_types_match_with_implicit_cast(
+            ira,
+            expected_type->data.error.child_type->data.maybe.child_type,
+            actual_type,
+            value))
+    {
+        return ImplicitCastMatchResultYes;
+    }
+
     // implicit widening conversion
     if (expected_type->id == TypeTableEntryIdInt &&
         actual_type->id == TypeTableEntryIdInt &&
@@ -7063,6 +7075,25 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == TypeTableEntryIdPureError)
     {
         return ir_analyze_err_wrap_code(ira, source_instr, value, wanted_type);
+    }
+
+    // explicit cast from T to %?T
+    if (wanted_type->id == TypeTableEntryIdErrorUnion &&
+        wanted_type->data.error.child_type->id == TypeTableEntryIdMaybe &&
+        actual_type->id != TypeTableEntryIdMaybe) {
+        if (types_match_const_cast_only(wanted_type->data.error.child_type->data.maybe.child_type, actual_type)) {
+            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.error.child_type, value);
+            if (type_is_invalid(cast1->value.type))
+                return ira->codegen->invalid_instruction;
+
+            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+            if (type_is_invalid(cast2->value.type))
+                return ira->codegen->invalid_instruction;
+                
+            return cast2;
+        } else {
+            return ira->codegen->invalid_instruction;
+        }
     }
 
     // explicit cast from number literal to another type
