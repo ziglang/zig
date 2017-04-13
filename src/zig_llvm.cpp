@@ -176,10 +176,13 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
 
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
-        unsigned NumArgs, unsigned CC, const char *Name)
+        unsigned NumArgs, unsigned CC, bool always_inline, const char *Name)
 {
     CallInst *call_inst = CallInst::Create(unwrap(Fn), makeArrayRef(unwrap(Args), NumArgs), Name);
     call_inst->setCallingConv(CC);
+    if (always_inline) {
+        call_inst->addAttribute(AttributeSet::FunctionIndex, Attribute::AlwaysInline);
+    }
     return wrap(unwrap(B)->Insert(call_inst));
 }
 

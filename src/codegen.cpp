@@ -608,7 +608,7 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg) {
         LLVMBuildLoad(g->builder, ptr_ptr, ""),
         LLVMBuildLoad(g->builder, len_ptr, ""),
     };
-    ZigLLVMBuildCall(g->builder, fn_val, args, 2, panic_fn->type_entry->data.fn.calling_convention, "");
+    ZigLLVMBuildCall(g->builder, fn_val, args, 2, panic_fn->type_entry->data.fn.calling_convention, false, "");
     LLVMBuildUnreachable(g->builder);
 }
 
@@ -1773,8 +1773,12 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         }
     }
 
+    bool want_always_inline = (instruction->fn_entry != nullptr &&
+            instruction->fn_entry->fn_inline == FnInlineAlways) || instruction->is_inline;
+
     LLVMValueRef result = ZigLLVMBuildCall(g->builder, fn_val,
-            gen_param_values, (unsigned)gen_param_index, fn_type->data.fn.calling_convention, "");
+            gen_param_values, (unsigned)gen_param_index, fn_type->data.fn.calling_convention,
+            want_always_inline, "");
 
     for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
         FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
@@ -2749,6 +2753,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSetGlobalLinkage:
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
+        case IrInstructionIdSetFnRefInline:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -3183,7 +3188,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                 }
             }
         case TypeTableEntryIdFn:
-            return fn_llvm_value(g, const_val->data.x_fn);
+            return fn_llvm_value(g, const_val->data.x_fn.fn_entry);
         case TypeTableEntryIdPointer:
             {
                 render_const_val_global(g, const_val, "");

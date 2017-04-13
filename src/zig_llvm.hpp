@@ -38,7 +38,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         const char *filename, LLVMCodeGenFileType file_type, char **error_message, bool is_debug);
 
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
-        unsigned NumArgs, unsigned CC, const char *Name);
+        unsigned NumArgs, unsigned CC, bool always_inline, const char *Name);
 
 LLVMValueRef ZigLLVMConstInlineAsm(LLVMTypeRef Ty, const char *AsmString,
         const char *Constraints, bool HasSideEffects, bool IsAlignStack, bool is_x86);

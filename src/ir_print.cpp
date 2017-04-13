@@ -870,6 +870,10 @@ static void ir_print_panic(IrPrint *irp, IrInstructionPanic *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_set_fn_ref_inline(IrPrint *irp, IrInstructionSetFnRefInline *instruction) {
+    fprintf(irp->f, "inline ");
+    ir_print_other_instruction(irp, instruction->fn_ref);
+}
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
@@ -1154,6 +1158,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdPanic:
             ir_print_panic(irp, (IrInstructionPanic *)instruction);
+            break;
+        case IrInstructionIdSetFnRefInline:
+            ir_print_set_fn_ref_inline(irp, (IrInstructionSetFnRefInline *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

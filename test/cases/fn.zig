@@ -87,3 +87,10 @@ fn fn1() -> u32 {5}
 fn fn2() -> u32 {6}
 fn fn3() -> u32 {7}
 fn fn4() -> u32 {8}
+
+
+test "inline function call" {
+    assert((inline add(3, 9)) == 12);
+}
+
+fn add(a: i32, b: i32) -> i32 { a + b }

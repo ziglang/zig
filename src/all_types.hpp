@@ -167,6 +167,7 @@ struct ConstErrValue {
 struct ConstBoundFnValue {
     FnTableEntry *fn;
     IrInstruction *first_arg;
+    bool is_inline;
 };
 
 struct ConstArgTuple {
@@ -192,6 +193,11 @@ enum RuntimeHintMaybe {
     RuntimeHintMaybeNonNull,
 };
 
+struct ConstFn {
+    FnTableEntry *fn_entry;
+    bool is_inline;
+};
+
 struct ConstExprValue {
     TypeTableEntry *type;
     ConstValSpecial special;
@@ -202,7 +208,7 @@ struct ConstExprValue {
         // populated if special == ConstValSpecialStatic
         BigNum x_bignum;
         bool x_bool;
-        FnTableEntry *x_fn;
+        ConstFn x_fn;
         ConstBoundFnValue x_bound_fn;
         TypeTableEntry *x_type;
         ConstExprValue *x_maybe;
@@ -366,6 +372,7 @@ enum NodeType {
     NodeTypeTypeLiteral,
     NodeTypeVarLiteral,
     NodeTypeTryExpr,
+    NodeTypeInlineExpr,
 };
 
 struct AstNodeRoot {
@@ -789,6 +796,10 @@ struct AstNodeTypeLiteral {
 struct AstNodeVarLiteral {
 };
 
+struct AstNodeInlineExpr {
+    AstNode *body;
+};
+
 struct AstNode {
     enum NodeType type;
     size_t line;
@@ -847,6 +858,7 @@ struct AstNode {
         AstNodeErrorType error_type;
         AstNodeTypeLiteral type_literal;
         AstNodeVarLiteral var_literal;
+        AstNodeInlineExpr inline_expr;
     } data;
 };
 
@@ -1748,6 +1760,7 @@ enum IrInstructionId {
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
     IrInstructionIdEnumTagName,
+    IrInstructionIdSetFnRefInline,
 };
 
 struct IrInstruction {
@@ -1943,6 +1956,7 @@ struct IrInstructionCall {
     IrInstruction **args;
     bool is_comptime;
     LLVMValueRef tmp_ptr;
+    bool is_inline;
 };
 
 struct IrInstructionConst {
@@ -2491,6 +2505,12 @@ struct IrInstructionEnumTagName {
     IrInstruction base;
 
     IrInstruction *target;
+};
+
+struct IrInstructionSetFnRefInline {
+    IrInstruction base;
+
+    IrInstruction *fn_ref;
 };
 
 static const size_t slice_ptr_index = 0;

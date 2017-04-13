@@ -81,9 +81,9 @@ SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" option("*") Symbo
 
 SwitchItem = Expression | (Expression "..." Expression)
 
-WhileExpression(body) = option("inline") "while" "(" Expression option(";" Expression) ")" body
+WhileExpression(body) = "while" "(" Expression option(";" Expression) ")" body
 
-ForExpression(body) = option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body
+ForExpression(body) = "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body
 
 BoolOrExpression = BoolAndExpression "or" BoolOrExpression | BoolAndExpression
 
@@ -127,7 +127,9 @@ MultiplyOperator = "*" | "/" | "%" | "**" | "*%"
 
 PrefixOpExpression = PrefixOp PrefixOpExpression | SuffixOpExpression
 
-SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = InlineExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+
+InlineExpression = option("inline") PrimaryExpression
 
 FieldAccessExpression = "." Symbol
 
@@ -161,6 +163,7 @@ ContainerDecl = option("extern" | "packed") ("struct" | "enum" | "union") "{" ma
 ## Operator Precedence
 
 ```
+inline x
 x() x[] x.y
 !x -x -%x ~x *x &x ?x %x %%x ??x
 x{}
