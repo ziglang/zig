@@ -75,8 +75,7 @@ test "string literal to &const []const u8" {
     assert(mem.eql(u8, *x, "hello"));
 }
 
-
-test "valToNullErrorCast" {
+test "implicitly cast from T to %?T" {
     castToMaybeTypeError();
     comptime castToMaybeTypeError();
 }
@@ -87,9 +86,6 @@ fn castToMaybeTypeError() {
     const x = i32(1);
     const y: %?i32 = x;
     assert(??%%y == 1);
-
-    const g: %?i32 = 1;
-    assert( g == 1 );
 
     const a = A{ .a = 1 };
     const b: %?A = a;
