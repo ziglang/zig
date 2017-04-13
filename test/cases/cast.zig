@@ -76,16 +76,19 @@ test "string literal to &const []const u8" {
 }
 
 test "implicitly cast from T to %?T" {
-    castToMaybeTypeError();
-    comptime castToMaybeTypeError();
+    castToMaybeTypeError(1);
+    comptime castToMaybeTypeError(1);
 }
 const A = struct {
     a: i32,
 };
-fn castToMaybeTypeError() {
+fn castToMaybeTypeError(z: i32) {
     const x = i32(1);
     const y: %?i32 = x;
     assert(??%%y == 1);
+
+    const f = z;
+    const g: %?i32 = f;
 
     const a = A{ .a = 1 };
     const b: %?A = a;
@@ -95,8 +98,6 @@ fn castToMaybeTypeError() {
 test "implicitly cast from int to %?T" {
     const f: %?i32 = 1;
     comptime const g: %?i32 = 1;
-
-    const h: %?i8 = 104;
 }
 
 test "return null from fn() -> %?&T" {
