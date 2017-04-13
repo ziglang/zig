@@ -219,28 +219,8 @@ static Tld *add_container_tld(Context *c, TypeTableEntry *type_entry) {
     return add_const_type(c, &type_entry->name, type_entry);
 }
 
-static Tld *add_typedef_tld(Context *c, TypeTableEntry *type_decl) {
-    assert(type_decl);
-    assert(type_decl->id == TypeTableEntryIdTypeDecl);
-
-    TldTypeDef *tld_typedef = allocate<TldTypeDef>(1);
-    parseh_init_tld(c, &tld_typedef->base, TldIdTypeDef, &type_decl->name);
-    tld_typedef->type_entry = type_decl;
-
-    add_global(c, &tld_typedef->base);
-    c->global_type_table.put(&type_decl->name, type_decl);
-
-    return &tld_typedef->base;
-}
-
 static bool is_c_void_type(Context *c, TypeTableEntry *type_entry) {
-    while (type_entry->id == TypeTableEntryIdTypeDecl) {
-        if (type_entry == c->codegen->builtin_types.entry_c_void) {
-            return true;
-        }
-        type_entry = type_entry->data.type_decl.child_type;
-    }
-    return false;
+    return (type_entry == c->codegen->builtin_types.entry_c_void);
 }
 
 static bool qual_type_child_is_fn_proto(const QualType &qt) {
@@ -369,7 +349,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                 const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
                 QualType child_qt = pointer_ty->getPointeeType();
                 TypeTableEntry *child_type = resolve_qual_type(c, child_qt, decl);
-                if (get_underlying_type(child_type)->id == TypeTableEntryIdInvalid) {
+                if (type_is_invalid(child_type)) {
                     emit_warning(c, decl, "pointer to unresolved type");
                     return c->codegen->builtin_types.entry_invalid;
                 }
@@ -410,7 +390,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                 } else {
                     auto entry = type_table->maybe_get(type_name);
                     if (entry) {
-                        if (get_underlying_type(entry->value)->id == TypeTableEntryIdInvalid) {
+                        if (type_is_invalid(entry->value)) {
                             return c->codegen->builtin_types.entry_invalid;
                         } else {
                             return entry->value;
@@ -507,7 +487,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     fn_type_id.return_type = c->codegen->builtin_types.entry_unreachable;
                 } else {
                     fn_type_id.return_type = resolve_qual_type(c, fn_proto_ty->getReturnType(), decl);
-                    if (get_underlying_type(fn_type_id.return_type)->id == TypeTableEntryIdInvalid) {
+                    if (type_is_invalid(fn_type_id.return_type)) {
                         emit_warning(c, decl, "unresolved function proto return type");
                         return c->codegen->builtin_types.entry_invalid;
                     }
@@ -522,7 +502,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     QualType qt = fn_proto_ty->getParamType(i);
                     TypeTableEntry *param_type = resolve_qual_type(c, qt, decl);
 
-                    if (get_underlying_type(param_type)->id == TypeTableEntryIdInvalid) {
+                    if (type_is_invalid(param_type)) {
                         emit_warning(c, decl, "unresolved function proto parameter type");
                         return c->codegen->builtin_types.entry_invalid;
                     }
@@ -702,6 +682,7 @@ static void replace_with_fwd_decl(Context *c, TypeTableEntry *struct_type, Buf *
 
     ZigLLVMReplaceTemporary(c->codegen->dbuilder, struct_type->di_type, replacement_di_type);
     struct_type->di_type = replacement_di_type;
+    struct_type->id = TypeTableEntryIdOpaque;
 }
 
 static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
@@ -809,7 +790,9 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
 
         return enum_type;
     } else {
-        TypeTableEntry *enum_type = get_typedecl_type(c->codegen, buf_ptr(full_type_name), tag_type_entry);
+        // TODO after issue #305 is solved, make this be an enum with tag_type_entry
+        // as the integer type and set the custom enum values
+        TypeTableEntry *enum_type = tag_type_entry;
         c->enum_type_table.put(bare_name, enum_type);
         c->decl_table.put(enum_decl, enum_type);
 
@@ -847,22 +830,8 @@ static void visit_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
     Buf *bare_name = buf_create_from_str(decl_name(enum_decl));
 
-    if (enum_type->id == TypeTableEntryIdEnum) {
-        if (enum_type->data.enumeration.complete) {
-            Tld *tld = add_container_tld(c, enum_type);
-            add_global_weak_alias(c, bare_name, tld);
-        } else {
-            TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(&enum_type->name),
-                    c->codegen->builtin_types.entry_u8);
-            Tld *tld = add_typedef_tld(c, typedecl_type);
-            add_global_weak_alias(c, bare_name, tld);
-        }
-    } else if (enum_type->id == TypeTableEntryIdTypeDecl) {
-        Tld *tld = add_typedef_tld(c, enum_type);
-        add_global_weak_alias(c, bare_name, tld);
-    } else {
-        zig_unreachable();
-    }
+    Tld *tld = add_container_tld(c, enum_type);
+    add_global_weak_alias(c, bare_name, tld);
 }
 
 static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
@@ -912,7 +881,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
         const FieldDecl *field_decl = *it;
 
         if (field_decl->isBitField()) {
-            emit_warning(c, field_decl, "struct %s demoted to typedef - has bitfield\n", buf_ptr(bare_name));
+            emit_warning(c, field_decl, "struct %s demoted to opaque type - has bitfield\n", buf_ptr(bare_name));
             replace_with_fwd_decl(c, struct_type, full_type_name);
             return struct_type;
         }
@@ -939,7 +908,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
         type_struct_field->type_entry = field_type;
 
         if (type_is_invalid(field_type) || !type_is_complete(field_type)) {
-            emit_warning(c, field_decl, "struct %s demoted to typedef - unresolved type\n", buf_ptr(bare_name));
+            emit_warning(c, field_decl, "struct %s demoted to opaque type - unresolved type\n", buf_ptr(bare_name));
             replace_with_fwd_decl(c, struct_type, full_type_name);
             return struct_type;
         }
@@ -1001,23 +970,14 @@ static void visit_record_decl(Context *c, const RecordDecl *record_decl) {
         return;
     }
 
-    assert(struct_type->id == TypeTableEntryIdStruct);
-
     bool is_anonymous = (record_decl->isAnonymousStructOrUnion() || decl_name(record_decl)[0] == 0);
     if (is_anonymous)
         return;
 
     Buf *bare_name = buf_create_from_str(decl_name(record_decl));
 
-    if (struct_type->data.structure.complete) {
-        Tld *tld = add_container_tld(c, struct_type);
-        add_global_weak_alias(c, bare_name, tld);
-    } else {
-        TypeTableEntry *typedecl_type = get_typedecl_type(c->codegen, buf_ptr(&struct_type->name),
-                c->codegen->builtin_types.entry_u8);
-        Tld *tld = add_typedef_tld(c, typedecl_type);
-        add_global_weak_alias(c, bare_name, tld);
-    }
+    Tld *tld = add_container_tld(c, struct_type);
+    add_global_weak_alias(c, bare_name, tld);
 }
 
 static void visit_var_decl(Context *c, const VarDecl *var_decl) {
@@ -1059,8 +1019,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
         switch (ap_value->getKind()) {
             case APValue::Int:
                 {
-                    TypeTableEntry *canon_type = get_underlying_type(var_type);
-                    if (canon_type->id != TypeTableEntryIdInt) {
+                    if (var_type->id != TypeTableEntryIdInt) {
                         emit_warning(c, var_decl,
                             "ignoring variable '%s' - int initializer for non int type\n", buf_ptr(name));
                         return;

@@ -254,7 +254,6 @@ enum TldId {
     TldIdVar,
     TldIdFn,
     TldIdContainer,
-    TldIdTypeDef,
     TldIdCompTime,
 };
 
@@ -303,12 +302,6 @@ struct TldContainer {
     TypeTableEntry *type_entry;
 };
 
-struct TldTypeDef {
-    Tld base;
-
-    TypeTableEntry *type_entry;
-};
-
 struct TldCompTime {
     Tld base;
 };
@@ -330,7 +323,6 @@ enum NodeType {
     NodeTypeReturnExpr,
     NodeTypeDefer,
     NodeTypeVariableDeclaration,
-    NodeTypeTypeDecl,
     NodeTypeErrorValueDecl,
     NodeTypeTestDecl,
     NodeTypeBinOpExpr,
@@ -369,7 +361,6 @@ enum NodeType {
     NodeTypeStructValueField,
     NodeTypeArrayType,
     NodeTypeErrorType,
-    NodeTypeTypeLiteral,
     NodeTypeVarLiteral,
     NodeTypeTryExpr,
     NodeTypeInlineExpr,
@@ -446,12 +437,6 @@ struct AstNodeVariableDeclaration {
     // one or both of type and expr will be non null
     AstNode *type;
     AstNode *expr;
-};
-
-struct AstNodeTypeDecl {
-    VisibMod visib_mod;
-    Buf *symbol;
-    AstNode *child_type;
 };
 
 struct AstNodeErrorValueDecl {
@@ -790,9 +775,6 @@ struct AstNodeArrayType {
 struct AstNodeErrorType {
 };
 
-struct AstNodeTypeLiteral {
-};
-
 struct AstNodeVarLiteral {
 };
 
@@ -816,7 +798,6 @@ struct AstNode {
         AstNodeReturnExpr return_expr;
         AstNodeDefer defer;
         AstNodeVariableDeclaration variable_declaration;
-        AstNodeTypeDecl type_decl;
         AstNodeErrorValueDecl error_value_decl;
         AstNodeTestDecl test_decl;
         AstNodeBinOpExpr bin_op_expr;
@@ -856,7 +837,6 @@ struct AstNode {
         AstNodeUnreachableExpr unreachable_expr;
         AstNodeArrayType array_type;
         AstNodeErrorType error_type;
-        AstNodeTypeLiteral type_literal;
         AstNodeVarLiteral var_literal;
         AstNodeInlineExpr inline_expr;
     } data;
@@ -1026,11 +1006,6 @@ struct TypeTableEntryBoundFn {
     TypeTableEntry *fn_type;
 };
 
-struct TypeTableEntryTypeDecl {
-    TypeTableEntry *child_type;
-    TypeTableEntry *canonical_type;
-};
-
 enum TypeTableEntryId {
     TypeTableEntryIdInvalid,
     TypeTableEntryIdVar,
@@ -1054,11 +1029,11 @@ enum TypeTableEntryId {
     TypeTableEntryIdEnumTag,
     TypeTableEntryIdUnion,
     TypeTableEntryIdFn,
-    TypeTableEntryIdTypeDecl,
     TypeTableEntryIdNamespace,
     TypeTableEntryIdBlock,
     TypeTableEntryIdBoundFn,
     TypeTableEntryIdArgTuple,
+    TypeTableEntryIdOpaque,
 };
 
 struct TypeTableEntry {
@@ -1083,7 +1058,6 @@ struct TypeTableEntry {
         TypeTableEntryEnumTag enum_tag;
         TypeTableEntryUnion unionation;
         TypeTableEntryFn fn;
-        TypeTableEntryTypeDecl type_decl;
         TypeTableEntryBoundFn bound_fn;
     } data;
 

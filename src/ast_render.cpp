@@ -166,8 +166,6 @@ static const char *node_type_str(NodeType node_type) {
             return "Defer";
         case NodeTypeVariableDeclaration:
             return "VariableDeclaration";
-        case NodeTypeTypeDecl:
-            return "TypeDecl";
         case NodeTypeErrorValueDecl:
             return "ErrorValueDecl";
         case NodeTypeTestDecl:
@@ -234,8 +232,6 @@ static const char *node_type_str(NodeType node_type) {
             return "ArrayType";
         case NodeTypeErrorType:
             return "ErrorType";
-        case NodeTypeTypeLiteral:
-            return "TypeLiteral";
         case NodeTypeVarLiteral:
             return "VarLiteral";
         case NodeTypeTryExpr:
@@ -394,7 +390,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
 
                 if (child->type == NodeTypeUse ||
                     child->type == NodeTypeVariableDeclaration ||
-                    child->type == NodeTypeTypeDecl ||
                     child->type == NodeTypeErrorValueDecl ||
                     child->type == NodeTypeFnProto)
                 {
@@ -505,14 +500,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, " = ");
                     render_node_grouped(ar, node->data.variable_declaration.expr);
                 }
-                break;
-            }
-        case NodeTypeTypeDecl:
-            {
-                const char *pub_str = visib_mod_string(node->data.type_decl.visib_mod);
-                const char *var_name = buf_ptr(node->data.type_decl.symbol);
-                fprintf(ar->f, "%stype %s = ", pub_str, var_name);
-                render_node_grouped(ar, node->data.type_decl.child_type);
                 break;
             }
         case NodeTypeBinOpExpr:
@@ -667,9 +654,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeErrorType:
             fprintf(ar->f, "error");
-            break;
-        case NodeTypeTypeLiteral:
-            fprintf(ar->f, "type");
             break;
         case NodeTypeVarLiteral:
             fprintf(ar->f, "var");
@@ -1034,6 +1018,12 @@ static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
             fprintf(ar->f, "union {");
             fprintf(ar->f, "TODO");
             fprintf(ar->f, "}");
+        } else if (type_entry->id == TypeTableEntryIdOpaque) {
+            if (buf_eql_buf(&type_entry->name, name)) {
+                fprintf(ar->f, "@OpaqueType()");
+            } else {
+                fprintf(ar->f, "%s", buf_ptr(&type_entry->name));
+            }
         } else {
             fprintf(ar->f, "%s", buf_ptr(&type_entry->name));
         }
@@ -1045,15 +1035,6 @@ static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
     }
 
     fprintf(ar->f, ";\n");
-}
-
-static void ast_render_tld_typedef(AstRender *ar, Buf *name, TldTypeDef *tld_typedef) {
-    TypeTableEntry *type_entry = tld_typedef->type_entry;
-    TypeTableEntry *canon_type = get_underlying_type(type_entry);
-
-    fprintf(ar->f, "pub type ");
-    print_symbol(ar, name);
-    fprintf(ar->f, " = %s;\n", buf_ptr(&canon_type->name));
 }
 
 void ast_render_decls(FILE *f, int indent_size, ImportTableEntry *import) {
@@ -1086,9 +1067,6 @@ void ast_render_decls(FILE *f, int indent_size, ImportTableEntry *import) {
                 break;
             case TldIdContainer:
                 fprintf(stdout, "container\n");
-                break;
-            case TldIdTypeDef:
-                ast_render_tld_typedef(&ar, entry->key, (TldTypeDef *)tld);
                 break;
             case TldIdCompTime:
                 fprintf(stdout, "comptime\n");

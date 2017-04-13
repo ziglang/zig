@@ -2191,7 +2191,7 @@ struct Foo {
     add_parseh_case("struct prototype used in func", AllowWarningsNo, R"SOURCE(
 struct Foo;
 struct Foo *some_func(struct Foo *foo, int x);
-    )SOURCE", 3, R"OUTPUT(pub type struct_Foo = u8;)OUTPUT",
+    )SOURCE", 3, R"OUTPUT(pub const struct_Foo = @OpaqueType();)OUTPUT",
         R"OUTPUT(pub extern fn some_func(foo: ?&struct_Foo, x: c_int) -> ?&struct_Foo;)OUTPUT",
         R"OUTPUT(pub const Foo = struct_Foo;)OUTPUT");
 
@@ -2277,12 +2277,12 @@ void foo(void (__cdecl *fn_ptr)(void));
     )SOURCE", 1, "pub const SDL_INIT_VIDEO = 32;");
 
     add_parseh_case("zig keywords in C code", AllowWarningsNo, R"SOURCE(
-struct type {
+struct comptime {
     int defer;
 };
-    )SOURCE", 2, R"(pub const struct_type = extern struct {
+    )SOURCE", 2, R"(pub const struct_comptime = extern struct {
     @"defer": c_int,
-};)", R"(pub const @"type" = struct_type;)");
+};)", R"(pub const @"comptime" = struct_comptime;)");
 
     add_parseh_case("macro defines string literal with octal", AllowWarningsNo, R"SOURCE(
 #define FOO "aoeu\023 derp"

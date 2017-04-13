@@ -186,6 +186,8 @@ bool type_is_complete(TypeTableEntry *type_entry) {
             return type_entry->data.enumeration.complete;
         case TypeTableEntryIdUnion:
             return type_entry->data.unionation.complete;
+        case TypeTableEntryIdOpaque:
+            return false;
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
@@ -202,7 +204,6 @@ bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -240,12 +241,12 @@ bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
             return true;
     }
     zig_unreachable();
@@ -254,18 +255,17 @@ bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
 
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry) {
     assert(type_is_complete(type_entry));
-    TypeTableEntry *canon_type = get_underlying_type(type_entry);
 
     if (!type_has_bits(type_entry))
         return 0;
 
-    if (canon_type->id == TypeTableEntryIdStruct && canon_type->data.structure.layout == ContainerLayoutPacked) {
+    if (type_entry->id == TypeTableEntryIdStruct && type_entry->data.structure.layout == ContainerLayoutPacked) {
         uint64_t size_in_bits = type_size_bits(g, type_entry);
         return (size_in_bits + 7) / 8;
-    } else if (canon_type->id == TypeTableEntryIdArray) {
-        TypeTableEntry *canon_child_type = get_underlying_type(canon_type->data.array.child_type);
-        if (canon_child_type->id == TypeTableEntryIdStruct &&
-            canon_child_type->data.structure.layout == ContainerLayoutPacked)
+    } else if (type_entry->id == TypeTableEntryIdArray) {
+        TypeTableEntry *child_type = type_entry->data.array.child_type;
+        if (child_type->id == TypeTableEntryIdStruct &&
+            child_type->data.structure.layout == ContainerLayoutPacked)
         {
             uint64_t size_in_bits = type_size_bits(g, type_entry);
             return (size_in_bits + 7) / 8;
@@ -277,27 +277,26 @@ uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry) {
 
 uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry) {
     assert(type_is_complete(type_entry));
-    TypeTableEntry *canon_type = get_underlying_type(type_entry);
 
     if (!type_has_bits(type_entry))
         return 0;
 
-    if (canon_type->id == TypeTableEntryIdStruct && canon_type->data.structure.layout == ContainerLayoutPacked) {
+    if (type_entry->id == TypeTableEntryIdStruct && type_entry->data.structure.layout == ContainerLayoutPacked) {
         uint64_t result = 0;
-        for (size_t i = 0; i < canon_type->data.structure.src_field_count; i += 1) {
-            result += type_size_bits(g, canon_type->data.structure.fields[i].type_entry);
+        for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+            result += type_size_bits(g, type_entry->data.structure.fields[i].type_entry);
         }
         return result;
-    } else if (canon_type->id == TypeTableEntryIdArray) {
-        TypeTableEntry *canon_child_type = get_underlying_type(canon_type->data.array.child_type);
-        if (canon_child_type->id == TypeTableEntryIdStruct &&
-            canon_child_type->data.structure.layout == ContainerLayoutPacked)
+    } else if (type_entry->id == TypeTableEntryIdArray) {
+        TypeTableEntry *child_type = type_entry->data.array.child_type;
+        if (child_type->id == TypeTableEntryIdStruct &&
+            child_type->data.structure.layout == ContainerLayoutPacked)
         {
-            return canon_type->data.array.len * type_size_bits(g, canon_child_type);
+            return type_entry->data.array.len * type_size_bits(g, child_type);
         }
     }
 
-    return LLVMSizeOfTypeInBits(g->target_data_ref, canon_type->type_ref);
+    return LLVMSizeOfTypeInBits(g->target_data_ref, type_entry->type_ref);
 }
 
 static bool type_is_copyable(CodeGen *g, TypeTableEntry *type_entry) {
@@ -360,10 +359,9 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
                 bit_offset + unaligned_bit_count, const_str, volatile_str, buf_ptr(&child_type->name));
     }
 
-    TypeTableEntry *canon_child_type = get_underlying_type(child_type);
-    assert(canon_child_type->id != TypeTableEntryIdInvalid);
+    assert(child_type->id != TypeTableEntryIdInvalid);
 
-    entry->zero_bits = !type_has_bits(canon_child_type);
+    entry->zero_bits = !type_has_bits(child_type);
 
     if (!entry->zero_bits) {
         entry->type_ref = LLVMPointerType(child_type->type_ref, 0);
@@ -766,17 +764,22 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_c
     }
 }
 
-TypeTableEntry *get_typedecl_type(CodeGen *g, const char *name, TypeTableEntry *child_type) {
-    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdTypeDecl);
+TypeTableEntry *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *name) {
+    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdOpaque);
 
     buf_init_from_str(&entry->name, name);
 
-    entry->is_copyable = type_is_copyable(g, child_type);
-    entry->type_ref = child_type->type_ref;
-    entry->di_type = child_type->di_type;
-    entry->zero_bits = child_type->zero_bits;
-    entry->data.type_decl.child_type = child_type;
-    entry->data.type_decl.canonical_type = get_underlying_type(child_type);
+    ImportTableEntry *import = scope ? get_scope_import(scope) : nullptr;
+    unsigned line = source_node ? (unsigned)(source_node->line + 1) : 0;
+
+    entry->is_copyable = false;
+    entry->type_ref = LLVMInt8Type();
+    entry->di_type = ZigLLVMCreateDebugForwardDeclType(g->dbuilder,
+        ZigLLVMTag_DW_structure_type(), buf_ptr(&entry->name),
+        import ? ZigLLVMFileToScope(import->di_file) : nullptr,
+        import ? import->di_file : nullptr,
+        line);
+    entry->zero_bits = false;
 
     return entry;
 }
@@ -968,14 +971,6 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKi
     return entry;
 }
 
-TypeTableEntry *get_underlying_type(TypeTableEntry *type_entry) {
-    if (type_entry->id == TypeTableEntryIdTypeDecl) {
-        return type_entry->data.type_decl.canonical_type;
-    } else {
-        return type_entry;
-    }
-}
-
 static IrInstruction *analyze_const_value(CodeGen *g, Scope *scope, AstNode *node, TypeTableEntry *type_entry, Buf *type_name) {
     size_t backward_branch_count = 0;
     return ir_eval_const_value(g, scope, node, type_entry,
@@ -1066,6 +1061,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdUndefLit:
             case TypeTableEntryIdNullLit:
             case TypeTableEntryIdArgTuple:
+            case TypeTableEntryIdOpaque:
                 add_node_error(g, param_node->data.param_decl.type,
                     buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
                 return g->builtin_types.entry_invalid;
@@ -1099,7 +1095,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdEnum:
             case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
-            case TypeTableEntryIdTypeDecl:
             case TypeTableEntryIdEnumTag:
                 ensure_complete_type(g, type_entry);
                 if (!fn_type_id.is_extern && !type_is_copyable(g, type_entry)) {
@@ -1123,6 +1118,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
             add_node_error(g, fn_proto->return_type,
                 buf_sprintf("return type '%s' not allowed", buf_ptr(&fn_type_id.return_type->name)));
             return g->builtin_types.entry_invalid;
@@ -1155,7 +1151,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdEnumTag:
             break;
     }
@@ -1173,8 +1168,6 @@ bool type_is_invalid(TypeTableEntry *type_entry) {
             return type_entry->data.enumeration.is_invalid;
         case TypeTableEntryIdUnion:
             return type_entry->data.unionation.is_invalid;
-        case TypeTableEntryIdTypeDecl:
-            return type_is_invalid(type_entry->data.type_decl.canonical_type);
         default:
             return false;
     }
@@ -1380,8 +1373,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
 }
 
 static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
-    TypeTableEntry *canon_type = get_underlying_type(type_entry);
-    switch (canon_type->id) {
+    switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
             zig_unreachable();
@@ -1395,11 +1387,11 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdEnumTag:
-        case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
             return false;
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
@@ -1411,11 +1403,11 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
         case TypeTableEntryIdFn:
             return true;
         case TypeTableEntryIdStruct:
-            return canon_type->data.structure.layout == ContainerLayoutPacked;
+            return type_entry->data.structure.layout == ContainerLayoutPacked;
         case TypeTableEntryIdMaybe:
             {
-                TypeTableEntry *canon_child_type = get_underlying_type(canon_type->data.maybe.child_type);
-                return canon_child_type->id == TypeTableEntryIdPointer || canon_child_type->id == TypeTableEntryIdFn;
+                TypeTableEntry *child_type = type_entry->data.maybe.child_type;
+                return child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
             }
     }
     zig_unreachable();
@@ -2037,15 +2029,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
                 add_top_level_decl(g, decls_scope, &tld_var->base);
                 break;
             }
-        case NodeTypeTypeDecl:
-            {
-                Buf *name = node->data.type_decl.symbol;
-                VisibMod visib_mod = node->data.type_decl.visib_mod;
-                TldTypeDef *tld_typedef = allocate<TldTypeDef>(1);
-                init_tld(&tld_typedef->base, TldIdTypeDef, name, visib_mod, node, &decls_scope->base);
-                add_top_level_decl(g, decls_scope, &tld_typedef->base);
-                break;
-            }
         case NodeTypeFnProto:
             {
                 // if the name is missing, we immediately announce an error
@@ -2126,7 +2109,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeStructValueField:
         case NodeTypeArrayType:
         case NodeTypeErrorType:
-        case NodeTypeTypeLiteral:
         case NodeTypeVarLiteral:
         case NodeTypeTryExpr:
         case NodeTypeInlineExpr:
@@ -2154,10 +2136,7 @@ static void resolve_decl_container(CodeGen *g, TldContainer *tld_container) {
 }
 
 TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry) {
-    TypeTableEntry *underlying_type = get_underlying_type(type_entry);
-    switch (underlying_type->id) {
-        case TypeTableEntryIdTypeDecl:
-            zig_unreachable();
+    switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
             return g->builtin_types.entry_invalid;
         case TypeTableEntryIdUnreachable:
@@ -2168,8 +2147,9 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
             add_node_error(g, source_node, buf_sprintf("variable of type '%s' not allowed",
-                buf_ptr(&underlying_type->name)));
+                buf_ptr(&type_entry->name)));
             return g->builtin_types.entry_invalid;
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdMetaType:
@@ -2328,17 +2308,6 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     g->global_vars.append(tld_var);
 }
 
-static void resolve_decl_typedef(CodeGen *g, TldTypeDef *tld_typedef) {
-    AstNode *typedef_node = tld_typedef->base.source_node;
-    assert(typedef_node->type == NodeTypeTypeDecl);
-    AstNode *type_node = typedef_node->data.type_decl.child_type;
-    Buf *decl_name = typedef_node->data.type_decl.symbol;
-
-    TypeTableEntry *child_type = analyze_type_expr(g, tld_typedef->base.parent_scope, type_node);
-    tld_typedef->type_entry = (child_type->id == TypeTableEntryIdInvalid) ?
-        child_type : get_typedecl_type(g, buf_ptr(decl_name), child_type);
-}
-
 void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only) {
     if (tld->resolution != TldResolutionUnresolved)
         return;
@@ -2368,12 +2337,6 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only) {
             {
                 TldContainer *tld_container = (TldContainer *)tld;
                 resolve_decl_container(g, tld_container);
-                break;
-            }
-        case TldIdTypeDef:
-            {
-                TldTypeDef *tld_typedef = (TldTypeDef *)tld;
-                resolve_decl_typedef(g, tld_typedef);
                 break;
             }
         case TldIdCompTime:
@@ -2589,6 +2552,7 @@ static bool is_container(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
+        case TypeTableEntryIdOpaque:
             zig_unreachable();
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdEnum:
@@ -2610,7 +2574,6 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -2659,7 +2622,6 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -2667,6 +2629,7 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdVar:
         case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
             zig_unreachable();
     }
 }
@@ -3062,6 +3025,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
              zig_unreachable();
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVoid:
@@ -3086,8 +3050,6 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
              return type_has_bits(type_entry->data.maybe.child_type) &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdFn;
-        case TypeTableEntryIdTypeDecl:
-             return handle_is_ptr(type_entry->data.type_decl.canonical_type);
     }
     zig_unreachable();
 }
@@ -3165,6 +3127,8 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
 static uint32_t hash_const_val(ConstExprValue *const_val) {
     assert(const_val->special == ConstValSpecialStatic);
     switch (const_val->type->id) {
+        case TypeTableEntryIdOpaque:
+            zig_unreachable();
         case TypeTableEntryIdBool:
             return const_val->data.x_bool ? (uint32_t)127863866 : (uint32_t)215080464;
         case TypeTableEntryIdMetaType:
@@ -3254,8 +3218,6 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case TypeTableEntryIdFn:
             return hash_ptr(const_val->data.x_fn.fn_entry) +
                 (const_val->data.x_fn.is_inline ? 4133894920 : 3983484790);
-        case TypeTableEntryIdTypeDecl:
-            return hash_ptr(const_val->data.x_type);
         case TypeTableEntryIdNamespace:
             return hash_ptr(const_val->data.x_import);
         case TypeTableEntryIdBlock:
@@ -3359,10 +3321,10 @@ bool type_has_bits(TypeTableEntry *type_entry) {
 }
 
 bool type_requires_comptime(TypeTableEntry *type_entry) {
-    switch (get_underlying_type(type_entry)->id) {
+    switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
-        case TypeTableEntryIdTypeDecl:
+        case TypeTableEntryIdOpaque:
             zig_unreachable();
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
@@ -3603,14 +3565,14 @@ ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_
 
 
 void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
-    TypeTableEntry *canon_wanted_type = get_underlying_type(const_val->type);
-    if (canon_wanted_type->id == TypeTableEntryIdArray) {
+    TypeTableEntry *wanted_type = const_val->type;
+    if (wanted_type->id == TypeTableEntryIdArray) {
         const_val->special = ConstValSpecialStatic;
-        size_t elem_count = canon_wanted_type->data.array.len;
+        size_t elem_count = wanted_type->data.array.len;
         const_val->data.x_array.elements = allocate<ConstExprValue>(elem_count);
         for (size_t i = 0; i < elem_count; i += 1) {
             ConstExprValue *element_val = &const_val->data.x_array.elements[i];
-            element_val->type = canon_wanted_type->data.array.child_type;
+            element_val->type = wanted_type->data.array.child_type;
             init_const_undefined(g, element_val);
             ConstParent *parent = get_const_val_parent(element_val);
             if (parent != nullptr) {
@@ -3619,15 +3581,15 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
                 parent->data.p_array.elem_index = i;
             }
         }
-    } else if (canon_wanted_type->id == TypeTableEntryIdStruct) {
-        ensure_complete_type(g, canon_wanted_type);
+    } else if (wanted_type->id == TypeTableEntryIdStruct) {
+        ensure_complete_type(g, wanted_type);
 
         const_val->special = ConstValSpecialStatic;
-        size_t field_count = canon_wanted_type->data.structure.src_field_count;
+        size_t field_count = wanted_type->data.structure.src_field_count;
         const_val->data.x_struct.fields = allocate<ConstExprValue>(field_count);
         for (size_t i = 0; i < field_count; i += 1) {
             ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
-            field_val->type = canon_wanted_type->data.structure.fields[i].type_entry;
+            field_val->type = wanted_type->data.structure.fields[i].type_entry;
             assert(field_val->type);
             init_const_undefined(g, field_val);
             ConstParent *parent = get_const_val_parent(field_val);
@@ -3678,6 +3640,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
     assert(a->special == ConstValSpecialStatic);
     assert(b->special == ConstValSpecialStatic);
     switch (a->type->id) {
+        case TypeTableEntryIdOpaque:
+            zig_unreachable();
         case TypeTableEntryIdEnum:
             {
                 ConstEnumValue *enum1 = &a->data.x_enum;
@@ -3767,8 +3731,6 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             }
         case TypeTableEntryIdErrorUnion:
             zig_panic("TODO");
-        case TypeTableEntryIdTypeDecl:
-            zig_panic("TODO");
         case TypeTableEntryIdNamespace:
             return a->data.x_import == b->data.x_import;
         case TypeTableEntryIdBlock:
@@ -3857,9 +3819,9 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
     }
     assert(const_val->type);
 
-    TypeTableEntry *canon_type = get_underlying_type(const_val->type);
-    switch (canon_type->id) {
-        case TypeTableEntryIdTypeDecl:
+    TypeTableEntry *type_entry = const_val->type;
+    switch (type_entry->id) {
+        case TypeTableEntryIdOpaque:
             zig_unreachable();
         case TypeTableEntryIdInvalid:
             buf_appendf(buf, "(invalid)");
@@ -3926,7 +3888,7 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                         return;
                     }
                 case ConstPtrSpecialHardCodedAddr:
-                    buf_appendf(buf, "(&%s)(%" PRIx64 ")", buf_ptr(&canon_type->data.pointer.child_type->name),
+                    buf_appendf(buf, "(&%s)(%" PRIx64 ")", buf_ptr(&type_entry->data.pointer.child_type->name),
                             const_val->data.x_ptr.data.hard_coded_addr.addr);
                     return;
                 case ConstPtrSpecialDiscard:
@@ -3949,8 +3911,8 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
             }
         case TypeTableEntryIdArray:
             {
-                TypeTableEntry *child_type = canon_type->data.array.child_type;
-                uint64_t len = canon_type->data.array.len;
+                TypeTableEntry *child_type = type_entry->data.array.child_type;
+                uint64_t len = type_entry->data.array.len;
 
                 // if it's []u8, assume UTF-8 and output a string
                 if (child_type->id == TypeTableEntryIdInt &&
@@ -3973,7 +3935,7 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                     return;
                 }
 
-                buf_appendf(buf, "%s{", buf_ptr(&canon_type->name));
+                buf_appendf(buf, "%s{", buf_ptr(&type_entry->name));
                 for (uint64_t i = 0; i < len; i += 1) {
                     if (i != 0)
                         buf_appendf(buf, ",");
@@ -4021,22 +3983,22 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
             }
         case TypeTableEntryIdStruct:
             {
-                buf_appendf(buf, "(struct %s constant)", buf_ptr(&canon_type->name));
+                buf_appendf(buf, "(struct %s constant)", buf_ptr(&type_entry->name));
                 return;
             }
         case TypeTableEntryIdEnum:
             {
-                buf_appendf(buf, "(enum %s constant)", buf_ptr(&canon_type->name));
+                buf_appendf(buf, "(enum %s constant)", buf_ptr(&type_entry->name));
                 return;
             }
         case TypeTableEntryIdErrorUnion:
             {
-                buf_appendf(buf, "(error union %s constant)", buf_ptr(&canon_type->name));
+                buf_appendf(buf, "(error union %s constant)", buf_ptr(&type_entry->name));
                 return;
             }
         case TypeTableEntryIdUnion:
             {
-                buf_appendf(buf, "(union %s constant)", buf_ptr(&canon_type->name));
+                buf_appendf(buf, "(union %s constant)", buf_ptr(&type_entry->name));
                 return;
             }
         case TypeTableEntryIdPureError:
@@ -4046,7 +4008,7 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
             }
         case TypeTableEntryIdEnumTag:
             {
-                TypeTableEntry *enum_type = canon_type->data.enum_tag.enum_type;
+                TypeTableEntry *enum_type = type_entry->data.enum_tag.enum_type;
                 TypeEnumField *field = &enum_type->data.enumeration.fields[const_val->data.x_bignum.data.x_uint];
                 buf_appendf(buf, "%s.%s", buf_ptr(&enum_type->name), buf_ptr(field->name));
                 return;
@@ -4095,6 +4057,7 @@ uint32_t type_id_hash(TypeId x) {
     switch (x.id) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
+        case TypeTableEntryIdOpaque:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
@@ -4112,7 +4075,6 @@ uint32_t type_id_hash(TypeId x) {
         case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -4157,11 +4119,11 @@ bool type_id_eql(TypeId a, TypeId b) {
         case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdTypeDecl:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
             zig_unreachable();
         case TypeTableEntryIdPointer:
             return a.data.pointer.child_type == b.data.pointer.child_type &&
@@ -4211,10 +4173,10 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
 
 ConstParent *get_const_val_parent(ConstExprValue *value) {
     assert(value->type);
-    TypeTableEntry *canon_type = get_underlying_type(value->type);
-    if (canon_type->id == TypeTableEntryIdArray) {
+    TypeTableEntry *type_entry = value->type;
+    if (type_entry->id == TypeTableEntryIdArray) {
         return &value->data.x_array.parent;
-    } else if (canon_type->id == TypeTableEntryIdStruct) {
+    } else if (type_entry->id == TypeTableEntryIdStruct) {
         return &value->data.x_struct.parent;
     }
     return nullptr;

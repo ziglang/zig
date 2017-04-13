@@ -9,9 +9,7 @@ TopLevelItem = ErrorValueDecl | CompTimeExpression(Block) | TopLevelDecl | TestD
 
 TestDecl = "test" String Block
 
-TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | TypeDecl | UseDecl)
-
-TypeDecl = "type" Symbol "=" TypeExpr ";"
+TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | UseDecl)
 
 ErrorValueDecl = "error" Symbol ";"
 
@@ -155,7 +153,7 @@ GotoExpression = "goto" Symbol
 
 GroupedExpression = "(" Expression ")"
 
-KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this" | "unreachable"
+KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "this" | "unreachable"
 
 ContainerDecl = option("extern" | "packed") ("struct" | "enum" | "union") "{" many(ContainerMember) "}"
 ```

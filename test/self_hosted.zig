@@ -31,7 +31,6 @@ comptime {
     _ = @import("cases/switch_prong_implicit_cast.zig");
     _ = @import("cases/this.zig");
     _ = @import("cases/try.zig");
-    _ = @import("cases/typedef.zig");
     _ = @import("cases/undefined.zig");
     _ = @import("cases/var_args.zig");
     _ = @import("cases/void.zig");

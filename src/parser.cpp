@@ -710,7 +710,7 @@ static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index, bool m
 
 /*
 PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
-KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "type" | "this" | "unreachable"
+KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "this" | "unreachable"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -764,10 +764,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         return node;
     } else if (token->id == TokenIdKeywordUnreachable) {
         AstNode *node = ast_create_node(pc, NodeTypeUnreachable, token);
-        *token_index += 1;
-        return node;
-    } else if (token->id == TokenIdKeywordType) {
-        AstNode *node = ast_create_node(pc, NodeTypeTypeLiteral, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordError) {
@@ -2501,33 +2497,8 @@ static AstNode *ast_parse_test_decl_node(ParseContext *pc, size_t *token_index) 
 }
 
 /*
-TypeDecl = "type" "Symbol" "=" TypeExpr ";"
-*/
-static AstNode *ast_parse_type_decl(ParseContext *pc, size_t *token_index, VisibMod visib_mod) {
-    Token *first_token = &pc->tokens->at(*token_index);
-
-    if (first_token->id != TokenIdKeywordType) {
-        return nullptr;
-    }
-    *token_index += 1;
-
-    Token *name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
-    ast_eat_token(pc, token_index, TokenIdEq);
-
-    AstNode *node = ast_create_node(pc, NodeTypeTypeDecl, first_token);
-    node->data.type_decl.symbol = token_buf(name_tok);
-    node->data.type_decl.child_type = ast_parse_type_expr(pc, token_index, true);
-
-    ast_eat_token(pc, token_index, TokenIdSemicolon);
-
-    node->data.type_decl.visib_mod = visib_mod;
-
-    return node;
-}
-
-/*
 TopLevelItem = ErrorValueDecl | CompTimeExpression(Block) | TopLevelDecl | TestDecl
-TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | TypeDecl | UseDecl)
+TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | UseDecl)
 */
 static void ast_parse_top_level_decls(ParseContext *pc, size_t *token_index, ZigList<AstNode *> *top_level_decls) {
     for (;;) {
@@ -2583,12 +2554,6 @@ static void ast_parse_top_level_decls(ParseContext *pc, size_t *token_index, Zig
         if (var_decl_node) {
             ast_eat_token(pc, token_index, TokenIdSemicolon);
             top_level_decls->append(var_decl_node);
-            continue;
-        }
-
-        AstNode *type_decl_node = ast_parse_type_decl(pc, token_index, visib_mod);
-        if (type_decl_node) {
-            top_level_decls->append(type_decl_node);
             continue;
         }
 
@@ -2673,9 +2638,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeVariableDeclaration:
             visit_field(&node->data.variable_declaration.type, visit, context);
             visit_field(&node->data.variable_declaration.expr, visit, context);
-            break;
-        case NodeTypeTypeDecl:
-            visit_field(&node->data.type_decl.child_type, visit, context);
             break;
         case NodeTypeErrorValueDecl:
             // none
@@ -2824,9 +2786,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.array_type.child_type, visit, context);
             break;
         case NodeTypeErrorType:
-            // none
-            break;
-        case NodeTypeTypeLiteral:
             // none
             break;
         case NodeTypeVarLiteral:
