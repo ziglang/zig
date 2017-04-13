@@ -3378,6 +3378,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
 
             // a label is an entry point
             is_continuation_unreachable = false;
+            return_value = nullptr;
             continue;
         }
 
@@ -3406,7 +3407,8 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
             child_scope = decl_var_instruction->var->child_scope;
         } else {
             // label, defer, variable declaration will never be the last statement
-            if (i == block_node->data.block.statements.length - 1) {
+            if (block_node->data.block.last_statement_is_result_expression &&
+                i == block_node->data.block.statements.length - 1) {
                 // this is the result value statement
                 return_value = statement_value;
             } else {
@@ -3422,13 +3424,18 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         }
     }
 
-    assert(return_value != nullptr);
-
     if (!is_continuation_unreachable) {
         // control flow falls out of block
+
+        if (!block_node->data.block.last_statement_is_result_expression) {
+            assert(return_value == nullptr);
+            return_value = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
+        }
+
         ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false, false);
     }
 
+    assert(return_value != nullptr);
     return return_value;
 }
 
