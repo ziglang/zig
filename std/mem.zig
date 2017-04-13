@@ -76,7 +76,7 @@ pub const IncrementingAllocator = struct {
     }
 
     fn alloc(allocator: &Allocator, n: usize) -> %[]u8 {
-        // TODO
+        // TODO issue #320
         //const self = @fieldParentPtr(IncrementingAllocator, "allocator", allocator);
         const self = @ptrcast(&IncrementingAllocator, allocator);
         const new_end_index = self.end_index + n;

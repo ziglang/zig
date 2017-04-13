@@ -22,6 +22,8 @@ pub fn main() -> %void {
     var maybe_zig_exe: ?[]const u8 = null;
     var targets = List([]const u8).init(allocator);
 
+    var prefix: ?[]const u8 = null;
+
     var arg_i: usize = 1;
     while (arg_i < os.args.count(); arg_i += 1) {
         const arg = os.args.at(arg_i);
@@ -45,6 +47,9 @@ pub fn main() -> %void {
                 builder.verbose = true;
             } else if (mem.eql(u8, arg, "--help")) {
                  return usage(&builder, maybe_zig_exe, false, &io.stdout);
+            } else if (mem.eql(u8, arg, "--prefix") and arg_i + 1 < os.args.count()) {
+                 arg_i += 1;
+                 prefix = os.args.at(arg_i);
             } else {
                 %%io.stderr.printf("Unrecognized argument: {}\n\n", arg);
                 return usage(&builder, maybe_zig_exe, false, &io.stderr);
@@ -56,14 +61,15 @@ pub fn main() -> %void {
         }
     }
 
-    const zig_exe = maybe_zig_exe ?? return usage(&builder, null, false, &io.stderr);
+    builder.zig_exe = maybe_zig_exe ?? return usage(&builder, null, false, &io.stderr);
+    builder.setInstallPrefix(prefix);
 
     root.build(&builder);
 
     if (builder.validateUserInputDidItFail())
         return usage(&builder, maybe_zig_exe, true, &io.stderr);
 
-    %return builder.make(zig_exe, targets.toSliceConst());
+    %return builder.make(targets.toSliceConst());
 }
 
 fn usage(builder: &Builder, maybe_zig_exe: ?[]const u8, already_ran_build: bool, out_stream: &io.OutStream) -> %void {
@@ -79,22 +85,33 @@ fn usage(builder: &Builder, maybe_zig_exe: ?[]const u8, already_ran_build: bool,
 
     // This usage text has to be synchronized with src/main.cpp
     %%out_stream.printf(
-        \\Usage: {} build [options]
+        \\Usage: {} build [steps] [options]
+        \\
+        \\Steps:
+        \\
+    , zig_exe);
+
+    const allocator = builder.allocator;
+    for (builder.top_level_steps.toSliceConst()) |top_level_step| {
+        %%out_stream.printf("  {s22} {}\n", top_level_step.step.name, top_level_step.description);
+    }
+
+    %%out_stream.write(
         \\
         \\General Options:
-        \\  --help                 Print this help and exit.
-        \\  --build-file [file]    Override path to build.zig.
-        \\  --verbose              Print commands before executing them.
-        \\  --debug-build-verbose  Print verbose debugging information for the build system itself.
+        \\  --help                 Print this help and exit
+        \\  --build-file [file]    Override path to build.zig
+        \\  --verbose              Print commands before executing them
+        \\  --debug-build-verbose  Print verbose debugging information for the build system itself
+        \\  --prefix [prefix]      Override default install prefix
         \\
         \\Project-Specific Options:
         \\
-    , zig_exe);
+    );
 
     if (builder.available_options_list.len == 0) {
         %%out_stream.printf("  (none)\n");
     } else {
-        const allocator = builder.allocator;
         for (builder.available_options_list.toSliceConst()) |option| {
             const name = %%fmt.allocPrint(allocator,
                 "  -D{}=({})", option.name, Builder.typeIdName(option.type_id));
