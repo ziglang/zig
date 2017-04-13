@@ -151,3 +151,8 @@ To fix this, you have 2 options:
 
  * Compile Zig with the same compiler that LLVM was compiled with.
  * Add `-DZIG_LLVM_OLD_CXX_ABI=yes` to the cmake configure line.
+
+### Related Projects
+
+ * [zig-mode](https://github.com/AndreaOrru/zig-mode) - Emacs integration
+ * [zig.vim](https://github.com/andrewrk/zig.vim) - Vim configuration files
