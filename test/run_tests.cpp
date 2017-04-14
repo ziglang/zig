@@ -1868,6 +1868,271 @@ export fn entry() {
 
 //////////////////////////////////////////////////////////////////////////////
 
+static void add_parse_error_tests(void) {
+    add_compile_fail_case("implicit semicolon - block statement", R"SOURCE(
+export fn entry() {
+    {}
+    var good = {};
+    ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - block expr", R"SOURCE(
+export fn entry() {
+    _ = {};
+    var good = {};
+    _ = {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - comptime statement", R"SOURCE(
+export fn entry() {
+    comptime {}
+    var good = {};
+    comptime ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - comptime expression", R"SOURCE(
+export fn entry() {
+    _ = comptime {};
+    var good = {};
+    _ = comptime {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - defer", R"SOURCE(
+export fn entry() {
+    defer {}
+    var good = {};
+    defer ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: expected token ';', found 'var'");
+
+    add_compile_fail_case("implicit semicolon - if statement", R"SOURCE(
+export fn entry() {
+    if(true) {}
+    var good = {};
+    if(true) ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if expression", R"SOURCE(
+export fn entry() {
+    _ = if(true) {};
+    var good = {};
+    _ = if(true) {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if-else statement", R"SOURCE(
+export fn entry() {
+    if(true) {} else {}
+    var good = {};
+    if(true) ({}) else ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if-else expression", R"SOURCE(
+export fn entry() {
+    _ = if(true) {} else {};
+    var good = {};
+    _ = if(true) {} else {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if-else-if statement", R"SOURCE(
+export fn entry() {
+    if(true) {} else if(true) {}
+    var good = {};
+    if(true) ({}) else if(true) ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if-else-if expression", R"SOURCE(
+export fn entry() {
+    _ = if(true) {} else if(true) {};
+    var good = {};
+    _ = if(true) {} else if(true) {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if-else-if-else statement", R"SOURCE(
+export fn entry() {
+    if(true) {} else if(true) {} else {}
+    var good = {};
+    if(true) ({}) else if(true) ({}) else ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if-else-if-else expression", R"SOURCE(
+export fn entry() {
+    _ = if(true) {} else if(true) {} else {};
+    var good = {};
+    _ = if(true) {} else if(true) {} else {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if(var) statement", R"SOURCE(
+export fn entry() {
+    if(_=foo()) {}
+    var good = {};
+    if(_=foo()) ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if(var) expression", R"SOURCE(
+export fn entry() {
+    _ = if(_=foo()) {};
+    var good = {};
+    _ = if(_=foo()) {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if(var)-else statement", R"SOURCE(
+export fn entry() {
+    if(_=foo()) {} else {}
+    var good = {};
+    if(_=foo()) ({}) else ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if(var)-else expression", R"SOURCE(
+export fn entry() {
+    _ = if(_=foo()) {} else {};
+    var good = {};
+    _ = if(_=foo()) {} else {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if(var)-else-if(var) statement", R"SOURCE(
+export fn entry() {
+    if(_=foo()) {} else if(_=foo()) {}
+    var good = {};
+    if(_=foo()) ({}) else if(_=foo()) ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if(var)-else-if(var) expression", R"SOURCE(
+export fn entry() {
+    _ = if(_=foo()) {} else if(_=foo()) {};
+    var good = {};
+    _ = if(_=foo()) {} else if(_=foo()) {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if(var)-else-if(var)-else statement", R"SOURCE(
+export fn entry() {
+    if(_=foo()) {} else if(_=foo()) {} else {}
+    var good = {};
+    if(_=foo()) ({}) else if(_=foo()) ({}) else ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - if(var)-else-if(var)-else expression", R"SOURCE(
+export fn entry() {
+    _ = if(_=foo()) {} else if(_=foo()) {} else {};
+    var good = {};
+    _ = if(_=foo()) {} else if(_=foo()) {} else {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - try statement", R"SOURCE(
+export fn entry() {
+    try (_ = foo()) {}
+    var good = {};
+    try (_ = foo()) ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - try expression", R"SOURCE(
+export fn entry() {
+    _ = try (_ = foo()) {};
+    var good = {};
+    _ = try (_ = foo()) {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - while statement", R"SOURCE(
+export fn entry() {
+    while(true) {}
+    var good = {};
+    while(true) ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - while expression", R"SOURCE(
+export fn entry() {
+    _ = while(true) {};
+    var good = {};
+    _ = while(true) {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - while-continue statement", R"SOURCE(
+export fn entry() {
+    while(true;{}) {}
+    var good = {};
+    while(true;{}) ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - while-continue expression", R"SOURCE(
+export fn entry() {
+    _ = while(true;{}) {};
+    var good = {};
+    _ = while(true;{}) {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - for statement", R"SOURCE(
+export fn entry() {
+    for(foo()) {}
+    var good = {};
+    for(foo()) ({})
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+
+    add_compile_fail_case("implicit semicolon - for expression", R"SOURCE(
+export fn entry() {
+    _ = for(foo()) {};
+    var good = {};
+    _ = for(foo()) {}
+    var bad = {};
+}
+    )SOURCE", 1, ".tmp_source.zig:6:5: error: invalid token: 'var'");
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
 static void add_debug_safety_test_cases(void) {
     add_debug_safety_case("calling panic", R"SOURCE(
 pub fn panic(message: []const u8) -> noreturn {
@@ -2624,6 +2889,7 @@ int main(int argc, char **argv) {
     add_compiling_test_cases();
     add_debug_safety_test_cases();
     add_compile_failure_test_cases();
+    add_parse_error_tests();
     add_parseh_test_cases();
     add_self_hosted_tests();
     add_std_lib_tests();
