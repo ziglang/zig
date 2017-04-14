@@ -363,10 +363,11 @@ static AstNode *ast_parse_grouped_expr(ParseContext *pc, size_t *token_index, bo
             return nullptr;
         }
     }
-
     *token_index += 1;
 
-    AstNode *node = ast_parse_expression(pc, token_index, true);
+    AstNode *node = ast_create_node(pc, NodeTypeGroupedExpr, l_paren);
+
+    node->data.grouped_expr = ast_parse_expression(pc, token_index, true);
 
     Token *r_paren = &pc->tokens->at(*token_index);
     *token_index += 1;
@@ -2604,6 +2605,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeBlock:
             visit_node_list(&node->data.block.statements, visit, context);
+            break;
+        case NodeTypeGroupedExpr:
+            visit_field(&node->data.grouped_expr, visit, context);
             break;
         case NodeTypeReturnExpr:
             visit_field(&node->data.return_expr.expr, visit, context);

@@ -150,6 +150,8 @@ static const char *node_type_str(NodeType node_type) {
             return "ParamDecl";
         case NodeTypeBlock:
             return "Block";
+        case NodeTypeGroupedExpr:
+            return "Parens";
         case NodeTypeBinOpExpr:
             return "BinOpExpr";
         case NodeTypeUnwrapErrorExpr:
@@ -468,6 +470,11 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             ar->indent -= ar->indent_size;
             print_indent(ar);
             fprintf(ar->f, "}");
+            break;
+        case NodeTypeGroupedExpr:
+            fprintf(ar->f, "(");
+            render_node_ungrouped(ar, node->data.grouped_expr);
+            fprintf(ar->f, ")");
             break;
         case NodeTypeReturnExpr:
             {

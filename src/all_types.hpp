@@ -320,6 +320,7 @@ enum NodeType {
     NodeTypeFnDecl,
     NodeTypeParamDecl,
     NodeTypeBlock,
+    NodeTypeGroupedExpr,
     NodeTypeReturnExpr,
     NodeTypeDefer,
     NodeTypeVariableDeclaration,
@@ -793,6 +794,7 @@ struct AstNode {
         AstNodeFnProto fn_proto;
         AstNodeParamDecl param_decl;
         AstNodeBlock block;
+        AstNode * grouped_expr;
         AstNodeReturnExpr return_expr;
         AstNodeDefer defer;
         AstNodeVariableDeclaration variable_declaration;

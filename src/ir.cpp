@@ -5574,6 +5574,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             zig_unreachable();
         case NodeTypeBlock:
             return ir_lval_wrap(irb, scope, ir_gen_block(irb, scope, node), lval);
+        case NodeTypeGroupedExpr:
+            return ir_gen_node_raw(irb, node->data.grouped_expr, scope, lval);
         case NodeTypeBinOpExpr:
             return ir_lval_wrap(irb, scope, ir_gen_bin_op(irb, scope, node), lval);
         case NodeTypeNumberLiteral:
