@@ -41,6 +41,7 @@ pub const ChildProcess = struct {
         }
     }
 
+    /// Blocks until child process terminates and then cleans up all resources.
     pub fn wait(self: &ChildProcess) -> %Term {
         defer {
             os.posixClose(self.err_pipe[0]);

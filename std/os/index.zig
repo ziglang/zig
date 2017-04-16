@@ -364,3 +364,20 @@ pub const args = struct {
         return s[0...cstr.len(s)];
     }
 };
+
+/// Caller must free the returned memory.
+pub fn getCwd(allocator: &Allocator) -> %[]u8 {
+    var buf = %return allocator.alloc(u8, 1024);
+    %defer allocator.free(buf);
+    while (true) {
+        const err = posix.getErrno(posix.getcwd(buf.ptr, buf.len));
+        if (err == errno.ERANGE) {
+            buf = %return allocator.realloc(u8, buf, buf.len * 2);
+            continue;
+        } else if (err > 0) {
+            return error.Unexpected;
+        }
+
+        return buf;
+    }
+}

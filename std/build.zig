@@ -10,6 +10,7 @@ const StdIo = os.ChildProcess.StdIo;
 const Term = os.ChildProcess.Term;
 const BufSet = @import("buf_set.zig").BufSet;
 const BufMap = @import("buf_map.zig").BufMap;
+const fmt = @import("fmt.zig");
 
 error ExtraArg;
 error UncleanExit;
@@ -32,7 +33,7 @@ pub const Builder = struct {
     env_map: BufMap,
     top_level_steps: List(&TopLevelStep),
     prefix: []const u8,
-    out_dir: []const u8,
+    out_dir: []u8,
 
     const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
     const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
@@ -84,7 +85,7 @@ pub const Builder = struct {
             .default_step = undefined,
             .env_map = %%os.getEnvMap(allocator),
             .prefix = undefined,
-            .out_dir = ".", // TODO organize
+            .out_dir = %%os.getCwd(allocator),
         };
         self.processNixOSEnvVars();
         self.default_step = self.step("default", "Build the project");
@@ -92,6 +93,7 @@ pub const Builder = struct {
     }
 
     pub fn deinit(self: &Builder) {
+        self.allocator.free(self.out_dir);
         self.lib_paths.deinit();
         self.include_paths.deinit();
         self.rpaths.deinit();
@@ -410,6 +412,17 @@ const CrossTarget = struct {
 const Target = enum {
     Native,
     Cross: CrossTarget,
+
+    pub fn oFileExt(self: &const Target) -> []const u8 {
+        const environ = switch (*self) {
+            Target.Native => @compileVar("environ"),
+            Target.Cross => |t| t.environ,
+        };
+        return switch (environ) {
+            Environ.msvc => ".obj",
+            else => ".o",
+        };
+    }
 };
 
 const LinkerScript = enum {
@@ -562,28 +575,23 @@ const Exe = struct {
         var child = os.ChildProcess.spawn(builder.zig_exe, zig_args.toSliceConst(), &builder.env_map,
             StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, builder.allocator)
             %% |err| debug.panic("Unable to spawn zig compiler: {}\n", @errorName(err));
-        const term = %%child.wait();
-        switch (term) {
-            Term.Clean => |code| {
-                if (code != 0) {
-                    return error.UncleanExit;
-                }
-            },
-            else => {
-                return error.UncleanExit;
-            },
-        };
+        %return waitForCleanExit(&child);
     }
 };
 
 const CLibrary = struct {
     step: Step,
     name: []const u8,
+    out_filename: []const u8,
     static: bool,
     version: Version,
     cflags: List([]const u8),
     source_files: List([]const u8),
+    object_files: List([]const u8),
     link_libs: BufSet,
+    target: Target,
+    builder: &Builder,
+    include_dirs: List([]const u8),
 
     pub fn initShared(builder: &Builder, name: []const u8, version: &const Version) -> CLibrary {
         return init(builder, name, version, false);
@@ -594,14 +602,30 @@ const CLibrary = struct {
     }
 
     fn init(builder: &Builder, name: []const u8, version: &const Version, static: bool) -> CLibrary {
-        CLibrary {
+        var clib = CLibrary {
+            .builder = builder,
             .name = name,
             .version = *version,
             .static = static,
+            .target = Target.Native,
             .cflags = List([]const u8).init(builder.allocator),
             .source_files = List([]const u8).init(builder.allocator),
+            .object_files = List([]const u8).init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .link_libs = BufSet.init(builder.allocator),
+            .include_dirs = List([]const u8).init(builder.allocator),
+            .out_filename = undefined,
+        };
+        clib.computeOutFileName();
+        return clib;
+    }
+
+    fn computeOutFileName(self: &CLibrary) {
+        if (self.static) {
+            self.out_filename = %%fmt.allocPrint(self.builder.allocator, "lib{}.a", self.name);
+        } else {
+            self.out_filename = %%fmt.allocPrint(self.builder.allocator, "lib{}.so.{d}.{d}.{d}",
+                self.name, self.version.major, self.version.minor, self.version.patch);
         }
     }
 
@@ -616,6 +640,14 @@ const CLibrary = struct {
 
     pub fn addSourceFile(self: &CLibrary, file: []const u8) {
         %%self.source_files.append(file);
+    }
+
+    pub fn addObjectFile(self: &CLibrary, file: []const u8) {
+        %%self.object_files.append(file);
+    }
+
+    pub fn addIncludeDir(self: &CLibrary, path: []const u8) {
+        %%self.include_dirs.append(path);
     }
 
     pub fn addCompileFlagsForRelease(self: &CLibrary, release: bool) {
@@ -637,29 +669,115 @@ const CLibrary = struct {
         // TODO issue #320
         //const self = @fieldParentPtr(CLibrary, "step", step);
         const self = @ptrcast(&CLibrary, step);
+        const cc = os.getEnv("CC") ?? "cc";
+        const builder = self.builder;
 
-        const cc = os.getEnv("CC") ?? {
-            %%io.stderr.printf("Unable to find C compiler\n");
-            return error.NoCompilerFound;
+        var cc_args = List([]const u8).init(builder.allocator);
+        defer cc_args.deinit();
+
+        for (self.source_files.toSliceConst()) |source_file| {
+            %%cc_args.resize(0);
+
+            if (!self.static) {
+                %%cc_args.append("-fPIC");
+            }
+
+            %%cc_args.append("-c");
+            %%cc_args.append(source_file);
+
+            // TODO don't dump the .o file in the same place as the source file
+            const o_file = %%fmt.allocPrint(builder.allocator, "{}{}", source_file, self.target.oFileExt());
+            defer builder.allocator.free(o_file);
+            %%cc_args.append("-o");
+            %%cc_args.append(o_file);
+
+            for (self.cflags.toSliceConst()) |cflag| {
+                %%cc_args.append(cflag);
+            }
+
+            for (self.include_dirs.toSliceConst()) |dir| {
+                %%cc_args.append("-I");
+                %%cc_args.append(dir);
+            }
+
+            if (builder.verbose) {
+                printInvocation(cc, cc_args);
+            }
+
+            var child = os.ChildProcess.spawn(cc, cc_args.toSliceConst(), &builder.env_map,
+                StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, builder.allocator)
+                %% |err| debug.panic("Unable to spawn compiler: {}\n", @errorName(err));
+            %return waitForCleanExit(&child);
+
+            %%self.object_files.append(o_file);
+        }
+
+        if (self.static) {
+            debug.panic("TODO static library");
+        } else {
+            %%cc_args.resize(0);
+
+            %%cc_args.append("-fPIC");
+            %%cc_args.append("-shared");
+
+            const soname_arg = %%fmt.allocPrint(builder.allocator, "-Wl,-soname,lib{}.so.{d}",
+                self.name, self.version.major);
+            defer builder.allocator.free(soname_arg);
+            %%cc_args.append(soname_arg);
+
+            %%cc_args.append("-o");
+            %%cc_args.append(self.out_filename);
+
+            for (self.object_files.toSliceConst()) |object_file| {
+                %%cc_args.append(object_file);
+            }
+
+            if (builder.verbose) {
+                printInvocation(cc, cc_args);
+            }
+
+            var child = os.ChildProcess.spawn(cc, cc_args.toSliceConst(), &builder.env_map,
+                StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, builder.allocator)
+                %% |err| debug.panic("Unable to spawn compiler: {}\n", @errorName(err));
+            %return waitForCleanExit(&child);
+        }
+    }
+
+    pub fn setTarget(self: &CLibrary, target_arch: Arch, target_os: Os, target_environ: Environ) {
+        self.target = Target.Cross {
+            CrossTarget {
+                .arch = target_arch,
+                .os = target_os,
+                .environ = target_environ,
+            }
         };
-        %%io.stderr.printf("TODO: build c library\n");
     }
 };
 
 const CExecutable = struct {
     step: Step,
+    builder: &Builder,
     name: []const u8,
     cflags: List([]const u8),
     source_files: List([]const u8),
+    object_files: List([]const u8),
+    full_path_libs: List([]const u8),
     link_libs: BufSet,
+    target: Target,
+    include_dirs: List([]const u8),
 
     pub fn init(builder: &Builder, name: []const u8) -> CExecutable {
         CExecutable {
+            .builder = builder,
             .name = name,
+            .target = Target.Native,
             .cflags = List([]const u8).init(builder.allocator),
             .source_files = List([]const u8).init(builder.allocator),
+            .object_files = List([]const u8).init(builder.allocator),
+            .full_path_libs = List([]const u8).init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .link_libs = BufSet.init(builder.allocator),
+            .include_dirs = List([]const u8).init(builder.allocator),
         }
     }
 
@@ -669,11 +787,19 @@ const CExecutable = struct {
 
     pub fn linkCLibrary(self: &CExecutable, clib: &CLibrary) {
         self.step.dependOn(&clib.step);
-        %%self.link_libs.put(clib.name);
+        %%self.full_path_libs.append(clib.out_filename);
     }
 
     pub fn addSourceFile(self: &CExecutable, file: []const u8) {
         %%self.source_files.append(file);
+    }
+
+    pub fn addObjectFile(self: &CExecutable, file: []const u8) {
+        %%self.object_files.append(file);
+    }
+
+    pub fn addIncludeDir(self: &CExecutable, path: []const u8) {
+        %%self.include_dirs.append(path);
     }
 
     pub fn addCompileFlagsForRelease(self: &CExecutable, release: bool) {
@@ -695,8 +821,82 @@ const CExecutable = struct {
         // TODO issue #320
         //const self = @fieldParentPtr(CExecutable, "step", step);
         const self = @ptrcast(&CExecutable, step);
+        const cc = os.getEnv("CC") ?? "cc";
+        const builder = self.builder;
 
-        %%io.stderr.printf("TODO: build c exe\n");
+        var cc_args = List([]const u8).init(builder.allocator);
+        defer cc_args.deinit();
+
+        for (self.source_files.toSliceConst()) |source_file| {
+            %%cc_args.resize(0);
+
+            %%cc_args.append("-c");
+            %%cc_args.append(source_file);
+
+            // TODO don't dump the .o file in the same place as the source file
+            const o_file = %%fmt.allocPrint(builder.allocator, "{}{}", source_file, self.target.oFileExt());
+            defer builder.allocator.free(o_file);
+            %%cc_args.append("-o");
+            %%cc_args.append(o_file);
+
+            for (self.cflags.toSliceConst()) |cflag| {
+                %%cc_args.append(cflag);
+            }
+
+            for (self.include_dirs.toSliceConst()) |dir| {
+                %%cc_args.append("-I");
+                %%cc_args.append(dir);
+            }
+
+            if (builder.verbose) {
+                printInvocation(cc, cc_args);
+            }
+
+            var child = os.ChildProcess.spawn(cc, cc_args.toSliceConst(), &builder.env_map,
+                StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, builder.allocator)
+                %% |err| debug.panic("Unable to spawn compiler: {}\n", @errorName(err));
+            %return waitForCleanExit(&child);
+
+            %%self.object_files.append(o_file);
+        }
+
+        %%cc_args.resize(0);
+
+        for (self.object_files.toSliceConst()) |object_file| {
+            %%cc_args.append(object_file);
+        }
+
+        %%cc_args.append("-o");
+        %%cc_args.append(self.name);
+
+        const rpath_arg = %%fmt.allocPrint(builder.allocator, "-Wl,-rpath,{}", builder.out_dir);
+        defer builder.allocator.free(rpath_arg);
+        %%cc_args.append(rpath_arg);
+
+        %%cc_args.append("-rdynamic");
+
+        for (self.full_path_libs.toSliceConst()) |full_path_lib| {
+            %%cc_args.append(full_path_lib);
+        }
+
+        if (builder.verbose) {
+            printInvocation(cc, cc_args);
+        }
+
+        var child = os.ChildProcess.spawn(cc, cc_args.toSliceConst(), &builder.env_map,
+            StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, builder.allocator)
+            %% |err| debug.panic("Unable to spawn compiler: {}\n", @errorName(err));
+        %return waitForCleanExit(&child);
+    }
+
+    pub fn setTarget(self: &CExecutable, target_arch: Arch, target_os: Os, target_environ: Environ) {
+        self.target = Target.Cross {
+            CrossTarget {
+                .arch = target_arch,
+                .os = target_os,
+                .environ = target_environ,
+            }
+        };
     }
 };
 
@@ -769,4 +969,18 @@ fn printInvocation(exe_name: []const u8, args: &const List([]const u8)) {
         %%io.stderr.printf(" {}", arg);
     }
     %%io.stderr.printf("\n");
+}
+
+fn waitForCleanExit(child: &os.ChildProcess) -> %void {
+    const term = %%child.wait();
+    switch (term) {
+        Term.Clean => |code| {
+            if (code != 0) {
+                return error.UncleanExit;
+            }
+        },
+        else => {
+            return error.UncleanExit;
+        },
+    };
 }
