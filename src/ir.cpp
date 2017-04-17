@@ -12473,6 +12473,13 @@ static TypeTableEntry *ir_analyze_instruction_int_to_ptr(IrAnalyze *ira, IrInstr
         return ira->codegen->builtin_types.entry_invalid;
     }
 
+    type_ensure_zero_bits_known(ira->codegen, dest_type);
+    if (!type_has_bits(dest_type)) {
+        ir_add_error(ira, dest_type_value,
+                buf_sprintf("type '%s' has 0 bits and cannot store information", buf_ptr(&dest_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     IrInstruction *target = instruction->target->other;
     if (type_is_invalid(target->value.type))
         return ira->codegen->builtin_types.entry_invalid;

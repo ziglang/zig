@@ -1895,6 +1895,13 @@ export fn entry() {
     const foo = Arch.x86;
 }
     )SOURCE", 1, ".tmp_source.zig:3:21: error: container 'Arch' has no member called 'x86'");
+
+    add_compile_fail_case("int to ptr of 0 bits", R"SOURCE(
+export fn foo() {
+    var x: usize = 0x1000;
+    var y: &void = @intToPtr(&void, x);
+}
+    )SOURCE", 1, ".tmp_source.zig:4:31: error: type '&void' has 0 bits and cannot store information");
 }
 
 //////////////////////////////////////////////////////////////////////////////
