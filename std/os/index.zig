@@ -26,6 +26,7 @@ const BufMap = @import("../buf_map.zig").BufMap;
 const cstr = @import("../cstr.zig");
 
 const io = @import("../io.zig");
+const base64 = @import("../base64.zig");
 
 error Unexpected;
 error SystemResources;
@@ -35,9 +36,11 @@ error FileSystem;
 error IsDir;
 error FileNotFound;
 error FileBusy;
-error LinkPathAlreadyExists;
+error PathAlreadyExists;
 error SymLinkLoop;
 error ReadOnlyFileSystem;
+error LinkQuotaExceeded;
+error RenameAcrossMountPoints;
 
 /// Fills `buf` with random bytes. If linking against libc, this calls the
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
@@ -197,7 +200,7 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
         if (err > 0) {
             return switch (err) {
                 errno.EBUSY, errno.EINTR => continue,
-                errno.EMFILE => error.SystemResources,
+                errno.EMFILE => error.ProcessFdQuotaExceeded,
                 errno.EINVAL => unreachable,
                 else => error.Unexpected,
             };
@@ -406,7 +409,7 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
             errno.EFAULT, errno.EINVAL => unreachable,
             errno.EACCES, errno.EPERM => error.AccessDenied,
             errno.EDQUOT => error.DiskQuota,
-            errno.EEXIST => error.LinkPathAlreadyExists,
+            errno.EEXIST => error.PathAlreadyExists,
             errno.EIO => error.FileSystem,
             errno.ELOOP => error.SymLinkLoop,
             errno.ENAMETOOLONG => error.NameTooLong,
@@ -417,6 +420,38 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
             else => error.Unexpected,
         };
     }
+}
+
+// here we replace the standard +/ with -_ so that it can be used in a file name
+const b64_fs_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=";
+
+pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
+    try (symLink(allocator, existing_path, new_path)) {
+        return;
+    } else |err| {
+        if (err != error.PathAlreadyExists) {
+            return err;
+        }
+    }
+
+    var rand_buf: [12]u8 = undefined;
+    const tmp_path = %return allocator.alloc(u8, new_path.len + base64.calcEncodedSize(rand_buf.len));
+    defer allocator.free(tmp_path);
+    mem.copy(u8, tmp_path[0...], new_path);
+    while (true) {
+        %return getRandomBytes(rand_buf[0...]);
+        _ = base64.encodeWithAlphabet(tmp_path[new_path.len...], rand_buf, b64_fs_alphabet);
+        try (symLink(allocator, existing_path, tmp_path)) {
+            return rename(allocator, tmp_path, new_path);
+        } else |err| {
+            if (err == error.PathAlreadyExists) {
+                continue;
+            } else {
+                return err;
+            }
+        }
+    }
+
 }
 
 pub fn deleteFile(allocator: &Allocator, file_path: []const u8) -> %void {
@@ -457,5 +492,39 @@ pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []con
         %return out_stream.flush();
         if (amt != out_stream.buffer.len)
             return;
+    }
+}
+
+pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8) -> %void {
+    const full_buf = %return allocator.alloc(u8, old_path.len + new_path.len + 2);
+    defer allocator.free(full_buf);
+
+    const old_buf = full_buf;
+    mem.copy(u8, old_buf, old_path);
+    old_buf[old_path.len] = 0;
+
+    const new_buf = full_buf[old_path.len + 1...];
+    mem.copy(u8, new_buf, new_path);
+    new_buf[new_path.len] = 0;
+
+    const err = posix.getErrno(posix.rename(old_buf.ptr, new_buf.ptr));
+    if (err > 0) {
+        return switch (err) {
+            errno.EACCES, errno.EPERM => error.AccessDenied,
+            errno.EBUSY => error.FileBusy,
+            errno.EDQUOT => error.DiskQuota,
+            errno.EFAULT, errno.EINVAL => unreachable,
+            errno.EISDIR => error.IsDir,
+            errno.ELOOP => error.SymLinkLoop,
+            errno.EMLINK => error.LinkQuotaExceeded,
+            errno.ENAMETOOLONG => error.NameTooLong,
+            errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+            errno.ENOMEM => error.SystemResources,
+            errno.ENOSPC => error.NoSpaceLeft,
+            errno.EEXIST, errno.ENOTEMPTY => error.PathAlreadyExists,
+            errno.EROFS => error.ReadOnlyFileSystem,
+            errno.EXDEV => error.RenameAcrossMountPoints,
+            else => error.Unexpected,
+        };
     }
 }

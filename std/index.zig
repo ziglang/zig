@@ -1,3 +1,4 @@
+pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");
 pub const c = @import("c/index.zig");
 pub const cstr = @import("cstr.zig");

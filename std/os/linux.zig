@@ -311,6 +311,10 @@ pub fn pwrite(fd: i32, buf: &const u8, count: usize, offset: usize) -> usize {
     arch.syscall4(arch.SYS_pwrite, usize(fd), usize(buf), count, offset)
 }
 
+pub fn rename(old: &const u8, new: &const u8) -> usize {
+    arch.syscall2(arch.SYS_rename, usize(old), usize(new))
+}
+
 pub fn open(path: &const u8, flags: usize, perm: usize) -> usize {
     arch.syscall3(arch.SYS_open, usize(path), flags, perm)
 }

@@ -816,11 +816,9 @@ const CLibrary = struct {
             builder.spawnChild(cc, cc_args.toSliceConst());
 
             // sym link for libfoo.so.1 to libfoo.so.1.2.3
-            _ = os.deleteFile(builder.allocator, self.major_only_filename);
-            %%os.symLink(builder.allocator, self.out_filename, self.major_only_filename);
+            %%os.atomicSymLink(builder.allocator, self.out_filename, self.major_only_filename);
             // sym link for libfoo.so to libfoo.so.1
-            _ = os.deleteFile(builder.allocator, self.name_only_filename);
-            %%os.symLink(builder.allocator, self.major_only_filename, self.name_only_filename);
+            %%os.atomicSymLink(builder.allocator, self.major_only_filename, self.name_only_filename);
         }
     }
 
@@ -1029,10 +1027,8 @@ const InstallCLibraryStep = struct {
 
         self.builder.copyFile(self.lib.out_filename, self.dest_file);
         if (!self.lib.static) {
-            _ = os.deleteFile(self.builder.allocator, self.lib.major_only_filename);
-            %%os.symLink(self.builder.allocator, self.lib.out_filename, self.lib.major_only_filename);
-            _ = os.deleteFile(self.builder.allocator, self.lib.name_only_filename);
-            %%os.symLink(self.builder.allocator, self.lib.major_only_filename, self.lib.name_only_filename);
+            %%os.atomicSymLink(self.builder.allocator, self.lib.out_filename, self.lib.major_only_filename);
+            %%os.atomicSymLink(self.builder.allocator, self.lib.major_only_filename, self.lib.name_only_filename);
         }
     }
 };
