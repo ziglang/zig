@@ -397,6 +397,10 @@ pub const Builder = struct {
     }
 
     fn spawnChild(self: &Builder, exe_path: []const u8, args: []const []const u8) {
+        return self.spawnChildEnvMap(&self.env_map, exe_path, args);
+    }
+
+    fn spawnChildEnvMap(self: &Builder, env_map: &const BufMap, exe_path: []const u8, args: []const []const u8) {
         if (self.verbose) {
             %%io.stderr.printf("{}", exe_path);
             for (args) |arg| {
@@ -405,7 +409,7 @@ pub const Builder = struct {
             %%io.stderr.printf("\n");
         }
 
-        var child = os.ChildProcess.spawn(exe_path, args, &self.env_map,
+        var child = os.ChildProcess.spawn(exe_path, args, env_map,
             StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, self.allocator)
             %% |err| debug.panic("Unable to spawn {}: {}\n", exe_path, @errorName(err));
 
@@ -905,17 +909,19 @@ const CExecutable = struct {
 
 const CommandStep = struct {
     step: Step,
-    path: []const u8,
+    builder: &Builder,
+    exe_path: []const u8,
     args: []const []const u8,
     cwd: []const u8,
     env_map: &const BufMap,
 
     pub fn init(builder: &Builder, cwd: []const u8, env_map: &const BufMap,
-        path: []const u8, args: []const []const u8) -> CommandStep
+        exe_path: []const u8, args: []const []const u8) -> CommandStep
     {
         CommandStep {
-            .step = Step.init(path, builder.allocator, make),
-            .path = path,
+            .builder = builder,
+            .step = Step.init(exe_path, builder.allocator, make),
+            .exe_path = exe_path,
             .args = args,
             .cwd = cwd,
             .env_map = env_map,
@@ -927,7 +933,8 @@ const CommandStep = struct {
         //const self = @fieldParentPtr(CExecutable, "step", step);
         const self = @ptrcast(&CommandStep, step);
 
-        %%io.stderr.printf("TODO: exec command\n");
+        // TODO set cwd
+        self.builder.spawnChildEnvMap(self.env_map, self.exe_path, self.args);
     }
 };
 
